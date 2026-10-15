@@ -181,14 +181,15 @@ unavailable for that rebuild, and the provenance-declared source commit/input
 hashes still do not map to this checkout. Artifact provenance therefore
 remains unresolved.
 
-Local checks for this checkpoint: Rust verifier suite **84 unit + 3 CLI
-integration tests passed**; Node Runtime Config manifest suite **21 passed**;
-Node/WASM Attestation ID suite **5 passed**. These do not make P0-10 pass:
-Complete/Sparse Result, Session/consume receipts, Claim, canonical JSON, and
-packed transcript ranges still lack the required independent shared corpus.
-P0-10 remains `UNRESOLVED`; Hosted CI, Production runtime verification, and
-real Game Server testplay were not run, and Production acceptance remains
-blocked.
+At this earlier checkpoint, before the shared-corpus continuation below,
+local checks were: Rust verifier suite **84 unit + 3 CLI integration tests
+passed**; Node Runtime Config manifest suite **21 passed**; Node/WASM
+Attestation ID suite **5 passed**. At that point Complete/Sparse Result,
+Session/consume receipts, Claim, canonical JSON, and packed transcript ranges
+did not yet have the shared corpus described below. This historical status
+does not describe the later continuation: P0-10 remains `UNRESOLVED`, and
+Hosted CI, Production runtime verification, and real Game Server testplay
+were not run.
 
 ### P0-10 shared corpus continuation
 
@@ -225,16 +226,26 @@ establish the provenance of the local ignored WASM. Its binary SHA-256 remains
 (752,473 bytes), matching the prior audit record; Git tracks neither that
 binary nor its provenance JSON. No WASM artifact was changed.
 
-P0-10 remains `UNRESOLVED`: ClaimBindingBytes still has conflicting
-eight-field/eleven-field descriptions; receipt JSON canonicalization is not
-specified; the corpus covers Result range framing, not the FUSOU-local packed
-TLSN sparse Presentation format; and WASM provenance remains unresolved.
-There is no independently sourced positive FUSOU `require_info` Presentation
-or Production-shaped Evidence Bundle in the corpus. The existing synthetic
+P0-10 remains `UNRESOLVED`. The subsequent Claim/receipt authority audit found
+no approved precedence or migration between the documented 8-field and
+11-field ClaimBindingBytes candidates. It also found no approved receipt JSON
+canonicalization or duplicate/unknown-field policy: the Proxy's typed
+Session-receipt parser and the Evidence Bundle's `serde_json::Value` parser
+have different duplicate-key behavior, and neither behavior is elevated to
+protocol policy. Shared corpus v1 receipt signatures remain
+source-derived local comparison values, not normative receipt vectors. The
+full evidence classification and candidate layouts are recorded in
+[`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+
+The corpus covers Result range framing, not the FUSOU-local packed TLSN
+sparse Presentation format; WASM provenance also remains unresolved. There
+is no independently sourced positive FUSOU `require_info` Presentation or
+Production-shaped Evidence Bundle in the corpus. The existing synthetic
 in-memory flow is not Production acceptance evidence. P0-01 remains
-`BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate, real testplay, Hosted CI,
-Production runtime verification, and Production acceptance were not run or
-promoted.
+`BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate remains `BLOCKED`. Hosted CI,
+real testplay, Production runtime verification, and Production acceptance
+were not run or promoted. This documentation-only audit did not rerun the
+previously reported local corpus tests.
 
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | P0-01 technical revision mapping | `PASS` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The upstream tag/commit and dependency graph are identified below. The verifier executes local path-patched TLSN sources that diverge from upstream; independent compatibility, security, and license approval is still required. |
 | P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, canonical JSON encoding, and Node invocation of the packaged Rust/WASM verifier are covered locally. |
-| P0-10 cross-language determinism | `UNRESOLVED` | A shared local corpus now covers Complete Result v2, Sparse Result v3, Session/consume receipts, Result range bytes, and contract-required rejection cases in separate Rust and Node reference tests. The corpus is generated independently of production serializers but is source-derived, test-only, and not an owner-approved normative oracle. Claim, receipt JSON canonicalization, TLSN sparse Presentation bytes, WASM provenance, and Production-shaped evidence remain unresolved. |
+| P0-10 cross-language determinism | `UNRESOLVED` | A shared local corpus now covers Complete Result v2, Sparse Result v3, Session/consume receipt signing bytes, Result range bytes, and contract-required rejection cases in separate Rust and Node reference tests. The corpus is generated independently of production serializers but is source-derived, test-only, and not an owner-approved normative oracle. This continuation confirmed that the documented 8-field/11-field ClaimBindingBytes layouts have no recorded precedence or supersession, and that receipt JSON canonicalization/unknown-field policy has no approved wire contract. Claim, receipt JSON policy, TLSN sparse Presentation bytes, WASM provenance, and Production-shaped evidence remain unresolved. |
 | Phase 0 runtime gate | `BLOCKED` | The P0-02 local contract evidence does not approve the locally patched TLSN revision or satisfy the other Phase 0 gates. Production acceptance remains `NO-GO`. |
 
 The earlier `0/17 PASS` assessment described the state before this audit. P0-02 now has local test evidence; it does not change the Production runtime gate, for which no Phase 0 acceptance is claimed.
@@ -307,6 +307,168 @@ Still missing before P0-10 can pass:
 The new generator is independent of the tested serializers, but its Result
 and receipt layouts are source-derived rather than owner-approved. Therefore,
 local Rust/Node agreement does not promote P0-10 to PASS.
+
+## ClaimBindingBytes and receipt JSON authority audit
+
+This audit continuation started on `tlsn-first-testplay-candidate` at
+`913761ac9f30bc7ee1a9ba745ec9b6ab02b405af`; the tracked upstream ref matched
+that HEAD (`0 ahead / 0 behind`), and the reported prior HEAD was the current
+HEAD and its ancestor. The only pre-existing worktree change was the
+user-owned `packages/FUSOU-APP/src-tauri/roaming/user/configs.toml`. Its
+contents were not read; it was not modified, staged, or committed. This
+continuation changes documentation only.
+
+### Authority and source classification
+
+- **Normative authority — `UNRESOLVED`:** the repository contains two
+  specification-style ClaimBindingBytes descriptions but no approval record
+  establishing an owner, precedence, deprecation, or migration. No versioned
+  receipt JSON schema or receipt canonicalization approval was found. A Git
+  commit message or a successful local test is implementation/design history,
+  not protocol-owner approval.
+- **Supporting source:** the pinned TLSNotary alpha.15 source defines the
+  typed Attestation ID used by the verifier. It does not define FUSOU's
+  application-layer Claim, Session Authority, or Binding Authority receipt
+  wire contracts. The local TLSN path-patched source contains no
+  `ClaimBindingBytes` or FUSOU receipt-domain definition.
+- **Implementation facts — `OBSERVED`:** the documented layouts, current
+  Rust receipt preimages, and parser behavior below can be established from
+  repository sources. No executable ClaimBindingBytes implementation or
+  Claim vector exists in the audited Rust/Node paths. The in-repository Worker
+  evidence-contract module describes semantic predicates; it is not a receipt
+  issuer, JSON serializer, or receipt signature verifier.
+- **Unconfirmed assumption:** neither the newer date of the 11-field
+  description nor its stated proof-copy rationale establishes that it
+  normatively replaces the 8-field description.
+
+### ClaimBindingBytes candidates
+
+Both documents specify `u16_be(byte_length) || field_bytes` for each field
+and Ed25519 over the resulting concatenation. The listed field order is part
+of each candidate; no implementation or independent Claim golden bytes were
+found.
+
+| Order | 8-field candidate in `trusted-battle-and-telemetry-ingestion.md` | Encoding |
+| ---: | --- | --- |
+| 1 | domain tag `FUSOU-IDENTITY-CLAIM-V1` | 23 ASCII bytes |
+| 2 | purpose `GAME_ACCOUNT_IDENTITY_V1` | 24 ASCII bytes |
+| 3 | TLSNotary Attestation ID | raw `N` bytes; alpha.15's typed ID is 16 bytes |
+| 4 | verified member ID | 1–16 decimal ASCII bytes |
+| 5 | device ID | 16 RFC 4122 network-order UUID bytes |
+| 6 | expected public ID | 16 RFC 4122 network-order UUID bytes |
+| 7 | Challenge ID | 16 RFC 4122 network-order UUID bytes |
+| 8 | Challenge nonce | 32 raw bytes |
+
+| Order | 11-field candidate in `member-id-preemptive-attack-and-recovery.md` | Encoding |
+| ---: | --- | --- |
+| 1 | domain tag `FUSOU-IDENTITY-CLAIM-V1` | 23 ASCII bytes |
+| 2 | purpose `GAME_ACCOUNT_IDENTITY_V1` | 24 ASCII bytes |
+| 3 | Attestation Session ID | 16 RFC 4122 network-order UUID bytes |
+| 4 | binding nonce | 32 raw bytes |
+| 5 | binding value | exact ASCII bytes |
+| 6 | TLSNotary Attestation ID | raw `N` bytes; alpha.15's typed ID is 16 bytes |
+| 7 | verified member ID | decimal ASCII bytes |
+| 8 | device ID | 16 RFC 4122 network-order UUID bytes |
+| 9 | public ID | 16 RFC 4122 network-order UUID bytes |
+| 10 | Challenge ID | 16 RFC 4122 network-order UUID bytes |
+| 11 | Challenge nonce | 32 raw bytes |
+
+The history shows that `36bd16331c` revised the older document's layout to
+include `proof_purpose` and the TLSNotary Attestation ID in the 8-field form.
+Commit `356aad0c0` later added the Session ID, binding nonce, and binding
+value to the other document, in a different field order, and describes the
+change as preventing proof-copy attacks. That commit changed
+`member-id-preemptive-attack-and-recovery.md`; it did not edit or explicitly
+deprecate the 8-field section in
+`trusted-battle-and-telemetry-ingestion.md`. No version transition or
+compatibility rule accompanies the two layouts.
+
+The 11-field form explicitly signs the Session and binding context. The
+8-field form does not include those three fields in the device signature;
+it instead binds its listed Challenge, device, dataset, member, and
+Attestation values. This is a real difference in signed inputs, not a
+formatting variant. It is insufficient to conclude from that difference
+alone that either document is the approved protocol or that one can safely
+be substituted for already-created claims.
+
+**Conclusion: `UNRESOLVED`.** The FUSOU identity/Claim protocol owner and the
+authority responsible for accepting device-signed claims must approve one
+versioned layout (or explicitly define a migration/dual-version policy),
+including exact field types, ordering, encodings, verification behavior, and
+independent positive and negative vectors. No candidate was selected and no
+Claim test or implementation was added.
+
+### Session/consume receipt JSON: current behavior versus contract
+
+The current signature input is reconstructed from parsed field values; it is
+not the raw JSON byte sequence. In the Rust implementation, both preimages
+use a domain ending in NUL, a `0x0001` version marker, then UTF-8 strings
+framed with big-endian `u16` byte lengths. The Session order is
+`signer_key_id`, `session_id`, `canonical_user_id`, `device_id`,
+`device_auth_nonce`, `nonce`, `device_challenge`, `binding_value`,
+`created_at`, `expires_at`. The consume order is `signer_key_id`,
+`session_id`, `canonical_user_id`, `device_id`, `nonce`, `binding_value`,
+`presentation_id`, `used_at`. `schema_version`, `type`,
+`signature_algorithm`, and the signature itself are checked separately and
+are not in those preimages. These are current implementation facts, not an
+approved wire specification.
+
+| JSON / binding dimension | Current source behavior | Normative status |
+| --- | --- | --- |
+| Key order and whitespace | Parsers select named fields; signatures are over reconstructed ordered bytes, not serialized JSON. Reordering keys or changing whitespace without changing parsed values does not change this receipt signature input. | No canonical JSON byte contract found. |
+| String escaping and Unicode | JSON escapes are parsed to strings, then those strings' UTF-8 bytes enter the preimage. There is no Unicode normalization step. Distinct raw JSON spellings that parse to the same strings therefore produce the same receipt preimage. | No normalization or raw-JSON signature rule approved. |
+| Numbers, booleans, `null`, and required fields | Receipt preimage fields must be strings and missing/wrongly typed values fail. `schema_version` is checked as version 1 (typed `u8` in the Proxy response; integer `1` in the Evidence Bundle path). | Current type checks only; no full JSON schema approval. |
+| Duplicate keys | Proxy deserializes `SessionAuthorityResponse`/`SessionReceipt` structs: duplicate known struct fields fail deserialization. The Evidence Bundle parser uses `serde_json::Value`, whose object representation retains the last value for a duplicate key. | The two paths differ; no approved duplicate-key policy. |
+| Unknown keys | The Proxy receipt structs do not use `deny_unknown_fields`; extra fields are ignored. The Evidence Bundle's named-field reads ignore unconsumed keys. | No approved allow/deny inventory. |
+| Timestamps | Proxy parses RFC 3339 and checks chronology, but includes the original timestamp strings in the preimage. The Evidence Bundle's authority-key time parser requires exactly `YYYY-MM-DDTHH:mm:ss.sssZ`; those original strings also enter the preimage. | Producer format and cross-path normalization are not approved. |
+| Signature encoding and key role | Proxy checks an unpadded base64url signature round-trip and 64-byte length. Evidence Bundle uses its strict base64url decoder, verifies the preimage, and resolves the signer against a supplied authority registry/external pin. | Current verifier checks; not an issuer-approved JSON contract. |
+| Cross-artifact binding | Session receipt fields are compared with the Session and device-authentication context; consume receipt fields are compared with the Session, user, and Presentation identifier. The selected authority key is checked separately from receipt JSON parsing. | Current Evidence Bundle checks; production issuer contract is not present here. |
+
+The Proxy receives and verifies a Session Authority response; it does not
+implement the authority that issues the receipt. The Proxy forwards the
+Worker's parsed consume receipt as an artifact, while the Evidence Bundle
+verifier performs its signature and cross-artifact checks. The
+`production-evidence-contract.mjs` names semantic evidence fields and
+authority predicates, but does not establish the exact JSON object schema or
+the receipt's raw-byte canonicalization. The Evidence Bundle's artifact
+manifest separately hashes exact artifact bytes; that raw-artifact integrity
+check is not the receipt signature preimage.
+
+**Conclusion: receipt JSON canonicalization and unknown/duplicate-field
+policy remain `UNRESOLVED`.** The observed parser differences must not be
+turned into a normative accept/reject rule without the Session/Binding
+Authority owners approving a versioned JSON schema, signature-input rule,
+timestamp representation, extension/unknown-field policy, duplicate-key
+policy, and independent vectors. The current shared corpus fixes source-
+derived receipt signing bytes/signatures and mutation cases; it does not fix
+the JSON wire policy.
+
+### Effect on P0-10 and required evidence
+
+The shared corpus v1 Receipt vectors remain useful local cross-implementation
+checks: Rust and the separate Node reference compare against fixed
+source-derived preimages and signatures. They do not resolve which receipt
+preimage or JSON policy the protocol owner approves. No Claim candidate is
+encoded by the corpus. Therefore:
+
+- ClaimBindingBytes contract: `UNRESOLVED`.
+- Receipt preimage versus approved wire contract: `UNRESOLVED`.
+- Receipt JSON canonicalization, duplicate and unknown field policy:
+  `UNRESOLVED`.
+- Existing source-derived Rust/Node receipt-vector agreement:
+  local test evidence only; not normative `PASS`.
+- P0-10 overall: `UNRESOLVED`.
+- P0-01 remains `BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate remains
+  `BLOCKED`. Hosted CI and real Game Server testplay were not run; Production
+  acceptance remains blocked.
+
+No Rust, Node, shared corpus, receipt, Claim, or WASM artifact was changed.
+This documentation-only audit did not rerun the previously recorded corpus
+tests. The other exclusions listed above—TLSN sparse Presentation packed
+bytes/proof openings, Production-shaped positive Evidence Bundle, WASM
+provenance, TLSNotary revision approval, Production trust roots/services,
+and Device Binding/Session Authority Production integration—remain
+unresolved and out of this audit's scope.
 
 ## Commands and interpretation
 
