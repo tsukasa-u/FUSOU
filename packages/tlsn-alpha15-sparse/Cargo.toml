@@ -6,11 +6,16 @@ members = [
     "crates/components/hmac-sha256",
     "crates/components/key-exchange",
     "crates/core",
+    "crates/data-fixtures",
     "crates/mpc-tls",
+    "crates/server-fixture/certs",
+    "crates/server-fixture/server",
     "crates/tls/client",
     "crates/tls/core",
+    "crates/tls/server-fixture",
     "crates/tlsn",
 ]
+exclude = ["crates/examples-zk"]
 resolver = "2"
 
 [workspace.lints.rust]

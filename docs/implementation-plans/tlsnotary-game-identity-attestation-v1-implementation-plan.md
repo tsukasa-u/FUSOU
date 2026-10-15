@@ -1546,8 +1546,14 @@ Presentation は同じ path-patched Rust 実装で生成され、独立した期
 したがって sparse Presentation の exact-byte/cross-language 契約と独立した
 proof-opening vector は `UNRESOLVED`、P0-10 全体も `UNRESOLVED` のままとする。
 P0-01 は `BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime gate は `BLOCKED` のまま。
-監査根拠、実行したテスト、TLSN workspace の欠損 manifest による未実施
-test、および必要な独立 fixture は
+今回、TLSN alpha.15 sparse workspace から欠けていた test-only fixture crates
+を pinned upstream revision と照合して復元し、subset 用 Cargo.lock を固定した。
+`tlsn-core test_partial_transcript` は 10 件、`tlsn-attestation --test
+no_syscall_verify` は 1 件 pass した。全体の `cargo metadata --offline` は
+未キャッシュの `wasip2` により失敗するが、上記 focused test は
+`--locked --offline` で pass する。根拠と制約は
 [`TLSNotary alpha.15 audit dossier`](./tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
-に記録した。Hosted CI、実ゲーム testplay、Production acceptance の状態は
-変更していない。
+に記録した。この修復は独立 sparse golden や規範 wire contract を確立せず、
+P0-10 は `UNRESOLVED`、P0-01 は `BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime
+gate は `BLOCKED` のままとする。Hosted CI／実ゲーム testplay は
+`NOT_RUN`、Production acceptance は `BLOCKED` のまま維持する。

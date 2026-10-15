@@ -268,6 +268,21 @@ real testplay, Production runtime verification, and Production acceptance
 were not run or promoted. This documentation-only audit did not rerun the
 previously reported local corpus tests.
 
+### alpha.15 sparse-workspace test restoration
+
+The missing TLS server fixture manifest came from a partial source import.
+Three test-only fixture packages (42 files) were restored from pinned upstream
+revision `47aee45b53e06648c1b2ad3689b367b8c923fdec` after verifying their Git
+blob IDs. The 14-member sparse workspace now has a tracked subset lockfile.
+Focused `tlsn-core test_partial_transcript` tests passed (10/10), as did
+`tlsn-attestation --test no_syscall_verify` (1/1), using `--locked --offline`.
+Full offline `cargo metadata` remains blocked by uncached `wasip2`; the focused
+host-target tests do not require it. This repairs the local test source closure
+only: it does not establish a sparse golden vector, a normative wire contract,
+or Production acceptance. See the
+[`alpha.15 audit dossier`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
+for the source comparison, exact commands, and remaining state.
+
 The production server-identity allowlist registry is also not linked. Its
 constructor therefore rejects every identity until that trusted registry is
 provided. Only test-only mock plumbing can create a profile for local parser

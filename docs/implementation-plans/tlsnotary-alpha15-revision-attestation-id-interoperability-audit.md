@@ -678,6 +678,35 @@ existing local WASM artifact was not run or changed; its provenance remains
 
 ### Verification and disposition
 
+### alpha.15 sparse-workspace test restoration
+
+The missing `crates/tls/server-fixture` manifest was caused by the partial
+source import in commit `1238983b9`, not by sparse-checkout, ignore rules, a
+submodule, or a later deletion. Pinned upstream alpha.15 revision
+`47aee45b53e06648c1b2ad3689b367b8c923fdec` contains this test-only crate and
+the related `crates/server-fixture/server` and `crates/server-fixture/certs`
+packages. Their 42 restored files were checked against the pinned upstream Git
+blob IDs. No placeholder crate or fixture was added, and no production trust
+material or protocol implementation was changed.
+
+The sparse workspace now has 14 members, including `data-fixtures` and those
+three fixture packages, and excludes `examples-zk`. The active member manifests
+and their referenced path dependencies have no missing source. Unused
+workspace-dependency declarations for omitted upstream components remain
+untouched. The complete upstream workspace was not copied: a separate local
+source import differed from the pinned upstream tree, so it was not a safe
+source of restoration.
+
+The ignored lockfile initially matched the full upstream workspace, not this
+14-member sparse workspace. Cargo generated a subset lockfile while resolving
+offline; its SHA-256 is
+`ee818790d5cb177d1d3311936bab77b182964748215f39bc82dc78e2fe33d5e7`. That
+lockfile is tracked with this workspace repair so the focused `--locked`
+commands below are reproducible. A full `cargo metadata --offline` still exits
+101 because `wasip2 v1.0.3+wasi-0.2.9` is not cached; no online dependency
+fetch was attempted. The selected tests do not build that target-specific
+package.
+
 Commands were run from the repository root:
 
 | Command | Result | Scope |
@@ -685,11 +714,12 @@ Commands were run from the repository root:
 | `cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml alpha15` | 19 passed, 71 filtered; 3 offline CLI tests filtered | FUSOU alpha.15 adapter and full upstream fixture tests; not a full crate run |
 | `FUSOU_SYNTHETIC_PROOF_MODE=sparse cargo test --locked --offline --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn synthetic_transport_uses_alpha15_and_preserves_wire_bytes` | 1 passed, 95 filtered | Generated synthetic sparse Presentation integration; emitted an existing unused-import warning |
 | `node --test packages/FUSOU-TLSN-VERIFIER/tests/p010-corpus.test.mjs` | 8 passed | Node Result/receipt corpus, including FUSOU Result range framing; not TLSN sparse bytes |
-| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-core test_partial_transcript` | Not run | Cargo could not load workspace dependency `packages/tlsn-alpha15-sparse/crates/tls/server-fixture/Cargo.toml` because that manifest is absent |
-| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-attestation --test no_syscall_verify` | Not run | Same missing workspace dependency manifest |
+| `cargo metadata --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml --format-version 1` | Failed, exit 101 | Offline metadata requested uncached `wasip2 v1.0.3+wasi-0.2.9`; it did not prevent the focused host-target tests |
+| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-core test_partial_transcript` | 10 passed, 77 filtered | Core transcript/range tests; the old full-workspace lock first had to be regenerated for the sparse workspace |
+| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-attestation --test no_syscall_verify` | 1 passed | Attestation verification without syscalls |
 
-`git diff --check` is run after this documentation update. No Rust files were
-changed, so changed-file `rustfmt --check` was not applicable. No test was
+The restored Rust sources are pinned upstream test-fixture code. Their
+`rustfmt --check` and `git diff --check` are run for this update. No test was
 disabled or weakened.
 
 | Contract item | Disposition |
@@ -700,7 +730,7 @@ disabled or weakened.
 | Sparse Presentation exact packed bytes and cross-language golden | `UNRESOLVED` |
 | Independent sparse proof-opening fixture and expected values | `UNRESOLVED` |
 | Node independent TLSN Presentation verifier | `NOT_IMPLEMENTED`; Node-to-WASM remains integration-only |
-| TLSN workspace core and `no_syscall_verify` tests | `BLOCKED` by missing workspace manifest |
+| TLSN workspace core and `no_syscall_verify` tests | `PASS_LOCAL_TESTS` for the exact focused commands above |
 | WASM provenance | `UNRESOLVED` |
 | P0-10 overall | `UNRESOLVED` |
 
@@ -708,9 +738,8 @@ No normative FUSOU sparse-Presentation wire contract was established. Closing
 the byte-level item requires an authorized, versioned wire contract (including
 serializer configuration and range normalization rules) and an independently
 generated valid sparse Presentation with exact bytes, ranges, openings, and
-test trust material. Restoring the missing TLS workspace manifest or providing
-an upstream-supported way to test without that workspace member is also
-required to run the two blocked Rust test targets. P0-01 remains
-`BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate remains `BLOCKED`; Hosted CI,
-real Game Server testplay, and Production acceptance remain unperformed or
-blocked.
+test trust material. The sparse-workspace source blocker is resolved for the
+focused Rust tests, but this does not establish an independent golden vector
+or a normative contract. P0-01 remains `BLOCKED_EXTERNAL_INPUTS`; Phase 0
+runtime gate remains `BLOCKED`; Hosted CI and real Game Server testplay remain
+`NOT_RUN`; Production acceptance remains `BLOCKED`.
