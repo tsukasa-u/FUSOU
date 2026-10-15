@@ -562,7 +562,12 @@ classified as `NORMATIVE_CONTRACT`.
 included and `end` is excluded. `RangeSet` represents a sorted set of
 non-empty, non-overlapping, non-adjacent ranges. Construction from ranges
 filters empty ranges and sorts/merges overlap or adjacency. Its Serde form is
-`Vec<Range<T>>`; each `Range` serializes `start` then `end`.
+`Vec<Range<T>>`; each `Range` serializes `start` then `end`. Deserialization
+also converts the raw vector through `RangeSet::from`, so empty, unordered,
+overlapping, or adjacent wire entries are normalized rather than being
+uniformly rejected as noncanonical input. The compressed transcript's later
+length and bounds checks apply to that normalized set. This describes the
+current parser path; it does not define an approved malformed-wire policy.
 
 `FUSOU_PATCHED_SOURCE`: `PartialTranscript` serializes through
 `CompressedPartialTranscript`, whose field order is:
