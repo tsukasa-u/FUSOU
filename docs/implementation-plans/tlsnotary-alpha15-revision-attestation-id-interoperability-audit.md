@@ -503,3 +503,209 @@ P0-03 through P0-09 and P0-11 through P0-17 are unchanged. P0-01 independent
 approval remains `BLOCKED_EXTERNAL_INPUTS`; P0-10 remains `UNRESOLVED` for the
 specific items above; the Phase 0 runtime gate, real TLSN testplay, and
 Production acceptance remain blocked.
+
+## Sparse Presentation packed-byte and proof-opening audit
+
+### Execution snapshot
+
+- Repository: `tsukasa-u/FUSOU`; branch:
+  `tlsn-first-testplay-candidate`; start HEAD:
+  `6175a9ebda905e74e60270c35f690d292e61e9ec`.
+- The requested baseline is HEAD and therefore its own ancestor. The local
+  tracking ref `origin/tlsn-first-testplay-candidate` was equal to HEAD
+  (`0` ahead / `0` behind). The immediately preceding related commit is
+  `6175a9ebd docs(tlsn): record Claim and receipt contract audit`.
+- The only pre-existing worktree change was the user-owned
+  `packages/FUSOU-APP/src-tauri/roaming/user/configs.toml`. Its contents were
+  not read; it was not modified, staged, or committed.
+- This continuation made no Rust, fixture, Cargo lockfile, or WASM changes.
+  Hosted CI, external services, real Notary/Game Server operation, and
+  Production testplay were not run.
+
+### Source identity and evidence classes
+
+The source declaration remains TLSNotary alpha.15 commit
+`47aee45b53e06648c1b2ad3689b367b8c923fdec`, but the effective `tlsn`,
+`tlsn-attestation`, and `tlsn-core` dependencies are path-patched to
+`packages/tlsn-alpha15-sparse`. The local `tlsn-core` transcript and proof
+files diverge from pinned upstream; `Presentation` verification and the
+attestation proof files inspected here match the pinned upstream source.
+This identifies implementation behavior, not an approved FUSOU wire
+specification or external approval of the fork.
+
+The locked `bincode` version is `1.3.3` in the TLSN workspace and the
+downstream Verifier, APP, and HTTPS Proxy lockfiles. `rangeset` is `0.4.0` in
+the local TLSN workspace lockfile (also the pinned upstream lockfile) and
+`0.4.1` in the downstream Verifier, APP, and HTTPS Proxy lockfiles. The
+`RangeSet` Serde conversion remains through `Vec<Range<T>>`; the `0.4.1`
+source also changes its set mutation algorithms. With no independently fixed
+sparse Presentation bytes, this dependency-version skew is an unresolved
+compatibility risk, not proof that the serialized representation differs.
+
+Evidence labels used below:
+
+- `UPSTREAM_SOURCE`: behavior in the pinned alpha.15 files.
+- `FUSOU_PATCHED_SOURCE`: behavior in the local path-patched TLSN files.
+- `FUSOU_CALLER`: behavior added by FUSOU verifier/proxy code.
+- `TEST_OBSERVATION`: behavior exercised by a named local test.
+- `NORMATIVE_CONTRACT`: an owner-approved protocol or wire specification.
+- `UNRESOLVED`: evidence does not establish the required contract.
+
+No owner-approved FUSOU sparse-Presentation wire specification or independent
+sparse serialized golden vector was found. The alpha.15 source map is not
+classified as `NORMATIVE_CONTRACT`.
+
+### Transcript ranges and packed representation
+
+`UPSTREAM_SOURCE`: transcript ranges are Rust half-open
+`Range<usize>` offsets in a direction-specific byte stream: `start` is
+included and `end` is excluded. `RangeSet` represents a sorted set of
+non-empty, non-overlapping, non-adjacent ranges. Construction from ranges
+filters empty ranges and sorts/merges overlap or adjacency. Its Serde form is
+`Vec<Range<T>>`; each `Range` serializes `start` then `end`.
+
+`FUSOU_PATCHED_SOURCE`: `PartialTranscript` serializes through
+`CompressedPartialTranscript`, whose field order is:
+
+1. `sent_authed: Vec<u8>`
+2. `received_authed: Vec<u8>`
+3. `sent_idx: RangeSet<usize>`
+4. `recv_idx: RangeSet<usize>`
+5. `sent_total: usize`
+6. `recv_total: usize`
+
+The two data vectors contain authenticated bytes concatenated in ascending
+range order; the index fields map those bytes back to half-open transcript
+offsets, and the total fields preserve each original direction's length.
+`bincode::serialize`/`deserialize` use bincode 1.3.3's legacy fixed-integer,
+little-endian encoding: sequence lengths and `usize` values are encoded as
+`u64`; range elements are start then end. The compressed-transcript
+deserializer checks that each packed data length equals its normalized range
+set's total length and that the maximum range end is within the direction's
+total length. `copy_authenticated_to` additionally requires requested ranges
+to be in bounds and a subset of authenticated ranges. Explicit
+`materialize_sent`/`materialize_received` compatibility methods zero-fill
+omitted bytes, but the proof-verification path reads authenticated packed
+bytes instead.
+
+These are `UPSTREAM_SOURCE`/`FUSOU_PATCHED_SOURCE` implementation facts. The
+field order and bincode encoding have not been fixed by an independent
+sparse-Presentation byte vector. A Rust round-trip test establishes only
+round-trip behavior for values created by that implementation; it is not a
+cross-language or normative golden test.
+
+The TLSN packed representation is separate from FUSOU Result range signing.
+FUSOU Result ranges use their own framing: big-endian `u32` count, followed
+for each range by big-endian `u64` start, length, byte length, then raw range
+bytes. The Result validator rejects zero-length ranges, overflow,
+out-of-bounds ranges, mismatched byte lengths, unsorted starts, and overlap;
+adjacent ranges are allowed. The Node P0-10 corpus test exercises this FUSOU
+Result framing, not TLSN's bincode `PartialTranscript`.
+
+### Proof openings and verification boundary
+
+`UPSTREAM_SOURCE` and `FUSOU_PATCHED_SOURCE`: a `TranscriptProof` contains a
+`PartialTranscript` followed by `PlaintextHashSecret` openings. Each opening
+contains a direction, range set, hash algorithm, and blinder. Verification
+checks transcript lengths against the attested connection lengths, requires
+each opening to be in bounds and readable from authenticated packed bytes,
+recomputes `H(message || blinder)`, matches that value and range to an
+attestation commitment, and requires the union of verified openings to equal
+the ranges marked authenticated in the partial transcript.
+
+`Presentation::verify` delegates to Attestation verification (body/header
+proof and Notary signature), then optional server-identity proof verification,
+then optional transcript-proof verification. This proves the Presentation's
+claims relative to its included attestation and key; trust in that Notary key
+and any origin trust anchor remains a caller policy. Packed-range consistency
+checks alone do not verify the cryptographic openings.
+
+`FUSOU_CALLER`: the adapter deserializes the exact Presentation bytes, checks
+that no trailing bytes remain, optionally compares the serialized Notary key
+with a caller-supplied trusted key, invokes TLSN `Presentation::verify`, and
+retains the returned `PartialTranscript`. It derives FUSOU ranges and bytes
+from authenticated indices; sparse reads fail when they cross undisclosed
+ranges. The Evidence Bundle path separately verifies the signed Result,
+Presentation digest and trusted material, re-verifies the Presentation, and
+compares Presentation-derived Result ranges and semantic fields. This source
+path is not itself a successful Production-shaped Evidence Bundle test.
+
+### Fixture and test coverage
+
+The only checked-in Presentation binary files found in the inspected
+Verifier/TLSN/APP/Proxy package trees are:
+
+- `packages/FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-upstream-presentation.bin`
+- `packages/tlsn-alpha15-sparse/crates/attestation/tests/fixtures/presentation.bin`
+
+They are identical: `5,394` bytes and SHA-256
+`cb9b3befb43df5157a4d5ac52080ba19d842f191fa346bfda1dfc4927b37e5b6`. The
+upstream generator is
+`packages/tlsn-alpha15-sparse/crates/attestation/tests/fixtures/generate_presentation_fixture.rs`.
+It creates a test-only, full-disclosure Presentation; it is not a sparse
+opening vector or a FUSOU `require_info` Presentation. The FUSOU fixture test
+checks the serialized embedded Notary key against its vector and verifies
+the Presentation with the pinned backend, but calls the verifier without an
+independent trusted Notary key. It therefore does not establish a Production
+Notary trust root.
+
+A positive sparse cryptographic test does exist as a runtime-generated
+synthetic integration test:
+`FUSOU-PROXY/proxy-https/src/synthetic_tlsn.rs`,
+`synthetic_transport_uses_alpha15_and_preserves_wire_bytes`. With
+`FUSOU_SYNTHETIC_PROOF_MODE=sparse`, it constructs and serializes a sparse
+Presentation, verifies it using a test Notary key and test root certificate,
+checks that the ordinary complete-transcript profile rejects a hidden read,
+and checks that the sparse `require_info` profile derives the expected
+member ID while keeping the full response digest absent. This is
+`TEST_OBSERVATION` for a generated synthetic path, not an independent fixture:
+generation and verification use the local TLSN implementation, and the test
+does not freeze expected sparse Presentation bytes or proof openings.
+
+Rust verifier tests also include synthetic in-memory `PartialTranscript`
+reader cases. They test FUSOU parser/binding behavior, not independently
+generated sparse TLSN proofs. The `no_syscall_verify` upstream fixture test
+uses the full-disclosure binary. No independent Node bincode decoder or
+TLSN proof verifier exists in the P0-10 corpus; Node-to-WASM checks, when run,
+are integration tests and not independent JavaScript verification. The
+existing local WASM artifact was not run or changed; its provenance remains
+`UNRESOLVED`.
+
+### Verification and disposition
+
+Commands were run from the repository root:
+
+| Command | Result | Scope |
+| --- | --- | --- |
+| `cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml alpha15` | 19 passed, 71 filtered; 3 offline CLI tests filtered | FUSOU alpha.15 adapter and full upstream fixture tests; not a full crate run |
+| `FUSOU_SYNTHETIC_PROOF_MODE=sparse cargo test --locked --offline --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn synthetic_transport_uses_alpha15_and_preserves_wire_bytes` | 1 passed, 95 filtered | Generated synthetic sparse Presentation integration; emitted an existing unused-import warning |
+| `node --test packages/FUSOU-TLSN-VERIFIER/tests/p010-corpus.test.mjs` | 8 passed | Node Result/receipt corpus, including FUSOU Result range framing; not TLSN sparse bytes |
+| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-core test_partial_transcript` | Not run | Cargo could not load workspace dependency `packages/tlsn-alpha15-sparse/crates/tls/server-fixture/Cargo.toml` because that manifest is absent |
+| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-attestation --test no_syscall_verify` | Not run | Same missing workspace dependency manifest |
+
+`git diff --check` is run after this documentation update. No Rust files were
+changed, so changed-file `rustfmt --check` was not applicable. No test was
+disabled or weakened.
+
+| Contract item | Disposition |
+| --- | --- |
+| Pinned alpha.15 and local path-patch source mapping | `PASS` for factual source mapping; P0-01 approval remains `BLOCKED_EXTERNAL_INPUTS` |
+| Full-disclosure upstream Presentation verification by FUSOU adapter | `PASS_LOCAL_TESTS` for the focused fixture test only |
+| Generated synthetic sparse Presentation and FUSOU sparse parser path | `PASS_LOCAL_TESTS` for the feature-gated test; test-only, same-source generation |
+| Sparse Presentation exact packed bytes and cross-language golden | `UNRESOLVED` |
+| Independent sparse proof-opening fixture and expected values | `UNRESOLVED` |
+| Node independent TLSN Presentation verifier | `NOT_IMPLEMENTED`; Node-to-WASM remains integration-only |
+| TLSN workspace core and `no_syscall_verify` tests | `BLOCKED` by missing workspace manifest |
+| WASM provenance | `UNRESOLVED` |
+| P0-10 overall | `UNRESOLVED` |
+
+No normative FUSOU sparse-Presentation wire contract was established. Closing
+the byte-level item requires an authorized, versioned wire contract (including
+serializer configuration and range normalization rules) and an independently
+generated valid sparse Presentation with exact bytes, ranges, openings, and
+test trust material. Restoring the missing TLS workspace manifest or providing
+an upstream-supported way to test without that workspace member is also
+required to run the two blocked Rust test targets. P0-01 remains
+`BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate remains `BLOCKED`; Hosted CI,
+real Game Server testplay, and Production acceptance remain unperformed or
+blocked.

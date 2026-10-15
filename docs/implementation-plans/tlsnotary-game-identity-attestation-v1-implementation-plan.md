@@ -1532,3 +1532,22 @@ NO-GO
 ```
 
 P2-01、P2-02、P2-03 は `RESOLVED` である。P2-01のReference Baseline/Specification Revision metadataはFinal Specificationとこの計画で分離し、P2-02のIdentity Authorization Rootは4 tablesとして正規化し、P2-03の同一非REVOKED device key retry policyはterminal Sessionを再利用しない新規Session issuanceとしてFinal Specificationとこの計画へ反映した。Proof CopyのMUST-REJECT条件、P0-02を除く未解決Phase 0 gates、およびruntime implementation `NO-GO`は変更しない。
+
+### Sparse Presentation packed-byte audit checkpoint
+
+TLSNotary alpha.15 の `PartialTranscript`、half-open transcript ranges、
+packed bytes、proof-opening 検証経路を監査した。FUSOU の feature-gated
+synthetic Proxy test は、test Notary key/root で生成済み sparse Presentation
+を検証し、sparse `require_info` parser まで到達する。ただし、その
+Presentation は同じ path-patched Rust 実装で生成され、独立した期待値や
+固定 packed-byte vector ではない。既存 checked-in fixture は full disclosure
+であり、Node shared corpus も TLSN Presentation bincode を decode しない。
+
+したがって sparse Presentation の exact-byte/cross-language 契約と独立した
+proof-opening vector は `UNRESOLVED`、P0-10 全体も `UNRESOLVED` のままとする。
+P0-01 は `BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime gate は `BLOCKED` のまま。
+監査根拠、実行したテスト、TLSN workspace の欠損 manifest による未実施
+test、および必要な独立 fixture は
+[`TLSNotary alpha.15 audit dossier`](./tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
+に記録した。Hosted CI、実ゲーム testplay、Production acceptance の状態は
+変更していない。

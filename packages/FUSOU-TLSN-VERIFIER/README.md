@@ -105,6 +105,27 @@ be inspected safely, but it is rejected for this profile unless the parser's
 requested bytes are fully authenticated and a raw digest can be independently
 computed. Sparse omitted bytes are never represented as authenticated zeros.
 
+### Packed sparse Presentation audit
+
+The alpha.15 `PartialTranscript` wire form is bincode 1.3.3's serialized
+`CompressedPartialTranscript`: packed sent/received bytes, half-open range
+indices, and original direction lengths. This is distinct from the FUSOU
+Result's big-endian range signing bytes. The verifier delegates cryptographic
+opening checks to TLSN `Presentation::verify`, then maps only authenticated
+bytes into FUSOU ranges and parser reads.
+
+A generated synthetic sparse Presentation is verified end-to-end by the
+feature-gated Proxy test
+`synthetic_transport_uses_alpha15_and_preserves_wire_bytes`; it uses test
+Notary/root material and is not Production evidence. The checked-in upstream
+binary fixture is full disclosure. Neither fixture freezes independent
+sparse packed bytes or proof-opening expectations. Node's shared P0-10 corpus
+tests FUSOU Result range framing, not TLSN bincode; Node-to-WASM remains an
+integration test, not an independent JavaScript verifier. Consequently exact
+sparse Presentation bytes and proof-opening interoperability remain
+`UNRESOLVED`; see the
+[`audit dossier`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+
 The memory probe makes the unavoidable alpha.15 allocation visible without
 contacting any external service:
 
