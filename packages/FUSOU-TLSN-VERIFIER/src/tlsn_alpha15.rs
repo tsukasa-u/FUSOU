@@ -817,6 +817,147 @@ mod tests {
     }
 
     #[test]
+    fn clean_upstream_sparse_fixture_verifies_with_patched_backend() {
+        let fixture =
+            include_bytes!("../fixtures/tlsn-alpha15-clean-upstream-sparse-presentation.bin");
+        let expected_packed_transcript =
+            include_bytes!("../fixtures/tlsn-alpha15-clean-upstream-sparse-packed-transcript.bin");
+        let trusted_notary_key = include_bytes!(
+            "../fixtures/tlsn-alpha15-clean-upstream-sparse-notary-verifying-key.bin"
+        );
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../fixtures/tlsn-alpha15-clean-upstream-sparse-vector.json"
+        ))
+        .unwrap();
+
+        let hash_hex = |bytes: &[u8]| {
+            sha256(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+        let assert_ranges_match = |actual: &[RevealedRange], expected: &serde_json::Value| {
+            let expected_ranges = expected.as_array().unwrap();
+            assert_eq!(actual.len(), expected_ranges.len());
+            for (actual, expected) in actual.iter().zip(expected_ranges) {
+                let start = expected["start"].as_u64().unwrap();
+                let end = expected["end_exclusive"].as_u64().unwrap();
+                assert_eq!(actual.start, start);
+                assert_eq!(actual.length, end.checked_sub(start).unwrap());
+                assert_eq!(
+                    actual.bytes.as_slice(),
+                    expected["disclosed_bytes_ascii"]
+                        .as_str()
+                        .unwrap()
+                        .as_bytes()
+                );
+            }
+        };
+        assert_eq!(
+            vector["classification"].as_str(),
+            Some("separate_checkout_revision_implementation_derived")
+        );
+        assert_eq!(vector["normative_contract"].as_bool(), Some(false));
+        assert_eq!(vector["source"]["revision"].as_str(), Some(SELECTED_COMMIT));
+        assert_eq!(
+            vector["source"]["presentation_bytes"].as_u64(),
+            Some(fixture.len() as u64)
+        );
+        assert_eq!(
+            hash_hex(fixture),
+            vector["source"]["presentation_sha256"].as_str().unwrap()
+        );
+        assert_eq!(
+            vector["source"]["packed_transcript_bytes"].as_u64(),
+            Some(expected_packed_transcript.len() as u64)
+        );
+        assert_eq!(
+            hash_hex(expected_packed_transcript),
+            vector["source"]["packed_transcript_sha256"]
+                .as_str()
+                .unwrap()
+        );
+        assert_eq!(
+            hash_hex(trusted_notary_key),
+            vector["source"]["notary_verifying_key_sha256"]
+                .as_str()
+                .unwrap()
+        );
+
+        let authenticated =
+            verify_alpha15_presentation_with_trusted_notary_key(fixture, trusted_notary_key)
+                .unwrap();
+        assert_eq!(
+            authenticated.request_transcript_size() as u64,
+            vector["transcript_inputs"]["request_bytes"]
+                .as_u64()
+                .unwrap()
+        );
+        assert_eq!(
+            authenticated.response_transcript_size() as u64,
+            vector["transcript_inputs"]["response_bytes"]
+                .as_u64()
+                .unwrap()
+        );
+        assert_eq!(authenticated.request_transcript_sha256(), None);
+        assert_eq!(authenticated.response_transcript_sha256(), None);
+        let sent_ranges = authenticated.revealed_request_ranges();
+        let received_ranges = authenticated.revealed_response_ranges();
+        assert_ranges_match(&sent_ranges, &vector["openings"]["sent"]);
+        assert_ranges_match(&received_ranges, &vector["openings"]["received"]);
+
+        let AuthenticatedTranscriptStorage::Sparse { transcript } = &authenticated.transcript
+        else {
+            panic!("clean upstream sparse fixture must retain sparse storage");
+        };
+        assert_eq!(
+            transcript
+                .iter(tlsn_core::transcript::Direction::Sent)
+                .collect::<Vec<_>>(),
+            vector["openings"]["packed_sent_ascii"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+        );
+        assert_eq!(
+            transcript
+                .iter(tlsn_core::transcript::Direction::Received)
+                .collect::<Vec<_>>(),
+            vector["openings"]["packed_received_ascii"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+        );
+        assert_eq!(
+            bincode::serialize(transcript).unwrap(),
+            expected_packed_transcript
+        );
+
+        assert!(verify_alpha15_presentation_with_trusted_notary_key(
+            &fixture[..fixture.len() - 1],
+            trusted_notary_key
+        )
+        .is_err());
+        let mut trailing_byte = fixture.to_vec();
+        trailing_byte.push(0);
+        assert!(verify_alpha15_presentation_with_trusted_notary_key(
+            &trailing_byte,
+            trusted_notary_key
+        )
+        .is_err());
+
+        let mut modified_opening = fixture.to_vec();
+        *modified_opening.last_mut().unwrap() ^= 1;
+        assert!(matches!(
+            verify_alpha15_presentation_with_trusted_notary_key(
+                &modified_opening,
+                trusted_notary_key
+            ),
+            Err(Alpha15AdapterError::PresentationVerification(_))
+        ));
+    }
+
+    #[test]
     fn rejects_modified_truncated_and_trailing_alpha15_presentations() {
         let fixture = include_bytes!("../fixtures/tlsn-alpha15-upstream-presentation.bin");
 

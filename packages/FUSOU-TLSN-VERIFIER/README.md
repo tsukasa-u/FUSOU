@@ -117,14 +117,44 @@ bytes into FUSOU ranges and parser reads.
 A generated synthetic sparse Presentation is verified end-to-end by the
 feature-gated Proxy test
 `synthetic_transport_uses_alpha15_and_preserves_wire_bytes`; it uses test
-Notary/root material and is not Production evidence. The checked-in upstream
-binary fixture is full disclosure. Neither fixture freezes independent
-sparse packed bytes or proof-opening expectations. Node's shared P0-10 corpus
-tests FUSOU Result range framing, not TLSN bincode; Node-to-WASM remains an
-integration test, not an independent JavaScript verifier. Consequently exact
-sparse Presentation bytes and proof-opening interoperability remain
+Notary/root material and is not Production evidence. The existing upstream
+binary fixture is full disclosure.
+
+A second test-only fixture,
+`fixtures/tlsn-alpha15-clean-upstream-sparse-presentation.bin`, was generated
+and verified by a clean checkout pinned to TLSNotary alpha.15 commit
+`47aee45b53e06648c1b2ad3689b367b8c923fdec`. The generator and a matching
+packed-transcript sidecar and serialized test Notary key are under
+`fixtures/alpha15-clean-upstream-sparse-generator/` and `fixtures/`. The Rust
+test `clean_upstream_sparse_fixture_verifies_with_patched_backend` verifies
+the proof with the patched backend, checks the exact `[start, end)` ranges and
+their disclosed bytes, compares the patched `PartialTranscript` bincode bytes
+with the clean-upstream sidecar, and confirms that changing the final opening
+byte is rejected. The sample is 5,510 bytes (SHA-256
+`936c9fdf1c73f422c33ccf3899bf75986badc340c5e0ab7f611661e979d6fde4`); its
+132-byte packed-transcript sidecar has SHA-256
+`a83c06f9df388a8d5047e25eed9e2f67d54415e6c3cf6b1416b9def42552608e`.
+
+This is a category-3 clean-checkout/cross-revision characterization from the
+same TLSNotary codebase and serializer family, not an independent
+implementation, external normative golden, FUSOU `require_info` Presentation,
+or Production evidence. The generator randomizes the Attestation UID and
+certificate-opening blinder, so rerunning it does not reproduce the exact
+Presentation bytes. The checked-in vector records the source, inputs, hashes,
+and ranges. Node's shared P0-10 corpus tests FUSOU Result range framing, not
+TLSN bincode; Node-to-WASM remains an integration test, not an independent
+JavaScript verifier. Therefore a normative sparse Presentation contract,
+independent golden, and cross-language proof-opening interoperability remain
 `UNRESOLVED`; see the
 [`audit dossier`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+
+To regenerate a sample from the pinned clean upstream source (the Presentation
+hash will vary because of upstream randomness), run from the repository root:
+
+```text
+cargo run --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/fixtures/alpha15-clean-upstream-sparse-generator/Cargo.toml -- /tmp/fusou-alpha15-clean-upstream-sparse.presentation
+cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml clean_upstream_sparse_fixture_verifies_with_patched_backend
+```
 
 The memory probe makes the unavoidable alpha.15 allocation visible without
 contacting any external service:

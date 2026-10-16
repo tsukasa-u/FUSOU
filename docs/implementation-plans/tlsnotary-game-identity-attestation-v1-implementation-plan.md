@@ -1540,18 +1540,37 @@ packed bytes、proof-opening 検証経路を監査した。FUSOU の feature-gat
 synthetic Proxy test は、test Notary key/root で生成済み sparse Presentation
 を検証し、sparse `require_info` parser まで到達する。ただし、その
 Presentation は同じ path-patched Rust 実装で生成され、独立した期待値や
-固定 packed-byte vector ではない。既存 checked-in fixture は full disclosure
-であり、Node shared corpus も TLSN Presentation bincode を decode しない。
+固定 packed-byte vector ではない。
 
-したがって sparse Presentation の exact-byte/cross-language 契約と独立した
-proof-opening vector は `UNRESOLVED`、P0-10 全体も `UNRESOLVED` のままとする。
-P0-01 は `BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime gate は `BLOCKED` のまま。
-今回、TLSN alpha.15 sparse workspace から欠けていた test-only fixture crates
-を pinned upstream revision と照合して復元し、subset 用 Cargo.lock を固定した。
-`tlsn-core test_partial_transcript` は 10 件、`tlsn-attestation --test
-no_syscall_verify` は 1 件 pass した。全体の `cargo metadata --offline` は
-未キャッシュの `wasip2` により失敗するが、上記 focused test は
-`--locked --offline` で pass する。根拠と制約は
+追加の category-3 clean-checkout fixture は、clean upstream commit
+`47aee45b53e06648c1b2ad3689b367b8c923fdec` から生成され、patched verifier
+で検証された。35-byte request の `[0,3)` / `[10,16)` と145-byte response
+の `[0,3)` / `[137,145)` が開示され、patched `PartialTranscript` の
+bincode bytes は upstream 側で保存した132-byte sidecarと一致した。末尾
+opening byte の変更は Presentation 検証で拒否された。Presentationは
+5,510 bytes、SHA-256
+`936c9fdf1c73f422c33ccf3899bf75986badc340c5e0ab7f611661e979d6fde4`。
+このサンプルは同じTLSNotary codebase／serializer family由来であり、
+独立実装でも規範的 golden vector でもない。Attestation UID と証明の
+certificate-opening blinderがランダムなため、再生成時のPresentation
+bytes/hashは一致しない。生成元、入力、hash、range、限界は
+[`TLSNotary alpha.15 audit dossier`](./tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
+とVerifier fixture vectorに記録する。
+
+この結果は一つの cross-revision characterization を増やすが、
+sparse Presentation の規範 wire contract、独立 proof-opening oracle、
+Node verifierまたはP0-10を確立しない。既存 checked-in full-disclosure
+fixtureも別の範囲の証拠である。Node shared corpus は TLSN Presentation
+bincode をdecodeしない。P0-10 は `UNRESOLVED`、P0-01 は
+`BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime gate は `BLOCKED` のままとする。
+
+この continuation では次を再実行した。
+`tlsn-core test_partial_transcript` 10件、`tlsn-attestation --test
+no_syscall_verify` 1件、Verifier alpha.15 tests 20件、新fixture focused
+test 1件、feature-gated synthetic sparse Proxy test 1件がpassした。全体の
+`cargo metadata --offline` は今回再実行していない。以前の記録では未
+キャッシュの `wasip2` により失敗するが、focused host tests は
+`--locked --offline` でpassする。根拠と制約は
 [`TLSNotary alpha.15 audit dossier`](./tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
 に記録した。この修復は独立 sparse golden や規範 wire contract を確立せず、
 P0-10 は `UNRESOLVED`、P0-01 は `BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime

@@ -1,0 +1,66 @@
+{
+  "schema": "fusou-tlsn-alpha15-clean-upstream-sparse-characterization-v1",
+  "classification": "separate_checkout_revision_implementation_derived",
+  "normative_contract": false,
+  "source": {
+    "repository": "https://github.com/tlsnotary/tlsn",
+    "tag": "v0.1.0-alpha.15",
+    "revision": "47aee45b53e06648c1b2ad3689b367b8c923fdec",
+    "generator": "fixtures/alpha15-clean-upstream-sparse-generator",
+    "generator_source_sha256": "94167bf56906b0e842bda3fa913e41a42bbf1062afbc9ea88483fcf58e96381a",
+    "generator_manifest_sha256": "5e3d87c349a86111ae727d15a5f1c02acfca83478ffa702654e735fe6a585d1a",
+    "generator_lock_sha256": "ebcc246813cdc28bc0276f7464a4e02c055ccdb03bed5b05293189e51a709baa",
+    "presentation_bytes": 5510,
+    "presentation_sha256": "936c9fdf1c73f422c33ccf3899bf75986badc340c5e0ab7f611661e979d6fde4",
+    "packed_transcript_bytes": 132,
+    "packed_transcript_sha256": "a83c06f9df388a8d5047e25eed9e2f67d54415e6c3cf6b1416b9def42552608e",
+    "notary_verifying_key_bytes": 42,
+    "notary_verifying_key_sha256": "c4452de9c5869c38ff197033cd0e5beb8930813c3d4b89377faa777a85364b2a",
+    "fixture_generation_verification": "Presentation::verify passed in the clean upstream generator before serialization",
+    "test_only_notary_key": "The generator uses the fixed private key [42; 32]; this is not Production trust material."
+  },
+  "transcript_inputs": {
+    "request_fixture": "crates/data-fixtures/data/http/request_get_with_header",
+    "request_bytes": 35,
+    "request_sha256": "c363be307b84f4389cf123e97d68f066600c0964d3ae4d1d9b2b67e2e69238f8",
+    "response_fixture": "crates/data-fixtures/data/http/response_json",
+    "response_bytes": 145,
+    "response_sha256": "b4bb126c979eeeb4d6832d3bb97849b9e998474908e6500b2a2ccbeff25b262f"
+  },
+  "openings": {
+    "range_convention": "half-open byte ranges [start, end)",
+    "hash_algorithm": "BLAKE3",
+    "sent": [
+      {
+        "start": 0,
+        "end_exclusive": 3,
+        "disclosed_bytes_ascii": "GET"
+      },
+      {
+        "start": 10,
+        "end_exclusive": 16,
+        "disclosed_bytes_ascii": "/1.1\r\n"
+      }
+    ],
+    "received": [
+      {
+        "start": 0,
+        "end_exclusive": 3,
+        "disclosed_bytes_ascii": "HTT"
+      },
+      {
+        "start": 137,
+        "end_exclusive": 145,
+        "disclosed_bytes_ascii": ",\"5\"]}\r\n"
+      }
+    ],
+    "packed_sent_ascii": "GET/1.1\r\n",
+    "packed_received_ascii": "HTT,\"5\"]}\r\n"
+  },
+  "limitations": [
+    "This is a cross-revision characterization fixture from the same TLSNotary codebase and serializer family, not an independent implementation or an external normative golden vector.",
+    "The attestation UID and certificate-opening blinder are randomized, so rerunning the generator does not reproduce the exact Presentation bytes or SHA-256. The checked-in Presentation bytes are fixed and individually identified by their hash.",
+    "The packed-transcript bytes are captured from the clean upstream verifier output and compared against the patched Rust serializer. This cross-revision equality does not establish an approved FUSOU wire contract.",
+    "The test-only Notary verifying key is not a Production trust registration. The fixture is not a FUSOU require_info or Production evidence fixture."
+  ]
+}
