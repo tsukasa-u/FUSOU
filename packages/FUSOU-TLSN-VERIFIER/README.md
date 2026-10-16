@@ -141,10 +141,21 @@ implementation, external normative golden, FUSOU `require_info` Presentation,
 or Production evidence. The generator randomizes the Attestation UID and
 certificate-opening blinder, so rerunning it does not reproduce the exact
 Presentation bytes. The checked-in vector records the source, inputs, hashes,
-and ranges. Node's shared P0-10 corpus tests FUSOU Result range framing, not
-TLSN bincode; Node-to-WASM remains an integration test, not an independent
-JavaScript verifier. Therefore a normative sparse Presentation contract,
-independent golden, and cross-language proof-opening interoperability remain
+and ranges. The generator writes a Presentation and its `.packed-transcript`
+and `.notary-verifying-key` sidecars to the caller-supplied path, refuses to
+overwrite any existing output, then deserializes and verifies the serialized
+Presentation with clean upstream before writing the files. It does not rewrite
+the JSON vector: that vector describes the fixed checked-in sample, while
+randomized Presentation fields make a regenerated whole-Presentation hash
+different. The Rust characterization test checks the recorded hashes of the
+generator source, manifest, lockfile, Presentation, packed sidecar, and public
+verifying-key fixture, plus the fixture lengths, ranges, and opened bytes.
+Use a fresh output path for each generator run.
+
+Node's shared P0-10 corpus tests FUSOU Result range framing, not TLSN bincode;
+Node-to-WASM remains an integration test, not an independent JavaScript
+verifier. Therefore a normative sparse Presentation contract, independent
+golden, and cross-language proof-opening interoperability remain
 `UNRESOLVED`; see the
 [`audit dossier`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
 

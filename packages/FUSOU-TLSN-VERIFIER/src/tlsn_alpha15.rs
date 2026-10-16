@@ -825,6 +825,12 @@ mod tests {
         let trusted_notary_key = include_bytes!(
             "../fixtures/tlsn-alpha15-clean-upstream-sparse-notary-verifying-key.bin"
         );
+        let generator_source =
+            include_bytes!("../fixtures/alpha15-clean-upstream-sparse-generator/src/main.rs");
+        let generator_manifest =
+            include_bytes!("../fixtures/alpha15-clean-upstream-sparse-generator/Cargo.toml");
+        let generator_lock =
+            include_bytes!("../fixtures/alpha15-clean-upstream-sparse-generator/Cargo.lock");
         let vector: serde_json::Value = serde_json::from_str(include_str!(
             "../fixtures/tlsn-alpha15-clean-upstream-sparse-vector.json"
         ))
@@ -860,6 +866,22 @@ mod tests {
         assert_eq!(vector["normative_contract"].as_bool(), Some(false));
         assert_eq!(vector["source"]["revision"].as_str(), Some(SELECTED_COMMIT));
         assert_eq!(
+            hash_hex(generator_source),
+            vector["source"]["generator_source_sha256"]
+                .as_str()
+                .unwrap()
+        );
+        assert_eq!(
+            hash_hex(generator_manifest),
+            vector["source"]["generator_manifest_sha256"]
+                .as_str()
+                .unwrap()
+        );
+        assert_eq!(
+            hash_hex(generator_lock),
+            vector["source"]["generator_lock_sha256"].as_str().unwrap()
+        );
+        assert_eq!(
             vector["source"]["presentation_bytes"].as_u64(),
             Some(fixture.len() as u64)
         );
@@ -882,6 +904,10 @@ mod tests {
             vector["source"]["notary_verifying_key_sha256"]
                 .as_str()
                 .unwrap()
+        );
+        assert_eq!(
+            vector["source"]["notary_verifying_key_bytes"].as_u64(),
+            Some(trusted_notary_key.len() as u64)
         );
 
         let authenticated =
@@ -933,18 +959,23 @@ mod tests {
             expected_packed_transcript
         );
 
-        assert!(verify_alpha15_presentation_with_trusted_notary_key(
-            &fixture[..fixture.len() - 1],
-            trusted_notary_key
-        )
-        .is_err());
+        assert!(matches!(
+            verify_alpha15_presentation_with_trusted_notary_key(
+                &fixture[..fixture.len() - 1],
+                trusted_notary_key
+            ),
+            Err(Alpha15AdapterError::PresentationDecode(_))
+        ));
         let mut trailing_byte = fixture.to_vec();
         trailing_byte.push(0);
-        assert!(verify_alpha15_presentation_with_trusted_notary_key(
-            &trailing_byte,
-            trusted_notary_key
-        )
-        .is_err());
+        assert!(matches!(
+            verify_alpha15_presentation_with_trusted_notary_key(
+                &trailing_byte,
+                trusted_notary_key
+            ),
+            Err(Alpha15AdapterError::PresentationDecode(message))
+                if message == "trailing Presentation bytes"
+        ));
 
         let mut modified_opening = fixture.to_vec();
         *modified_opening.last_mut().unwrap() ^= 1;

@@ -1,9 +1,10 @@
-use std::{env, fs, ops::Range};
+use std::{env, fs, io::Write, ops::Range};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rangeset::set::RangeSet;
 use tlsn_attestation::{
     Attestation, AttestationConfig, CryptoProvider,
+    presentation::Presentation,
     request::{Request, RequestConfig},
     signing::SignatureAlgId,
 };
@@ -17,6 +18,16 @@ use tlsn_core::{
     },
 };
 use tlsn_data_fixtures::http::{request::GET_WITH_HEADER, response::OK_JSON};
+
+fn write_new_file(path: impl AsRef<std::path::Path>, contents: &[u8]) {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .expect("refusing to overwrite an existing generator output");
+    file.write_all(contents)
+        .expect("failed to write generator output");
+}
 
 fn add_opening(
     transcript: &Transcript,
@@ -145,17 +156,27 @@ fn main() {
     let presentation_bytes = bincode::serialize(&presentation).unwrap();
     let packed_transcript_bytes = bincode::serialize(&partial_transcript).unwrap();
     let notary_verifying_key = bincode::serialize(presentation.verifying_key()).unwrap();
-    fs::write(&output_path, &presentation_bytes).unwrap();
-    fs::write(
+    let serialized_presentation: Presentation = bincode::deserialize(&presentation_bytes).unwrap();
+    let serialized_output = serialized_presentation
+        .verify(&CryptoProvider::default())
+        .unwrap();
+    let serialized_transcript = serialized_output.transcript.unwrap();
+    assert_eq!(serialized_transcript.len_sent(), sent_len);
+    assert_eq!(serialized_transcript.len_received(), received_len);
+    assert_eq!(
+        bincode::serialize(&serialized_transcript).unwrap(),
+        packed_transcript_bytes
+    );
+
+    write_new_file(&output_path, &presentation_bytes);
+    write_new_file(
         format!("{output_path}.packed-transcript"),
         &packed_transcript_bytes,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_new_file(
         format!("{output_path}.notary-verifying-key"),
         &notary_verifying_key,
-    )
-    .unwrap();
+    );
     println!(
         "sent={sent_len}; received={received_len}; sent_ranges={:?}; received_ranges={:?}; presentation_bytes={}; packed_transcript_bytes={}; notary_verifying_key_bytes={}",
         sent_ranges,

@@ -679,7 +679,8 @@ Its generator is
 `packages/FUSOU-TLSN-VERIFIER/fixtures/alpha15-clean-upstream-sparse-generator/`,
 whose Cargo dependencies are pinned to clean upstream commit
 `47aee45b53e06648c1b2ad3689b367b8c923fdec`. The generator invokes upstream
-`Presentation::verify` before serializing. The fixed Presentation is 5,510
+`Presentation::verify` before serialization and then deserializes and verifies
+the serialized bytes before writing outputs. The fixed Presentation is 5,510
 bytes with SHA-256
 `936c9fdf1c73f422c33ccf3899bf75986badc340c5e0ab7f611661e979d6fde4`.
 Its 132-byte serialized packed transcript is checked in separately with SHA-256
@@ -692,16 +693,27 @@ is test material only and is not a Production trust registration.
 The sample discloses request bytes `[0,3)` and `[10,16)` from a 35-byte
 request, and response bytes `[0,3)` and `[137,145)` from a 145-byte response.
 The checked-in vector records the exact opened bytes, source fixture hashes,
-range convention, generator revision, and output hashes. The Rust
+range convention, generator revision, generator source/manifest/lock hashes,
+and output hashes. The Rust
 `clean_upstream_sparse_fixture_verifies_with_patched_backend` test verifies
 the Presentation with the patched adapter and fixture Notary key, checks the
 authenticated ranges and total transcript lengths, and compares the patched
 serializer's `PartialTranscript` bytes exactly with the upstream-generated
-sidecar. Flipping the final serialized opening byte is rejected by
+sidecar. It also checks the recorded generator source/manifest/lock hashes
+and verifying-key length against the checked-in artifacts. Flipping the final
+serialized opening byte is rejected by
 `Presentation::verify`. For this serialization, the source field order places
 the final `PlaintextHashSecret` blinder at the end of the `TranscriptProof`;
-the mutation result is a test observation, not a newly standardized mutation
-rule.
+the test requires a `PresentationVerification` error for this mutation, after
+decoding and trailing-byte checks have succeeded. Truncation is expected to
+fail as `PresentationDecode`; an appended byte is expected to fail the
+explicit trailing-byte check with the `trailing Presentation bytes` message
+inside `PresentationDecode`. These observations do not establish every
+possible opening mutation rule. The generator creates each output with
+`create_new` so it refuses to overwrite an existing file. It writes the
+Presentation and binary sidecars only; the JSON vector remains the expectation
+record for the fixed checked-in sample and is not regenerated from randomized
+output.
 
 Classify this fixture as **separate checkout/revision implementation-derived
 (category 3)**, not as an independent implementation or external normative
@@ -756,8 +768,9 @@ Commands were run from the repository root:
 
 | Command | Result | Scope |
 | --- | --- | --- |
-| `cargo run --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/fixtures/alpha15-clean-upstream-sparse-generator/Cargo.toml -- /tmp/fusou-alpha15-clean-upstream-sparse.presentation` | Succeeded; clean-upstream `Presentation::verify` passed; emitted a 5,510-byte Presentation, 132-byte packed transcript, and 42-byte test Notary key | Generator is pinned to upstream commit `47aee45b53e06648c1b2ad3689b367b8c923fdec`; Presentation bytes vary due upstream randomness |
-| `cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml clean_upstream_sparse_fixture_verifies_with_patched_backend` | 1 passed | Cross-revision sparse Presentation characterization; exact packed sidecar comparison and opening-byte mutation rejection |
+| `cargo run --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/fixtures/alpha15-clean-upstream-sparse-generator/Cargo.toml -- /tmp/fusou-alpha15-clean-upstream-review.presentation` | Succeeded; generated 5,510 bytes; new Presentation SHA-256 `1d0e7d3af873100bd11829555d68fc513425e8483051de0aa78bccae850c4d7f`; packed sidecar and public key matched checked-in files byte-for-byte | The generator verifies the serialized Presentation with clean upstream; randomized UID/blinder explain the differing Presentation digest |
+| `cargo run --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/fixtures/alpha15-clean-upstream-sparse-generator/Cargo.toml -- packages/FUSOU-TLSN-VERIFIER/fixtures/tlsn-alpha15-clean-upstream-sparse-presentation.bin` | Expected failure (`AlreadyExists`); tracked Presentation SHA-256 remained `936c9fdf1c73f422c33ccf3899bf75986badc340c5e0ab7f611661e979d6fde4` | Confirms `create_new` prevents an explicitly targeted tracked fixture from being overwritten |
+| `cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml clean_upstream_sparse_fixture_verifies_with_patched_backend` | 1 passed | Cross-revision sparse Presentation characterization; exact packed sidecar comparison; truncation/trailing failures classified as decode; opening-byte mutation classified as Presentation verification failure |
 | `cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml alpha15` | 20 passed, 71 filtered; 3 offline CLI tests filtered | FUSOU alpha.15 adapter, including the new sparse fixture; not a full crate run |
 | `FUSOU_SYNTHETIC_PROOF_MODE=sparse cargo test --locked --offline --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn synthetic_transport_uses_alpha15_and_preserves_wire_bytes` | 1 passed, 95 filtered | Generated synthetic sparse Presentation integration; emitted an existing unused-import warning |
 | `node --test packages/FUSOU-TLSN-VERIFIER/tests/p010-corpus.test.mjs` | 8 passed | Node Result/receipt corpus, including FUSOU Result range framing; not TLSN sparse bytes |
