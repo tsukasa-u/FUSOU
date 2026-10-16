@@ -1631,4 +1631,44 @@ wire-compatibility, or release approval. Reviewer decisions remain `PENDING`;
 P0-01 remains `BLOCKED_EXTERNAL_INPUTS`. See the
 [alpha.15 audit dossier](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
 for the diff matrix, test limits, risk register, and required approval
-evidence. No tests were rerun as part of this documentation continuation.
+evidence.
+
+### Trust-policy and no-syscall follow-up
+
+The trust-path audit confirms separate authorities for origin Web PKI,
+TLSNotary Notary keys, Result signing keys, Session Authority receipts,
+Runtime Config, and offline Evidence Bundle verification. Origin capture uses
+platform-native roots; the resolved APP/Proxy `reqwest 0.12.28` graph loads
+both native and WebPKI roots for its HTTPS clients; alpha.15's default
+`CryptoProvider` uses Mozilla roots; the offline Evidence Bundle verifier
+requires an external DER origin anchor and uses that root alone for
+Presentation verification. These are observed implementation paths, not an
+approved common-root policy. The Notary socket is a raw `TcpStream`; its
+Presentation key allowlist authenticates proof output but does not itself
+establish Web PKI for the Notary transport.
+
+The APP Runtime Config bootstrap remains blocked: its embedded manifest URL,
+signer key ID, and signer SPKI are unset, so refresh fails before fetching and
+there is no unsigned fallback. The Target Approval artifact is digest-bound
+through the signed manifest, while the approval authority and approval record
+remain external trust decisions.
+
+The current local no-syscall rerun was:
+
+```text
+RUSTFLAGS='--cfg getrandom_backend="unsupported"' cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-attestation --test no_syscall_verify
+```
+
+It passed 1/1 with local rustc/cargo 1.98.1; the pinned upstream CI workflow
+declares Rust 1.95.0. The test dependency closure includes `getrandom 0.3.4`
+and `0.2.17`; only the former uses this `unsupported` backend configuration.
+The result therefore supports success with the `0.3.4` backend disabled, not a
+general no-syscall guarantee. The test is not a syscall tracer, and no
+system-wide syscall claim is made. No other tests, Hosted CI, external
+services, or real testplay were run for this follow-up.
+
+Disposition remains P0-01 `BLOCKED_EXTERNAL_INPUTS`, P0-10 `UNRESOLVED`,
+Phase 0 runtime gate `BLOCKED`, WASM provenance `UNRESOLVED`, Hosted CI
+`NOT_RUN`, real TLSN testplay `NOT_RUN`, and Production acceptance `BLOCKED`.
+Trust-path details and the exact test evidence are recorded in the
+[alpha.15 audit dossier](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).

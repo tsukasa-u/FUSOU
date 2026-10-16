@@ -345,7 +345,20 @@ Three test-only fixture packages (42 files) were restored from pinned upstream
 revision `47aee45b53e06648c1b2ad3689b367b8c923fdec` after verifying their Git
 blob IDs. The 14-member sparse workspace now has a tracked subset lockfile.
 Focused `tlsn-core test_partial_transcript` tests passed (10/10), as did
-`tlsn-attestation --test no_syscall_verify` (1/1), using `--locked --offline`.
+`tlsn-attestation --test no_syscall_verify` (1/1) with the upstream CI
+compile-time setting, using `--locked --offline`:
+
+```text
+RUSTFLAGS='--cfg getrandom_backend="unsupported"' cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-attestation --test no_syscall_verify
+```
+
+The upstream alpha.15 CI workflow pins Rust 1.95.0; the local rerun used
+rustc/cargo 1.98.1. The lockfile's host test dependency closure includes
+`getrandom 0.3.4` and `0.2.17`; only 0.3.4 honors this backend selection.
+The test verifies one full-disclosure fixture and asserts a verified server
+name and transcript are present. Its pass is evidence that this path succeeds
+with the 0.3.4 backend disabled, not proof that every dependency avoids
+syscalls; it does not trace syscalls or establish system-wide syscall absence.
 Full offline `cargo metadata` remains blocked by uncached `wasip2`; the focused
 host-target tests do not require it. This repairs the local test source closure
 only: it does not establish a sparse golden vector, a normative wire contract,
@@ -409,6 +422,14 @@ The bundle is not a trust anchor. The verifier requires these external inputs:
   trust sets. Both are required for this Production evidence verifier;
 - `--trust-anchor-der`: the externally supplied origin trust root, which must
   match the captured `trust_root` artifact byte-for-byte.
+
+These trust stores are separate by design in the current implementation:
+Production origin capture uses platform-native roots, alpha.15
+`CryptoProvider::default()` uses Mozilla roots, and offline Presentation
+verification replaces that default with only the externally supplied DER
+anchor. APP/Proxy `reqwest 0.12.28` clients use both native and WebPKI roots in
+the resolved feature graph for HTTPS control-plane requests. No common-root
+equivalence is implied or independently approved.
 
 The verifier authenticates the exact raw Result registry bytes with the
 Evidence Root-signed registry envelope, derives the Result signer by testing
