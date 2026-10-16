@@ -4,7 +4,7 @@
 
 | Item | Status | Evidence and remaining condition |
 | --- | --- | --- |
-| P0-01 technical revision mapping | `PASS` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The upstream tag/commit and dependency graph are identified below. The verifier executes local path-patched TLSN sources that diverge from upstream; independent compatibility, security, and license approval is still required. |
+| P0-01 technical revision mapping | `PASS_EVIDENCE` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The pinned upstream and direct dependency paths are mapped, including all observed TLSN production-source changes and the `tlsn-mux` path patch. Independent compatibility, security, and license approval is still required. |
 | P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, canonical JSON encoding, and Node invocation of the packaged Rust/WASM verifier are covered locally. |
 | P0-10 cross-language determinism | `UNRESOLVED` | A shared local corpus now covers Complete Result v2, Sparse Result v3, Session/consume receipt signing bytes, Result range bytes, and contract-required rejection cases in separate Rust and Node reference tests. The corpus is generated independently of production serializers but is source-derived, test-only, and not an owner-approved normative oracle. This continuation confirmed that the documented 8-field/11-field ClaimBindingBytes layouts have no recorded precedence or supersession, and that receipt JSON canonicalization/unknown-field policy has no approved wire contract. Claim, receipt JSON policy, TLSN sparse Presentation bytes, WASM provenance, and Production-shaped evidence remain unresolved. |
 | Phase 0 runtime gate | `BLOCKED` | The P0-02 local contract evidence does not approve the locally patched TLSN revision or satisfy the other Phase 0 gates. Production acceptance remains `NO-GO`. |
@@ -807,3 +807,178 @@ independent golden vector or a normative contract. P0-01 remains
 `BLOCKED_EXTERNAL_INPUTS`; Phase 0 runtime gate remains `BLOCKED`; Hosted CI
 and real Game Server testplay remain `NOT_RUN`; Production acceptance remains
 `BLOCKED`.
+
+## P0-01 independent source review package
+
+This continuation supersedes the earlier provisional source-map statements
+above wherever they said that the `tlsn` verifier changes or the local
+`tlsn-mux` source identity were not yet determined. It records source
+observations for human review; it does not perform or imply approval.
+
+### Review execution and comparison method
+
+- The working branch was `tlsn-first-testplay-candidate` at
+  `3c75454e73d48162d161a3c24e172145be777610`, tracking
+  `origin/tlsn-first-testplay-candidate` at `0 ahead / 0 behind`. The prior
+  audit commit `3c75454e...` was an ancestor of HEAD.
+- The only pre-existing worktree changes were the user-owned `justfile` and
+  APP `src-tauri/roaming/user/configs.toml`. Neither was read, changed,
+  staged, or committed. No paths were staged at the start.
+- The clean TLSNotary source was already present in the local Cargo Git cache
+  at exact commit `47aee45b53e06648c1b2ad3689b367b8c923fdec`; no fetch or
+  network access was used. Its tracked files were clean; Cargo had left an
+  untracked `.cargo-ok` cache marker. The `tlsn-utils` checkout was at exact
+  commit `64722f7de999cbd41c0cab7312dade306d50ea5f`.
+- The comparison used the cached pinned worktrees and the tracked FUSOU path
+  sources. The TLSNotary code differences in the relevant crate directories
+  are exactly `core/src/transcript.rs`,
+  `core/src/transcript/proof.rs`,
+  `tlsn/src/transcript_internal/auth.rs`,
+  `tlsn/src/verifier/verify.rs`, and test-only
+  `attestation/tests/api.rs`. No production `Presentation::verify`,
+  Attestation signature-verification, or identity-proof source file differs.
+- The local `tlsn-mux` package manifest matches the pinned `mux/mux` manifest.
+  Its code difference is limited to the default stream-count and
+  connection-receive-window values in `src/lib.rs`; its local README and
+  license files are also not byte-identical to the pinned parent-directory
+  files. The relevant path is tracked in FUSOU.
+- No code, fixture, Cargo manifest, lockfile, or WASM artifact was changed in
+  this review. The focused test results below are previous recorded local
+  results; no tests were rerun here. No Hosted CI or external operation was
+  performed.
+
+### Actual dependency closure and source identity
+
+| Consumer | Declared dependency and effective source | Lock/source evidence and scope |
+| --- | --- | --- |
+| APP | `tlsn-attestation` declares TLSNotary alpha.15; `[patch]` maps `tlsn`, `tlsn-attestation`, and `tlsn-core` to `packages/tlsn-alpha15-sparse`. A separate `tlsn-utils` patch maps `tlsn-mux` to `packages/tlsn-mux-alpha15`. | APP `Cargo.lock` records patched path packages without a Git source. The `tlsn-utils` revision is `64722f7de999cbd41c0cab7312dade306d50ea5f`. |
+| HTTPS Proxy | `tlsn` and `tlsn-formats` declare alpha.15; `[patch]` maps `tlsn`, `tlsn-attestation`, and `tlsn-core` to the same sparse source. Its `tlsn-utils` patch maps `tlsn-mux` to the FUSOU path package. | Proxy `Cargo.lock` records patched path packages and the full `tlsn-utils` revision above. |
+| Dedicated Verifier | `tlsn`, `tlsn-attestation`, and `tlsn-core` declare alpha.15 and are patched to the sparse source. It has no `tlsn-utils` `[patch]`. | Verifier `Cargo.lock` resolves `tlsn-mux` from the pinned `tlsn-utils` Git revision, not from `packages/tlsn-mux-alpha15`. The offline Presentation verification path does not itself open mux streams, but this remains a distinct compiled dependency source. |
+| Clean-upstream sparse generator | Direct TLSNotary Git dependencies use `47aee45b53e06648c1b2ad3689b367b8c923fdec`; it does not use the FUSOU path patch. | Its separate manifest and lockfile provide the clean-upstream side of the category-3 fixture comparison. |
+| Sparse TLSNotary workspace | The tracked sparse subset is the FUSOU source import; its manifest pins relevant `tlsn-utils` Git dependencies to `64722f7` and its lock resolves the full revision. | The subset lock uses `rangeset 0.4.0`. Downstream APP, Proxy, Verifier, and clean generator locks resolve `rangeset 0.4.1`. |
+
+The Cargo manifests name the upstream revision even where `[patch]` makes
+local paths the effective source. Consequently the lockfiles do not, by
+themselves, identify the contents of the patched TLSN crates. The relevant
+local source is tracked in FUSOU and was compared against the pinned checkout.
+The verifier's `tlsn-mux` source identity is independently mapped to the
+locked `tlsn-utils` commit; APP and Proxy instead build the local changed
+defaults. Other locked Git dependencies, including the recorded `mpz` and
+`rs-merkle` revisions, were not independently security-reviewed in this
+continuation. This is direct dependency/source mapping evidence, not a
+security review of the full transitive dependency set.
+
+No separate tracked FUSOU Notary Cargo manifest was found in the inspected
+Cargo manifests. Therefore the local evidence establishes the mux patch in
+APP and Proxy only. It does not establish which mux source or resource limits
+an external Notary deploys, nor that both MPC endpoints require identical
+local defaults.
+
+### Security-relevant source differences
+
+| Source | Pinned alpha.15 behavior | FUSOU behavior and security/compatibility effect | Existing evidence and limit |
+| --- | --- | --- | --- |
+| [`transcript.rs`](../../packages/tlsn-alpha15-sparse/crates/core/src/transcript.rs), `PartialTranscript` | Sparse transcript materialization used an original-length buffer with zeroes in undisclosed positions. | Stores authenticated bytes packed in range order, direction-specific `RangeSet<usize>` indices, and original total lengths. `copy_authenticated_to` checks total-length bounds and that requested ranges are a subset of authenticated ranges. `materialize_sent`/`materialize_received` still zero-fill only as explicit compatibility operations and are documented not to be used for cryptographic verification. This changes memory and internal serialization representation, not the TLSN opening algorithm by itself. | `test_partial_transcript` covers construction, length/range validation, serialization roundtrip, union, and subsequence cases; the clean-upstream sample checks one exact packed sidecar. General adversarial/property testing and independent decoding are absent. |
+| [`proof.rs`](../../packages/tlsn-alpha15-sparse/crates/core/src/transcript/proof.rs), `TranscriptProof::verify_with_provider` | Read each opening from the full transcript buffer after checking its end bound. | Checks the partial transcript direction/length, reads opening bytes only via `copy_authenticated_to`, recomputes the hash with the opening blinder, matches the commitment, and requires the union of verified opening ranges to equal the transcript's authenticated ranges. The verification obligations remain present; the changed source of bytes is security-critical. | The sparse fixture rejects a changed opening; core tests cover out-of-bounds and commitment mismatch cases. A single changed final byte does not prove every malformed opening case. |
+| [`auth.rs`](../../packages/tlsn-alpha15-sparse/crates/tlsn/src/transcript_internal/auth.rs) and [`verify.rs`](../../packages/tlsn-alpha15-sparse/crates/tlsn/src/verifier/verify.rs) | Plaintext authentication received a full contiguous plaintext slice and indexed it for revealed ranges. | Receives the verified `PartialTranscript` plus direction. Full disclosure reads the full authenticated range; sparse disclosure copies each revealed range from authenticated packed bytes, while unrevealed committed bytes remain blind for the ZK path. Sparse read errors become `PlaintextAuthError::Sparse` and propagate through `Result`; no catch-and-continue path was found. | The synthetic sparse Proxy test covers the local path; focused verifier tests cover parsing and sparse reads. They do not independently prove the MPC/ZK implementation for all adversarial record/range combinations. |
+| `attestation/tests/api.rs` | Upstream test code read `sent_unsafe` / `received_unsafe`. | Test-only calls use the explicit zero-filling `materialize_*` API. No production Attestation or `Presentation` verifier source changed in this crate. | This is source compatibility for tests, not independent evidence about the changed cryptographic path. |
+| [`tlsn-mux-alpha15/src/lib.rs`](../../packages/tlsn-mux-alpha15/src/lib.rs) | Default maximum was 512 streams and a 1 GiB aggregate receive-window ceiling. | Default maximum is 10,240 streams and aggregate receive-window ceiling 2.5 GiB to satisfy the crate's `256 KiB * max_num_streams` invariant. Frame encoding and stream protocol source are unchanged. The ceiling is a larger per-connection resource envelope; this review found no evidence that the entire ceiling is eagerly allocated. | No FUSOU test was identified that exercises memory pressure or adversarial stream growth at the changed defaults. The change needs resource/DoS review; it is not a demonstrated exploit. |
+| Bincode / `RangeSet` | Pinned alpha.15 lock uses `bincode 1.3.3` and `rangeset 0.4.0`. | Downstream runtime locks use `bincode 1.3.3` and `rangeset 0.4.1`; the latter changes `union_mut` and `difference_mut` algorithms but retains the `Vec<Range<T>>` Serde conversion. Bincode's legacy helper functions use fixed-width little-endian encoding and `deserialize_from` allows trailing bytes; the FUSOU adapter checks the cursor against the exact Presentation byte length and rejects trailing data. Range deserialization normalizes through `RangeSet::from`, so noncanonical range lists are not necessarily rejected as noncanonical. | The generator and downstream verifier both resolve 0.4.1 for the fixture comparison; the sparse-workspace unit-test lock uses 0.4.0. One exact sample does not establish all serialization/version behavior or an owner-approved malformed-wire policy. |
+
+`Presentation::verify` remains the upstream alpha.15 implementation: it
+verifies the Attestation, then any included server-identity proof, then any
+included transcript proof. The FUSOU adapter additionally rejects trailing
+Presentation bytes and requires verified server identity and transcript
+outputs. A call with no trusted Notary key proves the signature relative to
+the embedded key, not that the key is an authorized Notary. The production
+Evidence Bundle path supplies externally pinned Notary registry material and
+an explicit trust anchor; the `RealAlpha15DedicatedVerifier` path supplies a
+trusted Notary key and uses the default Mozilla certificate roots during
+Presentation verification. Its capture-side TLS configuration loads the
+platform native certificate roots. These are distinct trust inputs and their
+intended equivalence has not been approved or tested across divergent root
+sets.
+
+### Existing test and evidence map
+
+The outcomes below are previous recorded local results, not reruns in this
+continuation.
+
+| Test/evidence | Input and implementation path | Assertions and expected-value independence | What it does not establish |
+| --- | --- | --- | --- |
+| `clean_upstream_sparse_fixture_verifies_with_patched_backend` | Fixed 5,510-byte Presentation generated and verified by the clean checkout at `47aee45...`; patched FUSOU adapter verifies it using the fixture's 42-byte public Notary key. | Checks generator/manifest/lock hashes, fixture and sidecar lengths/hashes, direction-specific half-open ranges, disclosed bytes, total transcript lengths, no fabricated full digest, and exact equality of packed `PartialTranscript` bytes to the clean-upstream sidecar. Truncation and trailing bytes are classified as decode failures; final opening-byte mutation is classified as Presentation verification failure. | Category-3 same-codebase characterization only. The expected sidecar is not an independent implementation oracle or normative contract; the mutation assertion does not identify the failing proof sublayer. |
+| `real_alpha15_fixture_verifies_with_pinned_backend` | 5,394-byte full-disclosure upstream fixture. | Checks fixture hash/length, Attestation ID encoding, included Notary key serialization, server identity, full transcript digests/ranges, and a profile/parser rejection. | Calls the no-allowlist helper; it does not establish Notary authorization. It is full disclosure, not sparse proof interoperability. |
+| `cargo test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml alpha15` | Recorded result: 20 passed, 71 filtered; 3 offline CLI tests also filtered. | Exercises the FUSOU alpha.15 adapter and its local unit cases. | Focused filter only, not the entire Verifier suite, external Notary/Origin authority, or Production evidence. |
+| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-core test_partial_transcript` | Recorded result: 10 passed; sparse-workspace lock uses `rangeset 0.4.0`. | Exercises partial transcript bounds, length consistency, serialization roundtrip, union, and subsequence behavior. | Not the downstream 0.4.1 runtime dependency and not independent cryptographic verification. |
+| `cargo test --locked --offline --manifest-path packages/tlsn-alpha15-sparse/Cargo.toml -p tlsn-attestation --test no_syscall_verify` | Recorded result: 1 passed; full-disclosure fixture. | Calls upstream `Presentation::verify` and checks that server name and transcript are present. | The recorded command does not include the test comment's `RUSTFLAGS='--cfg getrandom_backend="unsupported"'`; absent that build setting, the result does not prove the path makes no OS RNG syscalls. It does not test Notary allowlisting. |
+| `FUSOU_SYNTHETIC_PROOF_MODE=sparse cargo test --locked --offline --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml --features synthetic-tlsn synthetic_transport_uses_alpha15_and_preserves_wire_bytes` | Recorded result: 1 passed; runtime-generated local sparse Presentation, test Notary key, and test root certificate. | Checks serialization/wire-byte retention, cryptographic verification by the patched backend with explicit test root/key, disclosed profile fields, and rejection of a parser read crossing an undisclosed gap. | Producer and verifier are the same FUSOU/TLSN code lineage; no independent expected Presentation bytes, production Notary, or real server. |
+| `node --test packages/FUSOU-TLSN-VERIFIER/tests/p010-corpus.test.mjs` | Recorded result: 8 passed; Rust/Node shared FUSOU Result and receipt corpus. | Independently in JavaScript encodes/checks FUSOU Result range framing, Result/receipt JSON and signing bytes against corpus expectations. | Does not decode TLSN bincode or verify Presentation proof openings; Node-to-WASM is not an independent JavaScript TLSN verifier. |
+| `src/evidence_bundle.rs` offline verifier tests | Local fixed/test artifacts and mutation cases; `verify_bundle` requires Result, Presentation, registries, root, Target Approval, session/device artifacts, and semantic/capture records. | Tests include signed Presentation hash binding, Notary-key validation, current Target Approval/trust-set checks, and contract mutation rejection. The verifier code re-verifies the Presentation and compares derived Result fields against external registry/config inputs. | No successful real Production-shaped Evidence Bundle or external deployment evidence was found. Source-level implementation and unit tests are not Production acceptance. |
+
+### License and attribution observations
+
+- Pinned TLSNotary alpha.15 contains root `LICENSE-MIT` and
+  `LICENSE-APACHE` files; its README says all repository crates are dual
+  licensed MIT OR Apache-2.0. Several package manifests, including
+  `tlsn-attestation`, `tlsn-data-fixtures`, and
+  `tlsn-server-fixture-certs`, omit a `license` field. The imported
+  `packages/tlsn-alpha15-sparse` subset contains no root license files.
+  `tls-server-fixture` does declare `MIT OR Apache-2.0`.
+- The local `tlsn-mux` package manifest declares `MIT OR Apache-2.0`, but its
+  local `LICENSE-MIT` names `sinu` (2023), whereas pinned
+  `tlsn-utils/mux/LICENSE-MIT` names Parity Technologies (2018). The local
+  `LICENSE-APACHE` omits the upstream Appendix after “END OF TERMS AND
+  CONDITIONS”. These are observed text differences, not a determination that
+  either file is or is not legally sufficient.
+- The clean-upstream sparse generator's `[42; 32]` signing key and checked-in
+  serialized verifying key are test-only. The checked-in key fixture is
+  public verifying material, not a Production trust registration. This does
+  not settle source license, generated fixture, restored test-crate, or
+  attribution obligations.
+- No independent license/legal approval, notice inventory sign-off, or
+  distribution decision is recorded. Do not edit or replace license files as
+  part of this audit.
+
+### Risk register for review
+
+No confirmed exploitable vulnerability was established by this source review.
+“Review priority” is not a vulnerability-severity finding.
+
+| ID | Severity / rationale | Trigger and trust boundary | Existing mitigation | Unresolved evidence / additional work | Required disposition |
+| --- | --- | --- | --- | --- | --- |
+| P0-01-R1 | `UNASSESSED; HIGH review priority`: the sparse patch changes which bytes feed proof-opening verification. | Malformed, overlapping, out-of-bounds, or incomplete ranges at the Presentation-to-authenticated-transcript boundary. | Bounds and authenticated-subset checks; hash-opening-to-commitment matching; exact authenticated-range coverage; failures propagate. | Independent security review; fuzz/property tests for range normalization, lengths, packed offsets, and opening/commitment coverage; adversarial cases across runtime lock versions. | Independent security reviewer must approve or request fixes/evidence. |
+| P0-01-R2 | `MEDIUM`: a trust-policy mismatch can reject valid captures or permit verification under a different root set than intended. | Capture uses native platform roots; `CryptoProvider::default()` uses Mozilla roots; offline bundle verification takes an explicit external trust anchor. | DNS name is checked against the verified Presentation identity; production Evidence Bundle compares its trust-root artifact to the externally supplied DER anchor. | Specify the intended Web PKI root source and test parity/mismatch cases, including the `RealAlpha15DedicatedVerifier` path. | Protocol/security owner decision and targeted test evidence. |
+| P0-01-R3 | `MEDIUM`: semver-compatible `RangeSet` source versions have different mutation algorithms and workspace/runtime lock skew. | Range union/difference and serialization behavior when ranges are normalized or deserialized across the 0.4.0/0.4.1 boundary. | Both versions use the `Vec<Range<T>>` Serde conversion; downstream clean generator and verifier both lock 0.4.1 for the one sample. | Differential/property tests against both versions and an owner-approved canonical/malformed range policy. | Protocol owner approval or additional evidence; do not treat one fixture as general proof. |
+| P0-01-R4 | `UNASSESSED; HIGH resource-review priority`: the mux's permitted per-connection limits increase substantially. | Remote stream growth against APP/Proxy connections using 10,240 streams and a 2.5 GiB receive-window ceiling. | Window cap remains finite; flow-control invariant ties the configured cap to stream count. | Measure actual allocation behavior; run bounded resource/DoS tests under the changed defaults; establish external Notary configuration and peer compatibility. | Security/release authority review; change defaults only through an approved decision. |
+| P0-01-R5 | `UNASSESSED; legal/distribution blocker`: local mux notices differ and the imported sparse subset omits upstream root license files. | Distribution of patched/copied TLSNotary and `tlsn-mux` source or binaries. | Upstream root dual-license statement and package-level metadata exist for some, not all, packages. | Provenance, notice, license applicability, and restored/generated test-source inventory reviewed by authorized legal/licensing authority. | Legal approval or documented remediation before distribution; no coding-AI judgment. |
+| P0-01-R6 | `MEDIUM`: APP/Proxy and Verifier compile different `tlsn-mux` source paths. | Any behavior relying on mux default resource limits across these components or an external Notary. | The observed source difference is configuration defaults only; Presentation verification does not operate a mux stream. | Confirm deployed endpoint roles and configuration; add cross-endpoint integration evidence if mux resource behavior is part of the protocol. | Protocol/release authority decision; external Notary source remains `UNKNOWN`. |
+
+### Decisions required from authorized reviewers
+
+All decisions below are `PENDING`; this audit author is not an approving
+authority.
+
+| Reviewer | Evidence to review | Approve only if | Reject or request more evidence if |
+| --- | --- | --- | --- |
+| Security reviewer | Pinned upstream diff, all four TLSN production-source changes, proof-opening/error propagation, trusted-key/root call paths, fixture limitations, and mux resource change. | Independent review finds the retained TLSN cryptographic obligations sound for the supported targets and the operational/resource bounds acceptable; findings and test evidence are recorded. | Any proof/range invariant, trust input, error path, or resource limit is unclear or lacks adversarial test evidence. |
+| TLSN/FUSOU protocol owner | Bincode/range encoding, `.4.0`/`.4.1` source skew, packed transcript structure, exact sample/sidecar, Result boundary, versioning and compatibility matrix. | An owner-approved versioned wire contract fixes field order, serializer options, range normalization, malformed-input behavior, and compatibility policy; independent vectors/tests match it. | The contract or precedence is ambiguous, or a same-codebase sample is being treated as a normative oracle. |
+| License/legal authority | Upstream root licenses/README, copied source provenance, local mux MIT/Apache differences, sparse subset omissions, package metadata, restored test-only crates and generated fixtures. | License choice, notices, attribution, redistribution, and test-fixture treatment are documented for the intended distribution. | Ownership, permission, notice completeness, or license applicability is uncertain. |
+| Release authority | Security/protocol/legal outcomes, exact source and lock identities, test scope, runtime/Notary role, and intended first-testplay versus later-production use. | The exact revision/patch is explicitly authorized for a bounded scope with remaining gates and rollback/retirement conditions recorded. | Any mandatory approval remains pending, source identity differs, or the proposed scope depends on an unapproved exception. |
+
+### P0-01 sub-dispositions
+
+| Sub-item | Status | Meaning |
+| --- | --- | --- |
+| Pinned TLSNotary alpha.15 revision identity | `PASS_EVIDENCE` | Exact cached upstream commit and declared Git revision agree; no external fetch was needed. |
+| TLSN patched-source correspondence | `PASS_EVIDENCE` | Relevant local crate trees were compared; exact production and test-only differing files are listed above. |
+| `tlsn-mux` source identity | `PASS_EVIDENCE` | Local package maps to the pinned `tlsn-utils` revision with a precisely bounded source-default diff; notices are separately unresolved. |
+| Direct dependency closure and lockfile mapping | `PASS_EVIDENCE` | APP, Proxy, Verifier, generator, and sparse workspace effective sources are distinguished. This is not a transitive dependency security audit. |
+| Independent security review | `UNRESOLVED` | No authorized independent security review was performed or recorded. |
+| License/attribution review | `BLOCKED_EXTERNAL_INPUTS` | Human legal/licensing decision and notice disposition are required. |
+| Compatibility and normative wire contract | `UNRESOLVED` | Same-codebase characterization exists; no owner-approved contract or independent sparse golden exists. |
+| Human approval record | `BLOCKED_EXTERNAL_INPUTS` | No reviewer decision or release authorization is recorded. |
+| P0-01 overall | `BLOCKED_EXTERNAL_INPUTS` | Do not promote until required independent review and approvals are actually recorded. |
+
+P0-10 remains `UNRESOLVED`; Phase 0 runtime gate remains `BLOCKED`; WASM
+provenance remains `UNRESOLVED`; Hosted CI remains `NOT_RUN`; real TLSN
+testplay remains `NOT_RUN`; Production acceptance remains `BLOCKED`.

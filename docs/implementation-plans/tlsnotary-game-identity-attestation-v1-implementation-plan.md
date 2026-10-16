@@ -1613,3 +1613,22 @@ candidate launcher, which would temporarily modify the latter.
 Disposition remains: P0-01 `BLOCKED_EXTERNAL_INPUTS`; P0-10 `UNRESOLVED`;
 Phase 0 runtime gate `BLOCKED`; WASM provenance `UNRESOLVED`; Hosted CI
 `NOT_RUN`; real TLSN testplay `NOT_RUN`; Production acceptance `BLOCKED`.
+
+### P0-01 alpha.15 source review package
+
+The follow-on source comparison maps the effective APP, Proxy, Verifier,
+clean-generator, and sparse-workspace dependencies to their actual patched or
+Git sources. Besides the two sparse `tlsn-core` files, the local TLSN source
+also changes plaintext authentication and verifier call plumbing; production
+`Presentation::verify` and Attestation verification remain upstream. APP and
+Proxy use the locally patched `tlsn-mux` defaults, while the Verifier lockfile
+resolves the pinned upstream mux. The review also records native-versus-Mozilla
+certificate-root differences, `RangeSet` lockfile skew, and unresolved mux
+license-text differences.
+
+These are source-map and review-evidence findings, not a security, legal,
+wire-compatibility, or release approval. Reviewer decisions remain `PENDING`;
+P0-01 remains `BLOCKED_EXTERNAL_INPUTS`. See the
+[alpha.15 audit dossier](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md)
+for the diff matrix, test limits, risk register, and required approval
+evidence. No tests were rerun as part of this documentation continuation.

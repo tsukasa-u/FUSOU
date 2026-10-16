@@ -62,6 +62,15 @@ particular, the local `tlsn-core` transcript/proof implementation differs
 from upstream alpha.15. Independent compatibility, security, and license
 approval is still pending; see
 [`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+The updated source review identifies four production-source changes in the
+local TLSN subset (`tlsn-core` transcript/proof and `tlsn` plaintext
+authentication/verifier plumbing), plus a test-only Attestation API change.
+`Presentation::verify` itself remains the pinned upstream implementation.
+APP and Proxy patch `tlsn-mux` to local resource defaults; the Verifier lockfile
+uses the pinned upstream mux. The source mapping is now evidenced, but
+independent security, wire-contract, license, and release decisions remain
+pending. P0-01 remains `BLOCKED_EXTERNAL_INPUTS`; see the dossier for the
+complete diff, trust-root path, risk, and approval tables.
 The runtime dependency is currently used by the local transport skeleton and
 offline tests. It is not wired into a production FUSOU-App origin transport, a
 production Verifier service, or a Notary service.
