@@ -1576,3 +1576,40 @@ test 1件、feature-gated synthetic sparse Proxy test 1件がpassした。全体
 P0-10 は `UNRESOLVED`、P0-01 は `BLOCKED_EXTERNAL_INPUTS`、Phase 0 runtime
 gate は `BLOCKED` のままとする。Hosted CI／実ゲーム testplay は
 `NOT_RUN`、Production acceptance は `BLOCKED` のまま維持する。
+
+### First real-game testplay end-to-end readiness checkpoint
+
+The source-level readiness audit is recorded in the
+[Production evidence operator runbook](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md).
+It distinguishes the first real-game TLSN exchange from final Production
+acceptance and records the gate dependencies, owners, completion evidence and
+known source-coverage limits.
+
+Current direct blockers include the unregistered APP Runtime Config bootstrap
+(embedded endpoint and signer pins are unset and bootstrap fails closed) and
+the mandatory pre-capture check that the selected route is already covered by
+verified Target Approval. The candidate pre-capture report does not fetch the
+signed Runtime Config, start the proxy, or authorize gameplay. No target
+hostname or approval was supplied. Supabase Auth, device-key possession and
+Session Authority receipt verification are separate boundaries; the tracked
+checkout does not contain the Session Authority service handler or the
+documented WEB device-identity endpoint.
+
+The tracked Worker package does not contain the Production runtime, Result /
+receipt handler, archive implementation or capture collector. This is
+`NOT_IMPLEMENTED` in the checked-out source and leaves any external deployment
+`UNKNOWN`; it is not evidence that a deployed service is absent. The APP
+Result client and offline verifier do not establish the external Worker's
+Result issuance, archive retention or WASM provenance.
+
+P0-10 is not directly checked by the local candidate pre-capture helper, but
+the Phase 0 plan remains NO-GO and no approved narrow testplay exception was
+found. It must not be treated as a Production-only concern or bypassed by
+labeling a real exchange exploratory. The `app-build-handoff` requires an
+approved clean source checkout; this audit preserved the pre-existing
+user-owned `justfile` and APP `configs.toml` changes and did not run the
+candidate launcher, which would temporarily modify the latter.
+
+Disposition remains: P0-01 `BLOCKED_EXTERNAL_INPUTS`; P0-10 `UNRESOLVED`;
+Phase 0 runtime gate `BLOCKED`; WASM provenance `UNRESOLVED`; Hosted CI
+`NOT_RUN`; real TLSN testplay `NOT_RUN`; Production acceptance `BLOCKED`.

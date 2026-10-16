@@ -309,6 +309,26 @@ real testplay, Production runtime verification, and Production acceptance
 were not run or promoted. This documentation-only audit did not rerun the
 previously reported local corpus tests.
 
+### First real-game testplay boundary
+
+This checkout provides the offline TLSN and Evidence Bundle verifiers, not a
+tracked Production Worker runtime, Session Authority service handler,
+Result/archive implementation, or Production evidence collector. The APP's
+Result verification and the offline verifier therefore do not prove that an
+external service generated a Result or retained the corresponding archives.
+The external deployment state is UNKNOWN until its source/version and execution
+evidence are independently supplied.
+
+The first real-game testplay is also blocked before capture by the unset,
+fail-closed APP Runtime Config bootstrap and the runtime requirement that the
+selected target already be in verified Target Approval. The source-level gate
+map and its external-input requirements are in the
+[operator runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md).
+P0-10 remains `UNRESOLVED`; the candidate pre-capture helper does not test it,
+and no approved testplay exception was found. A local verifier pass or
+category-3 fixture characterization is not a successful real testplay or
+Production acceptance.
+
 ### alpha.15 sparse-workspace test restoration
 
 The missing TLS server fixture manifest came from a partial source import.
