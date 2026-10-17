@@ -149,21 +149,78 @@ pub struct AuthenticatedTranscript {
     received_ranges: Vec<Range<usize>>,
 }
 
+/// Output produced by the verified alpha.15 adapter.
+///
+/// Its fields are intentionally not constructible or mutable outside this
+/// crate. This type is not itself a signed Result.
+///
+/// ```compile_fail
+/// use fusou_tlsn_verifier::tlsn_alpha15::AuthenticatedRequireInfo;
+///
+/// let _ = AuthenticatedRequireInfo {
+///     verified_member_id: String::new(),
+///     ..todo!()
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticatedRequireInfo {
-    pub verified_member_id: String,
-    pub binding: ParsedBinding,
-    pub server_identity: String,
-    pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
-    pub request_transcript_sha256: Option<[u8; 32]>,
-    pub response_transcript_sha256: Option<[u8; 32]>,
-    pub request_transcript_size: u64,
-    pub response_transcript_size: u64,
-    pub revealed_request_ranges: Vec<RevealedRange>,
-    pub revealed_response_ranges: Vec<RevealedRange>,
+    pub(crate) verified_member_id: String,
+    pub(crate) binding: ParsedBinding,
+    pub(crate) server_identity: String,
+    pub(crate) attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    pub(crate) request_transcript_sha256: Option<[u8; 32]>,
+    pub(crate) response_transcript_sha256: Option<[u8; 32]>,
+    pub(crate) request_transcript_size: u64,
+    pub(crate) response_transcript_size: u64,
+    pub(crate) revealed_request_ranges: Vec<RevealedRange>,
+    pub(crate) revealed_response_ranges: Vec<RevealedRange>,
 }
 
 impl AuthenticatedRequireInfo {
+    pub fn verified_member_id(&self) -> &str {
+        &self.verified_member_id
+    }
+
+    pub fn binding(&self) -> &ParsedBinding {
+        &self.binding
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+
+    pub fn attestation_id(&self) -> &[u8; MAX_ATTESTATION_ID_BYTES] {
+        &self.attestation_id
+    }
+
+    pub fn request_transcript_sha256(&self) -> Option<&[u8; 32]> {
+        self.request_transcript_sha256.as_ref()
+    }
+
+    pub fn response_transcript_sha256(&self) -> Option<&[u8; 32]> {
+        self.response_transcript_sha256.as_ref()
+    }
+
+    pub const fn request_transcript_size(&self) -> u64 {
+        self.request_transcript_size
+    }
+
+    pub const fn response_transcript_size(&self) -> u64 {
+        self.response_transcript_size
+    }
+
+    pub fn revealed_request_ranges(&self) -> &[RevealedRange] {
+        &self.revealed_request_ranges
+    }
+
+    pub fn revealed_response_ranges(&self) -> &[RevealedRange] {
+        &self.revealed_response_ranges
+    }
+
+    /// Constructs a Result object using the caller-supplied signature bytes.
+    ///
+    /// This method neither signs nor verifies the Result. Callers must perform
+    /// signature generation and verification through the appropriate authority.
     pub fn into_verifier_result(
         self,
         profile_sha256: [u8; 32],

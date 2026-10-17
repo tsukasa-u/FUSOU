@@ -9,8 +9,8 @@ use authenticity_auth::{
 };
 use authenticity_core::{AuthorityKeyId, ChallengeId, DeviceId, Digest, PrincipalId, SessionId};
 use authenticity_tlsn::{
-    PresentationVerifier, ServerCertificateTrust, TrustedNotaryKey, UntrustedPresentation,
-    VerifiedPresentation, default_spike_input_limit,
+    default_spike_input_limit, PresentationVerifier, ServerCertificateTrust, TrustedNotaryKey,
+    UntrustedPresentation, VerifiedPresentation,
 };
 use ed25519_dalek::{Signer, SigningKey};
 
@@ -241,6 +241,8 @@ async fn clean_upstream_presentation_auth_and_device_binding_emit_local_report()
     let json = report.to_json().unwrap();
     assert!(json.contains("SYNTHETIC_FIXTURE_AND_LOCAL_TEST_PROVIDER"));
     assert!(json.contains("VERIFIED_BY_PINNED_CLEAN_UPSTREAM"));
+    assert!(json.contains("VERIFIED_AGAINST_MOZILLA_WEB_PKI"));
+    assert!(json.contains("\"server_certificate_trust\": \"MOZILLA_WEB_PKI\""));
     assert!(json.contains("NOT_IMPLEMENTED"));
     assert!(json.contains("\"self_authenticating\": false"));
     assert!(!json.contains("local-test-token"));
@@ -344,19 +346,17 @@ async fn device_binding_rejects_mismatch_expiry_and_replay() {
         )
         .await
         .unwrap();
-    assert!(
-        !fixture
-            .replay_store
-            .consume_once(
-                fixture.challenge.payload().authority_key_id(),
-                ChallengeId::new([0x32; 16]),
-                &[0x41; 32],
-                NOW + 120,
-                NOW,
-            )
-            .await
-            .unwrap()
-    );
+    assert!(!fixture
+        .replay_store
+        .consume_once(
+            fixture.challenge.payload().authority_key_id(),
+            ChallengeId::new([0x32; 16]),
+            &[0x41; 32],
+            NOW + 120,
+            NOW,
+        )
+        .await
+        .unwrap());
     let replay = verifier
         .verify(
             &fixture.principal,

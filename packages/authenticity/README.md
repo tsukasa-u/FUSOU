@@ -56,10 +56,14 @@ from the TLSNotary codebase; it is characterization evidence, not an
 independent golden vector or independent implementation oracle.
 
 The clean-upstream adapter is deliberately feature-gated as a spike. A byte
-limit and bincode decode limit are present, but this work has not established
-that clean-upstream deserialization bounds allocations induced by hostile
-transcript lengths. The existing FUSOU production path-patched source is
-therefore retained; this workspace does not remove or replace that patch.
+limit and bincode decode limit constrain the encoded input, but they are not an
+aggregate heap-allocation or CPU budget. Serde's per-container cautious
+preallocation does not establish a total bound for hostile nested sequence
+lengths. Until that behavior has a demonstrated bound or a safe upstream
+mitigation, this spike must not be exposed to remote attacker-controlled
+Presentations or used in Production. The existing FUSOU production
+path-patched source is therefore retained; this workspace does not remove or
+replace that patch.
 
 ## Not implemented
 

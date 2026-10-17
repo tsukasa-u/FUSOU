@@ -2,7 +2,7 @@
 
 use authenticity_auth::{AuthenticatedPrincipal, AuthenticationError, VerifiedDeviceProof};
 use authenticity_core::Digest;
-use authenticity_tlsn::VerifiedPresentation;
+use authenticity_tlsn::{ServerCertificateTrustKind, VerifiedPresentation};
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -36,6 +36,8 @@ struct PresentationFacts {
     sha256: String,
     server_identity: String,
     notary_key_id: String,
+    server_certificate_trust: &'static str,
+    server_certificate_trust_root_count: Option<usize>,
     attestation_id_hex: String,
     disclosure_count: usize,
 }
@@ -81,7 +83,9 @@ impl VerificationReport {
                 },
                 Check {
                     id: "tlsn.server_identity_and_web_pki",
-                    status: "VERIFIED_AGAINST_EXPLICIT_MOZILLA_POLICY",
+                    status: server_certificate_trust_status(
+                        presentation.server_certificate_trust(),
+                    ),
                 },
                 Check {
                     id: "user.authentication",
@@ -109,6 +113,13 @@ impl VerificationReport {
                 sha256: hex(presentation.presentation_sha256()),
                 server_identity: presentation.server_identity().as_str().to_owned(),
                 notary_key_id: presentation.notary_key_id().to_owned(),
+                server_certificate_trust: server_certificate_trust_name(
+                    presentation.server_certificate_trust(),
+                ),
+                server_certificate_trust_root_count: match presentation.server_certificate_trust() {
+                    ServerCertificateTrustKind::MozillaWebPki => None,
+                    ServerCertificateTrustKind::ExplicitDerRoots { root_count } => Some(root_count),
+                },
                 attestation_id_hex: hex(presentation.attestation_id()),
                 disclosure_count: presentation.disclosures().len(),
             },
@@ -132,6 +143,22 @@ impl VerificationReport {
     }
 }
 
+fn server_certificate_trust_status(trust: ServerCertificateTrustKind) -> &'static str {
+    match trust {
+        ServerCertificateTrustKind::MozillaWebPki => "VERIFIED_AGAINST_MOZILLA_WEB_PKI",
+        ServerCertificateTrustKind::ExplicitDerRoots { .. } => {
+            "VERIFIED_AGAINST_CALLER_SUPPLIED_DER_ROOTS"
+        }
+    }
+}
+
+fn server_certificate_trust_name(trust: ServerCertificateTrustKind) -> &'static str {
+    match trust {
+        ServerCertificateTrustKind::MozillaWebPki => "MOZILLA_WEB_PKI",
+        ServerCertificateTrustKind::ExplicitDerRoots { .. } => "CALLER_SUPPLIED_DER_ROOTS",
+    }
+}
+
 pub fn authentication_error_for_report(error: AuthenticationError) -> &'static str {
     match error {
         AuthenticationError::CredentialRejected => "credential_rejected",
@@ -150,6 +177,33 @@ pub fn authentication_error_for_report(error: AuthenticationError) -> &'static s
         AuthenticationError::DeviceRegistryUnavailable => "device_registry_unavailable",
         AuthenticationError::ReplayStoreUnavailable => "replay_store_unavailable",
         AuthenticationError::InvalidChallenge => "invalid_challenge",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_names_the_selected_server_certificate_trust_policy() {
+        assert_eq!(
+            server_certificate_trust_status(ServerCertificateTrustKind::MozillaWebPki),
+            "VERIFIED_AGAINST_MOZILLA_WEB_PKI"
+        );
+        assert_eq!(
+            server_certificate_trust_name(ServerCertificateTrustKind::MozillaWebPki),
+            "MOZILLA_WEB_PKI"
+        );
+
+        let explicit_roots = ServerCertificateTrustKind::ExplicitDerRoots { root_count: 2 };
+        assert_eq!(
+            server_certificate_trust_status(explicit_roots),
+            "VERIFIED_AGAINST_CALLER_SUPPLIED_DER_ROOTS"
+        );
+        assert_eq!(
+            server_certificate_trust_name(explicit_roots),
+            "CALLER_SUPPLIED_DER_ROOTS"
+        );
     }
 }
 

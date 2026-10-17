@@ -7,7 +7,7 @@ mod clean_upstream;
 
 #[cfg(feature = "clean-upstream-spike")]
 pub use clean_upstream::{
-    DisclosureDirection, PresentationVerifier, ServerCertificateTrust, TlsnVerificationError,
-    TrustedNotaryKey, UntrustedPresentation, VerifiedDisclosure, VerifiedPresentation,
-    default_spike_input_limit,
+    default_spike_input_limit, DisclosureDirection, PresentationVerifier, ServerCertificateTrust,
+    ServerCertificateTrustKind, TlsnVerificationError, TrustedNotaryKey, UntrustedPresentation,
+    VerifiedDisclosure, VerifiedPresentation,
 };

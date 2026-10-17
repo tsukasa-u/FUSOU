@@ -2,8 +2,8 @@
 
 use authenticity_core::ServerIdentity;
 use authenticity_tlsn::{
-    DisclosureDirection, PresentationVerifier, ServerCertificateTrust, TlsnVerificationError,
-    TrustedNotaryKey, UntrustedPresentation, default_spike_input_limit,
+    default_spike_input_limit, DisclosureDirection, PresentationVerifier, ServerCertificateTrust,
+    ServerCertificateTrustKind, TlsnVerificationError, TrustedNotaryKey, UntrustedPresentation,
 };
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair, KeyUsagePurpose};
 
@@ -39,6 +39,10 @@ fn clean_upstream_verifies_and_extracts_only_authenticated_offsets() {
     .unwrap();
 
     assert_eq!(verified.server_identity().as_str(), "tlsnotary.org");
+    assert_eq!(
+        verified.server_certificate_trust(),
+        ServerCertificateTrustKind::MozillaWebPki
+    );
     assert_eq!(verified.attestation_id().len(), 16);
     assert_eq!(
         verified.upstream_revision(),

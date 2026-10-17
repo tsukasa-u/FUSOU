@@ -124,13 +124,46 @@ impl ExperimentalBindingAuthority {
     }
 }
 
+/// Correlated output derived from adapter-produced evidence and a consumed
+/// single-use binding. Its fields cannot be fabricated outside this crate.
+///
+/// ```compile_fail
+/// use fusou_tlsn_verifier::experimental_correlation::CorrelatedAuthenticatedProof;
+///
+/// let _ = CorrelatedAuthenticatedProof {
+///     session_id: todo!(),
+///     ..todo!()
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CorrelatedAuthenticatedProof {
-    pub session_id: Uuid,
-    pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
-    pub verified_member_id: String,
-    pub request_transcript_sha256: [u8; 32],
-    pub response_transcript_sha256: [u8; 32],
+    session_id: Uuid,
+    attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    verified_member_id: String,
+    request_transcript_sha256: [u8; 32],
+    response_transcript_sha256: [u8; 32],
+}
+
+impl CorrelatedAuthenticatedProof {
+    pub fn session_id(&self) -> Uuid {
+        self.session_id
+    }
+
+    pub fn attestation_id(&self) -> &[u8; MAX_ATTESTATION_ID_BYTES] {
+        &self.attestation_id
+    }
+
+    pub fn verified_member_id(&self) -> &str {
+        &self.verified_member_id
+    }
+
+    pub fn request_transcript_sha256(&self) -> &[u8; 32] {
+        &self.request_transcript_sha256
+    }
+
+    pub fn response_transcript_sha256(&self) -> &[u8; 32] {
+        &self.response_transcript_sha256
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,12 +173,41 @@ pub struct HeaderlessCorrelationContext {
     pub challenge_nonce: [u8; 32],
 }
 
+/// Headerless alpha.15 evidence without a cryptographic FUSOU Session binding.
+/// This type is informational and is always rejected by the correlation path.
+///
+/// ```compile_fail
+/// use fusou_tlsn_verifier::experimental_correlation::HeaderlessAuthenticatedProof;
+///
+/// let _ = HeaderlessAuthenticatedProof {
+///     attestation_id: todo!(),
+///     ..todo!()
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderlessAuthenticatedProof {
-    pub attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
-    pub request_transcript_sha256: [u8; 32],
-    pub response_transcript_sha256: [u8; 32],
-    pub verified_member_id: Option<String>,
+    attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+    request_transcript_sha256: [u8; 32],
+    response_transcript_sha256: [u8; 32],
+    verified_member_id: Option<String>,
+}
+
+impl HeaderlessAuthenticatedProof {
+    pub fn attestation_id(&self) -> &[u8; MAX_ATTESTATION_ID_BYTES] {
+        &self.attestation_id
+    }
+
+    pub fn request_transcript_sha256(&self) -> &[u8; 32] {
+        &self.request_transcript_sha256
+    }
+
+    pub fn response_transcript_sha256(&self) -> &[u8; 32] {
+        &self.response_transcript_sha256
+    }
+
+    pub fn verified_member_id(&self) -> Option<&str> {
+        self.verified_member_id.as_deref()
+    }
 }
 
 impl TryFrom<&AuthenticatedRequireInfo> for HeaderlessAuthenticatedProof {

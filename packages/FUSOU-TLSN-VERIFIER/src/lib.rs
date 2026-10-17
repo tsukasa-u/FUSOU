@@ -139,8 +139,30 @@ pub struct SparseResponseRangeReport {
     pub kind: SparseResponseRangeKind,
 }
 
+/// A range-checked byte view used by the transcript parsers.
+///
+/// This type records only a byte layout and disclosure ranges. It does not
+/// establish TLSN verification or cryptographic authenticity. In particular,
+/// [`AuthenticatedByteSource::new`] accepts caller-supplied bytes and ranges.
+///
+/// ```compile_fail
+/// use fusou_tlsn_verifier::AuthenticatedByteSource;
+///
+/// let _source = AuthenticatedByteSource {
+///     source: todo!(),
+///     transcript_len: 0,
+///     disclosed_len: 0,
+/// };
+/// ```
 #[derive(Debug, Clone, Copy)]
-pub enum AuthenticatedByteSource<'a> {
+pub struct AuthenticatedByteSource<'a> {
+    source: AuthenticatedByteSourceKind<'a>,
+    transcript_len: usize,
+    disclosed_len: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AuthenticatedByteSourceKind<'a> {
     Contiguous {
         bytes: &'a [u8],
         ranges: &'a [Range<usize>],
@@ -151,85 +173,78 @@ pub enum AuthenticatedByteSource<'a> {
     },
     Packed {
         bytes: &'a [u8],
-        transcript_len: usize,
         ranges: &'a [Range<usize>],
     },
 }
 
 impl<'a> AuthenticatedByteSource<'a> {
+    /// Creates a structurally checked byte view; this does not authenticate it.
     pub fn new(bytes: &'a [u8], ranges: &'a [Range<usize>]) -> Result<Self> {
-        validate_authenticated_ranges(bytes.len(), ranges)?;
-        Ok(Self::Contiguous { bytes, ranges })
+        let disclosed_len = validate_authenticated_ranges(bytes.len(), ranges)?;
+        Ok(Self {
+            source: AuthenticatedByteSourceKind::Contiguous { bytes, ranges },
+            transcript_len: bytes.len(),
+            disclosed_len,
+        })
     }
 
+    /// Maps a TLSN partial-transcript layout without verifying its Presentation.
     pub fn from_partial(
         transcript: &'a tlsn_core::transcript::PartialTranscript,
         direction: tlsn_core::transcript::Direction,
     ) -> Result<Self> {
-        let (transcript_len, ranges) = match direction {
-            tlsn_core::transcript::Direction::Sent => (
-                transcript.len_sent(),
-                transcript.sent_authed().iter().collect::<Vec<_>>(),
-            ),
-            tlsn_core::transcript::Direction::Received => (
-                transcript.len_received(),
-                transcript.received_authed().iter().collect::<Vec<_>>(),
-            ),
+        let (transcript_len, authenticated_ranges) = match direction {
+            tlsn_core::transcript::Direction::Sent => {
+                (transcript.len_sent(), transcript.sent_authed())
+            }
+            tlsn_core::transcript::Direction::Received => {
+                (transcript.len_received(), transcript.received_authed())
+            }
         };
-        validate_authenticated_ranges(transcript_len, &ranges)?;
-        Ok(Self::Sparse {
-            transcript,
-            direction,
+        if authenticated_ranges.iter().count() > MAX_AUTHENTICATED_RANGE_COUNT {
+            return Err(VerifierError::LimitExceeded(
+                "too many authenticated ranges",
+            ));
+        }
+        let ranges: Vec<_> = authenticated_ranges.iter().collect();
+        let disclosed_len = validate_authenticated_ranges(transcript_len, &ranges)?;
+        Ok(Self {
+            source: AuthenticatedByteSourceKind::Sparse {
+                transcript,
+                direction,
+            },
+            transcript_len,
+            disclosed_len,
         })
     }
 
+    /// Validates packed-byte layout only; the caller must establish provenance.
     pub(crate) fn from_packed(
         bytes: &'a [u8],
         transcript_len: usize,
         ranges: &'a [Range<usize>],
     ) -> Result<Self> {
-        validate_authenticated_ranges(transcript_len, ranges)?;
-        let disclosed_len = ranges
-            .iter()
-            .try_fold(0_usize, |total, range| total.checked_add(range.len()));
-        if disclosed_len != Some(bytes.len()) {
+        let disclosed_len = validate_authenticated_ranges(transcript_len, ranges)?;
+        if disclosed_len != bytes.len() {
             return Err(VerifierError::InvalidRange(
                 "packed bytes do not match authenticated ranges",
             ));
         }
-        Ok(Self::Packed {
-            bytes,
+        Ok(Self {
+            source: AuthenticatedByteSourceKind::Packed { bytes, ranges },
             transcript_len,
-            ranges,
+            disclosed_len,
         })
     }
 
+    /// Returns the original transcript coordinate length, not packed length.
     pub fn len(&self) -> usize {
-        match self {
-            Self::Contiguous { bytes, .. } => bytes.len(),
-            Self::Sparse {
-                transcript,
-                direction,
-            } => match direction {
-                tlsn_core::transcript::Direction::Sent => transcript.len_sent(),
-                tlsn_core::transcript::Direction::Received => transcript.len_received(),
-            },
-            Self::Packed { transcript_len, .. } => *transcript_len,
-        }
+        self.transcript_len
     }
 
+    /// Returns the checked sum of disclosed range lengths (packed byte length).
     pub fn disclosed_len(&self) -> usize {
-        match self {
-            Self::Contiguous { ranges, .. } => ranges.iter().map(|range| range.len()).sum(),
-            Self::Sparse {
-                transcript,
-                direction,
-            } => match direction {
-                tlsn_core::transcript::Direction::Sent => transcript.sent_authed().len(),
-                tlsn_core::transcript::Direction::Received => transcript.received_authed().len(),
-            },
-            Self::Packed { bytes, .. } => bytes.len(),
-        }
+        self.disclosed_len
     }
 
     pub fn is_complete(&self) -> bool {
@@ -242,9 +257,9 @@ impl<'a> AuthenticatedByteSource<'a> {
     }
 
     pub fn ranges(&self) -> Vec<Range<usize>> {
-        match self {
-            Self::Contiguous { ranges, .. } => ranges.to_vec(),
-            Self::Sparse {
+        match self.source {
+            AuthenticatedByteSourceKind::Contiguous { ranges, .. } => ranges.to_vec(),
+            AuthenticatedByteSourceKind::Sparse {
                 transcript,
                 direction,
             } => match direction {
@@ -253,37 +268,39 @@ impl<'a> AuthenticatedByteSource<'a> {
                     transcript.received_authed().iter().collect()
                 }
             },
-            Self::Packed { ranges, .. } => ranges.to_vec(),
+            AuthenticatedByteSourceKind::Packed { ranges, .. } => ranges.to_vec(),
         }
     }
 
     pub fn read(&self, range: Range<usize>) -> Result<Vec<u8>> {
         if range.start > range.end || range.end > self.len() {
             return Err(VerifierError::InvalidRange(
-                "authenticated read is outside the transcript",
+                "read is outside the transcript",
             ));
         }
         if range.start == range.end {
             return Ok(Vec::new());
         }
-        match self {
-            Self::Contiguous { bytes, ranges } => {
+        match self.source {
+            AuthenticatedByteSourceKind::Contiguous { bytes, ranges } => {
                 if !range_is_covered(ranges, &range) {
                     return Err(VerifierError::InvalidRange(
-                        "authenticated read crosses an undisclosed range",
+                        "read crosses an undisclosed range",
                     ));
                 }
                 Ok(bytes[range].to_vec())
             }
-            Self::Sparse {
+            AuthenticatedByteSourceKind::Sparse {
                 transcript,
                 direction,
             } => {
                 let ranges = self.ranges();
-                let packed: Vec<u8> = transcript.iter(*direction).collect();
+                let packed: Vec<u8> = transcript.iter(direction).collect();
                 read_packed_range(&packed, &ranges, range)
             }
-            Self::Packed { bytes, ranges, .. } => read_packed_range(bytes, ranges, range),
+            AuthenticatedByteSourceKind::Packed { bytes, ranges, .. } => {
+                read_packed_range(bytes, ranges, range)
+            }
         }
     }
 }
@@ -349,7 +366,7 @@ fn read_packed_range(
     ))
 }
 
-fn validate_authenticated_ranges(transcript_len: usize, ranges: &[Range<usize>]) -> Result<()> {
+fn validate_authenticated_ranges(transcript_len: usize, ranges: &[Range<usize>]) -> Result<usize> {
     if ranges.len() > MAX_AUTHENTICATED_RANGE_COUNT {
         return Err(VerifierError::LimitExceeded(
             "too many authenticated ranges",
@@ -374,7 +391,7 @@ fn validate_authenticated_ranges(transcript_len: usize, ranges: &[Range<usize>])
         }
         previous_end = range.end;
     }
-    Ok(())
+    Ok(disclosed_bytes)
 }
 
 pub fn validate_ranges(ranges: &[RevealedRange], transcript_size: u64) -> Result<()> {
@@ -3250,6 +3267,22 @@ mod tests {
         assert!(source.read(2..3).is_err());
         assert_eq!(source.disclosed_len(), 4);
         assert!(!source.is_complete());
+    }
+
+    #[test]
+    fn authenticated_byte_source_rejects_invalid_and_excessive_layouts() {
+        let bytes = b"abcdefgh";
+        assert!(AuthenticatedByteSource::new(bytes, &[0..3, 2..4]).is_err());
+        assert!(AuthenticatedByteSource::new(bytes, &[7..9]).is_err());
+
+        let too_many_ranges = vec![0..1; MAX_AUTHENTICATED_RANGE_COUNT + 1];
+        assert!(matches!(
+            AuthenticatedByteSource::new(bytes, &too_many_ranges),
+            Err(VerifierError::LimitExceeded(
+                "too many authenticated ranges"
+            ))
+        ));
+        assert!(AuthenticatedByteSource::from_packed(b"abc", 8, &[0..2]).is_err());
     }
 
     #[test]

@@ -61,6 +61,12 @@ pub enum ServerCertificateTrust {
     ExplicitDerRoots(Vec<Vec<u8>>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerCertificateTrustKind {
+    MozillaWebPki,
+    ExplicitDerRoots { root_count: usize },
+}
+
 pub struct UntrustedPresentation<'a>(&'a [u8]);
 
 impl<'a> UntrustedPresentation<'a> {
@@ -109,6 +115,7 @@ pub struct VerifiedPresentation {
     server_identity: ServerIdentity,
     attestation_id: [u8; 16],
     notary_key_id: String,
+    server_certificate_trust: ServerCertificateTrustKind,
     presentation_sha256: [u8; 32],
     sent_transcript_length: usize,
     received_transcript_length: usize,
@@ -126,6 +133,10 @@ impl VerifiedPresentation {
 
     pub fn notary_key_id(&self) -> &str {
         &self.notary_key_id
+    }
+
+    pub const fn server_certificate_trust(&self) -> ServerCertificateTrustKind {
+        self.server_certificate_trust
     }
 
     pub const fn presentation_sha256(&self) -> &[u8; 32] {
@@ -155,6 +166,7 @@ impl std::fmt::Debug for VerifiedPresentation {
             .field("server_identity", &self.server_identity)
             .field("attestation_id", &self.attestation_id)
             .field("notary_key_id", &self.notary_key_id)
+            .field("server_certificate_trust", &self.server_certificate_trust)
             .field("presentation_sha256", &self.presentation_sha256)
             .field("sent_transcript_length", &self.sent_transcript_length)
             .field(
@@ -197,6 +209,10 @@ impl PresentationVerifier {
         })
     }
 
+    /// Verifies untrusted serialized Presentation bytes using the configured
+    /// trust inputs. The encoded-byte limit is not an aggregate heap or CPU
+    /// budget for adversarial sequence lengths, so this spike is not suitable
+    /// for remote attacker-controlled input or Production use.
     pub fn verify(
         &self,
         input: UntrustedPresentation<'_>,
@@ -222,6 +238,14 @@ impl PresentationVerifier {
             return Err(TlsnVerificationError::NotaryKeyMismatch);
         }
 
+        let server_certificate_trust = match &self.server_certificate_trust {
+            ServerCertificateTrust::MozillaWebPki => ServerCertificateTrustKind::MozillaWebPki,
+            ServerCertificateTrust::ExplicitDerRoots(roots) => {
+                ServerCertificateTrustKind::ExplicitDerRoots {
+                    root_count: roots.len(),
+                }
+            }
+        };
         let mut provider = CryptoProvider::default();
         if let ServerCertificateTrust::ExplicitDerRoots(root_der) = &self.server_certificate_trust {
             let root_store = tlsn_core::webpki::RootCertStore {
@@ -256,6 +280,7 @@ impl PresentationVerifier {
             server_identity: observed_server,
             attestation_id: output.attestation.header.id.0,
             notary_key_id: self.trusted_notary_key.key_id.clone(),
+            server_certificate_trust,
             presentation_sha256: Sha256::digest(input.0).into(),
             sent_transcript_length: transcript.len_sent(),
             received_transcript_length: transcript.len_received(),
@@ -267,12 +292,16 @@ impl PresentationVerifier {
 fn extract_disclosures(
     transcript: &PartialTranscript,
 ) -> Result<Vec<VerifiedDisclosure>, TlsnVerificationError> {
-    let mut disclosures = Vec::new();
-    let sent_ranges: Vec<_> = transcript.sent_authed().iter().collect();
-    let received_ranges: Vec<_> = transcript.received_authed().iter().collect();
-    if sent_ranges.len() + received_ranges.len() > MAX_DISCLOSURE_RANGES {
+    let sent_range_count = transcript.sent_authed().iter().count();
+    let received_range_count = transcript.received_authed().iter().count();
+    if sent_range_count > MAX_DISCLOSURE_RANGES
+        || received_range_count > MAX_DISCLOSURE_RANGES - sent_range_count
+    {
         return Err(TlsnVerificationError::InvalidDisclosure);
     }
+    let mut disclosures = Vec::with_capacity(sent_range_count + received_range_count);
+    let sent_ranges: Vec<_> = transcript.sent_authed().iter().collect();
+    let received_ranges: Vec<_> = transcript.received_authed().iter().collect();
 
     append_direction_disclosures(
         &mut disclosures,
