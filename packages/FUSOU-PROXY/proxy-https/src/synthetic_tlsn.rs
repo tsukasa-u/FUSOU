@@ -1086,14 +1086,16 @@ mod tests {
         let sparse_result = sparse_transcript
             .verify_require_info_sparse(&sparse_profile, &ParserLimits::default())
             .unwrap();
-        assert_eq!(sparse_result.verified_member_id, "16189463");
-        assert!(sparse_result.response_transcript_sha256.is_none());
-        assert!(sparse_result
-            .revealed_response_ranges
-            .iter()
-            .map(|range| range.length)
-            .sum::<u64>()
-            < sparse_result.response_transcript_size);
+        assert_eq!(sparse_result.verified_member_id(), "16189463");
+        assert!(sparse_result.response_transcript_sha256().is_none());
+        assert!(
+            sparse_result
+                .revealed_response_ranges()
+                .iter()
+                .map(|range| range.length)
+                .sum::<u64>()
+                < sparse_result.response_transcript_size()
+        );
         assert!(evidence
             .root_certificate
             .as_ref()

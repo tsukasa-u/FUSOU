@@ -1449,8 +1449,8 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
                 .map_err(|_| crate::experimental_tlsn::VerificationError::PresentationInvalid)?;
             let expected_binding = fusou_tlsn_verifier::parse_binding_value(binding.value())
                 .map_err(|_| crate::experimental_tlsn::VerificationError::BindingMismatch)?;
-            if verified.binding.session_id != expected_binding.session_id
-                || verified.binding.binding_nonce != expected_binding.binding_nonce
+            if verified.binding().session_id != expected_binding.session_id
+                || verified.binding().binding_nonce != expected_binding.binding_nonce
             {
                 return Err(crate::experimental_tlsn::VerificationError::BindingMismatch);
             }
@@ -1466,7 +1466,7 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
                     request_sha256,
                     response_sha256,
                     crate::experimental_tlsn::VerifiedMemberId::from_verifier(
-                        verified.verified_member_id,
+                        verified.verified_member_id().to_owned(),
                     )?,
                 ),
             ))
