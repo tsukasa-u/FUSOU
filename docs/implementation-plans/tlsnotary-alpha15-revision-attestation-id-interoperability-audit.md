@@ -1000,3 +1000,41 @@ authority.
 P0-10 remains `UNRESOLVED`; Phase 0 runtime gate remains `BLOCKED`; WASM
 provenance remains `UNRESOLVED`; Hosted CI remains `NOT_RUN`; real TLSN
 testplay remains `NOT_RUN`; Production acceptance remains `BLOCKED`.
+
+## Reusable authenticity prototype boundary
+
+A standalone local Rust workspace now explores provider-neutral identity
+types, pluggable authentication and device-proof interfaces, and a
+feature-gated adapter against the pinned clean TLSNotary alpha.15 source.
+Details, limitations, and exact local test commands are in the
+[authenticity prototype README](../../packages/authenticity/README.md).
+
+The adapter uses the same clean-upstream sparse fixture as prior
+characterization, verifies it with the exact declared upstream Git revision,
+and extracts only authenticated disclosure ranges. This is an adapter-boundary
+prototype, not an independent golden vector or security review. Its caller
+supplies the expected hostname, serialized Notary key, and certificate trust
+policy; no production registry, Target Approval, Origin Inventory, or Runtime
+Config path is integrated.
+
+The identity provider, device registry, replay store, and challenge authority
+in the consumer are local test implementations. The challenge encoding is a
+draft library-local format, not an approved FUSOU protocol contract. The
+consumer report is explicitly non-self-authenticating; Result/Claim signing
+and Evidence Bundle verification remain unimplemented. Because hostile
+transcript-length-driven allocations in clean-upstream deserialization have
+not been bounded, the production path-patched TLSNotary source remains in
+place.
+
+Local validation after the latest challenge audience and nonce checks:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --manifest-path packages/authenticity/Cargo.toml --workspace --locked --offline` | PASS: 2 core, 2 clean-upstream adapter, and 3 consumer integration tests |
+| `cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked --offline` | PASS: 91 verifier unit tests and 3 CLI integration tests |
+
+These are local test results only. They do not constitute external review,
+Production validation, or approval. P0-01 remains `BLOCKED_EXTERNAL_INPUTS`,
+P0-10 `UNRESOLVED`, Phase 0 runtime gate `BLOCKED`, WASM provenance
+`UNRESOLVED`, Hosted CI `NOT_RUN`, real TLSN testplay `NOT_RUN`, and
+Production acceptance `BLOCKED`.

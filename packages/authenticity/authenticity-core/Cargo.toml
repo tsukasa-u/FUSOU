@@ -1,0 +1,10 @@
+[package]
+name = "authenticity-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Provider-agnostic identity and evidence identifiers for authenticity verification"
+
+[dependencies]
+thiserror = "1.0"

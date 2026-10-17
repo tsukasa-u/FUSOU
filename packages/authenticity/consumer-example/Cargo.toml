@@ -1,0 +1,20 @@
+[package]
+name = "authenticity-consumer-example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Local-only consumer demonstrating separate authentication and TLSNotary verification"
+
+[dependencies]
+authenticity-auth = { path = "../authenticity-auth" }
+authenticity-core = { path = "../authenticity-core" }
+authenticity-tlsn = { path = "../authenticity-tlsn", features = ["clean-upstream-spike"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+async-trait = "0.1"
+ed25519-dalek = { version = "2.1", features = ["std"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

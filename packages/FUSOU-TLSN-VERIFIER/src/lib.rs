@@ -8,7 +8,7 @@ pub mod sparse_result;
 pub mod tlsn_alpha15;
 pub mod wasm;
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, io::Read, ops::Range};
@@ -149,6 +149,11 @@ pub enum AuthenticatedByteSource<'a> {
         transcript: &'a tlsn_core::transcript::PartialTranscript,
         direction: tlsn_core::transcript::Direction,
     },
+    Packed {
+        bytes: &'a [u8],
+        transcript_len: usize,
+        ranges: &'a [Range<usize>],
+    },
 }
 
 impl<'a> AuthenticatedByteSource<'a> {
@@ -161,21 +166,41 @@ impl<'a> AuthenticatedByteSource<'a> {
         transcript: &'a tlsn_core::transcript::PartialTranscript,
         direction: tlsn_core::transcript::Direction,
     ) -> Result<Self> {
-        let ranges = match direction {
-            tlsn_core::transcript::Direction::Sent => transcript.sent_authed(),
-            tlsn_core::transcript::Direction::Received => transcript.received_authed(),
+        let (transcript_len, ranges) = match direction {
+            tlsn_core::transcript::Direction::Sent => (
+                transcript.len_sent(),
+                transcript.sent_authed().iter().collect::<Vec<_>>(),
+            ),
+            tlsn_core::transcript::Direction::Received => (
+                transcript.len_received(),
+                transcript.received_authed().iter().collect::<Vec<_>>(),
+            ),
         };
-        if ranges.iter().count() > MAX_AUTHENTICATED_RANGE_COUNT {
-            return Err(VerifierError::LimitExceeded(
-                "too many authenticated ranges",
-            ));
-        }
-        if ranges.len() > MAX_RESPONSE_TRANSCRIPT_BYTES {
-            return Err(VerifierError::LimitExceeded("authenticated range bytes"));
-        }
+        validate_authenticated_ranges(transcript_len, &ranges)?;
         Ok(Self::Sparse {
             transcript,
             direction,
+        })
+    }
+
+    pub(crate) fn from_packed(
+        bytes: &'a [u8],
+        transcript_len: usize,
+        ranges: &'a [Range<usize>],
+    ) -> Result<Self> {
+        validate_authenticated_ranges(transcript_len, ranges)?;
+        let disclosed_len = ranges
+            .iter()
+            .try_fold(0_usize, |total, range| total.checked_add(range.len()));
+        if disclosed_len != Some(bytes.len()) {
+            return Err(VerifierError::InvalidRange(
+                "packed bytes do not match authenticated ranges",
+            ));
+        }
+        Ok(Self::Packed {
+            bytes,
+            transcript_len,
+            ranges,
         })
     }
 
@@ -189,6 +214,7 @@ impl<'a> AuthenticatedByteSource<'a> {
                 tlsn_core::transcript::Direction::Sent => transcript.len_sent(),
                 tlsn_core::transcript::Direction::Received => transcript.len_received(),
             },
+            Self::Packed { transcript_len, .. } => *transcript_len,
         }
     }
 
@@ -202,6 +228,7 @@ impl<'a> AuthenticatedByteSource<'a> {
                 tlsn_core::transcript::Direction::Sent => transcript.sent_authed().len(),
                 tlsn_core::transcript::Direction::Received => transcript.received_authed().len(),
             },
+            Self::Packed { bytes, .. } => bytes.len(),
         }
     }
 
@@ -226,6 +253,7 @@ impl<'a> AuthenticatedByteSource<'a> {
                     transcript.received_authed().iter().collect()
                 }
             },
+            Self::Packed { ranges, .. } => ranges.to_vec(),
         }
     }
 
@@ -240,9 +268,7 @@ impl<'a> AuthenticatedByteSource<'a> {
         }
         match self {
             Self::Contiguous { bytes, ranges } => {
-                if !ranges.iter().any(|authenticated| {
-                    authenticated.start <= range.start && range.end <= authenticated.end
-                }) {
+                if !range_is_covered(ranges, &range) {
                     return Err(VerifierError::InvalidRange(
                         "authenticated read crosses an undisclosed range",
                     ));
@@ -253,22 +279,74 @@ impl<'a> AuthenticatedByteSource<'a> {
                 transcript,
                 direction,
             } => {
-                let mut output = Vec::with_capacity(range.len());
-                transcript
-                    .copy_authenticated_to(
-                        *direction,
-                        &tlsn_core::rangeset::set::RangeSet::from(range),
-                        &mut output,
-                    )
-                    .map_err(|_| {
-                        VerifierError::InvalidRange(
-                            "authenticated read crosses an undisclosed range",
-                        )
-                    })?;
-                Ok(output)
+                let ranges = self.ranges();
+                let packed: Vec<u8> = transcript.iter(*direction).collect();
+                read_packed_range(&packed, &ranges, range)
             }
+            Self::Packed { bytes, ranges, .. } => read_packed_range(bytes, ranges, range),
         }
     }
+}
+
+fn range_is_covered(ranges: &[Range<usize>], requested: &Range<usize>) -> bool {
+    let mut covered_until = requested.start;
+    for authenticated in ranges {
+        if authenticated.end <= covered_until {
+            continue;
+        }
+        if authenticated.start > covered_until {
+            return false;
+        }
+        covered_until = authenticated.end.min(requested.end);
+        if covered_until == requested.end {
+            return true;
+        }
+    }
+    false
+}
+
+fn read_packed_range(
+    packed: &[u8],
+    ranges: &[Range<usize>],
+    requested: Range<usize>,
+) -> Result<Vec<u8>> {
+    let mut packed_offset = 0_usize;
+    let mut covered_until = requested.start;
+    let mut output = Vec::with_capacity(requested.len());
+
+    for authenticated in ranges {
+        let next_offset = packed_offset
+            .checked_add(authenticated.len())
+            .ok_or(VerifierError::InvalidRange("packed range offset overflow"))?;
+        if authenticated.end > covered_until && authenticated.start <= covered_until {
+            let segment_end = authenticated.end.min(requested.end);
+            let segment_start_in_range = covered_until
+                .checked_sub(authenticated.start)
+                .ok_or(VerifierError::InvalidRange("packed range offset underflow"))?;
+            let segment_start = packed_offset
+                .checked_add(segment_start_in_range)
+                .ok_or(VerifierError::InvalidRange("packed range offset overflow"))?;
+            let segment_end_in_range = segment_end
+                .checked_sub(authenticated.start)
+                .ok_or(VerifierError::InvalidRange("packed range offset underflow"))?;
+            let segment_end_offset = packed_offset
+                .checked_add(segment_end_in_range)
+                .ok_or(VerifierError::InvalidRange("packed range offset overflow"))?;
+            let segment = packed.get(segment_start..segment_end_offset).ok_or(
+                VerifierError::InvalidRange("packed bytes do not match authenticated ranges"),
+            )?;
+            output.extend_from_slice(segment);
+            covered_until = segment_end;
+            if covered_until == requested.end {
+                return Ok(output);
+            }
+        }
+        packed_offset = next_offset;
+    }
+
+    Err(VerifierError::InvalidRange(
+        "authenticated read crosses an undisclosed range",
+    ))
 }
 
 fn validate_authenticated_ranges(transcript_len: usize, ranges: &[Range<usize>]) -> Result<()> {
@@ -780,10 +858,7 @@ pub fn parse_require_info_response_source(
     parse_require_info_response(&raw, limits)
 }
 
-fn authenticated_prefix(
-    source: &AuthenticatedByteSource<'_>,
-    max_bytes: usize,
-) -> Result<Vec<u8>> {
+fn authenticated_prefix(source: &AuthenticatedByteSource<'_>, max_bytes: usize) -> Result<Vec<u8>> {
     let ranges = source.ranges();
     let Some(first) = ranges.first() else {
         return Err(VerifierError::InvalidRange(
@@ -843,7 +918,9 @@ fn sparse_body_range(
     }
     let body_end = body_start
         .checked_add(length)
-        .ok_or(VerifierError::InvalidHttp("Content-Length overflows transcript"))?;
+        .ok_or(VerifierError::InvalidHttp(
+            "Content-Length overflows transcript",
+        ))?;
     if body_end != transcript_len {
         return Err(VerifierError::InvalidHttp(
             "Content-Length does not match transcript length",
@@ -861,8 +938,7 @@ pub fn parse_require_info_request_sparse_source(
         return Err(VerifierError::LimitExceeded("request transcript bytes"));
     }
     let start_line = format!("POST {REQUIRE_INFO_TARGET} HTTP/1.1");
-    let (headers, body_start) =
-        parse_sparse_message_head(source, start_line.as_bytes(), limits)?;
+    let (headers, body_start) = parse_sparse_message_head(source, start_line.as_bytes(), limits)?;
     let hosts = header_values(&headers, b"host");
     if hosts.len() != 1 || hosts[0].value != expected_server_identity.as_bytes() {
         return Err(VerifierError::InvalidHttp("Host does not match allowlist"));
@@ -905,8 +981,7 @@ pub fn parse_require_info_response_sparse_source(
     if source.len() > limits.response_transcript_bytes {
         return Err(VerifierError::LimitExceeded("response transcript bytes"));
     }
-    let (headers, body_start) =
-        parse_sparse_message_head(source, b"HTTP/1.1 200 OK", limits)?;
+    let (headers, body_start) = parse_sparse_message_head(source, b"HTTP/1.1 200 OK", limits)?;
     let body_range = sparse_body_range(
         &headers,
         body_start,
@@ -983,11 +1058,8 @@ pub fn plan_require_info_response_sparse_range_report(
         length: 7,
         kind: SparseResponseRangeKind::SvdataPrefix,
     });
-    let mut collector = SemanticJsonRangeCollector::new(
-        raw,
-        body_range.start + 7..body_range.end,
-        limits,
-    );
+    let mut collector =
+        SemanticJsonRangeCollector::new(raw, body_range.start + 7..body_range.end, limits);
     collector.collect()?;
     report.extend(collector.report);
     let ranges = merge_sparse_response_range_report(&report);
@@ -995,9 +1067,7 @@ pub fn plan_require_info_response_sparse_range_report(
     Ok((ranges, report))
 }
 
-fn merge_sparse_response_range_report(
-    report: &[SparseResponseRangeReport],
-) -> Vec<Range<usize>> {
+fn merge_sparse_response_range_report(report: &[SparseResponseRangeReport]) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     for entry in report {
         append_merged_range(&mut ranges, entry.start..entry.start + entry.length);
@@ -1060,14 +1130,20 @@ impl<'a> SemanticJsonRangeCollector<'a> {
     fn skip_whitespace(&mut self) {
         let start = self.cursor.position;
         self.cursor.skip_whitespace();
-        self.claim(start..self.cursor.position, SparseResponseRangeKind::JsonStructure);
+        self.claim(
+            start..self.cursor.position,
+            SparseResponseRangeKind::JsonStructure,
+        );
     }
 
     fn expect_byte(&mut self, expected: u8) -> Result<()> {
         let start = self.cursor.position;
         let result = self.cursor.expect_byte(expected);
         if result.is_ok() {
-            self.claim(start..self.cursor.position, SparseResponseRangeKind::JsonStructure);
+            self.claim(
+                start..self.cursor.position,
+                SparseResponseRangeKind::JsonStructure,
+            );
         }
         result
     }
@@ -1616,8 +1692,7 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
 
     fn fill_buffer(&mut self) -> Result<()> {
         if self.position >= self.end
-            || (self.buffer_start..self.buffer_start + self.buffer.len())
-                .contains(&self.position)
+            || (self.buffer_start..self.buffer_start + self.buffer.len()).contains(&self.position)
         {
             return Ok(());
         }
@@ -1629,7 +1704,10 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
             .ok_or(VerifierError::InvalidRange(
                 "sparse JSON read crosses an undisclosed range",
             ))?;
-        let chunk_end = range.end.min(self.end).min(self.position.saturating_add(8192));
+        let chunk_end = range
+            .end
+            .min(self.end)
+            .min(self.position.saturating_add(8192));
         self.buffer = self.source.read(self.position..chunk_end)?;
         self.buffer_start = self.position;
         Ok(())
@@ -1737,9 +1815,8 @@ impl<'source, 'transcript> SparseJsonCursor<'source, 'transcript> {
                             "invalid surrogate pair in JSON string",
                         ));
                     }
-                    let scalar = 0x1_0000_u32
-                        + (u32::from(high - 0xD800) << 10)
-                        + u32::from(low - 0xDC00);
+                    let scalar =
+                        0x1_0000_u32 + (u32::from(high - 0xD800) << 10) + u32::from(low - 0xDC00);
                     char::from_u32(scalar)
                         .ok_or(VerifierError::InvalidJson("invalid Unicode scalar"))?
                 } else if (0xDC00..=0xDFFF).contains(&high) {
@@ -1978,7 +2055,9 @@ fn extract_member_id_sparse(
     cursor.expect_byte(b'{')?;
     cursor.skip_whitespace()?;
     if cursor.peek()? == Some(b'}') {
-        return Err(VerifierError::InvalidJson("required JSON members are missing"));
+        return Err(VerifierError::InvalidJson(
+            "required JSON members are missing",
+        ));
     }
     loop {
         let key = cursor.parse_string()?;
@@ -2014,10 +2093,14 @@ fn extract_member_id_sparse(
         }
     }
     if cursor.position != cursor.end {
-        return Err(VerifierError::InvalidJson("trailing JSON bytes are not allowed"));
+        return Err(VerifierError::InvalidJson(
+            "trailing JSON bytes are not allowed",
+        ));
     }
     if !result_seen || !data_seen {
-        return Err(VerifierError::InvalidJson("required JSON members are missing"));
+        return Err(VerifierError::InvalidJson(
+            "required JSON members are missing",
+        ));
     }
     Ok(ParsedRequireInfo {
         verified_member_id: member_id
@@ -2369,7 +2452,8 @@ impl VerifierResult {
             ));
         }
         validate_server_identity(&self.server_identity)?;
-        if self.origin_inventory_sha256.is_some() != self.target_approval_artifact_sha256.is_some() {
+        if self.origin_inventory_sha256.is_some() != self.target_approval_artifact_sha256.is_some()
+        {
             return Err(VerifierError::InvalidResult(
                 "Production inventory and Target Approval digests must be present together",
             ));
@@ -2575,7 +2659,10 @@ pub(crate) fn append_json_optional_digest_field(
 }
 
 pub(crate) fn push_optional_digest(output: &mut Vec<u8>, value: Option<[u8; 32]>) -> Result<()> {
-    push_len_prefixed(output, value.as_ref().map_or(&[], |digest| digest.as_slice()))
+    push_len_prefixed(
+        output,
+        value.as_ref().map_or(&[], |digest| digest.as_slice()),
+    )
 }
 
 fn append_range_field(output: &mut String, key: &str, ranges: &[RevealedRange]) {
@@ -2757,7 +2844,11 @@ pub(crate) fn parse_fixed_base64<const N: usize>(cursor: &mut JsonCursor<'_>) ->
 pub(crate) fn parse_optional_fixed_base64<const N: usize>(
     cursor: &mut JsonCursor<'_>,
 ) -> Result<Option<[u8; N]>> {
-    if cursor.bytes.get(cursor.position..).is_some_and(|bytes| bytes.starts_with(b"null")) {
+    if cursor
+        .bytes
+        .get(cursor.position..)
+        .is_some_and(|bytes| bytes.starts_with(b"null"))
+    {
         cursor.position += 4;
         Ok(None)
     } else {
@@ -2818,7 +2909,7 @@ fn parse_range_array(cursor: &mut JsonCursor<'_>) -> Result<Vec<RevealedRange>> 
             _ => {
                 return Err(VerifierError::InvalidResult(
                     "invalid range array separator",
-                ))
+                ));
             }
         }
     }
@@ -2827,7 +2918,7 @@ fn parse_range_array(cursor: &mut JsonCursor<'_>) -> Result<Vec<RevealedRange>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::{write::GzEncoder, Compression};
+    use flate2::{Compression, write::GzEncoder};
     use std::{fs, io::Write};
 
     fn default_limits() -> ParserLimits {
@@ -3045,31 +3136,29 @@ mod tests {
         let request = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding:  {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(parse_require_info_request(
-            request.as_bytes(),
-            "game.example.test",
-            &default_limits()
-        )
-        .is_err());
+        assert!(
+            parse_require_info_request(request.as_bytes(), "game.example.test", &default_limits())
+                .is_err()
+        );
         let duplicate = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(parse_require_info_request(
-            duplicate.as_bytes(),
-            "game.example.test",
-            &default_limits()
-        )
-        .is_err());
+        assert!(
+            parse_require_info_request(
+                duplicate.as_bytes(),
+                "game.example.test",
+                &default_limits()
+            )
+            .is_err()
+        );
 
         let legacy = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(parse_require_info_request(
-            legacy.as_bytes(),
-            "game.example.test",
-            &default_limits()
-        )
-        .is_err());
+        assert!(
+            parse_require_info_request(legacy.as_bytes(), "game.example.test", &default_limits())
+                .is_err()
+        );
     }
 
     #[test]
@@ -3082,22 +3171,26 @@ mod tests {
             let request = format!(
                 "{start_line}\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
             );
-            assert!(parse_require_info_request(
-                request.as_bytes(),
-                "game.example.test",
-                &default_limits()
-            )
-            .is_err());
+            assert!(
+                parse_require_info_request(
+                    request.as_bytes(),
+                    "game.example.test",
+                    &default_limits()
+                )
+                .is_err()
+            );
         }
         let wrong_host = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: other.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(parse_require_info_request(
-            wrong_host.as_bytes(),
-            "game.example.test",
-            &default_limits()
-        )
-        .is_err());
+        assert!(
+            parse_require_info_request(
+                wrong_host.as_bytes(),
+                "game.example.test",
+                &default_limits()
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -3106,12 +3199,10 @@ mod tests {
         let request = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\n\r\n"
         );
-        assert!(parse_require_info_request(
-            request.as_bytes(),
-            "game.example.test",
-            &default_limits()
-        )
-        .is_err());
+        assert!(
+            parse_require_info_request(request.as_bytes(), "game.example.test", &default_limits())
+                .is_err()
+        );
         let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}}}";
         let response = format!(
             "HTTP/1.1 200 OK\r\n\r\n{}",
@@ -3172,7 +3263,11 @@ mod tests {
         let ranges = vec![0..header.len()];
         let source = AuthenticatedByteSource::new(&transcript, &ranges).unwrap();
         assert!(matches!(
-            parse_require_info_request_sparse_source(&source, "game.example.test", &default_limits()),
+            parse_require_info_request_sparse_source(
+                &source,
+                "game.example.test",
+                &default_limits()
+            ),
             Err(VerifierError::SparseProfileUnsupported(_))
         ));
     }
@@ -3187,12 +3282,14 @@ mod tests {
         let binding_end = binding_start + value.len();
         let ranges = vec![0..binding_start, binding_end..request.len()];
         let source = AuthenticatedByteSource::new(request.as_bytes(), &ranges).unwrap();
-        assert!(parse_require_info_request_sparse_source(
-            &source,
-            "game.example.test",
-            &default_limits()
-        )
-        .is_err());
+        assert!(
+            parse_require_info_request_sparse_source(
+                &source,
+                "game.example.test",
+                &default_limits()
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -3217,12 +3314,12 @@ mod tests {
 
     #[test]
     fn sparse_response_preserves_strict_json_policy_when_body_is_authenticated() {
-        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let body =
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let response = content_length_response(body);
         let ranges = vec![0..response.len()];
         let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
-        let parsed =
-            parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
+        let parsed = parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
         assert_eq!(parsed.verified_member_id, "16189463");
     }
 
@@ -3233,14 +3330,14 @@ mod tests {
             "svdata={{\"noise\":{{\"payload\":\"{padding}\"}},\"api_result\":1,\"api_data\":{{\"opaque\":[1,{{\"payload\":\"{padding}\"}}],\"api_basic\":{{\"other\":\"{padding}\",\"api_member_id\":16189463}}}},\"tail\":\"{padding}\"}}"
         );
         let response = content_length_response(body.as_bytes());
-        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        let ranges =
+            plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
         let disclosed_bytes: usize = ranges.iter().map(Range::len).sum();
         assert!(ranges.len() > 1);
         assert!(disclosed_bytes < response.len() / 4);
 
         let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
-        let parsed =
-            parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
+        let parsed = parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
         assert_eq!(parsed.verified_member_id, "16189463");
     }
 
@@ -3248,7 +3345,8 @@ mod tests {
     fn sparse_parser_does_not_read_opaque_value_interiors() {
         let body = b"svdata={\"string\":\"hidden\",\"number\":12345,\"object\":{\"value\":7},\"array\":[1,2,3],\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let response = content_length_response(body);
-        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        let ranges =
+            plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
         let mut mutated = response.clone();
         for marker in [
             b"hidden".as_slice(),
@@ -3263,23 +3361,33 @@ mod tests {
             mutated[start] = if mutated[start] == b'a' { b'b' } else { b'a' };
         }
         let source = AuthenticatedByteSource::new(&mutated, &ranges).unwrap();
-        let parsed =
-            parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
+        let parsed = parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
         assert_eq!(parsed.verified_member_id, "16189463");
     }
 
     #[test]
     fn sparse_parser_rejects_required_path_and_structure_mutations() {
-        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let body =
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
         let response = content_length_response(body);
-        let ranges = plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
+        let ranges =
+            plan_require_info_response_sparse_ranges(&response, &default_limits()).unwrap();
         for (needle, replacement) in [
-            (b"\"api_result\":1".as_slice(), b"\"api_result\":0".as_slice()),
+            (
+                b"\"api_result\":1".as_slice(),
+                b"\"api_result\":0".as_slice(),
+            ),
             (b"\"api_data\"".as_slice(), b"\"api_datu\"".as_slice()),
             (b"\"api_basic\"".as_slice(), b"\"api_basiX\"".as_slice()),
-            (b"\"api_member_id\"".as_slice(), b"\"api_member_iX\"".as_slice()),
+            (
+                b"\"api_member_id\"".as_slice(),
+                b"\"api_member_iX\"".as_slice(),
+            ),
             (b"\"api_data\":{".as_slice(), b"\"api_data\":[".as_slice()),
-            (b"\"api_result\":1,".as_slice(), b"\"api_result\":1;".as_slice()),
+            (
+                b"\"api_result\":1,".as_slice(),
+                b"\"api_result\":1;".as_slice(),
+            ),
         ] {
             let mut mutated = response.clone();
             let start = mutated
@@ -3534,24 +3642,36 @@ mod tests {
 
         assert_eq!(report[0].kind, SparseResponseRangeKind::HttpHeaders);
         assert_eq!(report[1].kind, SparseResponseRangeKind::SvdataPrefix);
-        assert!(report
-            .iter()
-            .any(|entry| entry.kind == SparseResponseRangeKind::ApiResultValue));
-        assert!(report
-            .iter()
-            .any(|entry| entry.kind == SparseResponseRangeKind::JsonStructure));
-        assert!(report
-            .iter()
-            .any(|entry| entry.kind == SparseResponseRangeKind::RootKey));
-        assert!(report
-            .iter()
-            .any(|entry| entry.kind == SparseResponseRangeKind::ApiDataKey));
-        assert!(report
-            .iter()
-            .any(|entry| entry.kind == SparseResponseRangeKind::ApiBasicKey));
-        assert!(report
-            .iter()
-            .any(|entry| entry.kind == SparseResponseRangeKind::ApiMemberIdValue));
+        assert!(
+            report
+                .iter()
+                .any(|entry| entry.kind == SparseResponseRangeKind::ApiResultValue)
+        );
+        assert!(
+            report
+                .iter()
+                .any(|entry| entry.kind == SparseResponseRangeKind::JsonStructure)
+        );
+        assert!(
+            report
+                .iter()
+                .any(|entry| entry.kind == SparseResponseRangeKind::RootKey)
+        );
+        assert!(
+            report
+                .iter()
+                .any(|entry| entry.kind == SparseResponseRangeKind::ApiDataKey)
+        );
+        assert!(
+            report
+                .iter()
+                .any(|entry| entry.kind == SparseResponseRangeKind::ApiBasicKey)
+        );
+        assert!(
+            report
+                .iter()
+                .any(|entry| entry.kind == SparseResponseRangeKind::ApiMemberIdValue)
+        );
 
         let hidden_start = response
             .windows(b"{\"nested\"".len())
@@ -3562,9 +3682,11 @@ mod tests {
             .position(|byte| *byte == b'}')
             .map(|offset| hidden_start + offset + 1)
             .unwrap();
-        assert!(!ranges
-            .iter()
-            .any(|range| range.start < hidden_end && hidden_start < range.end));
+        assert!(
+            !ranges
+                .iter()
+                .any(|range| range.start < hidden_end && hidden_start < range.end)
+        );
     }
 
     #[test]
@@ -3616,9 +3738,11 @@ mod tests {
                 .position(|window| window == marker)
                 .unwrap();
             let end = start + marker.len();
-            assert!(!ranges
-                .iter()
-                .any(|range| range.start < end && start < range.end));
+            assert!(
+                !ranges
+                    .iter()
+                    .any(|range| range.start < end && start < range.end)
+            );
         }
 
         for marker in [b"\"api_result\":1".as_slice(), b"16189463".as_slice()] {
@@ -3627,9 +3751,11 @@ mod tests {
                 .position(|window| window == marker)
                 .unwrap();
             let end = start + marker.len();
-            assert!(ranges
-                .iter()
-                .any(|range| range.start <= start && end <= range.end));
+            assert!(
+                ranges
+                    .iter()
+                    .any(|range| range.start <= start && end <= range.end)
+            );
         }
     }
 

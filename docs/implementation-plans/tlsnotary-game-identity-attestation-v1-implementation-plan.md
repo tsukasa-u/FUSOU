@@ -1672,3 +1672,19 @@ Phase 0 runtime gate `BLOCKED`, WASM provenance `UNRESOLVED`, Hosted CI
 `NOT_RUN`, real TLSN testplay `NOT_RUN`, and Production acceptance `BLOCKED`.
 Trust-path details and the exact test evidence are recorded in the
 [alpha.15 audit dossier](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
+
+### Local reusable-authenticity prototype (not a Production path)
+
+The standalone [`packages/authenticity` workspace](../../packages/authenticity/README.md)
+now contains provider-neutral identity types, an authentication/device-proof
+interface, a local consumer example, and an optional adapter for the pinned
+clean TLSNotary alpha.15 revision. This demonstrates a possible library
+boundary only. It does not integrate Supabase Auth, register devices, provide
+production authority keys or durable replay storage, replace the FUSOU
+path-patched TLSN backend, or create a FUSOU Result/Evidence Bundle.
+
+The fixture and test keys are synthetic; the consumer report identifies the
+local provider and is non-self-authenticating. Clean-upstream deserialization
+allocation limits remain unproven for hostile transcript lengths, so the
+feature-gated adapter is not production-ready. Its tests passing does not
+approve its draft challenge encoding or change any P0/Phase 0 status.

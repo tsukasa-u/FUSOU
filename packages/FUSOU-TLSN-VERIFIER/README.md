@@ -547,3 +547,16 @@ cargo +1.95.0 test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml exper
 These tests use an in-memory TLS origin and test-only trust/signing material.
 They do not contact the Game Server or a Notary and do not change the
 `P0-05 = BLOCKED` classification.
+
+### Separate reusable-authenticity prototype
+
+The [`packages/authenticity` workspace](../authenticity/README.md) is a
+separate local prototype. Its optional clean-upstream alpha.15 adapter
+characterizes the pinned upstream Presentation verifier and authenticated
+range extraction; it does not replace this verifier's path-patched production
+dependency. The adapter uses a synthetic fixture and caller-supplied trust
+inputs, and its resistance to hostile transcript-length-driven allocation has
+not been established. Its local authentication/device example is not
+Supabase, production registration, a FUSOU Result, or an Evidence Bundle.
+Passing its tests does not change P0-01, P0-10, Phase 0, or Production
+acceptance.

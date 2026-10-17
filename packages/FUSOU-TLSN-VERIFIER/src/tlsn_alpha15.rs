@@ -1,13 +1,13 @@
 use crate::{
-    parse_require_info_request_source, parse_require_info_request_sparse_source,
-    parse_require_info_response_source, parse_require_info_response_sparse_source, sha256,
-    validate_server_identity, verify_transcript_digest, AuthenticatedByteSource, ParsedBinding,
-    ParserLimits, RevealedRange, VerifierError, MAX_ATTESTATION_ID_BYTES, PROFILE_ID,
-    REQUIRE_INFO_TARGET,
+    AuthenticatedByteSource, MAX_ATTESTATION_ID_BYTES, PROFILE_ID, ParsedBinding, ParserLimits,
+    REQUIRE_INFO_TARGET, RevealedRange, VerifierError, parse_require_info_request_source,
+    parse_require_info_request_sparse_source, parse_require_info_response_source,
+    parse_require_info_response_sparse_source, sha256, validate_server_identity,
+    verify_transcript_digest,
 };
 use std::{io::Cursor, ops::Range};
 use thiserror::Error;
-use tlsn_attestation::{presentation::Presentation, CryptoProvider};
+use tlsn_attestation::{CryptoProvider, presentation::Presentation};
 
 pub const SELECTED_REVISION: &str = "refs/tags/v0.1.0-alpha.15";
 pub const SELECTED_COMMIT: &str = "47aee45b53e06648c1b2ad3689b367b8c923fdec";
@@ -128,7 +128,12 @@ enum AuthenticatedTranscriptStorage {
         received: Vec<u8>,
     },
     Sparse {
+        #[cfg(test)]
         transcript: tlsn_core::transcript::PartialTranscript,
+        sent_len: usize,
+        sent: Vec<u8>,
+        received_len: usize,
+        received: Vec<u8>,
     },
 }
 
@@ -311,23 +316,41 @@ impl AuthenticatedTranscript {
             ));
         }
         validate_server_identity(&server_identity)?;
-        let sent_source = AuthenticatedByteSource::from_partial(
+        let sent_len = transcript.len_sent();
+        let received_len = transcript.len_received();
+        let sent_metadata = AuthenticatedByteSource::from_partial(
             &transcript,
             tlsn_core::transcript::Direction::Sent,
         )?;
-        let received_source = AuthenticatedByteSource::from_partial(
+        let received_metadata = AuthenticatedByteSource::from_partial(
             &transcript,
             tlsn_core::transcript::Direction::Received,
         )?;
-        let sent_ranges = sent_source.ranges();
-        let received_ranges = received_source.ranges();
+        let sent_ranges = sent_metadata.ranges();
+        let received_ranges = received_metadata.ranges();
+        let sent: Vec<u8> = transcript
+            .iter(tlsn_core::transcript::Direction::Sent)
+            .collect();
+        let received: Vec<u8> = transcript
+            .iter(tlsn_core::transcript::Direction::Received)
+            .collect();
+        let sent_source = AuthenticatedByteSource::from_packed(&sent, sent_len, &sent_ranges)?;
+        let received_source =
+            AuthenticatedByteSource::from_packed(&received, received_len, &received_ranges)?;
         let sent_digest = complete_transcript_digest(&sent_source)?;
         let received_digest = complete_transcript_digest(&received_source)?;
         Ok(Self {
             server_identity,
             attestation_id,
             notary_key_sha256,
-            transcript: AuthenticatedTranscriptStorage::Sparse { transcript },
+            transcript: AuthenticatedTranscriptStorage::Sparse {
+                #[cfg(test)]
+                transcript,
+                sent_len,
+                sent,
+                received_len,
+                received,
+            },
             sent_digest,
             sent_ranges,
             received_digest,
@@ -343,18 +366,21 @@ impl AuthenticatedTranscript {
             (AuthenticatedTranscriptStorage::Owned { received, .. }, false) => Ok(
                 AuthenticatedByteSource::new(received, &self.received_ranges)?,
             ),
-            (AuthenticatedTranscriptStorage::Sparse { transcript }, true) => {
-                Ok(AuthenticatedByteSource::from_partial(
-                    transcript,
-                    tlsn_core::transcript::Direction::Sent,
-                )?)
-            }
-            (AuthenticatedTranscriptStorage::Sparse { transcript }, false) => {
-                Ok(AuthenticatedByteSource::from_partial(
-                    transcript,
-                    tlsn_core::transcript::Direction::Received,
-                )?)
-            }
+            (AuthenticatedTranscriptStorage::Sparse { sent_len, sent, .. }, true) => Ok(
+                AuthenticatedByteSource::from_packed(sent, *sent_len, &self.sent_ranges)?,
+            ),
+            (
+                AuthenticatedTranscriptStorage::Sparse {
+                    received_len,
+                    received,
+                    ..
+                },
+                false,
+            ) => Ok(AuthenticatedByteSource::from_packed(
+                received,
+                *received_len,
+                &self.received_ranges,
+            )?),
         }
     }
 
@@ -666,7 +692,7 @@ pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use tlsn_core::{
         rangeset::set::RangeSet,
         transcript::{Direction, Transcript},
@@ -932,7 +958,7 @@ mod tests {
         assert_ranges_match(&sent_ranges, &vector["openings"]["sent"]);
         assert_ranges_match(&received_ranges, &vector["openings"]["received"]);
 
-        let AuthenticatedTranscriptStorage::Sparse { transcript } = &authenticated.transcript
+        let AuthenticatedTranscriptStorage::Sparse { transcript, .. } = &authenticated.transcript
         else {
             panic!("clean upstream sparse fixture must retain sparse storage");
         };
@@ -1145,27 +1171,13 @@ mod tests {
             RangeSet::from([100..150, 200..250]),
         );
 
-        let mut bytes = Vec::new();
-        partial
-            .copy_authenticated_to(Direction::Sent, &RangeSet::from(100..150), &mut bytes)
-            .unwrap();
-        assert_eq!(bytes, vec![0x11; 50]);
-
-        let mut bytes = Vec::new();
-        partial
-            .copy_authenticated_to(Direction::Sent, &RangeSet::from(150..200), &mut bytes)
-            .unwrap_err();
-        partial
-            .copy_authenticated_to(Direction::Sent, &RangeSet::from(200..250), &mut bytes)
-            .unwrap();
-        assert_eq!(bytes, vec![0x11; 50]);
+        let source = AuthenticatedByteSource::from_partial(&partial, Direction::Sent).unwrap();
+        assert_eq!(source.read(100..150).unwrap(), vec![0x11; 50]);
+        assert!(source.read(150..200).is_err());
+        assert_eq!(source.read(200..250).unwrap(), vec![0x11; 50]);
 
         for range in [50..150, 150..250, 100..201, usize::MAX - 1..usize::MAX] {
-            let mut bytes = Vec::new();
-            assert!(partial
-                .copy_authenticated_to(Direction::Sent, &RangeSet::from(range), &mut bytes)
-                .is_err());
-            assert!(bytes.is_empty());
+            assert!(source.read(range).is_err());
         }
     }
 

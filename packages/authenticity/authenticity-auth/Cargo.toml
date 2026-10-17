@@ -1,0 +1,13 @@
+[package]
+name = "authenticity-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Pluggable user authentication and device proof-of-possession"
+
+[dependencies]
+async-trait = "0.1"
+authenticity-core = { path = "../authenticity-core" }
+ed25519-dalek = { version = "2.1", features = ["std"] }
+thiserror = "1.0"
