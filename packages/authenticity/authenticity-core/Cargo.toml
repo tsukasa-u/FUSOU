@@ -1,7 +1,8 @@
 [package]
 name = "authenticity-core"
 version.workspace = true
-edition.workspace = true
+edition = "2021"
+rust-version = "1.81"
 license.workspace = true
 publish = false
 description = "Provider-agnostic identity and evidence identifiers for authenticity verification"

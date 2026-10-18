@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use authenticity_core::is_valid_key_id;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -1774,12 +1775,7 @@ pub(crate) fn validate_digest(value: &str) -> Result<(), RuntimeConfigManifestEr
 }
 
 fn validate_key_id(value: &str) -> Result<(), RuntimeConfigManifestError> {
-    if value.is_empty()
-        || value.len() > 128
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
-    {
+    if !is_valid_key_id(value) {
         return Err(RuntimeConfigManifestError::Invalid("key ID is invalid"));
     }
     Ok(())

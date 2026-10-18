@@ -8,7 +8,11 @@ prototype, not a FUSOU Production integration or a new protocol contract.
 
 - `authenticity-core` provides provider-neutral principal, session, device,
   challenge, digest, verification-status, and canonical lowercase DNS
-  hostname types.
+  hostname types. It also provides `is_valid_key_id`, the shared lexical
+  check for non-empty ASCII alphanumeric IDs with `.`, `_`, or `-` and a
+  maximum length of 128 bytes. This crate targets Rust 1.81 and Edition 2021;
+  the other workspace crates remain Edition 2024 and do not inherit that
+  compatibility claim.
 - `authenticity-auth` defines extension points for identity providers, device
   registration lookup, and replay storage. Its authenticator checks the
   returned issuer, audience, anonymous-identity policy, and authentication
@@ -45,6 +49,17 @@ contract.
 This prototype does not enroll or revoke devices, implement a production
 identity provider, manage authority keys, or provide a durable replay store.
 The example's deterministic keys and in-memory stores are test-only.
+
+## Existing FUSOU reuse
+
+The APP Runtime Config Manifest validator and HTTPS Proxy Result registry
+validator use `authenticity-core::is_valid_key_id` for the identical
+1-to-128-byte ASCII syntax they previously implemented locally. Their error
+mapping, registry lookup, signer scope, status and validity-window checks,
+trust anchors, and signature verification remain in their existing crates.
+The Verifier's separate 1-to-64-byte key ID rule is intentionally not migrated.
+The core crate has no TLSNotary dependency; the broader authenticity workspace
+and its TLSNotary adapter are not established as Rust 1.81 compatible.
 
 ## TLSNotary adapter boundary
 

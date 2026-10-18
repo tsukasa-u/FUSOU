@@ -263,6 +263,7 @@ dependencies = [
 name = "app"
 version = "0.5.0"
 dependencies = [
+ "authenticity-core",
  "base64 0.22.1",
  "bincode",
  "cap-std",
@@ -912,6 +913,13 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
+name = "authenticity-core"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "auto-launch"
@@ -7694,6 +7702,7 @@ checksum = "263a3f48f01e7309e857138bd47f785585b4a005e8e56c6d2824ce91195999c3"
 name = "proxy-https"
 version = "0.1.1"
 dependencies = [
+ "authenticity-core",
  "base64 0.22.1",
  "bincode",
  "brotli 3.5.0",

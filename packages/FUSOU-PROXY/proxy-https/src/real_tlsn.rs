@@ -13,6 +13,7 @@ use crate::{
         ResultSignerFuture, SignedTlsnResult, TlsnPresentation, TlsnVerificationBackend,
     },
 };
+use authenticity_core::is_valid_key_id;
 use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine as _,
@@ -107,7 +108,7 @@ impl ResultSignatureVerifier {
         registry_json: String,
         sparse: bool,
     ) -> Result<Self, TlsnTransportError> {
-        if !valid_result_key_id(&expected_key_id)
+        if !is_valid_key_id(&expected_key_id)
             || public_key_spki.len() != ED25519_SPKI_PREFIX.len() + 32
             || !public_key_spki.starts_with(ED25519_SPKI_PREFIX)
         {
@@ -124,7 +125,7 @@ impl ResultSignatureVerifier {
         let mut seen_key_ids = HashSet::new();
         let mut expected_entry = None;
         for entry in registry.keys {
-            if !valid_result_key_id(&entry.key_id)
+            if !is_valid_key_id(&entry.key_id)
                 || !seen_key_ids.insert(entry.key_id.clone())
                 || !matches!(
                     entry.status.as_str(),
@@ -218,13 +219,6 @@ impl ResultSignatureVerifier {
         };
         VerifiedMemberId::from_verifier(verified_member_id)
     }
-}
-
-fn valid_result_key_id(value: &str) -> bool {
-    (1..=128).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn decode_result_public_key(value: &str) -> Option<[u8; 32]> {
@@ -2579,6 +2573,29 @@ mod tests {
             public_key_spki,
             "result-signer-2026".to_owned(),
             "{}".to_owned(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn result_signature_verifier_rejects_invalid_expected_and_registry_key_ids() {
+        let (_, public_key_spki) = signed_result_payload();
+        let valid_registry =
+            result_registry(&public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None);
+        assert!(ResultSignatureVerifier::new(
+            public_key_spki.clone(),
+            "invalid key ID".to_owned(),
+            valid_registry,
+        )
+        .is_err());
+
+        let invalid_registry =
+            result_registry(&public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None)
+                .replace("result-signer-2026", "invalid key ID");
+        assert!(ResultSignatureVerifier::new(
+            public_key_spki,
+            "result-signer-2026".to_owned(),
+            invalid_registry,
         )
         .is_err());
     }

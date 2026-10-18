@@ -40,6 +40,7 @@ serde_json = { version = "1.0.145", features = ["preserve_order"] }
 bincode = { version = "1.3", optional = true }
 sha2 = "0.10"
 libc = "0.2"
+authenticity-core = { path = "../../authenticity/authenticity-core" }
 base64 = { version = "0.22", optional = true }
 futures = { version = "0.3.34", optional = true }
 fusou-tlsn-verifier = { path = "../../FUSOU-TLSN-VERIFIER", optional = true }

@@ -69,6 +69,14 @@ string_identifier!(DeviceId);
 string_identifier!(SessionId);
 string_identifier!(AuthorityKeyId);
 
+/// Returns whether a key ID uses the shared ASCII key identifier syntax.
+pub fn is_valid_key_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChallengeId([u8; 16]);
 
@@ -181,5 +189,17 @@ mod tests {
         let id = PrincipalId::new("https://issuer.example", "subject-7").unwrap();
         assert_eq!(id.issuer(), "https://issuer.example");
         assert_eq!(id.subject(), "subject-7");
+    }
+
+    #[test]
+    fn key_id_syntax_preserves_ascii_and_byte_length_constraints() {
+        assert!(is_valid_key_id("a"));
+        assert!(is_valid_key_id("result-signer_2026.v1"));
+        assert!(is_valid_key_id(&"a".repeat(128)));
+
+        for invalid in ["", "invalid key ID", "café", "key/id", "key:id"] {
+            assert!(!is_valid_key_id(invalid), "{invalid}");
+        }
+        assert!(!is_valid_key_id(&"a".repeat(129)));
     }
 }
