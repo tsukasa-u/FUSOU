@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "authenticity-core",
     "authenticity-auth",
     "authenticity-tlsn",
     "consumer-example",
 ]
+exclude = ["authenticity-core", "authenticity-core-consumer-smoke"]
 resolver = "2"
 
 [workspace.package]

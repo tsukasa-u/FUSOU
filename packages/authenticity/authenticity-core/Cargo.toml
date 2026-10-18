@@ -1,11 +1,14 @@
 [package]
 name = "authenticity-core"
-version.workspace = true
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.81"
-license.workspace = true
+license = "MIT OR Apache-2.0"
 publish = false
 description = "Provider-agnostic identity and evidence identifiers for authenticity verification"
 
 [dependencies]
 thiserror = "1.0"
+
+[workspace]
+resolver = "2"

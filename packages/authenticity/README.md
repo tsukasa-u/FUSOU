@@ -1,8 +1,11 @@
 # Authenticity library prototype
 
-This directory is a standalone Rust workspace exploring reusable identity,
-authentication, device-proof, and TLSNotary adapter boundaries. It is a local
-prototype, not a FUSOU Production integration or a new protocol contract.
+This directory contains local prototypes for reusable identity,
+authentication, device-proof, and TLSNotary adapter boundaries. The
+Edition-2024 workspace holds the higher-level crates; `authenticity-core` is
+deliberately a separate Cargo workspace so Rust 1.81 consumers do not need to
+parse those newer-edition members. This is not a FUSOU Production integration
+or a new protocol contract.
 
 ## Crates
 
@@ -10,9 +13,9 @@ prototype, not a FUSOU Production integration or a new protocol contract.
   challenge, digest, verification-status, and canonical lowercase DNS
   hostname types. It also provides `is_valid_key_id`, the shared lexical
   check for non-empty ASCII alphanumeric IDs with `.`, `_`, or `-` and a
-  maximum length of 128 bytes. This crate targets Rust 1.81 and Edition 2021;
-  the other workspace crates remain Edition 2024 and do not inherit that
-  compatibility claim.
+  maximum length of 128 bytes. It declares Rust 1.81 and Edition 2021 and is
+  independently buildable; the other workspace crates remain Edition 2024
+  and do not inherit that compatibility claim.
 - `authenticity-auth` defines extension points for identity providers, device
   registration lookup, and replay storage. Its authenticator checks the
   returned issuer, audience, anonymous-identity policy, and authentication
@@ -64,22 +67,49 @@ and its TLSNotary adapter are not established as Rust 1.81 compatible.
 ## MSRV and publication status
 
 There is no repository-wide MSRV policy, and the versions below distinguish a
-manifest declaration from a verified minimum. At this audit, Rust 1.81 was not
-installed. The package tests listed here pass on Rust 1.98.1 for the stated
-host/feature configuration; they do not establish the lowest supported
-compiler.
+manifest declaration from a verified minimum. Rust 1.81 was not initially
+installed; a `rustup target list --installed --toolchain 1.81` query
+automatically provisioned it during this audit. Rust 1.81 checks and tests
+below therefore use that provisioned 1.81.0 toolchain. All Rust 1.81 results
+are for Linux x86_64; other operating systems and architectures were not
+tested.
 
 | Package | Edition | Declared `rust-version` | Current locked dependency evidence | Compiler evidence |
 | --- | --- | --- | --- | --- |
-| `authenticity-core` | 2021 | 1.81 | Its seven-package closure declares no dependency MSRV above 1.71 (`thiserror` 1.0.69 and proc-macro dependencies). | Workspace tests pass on Linux x86_64 with 1.98.1. Rust 1.81 and a separate downstream consumer build are unverified. |
+| `authenticity-core` | 2021 | 1.81 | Its seven-package locked graph has only the direct dependency `thiserror` 1.0.69; dependency manifests declare MSRVs no higher than 1.71. It has no crate features or target-specific dependencies. | Rust 1.81.0 `check` passes; 3 unit tests pass and doctests run 0 tests. An independent path consumer compiles and passes 1 API smoke test. Verified only on Linux x86_64 with the tested locked graph. |
 | `authenticity-auth` | 2024 | unset | The locked closure includes `zeroize` 1.9.1 and `base64ct` 1.8.3, each declaring 1.85. | Workspace tests pass on Linux x86_64 with 1.98.1; minimum unverified. |
 | `authenticity-tlsn` | 2024 | unset | `clean-upstream-spike` resolves the pinned TLSN source and `mpz-fields` 0.1.0-alpha.6, declaring 1.95. | The adapter tests pass with that feature on Linux x86_64 with 1.98.1; minimum unverified. |
 | `authenticity-consumer-example` | 2024 | unset | It enables `clean-upstream-spike`; its locked graph includes `mpz-fields` 1.95. | Workspace tests pass on Linux x86_64 with 1.98.1; minimum unverified. |
 
 Edition 2024 itself requires a compiler that supports that edition (Rust 1.85
 or newer). The package-level dependency evidence can require still newer
-compilers. The workspace uses resolver 2 and a shared Edition 2024 default,
-while `authenticity-core` explicitly overrides that default with Edition 2021.
+compilers. The higher-level workspace uses resolver 2 and a shared Edition
+2024 default. `authenticity-core` is now excluded from that workspace and has
+its own resolver-2 workspace with explicit Edition 2021, version, and license
+metadata. Before this split, Cargo 1.81 failed while parsing the sibling
+`authenticity-auth` Edition-2024 manifest even when asked to check only core.
+The split permits a real external path dependency to build core without
+changing the higher-level crates' edition or toolchain.
+
+The independent `authenticity-core-consumer-smoke` crate depends only on
+`authenticity-core` by path. Its Rust 1.81 test uses the public
+`PrincipalId`, `DeviceId`, `SessionId`, `AuthorityKeyId`, `ServerIdentity`,
+`IdentityError`, `is_valid_key_id`, `ChallengeId`, `Digest`, and
+`VerificationStatus` APIs. `VerificationStatus` distinguishes status enum
+variants, but core does not provide a type-level verified-evidence wrapper;
+the smoke test does not treat the `Verified` variant as cryptographic proof.
+Core also does not implement an authentication provider, TLSNotary
+verification, Result signing, or trust policy. Those capabilities remain in
+other crates or require external implementations.
+
+The package has one direct dependency (`thiserror = "1.0"`) with its default
+features and no optional feature flags. It declares `license = "MIT OR
+Apache-2.0"` and `publish = false`; it has no `repository` metadata. The
+package's own lockfile supports repeatable local MSRV tests, but neither it
+nor the higher-level workspace lockfile constrains a downstream consumer's
+dependency resolution. The consumer smoke test generated its own lockfile
+under Rust 1.81 and resolved the same `thiserror` 1.0.69 graph. Future
+compatible dependency updates still require an MSRV check.
 
 The consuming FUSOU packages have separate compatibility constraints:
 
@@ -110,13 +140,18 @@ APP lockfile was introduced as a committed file by the lockfile-reproducibility
 change; there is no earlier committed lock graph from which to determine
 exactly when each resolved dependency raised its MSRV.
 
-The APP lockfile and authenticity-workspace lockfile are tracked. The Proxy
-and TLSN Verifier lockfiles are ignored by the repository. A lockfile
-reproduces the repository-root development/test resolution; it does not pin
-versions for a downstream project consuming a library. All authenticity
-members currently set `publish = false`, so they are not presently
-crates.io-publishable packages. The public API and 0.1.0 version do not yet
-constitute a published stability or support commitment.
+The APP lockfile and higher-level authenticity-workspace lockfile are tracked.
+The core and consumer-smoke workspaces have separate lockfiles for local
+reproducible checks. The Proxy and TLSN Verifier lockfiles are ignored by the
+repository. A lockfile reproduces repository tests; it does not pin versions
+for a downstream project consuming a library. All authenticity packages
+including core and the smoke consumer retain `publish = false`, so none are
+presently crates.io-publishable. Core can be consumed from source using a Git
+or path dependency, as verified by the smoke crate, but this does not establish
+crates.io publication readiness. Before publication, owners must decide
+repository metadata, review license-file completeness and package contents,
+and complete the applicable security/API review. No such review is claimed
+here.
 
 The active APP build matrix uses stable Rust on Ubuntu x86_64/ARM64 and
 Windows x86_64/ARM64 runners; the macOS entries are commented out. The
@@ -130,16 +165,17 @@ inspected separately.
 ### Recommended policy
 
 Option A is viable for the pure core and preserves reuse by Rust 1.81
-projects, but it remains a target rather than a verified guarantee until
-Rust 1.81 CI and a downstream consumer pass. Option B would simplify one
-workspace policy at the cost of raising the pure-core floor to match the
-TLSN stack, unnecessarily excluding older consumers. Package-specific
-support (option C) best separates these costs:
+projects. The current Linux x86_64 lock graph, unit tests, and independent path
+consumer now pass with Rust 1.81.0, but no dedicated MSRV CI job exists, and
+future dependency resolutions and non-Linux targets remain unverified.
+Option B would simplify one workspace policy at the cost of raising the
+pure-core floor to match the TLSN stack, unnecessarily excluding older
+consumers. Package-specific support (option C) best separates these costs:
 
-1. Keep Rust 1.81 as the `authenticity-core` target only after a Rust 1.81 CI
-   job runs the core tests and a minimal external consumer. Its current
-   dependency metadata is compatible, but that is not a compiler
-   verification. Keep a current-stable workspace job as well.
+1. Keep Rust 1.81 as the `authenticity-core` declared floor and add a dedicated
+   CI job for the core tests and independent consumer. Keep a current-stable
+   higher-level workspace job as well; the whole Edition-2024 workspace is not
+   expected to load with Rust 1.81.
 2. Set and verify separate MSRVs for `authenticity-auth`, the TLSN adapter,
    and examples. The adapter's opt-in `clean-upstream-spike` currently needs
    a much newer graph; a package-level MSRV cannot vary by feature, so either
@@ -157,7 +193,8 @@ Avoid exact dependency pins solely to preserve an unverified MSRV. Maintain
 the selected floor with an explicit minimum-toolchain CI job and a dependency
 resolution check that does not rely only on the repository lockfile.
 This is an evidence-based recommendation, not an owner-approved release
-policy. No package MSRV or application dependency was changed in this audit.
+policy. APP and Proxy manifests/dependencies and the higher-level crates'
+MSRV declarations were not changed in this audit.
 
 ## TLSNotary adapter boundary
 
@@ -196,10 +233,18 @@ Bundle verification as `NOT_IMPLEMENTED`.
 
 ## Local checks
 
-Run the workspace tests without network access:
+Run the higher-level workspace tests without network access:
 
 ```sh
 cargo test --manifest-path packages/authenticity/Cargo.toml --workspace --locked --offline
+```
+
+The Rust 1.81 core package and independent path consumer have separate
+workspaces and lockfiles; run both explicitly:
+
+```sh
+cargo +1.81 test --manifest-path packages/authenticity/authenticity-core/Cargo.toml --locked --offline
+cargo +1.81 test --manifest-path packages/authenticity/authenticity-core-consumer-smoke/Cargo.toml --locked --offline
 ```
 
 To run only the clean-upstream adapter tests:
