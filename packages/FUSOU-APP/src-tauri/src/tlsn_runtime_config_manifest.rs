@@ -2101,6 +2101,7 @@ mod tests {
             "https://127.0.0.1/tlsn/runtime-config/v2/manifest.json",
             "https://runtime-config.example.org:443/tlsn/runtime-config/v2/manifest.json",
             "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json?latest",
+            "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json#latest",
             "https://runtime-config.example.org/health",
         ] {
             assert!(
@@ -2859,6 +2860,9 @@ mod tests {
         assert!(verified
             .approved_target("https://game.example.test")
             .is_none());
+        assert!(verified
+            .approved_target("unapproved-game-host.net")
+            .is_none());
         assert_eq!(
             verified.independent_verification().worker_reference_sha256,
             verified.payload().source.worker_reference_sha256
@@ -2927,6 +2931,80 @@ mod tests {
                     "Origin Inventory targets are invalid, unordered, or duplicated"
                 ))
             ));
+        }
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn target_approval_rejects_invalid_duplicate_and_unmatched_identities() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let payload = verify_signed_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+        )
+        .unwrap();
+        let inventory_sha256 = sha256_base64url(&raw_inputs.origin_inventory);
+        let original_approval: TargetApprovalArtifact =
+            serde_json::from_slice(&raw_inputs.target_approval).unwrap();
+        let first_approved_identity = original_approval
+            .targets
+            .first()
+            .expect("test vector Target Approval has a target")
+            .clone();
+        let invalid_identity_error =
+            "Target Approval contains an invalid or duplicate server identity";
+        let cases = [
+            (vec!["GAME.example.net".to_owned()], invalid_identity_error),
+            (vec!["192.0.2.1".to_owned()], invalid_identity_error),
+            (
+                vec!["https://game.example.net".to_owned()],
+                invalid_identity_error,
+            ),
+            (vec!["game.123".to_owned()], invalid_identity_error),
+            (
+                vec![first_approved_identity.clone(), first_approved_identity],
+                invalid_identity_error,
+            ),
+            (
+                vec!["unapproved-game-host.net".to_owned()],
+                "Target Approval identity is absent from the Origin Inventory",
+            ),
+        ];
+
+        for (targets, expected_error) in cases {
+            let approval = TargetApprovalArtifact {
+                schema_version: original_approval.schema_version,
+                authority_model: original_approval.authority_model.clone(),
+                environment: original_approval.environment.clone(),
+                status: original_approval.status.clone(),
+                inventory_sha256: inventory_sha256.clone(),
+                targets,
+                approved_at: original_approval.approved_at.clone(),
+            };
+            let raw_approval = serde_json::to_string_pretty(&approval)
+                .unwrap()
+                .into_bytes();
+            let approval_sha256 = sha256_base64url(&raw_approval);
+
+            let mut security_set: Value =
+                serde_json::from_slice(&raw_inputs.security_registry_set).unwrap();
+            security_set["origin_inventory_sha256"] = Value::String(inventory_sha256.clone());
+            security_set["target_approval_artifact_sha256"] =
+                Value::String(approval_sha256.clone());
+            let raw_security_set = canonical_json_bytes(&security_set).unwrap();
+
+            assert_eq!(
+                validate_authority_artifacts(
+                    &payload,
+                    &raw_inputs.origin_inventory,
+                    &raw_approval,
+                    &raw_security_set,
+                    &inventory_sha256,
+                    &approval_sha256,
+                ),
+                Err(RuntimeConfigManifestError::Invalid(expected_error))
+            );
         }
     }
 

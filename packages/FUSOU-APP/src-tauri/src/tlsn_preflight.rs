@@ -346,6 +346,15 @@ pub(crate) fn mark_candidate_app_started() -> std::io::Result<()> {
 }
 
 pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPreflightReport {
+    let inventory = configs::get_tlsn_origin_inventory();
+    run_preflight_with_origin_inventory(config, config_path, &inventory)
+}
+
+fn run_preflight_with_origin_inventory(
+    config: &TlsnPreflightConfig,
+    config_path: &Path,
+    inventory: &configs::TlsnOriginInventory,
+) -> TlsnPreflightReport {
     let mut checks = Vec::new();
     let public_configuration_fingerprints = public_configuration_fingerprints(config);
     let feature_enabled = cfg!(feature = "tlsn-production");
@@ -566,7 +575,7 @@ pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPr
     check_notary_verifying_key(&mut checks, config.notary_verifying_key.as_deref());
     check_platform_trust_store(&mut checks);
 
-    check_origin_inventory(&mut checks);
+    checks.push(check_origin_inventory(inventory));
 
     match config.artifact_output_path.as_deref() {
         Some(value) => match validate_artifact_output_path(value) {
@@ -1290,8 +1299,7 @@ fn check_platform_trust_store(checks: &mut Vec<PreflightCheck>) {
     }
 }
 
-fn check_origin_inventory(checks: &mut Vec<PreflightCheck>) {
-    let inventory = configs::get_tlsn_origin_inventory();
+fn check_origin_inventory(inventory: &configs::TlsnOriginInventory) -> PreflightCheck {
     let mut indices = std::collections::HashSet::new();
     let mut identities = std::collections::HashSet::new();
     let valid = inventory.schema_version == 1
@@ -1302,20 +1310,21 @@ fn check_origin_inventory(checks: &mut Vec<PreflightCheck>) {
                 && indices.insert(target.server_index)
                 && identities.insert(target.server_identity.clone())
         });
-    if valid {
-        push_check(
-            checks,
-            "tlsn_origin_inventory",
+    let (status, detail) = if valid {
+        (
             PreflightStatus::Pass,
             "20 shipped Origin identities are unique on port 443; each request selects its target from this inventory",
-        );
+        )
     } else {
-        push_check(
-            checks,
-            "tlsn_origin_inventory",
+        (
             PreflightStatus::Error,
             "embedded inventory is malformed; expected 20 unique DNS identities on port 443",
-        );
+        )
+    };
+    PreflightCheck {
+        name: "tlsn_origin_inventory".to_owned(),
+        status,
+        detail: detail.to_owned(),
     }
 }
 
@@ -1491,6 +1500,87 @@ mod tests {
             "expected {name} to fail: {}",
             report.text()
         );
+    }
+
+    fn valid_origin_inventory() -> configs::TlsnOriginInventory {
+        configs::TlsnOriginInventory {
+            schema_version: 1,
+            source: "test-only inventory".to_owned(),
+            targets: (1..=20)
+                .map(|server_index| configs::TlsnOriginTarget {
+                    server_index,
+                    server_identity: format!("server-{server_index}.example.test"),
+                    port: 443,
+                })
+                .collect(),
+        }
+    }
+
+    fn assert_origin_inventory_error(inventory: &configs::TlsnOriginInventory) {
+        let fixture = fixture();
+        let report =
+            run_preflight_with_origin_inventory(&fixture.config, &fixture.config_path, inventory);
+        assert_error(&report, "tlsn_origin_inventory");
+        assert!(!report.ready, "{}", report.text());
+    }
+
+    #[test]
+    fn origin_inventory_preflight_check_accepts_twenty_canonical_targets() {
+        let fixture = fixture();
+        let report = run_preflight_with_origin_inventory(
+            &fixture.config,
+            &fixture.config_path,
+            &valid_origin_inventory(),
+        );
+        assert!(report.ready, "{}", report.text());
+        assert_eq!(
+            report
+                .checks
+                .iter()
+                .find(|check| check.name == "tlsn_origin_inventory")
+                .map(|check| check.status),
+            Some(PreflightStatus::Pass)
+        );
+    }
+
+    #[test]
+    fn origin_inventory_preflight_check_rejects_wrong_count_and_port() {
+        let mut wrong_count = valid_origin_inventory();
+        wrong_count.targets.pop();
+        assert_origin_inventory_error(&wrong_count);
+
+        let mut wrong_port = valid_origin_inventory();
+        wrong_port.targets[0].port = 8443;
+        assert_origin_inventory_error(&wrong_port);
+    }
+
+    #[test]
+    fn origin_inventory_preflight_check_rejects_noncanonical_server_identities() {
+        for invalid_identity in [
+            "SERVER-1.example.test",
+            "192.0.2.1",
+            "https://server-1.example.test",
+            "localhost",
+            "server-1.123",
+            "server..example.test",
+            "server.example.test.",
+        ] {
+            let mut inventory = valid_origin_inventory();
+            inventory.targets[0].server_identity = invalid_identity.to_owned();
+            assert_origin_inventory_error(&inventory);
+        }
+    }
+
+    #[test]
+    fn origin_inventory_preflight_check_rejects_duplicate_indices_and_identities() {
+        let mut duplicate_index = valid_origin_inventory();
+        duplicate_index.targets[1].server_index = duplicate_index.targets[0].server_index;
+        assert_origin_inventory_error(&duplicate_index);
+
+        let mut duplicate_identity = valid_origin_inventory();
+        duplicate_identity.targets[1].server_identity =
+            duplicate_identity.targets[0].server_identity.clone();
+        assert_origin_inventory_error(&duplicate_identity);
     }
 
     #[test]

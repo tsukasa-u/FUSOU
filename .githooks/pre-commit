@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+hook_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
+exec python3 "$hook_dir/../scripts/scoped_code_review_graph.py"
