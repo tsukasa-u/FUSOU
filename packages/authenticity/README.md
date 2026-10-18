@@ -61,6 +61,21 @@ The Verifier's separate 1-to-64-byte key ID rule is intentionally not migrated.
 The core crate has no TLSNotary dependency; the broader authenticity workspace
 and its TLSNotary adapter are not established as Rust 1.81 compatible.
 
+## MSRV status
+
+`authenticity-core` declares Rust 1.81 and Edition 2021. Its locked dependency
+closure declares MSRVs no higher than Rust 1.71 (`thiserror` and its
+proc-macro dependencies). This is manifest and dependency-metadata evidence,
+not a compile result from Rust 1.81: that toolchain was not installed during
+the key ID migration audit. The candidate workflow uses Rust 1.98.1.
+
+The core crate's MSRV does not establish the MSRV of a consuming application.
+The APP manifest declares Rust 1.81, but its current lockfile resolves the
+direct `tauri` dependency to 2.12.3, whose manifest declares Rust 1.90 and
+Edition 2024. The APP's declared minimum therefore does not match its current
+locked dependency graph. The key ID migration added no third-party package
+version updates, and this APP MSRV discrepancy was not changed here.
+
 ## TLSNotary adapter boundary
 
 The adapter takes the expected hostname, serialized Notary verifying key, and

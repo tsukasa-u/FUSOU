@@ -194,10 +194,19 @@ mod tests {
     #[test]
     fn key_id_syntax_preserves_ascii_and_byte_length_constraints() {
         assert!(is_valid_key_id("a"));
+        assert!(is_valid_key_id("AZaz09._-"));
         assert!(is_valid_key_id("result-signer_2026.v1"));
         assert!(is_valid_key_id(&"a".repeat(128)));
 
-        for invalid in ["", "invalid key ID", "café", "key/id", "key:id"] {
+        for invalid in [
+            "",
+            "invalid key ID",
+            "café",
+            "key/id",
+            "key:id",
+            "key\nid",
+            "key\tid",
+        ] {
             assert!(!is_valid_key_id(invalid), "{invalid}");
         }
         assert!(!is_valid_key_id(&"a".repeat(129)));
