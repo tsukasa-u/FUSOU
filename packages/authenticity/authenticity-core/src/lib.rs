@@ -127,7 +127,20 @@ impl ServerIdentity {
             return Err(IdentityError::InvalidServerIdentity);
         }
 
-        for label in hostname.split('.') {
+        let labels = hostname.split('.').collect::<Vec<_>>();
+        let Some(top_level_domain) = labels.last() else {
+            return Err(IdentityError::InvalidServerIdentity);
+        };
+        if labels.len() < 2
+            || !(2..=63).contains(&top_level_domain.len())
+            || !top_level_domain
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase())
+        {
+            return Err(IdentityError::InvalidServerIdentity);
+        }
+
+        for label in labels {
             let bytes = label.as_bytes();
             if bytes.is_empty()
                 || bytes.len() > 63
@@ -166,22 +179,62 @@ mod tests {
             ServerIdentity::new("tlsnotary.org").unwrap().as_str(),
             "tlsnotary.org"
         );
+        assert_eq!(
+            ServerIdentity::new("xn--mnich-kva.example")
+                .unwrap()
+                .as_str(),
+            "xn--mnich-kva.example"
+        );
+        assert!(ServerIdentity::new(&format!("{}.example", "a".repeat(63))).is_ok());
+        assert!(ServerIdentity::new(&format!("game.{}", "a".repeat(63))).is_ok());
+        assert!(ServerIdentity::new(&format!(
+            "{}.{}.{}.{}",
+            "a".repeat(63),
+            "b".repeat(63),
+            "c".repeat(63),
+            "d".repeat(61)
+        ))
+        .is_ok());
 
         for invalid in [
             "",
+            "localhost",
             "TLSNotary.org",
             "*.example.org",
             "example.org.",
+            ".example.org",
+            "example..org",
             "example.org:443",
+            "https://example.org",
+            "example.org/path",
+            "example.org?query",
+            "sha256/fingerprint",
             "192.0.2.1",
             "[2001:db8::1]",
+            "2001:db8::1",
             "münich.example",
+            "example.xn--p1ai",
             "-bad.example",
             "bad-.example",
             "bad_name.example",
+            "game.1",
+            "game.example\n",
+            "game.example\t",
+            "game example",
         ] {
             assert!(ServerIdentity::new(invalid).is_err(), "{invalid}");
         }
+
+        assert!(ServerIdentity::new(&format!("{}.example", "a".repeat(64))).is_err());
+        assert!(ServerIdentity::new(&format!("game.{}", "a".repeat(64))).is_err());
+        assert!(ServerIdentity::new(&format!(
+            "{}.{}.{}.{}",
+            "a".repeat(63),
+            "b".repeat(63),
+            "c".repeat(63),
+            "d".repeat(62)
+        ))
+        .is_err());
     }
 
     #[test]

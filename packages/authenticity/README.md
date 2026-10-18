@@ -32,6 +32,25 @@ or a new protocol contract.
   provider, test signing keys, an in-memory device registry, and an in-memory
   replay store. It emits a non-self-authenticating diagnostic report.
 
+## Canonical server identity
+
+`authenticity-core::ServerIdentity` represents a canonical DNS hostname, not a
+URL or a trust decision. It accepts only lowercase ASCII names with at least
+two labels, a total length of at most 253 bytes, and labels of 1-63 bytes.
+Labels contain lowercase ASCII letters, digits, and interior hyphens; the
+final label must contain 2-63 lowercase ASCII letters. Uppercase, IP literals,
+URLs, ports, paths, empty labels, wildcards, underscores, whitespace, control
+characters, and non-ASCII input are rejected.
+
+An `xn--` label outside the final label is checked only as ordinary LDH syntax;
+the core does not decode, normalize, or validate IDNA. An `xn--` final label
+does not satisfy the alphabetic final-label rule.
+
+This parser establishes syntax and canonical representation only. It does not
+authorize a target, check Origin Inventory or Target Approval membership,
+validate a certificate or Notary key, or verify a TLSNotary Presentation.
+Those checks remain in their existing consuming layers.
+
 ## Authentication and device proof
 
 The authentication provider is a trusted extension point, not a token
@@ -60,6 +79,10 @@ validator use `authenticity-core::is_valid_key_id` for the identical
 1-to-128-byte ASCII syntax they previously implemented locally. Their error
 mapping, registry lookup, signer scope, status and validity-window checks,
 trust anchors, and signature verification remain in their existing crates.
+APP, HTTPS Proxy, and TLSN Verifier hostname syntax checks now delegate to
+`authenticity-core::ServerIdentity`; the Verifier's public validator remains a
+compatibility wrapper. Inventory membership, Target Approval, route binding,
+and other trust checks remain in their existing layers.
 The Verifier's separate 1-to-64-byte key ID rule is intentionally not migrated.
 The core crate has no TLSNotary dependency; the broader authenticity workspace
 and its TLSNotary adapter are not established as Rust 1.81 compatible.

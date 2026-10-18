@@ -9,6 +9,7 @@ description = "Strict parser and frozen TLSNotary alpha.15 adapter for FUSOU req
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+authenticity-core = { path = "../authenticity/authenticity-core" }
 base64 = "0.22"
 bincode = "1.3"
 flate2 = "1.0"

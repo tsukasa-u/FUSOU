@@ -1,3 +1,4 @@
+use authenticity_core::ServerIdentity;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1289,16 +1290,6 @@ fn check_platform_trust_store(checks: &mut Vec<PreflightCheck>) {
     }
 }
 
-fn valid_server_identity(value: &str) -> bool {
-    let value = value.trim();
-    !value.is_empty()
-        && value == value.trim()
-        && value
-            .bytes()
-            .all(|byte| !byte.is_ascii_control() && !byte.is_ascii_whitespace())
-        && !value.contains(['/', '?', '#'])
-}
-
 fn check_origin_inventory(checks: &mut Vec<PreflightCheck>) {
     let inventory = configs::get_tlsn_origin_inventory();
     let mut indices = std::collections::HashSet::new();
@@ -1307,9 +1298,9 @@ fn check_origin_inventory(checks: &mut Vec<PreflightCheck>) {
         && inventory.targets.len() == 20
         && inventory.targets.iter().all(|target| {
             target.port == 443
-                && valid_server_identity(&target.server_identity)
+                && ServerIdentity::new(target.server_identity.as_str()).is_ok()
                 && indices.insert(target.server_index)
-                && identities.insert(target.server_identity.to_ascii_lowercase())
+                && identities.insert(target.server_identity.clone())
         });
     if valid {
         push_check(

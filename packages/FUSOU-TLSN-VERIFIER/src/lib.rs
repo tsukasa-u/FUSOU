@@ -8,7 +8,8 @@ pub mod sparse_result;
 pub mod tlsn_alpha15;
 pub mod wasm;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use authenticity_core::ServerIdentity;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, io::Read, ops::Range};
@@ -2407,23 +2408,9 @@ fn is_canonical_device_id(value: &str) -> bool {
 }
 
 pub fn validate_server_identity(value: &str) -> Result<()> {
-    if value.is_empty() || value.len() > 253 || !value.is_ascii() || value.ends_with('.') {
-        return Err(VerifierError::InvalidResult("invalid server identity"));
-    }
-    for label in value.split('.') {
-        if label.is_empty()
-            || label.len() > 63
-            || !label
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            || !label.as_bytes()[0].is_ascii_alphanumeric()
-            || !label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
-            || label.bytes().any(|byte| byte.is_ascii_uppercase())
-        {
-            return Err(VerifierError::InvalidResult("invalid server identity"));
-        }
-    }
-    Ok(())
+    ServerIdentity::new(value)
+        .map(|_| ())
+        .map_err(|_| VerifierError::InvalidResult("invalid server identity"))
 }
 
 impl VerifierResult {
@@ -2935,7 +2922,7 @@ fn parse_range_array(cursor: &mut JsonCursor<'_>) -> Result<Vec<RevealedRange>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::{Compression, write::GzEncoder};
+    use flate2::{write::GzEncoder, Compression};
     use std::{fs, io::Write};
 
     fn default_limits() -> ParserLimits {
@@ -3153,29 +3140,31 @@ mod tests {
         let request = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding:  {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(
-            parse_require_info_request(request.as_bytes(), "game.example.test", &default_limits())
-                .is_err()
-        );
+        assert!(parse_require_info_request(
+            request.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
         let duplicate = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(
-            parse_require_info_request(
-                duplicate.as_bytes(),
-                "game.example.test",
-                &default_limits()
-            )
-            .is_err()
-        );
+        assert!(parse_require_info_request(
+            duplicate.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
 
         let legacy = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-FUSOU-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(
-            parse_require_info_request(legacy.as_bytes(), "game.example.test", &default_limits())
-                .is_err()
-        );
+        assert!(parse_require_info_request(
+            legacy.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
     }
 
     #[test]
@@ -3188,26 +3177,22 @@ mod tests {
             let request = format!(
                 "{start_line}\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
             );
-            assert!(
-                parse_require_info_request(
-                    request.as_bytes(),
-                    "game.example.test",
-                    &default_limits()
-                )
-                .is_err()
-            );
+            assert!(parse_require_info_request(
+                request.as_bytes(),
+                "game.example.test",
+                &default_limits()
+            )
+            .is_err());
         }
         let wrong_host = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: other.example.test\r\nX-Attestation-Binding: {value}\r\nContent-Length: 0\r\n\r\n"
         );
-        assert!(
-            parse_require_info_request(
-                wrong_host.as_bytes(),
-                "game.example.test",
-                &default_limits()
-            )
-            .is_err()
-        );
+        assert!(parse_require_info_request(
+            wrong_host.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
     }
 
     #[test]
@@ -3216,10 +3201,12 @@ mod tests {
         let request = format!(
             "POST {REQUIRE_INFO_TARGET} HTTP/1.1\r\nHost: game.example.test\r\nX-Attestation-Binding: {value}\r\n\r\n"
         );
-        assert!(
-            parse_require_info_request(request.as_bytes(), "game.example.test", &default_limits())
-                .is_err()
-        );
+        assert!(parse_require_info_request(
+            request.as_bytes(),
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
         let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":1}}}";
         let response = format!(
             "HTTP/1.1 200 OK\r\n\r\n{}",
@@ -3315,14 +3302,12 @@ mod tests {
         let binding_end = binding_start + value.len();
         let ranges = vec![0..binding_start, binding_end..request.len()];
         let source = AuthenticatedByteSource::new(request.as_bytes(), &ranges).unwrap();
-        assert!(
-            parse_require_info_request_sparse_source(
-                &source,
-                "game.example.test",
-                &default_limits()
-            )
-            .is_err()
-        );
+        assert!(parse_require_info_request_sparse_source(
+            &source,
+            "game.example.test",
+            &default_limits()
+        )
+        .is_err());
     }
 
     #[test]
@@ -3675,36 +3660,24 @@ mod tests {
 
         assert_eq!(report[0].kind, SparseResponseRangeKind::HttpHeaders);
         assert_eq!(report[1].kind, SparseResponseRangeKind::SvdataPrefix);
-        assert!(
-            report
-                .iter()
-                .any(|entry| entry.kind == SparseResponseRangeKind::ApiResultValue)
-        );
-        assert!(
-            report
-                .iter()
-                .any(|entry| entry.kind == SparseResponseRangeKind::JsonStructure)
-        );
-        assert!(
-            report
-                .iter()
-                .any(|entry| entry.kind == SparseResponseRangeKind::RootKey)
-        );
-        assert!(
-            report
-                .iter()
-                .any(|entry| entry.kind == SparseResponseRangeKind::ApiDataKey)
-        );
-        assert!(
-            report
-                .iter()
-                .any(|entry| entry.kind == SparseResponseRangeKind::ApiBasicKey)
-        );
-        assert!(
-            report
-                .iter()
-                .any(|entry| entry.kind == SparseResponseRangeKind::ApiMemberIdValue)
-        );
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiResultValue));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::JsonStructure));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::RootKey));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiDataKey));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiBasicKey));
+        assert!(report
+            .iter()
+            .any(|entry| entry.kind == SparseResponseRangeKind::ApiMemberIdValue));
 
         let hidden_start = response
             .windows(b"{\"nested\"".len())
@@ -3715,11 +3688,9 @@ mod tests {
             .position(|byte| *byte == b'}')
             .map(|offset| hidden_start + offset + 1)
             .unwrap();
-        assert!(
-            !ranges
-                .iter()
-                .any(|range| range.start < hidden_end && hidden_start < range.end)
-        );
+        assert!(!ranges
+            .iter()
+            .any(|range| range.start < hidden_end && hidden_start < range.end));
     }
 
     #[test]
@@ -3771,11 +3742,9 @@ mod tests {
                 .position(|window| window == marker)
                 .unwrap();
             let end = start + marker.len();
-            assert!(
-                !ranges
-                    .iter()
-                    .any(|range| range.start < end && start < range.end)
-            );
+            assert!(!ranges
+                .iter()
+                .any(|range| range.start < end && start < range.end));
         }
 
         for marker in [b"\"api_result\":1".as_slice(), b"16189463".as_slice()] {
@@ -3784,11 +3753,9 @@ mod tests {
                 .position(|window| window == marker)
                 .unwrap();
             let end = start + marker.len();
-            assert!(
-                ranges
-                    .iter()
-                    .any(|range| range.start <= start && end <= range.end)
-            );
+            assert!(ranges
+                .iter()
+                .any(|range| range.start <= start && end <= range.end));
         }
     }
 
@@ -3919,5 +3886,11 @@ mod tests {
         assert!(validate_server_identity("Game.example.test").is_err());
         assert!(validate_server_identity("game..example").is_err());
         assert!(validate_server_identity("game.example.test.").is_err());
+        assert!(validate_server_identity("192.0.2.1").is_err());
+        assert!(validate_server_identity("localhost").is_err());
+        assert!(validate_server_identity("game.123").is_err());
+        assert!(validate_server_identity("https://game.example.test").is_err());
+        assert!(validate_server_identity("game.xn--p1ai").is_err());
+        assert_eq!(validate_server_identity("game.example.test"), Ok(()));
     }
 }

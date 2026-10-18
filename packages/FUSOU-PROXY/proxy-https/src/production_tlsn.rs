@@ -5,6 +5,7 @@ use crate::experimental_tlsn::{
     TlsnOriginTransport, TlsnTransportError, TlsnTransportFuture, VerificationError,
     VerificationFuture, VerificationOutcome, VerifiedTlsnEvidence,
 };
+use authenticity_core::ServerIdentity;
 use std::{
     collections::HashMap,
     future::Future,
@@ -50,31 +51,6 @@ impl std::fmt::Display for OriginConfigurationError {
     }
 }
 
-fn valid_dns_hostname(value: &str) -> bool {
-    if value.is_empty()
-        || value.len() > 253
-        || !value.is_ascii()
-        || value.parse::<std::net::IpAddr>().is_ok()
-    {
-        return false;
-    }
-
-    let labels = value.split('.').collect::<Vec<_>>();
-    labels.len() >= 2
-        && labels[..labels.len() - 1].iter().all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && label.as_bytes()[0].is_ascii_alphanumeric()
-                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
-                && label
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        })
-        && labels.last().is_some_and(|label| {
-            (2..=63).contains(&label.len()) && label.bytes().all(|byte| byte.is_ascii_alphabetic())
-        })
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OriginTarget {
     hostname: String,
@@ -88,16 +64,16 @@ impl OriginTarget {
         port: u16,
         server_identity: String,
     ) -> Result<Self, OriginConfigurationError> {
-        if !valid_dns_hostname(&hostname) {
+        if ServerIdentity::new(hostname.as_str()).is_err() {
             return Err(OriginConfigurationError::InvalidHostname);
         }
         if port == 0 {
             return Err(OriginConfigurationError::InvalidPort);
         }
-        if !valid_dns_hostname(&server_identity) {
+        if ServerIdentity::new(server_identity.as_str()).is_err() {
             return Err(OriginConfigurationError::InvalidServerIdentity);
         }
-        if !hostname.eq_ignore_ascii_case(&server_identity) {
+        if hostname != server_identity {
             return Err(OriginConfigurationError::TargetIdentityMismatch);
         }
         Ok(Self {
@@ -164,7 +140,7 @@ impl ServerIdentityPolicy {
         }
         if allowlisted_identities
             .iter()
-            .any(|identity| !valid_dns_hostname(identity))
+            .any(|identity| ServerIdentity::new(identity.as_str()).is_err())
         {
             return Err(OriginConfigurationError::InvalidServerIdentity);
         }
@@ -183,9 +159,12 @@ impl ServerIdentityPolicy {
     }
 
     pub fn allows(&self, server_identity: &str) -> bool {
+        if ServerIdentity::new(server_identity).is_err() {
+            return false;
+        }
         self.allowlisted_identities
             .iter()
-            .any(|identity| identity.eq_ignore_ascii_case(server_identity))
+            .any(|identity| identity == server_identity)
     }
 
     pub fn identities(&self) -> &[String] {
@@ -226,9 +205,7 @@ impl OriginTransportConfig {
                 .iter()
                 .any(|target| {
                     target.port == self.target.port()
-                        && target
-                            .server_identity
-                            .eq_ignore_ascii_case(self.target.server_identity())
+                        && target.server_identity == self.target.server_identity()
                 });
         #[cfg(test)]
         let inventory_allows_target = inventory_allows_target
@@ -1600,12 +1577,33 @@ mod tests {
             .unwrap_err(),
             OriginConfigurationError::TargetIdentityMismatch,
         );
-        assert!(OriginTarget::new(
-            "GAME.example.com".to_owned(),
-            443,
-            "game.example.com".to_owned(),
-        )
-        .is_ok());
+        assert_eq!(
+            OriginTarget::new(
+                "GAME.example.com".to_owned(),
+                443,
+                "game.example.com".to_owned(),
+            )
+            .unwrap_err(),
+            OriginConfigurationError::InvalidHostname,
+        );
+        assert_eq!(
+            OriginTarget::new(
+                "game.example.com".to_owned(),
+                443,
+                "GAME.example.com".to_owned(),
+            )
+            .unwrap_err(),
+            OriginConfigurationError::InvalidServerIdentity,
+        );
+    }
+
+    #[test]
+    fn identity_policy_rejects_noncanonical_forms_without_case_folding() {
+        let policy = ServerIdentityPolicy::new(vec!["game.example.test".to_owned()]).unwrap();
+        assert!(policy.allows("game.example.test"));
+        assert!(!policy.allows("GAME.example.test"));
+        assert!(!policy.allows("192.0.2.1"));
+        assert!(ServerIdentityPolicy::new(vec!["GAME.example.test".to_owned()]).is_err());
     }
 
     fn request() -> SerializedOriginRequest {

@@ -4,6 +4,7 @@ use crate::tlsn_alpha15::{
     RequireInfoDisclosureProfile, SparseRequireInfoDisclosureProfile,
 };
 use crate::{parse_verifier_result, sha256, VerifierResult};
+use authenticity_core::ServerIdentity;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use k256::PublicKey;
 use ring::signature::{UnparsedPublicKey, ED25519};
@@ -1389,7 +1390,7 @@ fn verify_production_target_approval(
                 let port = target.get("port").and_then(Value::as_u64);
                 if server_index != Some(index as u64 + 1)
                     || port != Some(443)
-                    || !is_canonical_dns_hostname(server_identity)
+                    || ServerIdentity::new(server_identity).is_err()
                     || !seen_inventory_identities.insert(server_identity)
                 {
                     return Err(BundleVerificationError::new(
@@ -1404,7 +1405,7 @@ fn verify_production_target_approval(
             let mut seen_approved_identities = HashSet::new();
             let mut previous_inventory_index = None;
             for approved_identity in &approved_identities {
-                if !is_canonical_dns_hostname(approved_identity)
+                if ServerIdentity::new(*approved_identity).is_err()
                     || is_fixture_or_synthetic_identity(approved_identity)
                     || !seen_approved_identities.insert(*approved_identity)
                 {
@@ -1433,7 +1434,7 @@ fn verify_production_target_approval(
                 }
                 previous_inventory_index = Some(inventory_index);
             }
-            if !is_canonical_dns_hostname(server_identity)
+            if ServerIdentity::new(server_identity).is_err()
                 || is_fixture_or_synthetic_identity(server_identity)
                 || !inventory_identities.contains(&server_identity)
                 || !approved_identities.contains(&server_identity)
@@ -1547,33 +1548,6 @@ fn serialize_target_approval_record(approval: &Value) -> Result<Vec<u8>> {
         "{{\n  \"schema_version\": {schema_version},\n  \"authority_model\": {authority_model},\n  \"environment\": {environment},\n  \"status\": {status},\n  \"inventory_sha256\": {inventory_sha256},\n  \"targets\": [\n{target_list}\n  ],\n  \"approved_at\": {approved_at}\n}}"
     )
     .into_bytes())
-}
-
-fn is_canonical_dns_hostname(hostname: &str) -> bool {
-    if hostname.is_empty() || hostname.len() > 253 || hostname != hostname.to_ascii_lowercase() {
-        return false;
-    }
-    let labels = hostname.split('.').collect::<Vec<_>>();
-    if labels.len() < 2 {
-        return false;
-    }
-    let top_level_domain = labels[labels.len() - 1];
-    if !(2..=63).contains(&top_level_domain.len())
-        || !top_level_domain
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase())
-    {
-        return false;
-    }
-    labels.iter().all(|label| {
-        !label.is_empty()
-            && label.len() <= 63
-            && label.as_bytes()[0].is_ascii_alphanumeric()
-            && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
-            && label
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-    })
 }
 
 fn is_fixture_or_synthetic_identity(hostname: &str) -> bool {
@@ -5558,6 +5532,20 @@ mod tests {
         let mut bad_hostname = inventory.clone();
         bad_hostname["targets"][0]["server_identity"] = serde_json::json!("not_a_hostname");
         invalid_inventories.push(bad_hostname);
+        let mut uppercase_hostname = inventory.clone();
+        uppercase_hostname["targets"][0]["server_identity"] =
+            serde_json::json!("SERVER01.fusou-data.net");
+        invalid_inventories.push(uppercase_hostname);
+        let mut ip_literal = inventory.clone();
+        ip_literal["targets"][0]["server_identity"] = serde_json::json!("192.0.2.1");
+        invalid_inventories.push(ip_literal);
+        let mut url_hostname = inventory.clone();
+        url_hostname["targets"][0]["server_identity"] =
+            serde_json::json!("https://server01.fusou-data.net");
+        invalid_inventories.push(url_hostname);
+        let mut numeric_tld = inventory.clone();
+        numeric_tld["targets"][0]["server_identity"] = serde_json::json!("server01.123");
+        invalid_inventories.push(numeric_tld);
         let mut duplicate_identity = inventory.clone();
         duplicate_identity["targets"][1]["server_identity"] =
             serde_json::json!("server01.fusou-data.net");

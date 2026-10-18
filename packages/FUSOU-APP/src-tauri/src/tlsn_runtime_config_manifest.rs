@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use authenticity_core::is_valid_key_id;
+use authenticity_core::{is_valid_key_id, ServerIdentity};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -337,14 +337,10 @@ impl VerifiedRuntimeConfigManifest {
     }
 
     pub fn approved_target(&self, server_identity: &str) -> Option<&RuntimeConfigApprovedTarget> {
-        if !is_dns_hostname(server_identity)
-            || server_identity != server_identity.to_ascii_lowercase()
-        {
-            return None;
-        }
+        let server_identity = ServerIdentity::new(server_identity).ok()?;
         self.approved_targets()
             .iter()
-            .find(|target| target.server_identity == server_identity)
+            .find(|target| target.server_identity == server_identity.as_str())
     }
 
     pub fn manifest_sha256(&self) -> &str {
@@ -507,7 +503,7 @@ fn validate_runtime_config_manifest_url(raw: &str) -> Result<Url, RuntimeConfigM
         RuntimeConfigManifestError::Invalid("Runtime Config manifest URL is invalid")
     })?;
     if url.scheme() != "https"
-        || !matches!(url.host(), Some(Host::Domain(host)) if is_dns_hostname(host))
+        || !matches!(url.host(), Some(Host::Domain(host)) if ServerIdentity::new(host).is_ok())
         || !url.username().is_empty()
         || url.password().is_some()
         || url.port().is_some()
@@ -981,7 +977,7 @@ fn validate_authority_artifacts(
     for (index, target) in inventory.targets.iter().enumerate() {
         if target.server_index != index as u32 + 1
             || target.port != 443
-            || !is_dns_hostname(&target.server_identity)
+            || ServerIdentity::new(target.server_identity.as_str()).is_err()
             || inventory_positions
                 .insert(target.server_identity.as_str(), index)
                 .is_some()
@@ -1014,7 +1010,7 @@ fn validate_authority_artifacts(
     let mut previous_position = None;
     let mut seen = BTreeSet::new();
     for identity in &approval.targets {
-        if !is_dns_hostname(identity)
+        if ServerIdentity::new(identity.as_str()).is_err()
             || is_fixture_or_synthetic_server_identity(identity)
             || !seen.insert(identity.as_str())
         {
@@ -1642,7 +1638,7 @@ fn validate_https_endpoint(
     let url = Url::parse(value)
         .map_err(|_| RuntimeConfigManifestError::Invalid("HTTPS endpoint URL is invalid"))?;
     let is_dns = match url.host() {
-        Some(Host::Domain(host)) => is_dns_hostname(host),
+        Some(Host::Domain(host)) => ServerIdentity::new(host).is_ok(),
         Some(Host::Ipv4(_)) | Some(Host::Ipv6(_)) | None => false,
     };
     if url.scheme() != "https"
@@ -1707,28 +1703,6 @@ fn validate_notary_endpoint(value: &str) -> Result<(), RuntimeConfigManifestErro
         ));
     }
     Ok(())
-}
-
-fn is_dns_hostname(host: &str) -> bool {
-    if host.len() > 253 || !host.is_ascii() {
-        return false;
-    }
-    let mut labels = host.split('.');
-    let Some(last) = labels.next_back() else {
-        return false;
-    };
-    if !(2..=63).contains(&last.len()) || !last.bytes().all(|byte| byte.is_ascii_lowercase()) {
-        return false;
-    }
-    labels.all(|label| {
-        !label.is_empty()
-            && label.len() <= 63
-            && label.as_bytes()[0].is_ascii_alphanumeric()
-            && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
-            && label
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-    })
 }
 
 fn is_worker_name(value: &str) -> bool {
@@ -2119,6 +2093,10 @@ mod tests {
         );
         for invalid in [
             "http://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+            "https://RUNTIME-config.example.org/tlsn/runtime-config/v2/manifest.json",
+            "https://localhost/tlsn/runtime-config/v2/manifest.json",
+            "https://runtime-config.example.123/tlsn/runtime-config/v2/manifest.json",
+            "https://runtime-config.example.xn--p1ai/tlsn/runtime-config/v2/manifest.json",
             "https://user@runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
             "https://127.0.0.1/tlsn/runtime-config/v2/manifest.json",
             "https://runtime-config.example.org:443/tlsn/runtime-config/v2/manifest.json",
@@ -2868,6 +2846,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(verified.payload().epoch, "1");
+        let approved_identity = verified
+            .approved_targets()
+            .first()
+            .expect("verified Target Approval contains targets")
+            .server_identity();
+        assert!(verified.approved_target(approved_identity).is_some());
+        assert!(verified
+            .approved_target(&approved_identity.to_ascii_uppercase())
+            .is_none());
+        assert!(verified.approved_target("192.0.2.1").is_none());
+        assert!(verified
+            .approved_target("https://game.example.test")
+            .is_none());
         assert_eq!(
             verified.independent_verification().worker_reference_sha256,
             verified.payload().source.worker_reference_sha256
@@ -2897,6 +2888,46 @@ mod tests {
                 .result_registry_pins
                 .result_registry_root_key_id
         );
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn production_inventory_rejects_noncanonical_server_identity_before_approval_matching() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let payload = verify_signed_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+        )
+        .unwrap();
+
+        for invalid_identity in [
+            "SERVER01.fusou-data.net",
+            "192.0.2.1",
+            "server01.123",
+            "https://server01.fusou-data.net",
+        ] {
+            let mut inventory: Value =
+                serde_json::from_slice(&raw_inputs.origin_inventory).unwrap();
+            inventory["targets"][0]["server_identity"] = Value::String(invalid_identity.to_owned());
+            let raw_inventory = serde_json::to_vec(&inventory).unwrap();
+
+            assert!(matches!(
+                validate_authority_artifacts(
+                    &payload,
+                    &raw_inventory,
+                    &raw_inputs.target_approval,
+                    &raw_inputs.security_registry_set,
+                    &payload.production_authority_pins.origin_inventory_sha256,
+                    &payload
+                        .production_authority_pins
+                        .target_approval_artifact_sha256,
+                ),
+                Err(RuntimeConfigManifestError::Invalid(
+                    "Origin Inventory targets are invalid, unordered, or duplicated"
+                ))
+            ));
+        }
     }
 
     #[cfg(feature = "tlsn-production")]

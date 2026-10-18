@@ -3897,6 +3897,7 @@ dependencies = [
 name = "fusou-tlsn-verifier"
 version = "0.1.0"
 dependencies = [
+ "authenticity-core",
  "base64 0.22.1",
  "bincode",
  "flate2",
