@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -180,6 +181,173 @@ class ScopedCodeReviewGraphTests(unittest.TestCase):
         self.assertEqual(len(calls), 2, calls)
         self.assertTrue(calls[0].startswith("update --repo "), calls[0])
         self.assertTrue(calls[1].startswith("detect-changes --brief --repo "), calls[1])
+
+    def test_staged_empty_hooks_path_is_not_executed_as_a_hook(self):
+        staged_path = ".empty-hooks/pre-commit"
+        marker = Path(self.temp.name) / "staged-hook-ran"
+        self._write(
+            staged_path,
+            b"#!/bin/sh\nprintf ran > \"$FUSOU_SCOPED_HOOK_MARKER\"\n",
+        )
+        self.root.joinpath(*staged_path.split("/")).chmod(0o755)
+        self._stage(staged_path)
+        scope = self._scope()
+
+        with patch.dict(os.environ, {"FUSOU_SCOPED_HOOK_MARKER": str(marker)}):
+            with tempfile.TemporaryDirectory(prefix="fusou-hook-boundary-") as temp:
+                scoped_root, env = scope_helper.create_scoped_repository(scope, temp)
+                hooks_dir = Path(
+                    scope_helper._sandbox_git(
+                        scoped_root,
+                        ["config", "--path", "--get", "core.hooksPath"],
+                        env=env,
+                    ).decode().strip()
+                )
+                hook_file = scoped_root.joinpath(*staged_path.split("/"))
+                self.assertEqual(scoped_root, Path(temp) / "repo")
+                self.assertEqual(hooks_dir, Path(temp) / "hooks")
+                self.assertNotIn(scoped_root, hooks_dir.parents)
+                self.assertTrue(os.access(hook_file, os.X_OK))
+                self.assertFalse(marker.exists(), "staged hook payload was executed")
+                self.assertEqual(
+                    self._sandbox_tracked_paths(scoped_root, env),
+                    [staged_path],
+                )
+
+    def test_staged_template_hook_is_not_used_by_git_init(self):
+        staged_path = ".empty-template/hooks/pre-commit"
+        marker = Path(self.temp.name) / "template-hook-ran"
+        self._write(
+            staged_path,
+            b"#!/bin/sh\nprintf ran > \"$FUSOU_SCOPED_HOOK_MARKER\"\n",
+        )
+        self.root.joinpath(*staged_path.split("/")).chmod(0o755)
+        self._stage(staged_path)
+        scope = self._scope()
+
+        with patch.dict(os.environ, {"FUSOU_SCOPED_HOOK_MARKER": str(marker)}):
+            with tempfile.TemporaryDirectory(prefix="fusou-template-boundary-") as temp:
+                workspace = Path(temp)
+                scoped_root, env = scope_helper.create_scoped_repository(scope, workspace)
+                probe = workspace / "template-probe"
+                probe.mkdir()
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(probe),
+                        "init",
+                        "--quiet",
+                        "--template",
+                        env["GIT_TEMPLATE_DIR"],
+                    ],
+                    env=env,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "-C", str(probe), "config", "user.name", "scope test"],
+                    env=env,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "-C", str(probe), "config", "user.email", "scope-test@localhost"],
+                    env=env,
+                    check=True,
+                )
+                (probe / "probe.txt").write_text("template isolation probe\n")
+                subprocess.run(
+                    ["git", "-C", str(probe), "add", "--", "probe.txt"],
+                    env=env,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "-C", str(probe), "commit", "--quiet", "-m", "probe"],
+                    env=env,
+                    check=True,
+                )
+                self.assertFalse(marker.exists(), "staged template hook was executed")
+                template_dir = Path(env["GIT_TEMPLATE_DIR"])
+                self.assertEqual(template_dir, workspace / "template")
+                self.assertNotIn(scoped_root, template_dir.parents)
+                self.assertFalse(
+                    (probe / ".git" / "hooks" / "pre-commit").exists(),
+                    "staged template hook was copied into a new repository",
+                )
+
+    def test_staged_code_review_graph_path_is_separate_from_analyzer_data(self):
+        if not shutil.which("code-review-graph"):
+            self.skipTest("code-review-graph is unavailable")
+        staged_path = ".code-review-graph/staged.py"
+        self._write(staged_path, b"value = 'staged analyzer path'\n")
+        self._stage(staged_path)
+        scope = self._scope()
+
+        with tempfile.TemporaryDirectory(prefix="fusou-data-boundary-") as temp:
+            workspace = Path(temp)
+            scoped_root, env = scope_helper.create_scoped_repository(scope, workspace)
+            analyzer_data = Path(env["CRG_DATA_DIR"])
+            staged_file = scoped_root.joinpath(*staged_path.split("/"))
+            self.assertTrue(staged_file.is_file())
+            self.assertEqual(scoped_root, workspace / "repo")
+            self.assertEqual(analyzer_data, workspace / "analyzer-data")
+            self.assertNotIn(scoped_root, analyzer_data.parents)
+            self.assertTrue(analyzer_data.is_dir())
+            commands = scope_helper.run_analyzers(
+                scoped_root, env, shutil.which("code-review-graph")
+            )
+            self.assertEqual([command[1] for command in commands], ["update", "detect-changes"])
+
+    def test_sandbox_ignores_injected_git_environment_configuration(self):
+        self._write("allowed.py", b"value = 'staged input'\n")
+        self._stage("allowed.py")
+        scope = self._scope()
+
+        with tempfile.TemporaryDirectory(prefix="fusou-git-env-") as temp:
+            workspace = Path(temp)
+            injected_env = {
+                "GIT_CONFIG_COUNT": "3",
+                "GIT_CONFIG_KEY_0": "core.hooksPath",
+                "GIT_CONFIG_VALUE_0": str(workspace / "injected-hooks"),
+                "GIT_CONFIG_KEY_1": "core.worktree",
+                "GIT_CONFIG_VALUE_1": str(self.root),
+                "GIT_CONFIG_KEY_2": "core.bare",
+                "GIT_CONFIG_VALUE_2": "true",
+                "GIT_DIR": str(workspace / "injected.git"),
+                "GIT_WORK_TREE": str(self.root),
+                "GIT_INDEX_FILE": str(workspace / "injected-index"),
+                "GIT_CONFIG_PARAMETERS": "'core.hooksPath=/injected/hooks'",
+            }
+            with patch.dict(os.environ, injected_env):
+                scoped_root, env = scope_helper.create_scoped_repository(scope, workspace)
+
+            self.assertEqual(
+                {key for key in env if key.startswith("GIT_")},
+                {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TEMPLATE_DIR"},
+            )
+            self.assertNotIn("GIT_CONFIG_COUNT", env)
+            self.assertFalse(any(key.startswith("GIT_CONFIG_KEY_") for key in env))
+            self.assertFalse(any(key.startswith("GIT_CONFIG_VALUE_") for key in env))
+            for variable in (
+                "GIT_DIR",
+                "GIT_WORK_TREE",
+                "GIT_INDEX_FILE",
+                "GIT_CONFIG_PARAMETERS",
+            ):
+                self.assertNotIn(variable, env)
+            self.assertEqual(
+                scope_helper._sandbox_git(
+                    scoped_root,
+                    ["config", "--path", "--get", "core.hooksPath"],
+                    env=env,
+                ).decode().strip(),
+                str(workspace / "hooks"),
+            )
+            self.assertEqual(
+                scope_helper._sandbox_git(
+                    scoped_root, ["rev-parse", "--show-toplevel"], env=env
+                ).decode().strip(),
+                str(scoped_root),
+            )
 
     def test_protected_staged_path_fails_before_blob_or_worktree_reads(self):
         protected_paths = (

@@ -319,34 +319,29 @@ def _sandbox_git(repo_root, args, *, literal_pathspecs=False, env=None):
 
 
 def create_scoped_repository(scope, destination):
-    destination = Path(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    hooks_dir = destination / ".empty-hooks"
+    workspace = Path(destination)
+    workspace.mkdir(parents=True, exist_ok=True)
+    workspace = workspace.resolve()
+    scoped_root = workspace / "repo"
+    scoped_root.mkdir()
+    hooks_dir = workspace / "hooks"
     hooks_dir.mkdir()
-    template_dir = destination / ".empty-template"
+    template_dir = workspace / "template"
     template_dir.mkdir()
+    analyzer_data_dir = workspace / "analyzer-data"
+    analyzer_data_dir.mkdir()
 
-    env = os.environ.copy()
-    for variable in (
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_COMMON_DIR",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_PREFIX",
-        "GIT_QUARANTINE_PATH",
-        "GIT_NAMESPACE",
-    ):
-        env.pop(variable, None)
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_TEMPLATE_DIR"] = str(template_dir)
-    env["CRG_REPO_ROOT"] = str(destination)
-    env["CRG_DATA_DIR"] = str(destination / ".code-review-graph")
+    env["CRG_REPO_ROOT"] = str(scoped_root)
+    env["CRG_DATA_DIR"] = str(analyzer_data_dir)
 
     _sandbox_git(
-        destination,
+        scoped_root,
         ["init", "--quiet", "--template", str(template_dir)],
         env=env,
     )
@@ -357,12 +352,12 @@ def create_scoped_repository(scope, destination):
         ("diff.renames", "false"),
         ("commit.gpgsign", "false"),
     ):
-        _sandbox_git(destination, ["config", key, value], env=env)
+        _sandbox_git(scoped_root, ["config", key, value], env=env)
 
     for change in scope.changes:
         if change.status != "A":
             _write_sandbox_file(
-                destination,
+                scoped_root,
                 change.path,
                 scope.base_blobs[change.path],
                 change.old_mode,
@@ -370,40 +365,40 @@ def create_scoped_repository(scope, destination):
     for change in scope.changes:
         if change.status != "A":
             _sandbox_git(
-                destination,
+                scoped_root,
                 ["add", "--", change.path],
                 literal_pathspecs=True,
                 env=env,
             )
     _sandbox_git(
-        destination,
+        scoped_root,
         ["commit", "--quiet", "--allow-empty", "-m", "scoped base"],
         env=env,
     )
 
     for change in scope.changes:
-        _remove_sandbox_path(destination, change.path)
+        _remove_sandbox_path(scoped_root, change.path)
     for change in scope.changes:
         if change.status != "D":
             _write_sandbox_file(
-                destination,
+                scoped_root,
                 change.path,
                 scope.staged_blobs[change.path],
                 change.new_mode,
             )
     for change in scope.changes:
         _sandbox_git(
-            destination,
+            scoped_root,
             ["add", "--all", "--", change.path],
             literal_pathspecs=True,
             env=env,
         )
     _sandbox_git(
-        destination,
+        scoped_root,
         ["commit", "--quiet", "--allow-empty", "-m", "staged snapshot"],
         env=env,
     )
-    return destination, env
+    return scoped_root, env
 
 
 def run_analyzers(scoped_root, env, analyzer=None, runner=None):
