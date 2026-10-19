@@ -36,6 +36,9 @@ pub use crate::experimental_tlsn::{
 };
 use crate::{bidirectional_channel, capture};
 
+#[cfg(feature = "rama-experimental")]
+pub mod rama_experimental;
+
 use configs;
 
 use fusou_auth::{AuthManager, FileStorage};
@@ -638,6 +641,24 @@ impl RawCaptureHook {
         }
     }
 
+    fn start_session(&self, connection_id: u64) -> Result<CaptureRecorder, ()> {
+        let recorder = CaptureRecorder::new();
+        let session = Arc::new(Mutex::new(RawCaptureSession {
+            recorder: recorder.clone(),
+            provenance: self.provenance.clone().for_connection(connection_id),
+            messages: Vec::new(),
+            active_request: None,
+            active_response: None,
+            next_sequence: 0,
+            invalid: false,
+        }));
+        self.sessions
+            .lock()
+            .map_err(|_| ())?
+            .insert(connection_id, session);
+        Ok(recorder)
+    }
+
     fn session(&self, connection_id: u64) -> Option<Arc<Mutex<RawCaptureSession>>> {
         self.sessions
             .lock()
@@ -652,49 +673,13 @@ impl RawCaptureHook {
             }
         }
     }
-}
 
-impl ClientStreamHook for RawCaptureHook {
-    fn wrap(&self, context: &HttpContext, stream: ClientStream) -> ClientStream {
-        let recorder = CaptureRecorder::new();
-        let session = Arc::new(Mutex::new(RawCaptureSession {
-            recorder: recorder.clone(),
-            provenance: self
-                .provenance
-                .clone()
-                .for_connection(context.connection_id),
-            messages: Vec::new(),
-            active_request: None,
-            active_response: None,
-            next_sequence: 0,
-            invalid: false,
-        }));
-        match self.sessions.lock() {
-            Ok(mut sessions) => {
-                sessions.insert(context.connection_id, session);
-            }
-            Err(_) => {
-                tracing::error!(
-                    connection_id = context.connection_id,
-                    "raw capture recorder map poisoned"
-                );
-            }
-        }
-        Box::new(crate::capture_io::CaptureIo::new_with_read_chunk_size(
-            stream, recorder, 1,
-        ))
-    }
-
-    fn request_started(
-        &self,
-        context: &HttpContext,
-        request: &Request<hudsucker::hyper::body::Incoming>,
-    ) {
-        let Some(session) = self.session(context.connection_id) else {
+    fn request_started_for(&self, connection_id: u64, metadata: ExactWireMetadata) {
+        let Some(session) = self.session(connection_id) else {
             return;
         };
         let Ok(mut session) = session.lock() else {
-            self.mark_invalid(context.connection_id);
+            self.mark_invalid(connection_id);
             return;
         };
         if session.active_request.is_some() {
@@ -727,17 +712,17 @@ impl ClientStreamHook for RawCaptureHook {
             sequence,
             stream_start: stream_start as u64,
             stream_end: None,
-            metadata: ExactWireMetadata::from_request(request),
+            metadata,
         });
         session.active_request = Some(message_index);
     }
 
-    fn request_completed(&self, context: &HttpContext) {
-        let Some(session) = self.session(context.connection_id) else {
+    fn request_completed_for(&self, connection_id: u64) {
+        let Some(session) = self.session(connection_id) else {
             return;
         };
         let Ok(mut session) = session.lock() else {
-            self.mark_invalid(context.connection_id);
+            self.mark_invalid(connection_id);
             return;
         };
         let Some(message_index) = session.active_request.take() else {
@@ -751,12 +736,12 @@ impl ClientStreamHook for RawCaptureHook {
         session.messages[message_index].stream_end = Some(stream_end as u64);
     }
 
-    fn response_started(&self, context: &HttpContext, response: &Response<Body>) {
-        let Some(session) = self.session(context.connection_id) else {
+    fn response_started_for(&self, connection_id: u64, metadata: ExactWireMetadata) {
+        let Some(session) = self.session(connection_id) else {
             return;
         };
         let Ok(mut session) = session.lock() else {
-            self.mark_invalid(context.connection_id);
+            self.mark_invalid(connection_id);
             return;
         };
         if session.active_request.is_some() || session.active_response.is_some() {
@@ -785,9 +770,81 @@ impl ClientStreamHook for RawCaptureHook {
             sequence,
             stream_start: stream_start as u64,
             stream_end: None,
-            metadata: ExactWireMetadata::from_response(response),
+            metadata,
         });
         session.active_response = Some(message_index);
+    }
+
+    fn finish_connection(
+        &self,
+        connection_id: u64,
+        connection_clean: bool,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let session = self
+            .sessions
+            .lock()
+            .ok()
+            .and_then(|mut sessions| sessions.remove(&connection_id));
+        let output_root = self.output_root.clone();
+        Box::pin(async move {
+            let Some(session) = session else {
+                return;
+            };
+            match tokio::task::spawn_blocking(move || {
+                write_raw_capture(output_root, connection_id, session, connection_clean)
+            })
+            .await
+            {
+                Ok(Ok(Some(capture_dir))) => {
+                    tracing::info!(path = %capture_dir.display(), "wrote private raw capture");
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(error = %error, "failed to write private raw capture");
+                }
+                Err(error) => tracing::warn!(error = %error, "raw capture writer task failed"),
+            }
+        })
+    }
+}
+
+impl ClientStreamHook for RawCaptureHook {
+    fn wrap(&self, context: &HttpContext, stream: ClientStream) -> ClientStream {
+        let recorder = match self.start_session(context.connection_id) {
+            Ok(recorder) => recorder,
+            Err(()) => {
+                tracing::error!(
+                    connection_id = context.connection_id,
+                    "raw capture recorder map poisoned"
+                );
+                CaptureRecorder::new()
+            }
+        };
+        Box::new(crate::capture_io::CaptureIo::new_with_read_chunk_size(
+            stream, recorder, 1,
+        ))
+    }
+
+    fn request_started(
+        &self,
+        context: &HttpContext,
+        request: &Request<hudsucker::hyper::body::Incoming>,
+    ) {
+        self.request_started_for(
+            context.connection_id,
+            ExactWireMetadata::from_request(request),
+        );
+    }
+
+    fn request_completed(&self, context: &HttpContext) {
+        self.request_completed_for(context.connection_id);
+    }
+
+    fn response_started(&self, context: &HttpContext, response: &Response<Body>) {
+        self.response_started_for(
+            context.connection_id,
+            ExactWireMetadata::from_response(response),
+        );
     }
 
     fn response_completed(&self, context: &HttpContext) {
@@ -803,36 +860,7 @@ impl ClientStreamHook for RawCaptureHook {
         context: HttpContext,
         connection_clean: bool,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let session = self
-            .sessions
-            .lock()
-            .ok()
-            .and_then(|mut sessions| sessions.remove(&context.connection_id));
-        let output_root = self.output_root.clone();
-        Box::pin(async move {
-            let Some(session) = session else {
-                return;
-            };
-            match tokio::task::spawn_blocking(move || {
-                write_raw_capture(
-                    output_root,
-                    context.connection_id,
-                    session,
-                    connection_clean,
-                )
-            })
-            .await
-            {
-                Ok(Ok(Some(capture_dir))) => {
-                    tracing::info!(path = %capture_dir.display(), "wrote private raw capture");
-                }
-                Ok(Ok(None)) => {}
-                Ok(Err(error)) => {
-                    tracing::warn!(error = %error, "failed to write private raw capture");
-                }
-                Err(error) => tracing::warn!(error = %error, "raw capture writer task failed"),
-            }
-        })
+        self.finish_connection(context.connection_id, connection_clean)
     }
 }
 

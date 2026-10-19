@@ -315,6 +315,30 @@ pub struct ExactWireMetadata {
 }
 
 impl ExactWireMetadata {
+    pub fn from_components<I>(
+        version: String,
+        method: Option<String>,
+        target: Option<String>,
+        status: Option<u16>,
+        reason: Option<String>,
+        headers: I,
+    ) -> Self
+    where
+        I: IntoIterator<Item = (String, Vec<u8>)>,
+    {
+        Self {
+            version,
+            method,
+            target,
+            status,
+            reason,
+            headers: headers
+                .into_iter()
+                .map(|(name, value)| CapturedHeader { name, value })
+                .collect(),
+        }
+    }
+
     pub fn from_request<B>(request: &request::Request<B>) -> Self {
         Self {
             version: version_name(request.version()),

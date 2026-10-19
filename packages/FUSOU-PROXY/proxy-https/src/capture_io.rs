@@ -238,6 +238,16 @@ pub struct CaptureIo<IO> {
     read_chunk_size: Option<usize>,
 }
 
+#[cfg(feature = "rama-experimental")]
+impl<IO> rama::extensions::ExtensionsRef for CaptureIo<IO>
+where
+    IO: rama::extensions::ExtensionsRef,
+{
+    fn extensions(&self) -> &rama::extensions::Extensions {
+        self.inner.extensions()
+    }
+}
+
 impl<IO> CaptureIo<IO> {
     pub fn new(inner: IO, recorder: CaptureRecorder) -> Self {
         Self {

@@ -52,6 +52,8 @@ rustls = { version = "0.23.13", default-features = false, features = ["ring", "s
 x509-parser = { version = "0.16.0", optional = true }
 tokio-util = { version = "0.7", optional = true, features = ["compat"] }
 ring = { version = "0.17", optional = true }
+rama = { version = "=0.4.0", default-features = false, features = ["http-backend", "ws", "rustls", "ring"], optional = true }
+rama-http-backend = { version = "=0.4.0", default-features = false, optional = true }
 
 [build-dependencies]
 tonic-build = "0.9"
@@ -75,6 +77,7 @@ alpha15-tlsn = [
 ]
 tlsn-origin-probe = ["dep:rustls", "dep:tokio-rustls", "dep:x509-parser"]
 synthetic-tlsn = ["alpha15-tlsn", "rcgen"]
+rama-experimental = ["dep:rama", "dep:rama-http-backend", "dep:rustls", "dep:tokio-rustls"]
 kc-api-epoch-genesis = ["fusou-storage/kc-api-epoch-genesis"]
 kc-api-epoch-20250627 = ["fusou-storage/kc-api-epoch-20250627"]
 
