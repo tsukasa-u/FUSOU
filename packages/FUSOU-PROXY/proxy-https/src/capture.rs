@@ -1729,6 +1729,33 @@ mod tests {
     }
 
     #[test]
+    fn exact_wire_metadata_from_components_preserves_order_and_duplicate_header_bytes() {
+        let metadata = ExactWireMetadata::from_components(
+            "HTTP/1.1".to_string(),
+            Some("GET".to_string()),
+            Some("/kcsapi/api_get_member/require_info".to_string()),
+            None,
+            None,
+            [
+                ("X-Trace".to_string(), b"  first value".to_vec()),
+                ("X-Trace".to_string(), b"\tsecond value ".to_vec()),
+            ],
+        );
+
+        assert_eq!(metadata.version, "HTTP/1.1");
+        assert_eq!(metadata.method.as_deref(), Some("GET"));
+        assert_eq!(
+            metadata.target.as_deref(),
+            Some("/kcsapi/api_get_member/require_info")
+        );
+        assert_eq!(metadata.headers.len(), 2);
+        assert_eq!(metadata.headers[0].name, "X-Trace");
+        assert_eq!(metadata.headers[0].value, b"  first value");
+        assert_eq!(metadata.headers[1].name, "X-Trace");
+        assert_eq!(metadata.headers[1].value, b"\tsecond value ");
+    }
+
+    #[test]
     fn collector_provenance_never_asserts_natural_provenance() {
         let synthetic = CaptureProvenance::synthetic();
         assert_eq!(synthetic.evidence_class, "synthetic");

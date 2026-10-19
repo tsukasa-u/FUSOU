@@ -451,6 +451,13 @@ mod tests {
         std::env::temp_dir().join(format!("fusou_capture_io_{name}_{timestamp}"))
     }
 
+    #[cfg(feature = "rama-experimental")]
+    #[derive(Debug)]
+    struct CaptureIoTestExtension(u32);
+
+    #[cfg(feature = "rama-experimental")]
+    impl rama::extensions::Extension for CaptureIoTestExtension {}
+
     struct PoisoningWriter {
         inner: tokio::io::DuplexStream,
         recorder: CaptureRecorder,
@@ -576,6 +583,83 @@ mod tests {
         }
     }
 
+    struct ScriptedReadIo {
+        bytes: Vec<u8>,
+        offset: usize,
+        max_read: usize,
+        pending_once: bool,
+        error_after_bytes: bool,
+        error_delivered: bool,
+    }
+
+    impl ScriptedReadIo {
+        fn new(
+            bytes: Vec<u8>,
+            max_read: usize,
+            pending_once: bool,
+            error_after_bytes: bool,
+        ) -> Self {
+            Self {
+                bytes,
+                offset: 0,
+                max_read,
+                pending_once,
+                error_after_bytes,
+                error_delivered: false,
+            }
+        }
+    }
+
+    impl AsyncRead for ScriptedReadIo {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let this = self.as_mut().get_mut();
+            if this.pending_once {
+                this.pending_once = false;
+                context.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            if buffer.remaining() > 0 && this.offset < this.bytes.len() {
+                let count = this
+                    .max_read
+                    .min(buffer.remaining())
+                    .min(this.bytes.len() - this.offset);
+                buffer.put_slice(&this.bytes[this.offset..this.offset + count]);
+                this.offset += count;
+                return Poll::Ready(Ok(()));
+            }
+            if this.error_after_bytes && !this.error_delivered {
+                this.error_delivered = true;
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    "injected read failure after partial bytes",
+                )));
+            }
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for ScriptedReadIo {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
     #[tokio::test]
     async fn preserves_request_and_response_bytes_with_directional_separation() {
         let (mut client, server) = tokio::io::duplex(4096);
@@ -604,6 +688,61 @@ mod tests {
         assert_eq!(snapshot.response_bytes(), response);
         assert_eq!(snapshot.request_len(), request.len());
         assert_eq!(snapshot.response_len(), response.len());
+    }
+
+    #[tokio::test]
+    async fn captures_split_reads_exactly_across_pending_retries() {
+        let request = b"GET /require_info HTTP/1.1\r\nHost: game.example\r\n\r\n";
+        let recorder = CaptureRecorder::new();
+        let reader = ScriptedReadIo::new(request.to_vec(), 3, true, false);
+        let mut captured = CaptureIo::new_with_read_chunk_size(reader, recorder.clone(), 7);
+        let mut received = Vec::new();
+
+        captured
+            .read_to_end(&mut received)
+            .await
+            .expect("read fragmented request");
+
+        assert_eq!(received, request);
+        assert_eq!(recorder.snapshot().unwrap().request_bytes(), request);
+    }
+
+    #[tokio::test]
+    async fn retains_only_successfully_read_bytes_when_later_read_fails() {
+        let partial_request = b"POST /require_info HTTP/1.1\r\nContent-Length: 20\r\n\r\npartial";
+        let recorder = CaptureRecorder::new();
+        let reader = ScriptedReadIo::new(partial_request.to_vec(), 5, false, true);
+        let mut captured = CaptureIo::new(reader, recorder.clone());
+        let mut received = vec![0; partial_request.len() + 1];
+
+        assert!(
+            captured.read_exact(&mut received).await.is_err(),
+            "the injected transport error must reach the HTTP consumer"
+        );
+        assert_eq!(&received[..partial_request.len()], partial_request);
+        assert_eq!(
+            recorder.snapshot().unwrap().request_bytes(),
+            partial_request
+        );
+    }
+
+    #[cfg(feature = "rama-experimental")]
+    #[tokio::test]
+    async fn delegates_rama_extensions_reference() {
+        use rama::extensions::ExtensionsRef;
+
+        let (_peer, stream) = tokio::io::duplex(64);
+        let input = rama::ServiceInput::new(stream);
+        input.extensions.insert(CaptureIoTestExtension(123));
+        let captured = CaptureIo::new(input, CaptureRecorder::new());
+
+        assert_eq!(
+            captured
+                .extensions()
+                .get_ref::<CaptureIoTestExtension>()
+                .map(|extension| extension.0),
+            Some(123)
+        );
     }
 
     #[tokio::test]

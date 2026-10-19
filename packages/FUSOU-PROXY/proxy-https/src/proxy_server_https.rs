@@ -2157,6 +2157,38 @@ mod tests {
         message
     }
 
+    async fn read_websocket_frame<S: AsyncRead + Unpin>(
+        stream: &mut S,
+    ) -> std::io::Result<(Vec<u8>, u8, Vec<u8>)> {
+        let mut header = [0; 2];
+        stream.read_exact(&mut header).await?;
+        let payload_length = usize::from(header[1] & 0x7f);
+        if payload_length >= 126 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "test WebSocket frame exceeds short payload range",
+            ));
+        }
+        let mut raw = header.to_vec();
+        let mask = if header[1] & 0x80 != 0 {
+            let mut mask = [0; 4];
+            stream.read_exact(&mut mask).await?;
+            raw.extend_from_slice(&mask);
+            Some(mask)
+        } else {
+            None
+        };
+        let mut payload = vec![0; payload_length];
+        stream.read_exact(&mut payload).await?;
+        raw.extend_from_slice(&payload);
+        if let Some(mask) = mask {
+            for (index, byte) in payload.iter_mut().enumerate() {
+                *byte ^= mask[index % mask.len()];
+            }
+        }
+        Ok((raw, header[0] & 0x0f, payload))
+    }
+
     #[tokio::test]
     async fn raw_capture_hook_persists_client_facing_wire_and_hashes() {
         let output_root = unique_temp_dir("raw_capture_hook");
@@ -2544,6 +2576,264 @@ mod tests {
             .expect("proxy task join")
             .expect("proxy shutdown");
         let _ = std::fs::remove_dir_all(output_root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_captures_only_websocket_upgrade_handshake_bytes() {
+        use hudsucker::{
+            Proxy,
+            certificate_authority::RcgenAuthority,
+            hyper_util::{client::legacy::Client, rt::TokioExecutor},
+            rustls::crypto::aws_lc_rs,
+            tokio_tungstenite::{Connector, tungstenite::handshake::derive_accept_key},
+        };
+        use tokio::net::TcpListener;
+        use tokio::sync::oneshot;
+        use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+        super::setup_default_crypto_provider();
+        let output_root = unique_temp_dir("fork_proxy_websocket_capture");
+        let upstream_cert =
+            super::rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+                .expect("upstream certificate");
+        let upstream_key = hudsucker::rustls::pki_types::PrivateKeyDer::Pkcs8(
+            hudsucker::rustls::pki_types::PrivatePkcs8KeyDer::from(
+                upstream_cert.key_pair.serialize_der(),
+            ),
+        );
+        let upstream_server_config = hudsucker::rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![upstream_cert.cert.der().clone()], upstream_key)
+            .expect("upstream server config");
+        let upstream_acceptor = TlsAcceptor::from(Arc::new(upstream_server_config));
+        let upstream_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("upstream listener");
+        let upstream_addr = upstream_listener.local_addr().expect("upstream address");
+        let upstream_task = tokio::spawn(async move {
+            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
+            let mut stream = upstream_acceptor
+                .accept(socket)
+                .await
+                .expect("upstream TLS accept");
+            let request = read_http_message(&mut stream).await;
+            assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info HTTP/1.1"));
+            let request_text = String::from_utf8_lossy(&request);
+            let websocket_key = request_text
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("sec-websocket-key")
+                        .then(|| value.trim().to_owned())
+                })
+                .expect("upstream WebSocket key");
+            let accept_key = derive_accept_key(websocket_key.as_bytes());
+            let response = format!(
+                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept_key}\r\n\r\n"
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("upstream WebSocket response");
+
+            let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                .await
+                .expect("read forwarded text frame");
+            assert_eq!(opcode, 1);
+            assert_eq!(payload, b"hi");
+            stream
+                .write_all(&[0x81, 0x02, b'o', b'k'])
+                .await
+                .expect("write upstream text frame");
+
+            let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                .await
+                .expect("read forwarded Close frame");
+            assert_eq!(opcode, 8);
+            assert_eq!(payload, [0x03, 0xe8]);
+            stream
+                .write_all(&[0x88, 0x02, 0x03, 0xe8])
+                .await
+                .expect("write upstream Close response");
+            stream.shutdown().await.expect("upstream TLS shutdown");
+        });
+
+        let proxy_key_pair = KeyPair::generate().expect("proxy CA key");
+        let mut proxy_ca_params = CertificateParams::default();
+        proxy_ca_params.is_ca =
+            super::rcgen::IsCa::Ca(super::rcgen::BasicConstraints::Unconstrained);
+        let proxy_ca_cert = proxy_ca_params
+            .self_signed(&proxy_key_pair)
+            .expect("proxy CA certificate");
+        let proxy_ca_der = proxy_ca_cert.der().clone();
+        let proxy_ca = RcgenAuthority::new(
+            proxy_key_pair,
+            proxy_ca_cert,
+            100,
+            aws_lc_rs::default_provider(),
+        );
+
+        let mut upstream_roots = hudsucker::rustls::RootCertStore::empty();
+        upstream_roots
+            .add(upstream_cert.cert.der().clone())
+            .expect("upstream root");
+        let upstream_client_config = hudsucker::rustls::ClientConfig::builder()
+            .with_root_certificates(upstream_roots)
+            .with_no_client_auth();
+        let upstream_connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(upstream_client_config.clone())
+            .https_or_http()
+            .enable_http1()
+            .build();
+        let upstream_client = Client::builder(TokioExecutor::new()).build(upstream_connector);
+
+        let proxy_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("proxy listener");
+        let proxy_addr = proxy_listener.local_addr().expect("proxy address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let proxy = Proxy::builder()
+            .with_listener(proxy_listener)
+            .with_ca(proxy_ca)
+            .with_client(upstream_client)
+            .with_websocket_connector(Connector::Rustls(Arc::new(upstream_client_config)))
+            .with_http_handler(PassthroughHandler)
+            .with_client_stream_hook(RawCaptureHook::new(output_root.clone()))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .build()
+            .expect("build Hudsucker proxy");
+        let proxy_task = tokio::spawn(proxy.start());
+
+        let mut client_socket = tokio::net::TcpStream::connect(proxy_addr)
+            .await
+            .expect("client connect");
+        let authority = format!("localhost:{}", upstream_addr.port());
+        let connect_request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+        client_socket
+            .write_all(connect_request.as_bytes())
+            .await
+            .expect("CONNECT request");
+        let mut connect_response = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let bytes_read = client_socket
+                .read(&mut buffer)
+                .await
+                .expect("CONNECT response");
+            assert!(bytes_read > 0, "proxy closed before CONNECT response");
+            connect_response.extend_from_slice(&buffer[..bytes_read]);
+            if connect_response
+                .windows(4)
+                .any(|window| window == b"\r\n\r\n")
+            {
+                break;
+            }
+        }
+        assert!(connect_response.starts_with(b"HTTP/1.1 200"));
+
+        let mut proxy_roots = hudsucker::rustls::RootCertStore::empty();
+        proxy_roots.add(proxy_ca_der).expect("proxy root");
+        let client_tls_config = hudsucker::rustls::ClientConfig::builder()
+            .with_root_certificates(proxy_roots)
+            .with_no_client_auth();
+        let client_tls = TlsConnector::from(Arc::new(client_tls_config));
+        let server_name =
+            hudsucker::rustls::pki_types::ServerName::try_from("localhost".to_string())
+                .expect("proxy server name");
+        let mut client_tls_stream = client_tls
+            .connect(server_name, client_socket)
+            .await
+            .expect("client TLS handshake");
+
+        let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        client_tls_stream
+            .write_all(request_handshake)
+            .await
+            .expect("downstream WebSocket handshake");
+        let response_handshake = read_http_message(&mut client_tls_stream).await;
+        assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
+
+        let text_frame = vec![0x81, 0x82, 0x11, 0x22, 0x33, 0x44, b'h' ^ 0x11, b'i' ^ 0x22];
+        client_tls_stream
+            .write_all(&text_frame)
+            .await
+            .expect("downstream text frame");
+        let (response_text_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
+            .await
+            .expect("downstream text frame response");
+        assert_eq!(opcode, 1);
+        assert_eq!(payload, b"ok");
+        assert_eq!(response_text_frame, [0x81, 0x02, b'o', b'k']);
+
+        let close_frame = vec![0x88, 0x82, 0x55, 0x66, 0x77, 0x88, 0x56, 0x8e];
+        client_tls_stream
+            .write_all(&close_frame)
+            .await
+            .expect("downstream Close frame");
+        let (response_close_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
+            .await
+            .expect("downstream Close response");
+        assert_eq!(opcode, 8);
+        assert_eq!(payload, [0x03, 0xe8]);
+        assert_eq!(response_close_frame, [0x88, 0x02, 0x03, 0xe8]);
+        client_tls_stream
+            .shutdown()
+            .await
+            .expect("downstream TLS shutdown");
+        drop(client_tls_stream);
+        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+            .await
+            .expect("upstream WebSocket fixture timeout")
+            .expect("upstream WebSocket fixture panicked");
+
+        let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let Ok(entries) = fs::read_dir(&output_root) {
+                    if let Some(path) = entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .find(|path| path.join("manifest.json").exists())
+                    {
+                        break path;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Hudsucker WebSocket capture finalization timeout");
+
+        let expected_request_wire = request_handshake.to_vec();
+        let expected_response_wire = response_handshake;
+        crate::capture::verify_capture(&capture_dir).expect("verify Hudsucker WebSocket capture");
+        assert_eq!(
+            fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
+            expected_request_wire
+        );
+        assert_eq!(
+            fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
+            expected_response_wire
+        );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(capture_dir.join("manifest.json")).expect("capture manifest"),
+        )
+        .expect("parse capture manifest");
+        let messages = manifest["messages"].as_array().expect("message list");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["direction"].as_str(), Some("request"));
+        assert_eq!(
+            messages[0]["stream_end"].as_u64(),
+            Some(request_handshake.len() as u64)
+        );
+
+        shutdown_tx.send(()).expect("proxy shutdown signal");
+        proxy_task
+            .await
+            .expect("proxy task join")
+            .expect("proxy shutdown");
+        let _ = fs::remove_dir_all(output_root);
     }
 
     #[derive(Clone)]

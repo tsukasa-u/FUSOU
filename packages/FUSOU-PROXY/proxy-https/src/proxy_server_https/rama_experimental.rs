@@ -202,6 +202,16 @@ impl<IO> WebSocketCloseFrameObserver<IO> {
             );
         }
     }
+
+    fn mark_protocol_failure(&self, message: &str) {
+        if !self.relay_failed.swap(true, Ordering::AcqRel) {
+            tracing::warn!(
+                direction = self.flag,
+                message,
+                "Rama WebSocket relay observed an invalid frame"
+            );
+        }
+    }
 }
 
 impl<IO> rama::extensions::ExtensionsRef for WebSocketCloseFrameObserver<IO>
@@ -229,8 +239,12 @@ where
         match &result {
             Poll::Ready(Err(error)) => this.mark_io_failure(&error.to_string()),
             Poll::Ready(Ok(())) => {
-                if this.parser.observe(&buffer.filled()[previous_len..]) {
-                    this.close_frames.fetch_or(this.flag, Ordering::Release);
+                match this.parser.observe(&buffer.filled()[previous_len..]) {
+                    Ok(true) => {
+                        this.close_frames.fetch_or(this.flag, Ordering::Release);
+                    }
+                    Ok(false) => {}
+                    Err(()) => this.mark_protocol_failure("invalid WebSocket frame"),
                 }
                 if buffer_has_capacity
                     && buffer.filled().len() == previous_len
@@ -286,11 +300,18 @@ where
     }
 }
 
+struct PendingWebSocketFrame {
+    payload_remaining: u64,
+    payload_offset: usize,
+    mask: Option<[u8; 4]>,
+    close_payload: Option<Vec<u8>>,
+}
+
 struct WebSocketFrameParser {
     buffered: Vec<u8>,
-    payload_remaining: u64,
-    current_frame_is_close: bool,
+    current_frame: Option<PendingWebSocketFrame>,
     close_frame_seen: bool,
+    invalid: bool,
     expect_masked: bool,
 }
 
@@ -298,36 +319,63 @@ impl WebSocketFrameParser {
     fn new(expect_masked: bool) -> Self {
         Self {
             buffered: Vec::new(),
-            payload_remaining: 0,
-            current_frame_is_close: false,
+            current_frame: None,
             close_frame_seen: false,
+            invalid: false,
             expect_masked,
         }
     }
 
-    fn observe(&mut self, bytes: &[u8]) -> bool {
+    fn observe(&mut self, bytes: &[u8]) -> Result<bool, ()> {
+        if self.invalid {
+            return Err(());
+        }
         if self.close_frame_seen {
-            return true;
+            if bytes.is_empty() {
+                return Ok(true);
+            }
+            self.invalid = true;
+            return Err(());
         }
         self.buffered.extend_from_slice(bytes);
         loop {
-            if self.payload_remaining > 0 {
-                let consumed = self.payload_remaining.min(self.buffered.len() as u64) as usize;
+            if let Some(frame) = self.current_frame.as_mut() {
+                let consumed = frame.payload_remaining.min(self.buffered.len() as u64) as usize;
+                if let Some(payload) = frame.close_payload.as_mut() {
+                    for (index, byte) in self.buffered[..consumed].iter().enumerate() {
+                        let decoded = match frame.mask {
+                            Some(mask) => *byte ^ mask[(frame.payload_offset + index) % mask.len()],
+                            None => *byte,
+                        };
+                        payload.push(decoded);
+                    }
+                }
+                frame.payload_offset += consumed;
+                frame.payload_remaining -= consumed as u64;
                 self.buffered.drain(..consumed);
-                self.payload_remaining -= consumed as u64;
-                if self.payload_remaining > 0 {
-                    return false;
+                if frame.payload_remaining > 0 {
+                    return Ok(false);
                 }
-                if self.current_frame_is_close {
+                let frame = self.current_frame.take().expect("active WebSocket frame");
+                if let Some(payload) = frame.close_payload {
+                    if !valid_close_payload(&payload) {
+                        self.invalid = true;
+                        return Err(());
+                    }
+                    if !self.buffered.is_empty() {
+                        self.invalid = true;
+                        return Err(());
+                    }
                     self.close_frame_seen = true;
-                    return true;
+                    return Ok(true);
                 }
-                self.current_frame_is_close = false;
             }
 
             if self.buffered.len() < 2 {
-                return false;
+                return Ok(false);
             }
+            let first = self.buffered[0];
+            let second = self.buffered[1];
             let length_code = self.buffered[1] & 0x7f;
             let extended_length_bytes = match length_code {
                 126 => 2,
@@ -335,7 +383,7 @@ impl WebSocketFrameParser {
                 _ => 0,
             };
             if self.buffered.len() < 2 + extended_length_bytes {
-                return false;
+                return Ok(false);
             }
             let payload_length = match length_code {
                 126 => u64::from(u16::from_be_bytes([self.buffered[2], self.buffered[3]])),
@@ -351,59 +399,188 @@ impl WebSocketFrameParser {
                 ]),
                 length => u64::from(length),
             };
-            let header_length =
-                2 + extended_length_bytes + usize::from(self.buffered[1] & 0x80 != 0) * 4;
+            if (length_code == 126 && payload_length < 126)
+                || (length_code == 127 && payload_length <= u64::from(u16::MAX))
+                || (length_code == 127 && self.buffered[2] & 0x80 != 0)
+            {
+                self.invalid = true;
+                return Err(());
+            }
+
+            let is_masked = second & 0x80 != 0;
+            let mask_length = if is_masked { 4 } else { 0 };
+            let header_length = 2 + extended_length_bytes + mask_length;
             if self.buffered.len() < header_length {
-                return false;
+                return Ok(false);
             }
-            let opcode = self.buffered[0] & 0x0f;
-            let is_masked = self.buffered[1] & 0x80 != 0;
-            self.current_frame_is_close = opcode == 0x08
-                && self.buffered[0] & 0x80 != 0
-                && self.buffered[0] & 0x70 == 0
-                && length_code <= 125
-                && payload_length != 1
-                && is_masked == self.expect_masked;
-            self.buffered.drain(..header_length);
-            self.payload_remaining = payload_length;
-            if payload_length == 0 && self.current_frame_is_close {
+            let opcode = first & 0x0f;
+            let is_control = opcode & 0x08 != 0;
+            let is_close = opcode == 0x08;
+            let fin = first & 0x80 != 0;
+            if !matches!(opcode, 0x00 | 0x01 | 0x02 | 0x08 | 0x09 | 0x0a)
+                || first & 0x70 != 0
+                || is_masked != self.expect_masked
+                || (is_control && (!fin || payload_length > 125 || length_code > 125))
+                || (is_close && (!fin || payload_length == 1))
+            {
+                self.invalid = true;
+                return Err(());
+            }
+            let mask = if is_masked {
+                Some(
+                    self.buffered[2 + extended_length_bytes..header_length]
+                        .try_into()
+                        .expect("four-byte WebSocket mask"),
+                )
+            } else {
+                None
+            };
+            if is_close && payload_length == 0 {
+                self.buffered.drain(..header_length);
+                if !self.buffered.is_empty() {
+                    self.invalid = true;
+                    return Err(());
+                }
                 self.close_frame_seen = true;
-                return true;
+                return Ok(true);
             }
+            self.buffered.drain(..header_length);
+            self.current_frame = Some(PendingWebSocketFrame {
+                payload_remaining: payload_length,
+                payload_offset: 0,
+                mask,
+                close_payload: is_close.then(|| {
+                    Vec::with_capacity(
+                        usize::try_from(payload_length)
+                            .expect("Close payload is at most 125 bytes"),
+                    )
+                }),
+            });
         }
     }
+}
+
+fn valid_close_payload(payload: &[u8]) -> bool {
+    if payload.is_empty() {
+        return true;
+    }
+    if payload.len() < 2 {
+        return false;
+    }
+    let code = u16::from_be_bytes([payload[0], payload[1]]);
+    rama::http::ws::protocol::frame::coding::CloseCode::from(code).is_allowed()
+        && std::str::from_utf8(&payload[2..]).is_ok()
 }
 
 #[cfg(test)]
 mod websocket_frame_parser_tests {
     use super::{
-        DOWNSTREAM_CLOSE_FRAME, UPSTREAM_CLOSE_FRAME, WebSocketFrameParser,
-        websocket_close_handshake_complete,
+        DOWNSTREAM_CLOSE_FRAME, UPSTREAM_CLOSE_FRAME, WebSocketCloseFrameObserver,
+        WebSocketFrameParser, valid_close_payload, websocket_close_handshake_complete,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU8},
     };
 
-    #[test]
-    fn recognizes_complete_close_frames_after_split_reads() {
-        let masked_close = [0x88, 0x82, 0x11, 0x22, 0x33, 0x44, 0x12, 0xc8];
-        let mut downstream = WebSocketFrameParser::new(true);
-        for byte in &masked_close[..masked_close.len() - 1] {
-            assert!(!downstream.observe(std::slice::from_ref(byte)));
-        }
-        assert!(downstream.observe(&masked_close[masked_close.len() - 1..]));
+    #[derive(Debug)]
+    struct WebSocketObserverTestExtension(u32);
 
-        let mut upstream = WebSocketFrameParser::new(false);
-        assert!(upstream.observe(&[0x88, 0x02, 0x03, 0xe8]));
+    impl rama::extensions::Extension for WebSocketObserverTestExtension {}
+
+    fn masked_close(payload: &[u8]) -> Vec<u8> {
+        let mask = [0x11, 0x22, 0x33, 0x44];
+        let mut frame = vec![0x88, 0x80 | payload.len() as u8];
+        frame.extend_from_slice(&mask);
+        frame.extend(
+            payload
+                .iter()
+                .enumerate()
+                .map(|(index, byte)| *byte ^ mask[index % mask.len()]),
+        );
+        frame
     }
 
     #[test]
-    fn ignores_data_frames_and_invalid_close_frames() {
+    fn recognizes_complete_close_frames_after_split_reads() {
+        let masked_close = masked_close(&[0x03, 0xe8, b'o', b'k']);
+        let mut downstream = WebSocketFrameParser::new(true);
+        for byte in &masked_close[..masked_close.len() - 1] {
+            assert_eq!(downstream.observe(std::slice::from_ref(byte)), Ok(false));
+        }
+        assert_eq!(
+            downstream.observe(&masked_close[masked_close.len() - 1..]),
+            Ok(true)
+        );
+
+        let mut upstream = WebSocketFrameParser::new(false);
+        assert_eq!(upstream.observe(&[0x88, 0x02, 0x03, 0xe8]), Ok(true));
+    }
+
+    #[test]
+    fn accepts_maximum_close_payload_and_rejects_oversized_control_frame() {
+        let mut maximum_payload = vec![0x03, 0xe8];
+        maximum_payload.extend(std::iter::repeat_n(b'x', 123));
+        let mut valid_parser = WebSocketFrameParser::new(true);
+        assert_eq!(
+            valid_parser.observe(&masked_close(&maximum_payload)),
+            Ok(true)
+        );
+
+        let mut oversized_parser = WebSocketFrameParser::new(true);
+        assert_eq!(
+            oversized_parser.observe(&[0x88, 0xfe, 0x00, 0x7e, 0x11, 0x22, 0x33, 0x44]),
+            Err(())
+        );
+    }
+
+    #[test]
+    fn ignores_data_frames_before_a_valid_close_frame() {
         let mut parser = WebSocketFrameParser::new(true);
-        assert!(parser.observe(&[0x81, 0x01, b'x', 0x88, 0x80, 0x11, 0x22, 0x33, 0x44,]));
+        let mask = [0x01, 0x02, 0x03, 0x04];
+        let mut frames = vec![0x81, 0x81];
+        frames.extend_from_slice(&mask);
+        frames.push(b'x' ^ mask[0]);
+        frames.extend(masked_close(&[0x03, 0xe8]));
+        assert_eq!(parser.observe(&frames), Ok(true));
+    }
 
-        let mut fragmented_close = WebSocketFrameParser::new(true);
-        assert!(!fragmented_close.observe(&[0x08, 0x80, 0x11, 0x22, 0x33, 0x44]));
+    #[test]
+    fn rejects_invalid_close_codes_reasons_and_control_frames() {
+        assert!(!valid_close_payload(&[0x03, 0xed]));
+        assert!(!valid_close_payload(&[0x03, 0xe8, 0xff]));
+        assert!(valid_close_payload(&[0x03, 0xe8, b'o', b'k']));
+        assert!(valid_close_payload(&[]));
 
-        let mut wrong_mask = WebSocketFrameParser::new(true);
-        assert!(!wrong_mask.observe(&[0x88, 0x02, 0x03, 0xe8]));
+        for invalid_frame in [
+            vec![0x88, 0x80 | 1, 0x11, 0x22, 0x33, 0x44, 0x00],
+            vec![0x08, 0x80, 0x11, 0x22, 0x33, 0x44],
+            vec![0x88, 0x02, 0x03, 0xed],
+            vec![0x88, 0x82, 0x11, 0x22, 0x33, 0x44, 0x12, 0xdd],
+            vec![0x88, 0x02, 0x03, 0xe8],
+            vec![0x88, 0x80 | 126, 0, 1, 0x11, 0x22, 0x33, 0x44, 0x12],
+        ] {
+            let mut parser = WebSocketFrameParser::new(true);
+            assert_eq!(parser.observe(&invalid_frame), Err(()));
+        }
+    }
+
+    #[test]
+    fn rejects_reserved_bits_opcodes_and_bytes_after_close() {
+        for invalid_frame in [
+            vec![0xc8, 0x80, 0x11, 0x22, 0x33, 0x44],
+            vec![0x83, 0x80, 0x11, 0x22, 0x33, 0x44],
+        ] {
+            let mut parser = WebSocketFrameParser::new(true);
+            assert_eq!(parser.observe(&invalid_frame), Err(()));
+        }
+
+        let mut parser = WebSocketFrameParser::new(false);
+        assert_eq!(parser.observe(&[0x88, 0x02, 0x03, 0xe8]), Ok(true));
+        assert_eq!(parser.observe(&[0x81, 0x00]), Err(()));
+
+        let mut parser = WebSocketFrameParser::new(false);
+        assert_eq!(parser.observe(&[0x88, 0x00, 0x81, 0x00]), Err(()));
     }
 
     #[test]
@@ -419,6 +596,30 @@ mod websocket_frame_parser_tests {
             DOWNSTREAM_CLOSE_FRAME | UPSTREAM_CLOSE_FRAME
         ));
     }
+
+    #[tokio::test]
+    async fn websocket_observer_delegates_rama_extensions_reference() {
+        use rama::extensions::ExtensionsRef;
+
+        let (_peer, stream) = tokio::io::duplex(64);
+        let input = rama::ServiceInput::new(stream);
+        input.extensions.insert(WebSocketObserverTestExtension(234));
+        let observer = WebSocketCloseFrameObserver::new(
+            input,
+            Arc::new(AtomicU8::new(0)),
+            Arc::new(AtomicBool::new(false)),
+            DOWNSTREAM_CLOSE_FRAME,
+            true,
+        );
+
+        assert_eq!(
+            observer
+                .extensions()
+                .get_ref::<WebSocketObserverTestExtension>()
+                .map(|extension| extension.0),
+            Some(234)
+        );
+    }
 }
 
 pub async fn serve<CA, Shutdown>(
@@ -433,6 +634,20 @@ where
     Shutdown: Future<Output = ()> + Send,
 {
     let capture_hook = RawCaptureHook::new(capture_output_root);
+    serve_with_capture_hook(listener, config, ca, capture_hook, shutdown).await
+}
+
+async fn serve_with_capture_hook<CA, Shutdown>(
+    listener: TcpListener,
+    config: RamaExperimentalConfig,
+    ca: Arc<CA>,
+    capture_hook: RawCaptureHook,
+    shutdown: Shutdown,
+) -> Result<(), BoxError>
+where
+    CA: CertificateAuthority,
+    Shutdown: Future<Output = ()> + Send,
+{
     let next_connection_id = Arc::new(AtomicU64::new(1));
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
@@ -2056,6 +2271,185 @@ mod tests {
             messages[1]["stream_end"].as_u64(),
             Some(expected_response_wire.len() as u64)
         );
+        shutdown_tx.send(()).expect("stop Rama proxy");
+        proxy_task
+            .await
+            .expect("join Rama proxy task")
+            .expect("Rama proxy server");
+        let _ = std::fs::remove_dir_all(output_root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn abnormal_websocket_close_through_connect_does_not_persist_capture() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let output_root = unique_temp_dir();
+        let upstream_identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate upstream identity");
+        let upstream_certificate = CertificateDer::from(upstream_identity.cert.der().to_vec());
+        let upstream_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+            upstream_identity.key_pair.serialize_der(),
+        ));
+        let upstream_server_config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![upstream_certificate.clone()], upstream_key)
+            .expect("build local upstream TLS config");
+        let upstream_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local upstream");
+        let upstream_address = upstream_listener.local_addr().expect("upstream address");
+        let upstream_acceptor = TlsAcceptor::from(Arc::new(upstream_server_config));
+        let upstream_task = tokio::spawn(async move {
+            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
+            let mut stream = upstream_acceptor
+                .accept(socket)
+                .await
+                .expect("upstream TLS accept");
+            let request = read_http_message(&mut stream)
+                .await
+                .expect("read upstream WebSocket handshake");
+            assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info HTTP/1.1"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+                )
+                .await
+                .expect("write upstream WebSocket response");
+            let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                .await
+                .expect("read forwarded client Close frame");
+            assert_eq!(opcode, 8);
+            assert_eq!(payload, [0x03, 0xe8]);
+            stream
+                .shutdown()
+                .await
+                .expect("close upstream without Close reply");
+        });
+
+        let proxy_key = KeyPair::generate().expect("generate proxy CA key");
+        let mut proxy_ca_params = CertificateParams::default();
+        proxy_ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let proxy_ca_certificate = proxy_ca_params
+            .self_signed(&proxy_key)
+            .expect("self-sign proxy CA");
+        let proxy_ca_der = CertificateDer::from(proxy_ca_certificate.der().to_vec());
+        let proxy_ca = hudsucker::certificate_authority::RcgenAuthority::new(
+            proxy_key,
+            proxy_ca_certificate,
+            100,
+            rustls::crypto::ring::default_provider(),
+        );
+        let authority = format!("localhost:{}", upstream_address.port());
+        let config = RamaExperimentalConfig::new(
+            authority.clone(),
+            upstream_address,
+            vec![upstream_certificate],
+        )
+        .expect("build fail-closed Rama proxy config");
+        let proxy_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind Rama proxy");
+        let proxy_address = proxy_listener.local_addr().expect("Rama proxy address");
+        let capture_hook = RawCaptureHook::new(output_root.clone());
+        let inspected_hook = capture_hook.clone();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let proxy_task = tokio::spawn(serve_with_capture_hook(
+            proxy_listener,
+            config,
+            Arc::new(proxy_ca),
+            capture_hook,
+            async move {
+                let _ = shutdown_rx.await;
+            },
+        ));
+
+        let mut client_socket = TcpStream::connect(proxy_address)
+            .await
+            .expect("connect to Rama proxy");
+        let connect_request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+        client_socket
+            .write_all(connect_request.as_bytes())
+            .await
+            .expect("write CONNECT request");
+        let mut connect_response = Vec::new();
+        let mut buffer = [0; 1024];
+        while !connect_response
+            .windows(4)
+            .any(|window| window == b"\r\n\r\n")
+        {
+            let count = client_socket
+                .read(&mut buffer)
+                .await
+                .expect("read CONNECT response");
+            assert!(count > 0, "proxy closed before CONNECT response");
+            connect_response.extend_from_slice(&buffer[..count]);
+        }
+        assert!(connect_response.starts_with(b"HTTP/1.1 200"));
+
+        let mut proxy_roots = RootCertStore::empty();
+        proxy_roots.add(proxy_ca_der).expect("trust test proxy CA");
+        let client_tls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(proxy_roots)
+            .with_no_client_auth();
+        let client_tls = TlsConnector::from(Arc::new(client_tls_config));
+        let server_name = ServerName::try_from("localhost".to_owned()).expect("valid SNI");
+        let mut client_tls_stream = client_tls
+            .connect(server_name, client_socket)
+            .await
+            .expect("downstream TLS handshake");
+        let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        client_tls_stream
+            .write_all(request_handshake)
+            .await
+            .expect("write downstream WebSocket handshake");
+        let response_handshake = read_http_message(&mut client_tls_stream)
+            .await
+            .expect("read downstream WebSocket response");
+        assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
+
+        let session = inspected_hook
+            .session(1)
+            .expect("CONNECT tunnel starts the capture session");
+        {
+            let session = session.lock().expect("lock integrated capture session");
+            let snapshot = session.recorder.snapshot().expect("snapshot raw capture");
+            assert_eq!(snapshot.request_bytes(), request_handshake);
+            assert_eq!(snapshot.response_bytes(), response_handshake);
+            assert_eq!(session.messages.len(), 2);
+            assert_eq!(
+                session.messages[0].stream_end,
+                Some(request_handshake.len() as u64)
+            );
+            assert_eq!(session.messages[1].stream_end, None);
+        }
+
+        let close_frame = masked_websocket_frame(8, &[0x03, 0xe8], [0x55, 0x66, 0x77, 0x88]);
+        client_tls_stream
+            .write_all(&close_frame)
+            .await
+            .expect("write one-sided downstream Close frame");
+        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+            .await
+            .expect("upstream WebSocket fixture timeout")
+            .expect("upstream WebSocket fixture panicked");
+        drop(client_tls_stream);
+
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while inspected_hook.session(1).is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("abnormal WebSocket capture session was not finalized");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            !output_root.exists()
+                || std::fs::read_dir(&output_root)
+                    .expect("capture output root")
+                    .next()
+                    .is_none(),
+            "abnormal CONNECT/TLS/WebSocket capture must not persist an artifact"
+        );
+
         shutdown_tx.send(()).expect("stop Rama proxy");
         proxy_task
             .await
