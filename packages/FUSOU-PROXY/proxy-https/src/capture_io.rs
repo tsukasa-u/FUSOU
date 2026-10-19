@@ -3,8 +3,8 @@ use std::{
     fmt, io,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
 };
@@ -378,7 +378,7 @@ where
                 return Poll::Ready(Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "vectored write length overflow",
-                )))
+                )));
             }
         };
         if let Err(error) = self
@@ -494,6 +494,85 @@ mod tests {
             context: &mut Context<'_>,
         ) -> Poll<io::Result<()>> {
             Pin::new(&mut self.inner).poll_shutdown(context)
+        }
+    }
+
+    struct ShortWriteIo {
+        accepted: Vec<u8>,
+        max_write: usize,
+        pending_once: bool,
+    }
+
+    impl ShortWriteIo {
+        fn new(max_write: usize, pending_once: bool) -> Self {
+            Self {
+                accepted: Vec::new(),
+                max_write,
+                pending_once,
+            }
+        }
+
+        fn poll_pending_once(&mut self, context: &Context<'_>) -> bool {
+            if !self.pending_once {
+                return false;
+            }
+            self.pending_once = false;
+            context.waker().wake_by_ref();
+            true
+        }
+    }
+
+    impl AsyncRead for ShortWriteIo {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for ShortWriteIo {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            if self.poll_pending_once(context) {
+                return Poll::Pending;
+            }
+            let written = self.max_write.min(bytes.len());
+            self.accepted.extend_from_slice(&bytes[..written]);
+            Poll::Ready(Ok(written))
+        }
+
+        fn poll_write_vectored(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            buffers: &[io::IoSlice<'_>],
+        ) -> Poll<io::Result<usize>> {
+            if self.poll_pending_once(context) {
+                return Poll::Pending;
+            }
+            let max_write = self.max_write;
+            let mut written = 0;
+            for buffer in buffers {
+                let count = (max_write - written).min(buffer.len());
+                self.accepted.extend_from_slice(&buffer[..count]);
+                written += count;
+                if written == max_write {
+                    break;
+                }
+            }
+            Poll::Ready(Ok(written))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -643,7 +722,7 @@ mod tests {
     async fn hyper_parse_failure_keeps_received_bytes_without_forwarding() {
         use http_body_util::Full;
         use hudsucker::{
-            hyper::{body::Bytes, server::conn::http1, service::service_fn, Response},
+            hyper::{Response, body::Bytes, server::conn::http1, service::service_fn},
             hyper_util::rt::TokioIo,
         };
         use std::convert::Infallible;
@@ -719,5 +798,70 @@ mod tests {
         assert_eq!(received, response);
         assert!(recorder.snapshot().is_err());
         assert!(captured.write_all(b"second response").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn captures_only_bytes_accepted_by_partial_writes_after_pending() {
+        let recorder = CaptureRecorder::new();
+        let writer = ShortWriteIo::new(2, true);
+        let mut captured = CaptureIo::new(writer, recorder.clone());
+        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
+
+        captured
+            .write_all(response)
+            .await
+            .expect("complete response through short writes");
+        captured.flush().await.expect("flush response");
+
+        let writer = captured.into_inner();
+        assert_eq!(writer.accepted, response);
+        assert_eq!(
+            recorder
+                .snapshot()
+                .expect("capture snapshot")
+                .response_bytes(),
+            response
+        );
+    }
+
+    #[tokio::test]
+    async fn vectored_partial_writes_and_pending_retries_preserve_exact_order() {
+        let recorder = CaptureRecorder::new();
+        let writer = ShortWriteIo::new(3, true);
+        let mut captured = CaptureIo::new(writer, recorder.clone());
+        let parts: [&[u8]; 3] = [b"response-", b"header-", b"body"];
+        let expected = parts.concat();
+        let mut written_total = 0;
+
+        while written_total < expected.len() {
+            let mut skip = written_total;
+            let mut slices = Vec::new();
+            for part in &parts {
+                if skip >= part.len() {
+                    skip -= part.len();
+                } else {
+                    slices.push(io::IoSlice::new(&part[skip..]));
+                    skip = 0;
+                }
+            }
+            let written = std::future::poll_fn(|context| {
+                Pin::new(&mut captured).poll_write_vectored(context, &slices)
+            })
+            .await
+            .expect("vectored write");
+            assert!(written > 0, "short writer must make progress");
+            written_total += written;
+        }
+
+        captured.flush().await.expect("flush vectored response");
+        let writer = captured.into_inner();
+        assert_eq!(writer.accepted, expected);
+        assert_eq!(
+            recorder
+                .snapshot()
+                .expect("capture snapshot")
+                .response_bytes(),
+            expected
+        );
     }
 }

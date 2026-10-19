@@ -47,7 +47,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
     net::{TcpListener, TcpStream},
     sync::Mutex as AsyncMutex,
     task::{JoinHandle, JoinSet},
@@ -56,6 +56,12 @@ use tokio_rustls::rustls::{
     self,
     pki_types::{CertificateDer, ServerName},
 };
+
+const WEBSOCKET_CLOSE_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const UPSTREAM_TLS_FAILURE_RESPONSE: &[u8] =
+    b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+type TunnelTasks = Arc<AsyncMutex<JoinSet<()>>>;
 
 #[derive(Clone)]
 pub struct RamaExperimentalConfig {
@@ -85,6 +91,11 @@ impl RamaExperimentalConfig {
         {
             return Err(BoxError::from_static_str(
                 "Rama experimental authority must be canonical lowercase DNS host:port",
+            ));
+        }
+        if authority.port_u16() != Some(upstream_address.port()) {
+            return Err(BoxError::from_static_str(
+                "CONNECT authority port must match the configured upstream socket port",
             ));
         }
 
@@ -160,17 +171,35 @@ fn websocket_close_handshake_complete(close_events: usize, close_frames: u8) -> 
 struct WebSocketCloseFrameObserver<IO> {
     inner: IO,
     close_frames: Arc<AtomicU8>,
+    relay_failed: Arc<std::sync::atomic::AtomicBool>,
     flag: u8,
     parser: WebSocketFrameParser,
 }
 
 impl<IO> WebSocketCloseFrameObserver<IO> {
-    fn new(inner: IO, close_frames: Arc<AtomicU8>, flag: u8, expect_masked: bool) -> Self {
+    fn new(
+        inner: IO,
+        close_frames: Arc<AtomicU8>,
+        relay_failed: Arc<std::sync::atomic::AtomicBool>,
+        flag: u8,
+        expect_masked: bool,
+    ) -> Self {
         Self {
             inner,
             close_frames,
+            relay_failed,
             flag,
             parser: WebSocketFrameParser::new(expect_masked),
+        }
+    }
+
+    fn mark_io_failure(&self, message: &str) {
+        if !self.relay_failed.swap(true, Ordering::AcqRel) {
+            tracing::warn!(
+                direction = self.flag,
+                message,
+                "Rama WebSocket relay I/O failed"
+            );
         }
     }
 }
@@ -195,11 +224,25 @@ where
     ) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();
         let previous_len = buffer.filled().len();
+        let buffer_has_capacity = buffer.remaining() > 0;
         let result = Pin::new(&mut this.inner).poll_read(context, buffer);
-        if matches!(result, Poll::Ready(Ok(())))
-            && this.parser.observe(&buffer.filled()[previous_len..])
-        {
-            this.close_frames.fetch_or(this.flag, Ordering::Release);
+        match &result {
+            Poll::Ready(Err(error)) => this.mark_io_failure(&error.to_string()),
+            Poll::Ready(Ok(())) => {
+                if this.parser.observe(&buffer.filled()[previous_len..]) {
+                    this.close_frames.fetch_or(this.flag, Ordering::Release);
+                }
+                if buffer_has_capacity
+                    && buffer.filled().len() == previous_len
+                    && !websocket_close_handshake_complete(
+                        1,
+                        this.close_frames.load(Ordering::Acquire),
+                    )
+                {
+                    this.mark_io_failure("EOF before both close frames were observed");
+                }
+            }
+            Poll::Pending => {}
         }
         result
     }
@@ -214,15 +257,32 @@ where
         context: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.as_mut().get_mut().inner).poll_write(context, bytes)
+        let this = self.as_mut().get_mut();
+        let result = Pin::new(&mut this.inner).poll_write(context, bytes);
+        if let Poll::Ready(Err(error)) = &result {
+            this.mark_io_failure(&error.to_string());
+        } else if matches!(&result, Poll::Ready(Ok(0))) && !bytes.is_empty() {
+            this.mark_io_failure("zero-byte write before relay completion");
+        }
+        result
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.as_mut().get_mut().inner).poll_flush(context)
+        let this = self.as_mut().get_mut();
+        let result = Pin::new(&mut this.inner).poll_flush(context);
+        if let Poll::Ready(Err(error)) = &result {
+            this.mark_io_failure(&error.to_string());
+        }
+        result
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.as_mut().get_mut().inner).poll_shutdown(context)
+        let this = self.as_mut().get_mut();
+        let result = Pin::new(&mut this.inner).poll_shutdown(context);
+        if let Poll::Ready(Err(error)) = &result {
+            this.mark_io_failure(&error.to_string());
+        }
+        result
     }
 }
 
@@ -380,7 +440,13 @@ where
     loop {
         tokio::select! {
             accepted = listener.accept() => {
-                let (socket, client_addr) = accepted?;
+                let (socket, client_addr) = match accepted {
+                    Ok(accepted) => accepted,
+                    Err(error) => {
+                        tracing::error!(%error, "Rama experimental listener accept failed");
+                        return Err(error.into());
+                    }
+                };
                 let connection_id = next_connection_id
                     .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                     .map_err(|_| BoxError::from_static_str("Rama connection ID space exhausted"))?;
@@ -388,7 +454,7 @@ where
                 let ca = Arc::clone(&ca);
                 let capture_hook = capture_hook.clone();
                 connections.spawn(async move {
-                    serve_connection(
+                    let result = serve_connection(
                         socket,
                         client_addr,
                         connection_id,
@@ -396,19 +462,46 @@ where
                         ca,
                         capture_hook,
                     )
-                    .await
+                    .await;
+                    (connection_id, client_addr, result)
                 });
             }
             joined = connections.join_next(), if !connections.is_empty() => {
-                if let Some(result) = joined {
-                    result.map_err(Into::<BoxError>::into)??;
+                match joined {
+                    Some(Ok((connection_id, client_addr, Ok(())))) => {
+                        tracing::debug!(connection_id, %client_addr, "Rama experimental client connection completed");
+                    }
+                    Some(Ok((connection_id, client_addr, Err(error)))) => {
+                        tracing::warn!(%error, connection_id, %client_addr, "Rama experimental client connection failed");
+                    }
+                    Some(Err(error)) if error.is_cancelled() => {
+                        tracing::debug!(%error, "Rama experimental client connection was cancelled");
+                    }
+                    Some(Err(error)) => {
+                        tracing::error!(%error, "Rama experimental client connection task failed");
+                    }
+                    None => {}
                 }
             }
             _ = &mut shutdown => break,
         }
     }
 
-    connections.shutdown().await;
+    connections.abort_all();
+    while let Some(joined) = connections.join_next().await {
+        match joined {
+            Ok((_connection_id, _client_addr, Ok(()))) => {}
+            Ok((connection_id, client_addr, Err(error))) => {
+                tracing::warn!(%error, connection_id, %client_addr, "Rama experimental client connection failed during shutdown");
+            }
+            Err(error) if error.is_cancelled() => {
+                tracing::debug!(%error, "Rama experimental client connection cancelled during shutdown");
+            }
+            Err(error) => {
+                tracing::error!(%error, "Rama experimental client connection task failed during shutdown");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -423,7 +516,7 @@ async fn serve_connection<CA>(
 where
     CA: CertificateAuthority,
 {
-    let tunnel_tasks = Arc::new(AsyncMutex::new(Vec::new()));
+    let tunnel_tasks: TunnelTasks = Arc::new(AsyncMutex::new(JoinSet::new()));
     let tunnel_tasks_for_service = Arc::clone(&tunnel_tasks);
     let service = service_fn(move |request| {
         let config = config.clone();
@@ -449,11 +542,24 @@ where
     let connection_result = HttpServer::new_http1(Executor::default())
         .serve(ServiceInput::new(socket), service)
         .await;
-    let tasks = std::mem::take(&mut *tunnel_tasks.lock().await);
-    for task in tasks {
-        task.await.map_err(Into::<BoxError>::into)?;
+    let mut tasks = std::mem::take(&mut *tunnel_tasks.lock().await);
+    let mut tunnel_task_error = None;
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(()) => {}
+            Err(error) => {
+                tracing::warn!(%error, connection_id, %client_addr, "Rama experimental CONNECT tunnel task failed");
+                if tunnel_task_error.is_none() {
+                    tunnel_task_error = Some(BoxError::from(error));
+                }
+            }
+        }
     }
-    connection_result
+    connection_result?;
+    if let Some(error) = tunnel_task_error {
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -464,7 +570,7 @@ async fn handle_connect<CA>(
     config: RamaExperimentalConfig,
     ca: Arc<CA>,
     capture_hook: RawCaptureHook,
-    tunnel_tasks: Arc<AsyncMutex<Vec<JoinHandle<()>>>>,
+    tunnel_tasks: TunnelTasks,
 ) -> Response
 where
     CA: CertificateAuthority,
@@ -495,37 +601,12 @@ where
         }
     };
 
-    let upstream_socket = match TcpStream::connect(config.upstream_address).await {
-        Ok(socket) => socket,
-        Err(error) => {
-            tracing::warn!(%error, "Rama experimental upstream TCP connection failed");
-            return empty_response(StatusCode::BAD_GATEWAY);
-        }
-    };
-    let server_name = match ServerName::try_from(config.allowed_host.clone()) {
-        Ok(name) => name,
-        Err(error) => {
-            tracing::warn!(%error, "Rama experimental upstream TLS name was invalid");
-            return empty_response(StatusCode::BAD_GATEWAY);
-        }
-    };
-    let upstream_tls = match tokio_rustls::TlsConnector::from(Arc::clone(&config.upstream_tls))
-        .connect(server_name, upstream_socket)
-        .await
-    {
-        Ok(stream) => stream,
-        Err(error) => {
-            tracing::warn!(%error, "Rama experimental verified upstream TLS failed");
-            return empty_response(StatusCode::BAD_GATEWAY);
-        }
-    };
-
     let authority = authority.clone();
     let pending_upgrade = upgrade::handle_upgrade(&request);
-    let task = tokio::spawn(async move {
+    let task = async move {
         if let Err(error) = run_tunnel(
             pending_upgrade,
-            upstream_tls,
+            config,
             authority,
             connection_id,
             ca,
@@ -535,14 +616,14 @@ where
         {
             tracing::warn!(%error, connection_id, %client_addr, "Rama experimental CONNECT tunnel failed");
         }
-    });
-    tunnel_tasks.lock().await.push(task);
+    };
+    tunnel_tasks.lock().await.spawn(task);
     empty_response(StatusCode::OK)
 }
 
 async fn run_tunnel<CA, Upgrade>(
     pending_upgrade: Upgrade,
-    upstream_tls: tokio_rustls::client::TlsStream<TcpStream>,
+    config: RamaExperimentalConfig,
     authority: http::uri::Authority,
     connection_id: u64,
     ca: Arc<CA>,
@@ -564,11 +645,23 @@ where
         TlsAcceptorLayer::new(downstream_tls_config).into_layer(service_fn(|stream| async move {
             Ok::<_, Infallible>(stream)
         }));
-    let downstream_tls = tls_acceptor.serve(ServiceInput::new(upgraded)).await?;
+    let mut downstream_tls = tls_acceptor.serve(ServiceInput::new(upgraded)).await?;
+    let upstream_tls = match connect_verified_upstream(&config).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            tracing::warn!(%error, connection_id, "Rama experimental verified upstream TLS failed after downstream SNI validation");
+            downstream_tls
+                .write_all(UPSTREAM_TLS_FAILURE_RESPONSE)
+                .await?;
+            downstream_tls.shutdown().await?;
+            return Ok(());
+        }
+    };
     let recorder = capture_hook.start_session(connection_id).map_err(|()| {
         tracing::error!(connection_id, "Rama raw capture session map is poisoned");
         BoxError::from_static_str("Rama raw capture session unavailable")
     })?;
+    let capture_session = CaptureSessionGuard::new(capture_hook.clone(), connection_id);
     let ingress = CaptureIo::new_with_read_chunk_size(downstream_tls, recorder, 1);
     let egress = ServiceInput::new(upstream_tls);
     egress.extensions.insert(SecureTransport::default());
@@ -605,10 +698,65 @@ where
             }
         }
     }
-    capture_hook
-        .finish_connection(connection_id, result.is_ok() && websockets_clean)
+    capture_session
+        .finish(result.is_ok() && websockets_clean)
         .await;
     result
+}
+
+async fn connect_verified_upstream(
+    config: &RamaExperimentalConfig,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, BoxError> {
+    let upstream_socket = TcpStream::connect(config.upstream_address).await?;
+    let server_name =
+        ServerName::try_from(config.allowed_host.clone()).map_err(Into::<BoxError>::into)?;
+    Ok(
+        tokio_rustls::TlsConnector::from(Arc::clone(&config.upstream_tls))
+            .connect(server_name, upstream_socket)
+            .await?,
+    )
+}
+
+struct CaptureSessionGuard {
+    capture_hook: RawCaptureHook,
+    connection_id: u64,
+    finalized: bool,
+}
+
+impl CaptureSessionGuard {
+    fn new(capture_hook: RawCaptureHook, connection_id: u64) -> Self {
+        Self {
+            capture_hook,
+            connection_id,
+            finalized: false,
+        }
+    }
+
+    async fn finish(mut self, connection_clean: bool) {
+        let finish = self
+            .capture_hook
+            .finish_connection(self.connection_id, connection_clean);
+        self.finalized = true;
+        finish.await;
+    }
+}
+
+impl Drop for CaptureSessionGuard {
+    fn drop(&mut self) {
+        if self.finalized {
+            return;
+        }
+        self.capture_hook.mark_invalid(self.connection_id);
+        let finish = self
+            .capture_hook
+            .finish_connection(self.connection_id, false);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => drop(handle.spawn(finish)),
+            Err(error) => {
+                tracing::error!(%error, connection_id = self.connection_id, "cannot finalize interrupted Rama capture session");
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -732,51 +880,16 @@ where
                     return false;
                 }
             };
-            let close_events = Arc::new(AtomicUsize::new(0));
-            let close_frames = Arc::new(AtomicU8::new(0));
-            let downstream_io = WebSocketCloseFrameObserver::new(
+            match relay_websocket(
                 downstream_io,
-                Arc::clone(&close_frames),
-                DOWNSTREAM_CLOSE_FRAME,
-                true,
-            );
-            let upstream_io = WebSocketCloseFrameObserver::new(
                 upstream_io,
-                Arc::clone(&close_frames),
-                UPSTREAM_CLOSE_FRAME,
-                false,
-            );
-            let relay = WebSocketRelayEventService::new(CloseTracker(Arc::clone(&close_events)))
-                .with_close_handshake_timeout(std::time::Duration::from_secs(10));
-            let relay_result = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                relay.serve(BridgeIo(downstream_io, upstream_io)),
+                WEBSOCKET_CLOSE_HANDSHAKE_TIMEOUT,
             )
-            .await;
-            match relay_result {
-                Ok(Ok(_))
-                    if websocket_close_handshake_complete(
-                        close_events.load(Ordering::Acquire),
-                        close_frames.load(Ordering::Acquire),
-                    ) =>
-                {
-                    true
-                }
-                Ok(Ok(_)) => {
+            .await
+            {
+                true => true,
+                false => {
                     capture_hook.mark_invalid(connection_id);
-                    false
-                }
-                Ok(Err(error)) => {
-                    capture_hook.mark_invalid(connection_id);
-                    tracing::warn!(%error, connection_id, "Rama WebSocket relay failed");
-                    false
-                }
-                Err(_) => {
-                    capture_hook.mark_invalid(connection_id);
-                    tracing::warn!(
-                        connection_id,
-                        "Rama WebSocket close handshake deadline exceeded"
-                    );
                     false
                 }
             }
@@ -799,6 +912,52 @@ impl Service<WebSocketRelayEventInput> for CloseTracker {
         }
         Ok(input.into())
     }
+}
+
+async fn relay_websocket<Ingress, Egress>(
+    downstream_io: Ingress,
+    upstream_io: Egress,
+    close_handshake_timeout: std::time::Duration,
+) -> bool
+where
+    Ingress: rama::io::Io + Unpin + rama::extensions::ExtensionsRef,
+    Egress: rama::io::Io + Unpin + rama::extensions::ExtensionsRef,
+{
+    let close_events = Arc::new(AtomicUsize::new(0));
+    let close_frames = Arc::new(AtomicU8::new(0));
+    let relay_failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let downstream_io = WebSocketCloseFrameObserver::new(
+        downstream_io,
+        Arc::clone(&close_frames),
+        Arc::clone(&relay_failed),
+        DOWNSTREAM_CLOSE_FRAME,
+        true,
+    );
+    let upstream_io = WebSocketCloseFrameObserver::new(
+        upstream_io,
+        Arc::clone(&close_frames),
+        Arc::clone(&relay_failed),
+        UPSTREAM_CLOSE_FRAME,
+        false,
+    );
+    let relay = WebSocketRelayEventService::new(CloseTracker(Arc::clone(&close_events)))
+        .with_close_handshake_timeout(close_handshake_timeout);
+    if let Err(never) = relay.serve(BridgeIo(downstream_io, upstream_io)).await {
+        match never {}
+    }
+    let clean = websocket_close_handshake_complete(
+        close_events.load(Ordering::Acquire),
+        close_frames.load(Ordering::Acquire),
+    ) && !relay_failed.load(Ordering::Acquire);
+    if !clean {
+        tracing::warn!(
+            close_events = close_events.load(Ordering::Relaxed),
+            close_frames = close_frames.load(Ordering::Relaxed),
+            io_failed = relay_failed.load(Ordering::Relaxed),
+            "Rama WebSocket relay did not complete a clean close handshake"
+        );
+    }
+    clean
 }
 
 fn request_is_for_authority(request: &Request<Body>, expected: &str) -> bool {
@@ -912,6 +1071,30 @@ mod tests {
         std::env::temp_dir().join(format!("fusou_rama_capture_{timestamp}"))
     }
 
+    #[test]
+    fn configured_authority_port_must_match_fixed_upstream_socket() {
+        let identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate local trust root");
+        let trust_root = CertificateDer::from(identity.cert.der().to_vec());
+        let mismatched_address: SocketAddr = "127.0.0.1:8443".parse().expect("socket address");
+        assert!(
+            RamaExperimentalConfig::new(
+                "localhost:443",
+                mismatched_address,
+                vec![trust_root.clone()]
+            )
+            .is_err(),
+            "a port translation must not be implicit"
+        );
+
+        let matching_address: SocketAddr = "127.0.0.1:443".parse().expect("socket address");
+        assert!(
+            RamaExperimentalConfig::new("localhost:443", matching_address, vec![trust_root])
+                .is_ok(),
+            "the fixed socket with the authority port must be accepted"
+        );
+    }
+
     async fn read_http_message(
         stream: &mut (impl tokio::io::AsyncRead + Unpin),
     ) -> io::Result<Vec<u8>> {
@@ -1007,6 +1190,144 @@ mod tests {
         frame
     }
 
+    struct BrokenIo;
+
+    impl AsyncRead for BrokenIo {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "injected WebSocket relay read failure",
+            )))
+        }
+    }
+
+    impl AsyncWrite for BrokenIo {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "injected WebSocket relay write failure",
+            )))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "injected WebSocket relay flush failure",
+            )))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "injected WebSocket relay shutdown failure",
+            )))
+        }
+    }
+
+    async fn finish_unclean_websocket_capture(
+        hook: &RawCaptureHook,
+        connection_id: u64,
+        output_root: &std::path::Path,
+        clean: bool,
+    ) {
+        assert!(!clean, "abnormal WebSocket session must not be clean");
+        hook.mark_invalid(connection_id);
+        hook.finish_connection(connection_id, clean).await;
+        assert!(
+            !output_root.exists()
+                || std::fs::read_dir(output_root)
+                    .expect("capture output root")
+                    .next()
+                    .is_none(),
+            "abnormal WebSocket session must not persist an artifact"
+        );
+    }
+
+    #[tokio::test]
+    async fn one_sided_close_disconnect_and_io_error_never_persist_clean_capture() {
+        let output_root = unique_temp_dir();
+        let hook = RawCaptureHook::new(output_root.clone());
+        let recorder = hook.start_session(71).expect("start capture session");
+        let (mut client, downstream) = tokio::io::duplex(4096);
+        let (upstream, mut server) = tokio::io::duplex(4096);
+        let downstream = ServiceInput::new(CaptureIo::new(downstream, recorder.clone()));
+        let upstream = ServiceInput::new(upstream);
+        let relay_task = tokio::spawn(relay_websocket(
+            downstream,
+            upstream,
+            std::time::Duration::from_millis(100),
+        ));
+
+        let close_frame = masked_websocket_frame(8, &[0x03, 0xe8], [1, 2, 3, 4]);
+        client
+            .write_all(&close_frame)
+            .await
+            .expect("write one-sided close frame");
+        let (_, opcode, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            read_websocket_frame(&mut server),
+        )
+        .await
+        .expect("upstream close frame timeout")
+        .expect("read forwarded close frame");
+        assert_eq!(opcode, 8);
+        assert_eq!(payload, [0x03, 0xe8]);
+        let clean = tokio::time::timeout(std::time::Duration::from_secs(1), relay_task)
+            .await
+            .expect("close-handshake deadline did not terminate relay")
+            .expect("join one-sided close relay");
+        assert_eq!(
+            recorder
+                .snapshot()
+                .expect("capture snapshot")
+                .request_bytes(),
+            close_frame
+        );
+        finish_unclean_websocket_capture(&hook, 71, &output_root, clean).await;
+        drop(client);
+        drop(server);
+
+        let output_root = unique_temp_dir();
+        let hook = RawCaptureHook::new(output_root.clone());
+        hook.start_session(72).expect("start capture session");
+        let (client, downstream) = tokio::io::duplex(4096);
+        let (upstream, _server) = tokio::io::duplex(4096);
+        let relay_task = tokio::spawn(relay_websocket(
+            ServiceInput::new(downstream),
+            ServiceInput::new(upstream),
+            std::time::Duration::from_millis(100),
+        ));
+        drop(client);
+        let clean = tokio::time::timeout(std::time::Duration::from_secs(1), relay_task)
+            .await
+            .expect("disconnect did not terminate WebSocket relay")
+            .expect("join disconnected relay");
+        finish_unclean_websocket_capture(&hook, 72, &output_root, clean).await;
+
+        let output_root = unique_temp_dir();
+        let hook = RawCaptureHook::new(output_root.clone());
+        hook.start_session(73).expect("start capture session");
+        let (upstream, _server) = tokio::io::duplex(4096);
+        let relay_task = tokio::spawn(relay_websocket(
+            ServiceInput::new(BrokenIo),
+            ServiceInput::new(upstream),
+            std::time::Duration::from_millis(100),
+        ));
+        let clean = tokio::time::timeout(std::time::Duration::from_secs(1), relay_task)
+            .await
+            .expect("I/O error did not terminate WebSocket relay")
+            .expect("join failed-I/O relay");
+        finish_unclean_websocket_capture(&hook, 73, &output_root, clean).await;
+    }
+
     async fn assert_upstream_tls_rejected(
         server_names: Vec<String>,
         trust_roots: Vec<CertificateDer<'static>>,
@@ -1039,6 +1360,7 @@ mod tests {
         let proxy_ca_certificate = proxy_ca_params
             .self_signed(&proxy_key)
             .expect("self-sign proxy CA");
+        let proxy_ca_der = CertificateDer::from(proxy_ca_certificate.der().to_vec());
         let proxy_ca = hudsucker::certificate_authority::RcgenAuthority::new(
             proxy_key,
             proxy_ca_certificate,
@@ -1084,8 +1406,25 @@ mod tests {
             assert!(count > 0, "proxy closed before CONNECT response");
             connect_response.extend_from_slice(&buffer[..count]);
         }
-        assert!(connect_response.starts_with(b"HTTP/1.1 502"));
-        drop(client_socket);
+        assert!(connect_response.starts_with(b"HTTP/1.1 200"));
+
+        let mut proxy_roots = RootCertStore::empty();
+        proxy_roots.add(proxy_ca_der).expect("trust test proxy CA");
+        let downstream_tls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(proxy_roots)
+            .with_no_client_auth();
+        let mut downstream_tls = TlsConnector::from(Arc::new(downstream_tls_config))
+            .connect(
+                ServerName::try_from("localhost".to_owned()).expect("valid downstream name"),
+                client_socket,
+            )
+            .await
+            .expect("downstream TLS is accepted before upstream TLS is attempted");
+        let failure_response = read_http_message(&mut downstream_tls)
+            .await
+            .expect("read tunneled upstream failure response");
+        assert!(failure_response.starts_with(b"HTTP/1.1 502 Bad Gateway"));
+        drop(downstream_tls);
         assert!(
             !output_root.exists(),
             "upstream TLS rejection must not produce a capture"
@@ -1127,27 +1466,10 @@ mod tests {
         let upstream_identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
             .expect("generate upstream identity");
         let upstream_certificate = CertificateDer::from(upstream_identity.cert.der().to_vec());
-        let upstream_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-            upstream_identity.key_pair.serialize_der(),
-        ));
-        let upstream_server_config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(vec![upstream_certificate.clone()], upstream_key)
-            .expect("build local upstream TLS config");
         let upstream_listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind local upstream");
         let upstream_address = upstream_listener.local_addr().expect("upstream address");
-        let upstream_acceptor = TlsAcceptor::from(Arc::new(upstream_server_config));
-        let upstream_task = tokio::spawn(async move {
-            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
-            let mut stream = upstream_acceptor
-                .accept(socket)
-                .await
-                .expect("verified upstream TLS");
-            let mut first_request_byte = [0; 1];
-            stream.read(&mut first_request_byte).await
-        });
 
         let proxy_key = KeyPair::generate().expect("generate proxy CA key");
         let mut proxy_ca_params = CertificateParams::default();
@@ -1226,20 +1548,15 @@ mod tests {
             !output_root.exists(),
             "SNI rejection must not produce a capture"
         );
-        let upstream_read = tokio::time::timeout(std::time::Duration::from_secs(2), upstream_task)
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                upstream_listener.accept()
+            )
             .await
-            .expect("upstream close timeout")
-            .expect("upstream task panicked");
-        match upstream_read {
-            Ok(0) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
-                ) => {}
-            Ok(count) => panic!("SNI rejection forwarded {count} upstream request bytes"),
-            Err(error) => panic!("unexpected upstream read failure after SNI rejection: {error}"),
-        }
+            .is_err(),
+            "upstream TCP accept must not occur before downstream SNI validation"
+        );
         shutdown_tx.send(()).expect("stop Rama proxy");
         proxy_task
             .await
@@ -1249,7 +1566,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn keeps_parallel_connection_captures_isolated() {
+    async fn continues_after_invalid_clients_and_keeps_parallel_captures_isolated() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let output_root = unique_temp_dir();
         let upstream_identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
@@ -1348,6 +1665,42 @@ mod tests {
                 let _ = shutdown_rx.await;
             },
         ));
+
+        let mut unauthorized_socket = TcpStream::connect(proxy_address)
+            .await
+            .expect("connect for mismatched CONNECT authority");
+        let unauthorized_authority = "localhost:1";
+        let unauthorized_request = format!(
+            "CONNECT {unauthorized_authority} HTTP/1.1\r\nHost: {unauthorized_authority}\r\n\r\n"
+        );
+        unauthorized_socket
+            .write_all(unauthorized_request.as_bytes())
+            .await
+            .expect("write mismatched CONNECT request");
+        let unauthorized_response = read_http_message(&mut unauthorized_socket)
+            .await
+            .expect("read mismatched CONNECT response");
+        assert!(
+            unauthorized_response.starts_with(b"HTTP/1.1 403"),
+            "mismatched CONNECT authority was not rejected: {unauthorized_response:?}"
+        );
+        drop(unauthorized_socket);
+
+        let mut malformed_socket = TcpStream::connect(proxy_address)
+            .await
+            .expect("connect for malformed HTTP request");
+        malformed_socket
+            .write_all(b"NOT HTTP\r\n\r\n")
+            .await
+            .expect("write malformed HTTP request");
+        let malformed_response = read_http_message(&mut malformed_socket)
+            .await
+            .expect("read malformed HTTP response");
+        assert!(
+            malformed_response.starts_with(b"HTTP/1.1 400"),
+            "malformed client request did not receive HTTP 400: {malformed_response:?}"
+        );
+        drop(malformed_socket);
 
         async fn request_through_proxy(
             proxy_address: SocketAddr,
@@ -1626,6 +1979,8 @@ mod tests {
             .expect("read downstream text frame");
         assert_eq!(opcode, 1);
         assert_eq!(payload, b"ok");
+
+        tokio::time::sleep(std::time::Duration::from_millis(5_100)).await;
 
         let close_frame = masked_websocket_frame(8, &[0x03, 0xe8], [0x55, 0x66, 0x77, 0x88]);
         client_tls_stream
