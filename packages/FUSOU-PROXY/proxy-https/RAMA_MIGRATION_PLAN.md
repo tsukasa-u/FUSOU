@@ -152,6 +152,17 @@ The Hudsucker fork was tested directly as well as through the proxy crate. Its c
 | Admission/shutdown timing | The manager closes admission, aborts and joins tracked tasks, then drops queued tasks during shutdown. A task already received is owned by the `JoinSet`; a queued task remains owned by the channel and its `Drop` callback runs when drained. The branch behavior is source-traced, but all possible send/close scheduler interleavings are **UNVERIFIED**; a deterministic test of each runtime scheduling interleaving would not establish kernel-level behavior. |
 | `service_unavailable` helper itself | Directly testing the helper's empty 503 construction separately has low value: the two branch tests assert the returned status, and the WebSocket branch also checks the upstream-side effect. |
 
+The commit-time scoped analyzer reported five symbol-level heuristics. They were mapped back to actual code rather than treated as missing production coverage:
+
+| Analyzer heuristic | Classification | Evidence |
+| --- | --- | --- |
+| `Drop` / `drop` | **Existing unit coverage** for `TrackedProxyTask` cancellation and explicit task-future disposal; the remaining `drop` calls are ownership operations, not independent production branches. | `completed_task_does_not_run_cancellation_callback`, `abort_reports_cancellation_once_and_join_reaps_task`, `panic_reports_cancellation_once_as_join_failure`, and `disarm_drops_task_future_without_running_cancellation_callback`. |
+| `upgrade_websocket` | **Existing unit and E2E coverage**; the symbol is not an uncovered branch. | Direct missing-authority/header and closed-manager tests, plus `fork_proxy_captures_only_websocket_upgrade_handshake_bytes`, the injected relay-failure cases, upstream-handshake rejection, and callback-ordering E2E. |
+| `build_proxy` | **Low-value test helper detail**, not production behavior. Its closed receiver setup is exercised by CONNECT/WebSocket admission tests. | `process_connect::returns_service_unavailable_when_task_manager_is_closed` and `upgrade_websocket::returns_service_unavailable_when_task_manager_is_closed`. |
+| `DropCounter` | **Test instrumentation**, directly exercised rather than an untested production symbol. | `disarm_drops_task_future_without_running_cancellation_callback` asserts its destructor count is one. |
+
+This commit-time list is not the original analyzer's 21-item output. That original output remains **NOT_CHECKED**; the existing source crosswalk and this focused classification do not claim an independent replay of all 21 items.
+
 The earlier WebSocket lifecycle E2Es remain distinct evidence: real loopback TCP/TLS FIN/EOF disconnect and shutdown cases verify peer socket closure, while handler-boundary injected faults verify relay error handling. Neither class proves every kernel RST or scheduler interleaving. Session-map removal, recorder-buffer release, task reaping, and peer socket closure are asserted separately where the named tests expose each resource.
 
 ## Remaining Work and Limitations
