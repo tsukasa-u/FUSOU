@@ -1,6 +1,6 @@
 ﻿---
 interface Props {
-  container?: "compact" | "narrow" | "default" | "wide";
+  container?: "compact" | "narrow" | "medium" | "default" | "wide";
   paddingY?: "0" | "6" | "8" | "12";
   class?: string;
 }
@@ -12,9 +12,11 @@ const containerClass =
     ? "max-w-lg"
     : container === "narrow"
       ? "max-w-2xl"
-      : container === "wide"
-        ? "max-w-[1500px]"
-        : "max-w-[1440px]";
+      : container === "medium"
+        ? "max-w-4xl"
+        : container === "wide"
+          ? "max-w-[1500px]"
+          : "max-w-[78rem]";
 
 const paddingClass =
   paddingY === "0"

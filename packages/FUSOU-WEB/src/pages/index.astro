@@ -2,16 +2,9 @@
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
 import Hero from "@/components/common/astro/layout/Hero.astro";
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
-<PageLayout>
-  <div class="static">
-    <Hero />
-    <Navigation filled={true}>
-      <!-- <Welcome /> -->
-    </Navigation>
-  </div>
+<PageLayout title="FUSOU - 艦これ データ収集・分析 & 編成シミュレータ">
+  <Navigation filled={true} />
+  <Hero />
 </PageLayout>
