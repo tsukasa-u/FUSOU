@@ -10,7 +10,7 @@ import {
   MAP_LANDING_LABELS,
   MAP_RECON_LABELS,
 } from "./constants";
-﻿import type {
+import type {
   BattleRecord,
   BattleResultData,
   FrameRect,
@@ -41,7 +41,10 @@ export function parseOfficialMapThemeMode(raw: unknown): OfficialMapThemeMode {
   return raw === "light" || raw === "dark" || raw === "auto" ? raw : "auto";
 }
 
-export function mapKeyOf(rec: { maparea_id?: number | null; mapinfo_no?: number | null }): string {
+export function mapKeyOf(rec: {
+  maparea_id?: number | null;
+  mapinfo_no?: number | null;
+}): string {
   if (
     rec.maparea_id === null ||
     rec.maparea_id === undefined ||
@@ -61,8 +64,11 @@ export function mapKeyOf(rec: { maparea_id?: number | null; mapinfo_no?: number 
   return `${rec.maparea_id}-${rec.mapinfo_no}`;
 }
 
-export function normalizeEpochMs(value: number | null | undefined): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+export function normalizeEpochMs(
+  value: number | null | undefined,
+): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value))
+    return null;
   return value < 1_000_000_000_000 ? value * 1000 : value;
 }
 
@@ -117,7 +123,11 @@ export function resolveRouteCellsWithPort(
       if (r.to === firstCell) return true;
       if (firstCellSpot) {
         const toSpot = spots.find((spot) => spot.cellId === r.to);
-        if (toSpot && Math.hypot(toSpot.x - firstCellSpot.x, toSpot.y - firstCellSpot.y) < 18) {
+        if (
+          toSpot &&
+          Math.hypot(toSpot.x - firstCellSpot.x, toSpot.y - firstCellSpot.y) <
+            18
+        ) {
           return true;
         }
       }
@@ -190,7 +200,7 @@ export function cellOverlayLabel(
   return alphaCellFallbackLabel(cellId);
 }
 
-function alphaCellFallbackLabel(cellId: number): string {
+export function alphaCellLabel(cellId: number): string {
   if (!Number.isFinite(cellId) || cellId <= 0) return "-";
   let n = Math.floor(cellId);
   let label = "";
@@ -200,6 +210,30 @@ function alphaCellFallbackLabel(cellId: number): string {
     n = Math.floor((n - 1) / 26);
   }
   return label;
+}
+
+const alphaCellFallbackLabel = alphaCellLabel;
+
+/**
+ * Checks whether a timestamp (in epoch ms or s) falls within the specified date range (YYYY-MM-DD in JST).
+ */
+export function isWithinDateRange(
+  timestamp: number | null | undefined,
+  startDateStr: string,
+  endDateStr: string,
+): boolean {
+  if (!startDateStr && !endDateStr) return true;
+  if (timestamp == null || !Number.isFinite(timestamp)) return false;
+  const ms = timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  const jstTime = new Date(ms + 9 * 60 * 60 * 1000);
+  const yyyy = jstTime.getUTCFullYear();
+  const mm = String(jstTime.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(jstTime.getUTCDate()).padStart(2, "0");
+  const battleDate = `${yyyy}-${mm}-${dd}`;
+
+  if (startDateStr && battleDate < startDateStr) return false;
+  if (endDateStr && battleDate > endDateStr) return false;
+  return true;
 }
 
 export function parseFrameRect(value: unknown): FrameRect | null {
@@ -214,15 +248,11 @@ export function parseFrameRect(value: unknown): FrameRect | null {
 
 export function parseMapFrameMeta(payload: unknown): MapFrameMeta | null {
   if (!isJsonRecord(payload)) return null;
-  const frames = isJsonRecord(payload["frames"])
-    ? payload["frames"]
-    : {};
+  const frames = isJsonRecord(payload["frames"]) ? payload["frames"] : {};
   const frameEntries = Object.entries(frames)
     .map(([key, frameObj]) => ({
       key,
-      rect: parseFrameRect(
-        isJsonRecord(frameObj) ? frameObj["frame"] : null,
-      ),
+      rect: parseFrameRect(isJsonRecord(frameObj) ? frameObj["frame"] : null),
     }))
     .filter((entry): entry is { key: string; rect: FrameRect } => !!entry.rect);
 
@@ -239,7 +269,9 @@ export function parseMapFrameMeta(payload: unknown): MapFrameMeta | null {
 
   const routeFrames: Record<number, RouteSpriteFrame> = {};
   for (const entry of frameEntries) {
-    const matched = /(?:route|root|arrow|sail_(?:arrow|line))_?(\d+)$/i.exec(entry.key);
+    const matched = /(?:route|root|arrow|sail_(?:arrow|line))_?(\d+)$/i.exec(
+      entry.key,
+    );
     const routeIdText = matched?.[1];
     if (routeIdText === undefined) continue;
     const routeId = Number(routeIdText);
@@ -255,8 +287,12 @@ export function parseMapFrameMeta(payload: unknown): MapFrameMeta | null {
     Number.isFinite(sheetW) && Number.isFinite(sheetH)
       ? { width: sheetW, height: sheetH }
       : {
-          width: Math.max(...frameEntries.map((entry) => entry.rect.x + entry.rect.width)),
-          height: Math.max(...frameEntries.map((entry) => entry.rect.y + entry.rect.height)),
+          width: Math.max(
+            ...frameEntries.map((entry) => entry.rect.x + entry.rect.width),
+          ),
+          height: Math.max(
+            ...frameEntries.map((entry) => entry.rect.y + entry.rect.height),
+          ),
         };
 
   return {
@@ -293,7 +329,6 @@ export function parseMapInfoPayload(value: unknown): MapInfoPayload | null {
     }),
   };
 }
-
 
 export function parseMapRoutesPayload(payload: unknown): CurvedRouteData[] {
   if (!Array.isArray(payload)) return [];
@@ -431,8 +466,12 @@ export function resolveCellType(
   }
 
   // 2. 通過した実績のあるマスのうち、戦闘のあるものだけ戦闘色（赤色）
-  const didFight = typeof battleCount === "number" ? battleCount > 0 : Boolean(hasBattle);
-  const didPass = typeof _passCount === "number" ? _passCount > 0 : (didFight || Boolean(hasBattle));
+  const didFight =
+    typeof battleCount === "number" ? battleCount > 0 : Boolean(hasBattle);
+  const didPass =
+    typeof _passCount === "number"
+      ? _passCount > 0
+      : didFight || Boolean(hasBattle);
 
   if (didPass && didFight) {
     return "battle";
