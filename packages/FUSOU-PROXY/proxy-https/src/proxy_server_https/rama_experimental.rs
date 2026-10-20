@@ -14,6 +14,7 @@ use rama::{
                 WebSocketRelayEvent, WebSocketRelayEventInput, WebSocketRelayEventOutput,
                 WebSocketRelayEventService,
             },
+            server::validate_http_client_request,
         },
         Body, Request, Response, StatusCode, Version,
     },
@@ -1116,13 +1117,13 @@ where
             self.capture_hook.mark_invalid(connection_id);
             return Ok(empty_response(StatusCode::MISDIRECTED_REQUEST));
         }
-        let is_websocket = is_websocket_upgrade(&request);
+        let is_websocket_attempt = is_websocket_upgrade_attempt(&request);
         if !rewrite_request_uri(&mut request, &self.authority) {
             self.capture_hook.mark_invalid(connection_id);
             return Ok(empty_response(StatusCode::BAD_REQUEST));
         }
 
-        if !is_websocket {
+        if !is_websocket_attempt {
             let response = match self.inner.as_ref().serve(request).await {
                 Ok(response) => response,
                 Err(error) => {
@@ -1134,6 +1135,12 @@ where
             self.capture_hook
                 .response_started_for(connection_id, metadata_from_response(&response));
             return Ok(response);
+        }
+
+        if let Err(error) = validate_http_client_request(&request) {
+            self.capture_hook.mark_invalid(connection_id);
+            tracing::debug!(%error, connection_id, "invalid downstream WebSocket handshake");
+            return Ok(empty_response(StatusCode::BAD_REQUEST));
         }
 
         let downstream_upgrade = upgrade::handle_upgrade(&request);
@@ -1307,20 +1314,24 @@ fn metadata_from_response(response: &Response) -> ExactWireMetadata {
     )
 }
 
-fn is_websocket_upgrade(request: &Request<Body>) -> bool {
-    let upgrade = request
-        .headers()
-        .get("upgrade")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
-    let connection = request.headers().get_all("connection").iter().any(|value| {
-        value.to_str().ok().is_some_and(|value| {
-            value
-                .split(',')
-                .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
-        })
-    });
-    upgrade && connection
+fn is_websocket_upgrade_attempt(request: &Request<Body>) -> bool {
+    let upgrade_header_indicates_websocket =
+        request.headers().get_all("upgrade").iter().any(|value| {
+            value.to_str().ok().is_some_and(|value| {
+                value
+                    .split(',')
+                    .any(|token| token.trim().eq_ignore_ascii_case("websocket"))
+            })
+        });
+    upgrade_header_indicates_websocket
+        || [
+            "sec-websocket-key",
+            "sec-websocket-version",
+            "sec-websocket-protocol",
+            "sec-websocket-extensions",
+        ]
+        .iter()
+        .any(|header| request.headers().contains_key(*header))
 }
 
 fn rewrite_request_uri(request: &mut Request<Body>, authority: &str) -> bool {
@@ -1392,12 +1403,74 @@ mod tests {
 
     #[derive(Clone, Copy)]
     enum AbnormalWebSocketCase {
+        UpstreamHandshakeFailure,
         OneSidedClose,
         InvalidContinuation,
         ClientDisconnect,
         UpstreamDisconnect,
         ProxyShutdown,
         ProxyTaskAbort,
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_websocket_handshakes_before_upstream_service() {
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 1,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        };
+        let valid_key = "dGhlIHNhbXBsZSBub25jZQ==";
+        let requests = [
+            Request::builder()
+                .method("GET")
+                .uri("/socket")
+                .header("Host", "localhost")
+                .header("Upgrade", "websocket")
+                .header("Connection", "Upgrade")
+                .header("Sec-WebSocket-Version", "13")
+                .body(Body::empty())
+                .expect("request without a WebSocket key"),
+            Request::builder()
+                .method("GET")
+                .uri("/socket")
+                .header("Host", "localhost")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Key", valid_key)
+                .header("Sec-WebSocket-Version", "13")
+                .body(Body::empty())
+                .expect("request without Connection: Upgrade"),
+            Request::builder()
+                .method("GET")
+                .uri("/socket")
+                .header("Host", "localhost")
+                .header("Upgrade", "websocket")
+                .header("Connection", "Upgrade")
+                .header("Sec-WebSocket-Key", valid_key)
+                .header("Sec-WebSocket-Version", "12")
+                .body(Body::empty())
+                .expect("request with an unsupported WebSocket version"),
+        ];
+
+        for request in requests {
+            let response = service
+                .serve(request)
+                .await
+                .expect("invalid WebSocket request response");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(
+            upstream_calls.load(Ordering::SeqCst),
+            0,
+            "invalid WebSocket requests must be rejected before the upstream service"
+        );
     }
 
     #[test]
@@ -2443,6 +2516,11 @@ mod tests {
         run_abnormal_websocket_capture(AbnormalWebSocketCase::ProxyTaskAbort).await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn upstream_websocket_handshake_failure_returns_502_without_capture() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::UpstreamHandshakeFailure).await;
+    }
+
     async fn run_abnormal_websocket_capture(case: AbnormalWebSocketCase) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let output_root = unique_temp_dir();
@@ -2471,6 +2549,15 @@ mod tests {
                 .await
                 .expect("read upstream WebSocket handshake");
             assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info HTTP/1.1"));
+            if matches!(case, AbnormalWebSocketCase::UpstreamHandshakeFailure) {
+                stream
+                    .write_all(
+                        b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await
+                    .expect("write rejected upstream WebSocket response");
+                return;
+            }
             stream
                 .write_all(
                     b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
@@ -2478,6 +2565,9 @@ mod tests {
                 .await
                 .expect("write upstream WebSocket response");
             match case {
+                AbnormalWebSocketCase::UpstreamHandshakeFailure => {
+                    unreachable!("upstream handshake failure returned before relay")
+                }
                 AbnormalWebSocketCase::OneSidedClose => {
                     let (_, opcode, payload) = read_websocket_frame(&mut stream)
                         .await
@@ -2643,6 +2733,56 @@ mod tests {
         let response_handshake = read_http_message(&mut client_tls_stream)
             .await
             .expect("read downstream WebSocket response");
+        if matches!(case, AbnormalWebSocketCase::UpstreamHandshakeFailure) {
+            assert!(response_handshake.starts_with(b"HTTP/1.1 502"));
+            drop(client_tls_stream);
+            tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+                .await
+                .expect("upstream rejection fixture timeout")
+                .expect("upstream rejection fixture panicked");
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                while !inspected_hook
+                    .sessions
+                    .lock()
+                    .expect("capture sessions")
+                    .is_empty()
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("failed Upgrade session was not finalized");
+            RawCaptureHook::wait_for_persistence_tasks(Arc::clone(
+                &inspected_hook.persistence_tasks,
+            ))
+            .await;
+            assert!(
+                !output_root.exists()
+                    || std::fs::read_dir(&output_root)
+                        .expect("capture output root")
+                        .next()
+                        .is_none(),
+                "an upstream WebSocket rejection must not persist a 101 capture"
+            );
+            assert!(inspected_hook
+                .websocket_outcomes
+                .lock()
+                .expect("WebSocket outcomes")
+                .is_empty());
+            shutdown_tx
+                .take()
+                .expect("proxy shutdown sender")
+                .send(())
+                .expect("proxy shutdown signal");
+            proxy_task
+                .take()
+                .expect("proxy task")
+                .await
+                .expect("proxy task join")
+                .expect("proxy shutdown");
+            let _ = std::fs::remove_dir_all(output_root);
+            return;
+        }
         assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
         assert_websocket_101_semantics(&response_handshake);
 
@@ -2723,6 +2863,9 @@ mod tests {
 
         let mut client_tls_stream = Some(client_tls_stream);
         match case {
+            AbnormalWebSocketCase::UpstreamHandshakeFailure => {
+                unreachable!("upstream handshake failure returned before relay")
+            }
             AbnormalWebSocketCase::OneSidedClose => {
                 client_tls_stream
                     .as_mut()

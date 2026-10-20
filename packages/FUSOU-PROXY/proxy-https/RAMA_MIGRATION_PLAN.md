@@ -112,31 +112,47 @@ Coverage in the passing library tests includes:
 
 ## Analyzer Gap Crosswalk
 
-The previous version of this document records a scoped analyzer list of 21 names. The analyzer's original output was not available for an independent replay in this pass. The crosswalk below was reconciled against current source and test names, but this is **not** a fresh verification of all 21 analyzer findings.
+### Provenance and Replay
 
-| Analyzer item(s) | Current evidence |
-| --- | --- |
-| `AsyncRead`, `poll_read` | `captures_split_reads_exactly_across_pending_retries`, `retains_only_successfully_read_bytes_when_later_read_fails`, `sealing_capture_preserves_io_without_recording_upgrade_stream_bytes`, and `seal_waits_for_in_flight_read_and_keeps_its_received_bytes`. |
-| `AsyncWrite`, `poll_write` | `captures_only_bytes_accepted_by_partial_writes_after_pending`, `vectored_partial_writes_and_pending_retries_preserve_exact_order`, `post_write_capture_failure_does_not_retry_forwarded_response`, and `seal_waits_for_in_flight_write_and_keeps_its_accepted_bytes`. |
-| Recorder release | `release_drops_sealed_capture_bytes_for_live_io_clones` verifies that relay-owned recorder clones retain no finalized payload bytes. |
-| `poll_flush`, `poll_shutdown` | `flush_and_shutdown_forward_pending_retries` and `flush_and_shutdown_propagate_transport_errors`. |
-| `CaptureIoTestExtension` | `delegates_rama_extensions_reference` verifies access to the typed marker through the wrapper. |
-| `ScriptedReadIo`, `ScriptedReadIo::new` | Used by the split-read/Pending and read-error tests above; these helper definitions are exercised, not uncovered production paths. |
-| `read_websocket_frame` | Exercised by the Hudsucker and Rama CONNECT/TLS/WebSocket end-to-end fixtures for handshake, data, Close, and abnormal-frame paths. |
-| `fork_proxy_captures_only_websocket_upgrade_handshake_bytes` | The reported item is itself a present test. It asserts client-observed request/101 bytes and both manifest message entries. |
-| `mark_protocol_failure` | `observer_rejects_invalid_frames_and_marks_partial_eof_unclean` verifies protocol failure state; `invalid_continuation_through_connect_persists_handshake_capture` verifies decoder rejection through CONNECT/TLS/Upgrade, no upstream forwarding, and preservation of the completed handshake-only artifact. |
-| `PendingWebSocketFrame`, `WebSocketFrameParser`, `WebSocketFrameParser::new`, `observe` | Covered by split-read close, data-before-close, maximum/oversized payload, malformed-frame, and post-Close parser tests. |
-| `valid_close_payload` | `rejects_invalid_close_codes_reasons_and_control_frames` checks invalid status, UTF-8 reason, valid reason, and empty Close payloads. |
-| `WebSocketObserverTestExtension` | `websocket_observer_delegates_rama_extensions_reference` verifies marker access after observer wrapping. |
-| `masked_close` | Exercised by parser tests for split reads, payload limits, and invalid close cases. |
-| `serve_with_capture_hook` | Exercised by the Rama HTTP/1.1 parity, CONNECT/TLS/WebSocket, abnormal-close, invalid-continuation, and parallel-connection tests. |
-| Upgrade finalization and lifecycle separation | Rama's `abnormal_websocket_close_through_connect_persists_handshake_capture`, `client_disconnect_through_connect_persists_handshake_capture`, and `upstream_disconnect_through_connect_persists_handshake_capture`; Hudsucker's matching one-sided-close/client-disconnect/upstream-disconnect/protocol-error cases assert lifecycle outcome and unchanged artifact. |
-| Upstream handshake before downstream 101 | `fork_proxy_upstream_handshake_failure_does_not_send_101_or_capture` asserts upstream rejection becomes 502 with no 101 artifact. |
-| Hudsucker finish/relay ordering | `fork_proxy_captures_only_websocket_upgrade_handshake_bytes` waits for artifact and asserts session removal before sending WebSocket frames, then verifies a clean callback. |
-| Hudsucker forwarder failure, callback race, and task cleanup | `fork_proxy_forwarder_read_io_failure_keeps_handshake_artifact`, `fork_proxy_forwarder_write_io_failure_keeps_handshake_artifact`, `fork_proxy_forwarder_task_panic_keeps_handshake_artifact_and_listener_alive`, `fork_proxy_shutdown_aborts_open_websocket_and_keeps_handshake_artifact`, `fork_proxy_outer_task_abort_closes_websocket_and_reports_unclean`, and `completed_upgrade_artifact_is_stable_across_callback_orderings`. I/O faults and panic are injected at the test handler boundary after CONNECT/TLS/Upgrade; shutdown and outer-task abort are separate loopback lifecycle cases. |
-| Rama transport and task cleanup | `client_disconnect_through_connect_persists_handshake_capture`, `upstream_disconnect_through_connect_persists_handshake_capture`, `shutdown_aborts_open_websocket_and_keeps_handshake_capture`, and `outer_task_abort_closes_websocket_and_reports_unclean` exercise real loopback disconnect/shutdown paths after Upgrade and assert artifact stability, outcome reporting, session/buffer release, and peer socket closure. |
+- The original full JSON output was recovered from `/tmp/1792416295110-copilot-tool-output-6620-91e44576-2bb9-49ba-bacf-8e34b728e7b0.txt`. Its summary is five changed files, 31 changed functions/classes, zero affected flows, 21 test gaps, and risk score 0.60. The 21 original names are itemized below; none were invented from the current source.
+- The historical scoped snapshot path embedded in that output (`/tmp/fusou-scoped-audit-rjje0m6o/repo`) no longer exists. The exact original command, analyzer database, and fifth path are not recorded. The four source paths present in the JSON are `capture.rs`, `capture_io.rs`, `proxy_server_https.rs`, and `proxy_server_https/rama_experimental.rs`.
+- The currently installed analyzer is `code-review-graph 2.3.6`. The current `scripts/scoped_code_review_graph.py` wrapper builds a temporary repository from staged paths, runs `update --base HEAD~1`, then `detect-changes --brief --base HEAD~1`. The recovered historical output is full JSON, so it cannot be proven to have come from this exact wrapper invocation.
+- An approximate replay was run with explicit five-path snapshots reconstructed from `d2dfdc9f163b5ee9d874467107a44996bad50eb0..ff1f0b6cada220e8d81407dba7ae02d342ac7f2f`; the fifth path was `RAMA_MIGRATION_PLAN.md`, inferred from that commit's scoped diff. Commands:
 
-The all-target proxy test `cargo test --offline --locked --all-targets` was attempted but could not compile the example because the sanitized mirror does not contain `examples/ca/entity_key.pem` and `examples/ca/entity_cert.pem`. No test assets or keys were copied. The original analyzer output remains `NOT_CHECKED` in this pass.
+  ```text
+  code-review-graph update --repo <temporary five-path snapshot> --base HEAD~1
+  code-review-graph detect-changes --repo <temporary five-path snapshot> --base HEAD~1
+  ```
+
+  This replay completed but returned 114 changed functions/classes, zero flows, 102 gaps, and risk 0.60. Since that differs from the recovered 31/21 output and the original snapshot/database is gone, the exact historical analyzer run is **NOT_REPRODUCIBLE**. The replay is not represented as a reproduction; the table below is an independent source-and-assertion audit of the recovered items against the current source.
+
+### Item-by-Item Audit
+
+| # | Original analyzer item | Disposition | Code path, assertions, and limits |
+| --- | --- | --- | --- |
+| 1 | `AsyncRead` | `COVERED` | `capture_io.rs` `CaptureIo::poll_read`; `captures_split_reads_exactly_across_pending_retries` and `retains_only_successfully_read_bytes_when_later_read_fails` assert captured successful bytes and exclude failed/Pending retries. |
+| 2 | `poll_read` | `COVERED` | `sealing_capture_preserves_io_without_recording_upgrade_stream_bytes` and `seal_waits_for_in_flight_read_and_keeps_its_received_bytes` assert post-seal pass-through and deterministic seal/read ordering. |
+| 3 | `AsyncWrite` | `COVERED` | `capture_io.rs` `CaptureIo::poll_write`; partial and vectored-write tests assert only accepted bytes are recorded in order. |
+| 4 | `poll_write` | `COVERED` | `captures_only_bytes_accepted_by_partial_writes_after_pending`, `vectored_partial_writes_and_pending_retries_preserve_exact_order`, `post_write_capture_failure_does_not_retry_forwarded_response`, and `seal_waits_for_in_flight_write_and_keeps_its_accepted_bytes` cover partial, Pending, failure, and seal races. |
+| 5 | `poll_flush` | `COVERED` | `flush_and_shutdown_forward_pending_retries` and `flush_and_shutdown_propagate_transport_errors` assert Pending retry and error propagation. |
+| 6 | `poll_shutdown` | `COVERED` | The same tests separately assert shutdown Pending retry and transport-error propagation. |
+| 7 | `CaptureIoTestExtension` | `COVERED` | `delegates_rama_extensions_reference` checks that the typed marker remains accessible through the wrapper. |
+| 8 | `ScriptedReadIo` | `COVERED` | This is a test-only fixture used by split-read/Pending and partial-read-error tests; those tests assert resulting capture bytes. It is not a production I/O branch. |
+| 9 | `ScriptedReadIo::new` | `COVERED` | The constructor's scripted actions are consumed by the read tests above; the observable read/capture results are asserted. |
+| 10 | `read_websocket_frame` | `COVERED` | This is a test fixture helper in `proxy_server_https.rs`; CONNECT/TLS tests assert returned opcode/payload and exact frame bytes for data and Close frames. Malformed-frame behavior is tested in the Rama parser, not this helper. |
+| 11 | `fork_proxy_captures_only_websocket_upgrade_handshake_bytes` | `COVERED` | The named item is itself an existing `#[tokio::test]`; it asserts client-observed request/101 wire bytes, two manifest message entries, and exclusion of relayed frames. The analyzer's “gap” label is a false positive for missing test coverage. |
+| 12 | `mark_protocol_failure` | `COVERED` | `observer_rejects_invalid_frames_and_marks_partial_eof_unclean` asserts `InvalidData` and the failure flag; `invalid_continuation_through_connect_persists_handshake_capture` additionally proves the invalid frame is not forwarded upstream and the completed HTTP artifact remains. |
+| 13 | `PendingWebSocketFrame` | `PARTIALLY_COVERED` | `WebSocketFrameParser` tests exercise split payload state, masking offsets, data before Close, and partial-frame EOF. They do not exhaust every extended-length/data-frame state transition. |
+| 14 | `WebSocketFrameParser` | `PARTIALLY_COVERED` | Parser tests cover split Close frames, payload limits, status/UTF-8 validation, reserved bits/opcodes, and post-Close bytes. This observer validates framing/Close state, not every RFC 6455 data/fragmentation rule; Rama's decoder owns continuation validation. |
+| 15 | `WebSocketFrameParser::new` | `COVERED` | Parser tests instantiate both mask modes and assert masked downstream and unmasked upstream Close frames are accepted. |
+| 16 | `observe` | `PARTIALLY_COVERED` | The tests above cover valid split input, malformed control/Close frames, and bytes after Close. They do not establish every parser/scheduler interleaving or kernel-generated transport fault. |
+| 17 | `valid_close_payload` | `COVERED` | `rejects_invalid_close_codes_reasons_and_control_frames` asserts empty and valid payloads, invalid status codes, one-byte payloads, and invalid UTF-8 reasons. |
+| 18 | `WebSocketObserverTestExtension` | `COVERED` | `websocket_observer_delegates_rama_extensions_reference` asserts typed extension access through the observer. |
+| 19 | `masked_close` | `COVERED` | This is a test-only frame builder exercised by split-frame, payload-limit, and invalid-Close parser assertions; it is not a production framing path. |
+| 20 | `serve_with_capture_hook` | `PARTIALLY_COVERED` | Rama loopback CONNECT/TLS tests cover HTTP/1.1 capture, valid Upgrade, disconnects, shutdown, outer abort, and upstream handshake rejection. All kernel RST patterns and arbitrary scheduler/cancellation interleavings remain outside this evidence. |
+| 21 | `abnormal_websocket_close_through_connect_does_not_persist_capture` | `NOT_REPRODUCIBLE` | That historical function and its source snapshot are absent. Current `abnormal_websocket_close_through_connect_persists_handshake_capture` verifies the intended contract: completed request/101 bytes persist unchanged after an unclean relay. The old analyzer gap is stale for current behavior and is not treated as evidence that the artifact should be discarded. |
+
+The all-target proxy test `cargo test --offline --locked --all-targets` was attempted in an earlier validation and could not compile the example because the sanitized mirror lacked `examples/ca/entity_key.pem` and `examples/ca/entity_cert.pem`. No test assets or keys were copied. It was not rerun in this audit.
 
 ## Independent Audit: Task Admission and Cleanup
 
@@ -161,7 +177,7 @@ The commit-time scoped analyzer reported five symbol-level heuristics. They were
 | `build_proxy` | **Low-value test helper detail**, not production behavior. Its closed receiver setup is exercised by CONNECT/WebSocket admission tests. | `process_connect::returns_service_unavailable_when_task_manager_is_closed` and `upgrade_websocket::returns_service_unavailable_when_task_manager_is_closed`. |
 | `DropCounter` | **Test instrumentation**, directly exercised rather than an untested production symbol. | `disarm_drops_task_future_without_running_cancellation_callback` asserts its destructor count is one. |
 
-This commit-time list is not the original analyzer's 21-item output. That original output remains **NOT_CHECKED**; the existing source crosswalk and this focused classification do not claim an independent replay of all 21 items.
+This five-symbol commit-time list is separate from the recovered original 21-item output above. The 21 current-source dispositions are recorded item by item; the exact historical analyzer replay remains **NOT_REPRODUCIBLE** because its source snapshot and invocation are unavailable.
 
 The earlier WebSocket lifecycle E2Es remain distinct evidence: real loopback TCP/TLS FIN/EOF disconnect and shutdown cases verify peer socket closure, while handler-boundary injected faults verify relay error handling. Neither class proves every kernel RST or scheduler interleaving. Session-map removal, recorder-buffer release, task reaping, and peer socket closure are asserted separately where the named tests expose each resource.
 
@@ -176,15 +192,36 @@ The earlier WebSocket lifecycle E2Es remain distinct evidence: real loopback TCP
 - Rama's experimental configuration is intentionally fixed to one canonical authority and socket address. It is not connected to production target selection, Origin Inventory, or Target Approval.
 - The Rama backend still uses the Hudsucker fork's certificate-authority trait and implementation. Removing that dependency requires a separately reviewed CA/certificate-cache design.
 - `CaptureLimits::default()` remains unbounded. A production cap and the behavior on limit exhaustion need a separate policy decision; introducing an arbitrary cap could change ordinary HTTP relay behavior.
-- The original analyzer's 21-item output is **NOT_CHECKED** in this pass; the existing crosswalk was updated against source/test names but was not independently regenerated.
+- Rama now validates an indicated downstream WebSocket handshake with `validate_http_client_request` before calling the upstream WebSocket client. `rejects_invalid_websocket_handshakes_before_upstream_service` checks missing key, missing `Connection: Upgrade`, and unsupported version; each gets 400 and the upstream service call count remains zero. This is a service-boundary test, not a loopback TCP test.
+- Hudsucker calls `hyper_tungstenite::upgrade` before `connect_async_tls_with_config`; its missing-header unit test asserts 400. The no-upstream behavior is clear from this ordering, but no separate upstream-listener accept-counter test covers that branch.
+- `upstream_websocket_handshake_failure_returns_502_without_capture` uses a local TLS upstream that rejects the WebSocket handshake with 403; the proxy returns 502, removes the capture session, and writes no artifact. Hudsucker's corresponding 403 case is covered by `fork_proxy_upstream_handshake_failure_does_not_send_101_or_capture`.
+- The original analyzer output is recovered and all 21 items have current-source dispositions above. The exact historical replay is **NOT_REPRODUCIBLE**; the approximate replay differed and must not be presented as confirmation of the original 21-item result.
 - No production deployment, real game-server, external-service, or real-gameplay validation was performed. The backend must not be described as production accepted.
+
+## This Audit's Local Validation
+
+Commands ran from the sanitized mirror; no production endpoint, Notary, R2, external CI, or example CA material was used.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --offline --locked --lib` (`hudsucker-fork`) | PASS — 25 passed, 0 failed. |
+| `cargo test --offline --locked --lib --features rama-experimental` (`proxy-https`) | PASS — 114 passed, 0 failed. |
+| `cargo check --offline --locked --lib --features rama-experimental` (`proxy-https`) | PASS. |
+| `cargo check --offline --locked --lib` (`proxy-https`) | PASS. |
+| `cargo clippy --offline --locked --tests --features rama-experimental` (`proxy-https`) | PASS, exit 0; 21 existing warnings, none in the changed `rama_experimental.rs`. |
+| `cargo clippy --offline --locked --tests` (`hudsucker-fork`) | PASS, exit 0; one existing `needless_borrow` warning in `src/proxy/internal.rs`. |
+| `cargo clippy --offline --locked --tests --features rama-experimental -- -D warnings` (`proxy-https`) | FAIL, exit 101; the 21 existing warnings in `capture.rs`, `capture_io.rs`, and `proxy_server_https.rs` become errors; none point to the changed Rama file. |
+| `rustfmt --check --edition 2021 src/proxy_server_https/rama_experimental.rs` | PASS. |
+| `git diff --check -- packages/FUSOU-PROXY/proxy-https/src/proxy_server_https/rama_experimental.rs packages/FUSOU-PROXY/proxy-https/RAMA_MIGRATION_PLAN.md` | PASS. |
+
+The targeted pre-fix regression initially failed with 502 instead of the required 400, demonstrating that the malformed request reached the upstream service. After validation was added, the targeted handshake tests passed, and both are included in the 114-test library run. The all-target example test was not rerun here; the earlier recorded CA asset blocker remains, and no keys or certificates were copied.
 
 ## Migration Gate
 
 Keep Hudsucker as the default until all of the following are completed:
 
 1. Preserve the tested HTTP-only Upgrade boundary: request and 101 handshake bytes are captured; upgraded WebSocket frames are relayed but are not part of this artifact. Add a separate evidence format only if frame capture becomes a requirement.
-2. Independently replay the original analyzer's 21-item analysis (or explicitly replace it with a current source-derived analysis). Treat the new handler-boundary fault injections as scoped evidence; add kernel-level fault tests only if that stronger transport claim is required.
+2. The current source-derived audit now adjudicates the recovered 21 names, but the exact historical analyzer run remains **NOT_REPRODUCIBLE**. If the analyzer summary is still an acceptance gate, rerun it against a saved, explicitly scoped snapshot with the invocation and database provenance preserved. Treat handler-boundary faults as scoped evidence; add kernel-level fault tests only if that stronger transport claim is required.
 3. Replace the Hudsucker CA dependency with a reviewed implementation or adapter before removing the fork.
 4. Decide and test a bounded `CaptureLimits` policy before production adoption; do not silently cap only one backend.
 5. Re-run proxy tests and strict lint/format checks after separately addressing the repository's pre-existing diagnostics.
