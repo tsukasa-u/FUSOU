@@ -17,14 +17,29 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server,
 };
-use std::{convert::Infallible, future::Future, net::SocketAddr, sync::Arc};
-use tokio::{io::AsyncReadExt, net::TcpStream, task::JoinHandle};
+use std::{
+    convert::Infallible,
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite},
+    net::TcpStream,
+    sync::mpsc::UnboundedSender,
+    task::JoinSet,
+};
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{
     tungstenite::{self, Message},
     Connector, WebSocketStream,
 };
-use tracing::{error, info_span, instrument, warn, Instrument, Span};
+use tracing::{error, info_span, instrument, warn, Instrument};
 
 fn bad_request() -> Response<Body> {
     Response::builder()
@@ -33,11 +48,55 @@ fn bad_request() -> Response<Body> {
         .expect("Failed to build response")
 }
 
-fn spawn_with_trace<T: Send + Sync + 'static>(
-    fut: impl Future<Output = T> + Send + 'static,
-    span: Span,
-) -> JoinHandle<T> {
-    tokio::spawn(fut.instrument(span))
+fn service_unavailable() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::SERVICE_UNAVAILABLE)
+        .body(Body::empty())
+        .expect("Failed to build service unavailable response")
+}
+
+pub(crate) struct TrackedProxyTask {
+    future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+    on_cancel: Option<Box<dyn FnOnce() + Send + 'static>>,
+}
+
+impl TrackedProxyTask {
+    pub(crate) fn new(
+        future: impl Future<Output = ()> + Send + 'static,
+        on_cancel: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        Self {
+            future: Box::pin(future),
+            on_cancel: Some(Box::new(on_cancel)),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.on_cancel = None;
+    }
+}
+
+impl Future for TrackedProxyTask {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        match this.future.as_mut().poll(context) {
+            Poll::Ready(()) => {
+                this.on_cancel = None;
+                Poll::Ready(())
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for TrackedProxyTask {
+    fn drop(&mut self) {
+        if let Some(on_cancel) = self.on_cancel.take() {
+            on_cancel();
+        }
+    }
 }
 
 pub(crate) struct InternalProxy<C, CA, H, W, K = NoopClientStreamHook> {
@@ -47,6 +106,7 @@ pub(crate) struct InternalProxy<C, CA, H, W, K = NoopClientStreamHook> {
     pub http_handler: H,
     pub websocket_handler: W,
     pub websocket_connector: Option<Connector>,
+    pub background_tasks: UnboundedSender<TrackedProxyTask>,
     pub client_addr: SocketAddr,
     pub connection_id: u64,
     pub client_stream_hook: K,
@@ -67,6 +127,7 @@ where
             http_handler: self.http_handler.clone(),
             websocket_handler: self.websocket_handler.clone(),
             websocket_connector: self.websocket_connector.clone(),
+            background_tasks: self.background_tasks.clone(),
             client_addr: self.client_addr,
             connection_id: self.connection_id,
             client_stream_hook: self.client_stream_hook.clone(),
@@ -134,7 +195,7 @@ where
         if req.method() == Method::CONNECT {
             Ok(self.process_connect(req))
         } else if hyper_tungstenite::is_upgrade_request(&req) {
-            Ok(self.upgrade_websocket(req))
+            Ok(self.upgrade_websocket(req).await)
         } else {
             let res = self
                 .client
@@ -177,6 +238,9 @@ where
         match req.uri().authority().cloned() {
             Some(authority) => {
                 let span = info_span!("process_connect");
+                let background_tasks = self.background_tasks.clone();
+                let cancellation_hook = self.client_stream_hook.clone();
+                let cancellation_context = self.context();
                 let fut = async move {
                     match hyper::upgrade::on(&mut req).await {
                         Ok(upgraded) => {
@@ -276,7 +340,16 @@ where
                     };
                 };
 
-                spawn_with_trace(fut, span);
+                let task = TrackedProxyTask::new(fut.instrument(span), move || {
+                    cancellation_hook.connection_aborted(&cancellation_context)
+                });
+                if let Err(error) = background_tasks.send(task) {
+                    error!(%error, "Proxy task manager is no longer accepting CONNECT tunnels");
+                    let mut task = error.0;
+                    task.disarm();
+                    drop(task);
+                    return service_unavailable();
+                }
                 Response::new(Body::empty())
             }
             None => bad_request(),
@@ -284,7 +357,7 @@ where
     }
 
     #[instrument(skip_all)]
-    fn upgrade_websocket(self, req: Request<Body>) -> Response<Body> {
+    async fn upgrade_websocket(self, req: Request<Body>) -> Response<Body> {
         let mut req = {
             let (mut parts, _) = req.into_parts();
 
@@ -308,49 +381,89 @@ where
             Request::from_parts(parts, ())
         };
 
+        let uri = req.uri().clone();
+        let (server_socket, _) = match tokio_tungstenite::connect_async_tls_with_config(
+            req.clone(),
+            None,
+            false,
+            self.websocket_connector.clone(),
+        )
+        .await
+        {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                error!(%error, "Failed to establish upstream WebSocket");
+                return Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .body(Body::empty())
+                    .expect("Failed to build gateway response");
+            }
+        };
+
         match hyper_tungstenite::upgrade(&mut req, None) {
             Ok((res, websocket)) => {
+                let context = self.context();
+                let response = res.map(Body::from);
+                let hook = self.client_stream_hook.clone();
+                let response_hook = hook.clone();
+                let response_context = context.clone();
+                let cancellation_hook = hook.clone();
+                let cancellation_context = context.clone();
+                let background_tasks = self.background_tasks.clone();
                 let span = info_span!("websocket");
                 let fut = async move {
-                    match websocket.await {
-                        Ok(ws) => {
-                            if let Err(e) = self.handle_websocket(ws, req).await {
-                                error!("Failed to handle WebSocket: {}", e);
+                    let clean = match websocket.await {
+                        Ok(client_socket) => {
+                            hook.response_completed(&context);
+                            let mut relay = JoinSet::new();
+                            relay.spawn(self.handle_websocket(client_socket, server_socket, uri));
+                            match relay.join_next().await {
+                                Some(Ok(clean)) => clean,
+                                Some(Err(error)) => {
+                                    error!(%error, "WebSocket relay task failed");
+                                    false
+                                }
+                                None => false,
                             }
                         }
                         Err(e) => {
                             error!("Failed to upgrade to WebSocket: {}", e);
+                            false
                         }
-                    }
+                    };
+                    hook.websocket_completed(&context, clean);
                 };
 
-                spawn_with_trace(fut, span);
-                res.map(Body::from)
+                let task = TrackedProxyTask::new(fut.instrument(span), move || {
+                    cancellation_hook.websocket_completed(&cancellation_context, false);
+                    cancellation_hook.connection_aborted(&cancellation_context);
+                });
+                if let Err(error) = background_tasks.send(task) {
+                    error!(%error, "Proxy task manager is no longer accepting WebSocket upgrades");
+                    let response = service_unavailable();
+                    response_hook.response_started(&response_context, &response);
+                    let mut task = error.0;
+                    task.disarm();
+                    drop(task);
+                    return response;
+                }
+                response_hook.response_started(&response_context, &response);
+                response
             }
             Err(_) => bad_request(),
         }
     }
 
     #[instrument(skip_all)]
-    async fn handle_websocket(
+    async fn handle_websocket<S>(
         self,
         client_socket: WebSocketStream<TokioIo<Upgraded>>,
-        req: Request<()>,
-    ) -> Result<(), tungstenite::Error> {
-        let uri = req.uri().clone();
-
-        #[cfg(any(feature = "rustls-client", feature = "native-tls-client"))]
-        let (server_socket, _) = tokio_tungstenite::connect_async_tls_with_config(
-            req,
-            None,
-            false,
-            self.websocket_connector,
-        )
-        .await?;
-
-        #[cfg(not(any(feature = "rustls-client", feature = "native-tls-client")))]
-        let (server_socket, _) = tokio_tungstenite::connect_async(req).await?;
-
+        server_socket: WebSocketStream<S>,
+        uri: Uri,
+    ) -> bool
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let (server_sink, server_stream) = server_socket.split();
         let (client_sink, client_stream) = client_socket.split();
 
@@ -358,27 +471,51 @@ where
             websocket_handler, ..
         } = self;
 
-        spawn_message_forwarder(
-            server_stream,
-            client_sink,
-            websocket_handler.clone(),
+        let lifecycle = Arc::new(WebSocketRelayLifecycle::default());
+        let client_to_server = websocket_handler.clone().handle_websocket(
+            WebSocketContext::ClientToServer {
+                src: self.client_addr,
+                dst: uri.clone(),
+            },
+            ObservedWebSocketStream::new(
+                client_stream,
+                WebSocketSide::Client,
+                Arc::clone(&lifecycle),
+            ),
+            ObservedWebSocketSink::new(server_sink, WebSocketSide::Server, Arc::clone(&lifecycle)),
+        );
+        let server_to_client = websocket_handler.handle_websocket(
             WebSocketContext::ServerToClient {
                 src: uri.clone(),
                 dst: self.client_addr,
             },
+            ObservedWebSocketStream::new(
+                server_stream,
+                WebSocketSide::Server,
+                Arc::clone(&lifecycle),
+            ),
+            ObservedWebSocketSink::new(client_sink, WebSocketSide::Client, Arc::clone(&lifecycle)),
         );
 
-        spawn_message_forwarder(
-            client_stream,
-            server_sink,
-            websocket_handler,
-            WebSocketContext::ClientToServer {
-                src: self.client_addr,
-                dst: uri,
-            },
-        );
+        tokio::pin!(client_to_server);
+        tokio::pin!(server_to_client);
+        let client_finished_first = tokio::select! {
+            _ = &mut client_to_server => true,
+            _ = &mut server_to_client => false,
+        };
+        if lifecycle.close_handshake_started() {
+            let timeout = std::time::Duration::from_secs(10);
+            let remaining = if client_finished_first {
+                tokio::time::timeout(timeout, &mut server_to_client).await
+            } else {
+                tokio::time::timeout(timeout, &mut client_to_server).await
+            };
+            if remaining.is_err() {
+                lifecycle.fail();
+            }
+        }
 
-        Ok(())
+        lifecycle.is_clean()
     }
 
     #[instrument(skip_all)]
@@ -415,15 +552,163 @@ where
     }
 }
 
-fn spawn_message_forwarder(
-    stream: impl Stream<Item = Result<Message, tungstenite::Error>> + Unpin + Send + 'static,
-    sink: impl Sink<Message, Error = tungstenite::Error> + Unpin + Send + 'static,
-    handler: impl WebSocketHandler,
-    ctx: WebSocketContext,
-) {
-    let span = info_span!("message_forwarder", context = ?ctx);
-    let fut = handler.handle_websocket(ctx, stream, sink);
-    spawn_with_trace(fut, span);
+#[derive(Default)]
+struct WebSocketRelayLifecycle {
+    client_close_received: AtomicBool,
+    server_close_received: AtomicBool,
+    client_close_forwarded: AtomicBool,
+    server_close_forwarded: AtomicBool,
+    failed: AtomicBool,
+}
+
+impl WebSocketRelayLifecycle {
+    fn close_received(&self, side: WebSocketSide) {
+        match side {
+            WebSocketSide::Client => self.client_close_received.store(true, Ordering::Release),
+            WebSocketSide::Server => self.server_close_received.store(true, Ordering::Release),
+        }
+    }
+
+    fn close_forwarded(&self, side: WebSocketSide) {
+        match side {
+            WebSocketSide::Client => self.client_close_forwarded.store(true, Ordering::Release),
+            WebSocketSide::Server => self.server_close_forwarded.store(true, Ordering::Release),
+        }
+    }
+
+    fn fail(&self) {
+        self.failed.store(true, Ordering::Release);
+    }
+
+    fn close_handshake_started(&self) -> bool {
+        self.client_close_received.load(Ordering::Acquire)
+            || self.server_close_received.load(Ordering::Acquire)
+    }
+
+    fn is_clean(&self) -> bool {
+        self.client_close_received.load(Ordering::Acquire)
+            && self.server_close_received.load(Ordering::Acquire)
+            && self.client_close_forwarded.load(Ordering::Acquire)
+            && self.server_close_forwarded.load(Ordering::Acquire)
+            && !self.failed.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum WebSocketSide {
+    Client,
+    Server,
+}
+
+struct ObservedWebSocketStream<S> {
+    inner: S,
+    side: WebSocketSide,
+    lifecycle: Arc<WebSocketRelayLifecycle>,
+}
+
+impl<S> ObservedWebSocketStream<S> {
+    fn new(inner: S, side: WebSocketSide, lifecycle: Arc<WebSocketRelayLifecycle>) -> Self {
+        Self {
+            inner,
+            side,
+            lifecycle,
+        }
+    }
+}
+
+impl<S> Stream for ObservedWebSocketStream<S>
+where
+    S: Stream<Item = Result<Message, tungstenite::Error>> + Unpin,
+{
+    type Item = Result<Message, tungstenite::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let result = Pin::new(&mut self.inner).poll_next(context);
+        match &result {
+            Poll::Ready(Some(Ok(Message::Close(_)))) => {
+                self.lifecycle.close_received(self.side);
+            }
+            Poll::Ready(Some(Err(error))) if !normal_websocket_close(&error) => {
+                self.lifecycle.fail();
+            }
+            _ => {}
+        }
+        result
+    }
+}
+
+struct ObservedWebSocketSink<S> {
+    inner: S,
+    side: WebSocketSide,
+    lifecycle: Arc<WebSocketRelayLifecycle>,
+}
+
+impl<S> ObservedWebSocketSink<S> {
+    fn new(inner: S, side: WebSocketSide, lifecycle: Arc<WebSocketRelayLifecycle>) -> Self {
+        Self {
+            inner,
+            side,
+            lifecycle,
+        }
+    }
+}
+
+impl<S> Sink<Message> for ObservedWebSocketSink<S>
+where
+    S: Sink<Message, Error = tungstenite::Error> + Unpin,
+{
+    type Error = tungstenite::Error;
+
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let result = Pin::new(&mut self.inner).poll_ready(context);
+        if matches!(&result, Poll::Ready(Err(error)) if !normal_websocket_close(error)) {
+            self.lifecycle.fail();
+        }
+        result
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
+        let is_close = matches!(item, Message::Close(_));
+        let result = Pin::new(&mut self.inner).start_send(item);
+        match &result {
+            Ok(()) if is_close => self.lifecycle.close_forwarded(self.side),
+            Err(error) if !normal_websocket_close(error) => self.lifecycle.fail(),
+            _ => {}
+        }
+        result
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let result = Pin::new(&mut self.inner).poll_flush(context);
+        if matches!(&result, Poll::Ready(Err(error)) if !normal_websocket_close(error)) {
+            self.lifecycle.fail();
+        }
+        result
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let result = Pin::new(&mut self.inner).poll_close(context);
+        if matches!(&result, Poll::Ready(Err(error)) if !normal_websocket_close(error)) {
+            self.lifecycle.fail();
+        }
+        result
+    }
+}
+
+fn normal_websocket_close(error: &tungstenite::Error) -> bool {
+    matches!(
+        error,
+        tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed
+    )
 }
 
 #[instrument(skip_all)]

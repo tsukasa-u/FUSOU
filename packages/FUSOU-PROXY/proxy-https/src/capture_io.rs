@@ -3,8 +3,8 @@ use std::{
     fmt, io,
     pin::Pin,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     task::{Context, Poll},
 };
@@ -88,11 +88,13 @@ impl CaptureSnapshot {
 struct RecorderState {
     request: Vec<u8>,
     response: Vec<u8>,
+    sealed: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct CaptureRecorder {
     state: Arc<Mutex<RecorderState>>,
+    io_gate: Arc<Mutex<()>>,
     limits: CaptureLimits,
     unavailable: Arc<AtomicBool>,
 }
@@ -105,6 +107,7 @@ impl CaptureRecorder {
     pub fn with_limits(limits: CaptureLimits) -> Self {
         Self {
             state: Arc::new(Mutex::new(RecorderState::default())),
+            io_gate: Arc::new(Mutex::new(())),
             limits,
             unavailable: Arc::new(AtomicBool::new(false)),
         }
@@ -143,6 +146,37 @@ impl CaptureRecorder {
         })
     }
 
+    pub fn seal(&self) -> Result<(), CaptureIoError> {
+        self.ensure_available()?;
+        let _io_guard = self.lock_io()?;
+        let mut state = self.state.lock().map_err(|_| {
+            self.mark_unavailable();
+            CaptureIoError::RecorderPoisoned
+        })?;
+        state.sealed = true;
+        Ok(())
+    }
+
+    pub(crate) fn release(&self) -> Result<(), CaptureIoError> {
+        let _io_guard = self.lock_io()?;
+        let mut state = self.state.lock().map_err(|_| {
+            self.mark_unavailable();
+            CaptureIoError::RecorderPoisoned
+        })?;
+        state.sealed = true;
+        state.request = Vec::new();
+        state.response = Vec::new();
+        Ok(())
+    }
+
+    fn lock_io(&self) -> Result<std::sync::MutexGuard<'_, ()>, CaptureIoError> {
+        self.io_gate.lock().map_err(|_| {
+            self.mark_unavailable();
+            CaptureIoError::RecorderPoisoned
+        })
+    }
+
+    #[cfg(test)]
     fn record(&self, direction: CaptureDirection, bytes: &[u8]) -> Result<(), CaptureIoError> {
         if bytes.is_empty() {
             return Ok(());
@@ -153,6 +187,21 @@ impl CaptureRecorder {
             self.mark_unavailable();
             CaptureIoError::RecorderPoisoned
         })?;
+        if state.sealed {
+            return Ok(());
+        }
+        self.record_locked(&mut state, direction, bytes)
+    }
+
+    fn record_locked(
+        &self,
+        state: &mut RecorderState,
+        direction: CaptureDirection,
+        bytes: &[u8],
+    ) -> Result<(), CaptureIoError> {
+        if bytes.is_empty() || state.sealed {
+            return Ok(());
+        }
         let (captured, limit) = match direction {
             CaptureDirection::Request => (&mut state.request, self.limits.request_bytes),
             CaptureDirection::Response => (&mut state.response, self.limits.response_bytes),
@@ -179,23 +228,15 @@ impl CaptureRecorder {
         Ok(())
     }
 
-    fn ensure_available(&self) -> Result<(), CaptureIoError> {
-        if self.unavailable.load(Ordering::SeqCst) {
-            return Err(CaptureIoError::CaptureUnavailable);
-        }
-        Ok(())
-    }
-
-    fn ensure_capacity(
+    fn ensure_capacity_locked(
         &self,
+        state: &RecorderState,
         direction: CaptureDirection,
         additional: usize,
     ) -> Result<(), CaptureIoError> {
-        self.ensure_available()?;
-        let state = self.state.lock().map_err(|_| {
-            self.mark_unavailable();
-            CaptureIoError::RecorderPoisoned
-        })?;
+        if state.sealed {
+            return Ok(());
+        }
         let (captured, limit) = match direction {
             CaptureDirection::Request => (&state.request, self.limits.request_bytes),
             CaptureDirection::Response => (&state.response, self.limits.response_bytes),
@@ -217,6 +258,13 @@ impl CaptureRecorder {
                     attempted,
                 });
             }
+        }
+        Ok(())
+    }
+
+    fn ensure_available(&self) -> Result<(), CaptureIoError> {
+        if self.unavailable.load(Ordering::SeqCst) {
+            return Err(CaptureIoError::CaptureUnavailable);
         }
         Ok(())
     }
@@ -298,12 +346,25 @@ where
         context: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let (result, captured_bytes) = if let Some(read_chunk_size) = self.read_chunk_size {
+        let this = self.as_mut().get_mut();
+        let recorder = &this.recorder;
+        if let Err(error) = recorder.ensure_available() {
+            return Poll::Ready(Err(error.into()));
+        }
+        let _io_guard = match recorder.lock_io() {
+            Ok(guard) => guard,
+            Err(_) => {
+                return Poll::Ready(Err(CaptureIoError::RecorderPoisoned.into()));
+            }
+        };
+        let read_chunk_size = this.read_chunk_size;
+        let inner = &mut this.inner;
+        let (result, captured_bytes) = if let Some(read_chunk_size) = read_chunk_size {
             let read_limit = read_chunk_size.min(buffer.remaining());
             let (result, captured_bytes) = {
                 let unfilled = buffer.initialize_unfilled_to(read_limit);
                 let mut limited_buffer = ReadBuf::new(unfilled);
-                let result = Pin::new(&mut self.inner).poll_read(context, &mut limited_buffer);
+                let result = Pin::new(inner).poll_read(context, &mut limited_buffer);
                 let captured_bytes = limited_buffer.filled().to_vec();
                 (result, captured_bytes)
             };
@@ -314,7 +375,7 @@ where
             (result, captured_bytes)
         } else {
             let filled_before = buffer.filled().len();
-            let result = Pin::new(&mut self.inner).poll_read(context, buffer);
+            let result = Pin::new(inner).poll_read(context, buffer);
             let captured_bytes = if let Poll::Ready(Ok(())) = &result {
                 buffer.filled()[filled_before..].to_vec()
             } else {
@@ -323,9 +384,15 @@ where
             (result, captured_bytes)
         };
         if let Poll::Ready(Ok(())) = &result {
-            if let Err(error) = self
-                .recorder
-                .record(CaptureDirection::Request, &captured_bytes)
+            let mut state = match recorder.state.lock() {
+                Ok(state) => state,
+                Err(_) => {
+                    recorder.mark_unavailable();
+                    return Poll::Ready(Err(CaptureIoError::RecorderPoisoned.into()));
+                }
+            };
+            if let Err(error) =
+                recorder.record_locked(&mut state, CaptureDirection::Request, &captured_bytes)
             {
                 return Poll::Ready(Err(error.into()));
             }
@@ -343,19 +410,54 @@ where
         context: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        if let Err(error) = self
-            .recorder
-            .ensure_capacity(CaptureDirection::Response, bytes.len())
+        let this = self.as_mut().get_mut();
+        let recorder = &this.recorder;
+        if let Err(error) = recorder.ensure_available() {
+            return Poll::Ready(Err(error.into()));
+        }
+        let _io_guard = match recorder.lock_io() {
+            Ok(guard) => guard,
+            Err(_) => {
+                return Poll::Ready(Err(CaptureIoError::RecorderPoisoned.into()));
+            }
+        };
+        let state = match recorder.state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                recorder.mark_unavailable();
+                return Poll::Ready(Err(CaptureIoError::RecorderPoisoned.into()));
+            }
+        };
+        if let Err(error) =
+            recorder.ensure_capacity_locked(&state, CaptureDirection::Response, bytes.len())
         {
             return Poll::Ready(Err(error.into()));
         }
-        let result = Pin::new(&mut self.inner).poll_write(context, bytes);
+        drop(state);
+        let result = Pin::new(&mut this.inner).poll_write(context, bytes);
         if let Poll::Ready(Ok(written)) = result {
-            if let Err(error) = self
-                .recorder
-                .record(CaptureDirection::Response, &bytes[..written])
+            if written > bytes.len() {
+                recorder.mark_unavailable();
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "underlying write exceeded supplied buffer",
+                )));
+            }
+            let mut state = match recorder.state.lock() {
+                Ok(state) => state,
+                Err(_) => {
+                    recorder.mark_unavailable();
+                    tracing::error!(
+                        written,
+                        "capture recorder failed after response bytes were forwarded"
+                    );
+                    return Poll::Ready(Ok(written));
+                }
+            };
+            if let Err(error) =
+                recorder.record_locked(&mut state, CaptureDirection::Response, &bytes[..written])
             {
-                self.recorder.mark_unavailable();
+                recorder.mark_unavailable();
                 tracing::error!(error = %error, written, "capture failed after response bytes were forwarded");
                 return Poll::Ready(Ok(written));
             }
@@ -381,14 +483,50 @@ where
                 )));
             }
         };
-        if let Err(error) = self
-            .recorder
-            .ensure_capacity(CaptureDirection::Response, requested)
+        let this = self.as_mut().get_mut();
+        let recorder = &this.recorder;
+        if let Err(error) = recorder.ensure_available() {
+            return Poll::Ready(Err(error.into()));
+        }
+        let _io_guard = match recorder.lock_io() {
+            Ok(guard) => guard,
+            Err(_) => {
+                return Poll::Ready(Err(CaptureIoError::RecorderPoisoned.into()));
+            }
+        };
+        let state = match recorder.state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                recorder.mark_unavailable();
+                return Poll::Ready(Err(CaptureIoError::RecorderPoisoned.into()));
+            }
+        };
+        if let Err(error) =
+            recorder.ensure_capacity_locked(&state, CaptureDirection::Response, requested)
         {
             return Poll::Ready(Err(error.into()));
         }
-        let result = Pin::new(&mut self.inner).poll_write_vectored(context, buffers);
+        drop(state);
+        let result = Pin::new(&mut this.inner).poll_write_vectored(context, buffers);
         if let Poll::Ready(Ok(written)) = result {
+            if written > requested {
+                recorder.mark_unavailable();
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "underlying vectored write exceeded supplied buffers",
+                )));
+            }
+            let mut state = match recorder.state.lock() {
+                Ok(state) => state,
+                Err(_) => {
+                    recorder.mark_unavailable();
+                    tracing::error!(
+                        written,
+                        "capture recorder failed after response bytes were forwarded"
+                    );
+                    return Poll::Ready(Ok(written));
+                }
+            };
             let mut remaining = written;
             let mut captured = Vec::with_capacity(written);
             for buffer in buffers {
@@ -405,8 +543,10 @@ where
                     "underlying vectored write exceeded supplied buffers",
                 )));
             }
-            if let Err(error) = self.recorder.record(CaptureDirection::Response, &captured) {
-                self.recorder.mark_unavailable();
+            if let Err(error) =
+                recorder.record_locked(&mut state, CaptureDirection::Response, &captured)
+            {
+                recorder.mark_unavailable();
                 tracing::error!(error = %error, written, "capture failed after response bytes were forwarded");
                 return Poll::Ready(Ok(written));
             }
@@ -451,6 +591,139 @@ mod tests {
         std::env::temp_dir().join(format!("fusou_capture_io_{name}_{timestamp}"))
     }
 
+    #[test]
+    fn release_drops_sealed_capture_bytes_for_live_io_clones() {
+        let recorder = CaptureRecorder::new();
+        let live_io_recorder = recorder.clone();
+        recorder
+            .record(CaptureDirection::Request, b"upgrade request")
+            .expect("record request");
+        recorder
+            .record(CaptureDirection::Response, b"101 response")
+            .expect("record response");
+        recorder.seal().expect("seal capture");
+        recorder.release().expect("release finalized capture");
+
+        let snapshot = live_io_recorder
+            .snapshot()
+            .expect("snapshot released capture");
+        assert!(snapshot.request_bytes().is_empty());
+        assert!(snapshot.response_bytes().is_empty());
+        live_io_recorder
+            .record(CaptureDirection::Request, b"later WebSocket frame")
+            .expect("sealed recorder ignores later relay bytes");
+        assert!(live_io_recorder
+            .snapshot()
+            .expect("snapshot after relay")
+            .request_bytes()
+            .is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn seal_waits_for_in_flight_write_and_keeps_its_accepted_bytes() {
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (inner, mut peer) = tokio::io::duplex(1024);
+        let recorder = CaptureRecorder::new();
+        let seal_recorder = recorder.clone();
+        let mut capture = CaptureIo::new(
+            GatedIo {
+                inner,
+                entered: Some(entered_tx),
+                release: release_rx,
+            },
+            recorder.clone(),
+        );
+        let writer = tokio::spawn(async move { capture.write_all(b"101 boundary").await });
+
+        tokio::task::spawn_blocking(move || entered_rx.recv().expect("gated write entered"))
+            .await
+            .expect("wait for gated write");
+        let (seal_started_tx, seal_started_rx) = std::sync::mpsc::channel();
+        let sealer = std::thread::spawn(move || {
+            seal_started_tx.send(()).expect("signal seal start");
+            seal_recorder.seal()
+        });
+        tokio::task::spawn_blocking(move || seal_started_rx.recv().expect("seal started"))
+            .await
+            .expect("wait for seal start");
+        release_tx.send(()).expect("release gated write");
+
+        writer
+            .await
+            .expect("join write")
+            .expect("write through capture adapter");
+        sealer.join().expect("join sealer").expect("seal capture");
+
+        let mut forwarded = [0; 12];
+        peer.read_exact(&mut forwarded)
+            .await
+            .expect("read forwarded boundary bytes");
+        assert_eq!(&forwarded, b"101 boundary");
+        assert_eq!(
+            recorder
+                .snapshot()
+                .expect("snapshot capture")
+                .response_bytes(),
+            b"101 boundary"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn seal_waits_for_in_flight_read_and_keeps_its_received_bytes() {
+        let request = b"request boundary";
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (inner, mut peer) = tokio::io::duplex(1024);
+        peer.write_all(request)
+            .await
+            .expect("write request boundary");
+        let recorder = CaptureRecorder::new();
+        let seal_recorder = recorder.clone();
+        let mut capture = CaptureIo::new(
+            GatedIo {
+                inner,
+                entered: Some(entered_tx),
+                release: release_rx,
+            },
+            recorder.clone(),
+        );
+        let reader = tokio::spawn(async move {
+            let mut received = vec![0; request.len()];
+            capture.read_exact(&mut received).await?;
+            Ok::<_, io::Error>(received)
+        });
+
+        tokio::task::spawn_blocking(move || entered_rx.recv().expect("gated read entered"))
+            .await
+            .expect("wait for gated read");
+        let (seal_started_tx, seal_started_rx) = std::sync::mpsc::channel();
+        let sealer = std::thread::spawn(move || {
+            seal_started_tx.send(()).expect("signal seal start");
+            seal_recorder.seal()
+        });
+        tokio::task::spawn_blocking(move || seal_started_rx.recv().expect("seal started"))
+            .await
+            .expect("wait for seal start");
+        release_tx.send(()).expect("release gated read");
+
+        assert_eq!(
+            reader
+                .await
+                .expect("join read")
+                .expect("read through capture adapter"),
+            request
+        );
+        sealer.join().expect("join sealer").expect("seal capture");
+        assert_eq!(
+            recorder
+                .snapshot()
+                .expect("snapshot capture")
+                .request_bytes(),
+            request
+        );
+    }
+
     #[cfg(feature = "rama-experimental")]
     #[derive(Debug)]
     struct CaptureIoTestExtension(u32);
@@ -462,6 +735,54 @@ mod tests {
         inner: tokio::io::DuplexStream,
         recorder: CaptureRecorder,
         poisoned: bool,
+    }
+
+    struct GatedIo {
+        inner: tokio::io::DuplexStream,
+        entered: Option<std::sync::mpsc::SyncSender<()>>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+
+    impl GatedIo {
+        fn wait_for_release(&mut self) {
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).expect("signal gated I/O entry");
+                self.release.recv().expect("release gated I/O");
+            }
+        }
+    }
+
+    impl AsyncRead for GatedIo {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            self.wait_for_release();
+            Pin::new(&mut self.inner).poll_read(context, buffer)
+        }
+    }
+
+    impl AsyncWrite for GatedIo {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.wait_for_release();
+            Pin::new(&mut self.inner).poll_write(context, bytes)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(context)
+        }
+
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_shutdown(context)
+        }
     }
 
     impl AsyncRead for PoisoningWriter {
@@ -660,6 +981,72 @@ mod tests {
         }
     }
 
+    struct ScriptedLifecycleIo {
+        flush_pending_once: bool,
+        flush_error: bool,
+        shutdown_pending_once: bool,
+        shutdown_error: bool,
+        flush_calls: usize,
+        shutdown_calls: usize,
+    }
+
+    impl AsyncRead for ScriptedLifecycleIo {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for ScriptedLifecycleIo {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+            let this = self.as_mut().get_mut();
+            this.flush_calls += 1;
+            if this.flush_pending_once {
+                this.flush_pending_once = false;
+                context.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            if this.flush_error {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "injected flush failure",
+                )));
+            }
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            context: &mut Context<'_>,
+        ) -> Poll<io::Result<()>> {
+            let this = self.as_mut().get_mut();
+            this.shutdown_calls += 1;
+            if this.shutdown_pending_once {
+                this.shutdown_pending_once = false;
+                context.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            if this.shutdown_error {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "injected shutdown failure",
+                )));
+            }
+            Poll::Ready(Ok(()))
+        }
+    }
+
     #[tokio::test]
     async fn preserves_request_and_response_bytes_with_directional_separation() {
         let (mut client, server) = tokio::io::duplex(4096);
@@ -724,6 +1111,63 @@ mod tests {
             recorder.snapshot().unwrap().request_bytes(),
             partial_request
         );
+    }
+
+    #[tokio::test]
+    async fn sealing_capture_preserves_io_without_recording_upgrade_stream_bytes() {
+        let (mut client, server) = tokio::io::duplex(4096);
+        let recorder = CaptureRecorder::new();
+        let mut captured = CaptureIo::new(server, recorder.clone());
+        let request_handshake = b"GET /socket HTTP/1.1\r\n\r\n";
+        let response_handshake = b"HTTP/1.1 101 Switching Protocols\r\n\r\n";
+        let client_frame = b"\x81\x01x";
+        let server_frame = b"\x81\x01y";
+
+        client
+            .write_all(request_handshake)
+            .await
+            .expect("write HTTP Upgrade request");
+        let mut request = vec![0; request_handshake.len()];
+        captured
+            .read_exact(&mut request)
+            .await
+            .expect("read Upgrade request");
+        captured
+            .write_all(response_handshake)
+            .await
+            .expect("write HTTP Upgrade response");
+        let mut response = vec![0; response_handshake.len()];
+        client
+            .read_exact(&mut response)
+            .await
+            .expect("read Upgrade response");
+
+        recorder.seal().expect("seal HTTP message capture");
+        client
+            .write_all(client_frame)
+            .await
+            .expect("write client WebSocket frame");
+        let mut received_frame = vec![0; client_frame.len()];
+        captured
+            .read_exact(&mut received_frame)
+            .await
+            .expect("relay client WebSocket frame");
+        assert_eq!(received_frame, client_frame);
+
+        captured
+            .write_all(server_frame)
+            .await
+            .expect("relay server WebSocket frame");
+        let mut received_frame = vec![0; server_frame.len()];
+        client
+            .read_exact(&mut received_frame)
+            .await
+            .expect("read server WebSocket frame");
+        assert_eq!(received_frame, server_frame);
+
+        let snapshot = recorder.snapshot().expect("snapshot sealed capture");
+        assert_eq!(snapshot.request_bytes(), request_handshake);
+        assert_eq!(snapshot.response_bytes(), response_handshake);
     }
 
     #[cfg(feature = "rama-experimental")]
@@ -861,7 +1305,7 @@ mod tests {
     async fn hyper_parse_failure_keeps_received_bytes_without_forwarding() {
         use http_body_util::Full;
         use hudsucker::{
-            hyper::{Response, body::Bytes, server::conn::http1, service::service_fn},
+            hyper::{body::Bytes, server::conn::http1, service::service_fn, Response},
             hyper_util::rt::TokioIo,
         };
         use std::convert::Infallible;
@@ -936,7 +1380,52 @@ mod tests {
             .expect("read exactly one forwarded response");
         assert_eq!(received, response);
         assert!(recorder.snapshot().is_err());
+        assert!(captured.flush().await.is_err());
+        assert!(captured.shutdown().await.is_err());
         assert!(captured.write_all(b"second response").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn flush_and_shutdown_forward_pending_retries() {
+        let recorder = CaptureRecorder::new();
+        let writer = ScriptedLifecycleIo {
+            flush_pending_once: true,
+            flush_error: false,
+            shutdown_pending_once: true,
+            shutdown_error: false,
+            flush_calls: 0,
+            shutdown_calls: 0,
+        };
+        let mut captured = CaptureIo::new(writer, recorder);
+        captured.flush().await.expect("flush after Pending");
+        captured.shutdown().await.expect("shutdown after Pending");
+
+        let inner = captured.into_inner();
+        assert_eq!(inner.flush_calls, 2);
+        assert_eq!(inner.shutdown_calls, 2);
+    }
+
+    #[tokio::test]
+    async fn flush_and_shutdown_propagate_transport_errors() {
+        let recorder = CaptureRecorder::new();
+        let writer = ScriptedLifecycleIo {
+            flush_pending_once: false,
+            flush_error: true,
+            shutdown_pending_once: false,
+            shutdown_error: true,
+            flush_calls: 0,
+            shutdown_calls: 0,
+        };
+        let mut captured = CaptureIo::new(writer, recorder);
+
+        assert_eq!(
+            captured.flush().await.unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(
+            captured.shutdown().await.unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
     }
 
     #[tokio::test]

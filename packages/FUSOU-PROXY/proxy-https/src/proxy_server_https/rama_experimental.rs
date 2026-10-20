@@ -2,12 +2,10 @@ use super::RawCaptureHook;
 use crate::{capture::ExactWireMetadata, capture_io::CaptureIo};
 use hudsucker::certificate_authority::CertificateAuthority;
 use rama::{
-    Layer, Service, ServiceInput,
     conversion::RamaTryInto,
     error::{BoxError, BoxErrorExt as _},
     extensions::Extensions,
     http::{
-        Body, Request, Response, StatusCode, Version,
         conn::TargetHttpVersion,
         io::upgrade::{self, Upgraded},
         ws::handshake::{
@@ -17,20 +15,22 @@ use rama::{
                 WebSocketRelayEventService,
             },
         },
+        Body, Request, Response, StatusCode, Version,
     },
     io::BridgeIo,
     net::address::Host,
     rt::Executor,
     service::service_fn,
     tls::{
-        SecureTransport,
         client::{ServerVerifyMode, TlsClientConfig, TlsServerTrust, TlsServerTrustAnchors},
         rustls::{
-            RamaTlsRustlsCrateMarker,
             server::{DynamicConfigProvider, RustlsServerConfigExt, TlsAcceptorLayer},
+            RamaTlsRustlsCrateMarker,
         },
         server::TlsServerConfig,
+        SecureTransport,
     },
+    Layer, Service, ServiceInput,
 };
 use rama_http_backend::{proxy::mitm::HttpMitmRelay, server::HttpServer};
 use std::{
@@ -41,8 +41,8 @@ use std::{
     path::PathBuf,
     pin::Pin,
     sync::{
+        atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering},
         Arc,
-        atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering},
     },
     task::{Context, Poll},
 };
@@ -50,7 +50,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
     net::{TcpListener, TcpStream},
     sync::Mutex as AsyncMutex,
-    task::{JoinHandle, JoinSet},
+    task::JoinSet,
 };
 use tokio_rustls::rustls::{
     self,
@@ -244,7 +244,13 @@ where
                         this.close_frames.fetch_or(this.flag, Ordering::Release);
                     }
                     Ok(false) => {}
-                    Err(()) => this.mark_protocol_failure("invalid WebSocket frame"),
+                    Err(()) => {
+                        this.mark_protocol_failure("invalid WebSocket frame");
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "invalid WebSocket frame",
+                        )));
+                    }
                 }
                 if buffer_has_capacity
                     && buffer.filled().len() == previous_len
@@ -475,12 +481,12 @@ fn valid_close_payload(payload: &[u8]) -> bool {
 #[cfg(test)]
 mod websocket_frame_parser_tests {
     use super::{
-        DOWNSTREAM_CLOSE_FRAME, UPSTREAM_CLOSE_FRAME, WebSocketCloseFrameObserver,
-        WebSocketFrameParser, valid_close_payload, websocket_close_handshake_complete,
+        valid_close_payload, websocket_close_handshake_complete, WebSocketCloseFrameObserver,
+        WebSocketFrameParser, DOWNSTREAM_CLOSE_FRAME, UPSTREAM_CLOSE_FRAME,
     };
     use std::sync::{
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
-        atomic::{AtomicBool, AtomicU8},
     };
 
     #[derive(Debug)]
@@ -552,7 +558,11 @@ mod websocket_frame_parser_tests {
         assert!(valid_close_payload(&[0x03, 0xe8, b'o', b'k']));
         assert!(valid_close_payload(&[]));
 
+        let mut empty_close_parser = WebSocketFrameParser::new(true);
+        assert_eq!(empty_close_parser.observe(&masked_close(&[])), Ok(true));
+
         for invalid_frame in [
+            masked_close(&[0x03]),
             vec![0x88, 0x80 | 1, 0x11, 0x22, 0x33, 0x44, 0x00],
             vec![0x08, 0x80, 0x11, 0x22, 0x33, 0x44],
             vec![0x88, 0x02, 0x03, 0xed],
@@ -581,6 +591,57 @@ mod websocket_frame_parser_tests {
 
         let mut parser = WebSocketFrameParser::new(false);
         assert_eq!(parser.observe(&[0x88, 0x00, 0x81, 0x00]), Err(()));
+    }
+
+    #[tokio::test]
+    async fn observer_rejects_invalid_frames_and_marks_partial_eof_unclean() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (mut peer, stream) = tokio::io::duplex(64);
+        let close_frames = Arc::new(AtomicU8::new(0));
+        let relay_failed = Arc::new(AtomicBool::new(false));
+        let mut observer = WebSocketCloseFrameObserver::new(
+            stream,
+            Arc::clone(&close_frames),
+            Arc::clone(&relay_failed),
+            DOWNSTREAM_CLOSE_FRAME,
+            true,
+        );
+        peer.write_all(&[0x83, 0x80, 0x11, 0x22, 0x33, 0x44])
+            .await
+            .expect("write reserved opcode frame");
+        let mut buffer = [0; 16];
+        let error = observer
+            .read(&mut buffer)
+            .await
+            .expect_err("observer must reject invalid frame");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(relay_failed.load(Ordering::Acquire));
+        assert_eq!(close_frames.load(Ordering::Acquire), 0);
+
+        for partial_frame in [&[0x81][..], &[0x81, 0x83, 0x11, 0x22, 0x33, 0x44, b'x'][..]] {
+            let (mut peer, stream) = tokio::io::duplex(64);
+            let relay_failed = Arc::new(AtomicBool::new(false));
+            let mut observer = WebSocketCloseFrameObserver::new(
+                stream,
+                Arc::new(AtomicU8::new(0)),
+                Arc::clone(&relay_failed),
+                DOWNSTREAM_CLOSE_FRAME,
+                true,
+            );
+            peer.write_all(partial_frame)
+                .await
+                .expect("write partial frame");
+            peer.shutdown().await.expect("end partial frame stream");
+            observer
+                .read_to_end(&mut Vec::new())
+                .await
+                .expect("EOF is relayed to the WebSocket parser");
+            assert!(
+                relay_failed.load(Ordering::Acquire),
+                "EOF inside a frame must make the relay unclean"
+            );
+        }
     }
 
     #[test]
@@ -717,6 +778,7 @@ where
             }
         }
     }
+    RawCaptureHook::wait_for_persistence_tasks(Arc::clone(&capture_hook.persistence_tasks)).await;
     Ok(())
 }
 
@@ -884,7 +946,7 @@ where
         .extensions
         .insert(TargetHttpVersion(Version::HTTP_11));
 
-    let websocket_tasks = Arc::new(AsyncMutex::new(Vec::new()));
+    let websocket_tasks = Arc::new(AsyncMutex::new(JoinSet::new()));
     let relay = HttpMitmRelay::new(Executor::default()).with_http_middleware(CaptureLayer {
         authority: authority.to_string(),
         connection_id,
@@ -893,13 +955,12 @@ where
     });
     let result = relay.serve(BridgeIo(ingress, egress)).await;
 
-    let tasks = std::mem::take(&mut *websocket_tasks.lock().await);
+    let mut tasks = std::mem::take(&mut *websocket_tasks.lock().await);
     let mut websockets_clean = true;
-    for task in tasks {
-        match task.await {
+    while let Some(task) = tasks.join_next().await {
+        match task {
             Ok(true) => {}
             Ok(false) => {
-                capture_hook.mark_invalid(connection_id);
                 websockets_clean = false;
                 tracing::warn!(
                     connection_id,
@@ -907,15 +968,18 @@ where
                 );
             }
             Err(error) => {
-                capture_hook.mark_invalid(connection_id);
                 websockets_clean = false;
                 tracing::warn!(%error, connection_id, "Rama WebSocket relay task failed");
             }
         }
     }
-    capture_session
-        .finish(result.is_ok() && websockets_clean)
-        .await;
+    if !websockets_clean {
+        tracing::info!(
+            connection_id,
+            "WebSocket relay ended uncleanly after HTTP Upgrade artifact finalization"
+        );
+    }
+    capture_session.finish(result.is_ok()).await;
     result
 }
 
@@ -962,14 +1026,30 @@ impl Drop for CaptureSessionGuard {
             return;
         }
         self.capture_hook.mark_invalid(self.connection_id);
-        let finish = self
-            .capture_hook
-            .finish_connection(self.connection_id, false);
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => drop(handle.spawn(finish)),
-            Err(error) => {
-                tracing::error!(%error, connection_id = self.connection_id, "cannot finalize interrupted Rama capture session");
-            }
+        self.capture_hook
+            .schedule_finish_connection(self.connection_id, false);
+    }
+}
+
+struct WebSocketCompletionGuard {
+    capture_hook: RawCaptureHook,
+    connection_id: u64,
+    completed: bool,
+}
+
+impl WebSocketCompletionGuard {
+    fn complete(&mut self, clean: bool) {
+        self.capture_hook
+            .websocket_completed_for(self.connection_id, clean);
+        self.completed = true;
+    }
+}
+
+impl Drop for WebSocketCompletionGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.capture_hook
+                .websocket_completed_for(self.connection_id, false);
         }
     }
 }
@@ -979,7 +1059,7 @@ struct CaptureLayer {
     authority: String,
     connection_id: u64,
     capture_hook: RawCaptureHook,
-    websocket_tasks: Arc<AsyncMutex<Vec<JoinHandle<bool>>>>,
+    websocket_tasks: Arc<AsyncMutex<JoinSet<bool>>>,
 }
 
 struct CaptureService<S> {
@@ -987,7 +1067,7 @@ struct CaptureService<S> {
     authority: String,
     connection_id: u64,
     capture_hook: RawCaptureHook,
-    websocket_tasks: Arc<AsyncMutex<Vec<JoinHandle<bool>>>>,
+    websocket_tasks: Arc<AsyncMutex<JoinSet<bool>>>,
 }
 
 impl<S> Clone for CaptureService<S> {
@@ -1086,30 +1166,32 @@ where
         let upstream_io = upstream_websocket.socket.into_inner();
         let pending_upgrade = downstream_upgrade;
         let capture_hook = self.capture_hook.clone();
-        let task = tokio::spawn(async move {
+        let task = async move {
+            let mut completion = WebSocketCompletionGuard {
+                capture_hook: capture_hook.clone(),
+                connection_id,
+                completed: false,
+            };
             let downstream_io = match pending_upgrade.await {
                 Ok(io) => io,
                 Err(error) => {
                     capture_hook.mark_invalid(connection_id);
                     tracing::warn!(%error, connection_id, "Rama downstream WebSocket upgrade failed");
+                    completion.complete(false);
                     return false;
                 }
             };
-            match relay_websocket(
+            capture_hook.response_completed_for(connection_id);
+            let clean = relay_websocket(
                 downstream_io,
                 upstream_io,
                 WEBSOCKET_CLOSE_HANDSHAKE_TIMEOUT,
             )
-            .await
-            {
-                true => true,
-                false => {
-                    capture_hook.mark_invalid(connection_id);
-                    false
-                }
-            }
-        });
-        self.websocket_tasks.lock().await.push(task);
+            .await;
+            completion.complete(clean);
+            clean
+        };
+        self.websocket_tasks.lock().await.spawn(task);
         Ok(response)
     }
 }
@@ -1271,11 +1353,11 @@ mod tests {
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_rustls::{
-        TlsAcceptor, TlsConnector,
         rustls::{
-            RootCertStore,
             pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer},
+            RootCertStore,
         },
+        TlsAcceptor, TlsConnector,
     };
 
     fn unique_temp_dir() -> PathBuf {
@@ -1284,6 +1366,38 @@ mod tests {
             .expect("clock before unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("fusou_rama_capture_{timestamp}"))
+    }
+
+    fn assert_websocket_101_semantics(response_wire: &[u8]) {
+        let text = std::str::from_utf8(response_wire).expect("101 response is ASCII");
+        let mut lines = text.split("\r\n");
+        assert_eq!(lines.next(), Some("HTTP/1.1 101 Switching Protocols"));
+        let headers = lines
+            .take_while(|line| !line.is_empty())
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_ascii_lowercase()))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            headers.get("upgrade").map(String::as_str),
+            Some("websocket")
+        );
+        assert!(headers
+            .get("connection")
+            .is_some_and(|value| value.split(',').any(|token| token.trim() == "upgrade")));
+        assert_eq!(
+            headers.get("sec-websocket-accept").map(String::as_str),
+            Some("s3pplmbitxaq9kygzzhzrbk+xoo=")
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    enum AbnormalWebSocketCase {
+        OneSidedClose,
+        InvalidContinuation,
+        ClientDisconnect,
+        UpstreamDisconnect,
+        ProxyShutdown,
+        ProxyTaskAbort,
     }
 
     #[test]
@@ -1447,14 +1561,13 @@ mod tests {
         }
     }
 
-    async fn finish_unclean_websocket_capture(
+    async fn finish_unclean_relay_without_handshake(
         hook: &RawCaptureHook,
         connection_id: u64,
         output_root: &std::path::Path,
         clean: bool,
     ) {
         assert!(!clean, "abnormal WebSocket session must not be clean");
-        hook.mark_invalid(connection_id);
         hook.finish_connection(connection_id, clean).await;
         assert!(
             !output_root.exists()
@@ -1462,12 +1575,12 @@ mod tests {
                     .expect("capture output root")
                     .next()
                     .is_none(),
-            "abnormal WebSocket session must not persist an artifact"
+            "unclean relay without a completed HTTP handshake must not persist an artifact"
         );
     }
 
     #[tokio::test]
-    async fn one_sided_close_disconnect_and_io_error_never_persist_clean_capture() {
+    async fn unclean_relay_without_completed_http_handshake_has_no_http_artifact() {
         let output_root = unique_temp_dir();
         let hook = RawCaptureHook::new(output_root.clone());
         let recorder = hook.start_session(71).expect("start capture session");
@@ -1506,7 +1619,7 @@ mod tests {
                 .request_bytes(),
             close_frame
         );
-        finish_unclean_websocket_capture(&hook, 71, &output_root, clean).await;
+        finish_unclean_relay_without_handshake(&hook, 71, &output_root, clean).await;
         drop(client);
         drop(server);
 
@@ -1525,7 +1638,7 @@ mod tests {
             .await
             .expect("disconnect did not terminate WebSocket relay")
             .expect("join disconnected relay");
-        finish_unclean_websocket_capture(&hook, 72, &output_root, clean).await;
+        finish_unclean_relay_without_handshake(&hook, 72, &output_root, clean).await;
 
         let output_root = unique_temp_dir();
         let hook = RawCaptureHook::new(output_root.clone());
@@ -1540,7 +1653,7 @@ mod tests {
             .await
             .expect("I/O error did not terminate WebSocket relay")
             .expect("join failed-I/O relay");
-        finish_unclean_websocket_capture(&hook, 73, &output_root, clean).await;
+        finish_unclean_relay_without_handshake(&hook, 73, &output_root, clean).await;
     }
 
     async fn assert_upstream_tls_rejected(
@@ -2128,227 +2241,6 @@ mod tests {
             .await
             .expect("bind Rama proxy");
         let proxy_address = proxy_listener.local_addr().expect("Rama proxy address");
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let proxy_task = tokio::spawn(serve(
-            proxy_listener,
-            config,
-            Arc::new(proxy_ca),
-            output_root.clone(),
-            async move {
-                let _ = shutdown_rx.await;
-            },
-        ));
-
-        let mut client_socket = TcpStream::connect(proxy_address)
-            .await
-            .expect("connect to Rama proxy");
-        let connect_request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
-        client_socket
-            .write_all(connect_request.as_bytes())
-            .await
-            .expect("write CONNECT request");
-        let mut connect_response = Vec::new();
-        let mut buffer = [0; 1024];
-        while !connect_response
-            .windows(4)
-            .any(|window| window == b"\r\n\r\n")
-        {
-            let count = client_socket
-                .read(&mut buffer)
-                .await
-                .expect("read CONNECT response");
-            assert!(count > 0, "proxy closed before CONNECT response");
-            connect_response.extend_from_slice(&buffer[..count]);
-        }
-        assert!(connect_response.starts_with(b"HTTP/1.1 200"));
-
-        let mut proxy_roots = RootCertStore::empty();
-        proxy_roots.add(proxy_ca_der).expect("trust test proxy CA");
-        let client_tls_config = rustls::ClientConfig::builder()
-            .with_root_certificates(proxy_roots)
-            .with_no_client_auth();
-        let client_tls = TlsConnector::from(Arc::new(client_tls_config));
-        let server_name = ServerName::try_from("localhost".to_owned()).expect("valid SNI");
-        let mut client_tls_stream = client_tls
-            .connect(server_name, client_socket)
-            .await
-            .expect("downstream TLS handshake");
-
-        let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
-        client_tls_stream
-            .write_all(request_handshake)
-            .await
-            .expect("write downstream WebSocket handshake");
-        let response_handshake = read_http_message(&mut client_tls_stream)
-            .await
-            .expect("read downstream WebSocket response");
-        assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
-
-        let text_frame = masked_websocket_frame(1, b"hi", [0x11, 0x22, 0x33, 0x44]);
-        client_tls_stream
-            .write_all(&text_frame)
-            .await
-            .expect("write downstream text frame");
-        let (response_text_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
-            .await
-            .expect("read downstream text frame");
-        assert_eq!(opcode, 1);
-        assert_eq!(payload, b"ok");
-
-        tokio::time::sleep(std::time::Duration::from_millis(5_100)).await;
-
-        let close_frame = masked_websocket_frame(8, &[0x03, 0xe8], [0x55, 0x66, 0x77, 0x88]);
-        client_tls_stream
-            .write_all(&close_frame)
-            .await
-            .expect("write downstream close frame");
-        let (response_close_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
-            .await
-            .expect("read downstream close response");
-        assert_eq!(opcode, 8);
-        assert_eq!(payload, [0x03, 0xe8]);
-        client_tls_stream
-            .shutdown()
-            .await
-            .expect("close downstream TLS");
-        drop(client_tls_stream);
-
-        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
-            .await
-            .expect("upstream WebSocket timeout")
-            .expect("upstream WebSocket task panicked");
-        let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            loop {
-                if let Ok(mut entries) = std::fs::read_dir(&output_root) {
-                    if let Some(path) = entries
-                        .by_ref()
-                        .flatten()
-                        .map(|entry| (entry.file_name(), entry.path()))
-                        .find_map(|(name, path)| {
-                            let is_staging = name.to_string_lossy().starts_with('.');
-                            (!is_staging && path.join("manifest.json").exists()).then_some(path)
-                        })
-                    {
-                        break path;
-                    }
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("WebSocket capture finalization timeout");
-
-        let mut expected_request_wire = request_handshake.to_vec();
-        expected_request_wire.extend_from_slice(&text_frame);
-        expected_request_wire.extend_from_slice(&close_frame);
-        let mut expected_response_wire = response_handshake;
-        expected_response_wire.extend_from_slice(&response_text_frame);
-        expected_response_wire.extend_from_slice(&response_close_frame);
-        crate::capture::verify_capture(&capture_dir).expect("verify WebSocket raw transcript");
-        assert_eq!(
-            std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
-            expected_request_wire
-        );
-        assert_eq!(
-            std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
-            expected_response_wire
-        );
-        let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(capture_dir.join("manifest.json")).expect("capture manifest"),
-        )
-        .expect("parse capture manifest");
-        let messages = manifest["messages"].as_array().expect("message list");
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0]["direction"].as_str(), Some("request"));
-        assert_eq!(messages[0]["stream_start"].as_u64(), Some(0));
-        assert_eq!(
-            messages[0]["stream_end"].as_u64(),
-            Some(request_handshake.len() as u64)
-        );
-        assert_eq!(messages[1]["direction"].as_str(), Some("response"));
-        assert_eq!(messages[1]["stream_start"].as_u64(), Some(0));
-        assert_eq!(
-            messages[1]["stream_end"].as_u64(),
-            Some(expected_response_wire.len() as u64)
-        );
-        shutdown_tx.send(()).expect("stop Rama proxy");
-        proxy_task
-            .await
-            .expect("join Rama proxy task")
-            .expect("Rama proxy server");
-        let _ = std::fs::remove_dir_all(output_root);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn abnormal_websocket_close_through_connect_does_not_persist_capture() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let output_root = unique_temp_dir();
-        let upstream_identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
-            .expect("generate upstream identity");
-        let upstream_certificate = CertificateDer::from(upstream_identity.cert.der().to_vec());
-        let upstream_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-            upstream_identity.key_pair.serialize_der(),
-        ));
-        let upstream_server_config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(vec![upstream_certificate.clone()], upstream_key)
-            .expect("build local upstream TLS config");
-        let upstream_listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind local upstream");
-        let upstream_address = upstream_listener.local_addr().expect("upstream address");
-        let upstream_acceptor = TlsAcceptor::from(Arc::new(upstream_server_config));
-        let upstream_task = tokio::spawn(async move {
-            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
-            let mut stream = upstream_acceptor
-                .accept(socket)
-                .await
-                .expect("upstream TLS accept");
-            let request = read_http_message(&mut stream)
-                .await
-                .expect("read upstream WebSocket handshake");
-            assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info HTTP/1.1"));
-            stream
-                .write_all(
-                    b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
-                )
-                .await
-                .expect("write upstream WebSocket response");
-            let (_, opcode, payload) = read_websocket_frame(&mut stream)
-                .await
-                .expect("read forwarded client Close frame");
-            assert_eq!(opcode, 8);
-            assert_eq!(payload, [0x03, 0xe8]);
-            stream
-                .shutdown()
-                .await
-                .expect("close upstream without Close reply");
-        });
-
-        let proxy_key = KeyPair::generate().expect("generate proxy CA key");
-        let mut proxy_ca_params = CertificateParams::default();
-        proxy_ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        let proxy_ca_certificate = proxy_ca_params
-            .self_signed(&proxy_key)
-            .expect("self-sign proxy CA");
-        let proxy_ca_der = CertificateDer::from(proxy_ca_certificate.der().to_vec());
-        let proxy_ca = hudsucker::certificate_authority::RcgenAuthority::new(
-            proxy_key,
-            proxy_ca_certificate,
-            100,
-            rustls::crypto::ring::default_provider(),
-        );
-        let authority = format!("localhost:{}", upstream_address.port());
-        let config = RamaExperimentalConfig::new(
-            authority.clone(),
-            upstream_address,
-            vec![upstream_certificate],
-        )
-        .expect("build fail-closed Rama proxy config");
-        let proxy_listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind Rama proxy");
-        let proxy_address = proxy_listener.local_addr().expect("Rama proxy address");
         let capture_hook = RawCaptureHook::new(output_root.clone());
         let inspected_hook = capture_hook.clone();
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -2396,6 +2288,7 @@ mod tests {
             .connect(server_name, client_socket)
             .await
             .expect("downstream TLS handshake");
+
         let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
         client_tls_stream
             .write_all(request_handshake)
@@ -2405,56 +2298,600 @@ mod tests {
             .await
             .expect("read downstream WebSocket response");
         assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
+        assert_websocket_101_semantics(&response_handshake);
+        let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                if let Ok(entries) = std::fs::read_dir(&output_root) {
+                    if let Some(path) = entries
+                        .flatten()
+                        .filter_map(|entry| {
+                            let is_staging = entry.file_name().to_string_lossy().starts_with('.');
+                            (!is_staging).then_some(entry.path())
+                        })
+                        .find(|path| {
+                            path.join("manifest.json").exists()
+                                && path.join("request-wire.bin").exists()
+                                && path.join("response-wire.bin").exists()
+                        })
+                    {
+                        break path;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Rama Upgrade artifact was not finalized before frame relay");
+        assert!(
+            inspected_hook.session(1).is_none(),
+            "completed Upgrade must release its capture session before relay ends"
+        );
 
-        let session = inspected_hook
-            .session(1)
-            .expect("CONNECT tunnel starts the capture session");
-        {
-            let session = session.lock().expect("lock integrated capture session");
-            let snapshot = session.recorder.snapshot().expect("snapshot raw capture");
-            assert_eq!(snapshot.request_bytes(), request_handshake);
-            assert_eq!(snapshot.response_bytes(), response_handshake);
-            assert_eq!(session.messages.len(), 2);
-            assert_eq!(
-                session.messages[0].stream_end,
-                Some(request_handshake.len() as u64)
-            );
-            assert_eq!(session.messages[1].stream_end, None);
-        }
+        let text_frame = masked_websocket_frame(1, b"hi", [0x11, 0x22, 0x33, 0x44]);
+        client_tls_stream
+            .write_all(&text_frame)
+            .await
+            .expect("write downstream text frame");
+        let (response_text_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
+            .await
+            .expect("read downstream text frame");
+        assert_eq!(opcode, 1);
+        assert_eq!(payload, b"ok");
+        assert_eq!(response_text_frame, [0x81, 0x02, b'o', b'k']);
+
+        tokio::time::sleep(std::time::Duration::from_millis(5_100)).await;
 
         let close_frame = masked_websocket_frame(8, &[0x03, 0xe8], [0x55, 0x66, 0x77, 0x88]);
         client_tls_stream
             .write_all(&close_frame)
             .await
-            .expect("write one-sided downstream Close frame");
-        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+            .expect("write downstream close frame");
+        let (response_close_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
             .await
-            .expect("upstream WebSocket fixture timeout")
-            .expect("upstream WebSocket fixture panicked");
+            .expect("read downstream close response");
+        assert_eq!(opcode, 8);
+        assert_eq!(payload, [0x03, 0xe8]);
+        assert_eq!(response_close_frame, [0x88, 0x02, 0x03, 0xe8]);
+        client_tls_stream
+            .shutdown()
+            .await
+            .expect("close downstream TLS");
         drop(client_tls_stream);
 
+        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+            .await
+            .expect("upstream WebSocket timeout")
+            .expect("upstream WebSocket task panicked");
         tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while inspected_hook.session(1).is_some() {
+            while !inspected_hook
+                .websocket_outcomes
+                .lock()
+                .expect("WebSocket outcomes")
+                .iter()
+                .any(|(connection_id, clean)| *connection_id == 1 && *clean)
+            {
                 tokio::task::yield_now().await;
             }
         })
         .await
-        .expect("abnormal WebSocket capture session was not finalized");
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        assert!(
-            !output_root.exists()
-                || std::fs::read_dir(&output_root)
-                    .expect("capture output root")
-                    .next()
-                    .is_none(),
-            "abnormal CONNECT/TLS/WebSocket capture must not persist an artifact"
-        );
+        .expect("Rama clean Close lifecycle was not reported");
 
+        let expected_request_wire = request_handshake.to_vec();
+        let expected_response_wire = response_handshake.to_vec();
+        crate::capture::verify_capture(&capture_dir).expect("verify WebSocket raw transcript");
+        assert_eq!(
+            std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
+            expected_request_wire
+        );
+        assert_eq!(
+            std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
+            expected_response_wire
+        );
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(capture_dir.join("manifest.json")).expect("capture manifest"),
+        )
+        .expect("parse capture manifest");
+        let messages = manifest["messages"].as_array().expect("message list");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["direction"].as_str(), Some("request"));
+        assert_eq!(messages[0]["stream_start"].as_u64(), Some(0));
+        assert_eq!(
+            messages[0]["stream_end"].as_u64(),
+            Some(request_handshake.len() as u64)
+        );
+        assert_eq!(messages[1]["direction"].as_str(), Some("response"));
+        assert_eq!(messages[1]["stream_start"].as_u64(), Some(0));
+        assert_eq!(
+            messages[1]["stream_end"].as_u64(),
+            Some(response_handshake.len() as u64)
+        );
         shutdown_tx.send(()).expect("stop Rama proxy");
         proxy_task
             .await
             .expect("join Rama proxy task")
             .expect("Rama proxy server");
+        let _ = std::fs::remove_dir_all(output_root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn abnormal_websocket_close_through_connect_persists_handshake_capture() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::OneSidedClose).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn invalid_continuation_through_connect_persists_handshake_capture() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::InvalidContinuation).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn client_disconnect_through_connect_persists_handshake_capture() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::ClientDisconnect).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn upstream_disconnect_through_connect_persists_handshake_capture() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::UpstreamDisconnect).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shutdown_aborts_open_websocket_and_keeps_handshake_capture() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::ProxyShutdown).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn outer_task_abort_closes_websocket_and_reports_unclean() {
+        run_abnormal_websocket_capture(AbnormalWebSocketCase::ProxyTaskAbort).await;
+    }
+
+    async fn run_abnormal_websocket_capture(case: AbnormalWebSocketCase) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let output_root = unique_temp_dir();
+        let upstream_identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate upstream identity");
+        let upstream_certificate = CertificateDer::from(upstream_identity.cert.der().to_vec());
+        let upstream_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+            upstream_identity.key_pair.serialize_der(),
+        ));
+        let upstream_server_config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![upstream_certificate.clone()], upstream_key)
+            .expect("build local upstream TLS config");
+        let upstream_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local upstream");
+        let upstream_address = upstream_listener.local_addr().expect("upstream address");
+        let upstream_acceptor = TlsAcceptor::from(Arc::new(upstream_server_config));
+        let upstream_task = tokio::spawn(async move {
+            let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
+            let mut stream = upstream_acceptor
+                .accept(socket)
+                .await
+                .expect("upstream TLS accept");
+            let request = read_http_message(&mut stream)
+                .await
+                .expect("read upstream WebSocket handshake");
+            assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info HTTP/1.1"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+                )
+                .await
+                .expect("write upstream WebSocket response");
+            match case {
+                AbnormalWebSocketCase::OneSidedClose => {
+                    let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                        .await
+                        .expect("read forwarded client Close frame");
+                    assert_eq!(opcode, 8);
+                    assert_eq!(payload, [0x03, 0xe8]);
+                }
+                AbnormalWebSocketCase::InvalidContinuation => {
+                    let mut forwarded_frame = [0; 16];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        stream.read(&mut forwarded_frame),
+                    )
+                    .await
+                    .expect("upstream did not close after invalid continuation")
+                    {
+                        Ok(0) | Err(_) => {}
+                        Ok(count) => panic!(
+                            "invalid continuation frame was forwarded upstream: {:?}",
+                            &forwarded_frame[..count]
+                        ),
+                    }
+                }
+                AbnormalWebSocketCase::ClientDisconnect => {
+                    let mut forwarded_frame = [0; 16];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        stream.read(&mut forwarded_frame),
+                    )
+                    .await
+                    .expect("client disconnect was not propagated upstream")
+                    {
+                        Ok(0) | Err(_) => {}
+                        Ok(count) => panic!(
+                            "unexpected WebSocket bytes after client disconnect: {:?}",
+                            &forwarded_frame[..count]
+                        ),
+                    }
+                }
+                AbnormalWebSocketCase::UpstreamDisconnect => {
+                    stream
+                        .write_all(&[0x81, 0x02, b'o'])
+                        .await
+                        .expect("write partial upstream WebSocket frame");
+                    stream
+                        .shutdown()
+                        .await
+                        .expect("close upstream after partial WebSocket frame");
+                }
+                AbnormalWebSocketCase::ProxyShutdown | AbnormalWebSocketCase::ProxyTaskAbort => {
+                    let mut forwarded_frame = [0; 16];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        stream.read(&mut forwarded_frame),
+                    )
+                    .await
+                    .expect("proxy cancellation did not close upstream WebSocket")
+                    {
+                        Ok(0) | Err(_) => {}
+                        Ok(count) => panic!(
+                            "unexpected WebSocket bytes during proxy cancellation: {:?}",
+                            &forwarded_frame[..count]
+                        ),
+                    }
+                }
+            }
+        });
+
+        let proxy_key = KeyPair::generate().expect("generate proxy CA key");
+        let mut proxy_ca_params = CertificateParams::default();
+        proxy_ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let proxy_ca_certificate = proxy_ca_params
+            .self_signed(&proxy_key)
+            .expect("self-sign proxy CA");
+        let proxy_ca_der = CertificateDer::from(proxy_ca_certificate.der().to_vec());
+        let proxy_ca = hudsucker::certificate_authority::RcgenAuthority::new(
+            proxy_key,
+            proxy_ca_certificate,
+            100,
+            rustls::crypto::ring::default_provider(),
+        );
+        let authority = format!("localhost:{}", upstream_address.port());
+        let config = RamaExperimentalConfig::new(
+            authority.clone(),
+            upstream_address,
+            vec![upstream_certificate],
+        )
+        .expect("build fail-closed Rama proxy config");
+        let proxy_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind Rama proxy");
+        let proxy_address = proxy_listener.local_addr().expect("Rama proxy address");
+        let capture_hook = RawCaptureHook::new(output_root.clone());
+        let inspected_hook = capture_hook.clone();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let mut shutdown_tx = Some(shutdown_tx);
+        let mut proxy_task = Some(tokio::spawn(serve_with_capture_hook(
+            proxy_listener,
+            config,
+            Arc::new(proxy_ca),
+            capture_hook,
+            async move {
+                let _ = shutdown_rx.await;
+            },
+        )));
+
+        let mut client_socket = TcpStream::connect(proxy_address)
+            .await
+            .expect("connect to Rama proxy");
+        let connect_request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+        client_socket
+            .write_all(connect_request.as_bytes())
+            .await
+            .expect("write CONNECT request");
+        let mut connect_response = Vec::new();
+        let mut buffer = [0; 1024];
+        while !connect_response
+            .windows(4)
+            .any(|window| window == b"\r\n\r\n")
+        {
+            let count = client_socket
+                .read(&mut buffer)
+                .await
+                .expect("read CONNECT response");
+            assert!(count > 0, "proxy closed before CONNECT response");
+            connect_response.extend_from_slice(&buffer[..count]);
+        }
+        assert!(connect_response.starts_with(b"HTTP/1.1 200"));
+
+        let mut proxy_roots = RootCertStore::empty();
+        proxy_roots.add(proxy_ca_der).expect("trust test proxy CA");
+        let client_tls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(proxy_roots)
+            .with_no_client_auth();
+        let client_tls = TlsConnector::from(Arc::new(client_tls_config));
+        let server_name = ServerName::try_from("localhost".to_owned()).expect("valid SNI");
+        let mut client_tls_stream = client_tls
+            .connect(server_name, client_socket)
+            .await
+            .expect("downstream TLS handshake");
+        let retained_session = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let session = inspected_hook
+                    .sessions
+                    .lock()
+                    .expect("capture sessions")
+                    .values()
+                    .next()
+                    .cloned();
+                if let Some(session) = session {
+                    break session;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("capture session was not started before Upgrade request");
+        let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        client_tls_stream
+            .write_all(request_handshake)
+            .await
+            .expect("write downstream WebSocket handshake");
+        let response_handshake = read_http_message(&mut client_tls_stream)
+            .await
+            .expect("read downstream WebSocket response");
+        assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
+        assert_websocket_101_semantics(&response_handshake);
+
+        let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                if let Ok(entries) = std::fs::read_dir(&output_root) {
+                    if let Some(path) = entries
+                        .flatten()
+                        .filter_map(|entry| {
+                            let is_staging = entry.file_name().to_string_lossy().starts_with('.');
+                            (!is_staging).then_some(entry.path())
+                        })
+                        .find(|path| {
+                            path.join("manifest.json").exists()
+                                && path.join("request-wire.bin").exists()
+                                && path.join("response-wire.bin").exists()
+                        })
+                    {
+                        break path;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Upgrade artifact was not finalized before WebSocket relay");
+        assert!(
+            inspected_hook.session(1).is_none(),
+            "completed Upgrade must release its capture session before relay ends"
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let released = match retained_session.try_lock() {
+                    Ok(session) => {
+                        let snapshot = session.recorder.snapshot().expect("finalized snapshot");
+                        snapshot.request_bytes().is_empty() && snapshot.response_bytes().is_empty()
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => false,
+                    Err(std::sync::TryLockError::Poisoned(error)) => {
+                        panic!("finalized session lock poisoned: {error}")
+                    }
+                };
+                if released {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("finalized Upgrade capture buffers were not released");
+        crate::capture::verify_capture(&capture_dir).expect("verify handshake-only capture");
+        assert_eq!(
+            std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
+            request_handshake
+        );
+        assert_eq!(
+            std::fs::read(capture_dir.join("response-wire.bin")).expect("response wire"),
+            response_handshake
+        );
+        let manifest_before: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(capture_dir.join("manifest.json")).expect("capture manifest"),
+        )
+        .expect("parse capture manifest");
+        let messages_before = manifest_before["messages"]
+            .as_array()
+            .expect("capture messages");
+        assert_eq!(messages_before.len(), 2);
+        assert_eq!(messages_before[0]["direction"].as_str(), Some("request"));
+        assert_eq!(
+            messages_before[0]["stream_end"].as_u64(),
+            Some(request_handshake.len() as u64)
+        );
+        assert_eq!(messages_before[1]["direction"].as_str(), Some("response"));
+        assert_eq!(
+            messages_before[1]["stream_end"].as_u64(),
+            Some(response_handshake.len() as u64)
+        );
+
+        let mut client_tls_stream = Some(client_tls_stream);
+        match case {
+            AbnormalWebSocketCase::OneSidedClose => {
+                client_tls_stream
+                    .as_mut()
+                    .expect("client TLS stream")
+                    .write_all(&masked_websocket_frame(
+                        8,
+                        &[0x03, 0xe8],
+                        [0x55, 0x66, 0x77, 0x88],
+                    ))
+                    .await
+                    .expect("write one-sided Close frame");
+            }
+            AbnormalWebSocketCase::InvalidContinuation => {
+                client_tls_stream
+                    .as_mut()
+                    .expect("client TLS stream")
+                    .write_all(&masked_websocket_frame(0, &[], [0x55, 0x66, 0x77, 0x88]))
+                    .await
+                    .expect("write invalid continuation");
+            }
+            AbnormalWebSocketCase::ClientDisconnect => {
+                client_tls_stream
+                    .as_mut()
+                    .expect("client TLS stream")
+                    .write_all(&[0x81, 0x82, 0x11, 0x22])
+                    .await
+                    .expect("write partial downstream WebSocket frame");
+                drop(client_tls_stream.take());
+            }
+            AbnormalWebSocketCase::UpstreamDisconnect => {
+                let stream = client_tls_stream.as_mut().expect("client TLS stream");
+                let mut byte = [0; 1];
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    stream.read(&mut byte),
+                )
+                .await
+                .expect("upstream disconnect was not propagated downstream")
+                {
+                    Ok(0) | Err(_) => {}
+                    Ok(count) => panic!("unexpected upstream bytes after 101: {count}"),
+                }
+            }
+            AbnormalWebSocketCase::ProxyShutdown => {
+                shutdown_tx
+                    .take()
+                    .expect("proxy shutdown sender")
+                    .send(())
+                    .expect("stop Rama proxy");
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    proxy_task.take().expect("proxy task"),
+                )
+                .await
+                .expect("Rama shutdown did not terminate")
+                .expect("join Rama proxy task")
+                .expect("Rama proxy server");
+                let mut byte = [0; 1];
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    client_tls_stream
+                        .as_mut()
+                        .expect("client TLS stream")
+                        .read(&mut byte),
+                )
+                .await
+                .expect("client socket remained open after Rama shutdown")
+                {
+                    Ok(0) | Err(_) => {}
+                    Ok(count) => panic!("unexpected bytes after Rama shutdown: {count}"),
+                }
+            }
+            AbnormalWebSocketCase::ProxyTaskAbort => {
+                drop(shutdown_tx.take());
+                let proxy_task = proxy_task.take().expect("proxy task");
+                proxy_task.abort();
+                let error = tokio::time::timeout(std::time::Duration::from_secs(3), proxy_task)
+                    .await
+                    .expect("outer Rama task abort did not terminate")
+                    .expect_err("aborted Rama task unexpectedly completed");
+                assert!(error.is_cancelled(), "Rama task was not cancelled");
+                let mut byte = [0; 1];
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    client_tls_stream
+                        .as_mut()
+                        .expect("client TLS stream")
+                        .read(&mut byte),
+                )
+                .await
+                .expect("client socket remained open after Rama task abort")
+                {
+                    Ok(0) | Err(_) => {}
+                    Ok(count) => panic!("unexpected bytes after Rama task abort: {count}"),
+                }
+            }
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+            .await
+            .expect("upstream WebSocket fixture timeout")
+            .expect("upstream WebSocket fixture panicked");
+        drop(client_tls_stream);
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !inspected_hook
+                .websocket_outcomes
+                .lock()
+                .expect("WebSocket outcomes")
+                .iter()
+                .any(|(connection_id, clean)| *connection_id == 1 && !*clean)
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Rama unclean WebSocket lifecycle was not reported");
+        assert_eq!(
+            inspected_hook
+                .websocket_outcomes
+                .lock()
+                .expect("WebSocket outcomes")
+                .as_slice(),
+            &[(1, false)],
+            "Rama must report exactly one unclean outcome for the terminated relay"
+        );
+        RawCaptureHook::wait_for_persistence_tasks(Arc::clone(&inspected_hook.persistence_tasks))
+            .await;
+
+        assert!(
+            inspected_hook
+                .sessions
+                .lock()
+                .expect("capture sessions")
+                .is_empty(),
+            "completed Upgrade must not retain capture state until WebSocket close"
+        );
+        assert!(
+            inspected_hook
+                .persistence_tasks
+                .lock()
+                .expect("capture persistence tasks")
+                .is_empty(),
+            "capture persistence tasks must be joined after proxy termination"
+        );
+        crate::capture::verify_capture(&capture_dir).expect("verify finalized handshake capture");
+        assert_eq!(
+            std::fs::read(capture_dir.join("request-wire.bin")).expect("request wire after relay"),
+            request_handshake
+        );
+        assert_eq!(
+            std::fs::read(capture_dir.join("response-wire.bin"))
+                .expect("response wire after relay"),
+            response_handshake
+        );
+        let manifest_after: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(capture_dir.join("manifest.json"))
+                .expect("capture manifest after relay"),
+        )
+        .expect("parse capture manifest after relay");
+        assert_eq!(manifest_after, manifest_before);
+
+        if let Some(shutdown_tx) = shutdown_tx.take() {
+            shutdown_tx.send(()).expect("stop Rama proxy");
+        }
+        if let Some(proxy_task) = proxy_task.take() {
+            proxy_task
+                .await
+                .expect("join Rama proxy task")
+                .expect("Rama proxy server");
+        }
         let _ = std::fs::remove_dir_all(output_root);
     }
 
@@ -2489,10 +2926,8 @@ mod tests {
                     .await
                     .expect("read full upstream request body");
                 if index == 1 {
-                    assert!(
-                        request
-                            .starts_with(b"POST /kcsapi/api_get_member/require_info?x=2 HTTP/1.1")
-                    );
+                    assert!(request
+                        .starts_with(b"POST /kcsapi/api_get_member/require_info?x=2 HTTP/1.1"));
                 } else {
                     assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info"));
                 }

@@ -13,7 +13,7 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::{self, Builder},
 };
-use internal::InternalProxy;
+use internal::{InternalProxy, TrackedProxyTask};
 use std::{
     future::Future,
     pin::Pin,
@@ -22,8 +22,12 @@ use std::{
         Arc,
     },
 };
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpListener,
+    sync::mpsc,
+    task::JoinSet,
+};
 use tokio_graceful::Shutdown;
 use tokio_tungstenite::Connector;
 use tracing::error;
@@ -56,6 +60,14 @@ pub trait ClientStreamHook: Clone + Send + Sync + 'static {
     fn response_started(&self, _context: &HttpContext, _response: &Response<Body>) {}
 
     fn response_completed(&self, _context: &HttpContext) {}
+
+    fn websocket_completed(&self, _context: &HttpContext, _clean: bool) {}
+
+    fn connection_aborted(&self, _context: &HttpContext) {}
+
+    fn wait_for_background_tasks(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(async {})
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -172,6 +184,9 @@ where
 
         let shutdown = Shutdown::new(self.graceful_shutdown);
         let guard = shutdown.guard_weak();
+        let (background_task_tx, mut background_task_rx) =
+            mpsc::unbounded_channel::<TrackedProxyTask>();
+        let mut background_tasks = JoinSet::new();
 
         loop {
             tokio::select! {
@@ -191,6 +206,7 @@ where
                     let websocket_handler = self.websocket_handler.clone();
                     let websocket_connector = self.websocket_connector.clone();
                     let client_stream_hook = self.client_stream_hook.clone();
+                    let background_tasks = background_task_tx.clone();
                     let connection_id = CONNECTION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
 
                     shutdown.spawn_task_fn(move |guard| async move {
@@ -204,6 +220,7 @@ where
                                     http_handler: http_handler.clone(),
                                     websocket_handler: websocket_handler.clone(),
                                     websocket_connector: websocket_connector.clone(),
+                                    background_tasks: background_tasks.clone(),
                                     client_stream_hook: client_stream_hook.clone(),
                                     client_addr,
                                     connection_id,
@@ -225,6 +242,16 @@ where
                         }
                     });
                 }
+                task = background_task_rx.recv() => {
+                    if let Some(task) = task {
+                        background_tasks.spawn(task);
+                    }
+                }
+                joined = background_tasks.join_next(), if !background_tasks.is_empty() => {
+                    if let Some(Err(error)) = joined {
+                        error!(%error, "Background proxy task failed");
+                    }
+                }
                 _ = guard.cancelled() => {
                     break;
                 }
@@ -232,6 +259,20 @@ where
         }
 
         shutdown.shutdown().await;
+        background_task_rx.close();
+        background_tasks.abort_all();
+        while let Some(joined) = background_tasks.join_next().await {
+            if let Err(error) = joined {
+                if !error.is_cancelled() {
+                    error!(%error, "Background proxy task failed during shutdown");
+                }
+            }
+        }
+        drop(background_task_tx);
+        while let Ok(task) = background_task_rx.try_recv() {
+            drop(task);
+        }
+        self.client_stream_hook.wait_for_background_tasks().await;
 
         Ok(())
     }

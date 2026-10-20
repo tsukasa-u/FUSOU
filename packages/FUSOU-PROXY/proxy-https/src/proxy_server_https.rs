@@ -596,6 +596,9 @@ struct RawCaptureHook {
     output_root: PathBuf,
     provenance: CaptureProvenance,
     sessions: Arc<Mutex<HashMap<u64, Arc<Mutex<RawCaptureSession>>>>>,
+    persistence_tasks: Arc<Mutex<tokio::task::JoinSet<()>>>,
+    #[cfg(test)]
+    websocket_outcomes: Arc<Mutex<Vec<(u64, bool)>>>,
 }
 
 #[derive(Debug)]
@@ -638,6 +641,69 @@ impl RawCaptureHook {
             output_root,
             provenance,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            persistence_tasks: Arc::new(Mutex::new(tokio::task::JoinSet::new())),
+            #[cfg(test)]
+            websocket_outcomes: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn track_persistence_task(&self, task: impl Future<Output = ()> + Send + 'static) {
+        let keep_alive = Arc::clone(&self.persistence_tasks);
+        let mut tasks = match self.persistence_tasks.lock() {
+            Ok(tasks) => tasks,
+            Err(error) => {
+                tracing::error!(%error, "raw capture persistence task set lock poisoned");
+                error.into_inner()
+            }
+        };
+        while let Some(result) = tasks.try_join_next() {
+            if let Err(error) = result {
+                tracing::error!(%error, "raw capture persistence task failed");
+            }
+        }
+        tasks.spawn(async move {
+            let _keep_alive = keep_alive;
+            task.await;
+        });
+    }
+
+    fn schedule_finish_connection(&self, connection_id: u64, connection_clean: bool) {
+        self.track_persistence_task(self.finish_connection(connection_id, connection_clean));
+    }
+
+    async fn wait_for_persistence_tasks(persistence_tasks: Arc<Mutex<tokio::task::JoinSet<()>>>) {
+        let mut tasks = {
+            let tasks = match persistence_tasks.lock() {
+                Ok(tasks) => tasks,
+                Err(error) => {
+                    tracing::error!(%error, "raw capture persistence task set lock poisoned during shutdown");
+                    error.into_inner()
+                }
+            };
+            let mut tasks = tasks;
+            std::mem::take(&mut *tasks)
+        };
+        while let Some(result) = tasks.join_next().await {
+            if let Err(error) = result {
+                tracing::error!(%error, "raw capture persistence task failed during shutdown");
+            }
+        }
+    }
+
+    fn websocket_completed_for(&self, connection_id: u64, clean: bool) {
+        tracing::info!(
+            connection_id,
+            websocket_relay_clean = clean,
+            "WebSocket relay lifecycle completed"
+        );
+        #[cfg(test)]
+        match self.websocket_outcomes.lock() {
+            Ok(mut outcomes) => outcomes.push((connection_id, clean)),
+            Err(error) => tracing::error!(
+                %error,
+                connection_id,
+                "WebSocket test outcome lock poisoned"
+            ),
         }
     }
 
@@ -660,10 +726,17 @@ impl RawCaptureHook {
     }
 
     fn session(&self, connection_id: u64) -> Option<Arc<Mutex<RawCaptureSession>>> {
-        self.sessions
-            .lock()
-            .ok()
-            .and_then(|sessions| sessions.get(&connection_id).cloned())
+        match self.sessions.lock() {
+            Ok(sessions) => sessions.get(&connection_id).cloned(),
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    connection_id,
+                    "raw capture session map lock poisoned"
+                );
+                None
+            }
+        }
     }
 
     fn mark_invalid(&self, connection_id: u64) {
@@ -775,34 +848,153 @@ impl RawCaptureHook {
         session.active_response = Some(message_index);
     }
 
+    fn response_completed_for(&self, connection_id: u64) {
+        let Some(session) = self.session(connection_id) else {
+            return;
+        };
+        let completed_upgrade = match session.lock() {
+            Ok(mut session) => {
+                if let Err(error) = Self::complete_upgrade_response(&mut session) {
+                    session.invalid = true;
+                    tracing::error!(
+                        error = %error,
+                        connection_id,
+                        "failed to seal HTTP Upgrade capture"
+                    );
+                }
+                Self::has_completed_upgrade(&session)
+            }
+            Err(error) => {
+                self.mark_invalid(connection_id);
+                tracing::error!(
+                    error = %error,
+                    connection_id,
+                    "raw capture session lock poisoned after HTTP response"
+                );
+                false
+            }
+        };
+        if completed_upgrade {
+            self.finish_completed_upgrade(connection_id, &session);
+        }
+    }
+
+    fn has_completed_upgrade(session: &RawCaptureSession) -> bool {
+        session
+            .messages
+            .iter()
+            .any(|message| message.metadata.status() == Some(101) && message.stream_end.is_some())
+    }
+
+    fn finish_completed_upgrade(
+        &self,
+        connection_id: u64,
+        expected: &Arc<Mutex<RawCaptureSession>>,
+    ) {
+        if let Err(error) = tokio::runtime::Handle::try_current() {
+            tracing::error!(
+                %error,
+                connection_id,
+                "cannot finalize completed HTTP Upgrade outside a Tokio runtime"
+            );
+            return;
+        }
+        let session = match self.sessions.lock() {
+            Ok(mut sessions) => {
+                let is_expected = sessions
+                    .get(&connection_id)
+                    .is_some_and(|session| Arc::ptr_eq(session, expected));
+                if is_expected {
+                    sessions.remove(&connection_id)
+                } else {
+                    None
+                }
+            }
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    connection_id,
+                    "raw capture session map lock poisoned during Upgrade finalization"
+                );
+                None
+            }
+        };
+        if let Some(session) = session {
+            let output_root = self.output_root.clone();
+            self.track_persistence_task(persist_raw_capture(
+                output_root,
+                connection_id,
+                session,
+                false,
+            ));
+        }
+    }
+
+    fn complete_upgrade_response(session: &mut RawCaptureSession) -> Result<(), String> {
+        let Some(message_index) = session.active_response else {
+            return Ok(());
+        };
+        if session.messages[message_index].metadata.status() != Some(101) {
+            return Ok(());
+        }
+        let snapshot = session
+            .recorder
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let response_bytes = snapshot.response_bytes();
+        let stream_start = usize::try_from(session.messages[message_index].stream_start)
+            .map_err(|_| "WebSocket response start exceeds addressable memory".to_string())?;
+        let header_end = response_bytes
+            .get(stream_start..)
+            .and_then(|bytes| bytes.windows(4).position(|window| window == b"\r\n\r\n"))
+            .and_then(|offset| stream_start.checked_add(offset + 4))
+            .ok_or_else(|| "incomplete HTTP Upgrade response headers".to_string())?;
+        session.messages[message_index].stream_end = Some(header_end as u64);
+        session.active_response = None;
+        session.recorder.seal().map_err(|error| error.to_string())
+    }
+
     fn finish_connection(
         &self,
         connection_id: u64,
         connection_clean: bool,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let session = self
-            .sessions
-            .lock()
-            .ok()
-            .and_then(|mut sessions| sessions.remove(&connection_id));
+        let session = match self.sessions.lock() {
+            Ok(mut sessions) => sessions.remove(&connection_id),
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    connection_id,
+                    "raw capture session map lock poisoned during connection finish"
+                );
+                None
+            }
+        };
+        if let Some(session) = &session {
+            match session.lock() {
+                Ok(mut session) => {
+                    if let Err(error) = Self::complete_upgrade_response(&mut session) {
+                        session.invalid = true;
+                        tracing::error!(
+                            error = %error,
+                            connection_id,
+                            "failed to complete HTTP Upgrade capture at connection finish"
+                        );
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(
+                        error = %error,
+                        connection_id,
+                        "raw capture session lock poisoned during connection finish"
+                    );
+                }
+            }
+        }
         let output_root = self.output_root.clone();
         Box::pin(async move {
-            let Some(session) = session else {
-                return;
-            };
-            match tokio::task::spawn_blocking(move || {
-                write_raw_capture(output_root, connection_id, session, connection_clean)
-            })
-            .await
-            {
-                Ok(Ok(Some(capture_dir))) => {
-                    tracing::info!(path = %capture_dir.display(), "wrote private raw capture");
-                }
-                Ok(Ok(None)) => {}
-                Ok(Err(error)) => {
-                    tracing::warn!(error = %error, "failed to write private raw capture");
-                }
-                Err(error) => tracing::warn!(error = %error, "raw capture writer task failed"),
+            if let Some(session) = session {
+                persist_raw_capture(output_root, connection_id, session, connection_clean).await;
             }
         })
     }
@@ -848,7 +1040,7 @@ impl ClientStreamHook for RawCaptureHook {
     }
 
     fn response_completed(&self, context: &HttpContext) {
-        let _ = context;
+        self.response_completed_for(context.connection_id);
     }
 
     fn finish(&self, context: HttpContext) -> Pin<Box<dyn Future<Output = ()> + Send>> {
@@ -862,6 +1054,52 @@ impl ClientStreamHook for RawCaptureHook {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         self.finish_connection(context.connection_id, connection_clean)
     }
+
+    fn websocket_completed(&self, context: &HttpContext, clean: bool) {
+        self.websocket_completed_for(context.connection_id, clean);
+    }
+
+    fn connection_aborted(&self, context: &HttpContext) {
+        self.schedule_finish_connection(context.connection_id, false);
+    }
+
+    fn wait_for_background_tasks(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(Self::wait_for_persistence_tasks(Arc::clone(
+            &self.persistence_tasks,
+        )))
+    }
+}
+
+async fn persist_raw_capture(
+    output_root: PathBuf,
+    connection_id: u64,
+    session: Arc<Mutex<RawCaptureSession>>,
+    connection_clean: bool,
+) {
+    match tokio::task::spawn_blocking(move || {
+        write_raw_capture(output_root, connection_id, session, connection_clean)
+    })
+    .await
+    {
+        Ok(Ok(Some(capture_dir))) => {
+            tracing::info!(path = %capture_dir.display(), "wrote private raw capture");
+        }
+        Ok(Ok(None)) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(error = %error, "failed to write private raw capture");
+        }
+        Err(error) => tracing::warn!(error = %error, "raw capture writer task failed"),
+    }
+}
+
+struct RecorderReleaseOnDrop(crate::capture_io::CaptureRecorder);
+
+impl Drop for RecorderReleaseOnDrop {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.release() {
+            tracing::error!(%error, "failed to release finalized raw capture buffers");
+        }
+    }
 }
 
 fn write_raw_capture(
@@ -873,12 +1111,26 @@ fn write_raw_capture(
     let mut session = session
         .lock()
         .map_err(|_| "raw capture session lock poisoned".to_string())?;
-    if session.invalid || !connection_clean || session.active_request.is_some() {
+    let completed_upgrade = RawCaptureHook::has_completed_upgrade(&session);
+    let rejected_websocket_upgrade = !completed_upgrade
+        && session.messages.iter().any(|message| {
+            message.direction == ExactWireDirection::Request
+                && message.metadata.is_websocket_upgrade_request()
+        });
+    let _release = RecorderReleaseOnDrop(session.recorder.clone());
+    if session.invalid
+        || (!connection_clean && !completed_upgrade)
+        || session.active_request.is_some()
+        || rejected_websocket_upgrade
+    {
         return Ok(None);
     }
     session.provenance.mark_finished();
     let recorder = session.recorder.clone();
     if let Some(message_index) = session.active_response.take() {
+        if session.messages[message_index].metadata.status() == Some(101) {
+            return Ok(None);
+        }
         let stream_end = recorder
             .direction_len(CaptureDirection::Response)
             .map_err(|error| error.to_string())?;
@@ -888,7 +1140,41 @@ fn write_raw_capture(
         return Ok(None);
     }
     let snapshot = recorder.snapshot().map_err(|error| error.to_string())?;
-    if snapshot.request_len() == 0 || snapshot.response_len() == 0 || session.messages.is_empty() {
+    let (request_bytes, response_bytes) = if session
+        .messages
+        .iter()
+        .any(|message| message.metadata.status() == Some(101))
+    {
+        let request_end = session
+            .messages
+            .iter()
+            .filter(|message| message.direction == ExactWireDirection::Request)
+            .filter_map(|message| message.stream_end)
+            .max()
+            .ok_or_else(|| "WebSocket capture has no completed request boundary".to_string())?
+            as usize;
+        let response_end = session
+            .messages
+            .iter()
+            .filter(|message| message.direction == ExactWireDirection::Response)
+            .filter_map(|message| message.stream_end)
+            .max()
+            .ok_or_else(|| "WebSocket capture has no completed response boundary".to_string())?
+            as usize;
+        (
+            snapshot
+                .request_bytes()
+                .get(..request_end)
+                .ok_or_else(|| "WebSocket request boundary exceeds captured bytes".to_string())?,
+            snapshot
+                .response_bytes()
+                .get(..response_end)
+                .ok_or_else(|| "WebSocket response boundary exceeds captured bytes".to_string())?,
+        )
+    } else {
+        (snapshot.request_bytes(), snapshot.response_bytes())
+    };
+    if request_bytes.is_empty() || response_bytes.is_empty() || session.messages.is_empty() {
         return Ok(None);
     }
 
@@ -897,8 +1183,8 @@ fn write_raw_capture(
         .iter()
         .map(|message| {
             let stream = match message.direction {
-                ExactWireDirection::Request => snapshot.request_bytes(),
-                ExactWireDirection::Response => snapshot.response_bytes(),
+                ExactWireDirection::Request => request_bytes,
+                ExactWireDirection::Response => response_bytes,
             };
             let stream_end = message
                 .stream_end
@@ -927,8 +1213,8 @@ fn write_raw_capture(
         return Ok(None);
     }
     ExactWireCapture::from_transcript_with_provenance(
-        snapshot.request_bytes().to_vec(),
-        snapshot.response_bytes().to_vec(),
+        request_bytes.to_vec(),
+        response_bytes.to_vec(),
         messages,
         session.provenance.clone(),
     )
@@ -1536,6 +1822,7 @@ mod tests {
     use http::{Request as HttpRequest, Response as HttpResponse, Uri};
     use http_body_util::BodyExt;
     use hudsucker::{
+        futures::{Sink, Stream},
         hyper::{Request, Response},
         HttpHandler,
     };
@@ -1556,6 +1843,273 @@ mod tests {
             .expect("clock before unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("fusou_proxy_https_{name}_{stamp}"))
+    }
+
+    #[derive(Clone)]
+    struct OutcomeCaptureHook {
+        capture: RawCaptureHook,
+        outcomes: Arc<Mutex<Vec<bool>>>,
+    }
+
+    type TestWebSocketMessage = hudsucker::tokio_tungstenite::tungstenite::Message;
+    type TestWebSocketError = hudsucker::tokio_tungstenite::tungstenite::Error;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum HudsuckerForwarderFault {
+        None,
+        ReadIo,
+        WriteIo,
+        Panic,
+    }
+
+    #[derive(Clone, Copy)]
+    struct HudsuckerForwarderTestHandler {
+        fault: HudsuckerForwarderFault,
+    }
+
+    struct InjectedReadFailure<S> {
+        inner: S,
+        fail_next_read: bool,
+    }
+
+    impl<S> Stream for InjectedReadFailure<S>
+    where
+        S: Stream<Item = Result<TestWebSocketMessage, TestWebSocketError>> + Unpin,
+    {
+        type Item = Result<TestWebSocketMessage, TestWebSocketError>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            let this = self.as_mut().get_mut();
+            if this.fail_next_read {
+                this.fail_next_read = false;
+                return std::task::Poll::Ready(Some(Err(TestWebSocketError::Io(
+                    std::io::Error::new(
+                        std::io::ErrorKind::ConnectionReset,
+                        "injected WebSocket forwarder read failure",
+                    ),
+                ))));
+            }
+            std::pin::Pin::new(&mut this.inner).poll_next(context)
+        }
+    }
+
+    struct InjectedWriteFailure<S> {
+        inner: S,
+        fail_next_write: bool,
+    }
+
+    impl<S> Sink<TestWebSocketMessage> for InjectedWriteFailure<S>
+    where
+        S: Sink<TestWebSocketMessage, Error = TestWebSocketError> + Unpin,
+    {
+        type Error = TestWebSocketError;
+
+        fn poll_ready(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            let this = self.as_mut().get_mut();
+            if this.fail_next_write {
+                this.fail_next_write = false;
+                return std::task::Poll::Ready(Err(TestWebSocketError::Io(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected WebSocket forwarder write failure",
+                ))));
+            }
+            std::pin::Pin::new(&mut this.inner).poll_ready(context)
+        }
+
+        fn start_send(
+            mut self: std::pin::Pin<&mut Self>,
+            item: TestWebSocketMessage,
+        ) -> Result<(), Self::Error> {
+            std::pin::Pin::new(&mut self.as_mut().get_mut().inner).start_send(item)
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::pin::Pin::new(&mut self.as_mut().get_mut().inner).poll_flush(context)
+        }
+
+        fn poll_close(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::pin::Pin::new(&mut self.as_mut().get_mut().inner).poll_close(context)
+        }
+    }
+
+    impl hudsucker::WebSocketHandler for HudsuckerForwarderTestHandler {
+        fn handle_websocket(
+            self,
+            _context: hudsucker::WebSocketContext,
+            stream: impl Stream<Item = Result<TestWebSocketMessage, TestWebSocketError>>
+                + Unpin
+                + Send
+                + 'static,
+            sink: impl Sink<TestWebSocketMessage, Error = TestWebSocketError> + Unpin + Send + 'static,
+        ) -> impl std::future::Future<Output = ()> + Send {
+            use hudsucker::futures::{SinkExt, StreamExt};
+
+            let mut stream: std::pin::Pin<
+                Box<dyn Stream<Item = Result<TestWebSocketMessage, TestWebSocketError>> + Send>,
+            > = match self.fault {
+                HudsuckerForwarderFault::ReadIo => Box::pin(InjectedReadFailure {
+                    inner: stream,
+                    fail_next_read: true,
+                }),
+                _ => Box::pin(stream),
+            };
+            let mut sink: std::pin::Pin<
+                Box<dyn Sink<TestWebSocketMessage, Error = TestWebSocketError> + Send>,
+            > = match self.fault {
+                HudsuckerForwarderFault::WriteIo => Box::pin(InjectedWriteFailure {
+                    inner: sink,
+                    fail_next_write: true,
+                }),
+                _ => Box::pin(sink),
+            };
+            let fault = self.fault;
+
+            async move {
+                while let Some(message) = stream.next().await {
+                    match message {
+                        Ok(message) => {
+                            if fault == HudsuckerForwarderFault::Panic {
+                                panic!("injected WebSocket forwarder task panic");
+                            }
+                            if let Err(error) = sink.send(message).await {
+                                tracing::warn!(%error, "WebSocket forwarder test sink failed");
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "WebSocket forwarder test stream failed");
+                            let _ = sink.send(TestWebSocketMessage::Close(None)).await;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum HudsuckerWebSocketCase {
+        CleanClose,
+        OneSidedClose,
+        ClientDisconnect,
+        UpstreamDisconnect,
+        UpstreamProtocolError,
+        UpstreamHandshakeFailure,
+        ForwarderReadIoFailure,
+        ForwarderWriteIoFailure,
+        ForwarderTaskPanic,
+        ProxyShutdown,
+        ProxyTaskAbort,
+    }
+
+    fn assert_websocket_101_semantics(response_wire: &[u8]) {
+        let text = std::str::from_utf8(response_wire).expect("101 response is ASCII");
+        let mut lines = text.split("\r\n");
+        assert_eq!(lines.next(), Some("HTTP/1.1 101 Switching Protocols"));
+        let headers = lines
+            .take_while(|line| !line.is_empty())
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_ascii_lowercase()))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            headers.get("upgrade").map(String::as_str),
+            Some("websocket")
+        );
+        assert!(headers
+            .get("connection")
+            .is_some_and(|value| value.split(',').any(|token| token.trim() == "upgrade")));
+        assert_eq!(
+            headers.get("sec-websocket-accept").map(String::as_str),
+            Some("s3pplmbitxaq9kygzzhzrbk+xoo=")
+        );
+    }
+
+    async fn assert_client_tls_closed<S>(stream: &mut S)
+    where
+        S: AsyncRead + Unpin,
+    {
+        let mut byte = [0; 1];
+        match tokio::time::timeout(std::time::Duration::from_secs(3), stream.read(&mut byte))
+            .await
+            .expect("client socket remained open after proxy task termination")
+        {
+            Ok(0) | Err(_) => {}
+            Ok(count) => panic!("unexpected bytes after proxy task termination: {count}"),
+        }
+    }
+
+    impl ClientStreamHook for OutcomeCaptureHook {
+        fn wrap(
+            &self,
+            context: &hudsucker::HttpContext,
+            stream: hudsucker::ClientStream,
+        ) -> hudsucker::ClientStream {
+            self.capture.wrap(context, stream)
+        }
+
+        fn finish(
+            &self,
+            context: HttpContext,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            self.capture.finish(context)
+        }
+
+        fn finish_with_status(
+            &self,
+            context: HttpContext,
+            connection_clean: bool,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            self.capture.finish_with_status(context, connection_clean)
+        }
+
+        fn request_started(
+            &self,
+            context: &HttpContext,
+            request: &Request<hudsucker::hyper::body::Incoming>,
+        ) {
+            self.capture.request_started(context, request);
+        }
+
+        fn request_completed(&self, context: &HttpContext) {
+            self.capture.request_completed(context);
+        }
+
+        fn response_started(&self, context: &HttpContext, response: &Response<hudsucker::Body>) {
+            self.capture.response_started(context, response);
+        }
+
+        fn response_completed(&self, context: &HttpContext) {
+            self.capture.response_completed(context);
+        }
+
+        fn websocket_completed(&self, _context: &HttpContext, clean: bool) {
+            self.outcomes
+                .lock()
+                .expect("WebSocket outcomes")
+                .push(clean);
+        }
+
+        fn connection_aborted(&self, context: &HttpContext) {
+            self.capture.connection_aborted(context);
+        }
+
+        fn wait_for_background_tasks(
+            &self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            self.capture.wait_for_background_tasks()
+        }
     }
 
     fn gzip_compress(input: &[u8]) -> Vec<u8> {
@@ -2234,24 +2788,25 @@ mod tests {
         let session = hook
             .session(context.connection_id)
             .expect("capture session");
-        let mut session = session.lock().expect("capture session lock");
-        session.messages = vec![
-            RawCaptureMessage {
-                direction: ExactWireDirection::Request,
-                sequence: 0,
-                stream_start: 0,
-                stream_end: Some(request.len() as u64),
-                metadata: request_metadata,
-            },
-            RawCaptureMessage {
-                direction: ExactWireDirection::Response,
-                sequence: 1,
-                stream_start: 0,
-                stream_end: Some(response.len() as u64),
-                metadata: response_metadata,
-            },
-        ];
-        drop(session);
+        {
+            let mut session = session.lock().expect("capture session lock");
+            session.messages = vec![
+                RawCaptureMessage {
+                    direction: ExactWireDirection::Request,
+                    sequence: 0,
+                    stream_start: 0,
+                    stream_end: Some(request.len() as u64),
+                    metadata: request_metadata,
+                },
+                RawCaptureMessage {
+                    direction: ExactWireDirection::Response,
+                    sequence: 1,
+                    stream_start: 0,
+                    stream_end: Some(response.len() as u64),
+                    metadata: response_metadata,
+                },
+            ];
+        }
         drop(wrapped);
         hook.finish(context).await;
 
@@ -2279,6 +2834,157 @@ mod tests {
         assert_eq!(manifest["messages"].as_array().unwrap().len(), 2);
 
         let _ = std::fs::remove_dir_all(output_root);
+    }
+
+    #[tokio::test]
+    async fn completed_upgrade_artifact_is_stable_across_callback_orderings() {
+        async fn capture_in_order(
+            output_root: PathBuf,
+            connection_id: u64,
+            finish_before_response_completed: bool,
+            request: &[u8],
+            response: &[u8],
+        ) -> (Vec<u8>, Vec<u8>, serde_json::Value) {
+            let hook = RawCaptureHook::new(output_root.clone());
+            let context = HttpContext::new(
+                "127.0.0.1:40100".parse().expect("client address"),
+                connection_id,
+            );
+            let (mut peer, stream) = tokio::io::duplex(16 * 1024);
+            let mut wrapped = hook.wrap(&context, Box::new(stream));
+            let request_metadata = ExactWireMetadata::from_request(
+                &HttpRequest::builder()
+                    .method("GET")
+                    .uri("/kcsapi/api_get_member/require_info")
+                    .header("Host", "localhost")
+                    .header("Upgrade", "websocket")
+                    .header("Connection", "Upgrade")
+                    .header("Sec-WebSocket-Version", "13")
+                    .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                    .body(())
+                    .expect("request metadata"),
+            );
+            let response_metadata = ExactWireMetadata::from_response(
+                &HttpResponse::builder()
+                    .status(101)
+                    .header("Upgrade", "websocket")
+                    .header("Connection", "Upgrade")
+                    .header("Sec-WebSocket-Accept", "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+                    .body(())
+                    .expect("response metadata"),
+            );
+            hook.request_started_for(connection_id, request_metadata);
+            peer.write_all(request)
+                .await
+                .expect("write Upgrade request");
+            let mut received_request = vec![0; request.len()];
+            wrapped
+                .read_exact(&mut received_request)
+                .await
+                .expect("capture Upgrade request");
+            assert_eq!(received_request, request);
+            hook.request_completed_for(connection_id);
+
+            hook.response_started_for(connection_id, response_metadata);
+            wrapped
+                .write_all(response)
+                .await
+                .expect("write 101 response");
+            let mut received_response = vec![0; response.len()];
+            peer.read_exact(&mut received_response)
+                .await
+                .expect("receive client-facing 101");
+            assert_eq!(received_response, response);
+            let retained_session = hook
+                .session(connection_id)
+                .expect("Upgrade session before finalization");
+            drop(wrapped);
+
+            if finish_before_response_completed {
+                hook.finish_connection(connection_id, false).await;
+                hook.response_completed_for(connection_id);
+            } else {
+                hook.response_completed_for(connection_id);
+                hook.finish_connection(connection_id, false).await;
+            }
+
+            let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    if let Ok(entries) = fs::read_dir(&output_root) {
+                        if let Some(path) =
+                            entries.flatten().map(|entry| entry.path()).find(|path| {
+                                !path
+                                    .file_name()
+                                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+                                    && path.join("manifest.json").exists()
+                            })
+                        {
+                            break path;
+                        }
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("Upgrade artifact was not finalized");
+            assert!(hook.session(connection_id).is_none());
+            crate::capture::verify_capture(&capture_dir).expect("verify ordered Upgrade capture");
+            let captured_request =
+                fs::read(capture_dir.join("request-wire.bin")).expect("request artifact");
+            let captured_response =
+                fs::read(capture_dir.join("response-wire.bin")).expect("response artifact");
+            assert_eq!(captured_request, request);
+            assert_eq!(captured_response, response);
+            let manifest: serde_json::Value = serde_json::from_slice(
+                &fs::read(capture_dir.join("manifest.json")).expect("capture manifest"),
+            )
+            .expect("parse capture manifest");
+            let messages = manifest["messages"]
+                .as_array()
+                .expect("capture message list");
+            assert_eq!(messages.len(), 2);
+            assert_eq!(messages[0]["direction"].as_str(), Some("request"));
+            assert_eq!(
+                messages[0]["stream_end"].as_u64(),
+                Some(request.len() as u64)
+            );
+            assert_eq!(messages[1]["direction"].as_str(), Some("response"));
+            assert_eq!(
+                messages[1]["stream_end"].as_u64(),
+                Some(response.len() as u64)
+            );
+            let manifest_messages = manifest["messages"].clone();
+            let _ = fs::remove_dir_all(output_root);
+            let snapshot = retained_session
+                .lock()
+                .expect("retained session")
+                .recorder
+                .snapshot()
+                .expect("released recorder");
+            assert!(snapshot.request_bytes().is_empty());
+            assert!(snapshot.response_bytes().is_empty());
+            (captured_request, captured_response, manifest_messages)
+        }
+
+        let request = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        let response = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n";
+        let finish_first = capture_in_order(
+            unique_temp_dir("upgrade_finish_first"),
+            91,
+            true,
+            request,
+            response,
+        )
+        .await;
+        let response_first = capture_in_order(
+            unique_temp_dir("upgrade_response_first"),
+            92,
+            false,
+            request,
+            response,
+        )
+        .await;
+        assert_eq!(finish_first, response_first);
     }
 
     #[tokio::test]
@@ -2404,6 +3110,7 @@ mod tests {
             .expect("proxy listener");
         let proxy_addr = proxy_listener.local_addr().expect("proxy address");
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let mut shutdown_tx = Some(shutdown_tx);
         let proxy = Proxy::builder()
             .with_listener(proxy_listener)
             .with_ca(proxy_ca)
@@ -2415,7 +3122,7 @@ mod tests {
             })
             .build()
             .expect("build proxy");
-        let proxy_task = tokio::spawn(proxy.start());
+        let mut proxy_task = Some(tokio::spawn(proxy.start()));
 
         let mut client_socket = tokio::net::TcpStream::connect(proxy_addr)
             .await
@@ -2570,8 +3277,14 @@ mod tests {
             }
         }
 
-        shutdown_tx.send(()).expect("proxy shutdown signal");
+        shutdown_tx
+            .take()
+            .expect("proxy shutdown sender")
+            .send(())
+            .expect("proxy shutdown signal");
         proxy_task
+            .take()
+            .expect("proxy task")
             .await
             .expect("proxy task join")
             .expect("proxy shutdown");
@@ -2580,12 +3293,66 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn fork_proxy_captures_only_websocket_upgrade_handshake_bytes() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::CleanClose).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_one_sided_close_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::OneSidedClose).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_client_disconnect_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::ClientDisconnect).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_upstream_disconnect_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::UpstreamDisconnect).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_upstream_protocol_error_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::UpstreamProtocolError).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_forwarder_read_io_failure_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::ForwarderReadIoFailure).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_forwarder_write_io_failure_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::ForwarderWriteIoFailure).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_forwarder_task_panic_keeps_handshake_artifact_and_listener_alive() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::ForwarderTaskPanic).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_shutdown_aborts_open_websocket_and_keeps_handshake_artifact() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::ProxyShutdown).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_outer_task_abort_closes_websocket_and_reports_unclean() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::ProxyTaskAbort).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_upstream_handshake_failure_does_not_send_101_or_capture() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::UpstreamHandshakeFailure).await;
+    }
+
+    async fn run_hudsucker_websocket_case(case: HudsuckerWebSocketCase) {
         use hudsucker::{
-            Proxy,
             certificate_authority::RcgenAuthority,
             hyper_util::{client::legacy::Client, rt::TokioExecutor},
             rustls::crypto::aws_lc_rs,
-            tokio_tungstenite::{Connector, tungstenite::handshake::derive_accept_key},
+            tokio_tungstenite::{tungstenite::handshake::derive_accept_key, Connector},
+            Proxy,
         };
         use tokio::net::TcpListener;
         use tokio::sync::oneshot;
@@ -2610,6 +3377,7 @@ mod tests {
             .await
             .expect("upstream listener");
         let upstream_addr = upstream_listener.local_addr().expect("upstream address");
+        let upstream_case = case;
         let upstream_task = tokio::spawn(async move {
             let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
             let mut stream = upstream_acceptor
@@ -2618,6 +3386,18 @@ mod tests {
                 .expect("upstream TLS accept");
             let request = read_http_message(&mut stream).await;
             assert!(request.starts_with(b"GET /kcsapi/api_get_member/require_info HTTP/1.1"));
+            if matches!(
+                upstream_case,
+                HudsuckerWebSocketCase::UpstreamHandshakeFailure
+            ) {
+                stream
+                    .write_all(
+                        b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await
+                    .expect("write rejected upstream WebSocket response");
+                return;
+            }
             let request_text = String::from_utf8_lossy(&request);
             let websocket_key = request_text
                 .lines()
@@ -2635,27 +3415,123 @@ mod tests {
                 .write_all(response.as_bytes())
                 .await
                 .expect("upstream WebSocket response");
+            match upstream_case {
+                HudsuckerWebSocketCase::CleanClose => {
+                    let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                        .await
+                        .expect("read forwarded text frame");
+                    assert_eq!(opcode, 1);
+                    assert_eq!(payload, b"hi");
+                    stream
+                        .write_all(&[0x81, 0x02, b'o', b'k'])
+                        .await
+                        .expect("write upstream text frame");
 
-            let (_, opcode, payload) = read_websocket_frame(&mut stream)
-                .await
-                .expect("read forwarded text frame");
-            assert_eq!(opcode, 1);
-            assert_eq!(payload, b"hi");
-            stream
-                .write_all(&[0x81, 0x02, b'o', b'k'])
-                .await
-                .expect("write upstream text frame");
-
-            let (_, opcode, payload) = read_websocket_frame(&mut stream)
-                .await
-                .expect("read forwarded Close frame");
-            assert_eq!(opcode, 8);
-            assert_eq!(payload, [0x03, 0xe8]);
-            stream
-                .write_all(&[0x88, 0x02, 0x03, 0xe8])
-                .await
-                .expect("write upstream Close response");
-            stream.shutdown().await.expect("upstream TLS shutdown");
+                    let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                        .await
+                        .expect("read forwarded Close frame");
+                    assert_eq!(opcode, 8);
+                    assert_eq!(payload, [0x03, 0xe8]);
+                    stream
+                        .write_all(&[0x88, 0x02, 0x03, 0xe8])
+                        .await
+                        .expect("write upstream Close response");
+                    stream.shutdown().await.expect("upstream TLS shutdown");
+                }
+                HudsuckerWebSocketCase::OneSidedClose => {
+                    let (_, opcode, payload) = read_websocket_frame(&mut stream)
+                        .await
+                        .expect("read one-sided client Close");
+                    assert_eq!(opcode, 8);
+                    assert_eq!(payload, [0x03, 0xe8]);
+                }
+                HudsuckerWebSocketCase::ClientDisconnect => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        read_websocket_frame(&mut stream),
+                    )
+                    .await
+                    .expect("client disconnect was not propagated upstream")
+                    {
+                        Err(_) => {}
+                        Ok((_, 8, payload)) => {
+                            assert!(
+                                payload.is_empty(),
+                                "unexpected Close payload after disconnect"
+                            );
+                        }
+                        Ok((_, opcode, _)) => {
+                            panic!("partial client WebSocket frame escaped to upstream: {opcode}")
+                        }
+                    }
+                }
+                HudsuckerWebSocketCase::UpstreamDisconnect => {
+                    stream
+                        .write_all(&[0x81, 0x02, b'o'])
+                        .await
+                        .expect("write partial upstream WebSocket frame");
+                    stream
+                        .shutdown()
+                        .await
+                        .expect("close upstream after partial WebSocket frame");
+                }
+                HudsuckerWebSocketCase::UpstreamProtocolError => {
+                    stream
+                        .write_all(&[0xf0, 0x00])
+                        .await
+                        .expect("write invalid upstream frame");
+                }
+                HudsuckerWebSocketCase::ForwarderReadIoFailure => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        read_websocket_frame(&mut stream),
+                    )
+                    .await
+                    .expect("forwarder read failure did not close upstream")
+                    {
+                        Ok((_, 8, _)) | Err(_) => {}
+                        Ok((_, opcode, _)) => {
+                            panic!("unexpected frame after forwarder read failure: {opcode}")
+                        }
+                    }
+                }
+                HudsuckerWebSocketCase::ForwarderWriteIoFailure
+                | HudsuckerWebSocketCase::ForwarderTaskPanic => {
+                    let mut forwarded_frame = [0; 16];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        stream.read(&mut forwarded_frame),
+                    )
+                    .await
+                    .expect("forwarder failure did not close upstream stream")
+                    {
+                        Ok(0) | Err(_) => {}
+                        Ok(count) => panic!(
+                            "frame escaped a failed WebSocket forwarder: {:?}",
+                            &forwarded_frame[..count]
+                        ),
+                    }
+                }
+                HudsuckerWebSocketCase::ProxyShutdown | HudsuckerWebSocketCase::ProxyTaskAbort => {
+                    let mut forwarded_frame = [0; 16];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        stream.read(&mut forwarded_frame),
+                    )
+                    .await
+                    .expect("proxy cancellation did not close the upstream WebSocket")
+                    {
+                        Ok(0) | Err(_) => {}
+                        Ok(count) => panic!(
+                            "unexpected WebSocket bytes during proxy cancellation: {:?}",
+                            &forwarded_frame[..count]
+                        ),
+                    }
+                }
+                HudsuckerWebSocketCase::UpstreamHandshakeFailure => {
+                    unreachable!("upstream handshake failure returned before relay")
+                }
+            }
         });
 
         let proxy_key_pair = KeyPair::generate().expect("proxy CA key");
@@ -2692,19 +3568,37 @@ mod tests {
             .expect("proxy listener");
         let proxy_addr = proxy_listener.local_addr().expect("proxy address");
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let mut shutdown_tx = Some(shutdown_tx);
+        let capture_hook = RawCaptureHook::new(output_root.clone());
+        let outcomes = Arc::new(Mutex::new(Vec::new()));
         let proxy = Proxy::builder()
             .with_listener(proxy_listener)
             .with_ca(proxy_ca)
             .with_client(upstream_client)
             .with_websocket_connector(Connector::Rustls(Arc::new(upstream_client_config)))
             .with_http_handler(PassthroughHandler)
-            .with_client_stream_hook(RawCaptureHook::new(output_root.clone()))
+            .with_websocket_handler(HudsuckerForwarderTestHandler {
+                fault: match case {
+                    HudsuckerWebSocketCase::ForwarderReadIoFailure => {
+                        HudsuckerForwarderFault::ReadIo
+                    }
+                    HudsuckerWebSocketCase::ForwarderWriteIoFailure => {
+                        HudsuckerForwarderFault::WriteIo
+                    }
+                    HudsuckerWebSocketCase::ForwarderTaskPanic => HudsuckerForwarderFault::Panic,
+                    _ => HudsuckerForwarderFault::None,
+                },
+            })
+            .with_client_stream_hook(OutcomeCaptureHook {
+                capture: capture_hook.clone(),
+                outcomes: Arc::clone(&outcomes),
+            })
             .with_graceful_shutdown(async move {
                 let _ = shutdown_rx.await;
             })
             .build()
             .expect("build Hudsucker proxy");
-        let proxy_task = tokio::spawn(proxy.start());
+        let mut proxy_task = Some(tokio::spawn(proxy.start()));
 
         let mut client_socket = tokio::net::TcpStream::connect(proxy_addr)
             .await
@@ -2747,54 +3641,96 @@ mod tests {
             .await
             .expect("client TLS handshake");
 
+        let retained_session = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let session = capture_hook
+                    .sessions
+                    .lock()
+                    .expect("capture sessions")
+                    .values()
+                    .next()
+                    .cloned();
+                if let Some(session) = session {
+                    break session;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("capture session was not started before Upgrade request");
         let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
         client_tls_stream
             .write_all(request_handshake)
             .await
             .expect("downstream WebSocket handshake");
         let response_handshake = read_http_message(&mut client_tls_stream).await;
+        if matches!(case, HudsuckerWebSocketCase::UpstreamHandshakeFailure) {
+            assert!(
+                response_handshake.starts_with(b"HTTP/1.1 502"),
+                "upstream rejection must not produce a downstream 101"
+            );
+            drop(client_tls_stream);
+            tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+                .await
+                .expect("upstream rejection fixture timeout")
+                .expect("upstream rejection fixture panicked");
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                while !capture_hook
+                    .sessions
+                    .lock()
+                    .expect("capture sessions")
+                    .is_empty()
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("failed Upgrade session was not finalized");
+            assert!(
+                !output_root.exists()
+                    || fs::read_dir(&output_root)
+                        .expect("capture output root")
+                        .next()
+                        .is_none(),
+                "upstream WebSocket rejection must not persist a 101 capture"
+            );
+            assert!(outcomes.lock().expect("WebSocket outcomes").is_empty());
+            shutdown_tx
+                .take()
+                .expect("proxy shutdown sender")
+                .send(())
+                .expect("proxy shutdown signal");
+            proxy_task
+                .take()
+                .expect("proxy task")
+                .await
+                .expect("proxy task join")
+                .expect("proxy shutdown");
+            let _ = fs::remove_dir_all(output_root);
+            return;
+        }
+        let header_end = response_handshake
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .map(|offset| offset + 4)
+            .expect("client-facing 101 header boundary");
+        let response_handshake = response_handshake[..header_end].to_vec();
         assert!(response_handshake.starts_with(b"HTTP/1.1 101"));
-
-        let text_frame = vec![0x81, 0x82, 0x11, 0x22, 0x33, 0x44, b'h' ^ 0x11, b'i' ^ 0x22];
-        client_tls_stream
-            .write_all(&text_frame)
-            .await
-            .expect("downstream text frame");
-        let (response_text_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
-            .await
-            .expect("downstream text frame response");
-        assert_eq!(opcode, 1);
-        assert_eq!(payload, b"ok");
-        assert_eq!(response_text_frame, [0x81, 0x02, b'o', b'k']);
-
-        let close_frame = vec![0x88, 0x82, 0x55, 0x66, 0x77, 0x88, 0x56, 0x8e];
-        client_tls_stream
-            .write_all(&close_frame)
-            .await
-            .expect("downstream Close frame");
-        let (response_close_frame, opcode, payload) = read_websocket_frame(&mut client_tls_stream)
-            .await
-            .expect("downstream Close response");
-        assert_eq!(opcode, 8);
-        assert_eq!(payload, [0x03, 0xe8]);
-        assert_eq!(response_close_frame, [0x88, 0x02, 0x03, 0xe8]);
-        client_tls_stream
-            .shutdown()
-            .await
-            .expect("downstream TLS shutdown");
-        drop(client_tls_stream);
-        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
-            .await
-            .expect("upstream WebSocket fixture timeout")
-            .expect("upstream WebSocket fixture panicked");
-
+        assert_websocket_101_semantics(&response_handshake);
         let capture_dir = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if let Ok(entries) = fs::read_dir(&output_root) {
                     if let Some(path) = entries
                         .flatten()
-                        .map(|entry| entry.path())
-                        .find(|path| path.join("manifest.json").exists())
+                        .filter_map(|entry| {
+                            let is_staging = entry.file_name().to_string_lossy().starts_with('.');
+                            (!is_staging).then_some(entry.path())
+                        })
+                        .find(|path| {
+                            path.join("manifest.json").exists()
+                                && path.join("request-wire.bin").exists()
+                                && path.join("response-wire.bin").exists()
+                        })
                     {
                         break path;
                     }
@@ -2803,10 +3739,206 @@ mod tests {
             }
         })
         .await
-        .expect("Hudsucker WebSocket capture finalization timeout");
+        .expect("Hudsucker Upgrade artifact was not finalized before frame relay");
+        assert!(
+            capture_hook
+                .sessions
+                .lock()
+                .expect("capture sessions")
+                .is_empty(),
+            "completed Upgrade must release its capture session before relay ends"
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let released = match retained_session.try_lock() {
+                    Ok(session) => {
+                        let snapshot = session.recorder.snapshot().expect("finalized snapshot");
+                        snapshot.request_bytes().is_empty() && snapshot.response_bytes().is_empty()
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => false,
+                    Err(std::sync::TryLockError::Poisoned(error)) => {
+                        panic!("finalized session lock poisoned: {error}")
+                    }
+                };
+                if released {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("finalized Upgrade capture buffers were not released");
+
+        let mut client_tls_stream = Some(client_tls_stream);
+        match case {
+            HudsuckerWebSocketCase::CleanClose => {
+                let stream = client_tls_stream.as_mut().expect("client TLS stream");
+                let text_frame = vec![0x81, 0x82, 0x11, 0x22, 0x33, 0x44, b'h' ^ 0x11, b'i' ^ 0x22];
+                stream
+                    .write_all(&text_frame)
+                    .await
+                    .expect("downstream text frame");
+                let (response_text_frame, opcode, payload) = read_websocket_frame(stream)
+                    .await
+                    .expect("downstream text response");
+                assert_eq!(opcode, 1);
+                assert_eq!(payload, b"ok");
+                assert_eq!(response_text_frame, [0x81, 0x02, b'o', b'k']);
+
+                let close_frame = vec![0x88, 0x82, 0x55, 0x66, 0x77, 0x88, 0x56, 0x8e];
+                stream
+                    .write_all(&close_frame)
+                    .await
+                    .expect("downstream Close frame");
+                let (response_close_frame, opcode, payload) = read_websocket_frame(stream)
+                    .await
+                    .expect("downstream Close response");
+                assert_eq!(opcode, 8);
+                assert_eq!(payload, [0x03, 0xe8]);
+                assert_eq!(response_close_frame, [0x88, 0x02, 0x03, 0xe8]);
+                stream.shutdown().await.expect("downstream TLS shutdown");
+            }
+            HudsuckerWebSocketCase::OneSidedClose => {
+                let stream = client_tls_stream.as_mut().expect("client TLS stream");
+                stream
+                    .write_all(&[0x88, 0x82, 0x55, 0x66, 0x77, 0x88, 0x56, 0x8e])
+                    .await
+                    .expect("downstream one-sided Close");
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    read_websocket_frame(stream),
+                )
+                .await
+                .expect("one-sided Close did not terminate");
+                let _proxy_frame_or_disconnect = result;
+            }
+            HudsuckerWebSocketCase::ClientDisconnect => {
+                client_tls_stream
+                    .as_mut()
+                    .expect("client TLS stream")
+                    .write_all(&[0x81, 0x82, 0x11, 0x22])
+                    .await
+                    .expect("write partial downstream WebSocket frame");
+                drop(client_tls_stream.take());
+            }
+            HudsuckerWebSocketCase::UpstreamDisconnect => {
+                let stream = client_tls_stream.as_mut().expect("client TLS stream");
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    read_websocket_frame(stream),
+                )
+                .await
+                .expect("upstream disconnect was not propagated downstream")
+                {
+                    Ok((_, 8, _)) | Err(_) => {}
+                    Ok((_, opcode, _)) => {
+                        panic!("partial upstream WebSocket frame reached client: {opcode}")
+                    }
+                }
+            }
+            HudsuckerWebSocketCase::UpstreamProtocolError => {
+                let stream = client_tls_stream.as_mut().expect("client TLS stream");
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    read_websocket_frame(stream),
+                )
+                .await
+                .expect("upstream protocol failure was not propagated downstream")
+                {
+                    Ok((_, 8, _)) | Err(_) => {}
+                    Ok((_, opcode, _)) => {
+                        panic!("invalid upstream WebSocket frame reached client: {opcode}")
+                    }
+                }
+            }
+            HudsuckerWebSocketCase::ForwarderReadIoFailure => {}
+            HudsuckerWebSocketCase::ForwarderWriteIoFailure
+            | HudsuckerWebSocketCase::ForwarderTaskPanic => {
+                client_tls_stream
+                    .as_mut()
+                    .expect("client TLS stream")
+                    .write_all(&[0x81, 0x82, 0x11, 0x22, 0x33, 0x44, b'h' ^ 0x11, b'i' ^ 0x22])
+                    .await
+                    .expect("write frame to injected forwarder failure");
+            }
+            HudsuckerWebSocketCase::ProxyShutdown => {
+                shutdown_tx
+                    .take()
+                    .expect("proxy shutdown sender")
+                    .send(())
+                    .expect("proxy shutdown signal");
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    proxy_task.take().expect("proxy task"),
+                )
+                .await
+                .expect("proxy shutdown did not terminate")
+                .expect("proxy task join")
+                .expect("proxy shutdown");
+                assert_client_tls_closed(client_tls_stream.as_mut().expect("client TLS stream"))
+                    .await;
+            }
+            HudsuckerWebSocketCase::ProxyTaskAbort => {
+                drop(shutdown_tx.take());
+                let proxy_task = proxy_task.take().expect("proxy task");
+                proxy_task.abort();
+                let error = tokio::time::timeout(std::time::Duration::from_secs(3), proxy_task)
+                    .await
+                    .expect("proxy task abort did not terminate")
+                    .expect_err("aborted proxy task unexpectedly completed");
+                assert!(error.is_cancelled(), "proxy task was not cancelled");
+                assert_client_tls_closed(client_tls_stream.as_mut().expect("client TLS stream"))
+                    .await;
+            }
+            HudsuckerWebSocketCase::UpstreamHandshakeFailure => {
+                unreachable!("upstream handshake failure returned before relay")
+            }
+        }
+        drop(client_tls_stream);
+        tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+            .await
+            .expect("upstream WebSocket fixture timeout")
+            .expect("upstream WebSocket fixture panicked");
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while outcomes.lock().expect("WebSocket outcomes").is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Hudsucker WebSocket relay outcome was not reported");
+        assert_eq!(
+            outcomes.lock().expect("WebSocket outcomes").as_slice(),
+            &[matches!(case, HudsuckerWebSocketCase::CleanClose)]
+        );
+        RawCaptureHook::wait_for_persistence_tasks(Arc::clone(&capture_hook.persistence_tasks))
+            .await;
+        assert!(
+            capture_hook
+                .sessions
+                .lock()
+                .expect("capture sessions")
+                .is_empty(),
+            "terminated WebSocket must not retain a capture session"
+        );
+        assert!(
+            capture_hook
+                .persistence_tasks
+                .lock()
+                .expect("capture persistence tasks")
+                .is_empty(),
+            "capture persistence tasks must be joined after proxy termination"
+        );
+        let retained_snapshot = retained_session
+            .lock()
+            .expect("retained finalized session")
+            .recorder
+            .snapshot()
+            .expect("retained capture snapshot");
+        assert!(retained_snapshot.request_bytes().is_empty());
+        assert!(retained_snapshot.response_bytes().is_empty());
 
         let expected_request_wire = request_handshake.to_vec();
-        let expected_response_wire = response_handshake;
+        let expected_response_wire = response_handshake.clone();
         crate::capture::verify_capture(&capture_dir).expect("verify Hudsucker WebSocket capture");
         assert_eq!(
             fs::read(capture_dir.join("request-wire.bin")).expect("request wire"),
@@ -2821,18 +3953,62 @@ mod tests {
         )
         .expect("parse capture manifest");
         let messages = manifest["messages"].as_array().expect("message list");
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["direction"].as_str(), Some("request"));
         assert_eq!(
             messages[0]["stream_end"].as_u64(),
             Some(request_handshake.len() as u64)
         );
+        assert_eq!(messages[1]["direction"].as_str(), Some("response"));
+        assert_eq!(
+            messages[1]["stream_end"].as_u64(),
+            Some(response_handshake.len() as u64)
+        );
 
-        shutdown_tx.send(()).expect("proxy shutdown signal");
-        proxy_task
+        if matches!(case, HudsuckerWebSocketCase::ForwarderTaskPanic) {
+            assert!(
+                !proxy_task
+                    .as_ref()
+                    .expect("proxy listener task")
+                    .is_finished(),
+                "WebSocket child-task panic must not stop the proxy listener"
+            );
+            let mut followup = tokio::net::TcpStream::connect(proxy_addr)
+                .await
+                .expect("connect after WebSocket task panic");
+            followup
+                .write_all(b"NOT HTTP\r\n\r\n")
+                .await
+                .expect("write malformed follow-up request");
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                read_http_message(&mut followup),
+            )
             .await
-            .expect("proxy task join")
-            .expect("proxy shutdown");
+            .expect("proxy listener did not serve after WebSocket task panic");
+            assert!(
+                response.starts_with(b"HTTP/1.1 400"),
+                "unexpected post-panic listener response: {:?}",
+                String::from_utf8_lossy(&response)
+            );
+            assert!(
+                !proxy_task
+                    .as_ref()
+                    .expect("proxy listener task")
+                    .is_finished(),
+                "proxy listener stopped after follow-up parse failure"
+            );
+        }
+
+        if let Some(shutdown_tx) = shutdown_tx.take() {
+            shutdown_tx.send(()).expect("proxy shutdown signal");
+        }
+        if let Some(proxy_task) = proxy_task.take() {
+            proxy_task
+                .await
+                .expect("proxy task join")
+                .expect("proxy shutdown");
+        }
         let _ = fs::remove_dir_all(output_root);
     }
 

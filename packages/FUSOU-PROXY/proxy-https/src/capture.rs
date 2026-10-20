@@ -364,6 +364,26 @@ impl ExactWireMetadata {
     pub fn target(&self) -> Option<&str> {
         self.target.as_deref()
     }
+
+    pub fn status(&self) -> Option<u16> {
+        self.status
+    }
+
+    pub fn is_websocket_upgrade_request(&self) -> bool {
+        self.method
+            .as_deref()
+            .is_some_and(|method| method.eq_ignore_ascii_case("GET"))
+            && self.has_header_token("upgrade", b"websocket")
+            && self.has_header_token("connection", b"upgrade")
+    }
+
+    fn has_header_token(&self, name: &str, expected: &[u8]) -> bool {
+        self.headers
+            .iter()
+            .filter(|header| header.name.eq_ignore_ascii_case(name))
+            .flat_map(|header| header.value.split(|byte| *byte == b','))
+            .any(|token| token.trim_ascii().eq_ignore_ascii_case(expected))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1753,6 +1773,23 @@ mod tests {
         assert_eq!(metadata.headers[0].value, b"  first value");
         assert_eq!(metadata.headers[1].name, "X-Trace");
         assert_eq!(metadata.headers[1].value, b"\tsecond value ");
+    }
+
+    #[test]
+    fn exact_wire_metadata_identifies_websocket_upgrade_requests() {
+        let metadata = ExactWireMetadata::from_components(
+            "HTTP/1.1".to_string(),
+            Some("GET".to_string()),
+            Some("/kcsapi/api_get_member/require_info".to_string()),
+            None,
+            None,
+            [
+                ("Upgrade".to_string(), b"websocket".to_vec()),
+                ("Connection".to_string(), b"keep-alive, Upgrade".to_vec()),
+            ],
+        );
+
+        assert!(metadata.is_websocket_upgrade_request());
     }
 
     #[test]
