@@ -41,13 +41,16 @@ import {
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
 import { ShipCatalogPicker } from "@/components/common/solid/ShipCatalogPicker";
+import ShipGrowthSearchFilterBar from "./ShipGrowthSearchFilterBar";
+import ShipGrowthFilterModal, { SHIP_TYPE_GROUPS } from "./ShipGrowthFilterModal";
+import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 
 Chart.register(...registerables);
 
 
 type PeriodSource = "live" | "latest" | "cumulative" | "all";
 
-type PeriodSummary = {
+export type PeriodSummary = {
   period_tag: string;
   table_version: string;
   source?: PeriodSource;
@@ -86,7 +89,7 @@ function isAllPeriodsPeriod(p: PeriodSummary | null | undefined): boolean {
   );
 }
 
-function periodLabel(p: PeriodSummary): string {
+export function periodLabel(p: PeriodSummary): string {
   if (isLatestPeriod(p)) return "最新期間";
   if (isCumulativePeriod(p)) return "全期間";
   if (isAllPeriodsPeriod(p)) return "全期間比較";
@@ -591,9 +594,80 @@ const CHART_OPTIONS_BOUNDS_CUMULATIVE: ChartOptions<"line"> = {
 // ── Component ──────────────────────────────────────────────────────
 
 export default function ShipGrowthPanel() {
+  const [headerSearchQuery, setHeaderSearchQuery] = createSignal("");
+  const [selectedStypes, setSelectedStypes] = createSignal<number[]>([]);
+  let growthFilterModalRef!: HTMLDialogElement;
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
   const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
   const [shipMasterRows, setShipMasterRows] = createSignal<ShipMasterRow[]>([]);
+
+  const selectedPeriod = createMemo(
+    () => periods()[selectedPeriodIdx()] ?? null,
+  );
+
+  const defaultPeriodIndex = () => {
+    const p = periods();
+    const latestIdx = p.findIndex((row) => isLatestPeriod(row));
+    return latestIdx >= 0 ? latestIdx : 0;
+  };
+
+  const activeFilterItems = createMemo<FilterChipItem[]>(() => {
+    const items: FilterChipItem[] = [];
+    const q = headerSearchQuery().trim();
+    if (q) {
+      items.push({
+        key: "search",
+        label: "検索",
+        value: q,
+        onRemove: () => setHeaderSearchQuery(""),
+      });
+    }
+
+    const p = selectedPeriod();
+    if (p && (selectedPeriodIdx() !== defaultPeriodIndex() || !isLatestPeriod(p))) {
+      items.push({
+        key: "period",
+        label: "期間",
+        value: periodLabel(p),
+        onRemove: () => {
+          setSelectedPeriodIdx(defaultPeriodIndex());
+        },
+      });
+    }
+
+    const stypes = selectedStypes();
+    if (stypes.length > 0) {
+      const groupNames = SHIP_TYPE_GROUPS
+        .filter((g) => g.stypes.some((st) => stypes.includes(st)))
+        .map((g) => g.name);
+      items.push({
+        key: "stype",
+        label: "艦種",
+        value: groupNames.join(", "),
+        onRemove: () => setSelectedStypes([]),
+      });
+    }
+
+    return items;
+  });
+
+  const filteredShipMasterRows = createMemo(() => {
+    const q = headerSearchQuery().trim().toLowerCase();
+    const stypes = selectedStypes();
+    return shipMasterRows().filter((ship) => {
+      if (q) {
+        const matchesName = ship.name.toLowerCase().includes(q);
+        const matchesId = String(ship.id).includes(q);
+        if (!matchesName && !matchesId) return false;
+      }
+      if (stypes.length > 0) {
+        if (ship.stype == null || !stypes.includes(ship.stype)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  });
   const [selectedMasterId, setSelectedMasterId] = createSignal<number | null>(
     null,
   );
@@ -636,10 +710,6 @@ export default function ShipGrowthPanel() {
   // not store exp tables), so this differs from selectedPeriod().
   const [expSourcePeriod, setExpSourcePeriod] =
     createSignal<PeriodSummary | null>(null);
-
-  const selectedPeriod = createMemo(
-    () => periods()[selectedPeriodIdx()] ?? null,
-  );
 
   const selectedShip = createMemo(() => {
     const id = selectedMasterId();
@@ -1283,12 +1353,49 @@ export default function ShipGrowthPanel() {
         </AlertMessage>
       </Show>
 
-      <MasterDataLoadStatusAlert items={masterDataStatus()} />
+      <MasterDataLoadStatusAlert items={masterDataStatus()} errorsOnly={true} class="mb-6" />
+
+      <div class="fusou-tab-toolbar">
+        <div class="flex items-center gap-2 py-1">
+          <span class="text-sm font-semibold text-base-content/80">艦別パラメータ分析</span>
+          <Show when={selectedShip()}>
+            {(ship) => (
+              <span class="badge badge-sm badge-outline text-xs">
+                {ship().name}
+              </span>
+            )}
+          </Show>
+        </div>
+
+        <ShipGrowthSearchFilterBar
+          searchQuery={headerSearchQuery}
+          onSearchChange={setHeaderSearchQuery}
+          activeFilterCount={activeFilterItems().length}
+          onOpenFilterModal={() => growthFilterModalRef?.showModal()}
+          ships={shipMasterRows}
+          onSelectShip={(id) => selectShip(id)}
+        />
+      </div>
+
+      <Show when={activeFilterItems().length > 0}>
+        <div class="-mt-3 mb-4 px-0.5">
+          <ActiveFilterChips
+            items={activeFilterItems()}
+            onClearAll={() => {
+              setHeaderSearchQuery("");
+              setSelectedStypes([]);
+              if (selectedPeriodIdx() !== defaultPeriodIndex()) {
+                setSelectedPeriodIdx(defaultPeriodIndex());
+              }
+            }}
+          />
+        </div>
+      </Show>
 
       {/* Ship picker + charts */}
       <ShipCatalogPicker
         idPrefix="ship-growth"
-        ships={shipMasterRows()}
+        ships={filteredShipMasterRows()}
         selectedShipId={selectedMasterId()}
         onSelectShip={(id) => selectShip(id)}
         loading={loadingShips()}
@@ -1403,6 +1510,23 @@ export default function ShipGrowthPanel() {
           </Show>
         </div>
       </ShipCatalogPicker>
+      <ShipGrowthFilterModal
+        ref={(el) => {
+          growthFilterModalRef = el;
+        }}
+        periods={periods}
+        selectedPeriodIndex={selectedPeriodIdx}
+        loadingPeriods={loadingPeriods}
+        onPeriodChange={(idx) => setSelectedPeriodIdx(idx)}
+        selectedStypes={selectedStypes}
+        onStypesChange={setSelectedStypes}
+        onReset={() => {
+          setSelectedStypes([]);
+          if (selectedPeriodIdx() !== defaultPeriodIndex()) {
+            setSelectedPeriodIdx(defaultPeriodIndex());
+          }
+        }}
+      />
     </div>
   );
 }
