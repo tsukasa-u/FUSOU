@@ -2,8 +2,13 @@
 
 This crate is the fail-closed FUSOU `require_info` TLSNotary adapter boundary. It
 contains the strict parser and links the frozen TLSNotary alpha.15 verification
-backend. Its Prover-owned TLS transport is not wired into a production origin
-client, Dedicated Verifier, or Web runtime.
+backend. Its Prover-owned TLS transport is wired into the APP's feature-gated
+`tlsn-production` origin path through
+[`wrap_proxy.rs`](../FUSOU-APP/src-tauri/src/wrap_proxy.rs) and
+[`real_tlsn.rs`](../FUSOU-PROXY/proxy-https/src/real_tlsn.rs). This is source
+wiring only: the embedded Runtime Config URL and signer pins are currently
+unregistered, so enabling `proxy.tlsn.enabled` fails closed before the proxy
+listener starts. The default-disabled ordinary proxy path is unaffected.
 
 It currently provides:
 
@@ -39,13 +44,15 @@ It currently provides:
   before TLSN prover/notary finalization runs in the background continuation.
 
 FUSOU-PROXY also contains a default-off request-selection gate controlled by
-`proxy.tlsn.enabled`. When explicitly enabled, it detects the
-first actual ordinary-play `POST /kcsapi/api_get_member/require_info` request
-and fails closed with `503` because the production Session/Challenge authority,
-Notary channel, binding injection, and Prover-owned origin transport are not
-available. It never forwards that selected request through Production or
-retries it. Non-target requests and the default-disabled Production route are
-unchanged.
+`proxy.tlsn.enabled`. With the APP built using `tlsn-production`, the APP
+validates Runtime Config, the selected Target Approval and Worker health before
+starting the proxy, then supplies the production forwarder for the first actual
+ordinary-play `POST /kcsapi/api_get_member/require_info` request. The embedded
+Runtime Config bootstrap is not registered in this checkout, so this route
+cannot currently be started from it. If the gate is reached without a usable
+forwarder, the selected request fails closed with `503`; it is not retried or
+sent through a fallback. Non-target requests and the default-disabled route
+remain unchanged.
 
 The backend is pinned to:
 
@@ -71,9 +78,12 @@ uses the pinned upstream mux. The source mapping is now evidenced, but
 independent security, wire-contract, license, and release decisions remain
 pending. P0-01 remains `BLOCKED_EXTERNAL_INPUTS`; see the dossier for the
 complete diff, trust-root path, risk, and approval tables.
-The runtime dependency is currently used by the local transport skeleton and
-offline tests. It is not wired into a production FUSOU-App origin transport, a
-production Verifier service, or a Notary service.
+The tracked checkout contains the APP transport path, but not a deployed
+Production Worker runtime, Session Authority handler, Notary service, or
+Production evidence collector. Runtime Config bootstrap inputs are unregistered
+and the TLSN Production path therefore remains blocked. Local transport and
+verifier tests do not establish the behavior of those external services or
+Production acceptance.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
 rejects trailing bytes, calls `Presentation::verify`, and requires complete
@@ -513,16 +523,20 @@ cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.t
   --trust-anchor-der trust-root.der
 ```
 
-The experimental probe is not a production TLSN route and does not replace the
-Hyper/rustls production origin client. The FUSOU-PROXY gate consumes the normal
-MITM handler's actual request metadata only to select and block the request until
-the missing transport is supplied; it does not generate a standalone
-`require_info` request. Its synthetic-origin tests cover the Prover-owned
-request/response boundary, binding/replay rejection, alpha.15 Presentation
-verification, and unsigned Result construction. The synthetic certificate chain
-and test signing inputs are not production trust or signer evidence; real Game
-Server compatibility, Notary-backed Presentation generation, production Result
-signing, and runtime delivery remain blocked. P0-05 therefore remains
+The experimental probe is distinct from the APP's feature-gated production
+`ProverOwnedTlsTransport` path. The APP path validates Runtime Config, Target
+Approval, and Worker identity/health before serving; because its embedded
+bootstrap URL and signer pins are currently `None`, this checkout cannot start
+that route. When all runtime gates are provisioned, the FUSOU-PROXY gate uses
+the normal MITM handler's actual request metadata and forwards the selected
+request through the supplied one-shot transport; it does not generate a
+standalone `require_info` request. If no forwarder is available, it returns
+`503`. Synthetic-origin tests cover the Prover-owned request/response boundary,
+binding/replay rejection, alpha.15 Presentation verification, and unsigned
+Result construction. The synthetic certificate chain and test signing inputs
+are not production trust or signer evidence; real Game Server compatibility,
+Notary-backed Presentation generation, Production Result signing, archive
+collection, and runtime delivery remain unverified. P0-05 therefore remains
 `BLOCKED`.
 
 Run the focused checks with:
