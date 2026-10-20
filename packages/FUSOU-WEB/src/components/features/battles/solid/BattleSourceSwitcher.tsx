@@ -1,7 +1,5 @@
 /** @jsxImportSource solid-js */
-import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import {
   clearStoredLocalDirectoryHandle,
   loadStoredLocalDirectoryHandle,
@@ -9,7 +7,6 @@ import {
 } from "@/features/battles/local-directory/handle-store";
 import {
   pickLocalDirectory,
-  supportsLocalDirectoryPicker,
   type LocalPickerResult,
 } from "@/features/battles/local-directory/picker";
 import {
@@ -74,26 +71,6 @@ function loadLocalLimits(): LocalAvroLoadLimits {
   }
 }
 
-function formatBytes(value: number): string {
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
-}
-
-function permissionLabel(value: LocalDirectoryPermissionState): string {
-  if (value === "granted") return "許可済み";
-  if (value === "prompt") return "許可が必要";
-  if (value === "denied") return "拒否";
-  return "このブラウザでは確認できません";
-}
-
-function scanProgressLabel(progress: ManifestScanProgress | null): string {
-  if (!progress) return "ファイルを確認しています...";
-  if (progress.phase === "manifest-validation") return "manifestを検証しています...";
-  return progress.total
-    ? `ファイルを確認中 ${progress.completed}/${progress.total}`
-    : `ファイルを確認中 ${progress.completed}`;
-}
-
 function localScanErrorMessage(error: unknown): string {
   if (error instanceof ManifestScanError) {
     if (error.code === "FILE_TOO_LARGE") return "AVROファイルがサイズ上限を超えています。";
@@ -109,8 +86,8 @@ export default function BattleSourceSwitcher() {
   const [source, setSource] = createSignal<SourceKind>(initialSource);
   const [rememberSource, setRememberSource] = createSignal(hasStoredSourcePreference());
   const [localLimits, setLocalLimits] = createSignal<LocalAvroLoadLimits>(loadLocalLimits());
-  const [repository, setRepository] = createSignal<BattleDataRepository | null>(
-    initialSource === "r2" ? new R2BattleRepository() : null,
+  const [repository, setRepository] = createSignal<BattleDataRepository>(
+    new R2BattleRepository(),
   );
   const [localStatus, setLocalStatus] = createSignal<LocalStatus>("idle");
   const [permission, setPermission] = createSignal<LocalDirectoryPermissionState>("prompt");
@@ -118,17 +95,11 @@ export default function BattleSourceSwitcher() {
   const [scanResult, setScanResult] = createSignal<ManifestScanResult | null>(null);
   const [scanProgress, setScanProgress] = createSignal<ManifestScanProgress | null>(null);
   const [error, setError] = createSignal<string | null>(null);
-  let localSettingsModalRef!: HTMLDialogElement;
+
   let disposed = false;
   let operationGeneration = 0;
 
-  const openLocalSettings = () => {
-    if (localSettingsModalRef && !localSettingsModalRef.open) {
-      localSettingsModalRef.showModal();
-    }
-  };
-
-  const replaceRepository = (nextRepository: BattleDataRepository | null) => {
+  const replaceRepository = (nextRepository: BattleDataRepository) => {
     const previousRepository = repository();
     if (previousRepository && previousRepository !== nextRepository) {
       void previousRepository.dispose();
@@ -198,12 +169,10 @@ export default function BattleSourceSwitcher() {
       setScanResult(result);
       replaceRepository(new LocalAvroBattleRepository(result.manifest));
       setLocalStatus("ready");
-      localSettingsModalRef?.close();
     } catch (cause) {
       if (disposed || generation !== operationGeneration) return;
       setLocalStatus("error");
       setError(localScanErrorMessage(cause));
-      openLocalSettings();
     }
   };
 
@@ -240,7 +209,6 @@ export default function BattleSourceSwitcher() {
       if (disposed || generation !== operationGeneration) return;
       setLocalStatus("error");
       setError(localScanErrorMessage(cause));
-      openLocalSettings();
     }
   };
 
@@ -256,17 +224,13 @@ export default function BattleSourceSwitcher() {
         setStoredHandle(picked.handle);
       }
       applyPickerResult(picked);
-      localSettingsModalRef?.close();
     } catch (cause) {
       if (disposed || generation !== operationGeneration) return;
       if (cause instanceof DOMException && cause.name === "AbortError") {
-        restoreR2Source();
-        localSettingsModalRef?.close();
         return;
       }
       setLocalStatus("error");
       setError(cause instanceof Error ? cause.message : "ローカル AVRO の選択に失敗しました。");
-      openLocalSettings();
     }
   };
 
@@ -278,7 +242,6 @@ export default function BattleSourceSwitcher() {
     if (disposed || generation !== operationGeneration) return;
     setPermission(nextPermission);
     if (nextPermission === "granted") await scanHandle(handle, generation);
-    else openLocalSettings();
   };
 
   const rescanStoredHandle = async () => {
@@ -290,7 +253,6 @@ export default function BattleSourceSwitcher() {
     setPermission(currentPermission);
     if (currentPermission === "granted") await scanHandle(handle, generation, localLimits());
     else {
-      openLocalSettings();
       await requestStoredPermission();
     }
   };
@@ -310,7 +272,6 @@ export default function BattleSourceSwitcher() {
       .filter((file): file is File => file instanceof File);
     if (files.length === 0) {
       setError("上限を変更するには、ローカル AVRO を再選択してください。");
-      openLocalSettings();
       return;
     }
 
@@ -324,7 +285,6 @@ export default function BattleSourceSwitcher() {
       return;
     }
     setError("ファイル一覧から選択した AVRO は、更新時に再選択が必要です。");
-    openLocalSettings();
   };
 
   const selectSource = (nextSource: SourceKind) => {
@@ -358,8 +318,7 @@ export default function BattleSourceSwitcher() {
         .map((entry) => entry.file)
         .filter((file): file is File => file instanceof File);
       if (files.length > 0) void rescanFileList(files, generation, currentLimits);
-      else openLocalSettings();
-    } else openLocalSettings();
+    }
   };
 
   const setSourcePreference = (enabled: boolean) => {
@@ -379,7 +338,6 @@ export default function BattleSourceSwitcher() {
     if (rememberSource()) persistSourcePreference("r2");
     syncSourceQuery("r2");
     replaceRepository(new R2BattleRepository());
-    localSettingsModalRef?.close();
   };
 
   onMount(() => {
@@ -394,12 +352,10 @@ export default function BattleSourceSwitcher() {
         if (source() === "local-avro") {
           if (storedPermission === "granted") {
             await scanHandle(stored.handle, operationGeneration);
-          } else {
-            openLocalSettings();
           }
         }
       } else if (source() === "local-avro") {
-        openLocalSettings();
+        restoreR2Source();
       }
     })();
   });
@@ -410,132 +366,26 @@ export default function BattleSourceSwitcher() {
   });
 
   return (
-    <>
-      <LocalSourceSettingsModal
-        ref={(element) => {
-          localSettingsModalRef = element;
-        }}
-        localStatus={localStatus}
-        permission={permission}
-        scanResult={scanResult}
-        scanProgress={scanProgress}
-        error={error}
-        hasStoredHandle={() => storedHandle() !== null}
-        onClose={() => {
-          if (source() === "local-avro" && !scanResult() && localStatus() !== "scanning") {
-            restoreR2Source();
-          }
-        }}
-        onPick={usePicker}
-        onRequestPermission={requestStoredPermission}
-        onRescan={rescanStoredHandle}
-        onRelease={releaseLocalAccess}
-      />
-      <Show
-        when={repository()}
-        keyed
-        fallback={<LocalPendingBattleShell />}
-      >
-        {(activeRepository) => (
-          <BattlesDashboard
-            repository={activeRepository}
-            source={source()}
-            localStatus={localStatus()}
-            localDirectoryName={() => storedHandle()?.name ?? null}
-            localLimits={localLimits()}
-            rememberSource={rememberSource()}
-            onSourceChange={selectSource}
-            onOpenLocalDirectorySettings={openLocalSettings}
-            onRefreshDataSource={refreshDataSource}
-            onRememberSourceChange={setSourcePreference}
-            onLocalLimitsChange={applyLocalLimits}
-          />
-        )}
-      </Show>
-    </>
-  );
-}
-
-function LocalPendingBattleShell() {
-  return (
-    <div class="fusou-page-header">
-      <div>
-        <h1 class="fusou-page-title">戦闘データ</h1>
-        <p class="fusou-page-subtitle">記録された戦闘ログの分析・集計機能</p>
-      </div>
-    </div>
-  );
-}
-
-function LocalSourceSettingsModal(props: {
-  ref: (element: HTMLDialogElement) => void;
-  localStatus: () => LocalStatus;
-  permission: () => LocalDirectoryPermissionState;
-  scanResult: () => ManifestScanResult | null;
-  scanProgress: () => ManifestScanProgress | null;
-  error: () => string | null;
-  hasStoredHandle: () => boolean;
-  onClose: () => void;
-  onPick: () => void;
-  onRequestPermission: () => void;
-  onRescan: () => void;
-  onRelease: () => void;
-}) {
-  const periodCount = () =>
-    props.scanResult()
-      ? new Set(props.scanResult()!.manifest.entries.map((entry) => entry.periodTag)).size
-      : 0;
-
-  return (
-    <FusouModal
-      ref={props.ref}
-      title="表示設定"
-      description="戦闘データの表示元とローカル AVRO の読み込みを設定します。"
-      maxWidth="md"
-      onClose={props.onClose}
-      actions={
-        <form method="dialog">
-          <button type="submit" class="fusou-btn-primary">閉じる</button>
-        </form>
-      }
-    >
-        <div class="rounded-lg border border-base-300 p-3 text-sm">
-          <div class="font-medium">ローカルデータ</div>
-          <div class="mt-1 text-xs text-base-content/65">
-            権限: {permissionLabel(props.permission())}
-          </div>
-          <Show when={!supportsLocalDirectoryPicker()}>
-            <div class="mt-1 text-xs text-base-content/65">
-              このブラウザでは毎回ファイルを再選択する必要があります。
-            </div>
-          </Show>
-          <Show when={props.scanResult()}>
-            <div class="mt-1 text-xs text-base-content/65">
-              期間 {periodCount()} 件 / ファイル {props.scanResult()!.fileCount} 件 / {formatBytes(props.scanResult()!.totalBytes)}
-            </div>
-          </Show>
-          <Show when={props.localStatus() === "scanning"}>
-            <div class="mt-2 text-xs text-base-content/65">
-              {scanProgressLabel(props.scanProgress())}
-            </div>
-          </Show>
-          <Show when={props.error()}>
-            <div class="mt-2"><AlertMessage type="error">{props.error()!}</AlertMessage></div>
-          </Show>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <Show when={!props.scanResult() && props.hasStoredHandle() && props.permission() === "prompt"}>
-              <button type="button" class="fusou-btn-primary" onClick={props.onRequestPermission}>前回のディレクトリを使用</button>
-            </Show>
-            <Show when={!props.scanResult() && !(props.hasStoredHandle() && props.permission() === "prompt")}>
-              <button type="button" class="fusou-btn-primary" onClick={props.onPick}>ディレクトリを選択</button>
-            </Show>
-            <Show when={props.scanResult()}>
-              <button type="button" class="fusou-btn-secondary" onClick={props.onRescan}>再スキャン</button>
-              <button type="button" class="fusou-btn-ghost" onClick={props.onPick}>再選択</button>
-              <button type="button" class="fusou-btn-ghost" onClick={props.onRelease}>アクセス解除</button>
-            </Show>
-          </div>
-        </div>
-        </FusouModal>
+    <BattlesDashboard
+      repository={repository()}
+      source={source()}
+      localStatus={localStatus()}
+      localDirectoryName={() => storedHandle()?.name ?? null}
+      permission={permission}
+      scanResult={scanResult}
+      scanProgress={scanProgress}
+      localError={error}
+      hasStoredHandle={() => storedHandle() !== null}
+      localLimits={localLimits()}
+      rememberSource={rememberSource()}
+      onSourceChange={selectSource}
+      onPickLocalDirectory={usePicker}
+      onRequestLocalPermission={requestStoredPermission}
+      onRescanLocalDirectory={rescanStoredHandle}
+      onReleaseLocalAccess={releaseLocalAccess}
+      onRefreshDataSource={refreshDataSource}
+      onRememberSourceChange={setSourcePreference}
+      onLocalLimitsChange={applyLocalLimits}
+    />
   );
 }

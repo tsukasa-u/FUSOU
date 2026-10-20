@@ -33,6 +33,11 @@ import BattleDropsPanel from "../../drops/solid/BattleDropsPanel"; // New compon
 import BattleTabs from "./BattleTabs"; // We'll create this Solid component
 import BattleDataSettingsModal from "./BattleDataSettingsModal";
 import BattleFilterSettingsModal from "./BattleFilterSettingsModal";
+import type { LocalDirectoryPermissionState } from "@/features/battles/local-directory/permissions";
+import type {
+  ManifestScanProgress,
+  ManifestScanResult,
+} from "@/features/battles/local-directory/manifest-scanner";
 
 import { SettingsIcon } from "@/components/common/solid/icons/SettingsIcon";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
@@ -148,9 +153,18 @@ export default function BattlesDashboard(props: {
   source: "r2" | "local-avro";
   localStatus: "idle" | "scanning" | "ready" | "error";
   localDirectoryName: () => string | null;
+  permission: () => LocalDirectoryPermissionState;
+  scanResult: () => ManifestScanResult | null;
+  scanProgress: () => ManifestScanProgress | null;
+  localError: () => string | null;
+  hasStoredHandle: () => boolean;
   rememberSource: boolean;
   onSourceChange: (source: "r2" | "local-avro") => void;
-  onOpenLocalDirectorySettings: () => void;
+  onOpenLocalDirectorySettings?: () => void;
+  onPickLocalDirectory: () => void;
+  onRequestLocalPermission: () => void;
+  onRescanLocalDirectory: () => void;
+  onReleaseLocalAccess: () => void;
   onRefreshDataSource: () => void | Promise<void>;
   onRememberSourceChange: (enabled: boolean) => void;
   localLimits: LocalAvroLoadLimits;
@@ -205,6 +219,8 @@ export default function BattlesDashboard(props: {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
+  const [startDate, setStartDate] = createSignal("");
+  const [endDate, setEndDate] = createSignal("");
   const activeFilterItems = createMemo((): FilterChipItem[] => {
     const items: FilterChipItem[] = [];
     const query = searchQuery().trim();
@@ -248,6 +264,27 @@ export default function BattlesDashboard(props: {
         label: "勝敗",
         value: `${result}勝利`,
         onRemove: () => setResultFilter(""),
+      });
+    }
+    const start = startDate().trim();
+    const end = endDate().trim();
+    if (start || end) {
+      let dateValue = "";
+      if (start && end) {
+        dateValue = start === end ? start : `${start} 〜 ${end}`;
+      } else if (start) {
+        dateValue = `${start} 以降`;
+      } else {
+        dateValue = `${end} 以前`;
+      }
+      items.push({
+        key: "date",
+        label: "日付",
+        value: dateValue,
+        onRemove: () => {
+          setStartDate("");
+          setEndDate("");
+        },
       });
     }
     return items;
@@ -616,6 +653,14 @@ export default function BattlesDashboard(props: {
     }
     const initialMapFilter = params.get("map_filter")?.trim() ?? "";
     const initialResultFilter = params.get("result_filter")?.trim() ?? "";
+    const initialStartDate = params.get("start_date")?.trim() ?? "";
+    const initialEndDate = params.get("end_date")?.trim() ?? "";
+    if (initialStartDate) {
+      setStartDate(initialStartDate);
+    }
+    if (initialEndDate) {
+      setEndDate(initialEndDate);
+    }
     const initialTab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops";
     if (initialMapFilter) {
       setMapFilter(initialMapFilter);
@@ -739,6 +784,20 @@ export default function BattlesDashboard(props: {
       url.searchParams.delete("result_filter");
     }
 
+    const startVal = startDate().trim();
+    if (startVal) {
+      url.searchParams.set("start_date", startVal);
+    } else {
+      url.searchParams.delete("start_date");
+    }
+
+    const endVal = endDate().trim();
+    if (endVal) {
+      url.searchParams.set("end_date", endVal);
+    } else {
+      url.searchParams.delete("end_date");
+    }
+
     window.history.replaceState({}, "", url.toString());
   });
 
@@ -763,6 +822,10 @@ export default function BattlesDashboard(props: {
     weaponIconMeta,
     searchQuery,
     setSearchQuery,
+    startDate,
+    setStartDate,
+    endDate,
+    setEndDate,
     mapFilter,
     setMapFilter,
     resultFilter,
@@ -934,6 +997,9 @@ export default function BattlesDashboard(props: {
             onSearchChange={setSearchQuery}
             activeFilterCount={activeFilterItems().length}
             onOpenFilterModal={() => filterSettingsModalRef?.showModal()}
+            mapOptions={mapOptions}
+            battleRecords={battleRecords}
+            mstShips={mstShips}
           />
         </div>
 
@@ -943,6 +1009,8 @@ export default function BattlesDashboard(props: {
               items={activeFilterItems()}
               onClearAll={() => {
                 setSearchQuery("");
+                setStartDate("");
+                setEndDate("");
                 setMapFilter("");
                 setResultFilter("");
                 const defaultIdx = defaultPeriodIndex();
@@ -981,22 +1049,24 @@ export default function BattlesDashboard(props: {
           </Switch>
         </div>
       <BattleDataSettingsModal
-        ref={(element) => {
-          dataSettingsModalRef = element;
-        }}
-        source={props.source}
-        localStatus={props.localStatus}
-        localDirectoryName={props.localDirectoryName}
-        rememberSource={props.rememberSource}
-        onSourceChange={(source) => {
-          dataSettingsModalRef.close();
-          props.onSourceChange(source);
-        }}
-        onOpenLocalDirectorySettings={() => {
-          dataSettingsModalRef.close();
-          props.onOpenLocalDirectorySettings();
-        }}
-        onRememberSourceChange={props.onRememberSourceChange}
+          ref={(element) => {
+            dataSettingsModalRef = element;
+          }}
+          source={props.source}
+          localStatus={props.localStatus}
+          localDirectoryName={props.localDirectoryName}
+          permission={props.permission}
+          scanResult={props.scanResult}
+          scanProgress={props.scanProgress}
+          localError={props.localError}
+          hasStoredHandle={props.hasStoredHandle}
+          rememberSource={props.rememberSource}
+          onSourceChange={props.onSourceChange}
+          onPickLocalDirectory={props.onPickLocalDirectory}
+          onRequestLocalPermission={props.onRequestLocalPermission}
+          onRescanLocalDirectory={props.onRescanLocalDirectory}
+          onReleaseLocalAccess={props.onReleaseLocalAccess}
+          onRememberSourceChange={props.onRememberSourceChange}
         periodLabel={selectedPeriod()?.period_tag === "latest"
           ? "最新 (latest)"
           : selectedPeriod()?.period_tag === "all"
@@ -1020,6 +1090,10 @@ export default function BattlesDashboard(props: {
         onPeriodChange={changePeriod}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
         mapOptions={mapOptions}
         mapFilter={mapFilter}
         onMapFilterChange={setMapFilter}

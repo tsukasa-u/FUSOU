@@ -1,6 +1,13 @@
-﻿/** @jsxImportSource solid-js */
-import { onMount, onCleanup, Show, type JSX } from "solid-js";
-import { IconFilter } from "@/components/common/solid/icons/CommonIcons";
+/** @jsxImportSource solid-js */
+import { createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import {
+  SearchFilterBarBase,
+  SuggestionGroup,
+  SuggestionItemButton,
+} from "@/components/common/solid/SearchFilterBarBase";
+import type { BattleRecord, MstShipRecord } from "../../map-flow/solid/battle-map-flow/types";
+import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
+import { alphaCellLabel } from "../../map-flow/solid/battle-map-flow/dataUtils";
 
 export interface BattleSearchFilterBarProps {
   searchQuery: () => string;
@@ -8,118 +15,231 @@ export interface BattleSearchFilterBarProps {
   activeFilterCount: number;
   onOpenFilterModal: () => void;
   class?: string | undefined;
+  mapOptions?: () => string[];
+  battleRecords?: () => BattleRecord[];
+  mstShips?: () => MstShipRecord[];
 }
 
+const VICTORY_RANKS = [
+  { rank: "S", label: "S勝利" },
+  { rank: "A", label: "A勝利" },
+  { rank: "B", label: "B勝利" },
+  { rank: "C", label: "C敗北" },
+  { rank: "D", label: "D敗北" },
+];
+
 /**
- * Single unified Search & Filter Bar component.
- * Integrates text search input and detailed filter trigger into one cohesive control.
- * Responsive across mobile and desktop without layout breaks or double borders.
- * Conforms to DESIGN.MD Section 10 Component rules.
+ * Single unified Search & Filter Bar component for Battle Data.
+ * Integrates text search input with predictive candidates (maps, drop ships, cells, ranks)
+ * using the shared SearchFilterBarBase layout.
  */
 export function BattleSearchFilterBar(props: BattleSearchFilterBarProps): JSX.Element {
-  let searchInputRef!: HTMLInputElement;
+  const [isOpen, setIsOpen] = createSignal(false);
+  let searchInputRef: HTMLInputElement | undefined;
 
-  onMount(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "/" &&
-        !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName || "")
-      ) {
-        e.preventDefault();
-        searchInputRef?.focus();
-        searchInputRef?.select();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  const query = () => props.searchQuery().trim().toLowerCase();
+
+  // 1. Matched Maps
+  const matchedMaps = createMemo(() => {
+    const q = query();
+    if (!q || !props.mapOptions) return [];
+    return props.mapOptions().filter((m) => m.toLowerCase().includes(q)).slice(0, 5);
   });
 
+  // 2. Matched Ships (Drop ships & Master ships)
+  const matchedShips = createMemo(() => {
+    const q = query();
+    if (!q) return [];
+
+    const mstShipMap = new Map<number, string>();
+    if (props.mstShips) {
+      for (const ship of props.mstShips()) {
+        mstShipMap.set(ship.id, ship.name);
+      }
+    }
+
+    const droppedShips = new Set<string>();
+    if (props.battleRecords) {
+      for (const b of props.battleRecords()) {
+        const res = battleResultOf(b);
+        if (res?.drop_ship_name) {
+          droppedShips.add(res.drop_ship_name.trim());
+        } else if (res?.drop_ship_id && mstShipMap.has(res.drop_ship_id)) {
+          droppedShips.add(mstShipMap.get(res.drop_ship_id)!);
+        }
+      }
+    }
+
+    const items: Array<{ name: string; isDrop: boolean }> = [];
+    const seen = new Set<string>();
+
+    for (const name of droppedShips) {
+      if (name.toLowerCase().includes(q)) {
+        items.push({ name, isDrop: true });
+        seen.add(name);
+        if (items.length >= 5) break;
+      }
+    }
+
+    if (items.length < 6 && props.mstShips) {
+      for (const ship of props.mstShips()) {
+        if (!seen.has(ship.name) && (ship.name.toLowerCase().includes(q) || String(ship.id) === q)) {
+          items.push({ name: ship.name, isDrop: false });
+          seen.add(ship.name);
+          if (items.length >= 6) break;
+        }
+      }
+    }
+
+    return items;
+  });
+
+  // 3. Matched Cells
+  const matchedCells = createMemo(() => {
+    const q = query();
+    if (!q || !props.battleRecords) return [];
+    const rawQ = q.replace(/^マス\s*/, "").trim();
+    const cells = new Set<string>();
+    for (const b of props.battleRecords()) {
+      const cellId = Number(b.cell_id ?? NaN);
+      if (!Number.isFinite(cellId) || cellId <= 0) continue;
+      const label = alphaCellLabel(cellId);
+      if (
+        label.toLowerCase().includes(rawQ) ||
+        `マス ${label}`.toLowerCase().includes(q) ||
+        `マス${label}`.toLowerCase().includes(q)
+      ) {
+        cells.add(label);
+        if (cells.size >= 6) break;
+      }
+    }
+    return Array.from(cells).sort();
+  });
+
+  // 4. Matched Ranks
+  const matchedRanks = createMemo(() => {
+    const q = query();
+    if (!q) return [];
+    return VICTORY_RANKS.filter(
+      (r) =>
+        r.rank.toLowerCase() === q ||
+        r.label.toLowerCase().includes(q) ||
+        `${r.rank}勝利`.toLowerCase().includes(q),
+    );
+  });
+
+  const hasAnySuggestions = () =>
+    matchedMaps().length > 0 ||
+    matchedShips().length > 0 ||
+    matchedCells().length > 0 ||
+    matchedRanks().length > 0;
+
+  const handleSelectSuggestion = (val: string) => {
+    props.onSearchChange(val);
+    setIsOpen(false);
+    searchInputRef?.focus();
+  };
+
   return (
-    <div
-      class={`flex items-center h-8 rounded-md border border-base-300 bg-base-100 hover:border-base-content/30 focus-within:border-primary focus-within:ring-0 transition-colors w-full md:w-auto max-w-full min-w-0 mb-1.5 sm:mb-1 ${props.class ?? ""}`.trim()}
-      role="search"
-      aria-label="戦闘データ検索・フィルター"
+    <SearchFilterBarBase
+      searchQuery={props.searchQuery}
+      onSearchChange={props.onSearchChange}
+      placeholder="検索 (海域・艦名・マス)..."
+      ariaLabel="戦闘データ検索"
+      activeFilterCount={props.activeFilterCount}
+      onOpenFilterModal={props.onOpenFilterModal}
+      filterButtonId="battle-filter-settings-btn"
+      filterButtonTitle="フィルター設定 (期間・日付・海域・勝敗)"
+      isOpen={isOpen}
+      onOpenChange={setIsOpen}
+      class={props.class}
+      inputRef={(el) => {
+        searchInputRef = el;
+      }}
     >
-      {/* 1. Search Icon */}
-      <div class="pl-2.5 pr-1 text-base-content/40 flex items-center pointer-events-none select-none shrink-0">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="size-3.5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-      </div>
-
-      {/* 2. Borderless Search Input (Fills available width on mobile, no double border) */}
-      <input
-        ref={searchInputRef}
-        type="search"
-        value={props.searchQuery()}
-        onInput={(e) => props.onSearchChange(e.currentTarget.value)}
-        placeholder="検索 (艦名・海域・マス)..."
-        class="bg-transparent border-none outline-none focus:outline-none focus:ring-0 ring-0 shadow-none focus:shadow-none text-xs flex-1 min-w-[80px] md:w-48 lg:w-56 text-base-content placeholder:text-base-content/40 py-1 pl-1 [appearance:textfield] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
-        aria-label="戦闘データ検索"
-      />
-
-      {/* 3. Search Clear Button */}
-      <Show when={props.searchQuery()}>
-        <button
-          type="button"
-          onClick={() => {
-            props.onSearchChange("");
-            searchInputRef?.focus();
-          }}
-          class="size-4 mr-1.5 rounded hover:bg-base-200 flex items-center justify-center text-base-content/40 hover:text-base-content text-[11px] cursor-pointer shrink-0"
-          title="検索文字をクリア"
-          aria-label="検索文字をクリア"
-        >
-          ✕
-        </button>
+      <Show when={!hasAnySuggestions()}>
+        <div class="py-4 text-center text-xs text-base-content/50">
+          該当する候補が見つかりません
+        </div>
       </Show>
 
-      {/* 4. Shortcut / badge (Desktop only) */}
-      <Show when={!props.searchQuery()}>
-        <kbd class="text-[10px] font-mono bg-base-200 border border-base-300 rounded px-1 mr-1.5 text-base-content/40 pointer-events-none hidden sm:inline-block select-none shrink-0">
-          /
-        </kbd>
+      {/* 1. Maps Category */}
+      <Show when={matchedMaps().length > 0}>
+        <SuggestionGroup title="海域" count={matchedMaps().length}>
+          <For each={matchedMaps()}>
+            {(map) => (
+              <SuggestionItemButton
+                title={map}
+                badge="海域"
+                onClick={() => handleSelectSuggestion(map)}
+              />
+            )}
+          </For>
+        </SuggestionGroup>
       </Show>
 
-      {/* 5. Internal Divider */}
-      <div class="h-4 w-px bg-base-300 mx-0.5 select-none shrink-0" />
+      {/* 2. Ships Category */}
+      <Show when={matchedShips().length > 0}>
+        <SuggestionGroup
+          title="ドロップ艦・艦名"
+          count={matchedShips().length}
+          hasTopBorder={matchedMaps().length > 0}
+        >
+          <For each={matchedShips()}>
+            {(item) => (
+              <SuggestionItemButton
+                title={item.name}
+                badge={item.isDrop ? "ドロップ艦" : "艦"}
+                badgeClass={item.isDrop ? "badge-primary" : "badge-ghost"}
+                onClick={() => handleSelectSuggestion(item.name)}
+              />
+            )}
+          </For>
+        </SuggestionGroup>
+      </Show>
 
-      {/* 6. Built-in Filter Trigger Button */}
-      <button
-        id="battle-filter-settings-btn"
-        type="button"
-        onClick={props.onOpenFilterModal}
-        class="inline-flex items-center gap-1 px-2.5 h-full text-xs text-base-content/70 hover:text-primary hover:bg-base-200/60 rounded-r-md transition-colors cursor-pointer select-none group shrink-0 outline-none focus:outline-none"
-        classList={{
-          "text-primary font-medium bg-primary/10": props.activeFilterCount > 0,
-        }}
-        title="フィルター設定 (海域・勝敗・期間)"
-        aria-label="詳細フィルター設定"
-      >
-        <IconFilter
-          class={`size-3.5 transition-colors shrink-0 group-hover:text-primary ${props.activeFilterCount > 0 ? "text-primary" : "text-base-content/50"}`}
-        />
-        <span class="text-xs group-hover:text-base-content transition-colors font-normal">
-          フィルター
-        </span>
-        <Show when={props.activeFilterCount > 0}>
-          <span class="badge badge-primary badge-xs px-1 font-bold">
-            {props.activeFilterCount}
-          </span>
-        </Show>
-      </button>
-    </div>
+      {/* 3. Cells Category */}
+      <Show when={matchedCells().length > 0}>
+        <SuggestionGroup
+          title="マス"
+          count={matchedCells().length}
+          hasTopBorder={matchedMaps().length > 0 || matchedShips().length > 0}
+        >
+          <For each={matchedCells()}>
+            {(cell) => (
+              <SuggestionItemButton
+                title={`マス: ${cell}`}
+                badge="マス"
+                onClick={() => handleSelectSuggestion(cell)}
+              />
+            )}
+          </For>
+        </SuggestionGroup>
+      </Show>
+
+      {/* 4. Ranks Category */}
+      <Show when={matchedRanks().length > 0}>
+        <SuggestionGroup
+          title="勝敗結果"
+          count={matchedRanks().length}
+          hasTopBorder={
+            matchedMaps().length > 0 ||
+            matchedShips().length > 0 ||
+            matchedCells().length > 0
+          }
+        >
+          <For each={matchedRanks()}>
+            {(r) => (
+              <SuggestionItemButton
+                title={r.label}
+                badge="勝敗"
+                onClick={() => handleSelectSuggestion(r.rank)}
+              />
+            )}
+          </For>
+        </SuggestionGroup>
+      </Show>
+    </SearchFilterBarBase>
   );
 }
 

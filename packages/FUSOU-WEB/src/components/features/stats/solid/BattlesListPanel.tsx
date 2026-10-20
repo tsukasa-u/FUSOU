@@ -1,7 +1,7 @@
 ﻿/** @jsxImportSource solid-js */
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, formatTimestamp, alphaCellLabel, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import type { BattleRecord } from "../../map-flow/solid/battle-map-flow/types";
 import {
   battleResultOf as battleResultOfRecord,
@@ -60,6 +60,8 @@ function airSuperiorityLabelOf(battle: BattleRecord): string {
   return AIR_SUPERIORITY_NAMES[airSup] ?? "";
 }
 
+
+
 const PAGE_SIZE = 50;
 
 function battleResultOf(b: BattleRecord) {
@@ -70,17 +72,15 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
   const d = props.dashboardState;
   const [currentPage, setCurrentPage] = createSignal(0);
 
-  const alphaCellLabel = (cellId: number): string => {
-    if (!Number.isFinite(cellId) || cellId <= 0) return "-";
-    let n = Math.floor(cellId);
-    let label = "";
-    while (n > 0) {
-      const rem = (n - 1) % 26;
-      label = String.fromCharCode(65 + rem) + label;
-      n = Math.floor((n - 1) / 26);
+  const mstShipNameMap = createMemo(() => {
+    const map = new Map<number, string>();
+    for (const ship of d.mstShips()) {
+      map.set(ship.id, ship.name);
     }
-    return label;
-  };
+    return map;
+  });
+
+
 
   const cellDisplayLabelOf = (b: BattleRecord): string => {
     const cellId = Number(b.cell_id ?? NaN);
@@ -103,11 +103,20 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     if (selectedMap) {
       list = list.filter((b) => mapKeyOf(b) === selectedMap);
     }
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    if (start || end) {
+      list = list.filter((b) => isWithinDateRange(b.timestamp, start, end));
+    }
     const query = d.searchQuery().trim().toLowerCase();
     if (query) {
+      const mstMap = mstShipNameMap();
       list = list.filter((b) => {
         const result = battleResultOf(b);
-        const shipName = (result?.drop_ship_name ?? "").toLowerCase();
+        let shipName = (result?.drop_ship_name ?? "").toLowerCase();
+        if (!shipName && result?.drop_ship_id && mstMap.has(result.drop_ship_id)) {
+          shipName = (mstMap.get(result.drop_ship_id) ?? "").toLowerCase();
+        }
         const mapKey = mapKeyOf(b).toLowerCase();
         const cellLabel = cellDisplayLabelOf(b).toLowerCase();
         return (
@@ -187,14 +196,14 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                           <div class="flex items-center gap-1 min-w-[100px]">
                             <img
                               src={bannerUrl(result.drop_ship_id)}
-                              alt={result.drop_ship_name ?? "艦娘"}
+                              alt={result.drop_ship_name ?? "艦"}
                               class="h-5 w-20 object-contain rounded bg-base-300"
                               onError={(e) => {
                                 (e.currentTarget as HTMLElement).style.display = "none";
                               }}
                             />
                             <span class="text-xs truncate max-w-[100px]">
-                              {result.drop_ship_name ?? `#${result.drop_ship_id}`}
+                              {result.drop_ship_name ?? (result.drop_ship_id ? mstShipNameMap().get(result.drop_ship_id) : undefined) ?? `#${result.drop_ship_id}`}
                             </span>
                           </div>
                         ) : "-"}

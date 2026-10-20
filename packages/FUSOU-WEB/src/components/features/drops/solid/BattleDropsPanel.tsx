@@ -5,7 +5,7 @@ import { MapAreaGrid } from "@/components/common/solid/MapAreaGrid";
 import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
-import { mapKeyOf, cellLabel as pureCellLabel, parseMapRoutesPayload, resolveCellType } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, cellLabel as pureCellLabel, parseMapRoutesPayload, resolveCellType, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
 import {
   MAP_TRIM_PADDING,
@@ -287,7 +287,14 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   const allDrops = createMemo(() => {
     return d.battleRecords()
       .map((r) => ({ record: r, result: battleResultOf(r) }))
-      .filter((entry) => entry.result?.drop_ship_id)
+      .filter((entry) => {
+        if (!entry.result?.drop_ship_id) return false;
+        if (d.resultFilter() && entry.result.win_rank !== d.resultFilter()) return false;
+        const start = d.startDate().trim();
+        const end = d.endDate().trim();
+        if ((start || end) && !isWithinDateRange(entry.record.timestamp, start, end)) return false;
+        return true;
+      })
       .map((r) => {
         const shipId = r.result!.drop_ship_id!;
         const info = mstShipInfoById().get(shipId);
@@ -320,7 +327,12 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const totalBattlesPerMapCell = createMemo(() => {
     const counts = new Map<string, number>();
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    const resultF = d.resultFilter();
     for (const b of d.battleRecords()) {
+      if (resultF && battleResultOf(b)?.win_rank !== resultF) continue;
+      if ((start || end) && !isWithinDateRange(b.timestamp, start, end)) continue;
       const mk = mapKeyOf(b);
       if (mk !== "-" && typeof b.cell_id === "number") {
         const key = `${mk}:${b.cell_id}`;

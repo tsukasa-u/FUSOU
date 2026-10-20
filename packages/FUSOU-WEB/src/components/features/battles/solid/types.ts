@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   BattleRecord,
   CellRecord,
   EnemyDeckRecord,
@@ -47,6 +47,11 @@ export type SharedDashboardState = {
   
   searchQuery: () => string;
   setSearchQuery: (query: string) => void;
+
+  startDate: () => string;
+  setStartDate: (date: string) => void;
+  endDate: () => string;
+  setEndDate: (date: string) => void;
 
   mapFilter: () => string;
   setMapFilter: (filter: string) => void;
