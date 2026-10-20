@@ -381,9 +381,14 @@ where
             Request::from_parts(parts, ())
         };
 
+        let upstream_request = req.clone();
+        let (response, websocket) = match hyper_tungstenite::upgrade(&mut req, None) {
+            Ok(upgrade) => upgrade,
+            Err(_) => return bad_request(),
+        };
         let uri = req.uri().clone();
         let (server_socket, _) = match tokio_tungstenite::connect_async_tls_with_config(
-            req.clone(),
+            upstream_request,
             None,
             false,
             self.websocket_connector.clone(),
@@ -400,58 +405,53 @@ where
             }
         };
 
-        match hyper_tungstenite::upgrade(&mut req, None) {
-            Ok((res, websocket)) => {
-                let context = self.context();
-                let response = res.map(Body::from);
-                let hook = self.client_stream_hook.clone();
-                let response_hook = hook.clone();
-                let response_context = context.clone();
-                let cancellation_hook = hook.clone();
-                let cancellation_context = context.clone();
-                let background_tasks = self.background_tasks.clone();
-                let span = info_span!("websocket");
-                let fut = async move {
-                    let clean = match websocket.await {
-                        Ok(client_socket) => {
-                            hook.response_completed(&context);
-                            let mut relay = JoinSet::new();
-                            relay.spawn(self.handle_websocket(client_socket, server_socket, uri));
-                            match relay.join_next().await {
-                                Some(Ok(clean)) => clean,
-                                Some(Err(error)) => {
-                                    error!(%error, "WebSocket relay task failed");
-                                    false
-                                }
-                                None => false,
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to upgrade to WebSocket: {}", e);
+        let context = self.context();
+        let response = response.map(Body::from);
+        let hook = self.client_stream_hook.clone();
+        let response_hook = hook.clone();
+        let response_context = context.clone();
+        let cancellation_hook = hook.clone();
+        let cancellation_context = context.clone();
+        let background_tasks = self.background_tasks.clone();
+        let span = info_span!("websocket");
+        let fut = async move {
+            let clean = match websocket.await {
+                Ok(client_socket) => {
+                    hook.response_completed(&context);
+                    let mut relay = JoinSet::new();
+                    relay.spawn(self.handle_websocket(client_socket, server_socket, uri));
+                    match relay.join_next().await {
+                        Some(Ok(clean)) => clean,
+                        Some(Err(error)) => {
+                            error!(%error, "WebSocket relay task failed");
                             false
                         }
-                    };
-                    hook.websocket_completed(&context, clean);
-                };
-
-                let task = TrackedProxyTask::new(fut.instrument(span), move || {
-                    cancellation_hook.websocket_completed(&cancellation_context, false);
-                    cancellation_hook.connection_aborted(&cancellation_context);
-                });
-                if let Err(error) = background_tasks.send(task) {
-                    error!(%error, "Proxy task manager is no longer accepting WebSocket upgrades");
-                    let response = service_unavailable();
-                    response_hook.response_started(&response_context, &response);
-                    let mut task = error.0;
-                    task.disarm();
-                    drop(task);
-                    return response;
+                        None => false,
+                    }
                 }
-                response_hook.response_started(&response_context, &response);
-                response
-            }
-            Err(_) => bad_request(),
+                Err(e) => {
+                    error!("Failed to upgrade to WebSocket: {}", e);
+                    false
+                }
+            };
+            hook.websocket_completed(&context, clean);
+        };
+
+        let task = TrackedProxyTask::new(fut.instrument(span), move || {
+            cancellation_hook.websocket_completed(&cancellation_context, false);
+            cancellation_hook.connection_aborted(&cancellation_context);
+        });
+        if let Err(error) = background_tasks.send(task) {
+            error!(%error, "Proxy task manager is no longer accepting WebSocket upgrades");
+            let response = service_unavailable();
+            response_hook.response_started(&response_context, &response);
+            let mut task = error.0;
+            task.disarm();
+            drop(task);
+            return response;
         }
+        response_hook.response_started(&response_context, &response);
+        response
     }
 
     #[instrument(skip_all)]
@@ -741,6 +741,9 @@ mod tests {
     }
 
     fn build_proxy() -> InternalProxy<HttpConnector, CA, crate::NoopHandler, crate::NoopHandler> {
+        let (background_tasks, background_task_rx) =
+            tokio::sync::mpsc::unbounded_channel::<TrackedProxyTask>();
+        drop(background_task_rx);
         InternalProxy {
             ca: Arc::new(CA),
             client: Client::builder(TokioExecutor::new()).build(HttpConnector::new()),
@@ -748,9 +751,112 @@ mod tests {
             http_handler: crate::NoopHandler::new(),
             websocket_handler: crate::NoopHandler::new(),
             websocket_connector: None,
+            background_tasks,
             client_addr: "127.0.0.1:8080".parse().unwrap(),
             connection_id: 1,
             client_stream_hook: crate::NoopClientStreamHook,
+        }
+    }
+
+    mod tracked_proxy_task {
+        use super::*;
+        use std::sync::atomic::AtomicUsize;
+
+        #[tokio::test]
+        async fn completed_task_does_not_run_cancellation_callback() {
+            let cancellation_count = Arc::new(AtomicUsize::new(0));
+            let callback_count = Arc::clone(&cancellation_count);
+            let task = TrackedProxyTask::new(async {}, move || {
+                callback_count.fetch_add(1, Ordering::SeqCst);
+            });
+            let mut tasks = JoinSet::new();
+            tasks.spawn(task);
+
+            assert!(matches!(tasks.join_next().await, Some(Ok(()))));
+            assert!(tasks.is_empty());
+            assert_eq!(cancellation_count.load(Ordering::SeqCst), 0);
+        }
+
+        #[tokio::test]
+        async fn abort_reports_cancellation_once_and_join_reaps_task() {
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let cancellation_count = Arc::new(AtomicUsize::new(0));
+            let callback_count = Arc::clone(&cancellation_count);
+            let task = TrackedProxyTask::new(
+                async move {
+                    let _ = started_tx.send(());
+                    std::future::pending::<()>().await;
+                },
+                move || {
+                    callback_count.fetch_add(1, Ordering::SeqCst);
+                },
+            );
+            let mut tasks = JoinSet::new();
+            tasks.spawn(task);
+            started_rx.await.expect("tracked task started");
+
+            tasks.abort_all();
+            let joined = tasks.join_next().await.expect("aborted task joined");
+
+            assert!(joined
+                .expect_err("abort must return JoinError")
+                .is_cancelled());
+            assert!(tasks.is_empty());
+            assert_eq!(cancellation_count.load(Ordering::SeqCst), 1);
+        }
+
+        #[tokio::test]
+        async fn panic_reports_cancellation_once_as_join_failure() {
+            let cancellation_count = Arc::new(AtomicUsize::new(0));
+            let callback_count = Arc::clone(&cancellation_count);
+            let task = TrackedProxyTask::new(
+                async {
+                    panic!("injected tracked task panic");
+                },
+                move || {
+                    callback_count.fetch_add(1, Ordering::SeqCst);
+                },
+            );
+            let mut tasks = JoinSet::new();
+            tasks.spawn(task);
+
+            let joined = tasks.join_next().await.expect("panicked task joined");
+
+            assert!(joined.expect_err("panic must return JoinError").is_panic());
+            assert!(tasks.is_empty());
+            assert_eq!(cancellation_count.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn disarm_drops_task_future_without_running_cancellation_callback() {
+            struct DropCounter(Arc<AtomicUsize>);
+
+            impl Drop for DropCounter {
+                fn drop(&mut self) {
+                    self.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            let cancellation_count = Arc::new(AtomicUsize::new(0));
+            let future_drop_count = Arc::new(AtomicUsize::new(0));
+            let callback_count = Arc::clone(&cancellation_count);
+            let drop_count = Arc::clone(&future_drop_count);
+            let drop_counter = DropCounter(drop_count);
+            let task = TrackedProxyTask::new(
+                async move {
+                    let _drop_counter = drop_counter;
+                    std::future::pending::<()>().await;
+                },
+                move || {
+                    callback_count.fetch_add(1, Ordering::SeqCst);
+                },
+            );
+            let mut task = task;
+            task.disarm();
+            drop(task);
+
+            assert_eq!(cancellation_count.load(Ordering::SeqCst), 0);
+            assert_eq!(future_drop_count.load(Ordering::SeqCst), 1);
         }
     }
 
@@ -819,13 +925,27 @@ mod tests {
 
             assert_eq!(res.status(), StatusCode::BAD_REQUEST)
         }
+
+        #[test]
+        fn returns_service_unavailable_when_task_manager_is_closed() {
+            let proxy = build_proxy();
+            let req = Request::builder()
+                .method(Method::CONNECT)
+                .uri("example.com:443")
+                .body(Body::empty())
+                .unwrap();
+
+            let response = proxy.process_connect(req);
+
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
     }
 
     mod upgrade_websocket {
         use super::*;
 
-        #[test]
-        fn returns_bad_request_if_missing_authority() {
+        #[tokio::test]
+        async fn returns_bad_request_if_missing_authority() {
             let proxy = build_proxy();
 
             let req = Request::builder()
@@ -833,13 +953,13 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
 
-            let res = proxy.upgrade_websocket(req);
+            let res = proxy.upgrade_websocket(req).await;
 
             assert_eq!(res.status(), StatusCode::BAD_REQUEST)
         }
 
-        #[test]
-        fn returns_bad_request_if_missing_headers() {
+        #[tokio::test]
+        async fn returns_bad_request_if_missing_headers() {
             let proxy = build_proxy();
 
             let req = Request::builder()
@@ -847,9 +967,51 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
 
-            let res = proxy.upgrade_websocket(req);
+            let res = proxy.upgrade_websocket(req).await;
 
             assert_eq!(res.status(), StatusCode::BAD_REQUEST)
+        }
+
+        #[tokio::test]
+        async fn returns_service_unavailable_when_task_manager_is_closed() {
+            let upstream_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind local WebSocket upstream");
+            let upstream_addr = upstream_listener.local_addr().expect("upstream address");
+            let upstream_task = tokio::spawn(async move {
+                let (stream, _) = upstream_listener
+                    .accept()
+                    .await
+                    .expect("accept local WebSocket upstream");
+                let mut websocket = tokio_tungstenite::accept_async(stream)
+                    .await
+                    .expect("complete local upstream WebSocket handshake");
+                let next =
+                    tokio::time::timeout(std::time::Duration::from_secs(3), websocket.next())
+                        .await
+                        .expect("closed task manager must release upstream socket");
+                assert!(
+                    matches!(next, None | Some(Err(_))),
+                    "an unadmitted Upgrade must not forward a WebSocket message"
+                );
+            });
+
+            let proxy = build_proxy();
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri(format!("http://{upstream_addr}/socket"))
+                .header("Host", upstream_addr.to_string())
+                .header("Connection", "Upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .body(Body::empty())
+                .unwrap();
+
+            let response = proxy.upgrade_websocket(req).await;
+
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            upstream_task.await.expect("upstream task");
         }
     }
 }

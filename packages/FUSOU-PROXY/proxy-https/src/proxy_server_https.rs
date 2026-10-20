@@ -2988,6 +2988,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unavailable_websocket_task_admission_releases_ineligible_capture() {
+        let output_root = unique_temp_dir("unavailable_websocket_task");
+        let connection_id = 93;
+        let hook = RawCaptureHook::new(output_root.clone());
+        let context = HttpContext::new(
+            "127.0.0.1:40093".parse().expect("client address"),
+            connection_id,
+        );
+        let (mut peer, stream) = tokio::io::duplex(16 * 1024);
+        let mut wrapped = hook.wrap(&context, Box::new(stream));
+        let request = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        let response = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n";
+        let request_metadata = ExactWireMetadata::from_request(
+            &HttpRequest::builder()
+                .method("GET")
+                .uri("/kcsapi/api_get_member/require_info")
+                .header("Host", "localhost")
+                .header("Upgrade", "websocket")
+                .header("Connection", "Upgrade")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .body(())
+                .expect("request metadata"),
+        );
+        let response_metadata = ExactWireMetadata::from_response(
+            &HttpResponse::builder()
+                .status(503)
+                .header("Content-Length", "0")
+                .body(())
+                .expect("503 response metadata"),
+        );
+        hook.request_started_for(connection_id, request_metadata);
+        peer.write_all(request)
+            .await
+            .expect("write Upgrade request");
+        let mut received_request = vec![0; request.len()];
+        wrapped
+            .read_exact(&mut received_request)
+            .await
+            .expect("capture Upgrade request");
+        assert_eq!(received_request, request);
+        hook.request_completed_for(connection_id);
+        hook.response_started_for(connection_id, response_metadata);
+        wrapped
+            .write_all(response)
+            .await
+            .expect("write 503 response");
+        let mut received_response = vec![0; response.len()];
+        peer.read_exact(&mut received_response)
+            .await
+            .expect("receive client-facing 503");
+        assert_eq!(received_response, response);
+        hook.response_completed_for(connection_id);
+        let retained_session = hook
+            .session(connection_id)
+            .expect("retain session until finish");
+        drop(wrapped);
+
+        hook.finish_connection(connection_id, true).await;
+
+        assert!(hook.session(connection_id).is_none());
+        assert!(
+            !output_root.exists()
+                || fs::read_dir(&output_root)
+                    .expect("capture output root")
+                    .next()
+                    .is_none(),
+            "a WebSocket request without a completed 101 must not produce an artifact"
+        );
+        let snapshot = retained_session
+            .lock()
+            .expect("finished session")
+            .recorder
+            .snapshot()
+            .expect("released recorder");
+        assert!(snapshot.request_bytes().is_empty());
+        assert!(snapshot.response_bytes().is_empty());
+    }
+
+    #[tokio::test]
     async fn raw_capture_hook_does_not_finalize_dirty_or_incomplete_sessions() {
         let output_root = unique_temp_dir("raw_capture_hook_invalid");
         let hook = RawCaptureHook::new(output_root.clone());

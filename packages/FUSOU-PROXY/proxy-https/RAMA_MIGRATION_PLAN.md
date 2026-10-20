@@ -74,17 +74,15 @@ Commands were run only in `/tmp/fusou-rama-integrated-sandbox`, a sanitized mirr
 
 | Check | Result |
 | --- | --- |
-| `cargo check --offline --locked --lib --features rama-experimental` | PASS |
-| `cargo check --offline --locked --lib` (default Hudsucker path) | PASS |
-| `cargo test --offline --locked --lib --features rama-experimental` | PASS — 111 passed, 0 failed, 0 ignored. |
-| Focused Hudsucker tests (`cargo test --offline --locked --lib --features rama-experimental fork_proxy_`) | PASS — 12 passed. Covers loopback disconnects, injected relay faults, shutdown, outer-task abort, listener continuity, and failed upstream Upgrade. |
-| Focused Rama tests (`cargo test --offline --locked --lib --features rama-experimental through_connect`) | PASS — 4 passed. Includes invalid continuation, client/upstream disconnect, graceful shutdown, and outer-task abort cases. |
-| `completed_upgrade_artifact_is_stable_across_callback_orderings` | PASS — callback orderings preserve identical bytes, manifest ranges, eligibility, session cleanup, and recorder release. |
-| `cargo clippy --offline --locked --tests --features rama-experimental` | PASS with 21 existing library warnings. A test-only `await_holding_lock` warning in the callback-ordering test was fixed with a lexical guard scope and is not present in the final run. |
-| `cargo clippy --offline --locked --tests --features rama-experimental -- -D warnings` | FAIL — 21 existing library warnings are promoted to errors; the test-only lock warning is no longer present. |
-| `rustfmt --edition 2021 --check` on the six scoped proxy Rust source files | PASS — no formatting diffs remain. Stable rustfmt warns that two repository-config options require nightly. |
+| `cargo test --offline --locked --lib --features rama-experimental` | PASS in the independent task-admission audit — 112 passed, 0 failed, 0 ignored. |
+| Hudsucker fork `cargo test --offline --locked --lib` | PASS in the independent task-admission audit — 25 passed, 0 failed. |
+| `cargo check --offline --locked --lib --features rama-experimental` | PASS in the independent task-admission audit. |
+| `cargo check --offline --locked --lib` (default Hudsucker path) | PASS in the independent task-admission audit. |
+| `cargo clippy --offline --locked --tests --features rama-experimental` | PASS in the independent task-admission audit with 21 existing library warnings; no warning points to the new task-lifecycle tests or the new capture-admission test. |
+| `cargo clippy --offline --locked --tests --features rama-experimental -- -D warnings` | FAIL in the independent task-admission audit — the 21 existing library warnings are promoted to errors; none points to the new task-lifecycle or capture-admission test code. |
+| `rustfmt --edition 2021 --check` on `hudsucker-fork/src/proxy/internal.rs` and `proxy-https/src/proxy_server_https.rs` | PASS in the independent task-admission audit. Stable rustfmt warns that two repository-config options require nightly. |
+| `git diff --check -- <seven scoped proxy paths>` | PASS in the independent task-admission audit; exit code 0, scoped to the seven allowed paths. |
 | `cargo test --offline --locked --all-targets` | BLOCKED — the sanitized mirror lacks `examples/ca/entity_key.pem` and `examples/ca/entity_cert.pem`, required by `examples/example.rs`; no CA asset or key was copied. |
-| `git diff --check -- <seven scoped proxy paths>` | PASS for the final scoped diff. |
 
 Coverage in the passing library tests includes:
 
@@ -139,6 +137,22 @@ The previous version of this document records a scoped analyzer list of 21 names
 | Rama transport and task cleanup | `client_disconnect_through_connect_persists_handshake_capture`, `upstream_disconnect_through_connect_persists_handshake_capture`, `shutdown_aborts_open_websocket_and_keeps_handshake_capture`, and `outer_task_abort_closes_websocket_and_reports_unclean` exercise real loopback disconnect/shutdown paths after Upgrade and assert artifact stability, outcome reporting, session/buffer release, and peer socket closure. |
 
 The all-target proxy test `cargo test --offline --locked --all-targets` was attempted but could not compile the example because the sanitized mirror does not contain `examples/ca/entity_key.pem` and `examples/ca/entity_cert.pem`. No test assets or keys were copied. The original analyzer output remains `NOT_CHECKED` in this pass.
+
+## Independent Audit: Task Admission and Cleanup
+
+The Hudsucker fork was tested directly as well as through the proxy crate. Its closed-channel tests use a local upstream WebSocket fixture; no external endpoint is involved.
+
+| Gap heuristic | Current evidence and disposition |
+| --- | --- |
+| `TrackedProxyTask::new`: ownership and completion | `completed_task_does_not_run_cancellation_callback`, `abort_reports_cancellation_once_and_join_reaps_task`, and `panic_reports_cancellation_once_as_join_failure` create and register the tracked future in a `JoinSet`. They assert normal `JoinSet` completion and no cancellation callback, or the corresponding cancelled/panicked `JoinError`, task reaping, and exactly one callback. The manager's receive-to-`JoinSet::spawn` path is source-traced in `Proxy::start`; exhaustive scheduler interleavings around shutdown are not established by these unit tests. |
+| `TrackedProxyTask::disarm` | `disarm_drops_task_future_without_running_cancellation_callback` directly asserts that the future is dropped and its callback is not invoked. The CONNECT and WebSocket closed-manager tests exercise `disarm` at actual failed channel admission. Normal completion, panic, and cancellation remain distinguishable through the tracked future and `JoinSet` result. |
+| `service_unavailable` — CONNECT | `process_connect::returns_service_unavailable_when_task_manager_is_closed` exercises the branch and asserts HTTP 503. The failed send's task is disarmed; the separate `disarm` unit test asserts no cancellation notification. CONNECT does not create a completed Upgrade artifact. |
+| `service_unavailable` — WebSocket | `upgrade_websocket::returns_service_unavailable_when_task_manager_is_closed` completes a loopback upstream WebSocket handshake, asserts the client-facing method returns 503, and verifies the unadmitted task releases the upstream socket without forwarding a WebSocket message. The implementation emits the 503 response-start callback and never returns the prepared 101 response. |
+| 503 capture eligibility and release | `unavailable_websocket_task_admission_releases_ineligible_capture` drives `RawCaptureHook` through `CaptureIo` with an Upgrade request and a client-facing 503. It asserts exact transferred request/response bytes, no artifact without a completed 101, session-map removal, and empty recorder snapshots. It tests the capture boundary separately from the fork's admission branch; it is not a single cross-crate end-to-end admission test. |
+| Admission/shutdown timing | The manager closes admission, aborts and joins tracked tasks, then drops queued tasks during shutdown. A task already received is owned by the `JoinSet`; a queued task remains owned by the channel and its `Drop` callback runs when drained. The branch behavior is source-traced, but all possible send/close scheduler interleavings are **UNVERIFIED**; a deterministic test of each runtime scheduling interleaving would not establish kernel-level behavior. |
+| `service_unavailable` helper itself | Directly testing the helper's empty 503 construction separately has low value: the two branch tests assert the returned status, and the WebSocket branch also checks the upstream-side effect. |
+
+The earlier WebSocket lifecycle E2Es remain distinct evidence: real loopback TCP/TLS FIN/EOF disconnect and shutdown cases verify peer socket closure, while handler-boundary injected faults verify relay error handling. Neither class proves every kernel RST or scheduler interleaving. Session-map removal, recorder-buffer release, task reaping, and peer socket closure are asserted separately where the named tests expose each resource.
 
 ## Remaining Work and Limitations
 
