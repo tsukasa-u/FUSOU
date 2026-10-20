@@ -397,10 +397,27 @@ function SimulatorDetailsCatalog(): JSX.Element {
     window.addEventListener("sim-details-open-help", onHelpClick);
     window.addEventListener("sim-details-share", onShareClick);
 
+    const onSelectShipEvent = (e: Event) => {
+      if (e instanceof CustomEvent && typeof e.detail === "number") {
+        setSelectedShipId(e.detail);
+        setTab("ship");
+      }
+    };
+    const onSelectEquipEvent = (e: Event) => {
+      if (e instanceof CustomEvent && typeof e.detail === "number") {
+        setSelectedEquipId(e.detail);
+        setTab("equip");
+      }
+    };
+    window.addEventListener("sim-details-select-ship", onSelectShipEvent);
+    window.addEventListener("sim-details-select-equip", onSelectEquipEvent);
+
     onCleanup(() => {
       window.removeEventListener("sim-details-open-settings", onSettingsClick);
       window.removeEventListener("sim-details-open-help", onHelpClick);
       window.removeEventListener("sim-details-share", onShareClick);
+      window.removeEventListener("sim-details-select-ship", onSelectShipEvent);
+      window.removeEventListener("sim-details-select-equip", onSelectEquipEvent);
     });
   });
 

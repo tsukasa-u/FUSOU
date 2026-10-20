@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+﻿/** @jsxImportSource solid-js */
 import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
@@ -26,6 +26,8 @@ import { ApiPasteModal } from "./ApiPasteModal";
 import { ShareSettingsModal } from "./ShareSettingsModal";
 import { LoadFleetModal } from "./LoadFleetModal";
 import { WorkspaceAddModal } from "./WorkspaceAddModal";
+import { DataImportModal, dataImportModalRef } from "./DataImportModal";
+export { dataImportModalRef };
 
 export function SimulatorModals() {
   return (
@@ -38,6 +40,7 @@ export function SimulatorModals() {
       <ShareSettingsModal />
       <LoadFleetModal />
       <WorkspaceAddModal />
+      <DataImportModal />
     </>
   );
 }
@@ -55,7 +58,6 @@ export function DisplaySettingsModal() {
   const [fleet4, setFleet4] = createSignal(true);
   const [airbase, setAirbase] = createSignal(true);
   const [combined, setCombined] = createSignal<0 | 1 | 2 | 3>(0);
-  const [layout, setLayout] = createSignal<"2x3" | "3x2">("2x3");
   const [airbaseCount, setAirbaseCount] = createSignal(3);
 
   createEffect(() => {
@@ -66,7 +68,6 @@ export function DisplaySettingsModal() {
     setFleet4(isFleetSectionVisible(4));
     setAirbase(isAirbaseSectionVisible());
     setCombined(getCombinedFleetType());
-    setLayout(getFleetSlotLayoutMode());
     setAirbaseCount(getVisibleAirbaseCount());
   });
 
@@ -89,10 +90,7 @@ export function DisplaySettingsModal() {
     writeDisplaySettings();
   };
 
-  const handleLayoutChange = (val: "2x3" | "3x2") => {
-    setFleetSlotLayoutMode(val);
-    writeDisplaySettings();
-  };
+
 
   const handleAirbaseCountChange = (val: number) => {
     setVisibleAirbaseCount(val);
@@ -144,13 +142,7 @@ export function DisplaySettingsModal() {
               <option value="3">輸送護衛部隊（第1＋第2）</option>
             </select>
           </div>
-          <div class="form-control">
-            <label class="label py-1"><span class="label-text">艦隊内スロット配置</span></label>
-            <select id="display-fleet-slot-layout" class="select select-bordered select-sm w-40" value={layout()} onChange={(e) => handleLayoutChange(e.currentTarget.value as "2x3" | "3x2")}>
-              <option value="2x3">2x3（縦長）</option>
-              <option value="3x2">3x2（横長）</option>
-            </select>
-          </div>
+
           <div class="form-control">
             <label class="label py-1"><span class="label-text">表示する基地航空隊数</span></label>
             <select id="display-airbase-count" class="select select-bordered select-sm w-36" value={airbaseCount()} disabled={!airbase()} onChange={(e) => handleAirbaseCountChange(Number(e.currentTarget.value))}>

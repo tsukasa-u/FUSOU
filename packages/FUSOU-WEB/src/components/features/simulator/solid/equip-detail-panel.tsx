@@ -66,6 +66,8 @@ import {
   MultiEntryDisplay,
   SlotUsageBadges,
 } from "./shared-ui";
+import { useStore } from "@nanostores/solid";
+import { simulatorSearchQuery } from "@/features/simulator/state";
 
 function EquipDetailPanel(props: {
   equip: MstSlotItemData;
@@ -76,6 +78,7 @@ function EquipDetailPanel(props: {
   expandCompatibleShips: boolean;
   showMultiSynergy: boolean;
 }): JSX.Element {
+  const searchQuery = useStore(simulatorSearchQuery);
   let equipSynergyContainerRef!: HTMLDivElement;
   const [equipMinHeight, setEquipMinHeight] = createSignal<number | null>(null);
 
@@ -441,7 +444,7 @@ function EquipDetailPanel(props: {
     return { triple, quad, penta };
   });
 
-  const compatibleShips = createMemo(() => {
+  const rawCompatibleShips = createMemo(() => {
     if (!isSynergiesReady()) return [];
     const ships = Object.values(getMasterShips())
       .filter((ship) => ship.id < ENEMY_ID_THRESHOLD)
@@ -460,6 +463,27 @@ function EquipDetailPanel(props: {
       rows,
       (row) => STYPE_NAMES[row.ship.stype] ?? `艦種${row.ship.stype}`,
     );
+  });
+
+  const compatibleShips = createMemo(() => {
+    const groups = rawCompatibleShips();
+    const q = searchQuery().trim().toLowerCase();
+    if (!q) return groups;
+
+    return groups
+      .map((group) => {
+        if (group.key.toLowerCase().includes(q)) return group;
+        const filteredItems = group.items.filter(
+          (item) =>
+            item.ship.name.toLowerCase().includes(q) ||
+            String(item.ship.id).includes(q),
+        );
+        return {
+          key: group.key,
+          items: filteredItems,
+        };
+      })
+      .filter((group) => group.items.length > 0);
   });
 
   type EquipMobShipEntry = {
@@ -761,6 +785,24 @@ function EquipDetailPanel(props: {
             </div>
           }
         >
+          <Show when={searchQuery().trim()}>
+            <div class="flex items-center justify-between px-3 py-2 bg-primary/10 border border-primary/25 rounded-xl text-xs text-primary mb-3 transition-all">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="badge badge-primary badge-sm font-semibold">絞り込み中</span>
+                <span>
+                  「<strong>{searchQuery().trim()}</strong>」
+                </span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs text-primary hover:bg-primary/20 cursor-pointer shrink-0"
+                onClick={() => simulatorSearchQuery.set("")}
+              >
+                解除 ✕
+              </button>
+            </div>
+          </Show>
+
           <section class="mb-8">
             <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備可能な艦</h4>
             <p class="text-xs text-base-content/55 mb-2">

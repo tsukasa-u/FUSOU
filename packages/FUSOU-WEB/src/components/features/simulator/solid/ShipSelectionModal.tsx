@@ -353,7 +353,7 @@ export function ShipSelectionModal() {
       dialogRef={(el) => {
         dialogRef = el;
       }}
-      boxClass="w-[min(96vw,90rem)] max-w-[90rem]"
+      boxClass="w-[min(96vw,64rem)] max-w-5xl"
       onClose={() => setHoveredShipId(null)}
     >
         <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
@@ -447,7 +447,7 @@ export function ShipSelectionModal() {
                  }
                >
                  <div class="py-12">
-                   <LoadingState message="艦娘一覧を準備中..." size="md" minHeight="min-h-[160px]" />
+                   <LoadingState message="艦一覧を準備中..." size="md" minHeight="min-h-[160px]" />
                  </div>
                </Show>
              </Show>

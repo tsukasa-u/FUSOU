@@ -1,4 +1,4 @@
-/** @jsxImportSource solid-js */
+﻿/** @jsxImportSource solid-js */
 
 import {
   Index,
@@ -80,6 +80,7 @@ import {
 } from "@/features/simulator/ship-growth-utils";
 
 const FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const;
+const STRIKE_FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5, 6] as const;
 const FLEET_EQUIP_SLOT_INDEXES = [0, 1, 2, 3, 4] as const;
 const AIRBASE_INDEXES = [0, 1, 2] as const;
 const AIRBASE_EQUIP_SLOT_INDEXES = [0, 1, 2, 3] as const;
@@ -153,65 +154,326 @@ const isReadOnly = () => isWorkspaceReadOnly();
 
 
 function ProfBadge(props: { level: number; hovered?: boolean }): JSX.Element {
-  const symbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
-  const color = createMemo(() =>
-    props.level <= 3 ? "#1976d2" : props.level <= 6 ? "#f57c00" : "#e65100",
-  );
-  const opacity = createMemo(() => {
-    if (props.level === 0) return props.hovered ? "0.25" : "0";
-    return "1";
+  const symbols = ["", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
+  const nextLevel = createMemo(() => (props.level >= 7 ? 0 : props.level + 1));
+  const nextSymbol = createMemo(() => symbols[nextLevel()]);
+
+  const colorClass = createMemo(() => {
+    if (props.level <= 0) {
+      // レベル0（未設定）時：クリックしたら遷移する先（Lv.1: |）の青色破線プレビュー
+      return "text-blue-400/80 bg-base-100/95 border-dashed border-blue-400/50 hover:text-blue-300 hover:border-blue-400 hover:bg-blue-500/15 shadow-2xs";
+    }
+    if (props.level <= 3) return "text-blue-400 bg-base-100/90 border-blue-500/40 hover:bg-blue-500/25 hover:border-blue-400 shadow-2xs";
+    if (props.level <= 6) return "text-amber-400 bg-base-100/90 border-amber-500/40 hover:bg-amber-500/25 hover:border-amber-400 shadow-2xs";
+    return "text-orange-400 bg-base-100/90 border-orange-500/50 hover:bg-orange-500/25 hover:border-orange-400 font-extrabold shadow-2xs";
   });
+
+  const isVisible = () => props.level > 0 || props.hovered;
+
+  const displayText = () => {
+    if (props.level > 0) return symbols[props.level] ?? ">>";
+    // 0は表示せず、クリックしたら遷移する先の状態（"|"）を表示
+    return symbols[1];
+  };
+
+  // 文字列の横幅圧縮（長体）：文字数（1文字・2文字・3文字）によらず熟練度バッジ全体の表示幅を均一に揃える
+  const textScaleStyle = createMemo((): JSX.CSSProperties | undefined => {
+    const text = displayText() ?? "";
+    if (text.length >= 3) {
+      // "|||", "\\\" など3文字
+      return {
+        display: "inline-block",
+        transform: "scaleX(0.72)",
+        "transform-origin": "center center",
+      };
+    }
+    if (text.length === 2) {
+      // "||", "\\", ">>" など2文字
+      return {
+        display: "inline-block",
+        transform: "scaleX(0.88)",
+        "transform-origin": "center center",
+      };
+    }
+    return {
+      display: "inline-block",
+    };
+  });
+
+  const tooltipText = () => {
+    if (props.level === 0) {
+      return `熟練度: なし (クリックで「${symbols[1]}」に設定)`;
+    }
+    if (props.level >= 7) {
+      return "熟練度: Lv.7 (>>) (クリックで解除)";
+    }
+    return `熟練度: Lv.${props.level} (${symbols[props.level]}) (クリックで「${nextSymbol()}」へ)`;
+  };
 
   return (
     <span
-      class="shrink-0 cursor-pointer select-none text-[11px] leading-none font-bold mr-0.5 inline-block w-[2em] text-center"
-      style={{
-        color: color(),
-        "text-shadow":
-          "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)",
-        opacity: opacity(),
-        transition: "opacity 0.15s",
-      }}
+      class={`shrink-0 cursor-pointer select-none text-[10px] leading-none font-mono font-bold inline-flex items-center justify-center w-7 h-4 px-0.5 rounded border transition-all duration-150 ${colorClass()} ${
+        isVisible() ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+      }`}
+      title={tooltipText()}
     >
-      {symbols[props.level] ?? ">>"}
+      <span style={textScaleStyle()}>{displayText()}</span>
     </span>
   );
 }
 
 function ImpBadge(props: { level: number; hovered?: boolean }): JSX.Element {
-  const opacity = createMemo(() => {
-    if (props.level === 0) return props.hovered ? "0.25" : "0";
-    return "1";
+  const isMax = () => props.level >= 10;
+  const isVisible = () => props.level > 0 || props.hovered;
+
+  const styleClass = createMemo(() => {
+    if (props.level <= 0) {
+      return "text-base-content/60 bg-base-100/95 border-dashed border-base-300 hover:text-teal-300 hover:border-teal-400/70 hover:bg-teal-500/15 shadow-2xs";
+    }
+    if (isMax()) {
+      return "text-teal-300 bg-base-100/90 border-teal-400/60 hover:bg-teal-500/25 hover:border-teal-300 font-extrabold shadow-2xs";
+    }
+    return "text-teal-400 bg-base-100/90 border-teal-500/40 hover:bg-teal-500/25 hover:border-teal-400 shadow-2xs";
   });
+
+  const displayText = () => {
+    if (props.level <= 0) return "★0";
+    if (isMax()) return "MAX";
+    return `★${props.level}`;
+  };
+
+  // MAXの横幅を長体圧縮し、★9（全角1文字+半角数字1文字）と完全に同一の幅に揃える
+  const textScaleStyle = createMemo((): JSX.CSSProperties | undefined => {
+    if (isMax()) {
+      return {
+        display: "inline-block",
+        transform: "scaleX(0.78)",
+        "transform-origin": "center center",
+        "letter-spacing": "-0.04em",
+      };
+    }
+    return {
+      display: "inline-block",
+    };
+  });
+
   return (
     <span
-      class="shrink-0 cursor-pointer select-none text-[11px] leading-none font-bold inline-block w-[2.5em] text-right"
-      style={{
-        color: "#00897b",
-        "text-shadow":
-          "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)",
-        opacity: opacity(),
-        transition: "opacity 0.15s",
-      }}
+      class={`shrink-0 cursor-pointer select-none text-[10px] leading-none font-mono font-bold inline-flex items-center justify-center w-7 h-4 px-0.5 rounded border transition-all duration-150 ${styleClass()} ${
+        isVisible() ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+      }`}
+      title={
+        props.level === 0
+          ? "改修値: ★0 (クリックで★1へ)"
+          : isMax()
+            ? "改修値: MAX (クリックで★0へ)"
+            : `改修値: ★${props.level} (クリックで${props.level + 1 === 10 ? "MAX" : `★${props.level + 1}`}へ)`
+      }
     >
-      {props.level > 0 ? `★${props.level}` : "★"}
+      <span style={textScaleStyle()}>{displayText()}</span>
     </span>
   );
 }
 
-
+function EditIcon(): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      class="w-3.5 h-3.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M11.5 2.5a1.77 1.77 0 0 1 2.5 2.5L5.5 13.5 2 14.5l1-3.5L11.5 2.5z" />
+    </svg>
+  );
+}
 
 function DeleteIcon(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" class="w-3.5 h-3.5">
+    <svg viewBox="0 0 16 16" aria-hidden="true" class="w-3.5 h-3.5 shrink-0">
       <path
         d="M4 4l8 8M12 4l-8 8"
         fill="none"
         stroke="currentColor"
-        stroke-width="1.95"
+        stroke-width="2.2"
         stroke-linecap="round"
       />
     </svg>
+  );
+}
+
+interface EquipSlotControlsProps {
+  /** 基地航空隊の行動半径 */
+  distance?: number | null;
+  /** 航空機スロットで熟練度を表示・操作可能か */
+  canShowProf?: boolean;
+  profLevel?: number;
+  onCycleProf?: () => void;
+  /** 装備が存在し改修値を表示・操作可能か */
+  hasEquip?: boolean;
+  impLevel?: number;
+  onCycleImp?: () => void;
+  /** 削除ボタンを表示・操作可能か */
+  canDelete?: boolean;
+  deleteTitle?: string;
+  onDelete?: () => void;
+  /** 行がホバーされているか */
+  rowHovered: boolean;
+  /** カード全体がホバーされているか */
+  cardHovered?: boolean;
+}
+
+function EquipSlotControls(props: EquipSlotControlsProps): JSX.Element {
+  return (
+    <span class="ml-auto flex items-center justify-end gap-1 shrink-0">
+      {props.distance !== undefined ? (
+        props.distance != null ? (
+          <span
+            class="inline-flex items-center justify-center w-6 h-4 leading-none text-[10px] text-base-content/40 font-mono shrink-0 select-none"
+            title={`行動半径: ${props.distance}`}
+          >
+            {props.distance}
+          </span>
+        ) : (
+          <span class="w-6 shrink-0" />
+        )
+      ) : null}
+
+      {props.canShowProf ? (
+        <span
+          class="shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isReadOnly()) return;
+            props.onCycleProf?.();
+          }}
+        >
+          <ProfBadge level={props.profLevel ?? 0} hovered={props.rowHovered} />
+        </span>
+      ) : null}
+
+      {props.hasEquip ? (
+        <span
+          class="shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isReadOnly()) return;
+            props.onCycleImp?.();
+          }}
+        >
+          <ImpBadge level={props.impLevel ?? 0} hovered={props.rowHovered} />
+        </span>
+      ) : (
+        <span class="w-7 shrink-0" />
+      )}
+
+      {props.canDelete ? (
+        <button
+          class={`w-5 h-5 inline-flex items-center justify-center leading-none rounded-md bg-base-100/90 backdrop-blur-xs border border-base-300/80 text-base-content/75 hover:bg-error hover:text-error-content hover:border-error shadow-2xs active:scale-90 transition-all duration-150 cursor-pointer shrink-0 ${
+            props.rowHovered || props.cardHovered
+              ? "opacity-100 scale-100"
+              : "opacity-0 scale-95 pointer-events-none"
+          }`}
+          title={props.deleteTitle}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isReadOnly()) return;
+            props.onDelete?.();
+          }}
+        >
+          <DeleteIcon />
+        </button>
+      ) : (
+        <span class="w-5 h-5 shrink-0" />
+      )}
+    </span>
+  );
+}
+
+interface EquipSlotRowProps {
+  /** 左端のインデックス（機数、中隊番号、"補" など） */
+  indexText: string;
+  indexColorClass?: string | undefined;
+  /** 装備アイコン番号（null/0/undefinedなら空き枠） */
+  iconNum?: number | null | undefined;
+  /** 装備名（null/undefinedなら emptyLabel を表示） */
+  equipName?: string | null | undefined;
+  emptyLabel?: string | undefined;
+  /** 他装備によるシナジー低下警告 */
+  isSuppressed?: boolean | undefined;
+  /** クリック時のコールバック */
+  onClick: () => void;
+  title: string;
+  disabled?: boolean | undefined;
+  borderTopDashed?: boolean | undefined;
+  /** 行ホバー状態を外部（EquipSlotControls）に伝えるための signal */
+  onHoverChange?: ((hovered: boolean) => void) | undefined;
+  /** 右側のコントロールコンポーネント */
+  children: JSX.Element;
+}
+
+function EquipSlotRow(props: EquipSlotRowProps): JSX.Element {
+  const hasEquip = () => Boolean(props.equipName);
+
+  return (
+    <div
+      class={`group/slot flex items-center gap-1.5 px-2 h-7 text-xs cursor-pointer transition-colors ${
+        props.disabled
+          ? "opacity-40 select-none cursor-default"
+          : "hover:bg-base-200/50"
+      } ${props.borderTopDashed ? "border-t border-dashed border-base-200/60" : ""}`}
+      title={props.title}
+      onMouseEnter={() => props.onHoverChange?.(true)}
+      onMouseLeave={() => props.onHoverChange?.(false)}
+      onClick={props.onClick}
+    >
+      <span
+        class={`w-4 text-center text-[10px] font-mono shrink-0 select-none leading-none inline-flex items-center justify-center ${
+          props.indexColorClass ?? "text-base-content/30"
+        }`}
+      >
+        {props.indexText}
+      </span>
+
+      {props.iconNum != null && props.iconNum > 0 ? (
+        <WeaponIcon iconNum={props.iconNum} />
+      ) : (
+        <div style="width:16px;height:16px" class="shrink-0" />
+      )}
+
+      <span
+        class={`truncate flex-1 text-[11px] leading-none inline-flex items-center gap-1 min-w-0 ${
+          hasEquip()
+            ? "text-base-content/85 group-hover/slot:text-primary transition-colors font-medium"
+            : "text-base-content/30 italic"
+        }`}
+      >
+        <span class="truncate">
+          {props.equipName ?? (props.emptyLabel ?? "未配備")}
+        </span>
+        <Show when={props.isSuppressed}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            class="w-3.5 h-3.5 text-error shrink-0"
+          >
+            <title>他装備の影響によりシナジーが低下しています</title>
+            <path
+              fill-rule="evenodd"
+              d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </Show>
+      </span>
+
+      {props.children}
+    </div>
   );
 }
 
@@ -450,6 +712,31 @@ function StatCell(props: {
     return String(total);
   };
 
+  const statText = createMemo(() => formatStatVal());
+
+  // 文字列の横方向直接圧縮（長体 / 水平スケーリング）
+  // 射程「超長」「超長+」、速力「高速+」などの複数文字テキストを文字の高さや太さを保ったままスマートに圧縮
+  const textTransformStyle = createMemo((): JSX.CSSProperties | undefined => {
+    const text = statText();
+    if (text.length >= 3) {
+      // "超長+", "高速+" など 3文字以上
+      return {
+        display: "inline-block",
+        transform: "scaleX(0.72)",
+        "transform-origin": "right center",
+      };
+    }
+    if (text.length >= 2 && !props.isNumeric) {
+      // "超長", "高速", "低速", "最速" など 2文字
+      return {
+        display: "inline-block",
+        transform: "scaleX(0.85)",
+        "transform-origin": "right center",
+      };
+    }
+    return undefined;
+  });
+
   const bonusInfo = createMemo(() => {
     const eqStatVal = props.equipSums[props.keyName] || 0;
     const bonusVal = props.equipBonuses[props.keyName] || 0;
@@ -464,18 +751,19 @@ function StatCell(props: {
   });
 
   return (
-    <div class="grid grid-cols-[1.25rem_1fr_1.5rem] items-center gap-0 group/stat h-3.5 w-[5.9rem]">
-      <span class="text-base-content/40 font-medium text-[10px] whitespace-nowrap">
+    <div class="grid grid-cols-[1.25rem_1fr_1.25rem] items-center gap-0 group/stat h-3.5 w-full min-w-0">
+      <span class="text-base-content/40 font-medium text-[10px] whitespace-nowrap select-none">
         {props.label}
       </span>
 
-      <div class="flex items-center gap-0 justify-end min-w-0">
+      <div class="flex items-center gap-0 justify-end min-w-0 pr-0.5 overflow-visible">
         <span
-          class={`font-mono text-base-content/70 text-right tabular-nums w-[1.55rem] transition-colors text-[10px] ${
+          class={`font-mono text-base-content/70 text-right tabular-nums whitespace-nowrap transition-colors text-[10px] ${
             props.overrides[props.keyName] != null
               ? "text-primary/80 font-bold"
               : ""
           }`}
+          style={textTransformStyle()}
           title={
             bonusInfo().totalBonus !== 0
               ? `素: ${bonusInfo().baseForDisplay}` +
@@ -488,12 +776,12 @@ function StatCell(props: {
               : undefined
           }
         >
-          {formatStatVal()}
+          {statText()}
         </span>
       </div>
 
       <span
-        class="text-[10px] font-mono font-semibold tabular-nums leading-none w-6 text-left pl-px"
+        class="text-[10px] font-mono font-semibold tabular-nums leading-none w-5 text-left pl-px whitespace-nowrap overflow-visible"
         style={{
           color:
             bonusInfo().totalBonus > 0
@@ -697,6 +985,7 @@ function ShipCard(props: {
         fallback={
           <div
             class="group w-full max-w-md mx-auto border-2 border-dashed border-base-300/50 rounded-lg flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all min-h-[88px]"
+            title={`第${props.fleetIndex}艦隊 ${props.idx + 1}番艦: クリックして艦を配置`}
             onClick={() => {
               if (isReadOnly()) return;
               setShipModalTargetForFleet(props.fleetIndex, props.idx);
@@ -1041,13 +1330,14 @@ function ShipCard(props: {
                 <div
                   class="relative z-10 flex flex-col"
                   style={{
-                    width: "62%",
+                    width: "65%",
                     background:
-                      "linear-gradient(to right, var(--color-base-100) 75%, transparent 100%)",
+                      "linear-gradient(to right, var(--color-base-100) 0%, var(--color-base-100) 80%, color-mix(in oklch, var(--color-base-100) 65%, transparent) 92%, transparent 100%)",
                   }}
                 >
                   <div
-                    class="group/shiphead flex items-center gap-1.5 px-2 py-1 border-b border-base-200/60 cursor-pointer"
+                    class="group/shiphead flex items-center gap-1.5 px-2 py-1 border-b border-base-200/60 cursor-pointer hover:bg-base-200/50 transition-colors"
+                    title="クリックして艦を変更"
                     onClick={() => {
                       if (isReadOnly()) return;
                       const currentShipId = liveSlot().shipId;
@@ -1069,7 +1359,7 @@ function ShipCard(props: {
                     <span class="text-[10px] font-bold bg-primary/15 text-primary rounded w-4 h-4 flex items-center justify-center shrink-0">
                       {props.idx + 1}
                     </span>
-                    <span class="text-xs font-bold truncate flex-1 leading-tight">
+                    <span class="text-xs font-bold truncate flex-1 leading-tight group-hover/shiphead:text-primary transition-colors">
                       {d.s.name}
                     </span>
                     <span class="text-[9px] px-1 py-0.5 rounded text-base-content/50 font-bold shrink-0">
@@ -1081,19 +1371,19 @@ function ShipCard(props: {
                       {STYPE_SHORT[d.s.stype] ?? ""}
                     </span>
                     <button
-                      class="w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 hover:text-primary transition-all duration-150 shrink-0"
-                      title="諸元を一括編集"
+                      class={`w-5 h-5 inline-flex items-center justify-center leading-none rounded-md bg-base-100/90 backdrop-blur-xs border border-base-300/80 text-base-content/75 hover:bg-primary hover:text-primary-content hover:border-primary shadow-2xs active:scale-90 transition-all duration-150 shrink-0 cursor-pointer ${cardHovered() ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
+                      title="艦の諸元（Lv・運・改修値）を一括編集"
                       onClick={(e) => {
                         e.stopPropagation();
                         if (isReadOnly()) return;
                         openBulkEdit();
                       }}
                     >
-                      <span class="text-[10px]">✎</span>
+                      <EditIcon />
                     </button>
                     <button
-                      class={`sim-delete-btn w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 hover:text-error transition-all duration-150 shrink-0 ${cardHovered() ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}
-                      title="艦を外す"
+                      class={`w-5 h-5 inline-flex items-center justify-center leading-none rounded-md bg-base-100/90 backdrop-blur-xs border border-base-300/80 text-base-content/75 hover:bg-error hover:text-error-content hover:border-error shadow-2xs active:scale-90 transition-all duration-150 shrink-0 cursor-pointer ${cardHovered() ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
+                      title="この艦を編成から外す"
                       onClick={(e) => {
                         e.stopPropagation();
                         if (isReadOnly()) return;
@@ -1119,14 +1409,21 @@ function ShipCard(props: {
                           equip && AIRCRAFT_TYPES.has(eqType2);
 
                         return (
-                          <div
-                            class={
+                          <EquipSlotRow
+                            indexText={isActive && d.s.maxeq?.[i] != null ? String(d.s.maxeq[i]) : ""}
+                            iconNum={equip?.type?.[3]}
+                            equipName={isActive ? (equip?.name ?? null) : null}
+                            emptyLabel={isActive ? "空きスロット" : ""}
+                            isSuppressed={Boolean(equip && d.suppressedEquipIds.has(equip.id))}
+                            disabled={!isActive}
+                            title={
                               isActive
-                                ? "group/equip flex items-center gap-1 px-1.5 py-0.5 h-6 text-[11px] cursor-pointer hover:bg-base-200/30 transition-colors"
-                                : "flex items-center gap-1 px-1.5 py-0.5 h-6 text-[11px]"
+                                ? equip
+                                  ? `${equip.name} (クリックして装備を変更)`
+                                  : "空きスロット (クリックして装備を配置)"
+                                : "スロットなし"
                             }
-                            onMouseEnter={() => setRowHovered(true)}
-                            onMouseLeave={() => setRowHovered(false)}
+                            onHoverChange={setRowHovered}
                             onClick={() => {
                               if (!isActive) return;
                               const current = liveSlot().equipIds[i] ?? null;
@@ -1146,98 +1443,50 @@ function ShipCard(props: {
                               });
                             }}
                           >
-                            <span class="w-3 text-center text-[9px] text-base-content/25 font-mono shrink-0">
-                              {isActive && d.s.maxeq?.[i] != null
-                                ? String(d.s.maxeq[i])
-                                : ""}
-                            </span>
-
-                            {equip ? (
-                              <WeaponIcon iconNum={equip.type?.[3] ?? 0} />
-                            ) : (
-                              <div
-                                style="width:16px;height:16px"
-                                class="shrink-0"
-                              ></div>
-                            )}
-
-                            <span
-                              class={`truncate flex-1 leading-tight inline-flex items-center gap-0.5 ${equip ? "text-base-content/80" : "text-base-content/15"}`}
-                            >
-                              <span class="truncate">
-                                {isActive ? (equip?.name ?? "—") : ""}
-                              </span>
-                              <Show when={equip && d.suppressedEquipIds.has(equip.id)}>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
-                                  <title>他装備の影響によりシナジーが低下しています</title>
-                                  <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
-                                </svg>
-                              </Show>
-                            </span>
-
-                            <span class="ml-auto grid grid-cols-[2em_2.5em_1.25rem] items-center justify-items-end gap-0.5 shrink-0">
-                              {canShowProf ? (
-                                <span
-                                  title={`熟練度${d.slot.equipProficiency[i] ?? 0} (クリックで変更)`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isReadOnly()) return;
-                                    cycleFleetEquipProficiency(liveSlot(), i);
-                                  }}
-                                >
-                                  <ProfBadge
-                                    level={d.slot.equipProficiency[i] ?? 0}
-                                    hovered={rowHovered()}
-                                  />
-                                </span>
-                              ) : (
-                                <span class="inline-block w-[2em]" />
-                              )}
-
-                              {equip ? (
-                                <span
-                                  title={`改修Lv${d.slot.equipImprovement[i] ?? 0} (クリックで変更)`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isReadOnly()) return;
-                                    cycleFleetEquipImprovement(liveSlot(), i);
-                                  }}
-                                >
-                                  <ImpBadge
-                                    level={d.slot.equipImprovement[i] ?? 0}
-                                    hovered={rowHovered()}
-                                  />
-                                </span>
-                              ) : (
-                                <span class="inline-block w-[2.5em]" />
-                              )}
-
-                              {equip && !isReadOnly() ? (
-                                <button
-                                  class={`sim-delete-btn w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 hover:text-error transition-all duration-150 ${cardHovered() ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}
-                                  title="装備を外す"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isReadOnly()) return;
-                                    setFleetEquip(liveSlot(), i, null);
-                                  }}
-                                >
-                                  <DeleteIcon />
-                                </button>
-                              ) : (
-                                <span class="inline-block w-5 h-5" />
-                              )}
-                            </span>
-                          </div>
+                            <EquipSlotControls
+                              canShowProf={Boolean(canShowProf)}
+                              profLevel={d.slot.equipProficiency[i] ?? 0}
+                              onCycleProf={() => cycleFleetEquipProficiency(liveSlot(), i)}
+                              hasEquip={equip != null}
+                              impLevel={d.slot.equipImprovement[i] ?? 0}
+                              onCycleImp={() => cycleFleetEquipImprovement(liveSlot(), i)}
+                              canDelete={equip != null && !isReadOnly()}
+                              deleteTitle="この装備を外す"
+                              onDelete={() => setFleetEquip(liveSlot(), i, null)}
+                              rowHovered={rowHovered()}
+                              cardHovered={cardHovered()}
+                            />
+                          </EquipSlotRow>
                         );
                       }}
                     </Index>
                   </div>
 
-                  <div
-                    class="group/ex flex items-center gap-1 px-1.5 py-0.5 h-6 text-[11px] cursor-pointer hover:bg-base-200/30 transition-colors border-t border-dashed border-base-200/50"
-                    onMouseEnter={() => setExRowHovered(true)}
-                    onMouseLeave={() => setExRowHovered(false)}
+                  <EquipSlotRow
+                    indexText="補"
+                    indexColorClass="text-warning/80 font-bold"
+                    iconNum={
+                      d.slot.exSlotId != null
+                        ? getMasterSlotItem(d.slot.exSlotId)?.type?.[3]
+                        : null
+                    }
+                    equipName={
+                      d.slot.exSlotId != null
+                        ? (getMasterSlotItem(d.slot.exSlotId)?.name ?? "補強増設")
+                        : null
+                    }
+                    emptyLabel="補強増設"
+                    isSuppressed={Boolean(
+                      d.slot.exSlotId != null &&
+                        d.suppressedEquipIds.has(d.slot.exSlotId!),
+                    )}
+                    borderTopDashed={true}
+                    title={
+                      d.slot.exSlotId != null
+                        ? `${getMasterSlotItem(d.slot.exSlotId)?.name ?? "補強増設"} (クリックして装備を変更)`
+                        : "補強増設 (クリックして装備を配置)"
+                    }
+                    onHoverChange={setExRowHovered}
                     onClick={() => {
                       const current = liveSlot().exSlotId;
                       if (isReadOnly() && current == null) return;
@@ -1255,79 +1504,20 @@ function ShipCard(props: {
                       });
                     }}
                   >
-                    <span class="text-[9px] text-warning/60 font-bold shrink-0 w-3 text-center">
-                      補
-                    </span>
-                    {d.slot.exSlotId != null &&
-                    getMasterSlotItem(d.slot.exSlotId) ? (
-                      <WeaponIcon
-                        iconNum={
-                          getMasterSlotItem(d.slot.exSlotId!)?.type?.[3] ?? 0
-                        }
-                      />
-                    ) : (
-                      <div
-                        style="width:16px;height:16px"
-                        class="shrink-0"
-                      ></div>
-                    )}
-                    <span
-                      class={`truncate flex-1 leading-tight inline-flex items-center gap-0.5 ${
-                        getMasterSlotItem(d.slot.exSlotId!)
-                          ? "text-base-content/80"
-                          : "text-base-content/15"
-                      }`}
-                    >
-                      <span class="truncate">
-                        {d.slot.exSlotId != null
-                          ? (getMasterSlotItem(d.slot.exSlotId!)?.name ?? "補強増設")
-                          : "補強増設"}
-                      </span>
-                      <Show when={d.slot.exSlotId != null && d.suppressedEquipIds.has(d.slot.exSlotId!)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
-                          <title>他装備の影響によりシナジーが低下しています</title>
-                          <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
-                        </svg>
-                      </Show>
-                    </span>
-                    <span class="ml-auto grid grid-cols-[2em_2.5em_1.25rem] items-center justify-items-end gap-0.5 shrink-0">
-                      <span class="inline-block w-[2em]" />
-                      {d.slot.exSlotId != null ? (
-                        <span
-                          title={`改修Lv${d.slot.exSlotImprovement ?? 0} (クリックで変更)`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isReadOnly()) return;
-                            cycleFleetExslotImprovement(liveSlot());
-                          }}
-                        >
-                          <ImpBadge
-                            level={d.slot.exSlotImprovement ?? 0}
-                            hovered={exRowHovered()}
-                          />
-                        </span>
-                      ) : (
-                        <span class="inline-block w-[2.5em]" />
-                      )}
-                      {d.slot.exSlotId != null && !isReadOnly() ? (
-                        <button
-                          class={`sim-delete-btn w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 hover:text-error transition-all duration-150 ${cardHovered() ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}
-                          title="補強増設装備を外す"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isReadOnly()) return;
-                            setFleetExslotEquip(liveSlot(), null);
-                          }}
-                        >
-                          <DeleteIcon />
-                        </button>
-                      ) : (
-                        <span class="inline-block w-5 h-5" />
-                      )}
-                    </span>
-                  </div>
+                    <EquipSlotControls
+                      canShowProf={false}
+                      hasEquip={d.slot.exSlotId != null}
+                      impLevel={d.slot.exSlotImprovement ?? 0}
+                      onCycleImp={() => cycleFleetExslotImprovement(liveSlot())}
+                      canDelete={d.slot.exSlotId != null && !isReadOnly()}
+                      deleteTitle="補強増設の装備を外す"
+                      onDelete={() => setFleetExslotEquip(liveSlot(), null)}
+                      rowHovered={exRowHovered()}
+                      cardHovered={cardHovered()}
+                    />
+                  </EquipSlotRow>
 
-                  <div class="grid grid-cols-[5.9rem_0.25rem_5.9rem] gap-x-0 gap-y-0 px-1.5 py-0 text-[10px] border-t border-base-200/50 leading-none w-fit">
+                  <div class="grid grid-cols-2 gap-x-1.5 gap-y-0 px-2 py-0 text-[10px] border-t border-base-200/50 leading-none w-full">
                     {d.leftStats.map((ls, r) => {
                       const rs = d.rightStats[r];
                       if (!rs) return null;
@@ -1344,7 +1534,6 @@ function ShipCard(props: {
                             equipBonuses={d.equipBonuses}
                             overrides={d.statOverrides}
                           />
-                          <span></span>
                           <StatCell
                             label={rs[0]}
                             keyName={rs[1]}
@@ -1440,9 +1629,10 @@ function ShipCard(props: {
 
 export function FleetSlotsView(props: { fleetIndex: 1 | 2 | 3 | 4 }): JSX.Element {
   // Each ShipCard subscribes to simulatorFleetState independently via useStore.
-  // No top-level subscription needed here.
+  // 第3艦隊は遊撃艦隊として最大7隻編成に対応
+  const indexes = () => (props.fleetIndex === 3 ? STRIKE_FLEET_SLOT_INDEXES : FLEET_SLOT_INDEXES);
   return (
-    <Index each={FLEET_SLOT_INDEXES}>
+    <Index each={indexes()}>
       {(idx) => <ShipCard fleetIndex={props.fleetIndex} idx={idx()} />}
     </Index>
   );
@@ -1506,10 +1696,17 @@ function AirBaseCard(props: { index: number }): JSX.Element {
             const [rowHovered, setRowHovered] = createSignal(false);
 
             return (
-              <div
-                class="group/base flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 h-8 text-xs cursor-pointer hover:bg-base-200/40 transition-colors"
-                onMouseEnter={() => setRowHovered(true)}
-                onMouseLeave={() => setRowHovered(false)}
+              <EquipSlotRow
+                indexText={String(i + 1)}
+                iconNum={equipIconNum()}
+                equipName={equip()?.name}
+                emptyLabel="未配備"
+                title={
+                  equip()
+                    ? `${equip()?.name} (クリックして航空機を変更)`
+                    : "空き中隊 (クリックして航空機を配備)"
+                }
+                onHoverChange={setRowHovered}
                 onClick={() => {
                   const current = getLiveAirBase(props.index).equipIds[i] ?? null;
                   if (isReadOnly() && current == null) return;
@@ -1519,82 +1716,31 @@ function AirBaseCard(props: { index: number }): JSX.Element {
                   });
                 }}
               >
-                <span class="w-3.5 text-center text-base-content/25 font-mono shrink-0">
-                  {i + 1}
-                </span>
-                {equip() ? (
-                  <WeaponIcon iconNum={equipIconNum()} />
-                ) : (
-                  <div style="width:16px;height:16px" class="shrink-0"></div>
-                )}
-                <span
-                  class={`truncate flex-1 ${equip() ? "text-base-content/70" : "text-base-content/20 italic"}`}
-                >
-                  {equip()?.name ?? "—"}
-                </span>
-
-                <span class="ml-auto grid grid-cols-[2em_2.5em_2.5em_1.25rem] items-center justify-items-end gap-0.5 shrink-0">
-                  {equipDistance() != null ? (
-                    <span class="inline-flex items-center h-4 leading-none text-[10px] text-base-content/30 shrink-0">
-                      {equipDistance()}
-                    </span>
-                  ) : (
-                    <span class="inline-block w-[2.5em]" />
-                  )}
-
-                  {canShowProf() ? (
-                    <span
-                      title={`熟練度${prof()} (クリックで変更)`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isReadOnly()) return;
-                        cycleAirBaseEquipProficiency(
-                          getLiveAirBase(props.index),
-                          i,
-                        );
-                      }}
-                    >
-                      <ProfBadge level={prof()} hovered={rowHovered()} />
-                    </span>
-                  ) : (
-                    <span class="inline-block w-[2em]" />
-                  )}
-
-                  {equip() ? (
-                    <span
-                      title={`改修Lv${imp()} (クリックで変更)`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isReadOnly()) return;
-                        cycleAirBaseEquipImprovement(
-                          getLiveAirBase(props.index),
-                          i,
-                        );
-                      }}
-                    >
-                      <ImpBadge level={imp()} hovered={rowHovered()} />
-                    </span>
-                  ) : (
-                    <span class="inline-block w-[2.5em]" />
-                  )}
-
-                  {equip() && !isReadOnly() ? (
-                    <button
-                      class="sim-delete-btn sim-delete-btn-airbase w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 opacity-0 scale-95 group-hover/base:opacity-100 group-hover/base:scale-100 hover:text-error transition-all duration-150 -mr-0.5"
-                      title="装備を外す"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isReadOnly()) return;
-                        setAirBaseEquip(getLiveAirBase(props.index), i, null);
-                      }}
-                    >
-                      <DeleteIcon />
-                    </button>
-                  ) : (
-                    <span class="inline-block w-5 h-5" />
-                  )}
-                </span>
-              </div>
+                <EquipSlotControls
+                  distance={equipDistance()}
+                  canShowProf={canShowProf()}
+                  profLevel={prof()}
+                  onCycleProf={() =>
+                    cycleAirBaseEquipProficiency(
+                      getLiveAirBase(props.index),
+                      i,
+                    )
+                  }
+                  hasEquip={equip() != null}
+                  impLevel={imp()}
+                  onCycleImp={() =>
+                    cycleAirBaseEquipImprovement(
+                      getLiveAirBase(props.index),
+                      i,
+                    )
+                  }
+                  canDelete={equip() != null && !isReadOnly()}
+                  deleteTitle="この基地航空隊の装備を外す"
+                  onDelete={() => setAirBaseEquip(getLiveAirBase(props.index), i, null)}
+                  rowHovered={rowHovered()}
+                  cardHovered={false}
+                />
+              </EquipSlotRow>
             );
           }}
         </Index>

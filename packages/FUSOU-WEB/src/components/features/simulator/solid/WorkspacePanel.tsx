@@ -1,10 +1,22 @@
-/* @jsxImportSource solid-js */
-import { createSignal, For, Show } from "solid-js";
+/** @jsxImportSource solid-js */
+import { Show, For } from "solid-js";
 import { useStore } from "@nanostores/solid";
-import { workspaceStore, removeEntry, toggleLock, duplicateEntry, type ViewerEntry } from "@/features/simulator/viewer-workspace";
-import { activateWorkspaceEntry, switchToPlayground, isSnapshotPlayground, createOwnDeckFromCurrentState, buildCurrentPlaygroundPayload } from "@/features/simulator/io-handlers";
+import {
+  workspaceStore,
+  toggleLock,
+  removeEntry,
+  duplicateEntry,
+  type ViewerEntry,
+} from "@/features/simulator/viewer-workspace";
+import {
+  activateWorkspaceEntry,
+  switchToPlayground,
+  isSnapshotPlayground,
+  createOwnDeckFromCurrentState,
+  buildCurrentPlaygroundPayload,
+} from "@/features/simulator/io-handlers";
 import { hasSnapshotData } from "@/features/simulator/simulator-selectors";
-import { workspaceAddModalRef, workspaceEditTarget } from "./WorkspaceAddModal";
+import { workspaceAddModalRef, workspaceEditTarget, workspaceModalMode } from "./WorkspaceAddModal";
 import { simulatorDisplayRevision } from "@/features/simulator/state";
 import { setWorkspaceReadOnly } from "@/features/simulator/simulator-mutations";
 
@@ -34,13 +46,12 @@ function hasSnapshotLink(entry: ViewerEntry): boolean {
   );
 }
 
-export function WorkspacePanel() {
+export function WorkspacePanel(props: { onSelectEntry?: () => void }) {
   const ws = useStore(workspaceStore);
   const displayRev = useStore(simulatorDisplayRevision);
-  const [expanded, setExpanded] = createSignal(false);
 
   const isPlaygroundActive = () => ws().activeId === null;
-  const activeEntry = () => ws().activeId ? ws().entries.find(e => e.id === ws().activeId) : null;
+  const activeEntry = () => ws().activeId ? ws().entries.find((e: ViewerEntry) => e.id === ws().activeId) : null;
   
   const modeStatusText = () => {
     if (isPlaygroundActive()) return isSnapshotPlayground() ? "PLAYGROUND: SNAPSHOT" : "PLAYGROUND: BLANK";
@@ -62,19 +73,26 @@ export function WorkspacePanel() {
   };
 
   const handleAddCurrent = () => {
-    // Playground時だけでなく、いつでも「別名で保存」として機能させる
-    const entry = createOwnDeckFromCurrentState(
-      snapshotAvailable() ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
-      ""
-    );
-    // 現在のUI状態を引き継いで新しいデッキを作り、元のデッキは上書きしない (savePrevious = false)
-    activateWorkspaceEntry(entry, true, false);
+    workspaceEditTarget[1](null);
+    workspaceModalMode[1]("saveCurrent");
+    workspaceAddModalRef.current?.showModal();
+  };
+
+  const handleSelectPlayground = () => {
+    switchToPlayground();
+    props.onSelectEntry?.();
+  };
+
+  const handleSelectEntry = (entry: ViewerEntry) => {
+    activateWorkspaceEntry(entry);
+    props.onSelectEntry?.();
   };
 
   const handleEdit = (e: MouseEvent, entry: ViewerEntry) => {
     e.stopPropagation();
     if (entry.locked) return;
     workspaceEditTarget[1](entry);
+    workspaceModalMode[1]("edit");
     workspaceAddModalRef.current?.showModal();
   };
 
@@ -99,10 +117,9 @@ export function WorkspacePanel() {
     const isActive = ws().activeId === entry.id;
     let customPayload: Record<string, unknown> | undefined = undefined;
     if (isActive) {
-      // アクティブな要素を複製する場合は、画面上の最新の未保存状態を新しいデッキに引き継ぐ
       customPayload = buildCurrentPlaygroundPayload();
       const dup = duplicateEntry(entry.id, customPayload);
-      if (dup) activateWorkspaceEntry(dup, true, false); // 元のデッキは上書きしない
+      if (dup) activateWorkspaceEntry(dup, true, false);
       return;
     }
     
@@ -110,160 +127,171 @@ export function WorkspacePanel() {
     if (dup) activateWorkspaceEntry(dup, true, true);
   };
 
-  const VISIBLE_COUNT = 5;
-  const activeIndex = () => ws().activeId ? ws().entries.findIndex(e => e.id === ws().activeId) : -1;
-  const shouldAutoExpand = () => activeIndex() >= VISIBLE_COUNT;
-  const isExpanded = () => expanded() || shouldAutoExpand();
-  const visibleEntries = () => isExpanded() ? ws().entries : ws().entries.slice(0, VISIBLE_COUNT);
-  const hiddenCount = () => Math.max(0, ws().entries.length - visibleEntries().length);
-
   return (
-    <section id="shared-workspace-panel" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5">
-      <div class="flex items-center justify-between gap-1.5 mb-2">
-        <div class="flex items-center gap-2 min-w-0">
-          <h2 class="text-sm font-semibold shrink-0">ワークスペース</h2>
-          <span id="workspace-mode-status" class={modeStatusClass()}>{modeStatusText()}</span>
-        </div>
-        <div class="flex items-center gap-0.5 shrink-0">
-          <button
-            id="btn-workspace-add-current"
-            class="fusou-btn-xs-ghost gap-1"
-            title="現在の画面の編成を新しいデッキとしてワークスペースに追加（別名で保存）"
-            onClick={handleAddCurrent}
+    <div class="space-y-6">
+      {/* Top Banner & Actions Card */}
+      {/* Main Grid: Playground & Saved Entries */}
+      <div class="space-y-4">
+        {/* Active / Playground Quick Access */}
+        <div class="space-y-2">
+          <h3 class="text-xs font-semibold text-base-content/60 uppercase tracking-wider">作業エリア (Playground)</h3>
+          <div
+            id="workspace-playground-entry"
+            class={`fusou-card p-4 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              isPlaygroundActive() ? "border-primary bg-primary/10 shadow-sm" : "hover:border-primary/50"
+            }`}
+            onClick={handleSelectPlayground}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"></path>
-            </svg>
-            <span class="hidden sm:inline text-[11px]">編成追加</span>
-          </button>
-          <button
-            id="btn-workspace-add"
-            class="fusou-btn-xs-ghost gap-1"
-            title="共有URLをワークスペースに追加"
-            onClick={() => {
-              workspaceEditTarget[1](null);
-              workspaceAddModalRef.current?.showModal();
-            }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-            </svg>
-            <span class="hidden sm:inline text-[11px]">URL追加</span>
-          </button>
-          <span class="text-xs text-base-content/50 pl-1">{ws().entries.length}件</span>
-        </div>
-      </div>
-
-      <Show when={ws().entries.length === 0}>
-        <p class="text-sm text-base-content/50 mb-2">他人の共有URLと自分のデッキを、ページ遷移せずに切り替えて管理できます。</p>
-      </Show>
-
-      <div class="space-y-2">
-        <div
-          id="workspace-playground-entry"
-          class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
-            isPlaygroundActive() ? "border-info bg-info/15 shadow-sm" : "border-base-300/60 hover:border-info/50"
-          }`}
-          onClick={switchToPlayground}
-        >
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1.5">
-              <span class="truncate font-medium">Playground</span>
-              <Show when={isPlaygroundActive()}>
-                <span class="badge badge-info badge-xs opacity-80">編集中</span>
-              </Show>
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm">Playground</span>
+                <Show when={isPlaygroundActive()}>
+                  <span class="badge badge-primary badge-xs">現在編集中</span>
+                </Show>
+              </div>
+              <p class="text-xs text-base-content/60">
+                {isSnapshotPlayground() ? "スナップショットを反映した一時的な作業領域です。" : "白紙状態から作成する一時的な作業領域です。"}
+              </p>
             </div>
-            <div class="text-[11px] text-base-content/55 mt-0.5">
-              {isSnapshotPlayground() ? "スナップショットを反映した一時的な作業領域" : "白紙状態から作成する一時的な作業領域"}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-3 border-t border-base-300/60 pt-3">
-        <div class="flex items-center justify-between gap-2 mb-2">
-          <span class="text-xs font-medium tracking-wide text-base-content/60">保存済み</span>
-          <span class="text-[11px] text-base-content/45">一覧のみスクロールします</span>
-        </div>
-        
-        <div class="max-h-[38vh] sm:max-h-[46vh] lg:max-h-112 overflow-y-auto pr-1">
-          <div id="workspace-entry-list" role="list" class="space-y-2">
-            <For each={visibleEntries()}>
-              {(entry) => {
-                const isActive = () => ws().activeId === entry.id;
-                const isDeck = entry.sourceType === "ownDeck";
-                const hasSnap = hasSnapshotLink(entry);
-                
-                return (
-                  <div
-                    data-entry-id={entry.id}
-                    role="listitem"
-                    class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
-                      isActive() ? "border-primary bg-primary/15 shadow-sm" : "border-base-300/60 hover:border-primary/40"
-                    }`}
-                    onClick={() => activateWorkspaceEntry(entry)}
-                  >
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-1.5">
-                        <span class="truncate font-medium">{entry.name}</span>
-                        <Show when={isActive()}>
-                          <span class="badge badge-primary badge-xs opacity-80">編集中</span>
-                        </Show>
-                      </div>
-                      <Show when={entry.memo?.trim()}>
-                        <div class="text-xs text-base-content/65 mt-0.5 line-clamp-2 overflow-hidden">
-                          {entry.memo!.trim()}
-                        </div>
-                      </Show>
-                    </div>
-
-                    <span class={`badge badge-sm shrink-0 ${isDeck ? "badge-warning" : "badge-accent"}`}>
-                      {isDeck ? "DECK" : "URL"}
-                    </span>
-
-                    <span class={`badge badge-sm shrink-0 ${hasSnap ? "badge-info" : "badge-ghost"}`}>
-                      {hasSnap ? "SNAP" : "NO-SNAP"}
-                    </span>
-
-                    <button
-                      class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
-                      aria-label={entry.locked ? "ロック解除" : "ロック"}
-                      style={{
-                        color: entry.locked ? "#dc2626" : "#16a34a",
-                        "background-color": entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)",
-                        border: `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`
-                      }}
-                      title={entry.locked ? "ロック中：R2再読込で上書きされません。クリックで解除" : "ロック解除中：R2再読込で上書きされます。クリックでロック"}
-                      onClick={(e) => handleToggleLock(e, entry)}
-                    >
-                      <LockIcon locked={entry.locked || false} />
-                    </button>
-
-                    <button class="fusou-btn-xs-ghost shrink-0 px-1.5" title="現在の内容で複製（別名で保存）" onClick={(e) => handleDuplicate(e, entry)}>
-                      複製
-                    </button>
-                    <button class="fusou-btn-xs-ghost shrink-0 px-1.5" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "表示名やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
-                      編集
-                    </button>
-                    <button class="fusou-btn-xs-ghost shrink-0 px-1" title="削除" onClick={(e) => handleDelete(e, entry)}>
-                      ×
-                    </button>
-                  </div>
-                );
+            <button
+              class="fusou-btn-primary btn-sm shrink-0 gap-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectPlayground();
               }}
-            </For>
-          </div>
-        </div>
-
-        <Show when={hiddenCount() > 0}>
-          <div class="mt-2 flex items-center justify-between gap-2">
-            <span class="text-xs text-base-content/55">他 {hiddenCount()}件が非表示</span>
-            <button class="fusou-btn-xs" onClick={() => setExpanded(true)}>
-              すべて表示する
+            >
+              <span>編成タブで開く</span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"></path>
+              </svg>
             </button>
           </div>
-        </Show>
+        </div>
+
+        {/* Saved Fleet Entries Section */}
+        <div class="space-y-2 pt-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-semibold text-base-content/60 uppercase tracking-wider">
+              保存済み編成一覧 ({ws().entries.length}件)
+            </h3>
+          </div>
+
+          <Show
+            when={ws().entries.length > 0}
+            fallback={
+              <div class="fusou-card p-8 text-center text-base-content/50 space-y-2">
+                <p class="text-sm font-medium">保存された編成はまだありません。</p>
+                <p class="text-xs">
+                  右上の「現在の編成を保存」ボタンを押すか、「URL追加」から他の人の編成URLを取り込むことができます。
+                </p>
+              </div>
+            }
+          >
+            <div id="workspace-entry-list" role="list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <For each={ws().entries}>
+                {(entry: ViewerEntry) => {
+                  const isActive = () => ws().activeId === entry.id;
+                  const isDeck = entry.sourceType === "ownDeck";
+                  const hasSnap = hasSnapshotLink(entry);
+                  
+                  return (
+                    <div
+                      data-entry-id={entry.id}
+                      role="listitem"
+                      class={`fusou-card p-4 flex flex-col justify-between gap-3 transition-colors cursor-pointer ${
+                        isActive() ? "border-primary bg-primary/10 shadow-sm" : "hover:border-primary/50"
+                      }`}
+                      onClick={() => handleSelectEntry(entry)}
+                    >
+                      <div class="space-y-1.5">
+                        <div class="flex items-center justify-between gap-2">
+                          <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="truncate font-bold text-sm">{entry.name}</span>
+                            <Show when={isActive()}>
+                              <span class="badge badge-primary badge-xs shrink-0">{entry.locked ? "編集中 (ロック)" : "編集中 (オートセーブ)"}</span>
+                            </Show>
+                          </div>
+                          <div class="flex items-center gap-1 shrink-0">
+                            <span class={`badge badge-xs font-semibold ${isDeck ? "badge-warning" : "badge-accent"}`}>
+                              {isDeck ? "DECK" : "URL"}
+                            </span>
+                            <span class={`badge badge-xs ${hasSnap ? "badge-info" : "badge-ghost"}`}>
+                              {hasSnap ? "SNAP" : "NO-SNAP"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* メモ表示エリア（アイコンなし・枠線なし・枠内収束＆はみ出し省略） */}
+                        <div class="mt-1 min-w-0">
+                          <Show
+                            when={entry.memo?.trim()}
+                            fallback={
+                              <div class="text-xs text-base-content/40 italic py-0.5">
+                                メモなし
+                              </div>
+                            }
+                          >
+                            <p class="text-xs text-base-content/75 line-clamp-2 break-all leading-relaxed py-0.5">
+                              {entry.memo!.trim()}
+                            </p>
+                          </Show>
+                        </div>
+
+                        <div class="flex items-center justify-between text-[11px] text-base-content/50 pt-0.5">
+                          <span>{isDeck ? (entry.locked ? "ロック中（変更非保存）" : "オートセーブ有効") : "共有URL（閲覧専用）"}</span>
+                          <Show when={entry.updatedAt}>
+                            <span>更新: {new Date(entry.updatedAt).toLocaleTimeString()}</span>
+                          </Show>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center justify-between gap-2 pt-2 border-t border-base-300/40">
+                        <div class="flex items-center gap-1">
+                          <button
+                            class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
+                            aria-label={entry.locked ? "ロック解除" : "ロック"}
+                            style={{
+                              color: entry.locked ? "#dc2626" : "#16a34a",
+                              "background-color": entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)",
+                              border: `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`
+                            }}
+                            title={entry.locked ? "ロック中: R2再読込で上書きされません。クリックで解除" : "未ロック: クリックでロック"}
+                            onClick={(e) => handleToggleLock(e, entry)}
+                          >
+                            <LockIcon locked={entry.locked || false} />
+                          </button>
+                          <button class="fusou-btn-xs-ghost px-2" title="この編成を複製" onClick={(e) => handleDuplicate(e, entry)}>
+                            複製
+                          </button>
+                          <button class="fusou-btn-xs-ghost px-2" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "名前やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
+                            編集
+                          </button>
+                          <button class="fusou-btn-xs-ghost text-error px-2" title="削除" onClick={(e) => handleDelete(e, entry)}>
+                            削除
+                          </button>
+                        </div>
+
+                        <button
+                          class="fusou-btn-primary btn-xs gap-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectEntry(entry);
+                          }}
+                        >
+                          <span>開く</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </div>
       </div>
-    </section>
+    </div>
   );
 }
