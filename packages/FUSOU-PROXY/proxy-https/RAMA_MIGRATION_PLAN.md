@@ -150,7 +150,7 @@ Coverage in the passing library tests includes:
 | 18 | `WebSocketObserverTestExtension` | `COVERED` | `websocket_observer_delegates_rama_extensions_reference` asserts typed extension access through the observer. |
 | 19 | `masked_close` | `COVERED` | This is a test-only frame builder exercised by split-frame, payload-limit, and invalid-Close parser assertions; it is not a production framing path. |
 | 20 | `serve_with_capture_hook` | `PARTIALLY_COVERED` | Rama loopback CONNECT/TLS tests cover HTTP/1.1 capture, valid Upgrade, disconnects, shutdown, outer abort, and upstream handshake rejection. All kernel RST patterns and arbitrary scheduler/cancellation interleavings remain outside this evidence. |
-| 21 | `abnormal_websocket_close_through_connect_does_not_persist_capture` | `NOT_REPRODUCIBLE` | That historical function and its source snapshot are absent. Current `abnormal_websocket_close_through_connect_persists_handshake_capture` verifies the intended contract: completed request/101 bytes persist unchanged after an unclean relay. The old analyzer gap is stale for current behavior and is not treated as evidence that the artifact should be discarded. |
+| 21 | `abnormal_websocket_close_through_connect_does_not_persist_capture` | `NOT_REPRODUCIBLE` | **Historical item:** its function, source snapshot, and original test result are unavailable, so that historical expectation cannot be reproduced. **Current contract:** `abnormal_websocket_close_through_connect_persists_handshake_capture` verifies that a completed request/101 artifact persists unchanged after an unclean relay. The historical “does not persist” expectation is not the current contract and is not treated as a current implementation defect. |
 
 The all-target proxy test `cargo test --offline --locked --all-targets` was attempted in an earlier validation and could not compile the example because the sanitized mirror lacked `examples/ca/entity_key.pem` and `examples/ca/entity_cert.pem`. No test assets or keys were copied. It was not rerun in this audit.
 
@@ -183,6 +183,23 @@ The commit hook for `ad331838a` separately reported five symbol-level gaps (`ser
 
 The earlier WebSocket lifecycle E2Es remain distinct evidence: real loopback TCP/TLS FIN/EOF disconnect and shutdown cases verify peer socket closure, while handler-boundary injected faults verify relay error handling. Neither class proves every kernel RST or scheduler interleaving. Session-map removal, recorder-buffer release, task reaping, and peer socket closure are asserted separately where the named tests expose each resource.
 
+## Hudsucker/Rama WebSocket Request Validation
+
+Hudsucker previously dispatched only requests accepted by `hyper_tungstenite::is_upgrade_request`, which requires both `Connection: Upgrade` and an `Upgrade: websocket` token. Missing either header therefore fell through to ordinary upstream HTTP forwarding. Its `hyper_tungstenite::upgrade` call checks the WebSocket key and version, but does not validate the `Connection` or `Upgrade` headers itself. Hudsucker now classifies a WebSocket attempt from either the `Upgrade: websocket` token or any `Sec-WebSocket-*` header, then requires `is_upgrade_request` before calling `hyper_tungstenite::upgrade` or connecting upstream.
+
+| Input | Hudsucker result | Direct evidence |
+| --- | --- | --- |
+| Missing `Sec-WebSocket-Key`, with Upgrade and Connection headers | 400 before upstream connect; `hyper_tungstenite::upgrade` rejects the missing key. | `fork_proxy_rejects_missing_websocket_key_before_upstream_accept` asserts 400 and zero loopback accepts. |
+| `Sec-WebSocket-*` metadata without an Upgrade header | 400 before upstream connect; the attempt classifier prevents ordinary HTTP fallback, then the required Upgrade check rejects it. | `fork_proxy_rejects_websocket_metadata_without_upgrade_before_upstream_accept` asserts 400 and zero loopback accepts. |
+| Missing `Connection: Upgrade` | 400 before upstream connect; the attempt classifier dispatches it to WebSocket validation, which rejects the incomplete header pair. | `fork_proxy_rejects_missing_connection_upgrade_before_upstream_accept` asserts 400 and zero loopback accepts. |
+| Unsupported WebSocket version | 400 before upstream connect; `hyper_tungstenite::upgrade` accepts only version 13. | `fork_proxy_rejects_unsupported_websocket_version_before_upstream_accept` asserts 400 and zero loopback accepts. |
+| Ordinary HTTP request | Continues through the ordinary upstream HTTP client path. | `fork_proxy_captures_persistent_tls_plaintext_without_retry` verifies three proxied HTTP exchanges and their captured bytes. |
+| Valid WebSocket Upgrade | Client-facing 101 is returned only after the upstream WebSocket handshake succeeds. | `fork_proxy_captures_only_websocket_upgrade_handshake_bytes` and `fork_proxy_upstream_handshake_failure_does_not_send_101_or_capture`. |
+
+The four malformed-request E2Es use the real Hudsucker proxy listener and intercepted loopback CONNECT/TLS connections. They assert the client-facing 400, a loopback upstream TCP accept count of zero, no 101 response artifact, no WebSocket outcome, eventual session-map removal, and recorder-buffer release. The tests wait for the session writer to release the retained recorder; they do not require that a non-101 ordinary HTTP error transaction can never be recorded.
+
+Rama uses `is_websocket_upgrade_attempt` and calls `validate_http_client_request` before invoking the upstream WebSocket service. `rejects_invalid_websocket_handshakes_before_upstream_service` covers missing key, metadata without Upgrade, missing Connection, and unsupported version, asserting 400 and zero upstream-service calls. That is direct service-boundary evidence, not a TCP accept-counter test. The tested malformed cases now have matching pre-upstream rejection behavior; broader RFC validation parity is not established. Both backends keep their own client-observed wire bytes; byte-for-byte response formatting parity is not required.
+
 ## Remaining Work and Limitations
 
 - Synthetic HTTP artifact scope, complete 101 boundaries, manifest ranges, and exclusion of post-Upgrade frames are **VERIFIED** for the tested Hudsucker and Rama paths. Each artifact matches its backend's client-observed bytes.
@@ -194,8 +211,7 @@ The earlier WebSocket lifecycle E2Es remain distinct evidence: real loopback TCP
 - Rama's experimental configuration is intentionally fixed to one canonical authority and socket address. It is not connected to production target selection, Origin Inventory, or Target Approval.
 - The Rama backend still uses the Hudsucker fork's certificate-authority trait and implementation. Removing that dependency requires a separately reviewed CA/certificate-cache design.
 - `CaptureLimits::default()` remains unbounded. A production cap and the behavior on limit exhaustion need a separate policy decision; introducing an arbitrary cap could change ordinary HTTP relay behavior.
-- Rama now validates an indicated downstream WebSocket handshake with `validate_http_client_request` before calling the upstream WebSocket client. `rejects_invalid_websocket_handshakes_before_upstream_service` checks missing key, WebSocket metadata without an `Upgrade` header, missing `Connection: Upgrade`, and unsupported version; each gets 400 and the upstream service call count remains zero. This is a service-boundary test, not a loopback TCP test.
-- Hudsucker calls `hyper_tungstenite::upgrade` before `connect_async_tls_with_config`; its missing-header unit test asserts 400. The no-upstream behavior is clear from this ordering, but no separate upstream-listener accept-counter test covers that branch.
+- Hudsucker and Rama's tested malformed WebSocket attempts are rejected before upstream connection/service dispatch as detailed in “Hudsucker/Rama WebSocket Request Validation.” This evidence does not establish every RFC handshake validation edge case.
 - `upstream_websocket_handshake_failure_returns_502_without_capture` uses a local TLS upstream that rejects the WebSocket handshake with 403; the proxy returns 502, removes the capture session, and writes no artifact. Hudsucker's corresponding 403 case is covered by `fork_proxy_upstream_handshake_failure_does_not_send_101_or_capture`.
 - The original analyzer output is recovered and all 21 items have current-source dispositions above. The exact historical replay is **NOT_REPRODUCIBLE**; the approximate replay differed and must not be presented as confirmation of the original 21-item result.
 - No production deployment, real game-server, external-service, or real-gameplay validation was performed. The backend must not be described as production accepted.
@@ -207,16 +223,17 @@ Commands ran from the sanitized mirror; no production endpoint, Notary, R2, exte
 | Command | Result |
 | --- | --- |
 | `cargo test --offline --locked --lib` (`hudsucker-fork`) | PASS — 25 passed, 0 failed. |
-| `cargo test --offline --locked --lib --features rama-experimental` (`proxy-https`) | PASS — 114 passed, 0 failed. |
+| `cargo test --offline --locked --lib --features rama-experimental` (`proxy-https`) | PASS — 118 passed, 0 failed, including four loopback Hudsucker malformed-Upgrade cases. |
 | `cargo check --offline --locked --lib --features rama-experimental` (`proxy-https`) | PASS. |
 | `cargo check --offline --locked --lib` (`proxy-https`) | PASS. |
-| `cargo clippy --offline --locked --tests --features rama-experimental` (`proxy-https`) | PASS, exit 0; 21 existing warnings, none in the changed `rama_experimental.rs`. |
-| `cargo clippy --offline --locked --tests` (`hudsucker-fork`) | PASS, exit 0; one existing `needless_borrow` warning in `src/proxy/internal.rs`. |
-| `cargo clippy --offline --locked --tests --features rama-experimental -- -D warnings` (`proxy-https`) | FAIL, exit 101; the 21 existing warnings in `capture.rs`, `capture_io.rs`, and `proxy_server_https.rs` become errors; none point to the changed Rama file. |
-| `rustfmt --check --edition 2021 src/proxy_server_https/rama_experimental.rs` | PASS. |
-| `git diff --check -- packages/FUSOU-PROXY/proxy-https/src/proxy_server_https/rama_experimental.rs packages/FUSOU-PROXY/proxy-https/RAMA_MIGRATION_PLAN.md` | PASS. |
+| `cargo clippy --offline --locked --tests --features rama-experimental` (`proxy-https`) | PASS, exit 0; 21 existing warnings, none in the new Hudsucker validation/test hunks. |
+| `cargo clippy --offline --locked --tests` (`hudsucker-fork`) | PASS, exit 0; one existing `needless_borrow` warning at `src/proxy/internal.rs:655`, outside the changed lines. |
+| `rustfmt --check --edition 2021 packages/FUSOU-PROXY/hudsucker-fork/src/proxy/internal.rs packages/FUSOU-PROXY/proxy-https/src/proxy_server_https.rs` | PASS. |
+| `git diff --check` scoped to the two Rust files and this migration plan | PASS. |
 
-The targeted pre-fix regression initially failed with 502 instead of the required 400, demonstrating that the malformed request reached the upstream service. After validation was added, the targeted handshake tests passed, and both are included in the 114-test library run. The all-target example test was not rerun here; the earlier recorded CA asset blocker remains, and no keys or certificates were copied.
+Strict Clippy with `-D warnings` was not rerun in this audit. The earlier recorded strict attempt failed on pre-existing diagnostics in `capture.rs`, `capture_io.rs`, and unrelated lines of `proxy_server_https.rs`; the standard Clippy runs above pass.
+
+The four Hudsucker E2Es directly check the response status and loopback accept count; the full 118-test run also exercises the existing ordinary-HTTP and valid-WebSocket controls. The all-target example test was not rerun here; the earlier recorded CA asset blocker remains, and no keys or certificates were copied.
 
 ## Migration Gate
 

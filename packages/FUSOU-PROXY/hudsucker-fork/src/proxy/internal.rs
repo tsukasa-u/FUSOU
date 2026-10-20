@@ -48,6 +48,26 @@ fn bad_request() -> Response<Body> {
         .expect("Failed to build response")
 }
 
+fn is_websocket_upgrade_attempt<B>(request: &Request<B>) -> bool {
+    let upgrade_header_indicates_websocket =
+        request.headers().get_all("upgrade").iter().any(|value| {
+            value.to_str().ok().is_some_and(|value| {
+                value
+                    .split(',')
+                    .any(|token| token.trim().eq_ignore_ascii_case("websocket"))
+            })
+        });
+    upgrade_header_indicates_websocket
+        || [
+            "sec-websocket-key",
+            "sec-websocket-version",
+            "sec-websocket-protocol",
+            "sec-websocket-extensions",
+        ]
+        .iter()
+        .any(|header| request.headers().contains_key(*header))
+}
+
 fn service_unavailable() -> Response<Body> {
     Response::builder()
         .status(StatusCode::SERVICE_UNAVAILABLE)
@@ -194,7 +214,7 @@ where
 
         if req.method() == Method::CONNECT {
             Ok(self.process_connect(req))
-        } else if hyper_tungstenite::is_upgrade_request(&req) {
+        } else if is_websocket_upgrade_attempt(&req) {
             Ok(self.upgrade_websocket(req).await)
         } else {
             let res = self
@@ -380,6 +400,10 @@ where
 
             Request::from_parts(parts, ())
         };
+
+        if !hyper_tungstenite::is_upgrade_request(&req) {
+            return bad_request();
+        }
 
         let upstream_request = req.clone();
         let (response, websocket) = match hyper_tungstenite::upgrade(&mut req, None) {

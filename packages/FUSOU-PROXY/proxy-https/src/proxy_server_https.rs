@@ -2012,6 +2012,34 @@ mod tests {
         ForwarderTaskPanic,
         ProxyShutdown,
         ProxyTaskAbort,
+        InvalidHandshake(InvalidHudsuckerHandshake),
+    }
+
+    #[derive(Clone, Copy)]
+    enum InvalidHudsuckerHandshake {
+        MissingKey,
+        MetadataWithoutUpgrade,
+        MissingConnection,
+        UnsupportedVersion,
+    }
+
+    impl InvalidHudsuckerHandshake {
+        fn request_wire(self) -> &'static [u8] {
+            match self {
+                Self::MissingKey => {
+                    b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n\r\n"
+                }
+                Self::MetadataWithoutUpgrade => {
+                    b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+                }
+                Self::MissingConnection => {
+                    b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+                }
+                Self::UnsupportedVersion => {
+                    b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 12\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+                }
+            }
+        }
     }
 
     fn assert_websocket_101_semantics(response_wire: &[u8]) {
@@ -3426,6 +3454,38 @@ mod tests {
         run_hudsucker_websocket_case(HudsuckerWebSocketCase::UpstreamHandshakeFailure).await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_rejects_missing_websocket_key_before_upstream_accept() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::InvalidHandshake(
+            InvalidHudsuckerHandshake::MissingKey,
+        ))
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_rejects_websocket_metadata_without_upgrade_before_upstream_accept() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::InvalidHandshake(
+            InvalidHudsuckerHandshake::MetadataWithoutUpgrade,
+        ))
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_rejects_missing_connection_upgrade_before_upstream_accept() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::InvalidHandshake(
+            InvalidHudsuckerHandshake::MissingConnection,
+        ))
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fork_proxy_rejects_unsupported_websocket_version_before_upstream_accept() {
+        run_hudsucker_websocket_case(HudsuckerWebSocketCase::InvalidHandshake(
+            InvalidHudsuckerHandshake::UnsupportedVersion,
+        ))
+        .await;
+    }
+
     async fn run_hudsucker_websocket_case(case: HudsuckerWebSocketCase) {
         use hudsucker::{
             certificate_authority::RcgenAuthority,
@@ -3434,6 +3494,7 @@ mod tests {
             tokio_tungstenite::{tungstenite::handshake::derive_accept_key, Connector},
             Proxy,
         };
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use tokio::net::TcpListener;
         use tokio::sync::oneshot;
         use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -3458,8 +3519,17 @@ mod tests {
             .expect("upstream listener");
         let upstream_addr = upstream_listener.local_addr().expect("upstream address");
         let upstream_case = case;
+        let upstream_accept_count = Arc::new(AtomicUsize::new(0));
+        let upstream_accept_count_task = Arc::clone(&upstream_accept_count);
+        let (upstream_accepted_tx, mut upstream_accepted_rx) = oneshot::channel();
         let upstream_task = tokio::spawn(async move {
             let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
+            upstream_accept_count_task.fetch_add(1, Ordering::SeqCst);
+            let _ = upstream_accepted_tx.send(());
+            if matches!(upstream_case, HudsuckerWebSocketCase::InvalidHandshake(_)) {
+                drop(socket);
+                return;
+            }
             let mut stream = upstream_acceptor
                 .accept(socket)
                 .await
@@ -3611,6 +3681,9 @@ mod tests {
                 HudsuckerWebSocketCase::UpstreamHandshakeFailure => {
                     unreachable!("upstream handshake failure returned before relay")
                 }
+                HudsuckerWebSocketCase::InvalidHandshake(_) => {
+                    unreachable!("invalid WebSocket request reached the upstream fixture")
+                }
             }
         });
 
@@ -3738,12 +3811,146 @@ mod tests {
         })
         .await
         .expect("capture session was not started before Upgrade request");
-        let request_handshake = b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        let request_handshake = match case {
+            HudsuckerWebSocketCase::InvalidHandshake(invalid) => invalid.request_wire(),
+            _ => b"GET /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+        };
         client_tls_stream
             .write_all(request_handshake)
             .await
             .expect("downstream WebSocket handshake");
-        let response_handshake = read_http_message(&mut client_tls_stream).await;
+        let response_handshake = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            read_http_message(&mut client_tls_stream),
+        )
+        .await
+        .expect("downstream response timed out");
+        if matches!(case, HudsuckerWebSocketCase::InvalidHandshake(_)) {
+            let upstream_was_accepted = tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                &mut upstream_accepted_rx,
+            )
+            .await
+            .is_ok();
+            drop(client_tls_stream);
+            upstream_task.abort();
+            let upstream_join =
+                tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+                    .await
+                    .expect("upstream accept observer did not stop");
+            if upstream_was_accepted {
+                upstream_join.expect("accepted upstream fixture task");
+            } else {
+                assert!(upstream_join
+                    .expect_err("pending upstream accept observer must be aborted")
+                    .is_cancelled());
+            }
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                while !capture_hook
+                    .sessions
+                    .lock()
+                    .expect("capture sessions")
+                    .is_empty()
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("invalid Upgrade session was not finalized");
+            RawCaptureHook::wait_for_persistence_tasks(Arc::clone(&capture_hook.persistence_tasks))
+                .await;
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    let released = match retained_session.try_lock() {
+                        Ok(session) => {
+                            let snapshot = session
+                                .recorder
+                                .snapshot()
+                                .expect("invalid-request capture snapshot");
+                            snapshot.request_bytes().is_empty()
+                                && snapshot.response_bytes().is_empty()
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => false,
+                        Err(std::sync::TryLockError::Poisoned(error)) => {
+                            panic!("invalid-request capture session poisoned: {error}")
+                        }
+                    };
+                    if released {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("invalid-request capture buffers were not released");
+            let retained_snapshot = retained_session
+                .lock()
+                .expect("retained invalid-request session")
+                .recorder
+                .snapshot()
+                .expect("invalid-request capture snapshot");
+            let has_101_artifact = if output_root.exists() {
+                let mut found_101 = false;
+                for entry in fs::read_dir(&output_root)
+                    .expect("invalid-request capture output")
+                    .flatten()
+                {
+                    if entry.file_name().to_string_lossy().starts_with('.') {
+                        continue;
+                    }
+                    let response_wire = entry.path().join("response-wire.bin");
+                    if response_wire.is_file() {
+                        found_101 |= fs::read(response_wire)
+                            .expect("read invalid-request response artifact")
+                            .starts_with(b"HTTP/1.1 101");
+                    }
+                }
+                found_101
+            } else {
+                false
+            };
+            let invalid_response = response_handshake.starts_with(b"HTTP/1.1 400");
+            let upstream_accepts = upstream_accept_count.load(Ordering::SeqCst);
+            let no_websocket_outcomes = capture_hook
+                .websocket_outcomes
+                .lock()
+                .expect("WebSocket outcomes")
+                .is_empty();
+            shutdown_tx
+                .take()
+                .expect("proxy shutdown sender")
+                .send(())
+                .expect("proxy shutdown signal");
+            proxy_task
+                .take()
+                .expect("proxy task")
+                .await
+                .expect("proxy task join")
+                .expect("proxy shutdown");
+            let _ = fs::remove_dir_all(output_root);
+
+            assert!(
+                invalid_response,
+                "invalid WebSocket request must return 400: {}",
+                String::from_utf8_lossy(&response_handshake)
+            );
+            assert!(
+                !upstream_was_accepted,
+                "invalid WebSocket request reached the loopback upstream"
+            );
+            assert_eq!(upstream_accepts, 0);
+            assert!(
+                !has_101_artifact,
+                "invalid request must not create a 101 artifact"
+            );
+            assert!(
+                no_websocket_outcomes,
+                "invalid request must not start relay"
+            );
+            assert!(retained_snapshot.request_bytes().is_empty());
+            assert!(retained_snapshot.response_bytes().is_empty());
+            return;
+        }
         if matches!(case, HudsuckerWebSocketCase::UpstreamHandshakeFailure) {
             assert!(
                 response_handshake.starts_with(b"HTTP/1.1 502"),
@@ -3972,6 +4179,9 @@ mod tests {
             }
             HudsuckerWebSocketCase::UpstreamHandshakeFailure => {
                 unreachable!("upstream handshake failure returned before relay")
+            }
+            HudsuckerWebSocketCase::InvalidHandshake(_) => {
+                unreachable!("invalid WebSocket request returned a 101 response")
             }
         }
         drop(client_tls_stream);
