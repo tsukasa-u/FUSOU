@@ -59,7 +59,8 @@ export function MasterDataStatusAlert() {
   const hasDetailsToggle = createMemo(
     () =>
       status().results.some((r) => r.status === "failed") ||
-      status().shipCount === 0,
+      status().shipCount === 0 ||
+      status().results.length > 0,
   );
 
   createEffect(() => {
@@ -72,134 +73,79 @@ export function MasterDataStatusAlert() {
     <div
       id="data-status"
       data-testid="master-data-status"
-      class={`alert text-sm py-2 mb-5 ${
-        variant() === "success"
-          ? "alert-success"
-          : variant() === "info"
-            ? "alert-info"
-            : "alert-warning"
-      }`}
+      class="rounded-lg border border-base-300 p-2.5 bg-base-200/40 text-xs mb-3 space-y-1"
     >
-      <Show when={variant() === "info"}>
-        <svg
-          id="data-status-icon-info"
-          class="shrink-0 w-5 h-5 stroke-current text-info"
-          aria-hidden="true"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="2 2 22 22"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M4 12c0 4.418 3.582 8 8 8s8-3.582 8-8-3.582-8-8-8-8 3.582-8 8Zm8-4v4"
-          ></path>
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 16h.01"
-          ></path>
-        </svg>
-      </Show>
-
-      <Show when={variant() === "success"}>
-        <svg
-          id="data-status-icon-success"
-          class="shrink-0 w-5 h-5 stroke-current text-success"
-          aria-hidden="true"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          ></path>
-        </svg>
-      </Show>
-
-      <Show when={variant() === "warning"}>
-        <svg
-          id="data-status-icon-warning"
-          class="shrink-0 w-5 h-5 stroke-current text-warning"
-          aria-hidden="true"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          ></path>
-        </svg>
-      </Show>
-
-      <span class="flex flex-col leading-tight gap-0.5 flex-1">
-        <span class="flex items-center justify-between gap-2">
-          <span id="data-status-text" class="text-sm">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span
+            class={`w-2 h-2 rounded-full shrink-0 ${
+              variant() === "success"
+                ? "bg-success"
+                : variant() === "info"
+                  ? "bg-info"
+                  : "bg-warning"
+            }`}
+          />
+          <span id="data-status-text" class="font-semibold text-base-content/90 truncate">
             {statusText()}
           </span>
-          <Show when={hasDetailsToggle()}>
-            <button
-              id="data-status-details-toggle"
-              class="btn btn-xs btn-ghost"
-              title="詳細ロード結果を表示/非表示"
-              onClick={() => setDetailsOpen((open) => !open)}
-            >
-              詳細
-            </button>
-          </Show>
-        </span>
+        </div>
+        <Show when={hasDetailsToggle()}>
+          <button
+            id="data-status-details-toggle"
+            type="button"
+            class="fusou-btn-ghost btn-xs text-[11px] h-6 min-h-0 px-2 shrink-0"
+            title="詳細ロード結果を表示/非表示"
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {detailsOpen() ? "閉じる" : "詳細"}
+          </button>
+        </Show>
+      </div>
 
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-base-content/60 pl-4">
         <Show when={masterMetaText()}>
-          <span id="data-status-master-meta" class="text-[11px] opacity-70">
+          <span id="data-status-master-meta">
             {masterMetaText()}
           </span>
         </Show>
-
         <Show when={synergyMetaText()}>
-          <span id="data-status-synergy-meta" class="text-[11px] opacity-70">
+          <span id="data-status-synergy-meta">
             {synergyMetaText()}
           </span>
         </Show>
+      </div>
 
-        <Show when={status().results.length > 0}>
-          <div id="data-status-details" class={`text-[11px] mt-2 ${detailsOpen() ? "" : "hidden"}`}>
-            <For each={status().results}>
-              {(result) => {
-                const icon =
-                  result.status === "success"
-                    ? "✓"
-                    : result.status === "failed"
-                      ? "✗"
-                      : "⋯";
-                const iconClass =
-                  result.status === "success"
-                    ? "text-success"
-                    : result.status === "failed"
-                      ? "text-error"
-                      : "text-info";
-                const label =
-                  result.recordCount != null && result.recordCount > 0
-                    ? `${result.name} (${result.recordCount})`
-                    : result.name;
-                return (
-                  <div class="flex items-center gap-1">
-                    <span class={iconClass}>{icon}</span>
-                    <span class="truncate">{label}</span>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
-        </Show>
-      </span>
+      <Show when={status().results.length > 0 && detailsOpen()}>
+        <div id="data-status-details" class="text-[11px] pt-1.5 mt-1 border-t border-base-300/60 grid grid-cols-2 gap-1 pl-4">
+          <For each={status().results}>
+            {(result) => {
+              const icon =
+                result.status === "success"
+                  ? "✓"
+                  : result.status === "failed"
+                    ? "✗"
+                    : "⋯";
+              const iconClass =
+                result.status === "success"
+                  ? "text-success"
+                  : result.status === "failed"
+                    ? "text-error"
+                    : "text-info";
+              const label =
+                result.recordCount != null && result.recordCount > 0
+                  ? `${result.name} (${result.recordCount})`
+                  : result.name;
+              return (
+                <div class="flex items-center gap-1">
+                  <span class={iconClass}>{icon}</span>
+                  <span class="truncate">{label}</span>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 }

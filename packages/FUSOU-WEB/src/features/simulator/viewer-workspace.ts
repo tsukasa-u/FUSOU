@@ -167,13 +167,16 @@ export function upsertEntry(
   );
 
   if (duplicate) {
-    duplicate.name = entry.name;
-    duplicate.memo = entry.memo;
-    duplicate.payloadKind = entry.payloadKind;
-    duplicate.payload = entry.payload;
-    duplicate.pinned = entry.pinned;
-    duplicate.locked = entry.locked ?? false;
-    duplicate.updatedAt = Date.now();
+    const updatedDuplicate: ViewerEntry = {
+      ...duplicate,
+      name: entry.name,
+      memo: entry.memo,
+      payloadKind: entry.payloadKind,
+      payload: entry.payload,
+      pinned: entry.pinned,
+      locked: entry.locked ?? false,
+      updatedAt: Date.now(),
+    };
     let newActiveId = ws.activeId;
     if (newActiveId === entry.id || newActiveId === duplicate.id) {
       newActiveId = duplicate.id;
@@ -181,30 +184,36 @@ export function upsertEntry(
     const newWs = {
       activeId: newActiveId,
       entries: [
-        duplicate,
+        updatedDuplicate,
         ...ws.entries.filter((current) => current.id !== duplicate.id && current.id !== entry.id),
       ]
     };
     workspaceStore.set(newWs);
     saveWorkspace(newWs);
-    return duplicate;
+    return updatedDuplicate;
   }
 
   const target = ws.entries.find((current) => current.id === entry.id);
   if (target) {
-    target.name = entry.name;
-    target.memo = entry.memo;
-    target.sourceType = entry.sourceType;
-    target.sourceValue = entry.sourceValue;
-    target.payloadKind = entry.payloadKind;
-    target.payload = entry.payload;
-    target.pinned = entry.pinned;
-    target.locked = entry.locked ?? false;
-    target.updatedAt = Date.now();
-    const newWs = { ...ws, entries: [target, ...ws.entries.filter((current) => current.id !== target.id)] };
+    const updatedTarget: ViewerEntry = {
+      ...target,
+      name: entry.name,
+      memo: entry.memo,
+      sourceType: entry.sourceType,
+      sourceValue: entry.sourceValue,
+      payloadKind: entry.payloadKind,
+      payload: entry.payload,
+      pinned: entry.pinned,
+      locked: entry.locked ?? false,
+      updatedAt: Date.now(),
+    };
+    const newWs = {
+      ...ws,
+      entries: ws.entries.map((current) => (current.id === target.id ? updatedTarget : current))
+    };
     workspaceStore.set(newWs);
     saveWorkspace(newWs);
-    return target;
+    return updatedTarget;
   }
 
   return addEntry(entry);

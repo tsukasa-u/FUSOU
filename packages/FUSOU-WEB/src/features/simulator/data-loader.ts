@@ -1,4 +1,4 @@
-// ── Data loader: master data import, normalization, asset loading ──
+﻿// ── Data loader: master data import, normalization, asset loading ──
 
 import { z } from "zod";
 import {
@@ -37,6 +37,11 @@ import {
   getSlotItemEffects,
   getSlotItemEffectsMeta,
 } from "./simulator-selectors";
+import {
+  loadAllCachedMasterData,
+  saveMasterDataCache,
+  type MasterCacheEntry,
+} from "./master-data-cache";
 import type {
   MstShipData,
   MstSlotItemData,
@@ -644,20 +649,31 @@ async function normalizeCompressedComboRules(
   return data;
 }
 
-async function fetchSynergyDataWithMeta(): Promise<{
+async function fetchSynergyDataWithMeta(
+  cached?: MasterCacheEntry<{ data: SlotItemEffectsData; meta: SlotItemEffectsMeta | null }> | null,
+): Promise<{
   data: SlotItemEffectsData | null;
   meta: SlotItemEffectsMeta | null;
+  fromCache: boolean;
 }> {
   try {
+    const headers: Record<string, string> = {};
+    if (cached?.etag) {
+      headers["If-None-Match"] = cached.etag;
+    }
     const res = await fetch("/api/master-data/synergy-data", {
-      cache: "no-store",
+      headers,
     });
+    if (res.status === 304 && cached?.data) {
+      console.info("[simulator] synergy-data 304 Not Modified — using cached rules");
+      return { data: cached.data.data, meta: cached.data.meta, fromCache: true };
+    }
     if (!res.ok) {
       console.warn("[simulator] slot_item_effects fetch failed", {
         url: "/api/master-data/synergy-data",
         status: res.status,
       });
-      return { data: null, meta: null };
+      return { data: cached?.data?.data ?? null, meta: cached?.data?.meta ?? null, fromCache: !!cached?.data };
     }
 
     let parsed: SynergyResponse | null = null;
@@ -672,7 +688,7 @@ async function fetchSynergyDataWithMeta(): Promise<{
         url: "/api/master-data/synergy-data",
         error: String(err),
       });
-      return { data: null, meta: null };
+      return { data: cached?.data?.data ?? null, meta: cached?.data?.meta ?? null, fromCache: !!cached?.data };
     }
 
     const periodTag = res.headers.get("X-FUSOU-Synergy-Period-Tag") ?? "";
@@ -699,19 +715,24 @@ async function fetchSynergyDataWithMeta(): Promise<{
               period_tag: "local-dev",
               period_revision: 0,
               completed_at: null,
-              source,
-              generator_version: parsed?._meta?.generator_version ?? null,
-              table_version: parsed?._meta?.table_version ?? null,
+              source: "dev-fallback",
+              generator_version: null,
+              table_version: null,
             }
           : null;
 
-    return { data: parsed, meta };
+    const etag = res.headers.get("ETag");
+    if (parsed) {
+      saveMasterDataCache("synergy-bundle", { data: parsed, meta }, { etag, periodTag, periodRevision });
+    }
+
+    return { data: parsed, meta, fromCache: false };
   } catch (err) {
     console.error("[simulator] slot_item_effects fetch error", {
       url: "/api/master-data/synergy-data",
       error: String(err),
     });
-    return { data: null, meta: null };
+    return { data: cached?.data?.data ?? null, meta: cached?.data?.meta ?? null, fromCache: !!cached?.data };
   }
 }
 
@@ -907,49 +928,65 @@ export function getDataLoadResults(): DataLoadResult[] {
   return [..._dataLoadResults];
 }
 
-async function fetchJsonSafe<T>(
+async function fetchJsonSafeWithEtag<T>(
   url: string,
+  cacheKey: string,
   label: string,
   schema: z.ZodType<T, z.ZodTypeDef, unknown>,
-): Promise<T | null> {
+  cached?: MasterCacheEntry<T> | null,
+): Promise<{ data: T | null; isNotModified: boolean; etag: string | null }> {
   try {
-    const res = await fetch(url);
+    const headers: Record<string, string> = {};
+    if (cached?.etag) {
+      headers["If-None-Match"] = cached.etag;
+    }
+    const res = await fetch(url, { headers });
+    if (res.status === 304 && cached?.data) {
+      console.info(`[simulator] ${label} 304 Not Modified — using cache`);
+      return { data: cached.data, isNotModified: true, etag: cached.etag ?? null };
+    }
     if (!res.ok) {
       console.warn(`[simulator] ${label} fetch failed`, {
         url,
         status: res.status,
       });
-      return null;
+      return { data: cached?.data ?? null, isNotModified: !!cached?.data, etag: cached?.etag ?? null };
     }
 
     try {
+      const etag = res.headers.get("ETag");
       const parsed = schema.safeParse(await res.json());
       if (!parsed.success) {
         console.error(`[simulator] ${label} response validation failed`, {
           url,
           error: parsed.error,
         });
-        return null;
+        return { data: cached?.data ?? null, isNotModified: !!cached?.data, etag: cached?.etag ?? null };
       }
-      return parsed.data;
+      const dataObj = parsed.data as any;
+      saveMasterDataCache(cacheKey, parsed.data, {
+        etag,
+        periodTag: dataObj?.period_tag ?? null,
+        periodRevision: dataObj?.period_revision ?? null,
+        tableVersion: dataObj?.table_version ?? null,
+      });
+      return { data: parsed.data, isNotModified: false, etag };
     } catch (err) {
       console.error(`[simulator] ${label} json parse failed`, {
         url,
         error: String(err),
       });
-      return null;
+      return { data: cached?.data ?? null, isNotModified: !!cached?.data, etag: cached?.etag ?? null };
     }
   } catch (err) {
     console.error(`[simulator] ${label} fetch error`, {
       url,
       error: String(err),
     });
-    return null;
+    return { data: cached?.data ?? null, isNotModified: !!cached?.data, etag: cached?.etag ?? null };
   }
 }
-
 export async function loadMasterData(renderAll: () => void) {
-  // Initialize load result tracking
   _dataLoadResults = [
     { name: "mst_ship", status: "pending" },
     { name: "mst_slotitem", status: "pending" },
@@ -967,7 +1004,183 @@ export async function loadMasterData(renderAll: () => void) {
     { name: "mst_equip_limit_exslot", status: "pending" },
     { name: "synergy-data", status: "pending" },
   ];
-  updateDataStatus();
+
+  // 1. Instant hydration from IndexedDB cache (Stale-While-Revalidate)
+  const allCache = await loadAllCachedMasterData();
+  const cachedShip = allCache.get("mst_ship") as MasterCacheEntry<z.infer<typeof MasterShipResponseSchema>> | undefined;
+  const cachedEquip = allCache.get("mst_slotitem") as MasterCacheEntry<z.infer<typeof MasterSlotItemResponseSchema>> | undefined;
+
+  const hasCoreCache = !!(cachedShip?.data?.records?.length && cachedEquip?.data?.records?.length);
+
+  if (hasCoreCache) {
+    console.info("[data-loader] Instant load from IndexedDB cache...");
+    if (cachedShip?.data?.records) {
+      beginBulkLoad();
+      try {
+        for (const s of cachedShip.data.records) {
+          if (s && s.id != null && s.name) setMasterShip(normalizeMstShip(s));
+        }
+      } finally {
+        endBulkLoad("fleet");
+      }
+      _masterDataPeriodTag = cachedShip.data.period_tag ?? null;
+      _masterDataPeriodRevision = cachedShip.data.period_revision ?? null;
+      _masterDataTableVersion = cachedShip.data.table_version ?? null;
+    }
+    if (cachedEquip?.data?.records) {
+      beginBulkLoad();
+      try {
+        for (const e of cachedEquip.data.records) {
+          if (e && e.id != null && e.name) setMasterSlotItem(normalizeMstSlotItem(e));
+        }
+      } finally {
+        endBulkLoad("fleet");
+      }
+    }
+    const cachedBanner = allCache.get("ship-banner-map")?.data as any;
+    if (cachedBanner?.base_url) setAssetBaseUrl(cachedBanner.base_url);
+    if (cachedBanner?.banners) setBannerMap(cachedBanner.banners);
+
+    const cachedCard = allCache.get("ship-card-map")?.data as any;
+    if (cachedCard?.cards) setCardMap(cachedCard.cards);
+
+    const cachedIcon = allCache.get("ship-icon-map")?.data as any;
+    if (cachedIcon?.icons) setShipIconMap(cachedIcon.icons);
+
+    const cachedEquipImg = allCache.get("equip-image-map")?.data as any;
+    if (cachedEquipImg?.card) setEquipCardMap(cachedEquipImg.card);
+    if (cachedEquipImg?.item_on) setEquipItemOnMap(cachedEquipImg.item_on);
+    if (cachedEquipImg?.item_up) setEquipItemUpMap(cachedEquipImg.item_up);
+
+    const cachedWeaponFrames = allCache.get("weapon-icon-frames")?.data as any;
+    if (cachedWeaponFrames?.frames) {
+      resetWeaponIconFrames();
+      for (const [name, entry] of Object.entries(cachedWeaponFrames.frames as Record<string, any>)) {
+        const m = name.match(/_id_(\d+)$/);
+        const idText = m?.[1];
+        if (idText === undefined) continue;
+        const { x, y, w, h } = entry.frame;
+        setWeaponIconFrame(parseInt(idText, 10), [x, y, w, h]);
+      }
+      if (cachedWeaponFrames.meta?.size) {
+        setSpriteSheetMeta(cachedWeaponFrames.meta.size.w ?? 0, cachedWeaponFrames.meta.size.h ?? 0);
+      }
+    }
+
+    const cachedWeaponPng = allCache.get("weapon-icon-data-url")?.data as string | undefined;
+    if (cachedWeaponPng) {
+      _weaponIconDataUrl = cachedWeaponPng;
+      setSpriteSheetUrl(cachedWeaponPng);
+    }
+
+    const cachedShipTypeFrames = allCache.get("ship-type-icon-frames")?.data as any;
+    if (cachedShipTypeFrames?.frames) {
+      resetShipTypeIconFrames();
+      const portShipFrameByIndex = new Map<number, [number, number, number, number]>();
+      for (const [name, entry] of Object.entries(cachedShipTypeFrames.frames as Record<string, any>)) {
+        const portMatch = name.match(/^port_ships_(\d+)$/);
+        const idx = portMatch?.[1] !== undefined ? Number.parseInt(portMatch[1], 10) : NaN;
+        if (Number.isFinite(idx) && idx >= 0) {
+          portShipFrameByIndex.set(idx, [entry.frame.x, entry.frame.y, entry.frame.w, entry.frame.h]);
+        }
+      }
+      const stypeToPortShipsFrameIndex: Record<number, number> = {
+        1: 14, 2: 0, 3: 11, 4: 16, 5: 15, 6: 17, 7: 20, 8: 18, 9: 18, 10: 19,
+        11: 21, 12: 18, 13: 1, 14: 2, 15: 9, 16: 3, 17: 7, 18: 5, 19: 6, 20: 4, 21: 8, 22: 9,
+      };
+      if (portShipFrameByIndex.size > 0) {
+        for (const [stypeRaw, frameIdx] of Object.entries(stypeToPortShipsFrameIndex)) {
+          const stype = Number.parseInt(stypeRaw, 10);
+          const frame = portShipFrameByIndex.get(frameIdx);
+          if (frame && Number.isFinite(stype) && stype > 0) setShipTypeIconFrame(stype, frame);
+        }
+      }
+      for (const [name, entry] of Object.entries(cachedShipTypeFrames.frames as Record<string, any>)) {
+        if (/^port_ships_\d+$/.test(name)) continue;
+        const genericMatch = name.match(/_([0-9]+)$/);
+        const stype = genericMatch?.[1] !== undefined ? Number.parseInt(genericMatch[1], 10) : NaN;
+        if (!Number.isFinite(stype) || stype <= 0) continue;
+        if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) continue;
+        setShipTypeIconFrame(stype, [entry.frame.x, entry.frame.y, entry.frame.w, entry.frame.h]);
+      }
+      if (cachedShipTypeFrames.meta?.size) {
+        setShipTypeSpriteSheetMeta(cachedShipTypeFrames.meta.size.w ?? 0, cachedShipTypeFrames.meta.size.h ?? 0);
+      }
+    }
+
+    const cachedShipTypePng = allCache.get("ship-type-icon-data-url")?.data as string | undefined;
+    if (cachedShipTypePng) {
+      _shipTypeIconDataUrl = cachedShipTypePng;
+      setShipTypeSpriteSheetUrl(cachedShipTypePng);
+    }
+
+    const cachedEquipType = allCache.get("mst_slotitem_equiptype")?.data as any;
+    if (cachedEquipType?.records) {
+      for (const t of cachedEquipType.records) {
+        if (t && t.id != null && t.name) setMasterEquipType(t);
+      }
+    }
+
+    const cachedStype = allCache.get("mst_stype")?.data as any;
+    if (cachedStype?.records) {
+      for (const s of cachedStype.records) {
+        if (s && s.id != null) setMasterStype(s);
+      }
+    }
+
+    const cachedExslot = allCache.get("mst_equip_exslot")?.data as any;
+    if (cachedExslot?.records) {
+      for (const e of cachedExslot.records) {
+        if (e && e.equip != null) addEquipExslotId(e.equip);
+      }
+    }
+
+    const cachedEquipShip = allCache.get("mst_equip_ship")?.data as any;
+    if (cachedEquipShip?.records) {
+      for (const r of cachedEquipShip.records) {
+        if (r && r.ship_id != null && r.equip_type) setMasterEquipShip(r);
+      }
+    }
+
+    const cachedExslotShip = allCache.get("mst_equip_exslot_ship")?.data as any;
+    if (cachedExslotShip?.records) {
+      for (const r of cachedExslotShip.records) {
+        if (r && r.slotitem_id != null) setMasterEquipExslotShip(r);
+      }
+    }
+
+    const cachedLimitExslot = allCache.get("mst_equip_limit_exslot")?.data as any;
+    if (cachedLimitExslot?.records) {
+      for (const r of cachedLimitExslot.records) {
+        if (r && r.ship_id != null && r.equip) setMasterEquipLimitExslot(r);
+      }
+    }
+
+    const cachedSynergy = allCache.get("synergy-bundle")?.data as { data: SlotItemEffectsData; meta: SlotItemEffectsMeta | null } | undefined;
+    if (cachedSynergy?.data) {
+      setSlotItemEffects(cachedSynergy.data);
+      if (cachedSynergy.meta) setSlotItemEffectsMeta(cachedSynergy.meta);
+    }
+
+    const cachedSpeedUpgrade = allCache.get("soku-speed-upgrade")?.data as any;
+    if (cachedSpeedUpgrade?.ok && cachedSpeedUpgrade?.data) {
+      setSokuSpeedData(cachedSpeedUpgrade.data);
+    }
+
+    for (const item of _dataLoadResults) {
+      const c = allCache.get(item.name);
+      if (c?.data) {
+        item.status = "success";
+        const records = (c.data as any)?.records;
+        if (Array.isArray(records)) item.recordCount = records.length;
+      }
+    }
+
+    updateDataStatus();
+    renderAll();
+  } else {
+    updateDataStatus();
+  }
 
   const updateLoadResult = (name: string, data: unknown) => {
     const result = _dataLoadResults.find((r) => r.name === name);
@@ -985,20 +1198,23 @@ export async function loadMasterData(renderAll: () => void) {
         result.status = "failed";
       }
       result.loadedAt = Date.now();
-      console.info(`[data-loader] updated result for ${name}: ${result.status} (records: ${result.recordCount ?? 0})`);
       updateDataStatus();
     }
   };
 
-  // 1. mst_ship (艦娘マスター: 最優先・即時反映)
+  // 2. Background Revalidation with ETag
   const shipTask = (async () => {
-    const shipData = await fetchJsonSafe(
+    const cached = allCache.get("mst_ship") as MasterCacheEntry<z.infer<typeof MasterShipResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_ship",
       "mst_ship",
+      "mst_ship",
       MasterShipResponseSchema,
+      cached,
     );
+    const shipData = res.data;
     updateLoadResult("mst_ship", shipData);
-    if (shipData?.records) {
+    if (!res.isNotModified && shipData?.records) {
       beginBulkLoad();
       try {
         for (const s of shipData.records) {
@@ -1007,105 +1223,127 @@ export async function loadMasterData(renderAll: () => void) {
       } finally {
         endBulkLoad("fleet");
       }
+      _masterDataPeriodTag = shipData.period_tag ?? null;
+      _masterDataPeriodRevision = shipData.period_revision ?? null;
+      _masterDataTableVersion = shipData.table_version ?? null;
+      updateDataStatus();
+      renderAll();
     }
-    _masterDataPeriodTag = shipData?.period_tag ?? null;
-    _masterDataPeriodRevision = shipData?.period_revision ?? null;
-    _masterDataTableVersion = shipData?.table_version ?? null;
-    updateDataStatus();
-    renderAll();
     return shipData;
   })();
 
-  // 2. mst_slotitem (装備マスター: 最優先・即時反映)
   const equipTask = (async () => {
-    const equipData = await fetchJsonSafe(
+    const cached = allCache.get("mst_slotitem") as MasterCacheEntry<z.infer<typeof MasterSlotItemResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_slotitem",
       "mst_slotitem",
+      "mst_slotitem",
       MasterSlotItemResponseSchema,
+      cached,
     );
+    const equipData = res.data;
     updateLoadResult("mst_slotitem", equipData);
-    if (equipData?.records) {
+    if (!res.isNotModified && equipData?.records) {
       beginBulkLoad();
       try {
         for (const e of equipData.records) {
-          if (e && e.id != null && e.name)
-            setMasterSlotItem(normalizeMstSlotItem(e));
+          if (e && e.id != null && e.name) setMasterSlotItem(normalizeMstSlotItem(e));
         }
       } finally {
         endBulkLoad("fleet");
       }
+      updateDataStatus();
+      renderAll();
     }
-    updateDataStatus();
-    renderAll();
     return equipData;
   })();
 
-  // 3. ship-banner-map
   const bannerMapTask = (async () => {
-    const bannerMapData = await fetchJsonSafe(
+    const cached = allCache.get("ship-banner-map") as MasterCacheEntry<z.infer<typeof AssetMapResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/asset-sync/ship-banner-map",
       "ship-banner-map",
+      "ship-banner-map",
       AssetMapResponseSchema,
+      cached,
     );
+    const bannerMapData = res.data;
     updateLoadResult("ship-banner-map", bannerMapData);
-    if (bannerMapData?.base_url) setAssetBaseUrl(bannerMapData.base_url);
-    if (bannerMapData?.banners) setBannerMap(bannerMapData.banners);
-    renderAll();
+    if (!res.isNotModified) {
+      if (bannerMapData?.base_url) setAssetBaseUrl(bannerMapData.base_url);
+      if (bannerMapData?.banners) setBannerMap(bannerMapData.banners);
+      renderAll();
+    }
   })();
 
-  // 4. ship-card-map
   const cardMapTask = (async () => {
-    const cardMapData = await fetchJsonSafe(
+    const cached = allCache.get("ship-card-map") as MasterCacheEntry<z.infer<typeof CardMapResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/asset-sync/ship-card-map",
       "ship-card-map",
+      "ship-card-map",
       CardMapResponseSchema,
+      cached,
     );
+    const cardMapData = res.data;
     updateLoadResult("ship-card-map", cardMapData);
-    if (cardMapData?.base_url && !getAssetBaseUrl())
-      setAssetBaseUrl(cardMapData.base_url);
-    if (cardMapData?.cards) setCardMap(cardMapData.cards);
-    renderAll();
+    if (!res.isNotModified) {
+      if (cardMapData?.base_url && !getAssetBaseUrl()) setAssetBaseUrl(cardMapData.base_url);
+      if (cardMapData?.cards) setCardMap(cardMapData.cards);
+      renderAll();
+    }
   })();
 
-  // 5. ship-icon-map
   const shipIconMapTask = (async () => {
-    const shipIconMapData = await fetchJsonSafe(
+    const cached = allCache.get("ship-icon-map") as MasterCacheEntry<z.infer<typeof ShipIconMapResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/asset-sync/ship-icon-map",
       "ship-icon-map",
+      "ship-icon-map",
       ShipIconMapResponseSchema,
+      cached,
     );
+    const shipIconMapData = res.data;
     updateLoadResult("ship-icon-map", shipIconMapData);
-    if (shipIconMapData?.base_url && !getAssetBaseUrl())
-      setAssetBaseUrl(shipIconMapData.base_url);
-    if (shipIconMapData?.icons) setShipIconMap(shipIconMapData.icons);
-    renderAll();
+    if (!res.isNotModified) {
+      if (shipIconMapData?.base_url && !getAssetBaseUrl()) setAssetBaseUrl(shipIconMapData.base_url);
+      if (shipIconMapData?.icons) setShipIconMap(shipIconMapData.icons);
+      renderAll();
+    }
   })();
 
-  // 6. equip-image-map
   const equipImageMapTask = (async () => {
-    const equipImageData = await fetchJsonSafe(
+    const cached = allCache.get("equip-image-map") as MasterCacheEntry<z.infer<typeof EquipImageMapResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/asset-sync/equip-image-map",
       "equip-image-map",
+      "equip-image-map",
       EquipImageMapResponseSchema,
+      cached,
     );
+    const equipImageData = res.data;
     updateLoadResult("equip-image-map", equipImageData);
-    if (equipImageData?.base_url && !getAssetBaseUrl())
-      setAssetBaseUrl(equipImageData.base_url);
-    if (equipImageData?.card) setEquipCardMap(equipImageData.card);
-    if (equipImageData?.item_on) setEquipItemOnMap(equipImageData.item_on);
-    if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
-    renderAll();
+    if (!res.isNotModified) {
+      if (equipImageData?.base_url && !getAssetBaseUrl()) setAssetBaseUrl(equipImageData.base_url);
+      if (equipImageData?.card) setEquipCardMap(equipImageData.card);
+      if (equipImageData?.item_on) setEquipItemOnMap(equipImageData.item_on);
+      if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
+      renderAll();
+    }
   })();
 
-  // 7. weapon-icon-frames & sprite
   const weaponIconTask = (async () => {
-    const iconFrameData = await fetchJsonSafe(
+    const cached = allCache.get("weapon-icon-frames") as MasterCacheEntry<z.infer<typeof IconFramesResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/asset-sync/weapon-icon-frames?v=2",
       "weapon-icon-frames",
+      "weapon-icon-frames",
       IconFramesResponseSchema,
+      cached,
     );
+    const iconFrameData = res.data;
     updateLoadResult("weapon-icon-frames", iconFrameData);
-    if (iconFrameData?.frames) {
+    if (!res.isNotModified && iconFrameData?.frames) {
       resetWeaponIconFrames();
       for (const [name, entry] of Object.entries(iconFrameData.frames)) {
         const m = name.match(/_id_(\d+)$/);
@@ -1114,12 +1352,9 @@ export async function loadMasterData(renderAll: () => void) {
         const { x, y, w, h } = entry.frame;
         setWeaponIconFrame(parseInt(idText, 10), [x, y, w, h]);
       }
-    }
-    if (iconFrameData?.meta?.size) {
-      setSpriteSheetMeta(
-        iconFrameData.meta.size.w ?? 0,
-        iconFrameData.meta.size.h ?? 0,
-      );
+      if (iconFrameData.meta?.size) {
+        setSpriteSheetMeta(iconFrameData.meta.size.w ?? 0, iconFrameData.meta.size.h ?? 0);
+      }
     }
     if (iconFrameData) {
       const pngKey = "assets/kcs2/img/common/common_icon_weapon.png";
@@ -1138,46 +1373,40 @@ export async function loadMasterData(renderAll: () => void) {
             });
             _weaponIconDataUrl = dataUrl;
             setSpriteSheetUrl(dataUrl);
+            saveMasterDataCache("weapon-icon-data-url", dataUrl);
           } else {
             const assetBaseUrl = getAssetBaseUrl();
-            setSpriteSheetUrl(
-              assetBaseUrl
-                ? assetBaseUrl + "/" + pngKey
-                : "/api/asset-sync/weapon-icons",
-            );
+            setSpriteSheetUrl(assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/weapon-icons");
           }
         } catch {
           const assetBaseUrl = getAssetBaseUrl();
-          setSpriteSheetUrl(
-            assetBaseUrl
-              ? assetBaseUrl + "/" + pngKey
-              : "/api/asset-sync/weapon-icons",
-          );
+          setSpriteSheetUrl(assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/weapon-icons");
         }
       }
     }
     renderAll();
   })();
 
-  // 8. ship-type-icon-frames & sprite
   const shipTypeIconTask = (async () => {
-    const shipTypeIconFrameData = await fetchJsonSafe(
+    const cached = allCache.get("ship-type-icon-frames") as MasterCacheEntry<z.infer<typeof IconFramesResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/asset-sync/ship-type-icon-frames?v=1",
       "ship-type-icon-frames",
+      "ship-type-icon-frames",
       IconFramesResponseSchema,
+      cached,
     );
+    const shipTypeIconFrameData = res.data;
     updateLoadResult("ship-type-icon-frames", shipTypeIconFrameData);
-    if (shipTypeIconFrameData?.frames) {
+    if (!res.isNotModified && shipTypeIconFrameData?.frames) {
       resetShipTypeIconFrames();
       const portShipFrameByIndex = new Map<number, [number, number, number, number]>();
       for (const [name, entry] of Object.entries(shipTypeIconFrameData.frames)) {
         const portMatch = name.match(/^port_ships_(\d+)$/);
-        const portIndexText = portMatch?.[1];
-        if (portIndexText === undefined) continue;
-        const idx = Number.parseInt(portIndexText, 10);
-        if (!Number.isFinite(idx) || idx < 0) continue;
-        const { x, y, w, h } = entry.frame;
-        portShipFrameByIndex.set(idx, [x, y, w, h]);
+        const idx = portMatch?.[1] !== undefined ? Number.parseInt(portMatch[1], 10) : NaN;
+        if (Number.isFinite(idx) && idx >= 0) {
+          portShipFrameByIndex.set(idx, [entry.frame.x, entry.frame.y, entry.frame.w, entry.frame.h]);
+        }
       }
       const stypeToPortShipsFrameIndex: Record<number, number> = {
         1: 14, 2: 0, 3: 11, 4: 16, 5: 15, 6: 17, 7: 20, 8: 18, 9: 18, 10: 19,
@@ -1187,27 +1416,20 @@ export async function loadMasterData(renderAll: () => void) {
         for (const [stypeRaw, frameIdx] of Object.entries(stypeToPortShipsFrameIndex)) {
           const stype = Number.parseInt(stypeRaw, 10);
           const frame = portShipFrameByIndex.get(frameIdx);
-          if (!frame || !Number.isFinite(stype) || stype <= 0) continue;
-          setShipTypeIconFrame(stype, frame);
+          if (frame && Number.isFinite(stype) && stype > 0) setShipTypeIconFrame(stype, frame);
         }
       }
       for (const [name, entry] of Object.entries(shipTypeIconFrameData.frames)) {
         if (/^port_ships_\d+$/.test(name)) continue;
         const genericMatch = name.match(/_([0-9]+)$/);
-        const stypeText = genericMatch?.[1];
-        if (stypeText === undefined) continue;
-        const stype = Number.parseInt(stypeText, 10);
+        const stype = genericMatch?.[1] !== undefined ? Number.parseInt(genericMatch[1], 10) : NaN;
         if (!Number.isFinite(stype) || stype <= 0) continue;
         if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) continue;
-        const { x, y, w, h } = entry.frame;
-        setShipTypeIconFrame(stype, [x, y, w, h]);
+        setShipTypeIconFrame(stype, [entry.frame.x, entry.frame.y, entry.frame.w, entry.frame.h]);
       }
-    }
-    if (shipTypeIconFrameData?.meta?.size) {
-      setShipTypeSpriteSheetMeta(
-        shipTypeIconFrameData.meta.size.w ?? 0,
-        shipTypeIconFrameData.meta.size.h ?? 0,
-      );
+      if (shipTypeIconFrameData.meta?.size) {
+        setShipTypeSpriteSheetMeta(shipTypeIconFrameData.meta.size.w ?? 0, shipTypeIconFrameData.meta.size.h ?? 0);
+      }
     }
     if (shipTypeIconFrameData) {
       const pngKey = "assets/kcs2/img/port/port_ships.png";
@@ -1226,129 +1448,146 @@ export async function loadMasterData(renderAll: () => void) {
             });
             _shipTypeIconDataUrl = dataUrl;
             setShipTypeSpriteSheetUrl(dataUrl);
+            saveMasterDataCache("ship-type-icon-data-url", dataUrl);
           } else {
             const assetBaseUrl = getAssetBaseUrl();
-            setShipTypeSpriteSheetUrl(
-              assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/ship-type-icons",
-            );
+            setShipTypeSpriteSheetUrl(assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/ship-type-icons");
           }
         } catch {
           const assetBaseUrl = getAssetBaseUrl();
-          setShipTypeSpriteSheetUrl(
-            assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/ship-type-icons",
-          );
+          setShipTypeSpriteSheetUrl(assetBaseUrl ? assetBaseUrl + "/" + pngKey : "/api/asset-sync/ship-type-icons");
         }
       }
     }
     renderAll();
   })();
 
-  // 9. mst_slotitem_equiptype
   const equipTypeTask = (async () => {
-    const equipTypeData = await fetchJsonSafe(
+    const cached = allCache.get("mst_slotitem_equiptype") as MasterCacheEntry<z.infer<typeof MasterSlotItemEquipTypeResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_slotitem_equiptype",
       "mst_slotitem_equiptype",
+      "mst_slotitem_equiptype",
       MasterSlotItemEquipTypeResponseSchema,
+      cached,
     );
+    const equipTypeData = res.data;
     updateLoadResult("mst_slotitem_equiptype", equipTypeData);
-    if (equipTypeData?.records) {
+    if (!res.isNotModified && equipTypeData?.records) {
       for (const t of equipTypeData.records) {
         if (t && t.id != null && t.name) setMasterEquipType(t);
       }
+      renderAll();
     }
-    renderAll();
   })();
 
-  // 10. mst_stype
   const stypeTask = (async () => {
-    const stypeData = await fetchJsonSafe(
+    const cached = allCache.get("mst_stype") as MasterCacheEntry<z.infer<typeof MasterStypeResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_stype",
       "mst_stype",
+      "mst_stype",
       MasterStypeResponseSchema,
+      cached,
     );
+    const stypeData = res.data;
     updateLoadResult("mst_stype", stypeData);
-    if (stypeData?.records) {
+    if (!res.isNotModified && stypeData?.records) {
       for (const s of stypeData.records) {
         if (s && s.id != null) setMasterStype(s);
       }
+      renderAll();
     }
-    renderAll();
   })();
 
-  // 11. mst_equip_exslot
   const equipExslotTask = (async () => {
-    const equipExslotData = await fetchJsonSafe(
+    const cached = allCache.get("mst_equip_exslot") as MasterCacheEntry<z.infer<typeof MasterEquipExslotResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_equip_exslot",
       "mst_equip_exslot",
+      "mst_equip_exslot",
       MasterEquipExslotResponseSchema,
+      cached,
     );
+    const equipExslotData = res.data;
     updateLoadResult("mst_equip_exslot", equipExslotData);
-    if (equipExslotData?.records) {
+    if (!res.isNotModified && equipExslotData?.records) {
       for (const e of equipExslotData.records) {
         if (e && e.equip != null) addEquipExslotId(e.equip);
       }
+      renderAll();
     }
-    renderAll();
   })();
 
-  // 12. mst_equip_ship
   const equipShipTask = (async () => {
-    const equipShipData = await fetchJsonSafe(
+    const cached = allCache.get("mst_equip_ship") as MasterCacheEntry<z.infer<typeof MasterEquipShipResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_equip_ship",
       "mst_equip_ship",
+      "mst_equip_ship",
       MasterEquipShipResponseSchema,
+      cached,
     );
+    const equipShipData = res.data;
     updateLoadResult("mst_equip_ship", equipShipData);
-    if (equipShipData?.records) {
+    if (!res.isNotModified && equipShipData?.records) {
       for (const r of equipShipData.records) {
         if (r && r.ship_id != null && r.equip_type) setMasterEquipShip(r);
       }
+      renderAll();
     }
-    renderAll();
   })();
 
-  // 13. mst_equip_exslot_ship
   const equipExslotShipTask = (async () => {
-    const equipExslotShipData = await fetchJsonSafe(
+    const cached = allCache.get("mst_equip_exslot_ship") as MasterCacheEntry<z.infer<typeof MasterEquipExslotShipResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_equip_exslot_ship",
       "mst_equip_exslot_ship",
+      "mst_equip_exslot_ship",
       MasterEquipExslotShipResponseSchema,
+      cached,
     );
+    const equipExslotShipData = res.data;
     updateLoadResult("mst_equip_exslot_ship", equipExslotShipData);
-    if (equipExslotShipData?.records) {
+    if (!res.isNotModified && equipExslotShipData?.records) {
       for (const r of equipExslotShipData.records) {
         if (r && r.slotitem_id != null) setMasterEquipExslotShip(r);
       }
+      renderAll();
     }
-    renderAll();
   })();
 
-  // 14. mst_equip_limit_exslot
   const equipLimitExslotTask = (async () => {
-    const equipLimitExslotData = await fetchJsonSafe(
+    const cached = allCache.get("mst_equip_limit_exslot") as MasterCacheEntry<z.infer<typeof MasterEquipLimitExslotResponseSchema>> | undefined;
+    const res = await fetchJsonSafeWithEtag(
       "/api/master-data/json?table_name=mst_equip_limit_exslot",
       "mst_equip_limit_exslot",
+      "mst_equip_limit_exslot",
       MasterEquipLimitExslotResponseSchema,
+      cached,
     );
+    const equipLimitExslotData = res.data;
     updateLoadResult("mst_equip_limit_exslot", equipLimitExslotData);
-    if (equipLimitExslotData?.records) {
+    if (!res.isNotModified && equipLimitExslotData?.records) {
       for (const r of equipLimitExslotData.records) {
         if (r && r.ship_id != null && r.equip) setMasterEquipLimitExslot(r);
       }
+      renderAll();
     }
-    renderAll();
   })();
 
-  // 15. synergy & speed upgrade
   const synergyTask = (async () => {
-    const synergyBundle = await fetchSynergyDataWithMeta();
+    const cached = allCache.get("synergy-bundle") as MasterCacheEntry<{ data: SlotItemEffectsData; meta: SlotItemEffectsMeta | null }> | undefined;
+    const synergyBundle = await fetchSynergyDataWithMeta(cached);
     updateLoadResult("synergy-data", synergyBundle.data);
-    setSlotItemEffects(
-      synergyBundle.data && (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
-        ? synergyBundle.data
-        : null,
-    );
-    setSlotItemEffectsMeta(synergyBundle.meta);
+    if (!synergyBundle.fromCache || !cached?.data) {
+      setSlotItemEffects(
+        synergyBundle.data && (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
+          ? synergyBundle.data
+          : null,
+      );
+      setSlotItemEffectsMeta(synergyBundle.meta);
+    }
 
     const shipData = await shipTask;
     const speedUpgradeUrl = new URL(
@@ -1359,18 +1598,24 @@ export async function loadMasterData(renderAll: () => void) {
       speedUpgradeUrl.searchParams.set("period_tag", shipData.period_tag);
       speedUpgradeUrl.searchParams.set("table_version", shipData.table_version);
     }
-    const speedUpgradeData = await fetchJsonSafe(
+    const cachedSpeed = allCache.get("soku-speed-upgrade") as MasterCacheEntry<z.infer<typeof SokuSpeedResponseSchema>> | undefined;
+    const speedRes = await fetchJsonSafeWithEtag(
       speedUpgradeUrl.toString(),
       "soku-speed-upgrade",
+      "soku-speed-upgrade",
       SokuSpeedResponseSchema,
+      cachedSpeed,
     );
-    setSokuSpeedData(
-      speedUpgradeData?.ok && speedUpgradeData.data
-        ? speedUpgradeData.data
-        : null,
-    );
-    updateDataStatus();
-    renderAll();
+    const speedUpgradeData = speedRes.data;
+    if (!speedRes.isNotModified) {
+      setSokuSpeedData(
+        speedUpgradeData?.ok && speedUpgradeData.data
+          ? speedUpgradeData.data
+          : null,
+      );
+      updateDataStatus();
+      renderAll();
+    }
   })();
 
   // Wait for all progressive tasks to settle
