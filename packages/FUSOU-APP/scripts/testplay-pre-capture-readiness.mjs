@@ -37,6 +37,7 @@ function assertAppPreflight(report, { configPath, buildProfile }) {
     "build_profile",
     "config_source",
     "tlsn_enabled",
+    "tlsn_runtime_config_bootstrap",
     "tlsn_notary_endpoint",
     "tlsn_session_authority_endpoint",
     "tlsn_verification_endpoint",
@@ -103,10 +104,11 @@ export function createPreCaptureReadiness({
     parseReference(workerReferenceBytes),
     expectedWorkerSha,
   );
-  if (!appBuildRecord || appBuildRecord.schema_version !== 2 ||
+  if (!appBuildRecord || appBuildRecord.schema_version !== 3 ||
       appBuildRecord.scope !== "fusou-tlsn-app-operator-build-record" ||
       appBuildRecord.authority_status !== "UNVERIFIED" ||
       appBuildRecord.compiled_input_comparison !== "VERIFIED" ||
+      appBuildRecord.runtime_config_bootstrap_comparison !== "VERIFIED" ||
       appBuildRecord.public_app_configuration_comparison !== "VERIFIED" ||
       appBuildRecord.reference_sha256 !== expectedReferenceSha256 ||
       appBuildRecord.worker_source_sha !== expectedWorkerSha ||
@@ -115,6 +117,7 @@ export function createPreCaptureReadiness({
       appBuildRecord.disclosure_mode !== reference.disclosure_mode ||
       appBuildRecord.entry_input_sha256 !== appBuildRecord.compiled_report?.entry_input_sha256 ||
       appBuildRecord.build_profile !== buildProfile ||
+      appBuildRecord.runtime_config_bootstrap?.registration_status !== "EMBEDDED_UNVERIFIED" ||
       !digestPattern.test(appBuildRecord.artifact?.sha256 ?? "") ||
       !Number.isSafeInteger(appBuildRecord.artifact?.byte_length) ||
       appBuildRecord.artifact.byte_length <= 0) {
@@ -125,11 +128,12 @@ export function createPreCaptureReadiness({
     reference,
     expectedAppSha,
     buildProfile,
+    appBuildRecord.runtime_config_bootstrap,
   );
   assertAppPreflight(appPreflightReport, { configPath, buildProfile });
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     scope: "fusou-tlsn-testplay-pre-capture-readiness",
     created_at: createdAt,
     status: "LOCAL_APP_PREFLIGHT_PASS",
@@ -144,12 +148,14 @@ export function createPreCaptureReadiness({
     app_binary_sha256: appBuildRecord.artifact.sha256,
     app_public_configuration_fingerprints:
       appPreflightReport.public_configuration_fingerprints,
+    runtime_config_bootstrap: appBuildRecord.runtime_config_bootstrap,
     app_preflight_checks: appPreflightReport.checks,
     gates: {
       approved_worker_reference: "VERIFIED",
       active_version_endpoint_and_authority_pins: "VERIFIED",
       app_compile_input_handoff: "VERIFIED",
       compiled_app_binary_report: "VERIFIED",
+      runtime_config_bootstrap: "EMBEDDED_UNVERIFIED",
       local_tlsn_preflight: "VERIFIED",
       auth_and_registered_device: "REQUIRES_APP_RUNTIME",
       human_gameplay_approval: "REQUIRES_HUMAN_OPERATOR",

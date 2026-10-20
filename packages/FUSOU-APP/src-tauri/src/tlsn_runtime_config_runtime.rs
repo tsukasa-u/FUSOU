@@ -556,7 +556,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn startup_registration_and_preflight_fail_closed_without_embedded_bootstrap() {
+    async fn startup_registration_does_not_fetch_or_create_epoch_state() {
         let (directory, path) = test_store();
         let mut registered_manager = None;
         let manager = register_runtime_config_manager(path.clone(), |registered| {
@@ -566,12 +566,7 @@ mod tests {
         .unwrap();
 
         assert!(registered_manager.is_some());
-        assert_eq!(
-            manager.preflight("game.example.test").await.unwrap_err(),
-            RuntimeConfigManifestError::Invalid(
-                "Production Runtime Config bootstrap is not registered"
-            )
-        );
+        assert_eq!(manager.epoch_state.read().unwrap().last_accepted_epoch, "0");
         assert!(!path.exists());
 
         let error = match register_runtime_config_manager(path, |_| false) {

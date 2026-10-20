@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
-  buildApprovedApp, entryInputSha256, ENTRY_INPUT_CONTRACT, runPublicBuildCommand, sha256,
+  buildApprovedApp, entryInputSha256, ENTRY_INPUT_CONTRACT, runPublicBuildCommand, runtimeConfigBootstrapInputs,
+  runtimeConfigBootstrapReport, RUNTIME_CONFIG_BOOTSTRAP_INPUTS, sha256,
 } from "./app-build-handoff.mjs";
 import { createAppWorkerReference } from "./app-worker-deployment-reference.mjs";
 import { account, controls, customMapping, now, release, version1, version2 } from "./app-worker-reference-fixture.mjs";
@@ -14,6 +15,13 @@ import {
 } from "./candidate-artifact-identity.mjs";
 import { writeDotenvxFixture } from "./app-dotenvx-fixture.mjs";
 import { publicAppConfigurationSha256 } from "./app-public-configuration.mjs";
+
+const testBootstrapEnvironment = Object.freeze({
+  FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL: "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+  FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID: "runtime-config-test-key",
+  FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI:
+    Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.alloc(32, 7)]).toString("base64url"),
+});
 
 function reference(version = version1) {
   const input = controls(release, version);
@@ -37,7 +45,7 @@ async function withBuild(action, initialReference = reference()) {
       referencePath, expectedReferenceSha256: sha256(raw), expectedWorkerSha: "a".repeat(40),
       expectedAppSha: "b".repeat(40), outputDirectory: join(root, "output"),
       repositoryDirectory: join(root, "repository"), toolchain: "1.95.0", profile: "debug",
-      environment: {},
+      environment: { ...testBootstrapEnvironment },
     };
     const state = {
       reference: initialReference, options, sourceSha: options.expectedAppSha,
@@ -79,13 +87,15 @@ async function withBuild(action, initialReference = reference()) {
         return JSON.stringify(report);
       }
       const inputs = Object.fromEntries(ENTRY_INPUT_CONTRACT.compile_inputs.map((name) => [name, context.env[name]]));
+      const bootstrapInputs = runtimeConfigBootstrapInputs(context.env);
       const report = {
-        schema_version: 1, scope: "fusou-tlsn-app-compiled-worker-entry-report",
+        schema_version: 2, scope: "fusou-tlsn-app-compiled-worker-entry-report",
         entry_input_sha256: entryInputSha256(inputs),
         worker_source_sha: context.env.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA,
         active_version_id: context.env.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID,
         app_source_sha: context.env.FUSOU_APP_BUILD_SOURCE_SHA,
         build_profile: "debug", tlsn_production_feature: true, custom_protocol_feature: true, authority_status: "UNVERIFIED",
+        runtime_config_bootstrap: runtimeConfigBootstrapReport(bootstrapInputs),
       };
       if (state.changeReport) state.changeReport(report);
       return JSON.stringify(report);
@@ -114,11 +124,12 @@ test("entry digest rotates with the active pin while historical v2 fixed project
   }
 });
 
-test("reference inputs populate an empty build environment exactly and bind the actual binary report to an immutable record", async () => {
+test("test-only Worker and bootstrap inputs populate the isolated environment and bind the binary report to an immutable record", async () => {
   await withBuild(async ({ options, reference, commands, build }) => {
     const result = await build();
     const actual = JSON.parse(await readFile(result.recordPath, "utf8"));
     assert.equal(actual.compiled_input_comparison, "VERIFIED");
+    assert.equal(actual.runtime_config_bootstrap_comparison, "VERIFIED");
     assert.equal(actual.authority_status, "UNVERIFIED");
     assert.equal(actual.reference_sha256, options.expectedReferenceSha256);
     assert.equal(actual.worker_source_sha, options.expectedWorkerSha);
@@ -126,13 +137,61 @@ test("reference inputs populate an empty build environment exactly and bind the 
     assert.notEqual(actual.worker_source_sha, actual.app_source_sha);
     assert.equal(actual.active_version_id, version1);
     assert.equal(actual.entry_input_sha256, entryInputSha256(reference.compile_inputs));
+    assert.equal(actual.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
+    assert.equal(actual.runtime_config_bootstrap.manifest_url, testBootstrapEnvironment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL);
+    assert.equal(actual.runtime_config_bootstrap.signer_key_id, testBootstrapEnvironment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID);
     assert.equal(actual.cargo_lock_sha256, sha256(Buffer.from("locked-public-dependencies")));
     assert.equal(actual.rust_toolchain, options.toolchain);
     const buildCommand = commands.find((entry) => entry.command === "pnpm");
     for (const [name, value] of Object.entries(reference.compile_inputs)) assert.equal(buildCommand.env[name], value, name);
+    for (const name of RUNTIME_CONFIG_BOOTSTRAP_INPUTS) {
+      assert.equal(buildCommand.env[name], testBootstrapEnvironment[name], name);
+    }
     assert.equal(actual.artifact.sha256, sha256(await readFile(result.artifactPath)));
     await assert.rejects(build(), /EEXIST/);
   });
+});
+
+test("Production APP handoff rejects missing, partial, or malformed bootstrap inputs before building", async () => {
+  await withBuild(async (state) => {
+    state.options.environment = {};
+    await assert.rejects(state.build(), /requires registered Runtime Config bootstrap inputs/);
+    assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
+  });
+  for (const mutate of [
+    (environment) => { delete environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID; },
+    (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL = ""; },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "http://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://runtime-config.example.org:443/tlsn/runtime-config/v2/manifest.json";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://runtime-config.example.org/health";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://runtime-config.example.org./tlsn/runtime-config/v2/manifest.json";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://127.0.0.1/tlsn/runtime-config/v2/manifest.json";
+    },
+    (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID = "bad key"; },
+    (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID = ""; },
+    (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI = "not-base64url"; },
+    (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI = ""; },
+  ]) {
+    await withBuild(async (state) => {
+      mutate(state.options.environment);
+      await assert.rejects(state.build(), /Runtime Config bootstrap/);
+      assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
+    });
+  }
 });
 
 test("APP build requires a present, Git-tracked lockfile even when an ignored local copy exists", async () => {
@@ -202,6 +261,13 @@ test("stale/injected build pins, compiler wrappers, intermediate overrides and m
       await assert.rejects(readFile(join(state.options.outputDirectory, "app-build-record.json")), /ENOENT/);
     });
   }
+  await withBuild(async (state) => {
+    state.changeReport = (report) => {
+      report.runtime_config_bootstrap.signer_key_id = "substituted-root";
+    };
+    await assert.rejects(state.build(), /Runtime Config bootstrap/);
+    await assert.rejects(readFile(join(state.options.outputDirectory, "app-build-record.json")), /ENOENT/);
+  });
 });
 
 test("changed/replaced references and changed APP checkout cannot produce a build record", async () => {
@@ -236,7 +302,11 @@ test("credential contamination is rejected in reference fields, omitted from chi
     CARGO_HTTP_TOKEN: "private-cargo-token",
   };
   await withBuild(async ({ options, commands, build }) => {
-    options.environment = { ...secrets, PUBLIC_SUPABASE_URL: "https://auth.example.com", PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_public_value" };
+    options.environment = {
+      ...testBootstrapEnvironment, ...secrets,
+      PUBLIC_SUPABASE_URL: "https://auth.example.com",
+      PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_public_value",
+    };
     const result = await build();
     for (const command of commands) for (const name of Object.keys(secrets)) assert.equal(command.env[name], undefined, name);
     const raw = await readFile(result.recordPath, "utf8");

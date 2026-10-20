@@ -3,6 +3,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::tlsn_preflight::canonical_sha256;
+use crate::tlsn_runtime_config_manifest::{
+    RuntimeConfigBootstrap, RuntimeConfigBootstrapBuildReport,
+};
 use crate::tlsn_worker_identity::{
     validate_active_version_pin, validate_worker_endpoints, WorkerRole,
 };
@@ -48,6 +51,7 @@ pub struct CompiledWorkerEntryReport {
     pub build_profile: &'static str,
     pub tlsn_production_feature: bool,
     pub custom_protocol_feature: bool,
+    pub runtime_config_bootstrap: RuntimeConfigBootstrapBuildReport,
     pub authority_status: &'static str,
 }
 
@@ -84,8 +88,10 @@ pub fn compiled_worker_entry_report() -> Result<CompiledWorkerEntryReport, Strin
             return Err("compiled APP/Worker source SHA is invalid".into());
         }
     }
+    let runtime_config_bootstrap =
+        RuntimeConfigBootstrap::compiled_build_report().map_err(|error| error.to_string())?;
     Ok(CompiledWorkerEntryReport {
-        schema_version: 1,
+        schema_version: 2,
         scope: "fusou-tlsn-app-compiled-worker-entry-report",
         entry_input_sha256: digest,
         worker_source_sha: inputs["FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA"].clone(),
@@ -98,6 +104,7 @@ pub fn compiled_worker_entry_report() -> Result<CompiledWorkerEntryReport, Strin
         },
         tlsn_production_feature: true,
         custom_protocol_feature: cfg!(feature = "custom-protocol"),
+        runtime_config_bootstrap,
         authority_status: "UNVERIFIED",
     })
 }

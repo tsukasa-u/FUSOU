@@ -13,7 +13,7 @@ use std::{
 use url::Url;
 
 use crate::tlsn_runtime_config_manifest::{
-    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+    RuntimeConfigBootstrap, RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
 };
 
 #[cfg(feature = "tlsn-production")]
@@ -59,6 +59,7 @@ fn app_configuration_fingerprint_contract() -> &'static AppConfigurationFingerpr
 pub struct TlsnPreflightConfig {
     pub experiment_enabled: bool,
     pub candidate_capture_enabled: bool,
+    pub runtime_config_bootstrap_error: Option<String>,
     pub notary_endpoint: Option<String>,
     pub session_authority_endpoint: Option<String>,
     pub session_authority_key_id: Option<String>,
@@ -84,6 +85,9 @@ impl TlsnPreflightConfig {
         Self {
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
+            runtime_config_bootstrap_error: RuntimeConfigBootstrap::from_embedded()
+                .err()
+                .map(|error| error.to_string()),
             notary_endpoint: proxy.get_tlsn_notary_endpoint(),
             session_authority_endpoint: proxy.get_tlsn_session_authority_endpoint(),
             session_authority_key_id: proxy.get_tlsn_session_authority_key_id(),
@@ -113,6 +117,7 @@ impl TlsnPreflightConfig {
         Self {
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
+            runtime_config_bootstrap_error: None,
             notary_endpoint: input(RuntimeConfigWorkerInput::NotaryEndpoint),
             session_authority_endpoint: input(RuntimeConfigWorkerInput::SessionAuthorityEndpoint),
             session_authority_key_id: input(RuntimeConfigWorkerInput::SessionAuthorityKeyId),
@@ -413,6 +418,29 @@ fn run_preflight_with_origin_inventory(
         } else {
             "disabled"
         },
+    );
+
+    let bootstrap_required = feature_enabled && config.experiment_enabled;
+    let (bootstrap_status, bootstrap_detail) = if bootstrap_required {
+        match config.runtime_config_bootstrap_error.as_deref() {
+            Some(error) => (PreflightStatus::Error, error.to_owned()),
+            None => (
+                PreflightStatus::Pass,
+                "embedded Runtime Config bootstrap passed local format validation; release approval remains unverified"
+                    .to_owned(),
+            ),
+        }
+    } else {
+        (
+            PreflightStatus::Warning,
+            "not required because the Production TLSN execution path is disabled".to_owned(),
+        )
+    };
+    push_check(
+        &mut checks,
+        "tlsn_runtime_config_bootstrap",
+        bootstrap_status,
+        bootstrap_detail,
     );
 
     match config.notary_endpoint.as_deref() {
@@ -1460,6 +1488,7 @@ mod tests {
             config: TlsnPreflightConfig {
                 experiment_enabled: true,
                 candidate_capture_enabled: false,
+                runtime_config_bootstrap_error: None,
                 disclosure_mode: "complete".to_owned(),
                 response_mode: "async".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
@@ -1598,6 +1627,42 @@ mod tests {
                 .public_configuration_fingerprints
                 .candidate_binding_status,
             "UNBOUND"
+        );
+    }
+
+    #[test]
+    fn runtime_config_bootstrap_is_required_only_for_the_active_production_tlsn_path() {
+        let mut fixture = fixture();
+        fixture.config.runtime_config_bootstrap_error = Some(
+            "runtime configuration manifest is invalid: Production Runtime Config bootstrap is not registered"
+                .to_owned(),
+        );
+        let active_report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_eq!(
+            active_report
+                .checks
+                .iter()
+                .find(|check| check.name == "tlsn_runtime_config_bootstrap")
+                .map(|check| check.status),
+            Some(if cfg!(feature = "tlsn-production") {
+                PreflightStatus::Error
+            } else {
+                PreflightStatus::Warning
+            })
+        );
+        if cfg!(feature = "tlsn-production") {
+            assert_error(&active_report, "tlsn_runtime_config_bootstrap");
+        }
+
+        fixture.config.experiment_enabled = false;
+        let disabled_report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_eq!(
+            disabled_report
+                .checks
+                .iter()
+                .find(|check| check.name == "tlsn_runtime_config_bootstrap")
+                .map(|check| check.status),
+            Some(PreflightStatus::Warning)
         );
     }
 

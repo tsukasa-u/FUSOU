@@ -1010,7 +1010,7 @@ async function main() {
       const readinessPath = path.join(
         outputPath,
         "tlsn",
-        "pre-capture-readiness-v1.json",
+        "pre-capture-readiness-v2.json",
       );
       const readinessFile = await fs.open(readinessPath, "wx", 0o600);
       try {

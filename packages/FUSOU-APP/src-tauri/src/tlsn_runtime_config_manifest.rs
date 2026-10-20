@@ -156,9 +156,20 @@ pub struct RuntimeConfigTrustedSigner {
 const RUNTIME_CONFIG_MANIFEST_URL_PATH: &str = "/tlsn/runtime-config/v2/manifest.json";
 #[cfg(feature = "tlsn-production")]
 const MAX_RUNTIME_CONFIG_ARTIFACT_BYTES: usize = 1_048_576;
-const EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL: Option<&str> = None;
-const EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID: Option<&str> = None;
-const EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI: Option<&str> = None;
+const EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL: Option<&str> =
+    option_env!("FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL");
+const EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID: Option<&str> =
+    option_env!("FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID");
+const EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI: Option<&str> =
+    option_env!("FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI");
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct RuntimeConfigBootstrapBuildReport {
+    pub registration_status: &'static str,
+    pub manifest_url: Option<String>,
+    pub signer_key_id: Option<String>,
+    pub signer_public_key_spki: Option<String>,
+}
 
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigBootstrap {
@@ -168,25 +179,73 @@ pub struct RuntimeConfigBootstrap {
 
 impl RuntimeConfigBootstrap {
     pub fn from_embedded() -> Result<Self, RuntimeConfigManifestError> {
-        let (Some(manifest_url), Some(key_id), Some(public_key_spki)) = (
+        Self::require_registered(Self::from_release_values(
             EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL,
             EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID,
             EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI,
-        ) else {
-            return Err(RuntimeConfigManifestError::Invalid(
-                "Production Runtime Config bootstrap is not registered",
-            ));
+        )?)
+    }
+
+    fn require_registered(bootstrap: Option<Self>) -> Result<Self, RuntimeConfigManifestError> {
+        bootstrap.ok_or(RuntimeConfigManifestError::Invalid(
+            "Production Runtime Config bootstrap is not registered",
+        ))
+    }
+
+    pub(crate) fn from_release_values(
+        manifest_url: Option<&str>,
+        key_id: Option<&str>,
+        public_key_spki: Option<&str>,
+    ) -> Result<Option<Self>, RuntimeConfigManifestError> {
+        match (manifest_url, key_id, public_key_spki) {
+            (None, None, None) => Ok(None),
+            (Some(manifest_url), Some(key_id), Some(public_key_spki)) => {
+                let bootstrap = Self {
+                    manifest_url: validate_runtime_config_manifest_url(manifest_url)?,
+                    trusted_signer: RuntimeConfigTrustedSigner {
+                        scope: TRUST_SCOPE.to_owned(),
+                        key_id: key_id.to_owned(),
+                        public_key_spki: public_key_spki.to_owned(),
+                    },
+                };
+                validate_trusted_signer(&bootstrap.trusted_signer)?;
+                Ok(Some(bootstrap))
+            }
+            _ => Err(RuntimeConfigManifestError::Invalid(
+                "Production Runtime Config bootstrap is incomplete",
+            )),
+        }
+    }
+
+    pub(crate) fn compiled_build_report(
+    ) -> Result<RuntimeConfigBootstrapBuildReport, RuntimeConfigManifestError> {
+        Self::build_report_from_values(
+            EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL,
+            EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID,
+            EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI,
+        )
+    }
+
+    fn build_report_from_values(
+        manifest_url: Option<&str>,
+        key_id: Option<&str>,
+        public_key_spki: Option<&str>,
+    ) -> Result<RuntimeConfigBootstrapBuildReport, RuntimeConfigManifestError> {
+        let Some(bootstrap) = Self::from_release_values(manifest_url, key_id, public_key_spki)?
+        else {
+            return Ok(RuntimeConfigBootstrapBuildReport {
+                registration_status: "UNREGISTERED",
+                manifest_url: None,
+                signer_key_id: None,
+                signer_public_key_spki: None,
+            });
         };
-        let bootstrap = Self {
-            manifest_url: validate_runtime_config_manifest_url(manifest_url)?,
-            trusted_signer: RuntimeConfigTrustedSigner {
-                scope: TRUST_SCOPE.to_owned(),
-                key_id: key_id.to_owned(),
-                public_key_spki: public_key_spki.to_owned(),
-            },
-        };
-        validate_trusted_signer(&bootstrap.trusted_signer)?;
-        Ok(bootstrap)
+        Ok(RuntimeConfigBootstrapBuildReport {
+            registration_status: "EMBEDDED_UNVERIFIED",
+            manifest_url: Some(bootstrap.manifest_url.to_string()),
+            signer_key_id: Some(bootstrap.trusted_signer.key_id),
+            signer_public_key_spki: Some(bootstrap.trusted_signer.public_key_spki),
+        })
     }
 
     #[cfg(test)]
@@ -2074,12 +2133,133 @@ mod tests {
 
     #[test]
     fn production_bootstrap_remains_blocked_until_endpoint_and_root_are_registered() {
+        let bootstrap = RuntimeConfigBootstrap::from_release_values(None, None, None).unwrap();
         assert_eq!(
-            RuntimeConfigBootstrap::from_embedded().unwrap_err(),
+            RuntimeConfigBootstrap::require_registered(bootstrap).unwrap_err(),
             RuntimeConfigManifestError::Invalid(
                 "Production Runtime Config bootstrap is not registered"
             )
         );
+    }
+
+    #[test]
+    fn release_bootstrap_inputs_are_complete_and_bind_the_signed_manifest_trust_root() {
+        let manifest_url =
+            "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json";
+        let (raw, fixture, payload) = load_test_vector();
+        let signer = fixture.trusted_signer;
+        let report = RuntimeConfigBootstrap::build_report_from_values(
+            Some(manifest_url),
+            Some(&signer.key_id),
+            Some(&signer.public_key_spki),
+        )
+        .unwrap();
+        assert_eq!(
+            report,
+            RuntimeConfigBootstrapBuildReport {
+                registration_status: "EMBEDDED_UNVERIFIED",
+                manifest_url: Some(manifest_url.to_owned()),
+                signer_key_id: Some(signer.key_id.clone()),
+                signer_public_key_spki: Some(signer.public_key_spki.clone()),
+            }
+        );
+
+        let bootstrap = RuntimeConfigBootstrap::from_release_values(
+            Some(manifest_url),
+            Some(&signer.key_id),
+            Some(&signer.public_key_spki),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            verify_signed_runtime_config_manifest(
+                &raw,
+                &bootstrap.trusted_signer,
+                &policy_for(&payload),
+            )
+            .unwrap(),
+            payload
+        );
+
+        assert_eq!(
+            RuntimeConfigBootstrap::build_report_from_values(None, None, None).unwrap(),
+            RuntimeConfigBootstrapBuildReport {
+                registration_status: "UNREGISTERED",
+                manifest_url: None,
+                signer_key_id: None,
+                signer_public_key_spki: None,
+            }
+        );
+        assert_eq!(
+            RuntimeConfigBootstrap::from_release_values(Some(manifest_url), None, None)
+                .unwrap_err(),
+            RuntimeConfigManifestError::Invalid(
+                "Production Runtime Config bootstrap is incomplete"
+            )
+        );
+        assert_eq!(
+            RuntimeConfigBootstrap::from_release_values(
+                Some(manifest_url),
+                Some("invalid key ID"),
+                Some(&signer.public_key_spki),
+            )
+            .unwrap_err(),
+            RuntimeConfigManifestError::Invalid("key ID is invalid")
+        );
+        assert_eq!(
+            RuntimeConfigBootstrap::from_release_values(
+                Some(manifest_url),
+                Some(""),
+                Some(&signer.public_key_spki),
+            )
+            .unwrap_err(),
+            RuntimeConfigManifestError::Invalid("key ID is invalid")
+        );
+        assert_eq!(
+            RuntimeConfigBootstrap::from_release_values(
+                Some(manifest_url),
+                Some(&signer.key_id),
+                Some(""),
+            )
+            .unwrap_err(),
+            RuntimeConfigManifestError::Invalid("Ed25519 SPKI key")
+        );
+        assert!(RuntimeConfigBootstrap::from_release_values(
+            Some("http://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json"),
+            Some(&signer.key_id),
+            Some(&signer.public_key_spki),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn release_bootstrap_report_rejects_invalid_signer_and_manifest_pins() {
+        let (_, fixture, _) = load_test_vector();
+        let signer = fixture.trusted_signer;
+        let manifest_url =
+            "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json";
+        for (url, key_id, public_key_spki) in [
+            (
+                Some(""),
+                Some(signer.key_id.as_str()),
+                Some(signer.public_key_spki.as_str()),
+            ),
+            (
+                Some(manifest_url),
+                Some("bad key id"),
+                Some(signer.public_key_spki.as_str()),
+            ),
+            (
+                Some(manifest_url),
+                Some(signer.key_id.as_str()),
+                Some("not-base64url"),
+            ),
+        ] {
+            assert!(
+                RuntimeConfigBootstrap::build_report_from_values(url, key_id, public_key_spki,)
+                    .is_err()
+            );
+        }
     }
 
     #[test]
