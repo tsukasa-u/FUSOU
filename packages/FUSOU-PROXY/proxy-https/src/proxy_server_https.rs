@@ -3521,11 +3521,9 @@ mod tests {
         let upstream_case = case;
         let upstream_accept_count = Arc::new(AtomicUsize::new(0));
         let upstream_accept_count_task = Arc::clone(&upstream_accept_count);
-        let (upstream_accepted_tx, mut upstream_accepted_rx) = oneshot::channel();
         let upstream_task = tokio::spawn(async move {
             let (socket, _) = upstream_listener.accept().await.expect("upstream accept");
             upstream_accept_count_task.fetch_add(1, Ordering::SeqCst);
-            let _ = upstream_accepted_tx.send(());
             if matches!(upstream_case, HudsuckerWebSocketCase::InvalidHandshake(_)) {
                 drop(socket);
                 return;
@@ -3826,25 +3824,7 @@ mod tests {
         .await
         .expect("downstream response timed out");
         if matches!(case, HudsuckerWebSocketCase::InvalidHandshake(_)) {
-            let upstream_was_accepted = tokio::time::timeout(
-                std::time::Duration::from_millis(100),
-                &mut upstream_accepted_rx,
-            )
-            .await
-            .is_ok();
             drop(client_tls_stream);
-            upstream_task.abort();
-            let upstream_join =
-                tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
-                    .await
-                    .expect("upstream accept observer did not stop");
-            if upstream_was_accepted {
-                upstream_join.expect("accepted upstream fixture task");
-            } else {
-                assert!(upstream_join
-                    .expect_err("pending upstream accept observer must be aborted")
-                    .is_cancelled());
-            }
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
                 while !capture_hook
                     .sessions
@@ -3910,6 +3890,17 @@ mod tests {
                 false
             };
             let invalid_response = response_handshake.starts_with(b"HTTP/1.1 400");
+            upstream_task.abort();
+            if let Err(error) =
+                tokio::time::timeout(std::time::Duration::from_secs(3), upstream_task)
+                    .await
+                    .expect("upstream accept observer did not stop")
+            {
+                assert!(
+                    error.is_cancelled(),
+                    "upstream accept observer failed unexpectedly: {error}"
+                );
+            }
             let upstream_accepts = upstream_accept_count.load(Ordering::SeqCst);
             let no_websocket_outcomes = capture_hook
                 .websocket_outcomes
@@ -3933,10 +3924,6 @@ mod tests {
                 invalid_response,
                 "invalid WebSocket request must return 400: {}",
                 String::from_utf8_lossy(&response_handshake)
-            );
-            assert!(
-                !upstream_was_accepted,
-                "invalid WebSocket request reached the loopback upstream"
             );
             assert_eq!(upstream_accepts, 0);
             assert!(
