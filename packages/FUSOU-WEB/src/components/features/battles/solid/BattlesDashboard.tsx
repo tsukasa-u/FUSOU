@@ -436,6 +436,20 @@ export default function BattlesDashboard(props: {
     let masterDataLoaded = false;
     try {
       if (datasetKind === "overview") {
+        const r2OverviewPromise =
+          repository.kind === "r2"
+            ? repository.getOverview({
+                periodTag: requestedPeriodTag,
+                ...(requestedPeriod.table_version
+                  ? { tableVersion: requestedPeriod.table_version }
+                  : {}),
+                limitBlocks: limitBlocks(),
+                limitRecords: limitRecords(),
+                signal,
+                forceRefresh,
+              })
+            : null;
+        r2OverviewPromise?.catch(() => undefined);
         const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
           cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
           cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
@@ -473,17 +487,23 @@ export default function BattlesDashboard(props: {
           },
         ]);
         masterDataLoaded = true;
-        const payload = await repository.getOverview({
-          periodTag: requestedPeriodTag,
-          ...(requestedPeriod.table_version
-            ? { tableVersion: requestedPeriod.table_version }
-            : {}),
-          masterShips: masterShipPayload.records || [],
-          limitBlocks: limitBlocks(),
-          limitRecords: limitRecords(),
-          signal,
-          forceRefresh,
-        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
+        const payload = await (r2OverviewPromise ??
+          repository.getOverview(
+            {
+              periodTag: requestedPeriodTag,
+              ...(requestedPeriod.table_version
+                ? { tableVersion: requestedPeriod.table_version }
+                : {}),
+              masterShips: masterShipPayload.records || [],
+              limitBlocks: limitBlocks(),
+              limitRecords: limitRecords(),
+              signal,
+              forceRefresh,
+            },
+            repository.kind === "local-avro"
+              ? { onProgress: setLocalProgress }
+              : {},
+          ));
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords(parseCellRecords(payload.cells));
@@ -507,6 +527,20 @@ export default function BattlesDashboard(props: {
         });
         setLoadedDatasetKind("overview");
       } else {
+        const r2DropsPromise =
+          repository.kind === "r2"
+            ? repository.getDrops({
+                periodTag: requestedPeriodTag,
+                ...(requestedPeriod.table_version
+                  ? { tableVersion: requestedPeriod.table_version }
+                  : {}),
+                limitBlocks: limitBlocks(),
+                limitRecords: limitRecords(),
+                signal,
+                forceRefresh,
+              })
+            : null;
+        r2DropsPromise?.catch(() => undefined);
         const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
           cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
           cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
@@ -544,17 +578,23 @@ export default function BattlesDashboard(props: {
           },
         ]);
         masterDataLoaded = true;
-        const payload = await repository.getDrops({
-          periodTag: requestedPeriodTag,
-          ...(requestedPeriod.table_version
-            ? { tableVersion: requestedPeriod.table_version }
-            : {}),
-          masterShips: masterShipPayload.records || [],
-          limitBlocks: limitBlocks(),
-          limitRecords: limitRecords(),
-          signal,
-          forceRefresh,
-        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
+        const payload = await (r2DropsPromise ??
+          repository.getDrops(
+            {
+              periodTag: requestedPeriodTag,
+              ...(requestedPeriod.table_version
+                ? { tableVersion: requestedPeriod.table_version }
+                : {}),
+              masterShips: masterShipPayload.records || [],
+              limitBlocks: limitBlocks(),
+              limitRecords: limitRecords(),
+              signal,
+              forceRefresh,
+            },
+            repository.kind === "local-avro"
+              ? { onProgress: setLocalProgress }
+              : {},
+          ));
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords([]);

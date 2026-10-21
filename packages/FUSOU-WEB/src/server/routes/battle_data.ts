@@ -17,10 +17,13 @@ import {
   type TableOffsetMetadata,
 } from "../validators/offsets";
 import {
+  decodeAvroDataBlocksWithContext,
   decodeAvroOcfToJson,
   parseDeflateAvroBlock,
   parseNullAvroBlock,
+  prepareAvroDecoderContext,
   type AvroJsonRecord,
+  type PreparedAvroDecoderContext,
 } from "../utils/avro-decoder";
 import { parseOcfHeader } from "../../features/avro/ocf-header";
 import {
@@ -125,6 +128,8 @@ function buildGlobalRecordsPath(options: {
   limitRecords: number;
   filter?: Record<string, unknown>;
   includeSortieKey?: boolean;
+  fromTimestampMs?: number;
+  toTimestampMs?: number;
 }): string {
   const datasetId = options.datasetId?.trim();
   const datasetIdParam = datasetId
@@ -136,7 +141,15 @@ function buildGlobalRecordsPath(options: {
   const includeSortieKey = options.includeSortieKey
     ? "&include_sortie_key=1"
     : "";
-  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}${datasetIdParam}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${filterJson}`;
+  const fromTsParam =
+    options.fromTimestampMs != null && Number.isFinite(options.fromTimestampMs)
+      ? `&from_timestamp_ms=${Math.trunc(options.fromTimestampMs)}`
+      : "";
+  const toTsParam =
+    options.toTimestampMs != null && Number.isFinite(options.toTimestampMs)
+      ? `&to_timestamp_ms=${Math.trunc(options.toTimestampMs)}`
+      : "";
+  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}${datasetIdParam}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${fromTsParam}${toTsParam}${filterJson}`;
 }
 
 function toBattleDataInternalPath(path: string): string {
@@ -502,7 +515,18 @@ async function fetchWeaponIconFramesDirect(
 
 async function fetchGlobalRecordsInternal(
   c: Context<{ Bindings: Bindings }>,
-  options: { table: string; periodTag: string; tableVersion: string; datasetId?: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
+  options: {
+    table: string;
+    periodTag: string;
+    tableVersion: string;
+    datasetId?: string;
+    limitBlocks: number;
+    limitRecords: number;
+    filter?: Record<string, unknown>;
+    includeSortieKey?: boolean;
+    fromTimestampMs?: number;
+    toTimestampMs?: number;
+  },
 ): Promise<Array<Record<string, unknown>>> {
   const payload = await fetchGlobalRecordsPayloadInternal(c, options);
   return payload.records || [];
@@ -510,7 +534,18 @@ async function fetchGlobalRecordsInternal(
 
 async function fetchGlobalRecordsPayloadInternal(
   c: Context<{ Bindings: Bindings }>,
-  options: { table: string; periodTag: string; tableVersion: string; datasetId?: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
+  options: {
+    table: string;
+    periodTag: string;
+    tableVersion: string;
+    datasetId?: string;
+    limitBlocks: number;
+    limitRecords: number;
+    filter?: Record<string, unknown>;
+    includeSortieKey?: boolean;
+    fromTimestampMs?: number;
+    toTimestampMs?: number;
+  },
 ): Promise<BattleRecordsPayload> {
   const datasetId = options.datasetId ?? c.req.query("dataset_id")?.trim();
   const pathOptions =
@@ -692,50 +727,104 @@ export function attachSortieIds(records: BattleRecord[]): void {
   }
 }
 
-function matchesRecordFilter(
-  record: unknown,
+type CompiledFilterRule =
+  | { kind: "set"; values: Set<unknown> }
+  | { kind: "null" }
+  | { kind: "number"; value: number }
+  | { kind: "boolean"; value: boolean }
+  | { kind: "string"; value: string };
+
+type CompiledRecordFilter = Array<[string, CompiledFilterRule]>;
+
+function compileRecordFilter(
   filterObj: Record<string, unknown>,
+): CompiledRecordFilter {
+  const entries: CompiledRecordFilter = [];
+  for (const [key, expected] of Object.entries(filterObj)) {
+    if (Array.isArray(expected)) {
+      entries.push([key, { kind: "set", values: new Set(expected) }]);
+    } else if (expected === null) {
+      entries.push([key, { kind: "null" }]);
+    } else if (typeof expected === "number") {
+      entries.push([key, { kind: "number", value: expected }]);
+    } else if (typeof expected === "boolean") {
+      entries.push([key, { kind: "boolean", value: expected }]);
+    } else {
+      entries.push([key, { kind: "string", value: String(expected) }]);
+    }
+  }
+  return entries;
+}
+
+function matchesCompiledRecordFilter(
+  record: unknown,
+  compiled: CompiledRecordFilter,
 ): boolean {
   if (!record || typeof record !== "object") {
     return false;
   }
   const rec = record as Record<string, unknown>;
-  for (const [key, expected] of Object.entries(filterObj)) {
+  for (let i = 0; i < compiled.length; i += 1) {
+    const entry = compiled[i];
+    if (!entry) continue;
+    const [key, rule] = entry;
     const actual = rec[key];
 
-    if (Array.isArray(expected)) {
-      if (!expected.includes(actual as never)) {
-        return false;
+    switch (rule.kind) {
+      case "set":
+        if (!rule.values.has(actual)) {
+          return false;
+        }
+        break;
+      case "null":
+        if (actual !== null && actual !== undefined) {
+          return false;
+        }
+        break;
+      case "number": {
+        const actualNum = Number(actual);
+        if (!Number.isFinite(actualNum) || actualNum !== rule.value) {
+          return false;
+        }
+        break;
       }
-      continue;
-    }
-
-    if (expected === null) {
-      if (actual !== null && actual !== undefined) {
-        return false;
-      }
-      continue;
-    }
-
-    if (typeof expected === "number") {
-      const actualNum = Number(actual);
-      if (!Number.isFinite(actualNum) || actualNum !== expected) {
-        return false;
-      }
-      continue;
-    }
-
-    if (typeof expected === "boolean") {
-      if (Boolean(actual) !== expected) {
-        return false;
-      }
-      continue;
-    }
-
-    if (String(actual) !== String(expected)) {
-      return false;
+      case "boolean":
+        if (Boolean(actual) !== rule.value) {
+          return false;
+        }
+        break;
+      case "string":
+        if (String(actual) !== rule.value) {
+          return false;
+        }
+        break;
     }
   }
+  return true;
+}
+
+export function extractTimestampFromUuidV7(uuidStr: string): number | null {
+  const hex = uuidStr.replace(/-/g, "").trim();
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+  const version = Number.parseInt(hex[12] ?? "", 16);
+  if (version !== 7) return null;
+  const ts = Number(BigInt(`0x${hex.slice(0, 12)}`));
+  // Valid epoch ms between 2020-01-01 and 2100-01-01
+  if (!Number.isFinite(ts) || ts < 1_577_836_800_000 || ts > 4_102_444_800_000) {
+    return null;
+  }
+  return ts;
+}
+
+function shouldFetchBattlePhase(
+  battle: Record<string, unknown> | undefined,
+  field: string,
+): boolean {
+  if (!battle) return true;
+  if (!(field in battle)) return true;
+  const value = battle[field];
+  if (value === null || value === undefined || value === "") return false;
+  if (Array.isArray(value) && value.length === 0) return false;
   return true;
 }
 
@@ -749,21 +838,32 @@ async function putCacheSafely(
   safeWaitUntil(c, putPromise);
 }
 
-async function decodeIndexedBlock(
+const bucketDecoderContextCache = new WeakMap<
+  object,
+  Map<string, Promise<PreparedAvroDecoderContext>>
+>();
+
+function getDecoderContextCacheForBucket(
+  bucket: R2Bucket,
+): Map<string, Promise<PreparedAvroDecoderContext>> {
+  let cache = bucketDecoderContextCache.get(bucket);
+  if (!cache) {
+    cache = new Map();
+    bucketDecoderContextCache.set(bucket, cache);
+  }
+  return cache;
+}
+
+async function getOrLoadDecoderContext(
   bucket: R2Bucket,
   filePath: string,
-  startByte: number,
-  length: number,
-  headerCache: Map<string, Promise<Uint8Array>>,
-): Promise<AvroJsonRecord[]> {
-  if (startByte <= 0 || length <= 0) {
-    return [];
-  }
-
-  let headerPromise = headerCache.get(filePath);
-  if (!headerPromise) {
-    headerPromise = (async () => {
-      let prefixLength = Math.min(startByte, 64 * 1024);
+  minStartByte: number,
+  contextCache: Map<string, Promise<PreparedAvroDecoderContext>>,
+): Promise<PreparedAvroDecoderContext> {
+  let contextPromise = contextCache.get(filePath);
+  if (!contextPromise) {
+    contextPromise = (async () => {
+      let prefixLength = Math.min(minStartByte, 64 * 1024);
       while (prefixLength > 0) {
         const prefixObject = await bucket.get(filePath, {
           range: { offset: 0, length: prefixLength },
@@ -775,43 +875,203 @@ async function decodeIndexedBlock(
         const prefixBytes = new Uint8Array(await prefixObject.arrayBuffer());
         try {
           const headerLength = parseOcfHeader(prefixBytes).bodyOffset;
-          return prefixBytes.slice(0, headerLength);
+          return prepareAvroDecoderContext(prefixBytes.subarray(0, headerLength));
         } catch (error) {
-          if (prefixLength >= startByte) {
+          if (prefixLength >= minStartByte) {
             throw error;
           }
-          prefixLength = Math.min(startByte, prefixLength * 2);
+          prefixLength = Math.min(minStartByte, prefixLength * 2);
         }
       }
       throw new Error(`AVRO header range is empty: ${filePath}`);
     })();
-    headerCache.set(filePath, headerPromise);
+    contextCache.set(filePath, contextPromise);
   }
 
-  let headerBytes: Uint8Array;
   try {
-    headerBytes = await headerPromise;
+    return await contextPromise;
   } catch (error) {
-    headerCache.delete(filePath);
+    contextCache.delete(filePath);
     throw error;
   }
+}
 
-  const dataObject = await bucket.get(filePath, {
-    range: { offset: startByte, length },
-  });
-  if (!dataObject) {
-    return [];
-  }
-  const dataBytes = new Uint8Array(await dataObject.arrayBuffer());
-  if (dataBytes.length === 0) {
-    return [];
+const MAX_R2_COALESCE_GAP_BYTES = 64 * 1024;
+const MAX_R2_COALESCE_SPAN_BYTES = 16 * 1024 * 1024;
+
+async function decodeIndexedBlocksCoalesced(
+  bucket: R2Bucket,
+  rows: BattleBlockRow[],
+  table: string,
+  compiledFilter: CompiledRecordFilter | null,
+): Promise<AvroJsonRecord[][]> {
+  const results: AvroJsonRecord[][] = Array.from({ length: rows.length }, () => []);
+  const contextCache = getDecoderContextCacheForBucket(bucket);
+
+  type BlockTask = {
+    rowIndex: number;
+    row: BattleBlockRow;
+    filePath: string;
+    startByte: number;
+    length: number;
+  };
+
+  const tasksByFile = new Map<string, BlockTask[]>();
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row) continue;
+    const startByte = Number(row.start_byte || 0);
+    const length = Number(row.length || 0);
+    if (startByte <= 0 || length <= 0 || !row.file_path) {
+      continue;
+    }
+    const list = tasksByFile.get(row.file_path) ?? [];
+    list.push({
+      rowIndex: i,
+      row,
+      filePath: row.file_path,
+      startByte,
+      length,
+    });
+    tasksByFile.set(row.file_path, list);
   }
 
-  const header = parseOcfHeader(headerBytes);
-  if ((header.codec ?? "null") === "null") {
-    return parseNullAvroBlock(headerBytes, dataBytes);
-  }
-  return parseDeflateAvroBlock(headerBytes, dataBytes);
+  await Promise.all(
+    Array.from(tasksByFile.entries()).map(async ([filePath, fileTasks]) => {
+      const sortedTasks = [...fileTasks].sort((a, b) => a.startByte - b.startByte);
+      const minStartByte = sortedTasks[0]?.startByte ?? 0;
+      if (minStartByte <= 0) return;
+
+      let context: PreparedAvroDecoderContext;
+      try {
+        context = await getOrLoadDecoderContext(
+          bucket,
+          filePath,
+          minStartByte,
+          contextCache,
+        );
+      } catch (err) {
+        console.warn("[battle-data] failed to load header in /global/records", {
+          table,
+          filePath,
+          error: String(err),
+        });
+        return;
+      }
+
+      type CoalescedGroup = {
+        groupStart: number;
+        groupEnd: number;
+        tasks: BlockTask[];
+      };
+
+      const groups: CoalescedGroup[] = [];
+      for (const task of sortedTasks) {
+        const taskStart = task.startByte;
+        const taskEnd = task.startByte + task.length;
+        const lastGroup = groups[groups.length - 1];
+        if (
+          lastGroup &&
+          taskStart >= lastGroup.groupStart &&
+          taskStart - lastGroup.groupEnd <= MAX_R2_COALESCE_GAP_BYTES &&
+          Math.max(lastGroup.groupEnd, taskEnd) - lastGroup.groupStart <=
+            MAX_R2_COALESCE_SPAN_BYTES
+        ) {
+          lastGroup.groupEnd = Math.max(lastGroup.groupEnd, taskEnd);
+          lastGroup.tasks.push(task);
+        } else {
+          groups.push({
+            groupStart: taskStart,
+            groupEnd: taskEnd,
+            tasks: [task],
+          });
+        }
+      }
+
+      await Promise.all(
+        groups.map(async (group) => {
+          let groupBytes: Uint8Array;
+          try {
+            const dataObject = await bucket.get(filePath, {
+              range: {
+                offset: group.groupStart,
+                length: group.groupEnd - group.groupStart,
+              },
+            });
+            if (!dataObject) return;
+            groupBytes = new Uint8Array(await dataObject.arrayBuffer());
+            if (groupBytes.length === 0) return;
+          } catch (err) {
+            console.warn(
+              "[battle-data] failed to read coalesced R2 range in /global/records",
+              {
+                table,
+                filePath,
+                groupStart: group.groupStart,
+                groupLength: group.groupEnd - group.groupStart,
+                error: String(err),
+              },
+            );
+            return;
+          }
+
+          for (const task of group.tasks) {
+            const relStart = task.startByte - group.groupStart;
+            const relEnd = relStart + task.length;
+            if (relStart < 0 || relStart >= groupBytes.byteLength) {
+              continue;
+            }
+            const sliceBytes = groupBytes.subarray(
+              relStart,
+              Math.min(relEnd, groupBytes.byteLength),
+            );
+            if (sliceBytes.byteLength === 0) continue;
+
+            const rowDatasetId =
+              typeof task.row.dataset_id === "string"
+                ? task.row.dataset_id.trim()
+                : "";
+
+            try {
+              const decoded = await decodeAvroDataBlocksWithContext(
+                context,
+                sliceBytes,
+                {
+                  recordFilter: (rec) => {
+                    if (
+                      rowDatasetId &&
+                      (rec["dataset_id"] === undefined ||
+                        rec["dataset_id"] === null ||
+                        rec["dataset_id"] === "")
+                    ) {
+                      rec["dataset_id"] = rowDatasetId;
+                    }
+                    return compiledFilter
+                      ? matchesCompiledRecordFilter(rec, compiledFilter)
+                      : true;
+                  },
+                },
+              );
+              results[task.rowIndex] = decoded;
+            } catch (err) {
+              console.warn(
+                "[battle-data] failed to decode block in /global/records",
+                {
+                  table,
+                  blockId: task.row.id,
+                  filePath: task.row.file_path,
+                  error: String(err),
+                },
+              );
+              results[task.rowIndex] = [];
+            }
+          }
+        }),
+      );
+    }),
+  );
+
+  return results;
 }
 
 // validateAvroHeader is now imported from avro-validator
@@ -1730,6 +1990,16 @@ app.get("/global/records", async (c) => {
     windowEndMsRaw && Number.isFinite(Number(windowEndMsRaw))
       ? Number(windowEndMsRaw)
       : null;
+  const fromTimestampMsRaw = c.req.query("from_timestamp_ms")?.trim();
+  const toTimestampMsRaw = c.req.query("to_timestamp_ms")?.trim();
+  const fromTimestampMs =
+    fromTimestampMsRaw && Number.isFinite(Number(fromTimestampMsRaw))
+      ? Number(fromTimestampMsRaw)
+      : null;
+  const toTimestampMs =
+    toTimestampMsRaw && Number.isFinite(Number(toTimestampMsRaw))
+      ? Number(toTimestampMsRaw)
+      : null;
   const includeSortieKeyRaw = (c.req.query("include_sortie_key") || "1")
     .trim()
     .toLowerCase();
@@ -2014,12 +2284,24 @@ app.get("/global/records", async (c) => {
         params.push(...allowedTags);
       }
 
+      if (fromTimestampMs != null) {
+        sql += " AND bi.end_timestamp >= ?";
+        params.push(fromTimestampMs);
+      }
+
+      if (toTimestampMs != null) {
+        sql += " AND bi.start_timestamp <= ?";
+        params.push(toTimestampMs);
+      }
+
       if (datasetId) {
         sql += " AND bi.dataset_id = ?";
         params.push(datasetId);
       }
 
-      sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
+      sql += tier
+        ? " ORDER BY bi.start_timestamp DESC LIMIT ?"
+        : " ORDER BY bi.start_timestamp DESC, CASE bi.compaction_tier WHEN 'period' THEN 0 WHEN 'weekly' THEN 1 WHEN 'daily' THEN 2 ELSE 3 END ASC LIMIT ?";
       params.push(perTierFetchLimit);
 
       const result = await indexDb.prepare(sql).bind(...params).all?.();
@@ -2036,68 +2318,34 @@ app.get("/global/records", async (c) => {
     let blockResult: Awaited<ReturnType<typeof fetchBlocks>> | null | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
-    const mergeTierRows = (
-      tierRows: Map<CompactionTier, BattleBlockRow[]>,
-    ): { rows: BattleBlockRow[]; tier: CompactionTier | null } => {
-      const accepted: BattleBlockRow[] = [];
-      const seenBlockIds = new Set<number>();
-      let usedTierCount = 0;
-      let firstTier: CompactionTier | null = null;
-
-      for (const tier of TIER_PRIORITY) {
-        const rows = tierRows.get(tier) ?? [];
-        let usedThisTier = false;
-        for (const row of rows) {
-          const id = Number(row?.id ?? NaN);
-          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
-            continue;
-          }
-
-          accepted.push(row);
-          seenBlockIds.add(id);
-          usedThisTier = true;
-        }
-
-        if (usedThisTier) {
-          usedTierCount += 1;
-          if (!firstTier) {
-            firstTier = tier;
-          }
-        }
-      }
-
-      accepted.sort(
-        (a, b) =>
-          (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
-          (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER),
-      );
-
-      return {
-        rows: accepted,
-        tier: usedTierCount > 1 ? null : firstTier,
-      };
-    };
-
     if (compactionTier) {
       blockResult = await fetchBlocks(compactionTier);
       effectiveTier = compactionTier;
     } else {
-      const tierRows = new Map<CompactionTier, BattleBlockRow[]>();
-      for (const tier of TIER_PRIORITY) {
-        const candidate = await fetchBlocks(tier);
-        tierRows.set(tier, candidate?.results || []);
-      }
-
-      const merged = mergeTierRows(tierRows);
-      effectiveTier = merged.tier;
-
-      if (merged.rows.length > 0) {
-        blockResult = { results: merged.rows } as Awaited<
-          ReturnType<typeof fetchBlocks>
-        >;
-      } else {
-        blockResult = await fetchBlocks(null);
-        effectiveTier = null;
+      blockResult = await fetchBlocks(null);
+      if (blockResult?.results) {
+        const seenBlockIds = new Set<number>();
+        const deduped: BattleBlockRow[] = [];
+        const usedTiers = new Set<CompactionTier>();
+        for (const row of blockResult.results) {
+          const id = Number(row?.id ?? NaN);
+          if (Number.isFinite(id)) {
+            if (seenBlockIds.has(id)) continue;
+            seenBlockIds.add(id);
+          }
+          deduped.push(row);
+          const rowTier = parseCompactionTier(row.compaction_tier ?? undefined);
+          if (rowTier) {
+            usedTiers.add(rowTier);
+          }
+        }
+        deduped.sort(
+          (a, b) =>
+            (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
+            (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER),
+        );
+        blockResult = { results: deduped };
+        effectiveTier = usedTiers.size === 1 ? ([...usedTiers][0] ?? null) : null;
       }
     }
 
@@ -2172,37 +2420,20 @@ app.get("/global/records", async (c) => {
       return response;
     }
 
-    const headerCache = new Map<string, Promise<Uint8Array>>();
-    const decodedBlocks = await Promise.all(
-      rows.map((row) =>
-        decodeIndexedBlock(
-          bucket,
-          row.file_path,
-          Number(row.start_byte || 0),
-          Number(row.length || 0),
-          headerCache,
-        ).catch((err) => {
-          console.warn(
-            "[battle-data] failed to decode block in /global/records",
-            {
-              table,
-              blockId: row.id,
-              filePath: row.file_path,
-              error: String(err),
-            },
-          );
-          return [];
-        }),
-      ),
+    const compiledFilter = recordFilter
+      ? compileRecordFilter(recordFilter)
+      : null;
+    const decodedBlocks = await decodeIndexedBlocksCoalesced(
+      bucket,
+      rows,
+      table,
+      compiledFilter,
     );
 
     const decodedRecords: AvroJsonRecord[] = [];
     let recordsLimitReached = false;
     outer: for (const recs of decodedBlocks) {
       for (const rec of recs) {
-        if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
-          continue;
-        }
         decodedRecords.push(rec);
         if (decodedRecords.length >= limitRecords) {
           recordsLimitReached = true;
@@ -2524,6 +2755,26 @@ app.get("/detail", async (c) => {
     if (battles.length === 0) {
       return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
     }
+    const targetBattle = battles
+      .filter((row) => Number(row["index"] ?? Number.NaN) === battleIndex)
+      .sort(
+        (left, right) =>
+          (normalizeTimestamp(left["timestamp"]) ?? Number.MAX_SAFE_INTEGER) -
+          (normalizeTimestamp(right["timestamp"]) ?? Number.MAX_SAFE_INTEGER),
+      )[0];
+    if (!targetBattle) {
+      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
+    }
+
+    const resolvedDatasetId =
+      datasetId ||
+      (typeof targetBattle["dataset_id"] === "string"
+        ? targetBattle["dataset_id"].trim()
+        : "");
+    const resolvedDatasetScope = resolvedDatasetId
+      ? { datasetId: resolvedDatasetId }
+      : {};
+
     const detailPeriodTag =
       primaryBattlePayload.period_tag?.trim() || periodTag;
     const detailTableVersion =
@@ -2531,8 +2782,24 @@ app.get("/detail", async (c) => {
     const detailScope = {
       periodTag: detailPeriodTag,
       tableVersion: detailTableVersion,
-      ...datasetScope,
+      ...resolvedDatasetScope,
     };
+
+    const hasMidnight = shouldFetchBattlePhase(targetBattle, "midnight_hougeki");
+    const hasOpeningTaisen = shouldFetchBattlePhase(targetBattle, "opening_taisen");
+    const hasHougeki = shouldFetchBattlePhase(targetBattle, "hougeki");
+    const hasOpeningAirattack = shouldFetchBattlePhase(targetBattle, "opening_air_attack");
+    const hasOpeningRaigeki = shouldFetchBattlePhase(targetBattle, "opening_raigeki");
+    const hasClosingRaigeki = shouldFetchBattlePhase(targetBattle, "closing_raigeki");
+    const hasAirbaseAssault = shouldFetchBattlePhase(targetBattle, "air_base_assault");
+    const hasAirbaseAirattack = shouldFetchBattlePhase(targetBattle, "air_base_air_attacks");
+    const hasCarrierbaseAssault = shouldFetchBattlePhase(targetBattle, "carrier_base_assault");
+    const hasSupportHourai = shouldFetchBattlePhase(targetBattle, "support_hourai");
+    const hasSupportAirattack = shouldFetchBattlePhase(targetBattle, "support_airattack");
+    const hasFriendlySupport = shouldFetchBattlePhase(targetBattle, "friendly_force_attack");
+    const hasNightSupportHourai = shouldFetchBattlePhase(targetBattle, "night_support_hourai");
+    const hasNightSupportAirattack = shouldFetchBattlePhase(targetBattle, "night_support_airattack");
+    const hasBattleResult = shouldFetchBattlePhase(targetBattle, "battle_result");
 
     const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, airBaseAirAttacks, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
       await Promise.all([
@@ -2543,20 +2810,22 @@ app.get("/detail", async (c) => {
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
-        fetchGlobalRecordsInternal(c, {
-          table: "battle_result",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
+        hasBattleResult
+          ? fetchGlobalRecordsInternal(c, {
+              table: "battle_result",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
         envUuid
           ? fetchBattleEnvBundleInternal(
               c,
               envUuid,
               detailTableVersion,
               detailPeriodTag,
-              datasetId || undefined,
+              resolvedDatasetId || undefined,
             )
           : Promise.resolve({
               ownDecks: [],
@@ -2569,82 +2838,114 @@ app.get("/detail", async (c) => {
         fetchMasterDataJsonDirect(c, "mst_ship"),
         fetchMasterDataJsonDirect(c, "mst_slotitem"),
         fetchWeaponIconFramesDirect(c),
-        fetchGlobalRecordsInternal(c, {
-          table: "midnight_hougeki_list",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "opening_taisen_list",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "hougeki_list",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "opening_airattack_list",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "opening_raigeki",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "closing_raigeki",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", ...detailScope, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        fetchGlobalRecordsInternal(c, {
-          table: "midnight_hougeki",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "opening_taisen",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "hougeki",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "opening_airattack",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
+        hasMidnight
+          ? fetchGlobalRecordsInternal(c, {
+              table: "midnight_hougeki_list",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasOpeningTaisen
+          ? fetchGlobalRecordsInternal(c, {
+              table: "opening_taisen_list",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasHougeki
+          ? fetchGlobalRecordsInternal(c, {
+              table: "hougeki_list",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasOpeningAirattack
+          ? fetchGlobalRecordsInternal(c, {
+              table: "opening_airattack_list",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasOpeningRaigeki
+          ? fetchGlobalRecordsInternal(c, {
+              table: "opening_raigeki",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasClosingRaigeki
+          ? fetchGlobalRecordsInternal(c, {
+              table: "closing_raigeki",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        envUuid && hasAirbaseAssault
+          ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
+          : Promise.resolve([]),
+        envUuid && hasAirbaseAirattack
+          ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
+          : Promise.resolve([]),
+        envUuid && hasAirbaseAirattack
+          ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", ...detailScope, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } })
+          : Promise.resolve([]),
+        envUuid && hasCarrierbaseAssault
+          ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
+          : Promise.resolve([]),
+        envUuid && hasSupportHourai
+          ? fetchGlobalRecordsInternal(c, { table: "support_hourai", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
+          : Promise.resolve([]),
+        envUuid && hasSupportAirattack
+          ? fetchGlobalRecordsInternal(c, { table: "support_airattack", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
+          : Promise.resolve([]),
+        hasMidnight
+          ? fetchGlobalRecordsInternal(c, {
+              table: "midnight_hougeki",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasOpeningTaisen
+          ? fetchGlobalRecordsInternal(c, {
+              table: "opening_taisen",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasHougeki
+          ? fetchGlobalRecordsInternal(c, {
+              table: "hougeki",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasOpeningAirattack
+          ? fetchGlobalRecordsInternal(c, {
+              table: "opening_airattack",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
         fetchGlobalRecordsInternal(c, {
           table: "destruction_battle",
           ...detailScope,
@@ -2652,34 +2953,42 @@ app.get("/detail", async (c) => {
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
-        fetchGlobalRecordsInternal(c, {
-          table: "friendly_support_hourai_list",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "friendly_support_hourai",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "night_support_hourai",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "night_support_airattack",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        }),
+        hasFriendlySupport
+          ? fetchGlobalRecordsInternal(c, {
+              table: "friendly_support_hourai_list",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasFriendlySupport
+          ? fetchGlobalRecordsInternal(c, {
+              table: "friendly_support_hourai",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasNightSupportHourai
+          ? fetchGlobalRecordsInternal(c, {
+              table: "night_support_hourai",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
+        hasNightSupportAirattack
+          ? fetchGlobalRecordsInternal(c, {
+              table: "night_support_airattack",
+              ...detailScope,
+              limitBlocks: 120,
+              limitRecords: 200,
+              filter: { env_uuid: envUuid },
+            })
+          : Promise.resolve([]),
       ]);
 
     const ownDecks = envBundle.ownDecks;

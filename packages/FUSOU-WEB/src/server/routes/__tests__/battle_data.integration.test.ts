@@ -18,7 +18,8 @@ vi.mock("@fusou/avro-wasm", () => ({
 	get_schema_json: vi.fn(),
 }));
 
-import battleDataApp, { attachSortieIds } from "../battle_data";
+import { mergeAvroOCF, mergeAvroOCFWithBoundaries, decodeAvroOcfToJson } from "@fusou/compaction-core";
+import battleDataApp, { attachSortieIds, extractTimestampFromUuidV7 } from "../battle_data";
 
 type QueryResult = { results?: Array<Record<string, unknown>> };
 type D1QueryCall = { sql: string; params: unknown[] };
@@ -471,5 +472,119 @@ describe("battle-data route integration", () => {
 		await expect(missingIndex.json()).resolves.toMatchObject({
 			error: "battle_index is required",
 		});
+	});
+
+	it("coalesces contiguous R2 block ranges for the same file and injects dataset_id", async () => {
+		const merged = mergeAvroOCFWithBoundaries([
+			battleFixtureBytes,
+			battleFixtureBytes,
+		]);
+		const ranges: Array<{ offset: number; length: number }> = [];
+		const bucket = {
+			get: async (
+				_key: string,
+				options?: { range?: { offset: number; length: number } },
+			) => {
+				const range = options?.range;
+				if (!range) throw new Error("expected an R2 range read");
+				ranges.push(range);
+				const body = merged.merged.slice(
+					range.offset,
+					range.offset + range.length,
+				);
+				return {
+					arrayBuffer: async () =>
+						body.buffer.slice(
+							body.byteOffset,
+							body.byteOffset + body.byteLength,
+						),
+				};
+			},
+		} as unknown as R2Bucket;
+
+		const calls: D1QueryCall[] = [];
+		const b0 = merged.boundaries[0]!;
+		const b1 = merged.boundaries[1]!;
+		const response = await request(
+			"/global/records?table=battle&period_tag=2026-06-26",
+			{
+				BATTLE_INDEX_DB: createD1(
+					[
+						{
+							id: 10,
+							dataset_id: "user-dataset-alpha",
+							start_byte: b0.startByte,
+							length: b0.length,
+							start_timestamp: 1783429200000,
+							end_timestamp: 1783429200000,
+							period_tag: "2026-06-26",
+							table_version: "v1",
+							window_start_ms: null,
+							window_end_ms: null,
+							compaction_tier: "daily",
+							file_path: "compacted-battle.avro",
+						},
+						{
+							id: 11,
+							dataset_id: "user-dataset-beta",
+							start_byte: b1.startByte,
+							length: b1.length,
+							start_timestamp: 1783429100000,
+							end_timestamp: 1783429100000,
+							period_tag: "2026-06-26",
+							table_version: "v1",
+							window_start_ms: null,
+							window_end_ms: null,
+							compaction_tier: "daily",
+							file_path: "compacted-battle.avro",
+						},
+					],
+					{ calls },
+				),
+				BATTLE_DATA_BUCKET: bucket,
+				DATA_LOADER_CACHE_KV: createPeriodCache(),
+			},
+		);
+
+		const body = (await response.json()) as {
+			count?: number;
+			records?: Array<Record<string, unknown>>;
+		};
+		expect(response.status).toBe(200);
+		expect(body.count).toBe(4);
+		expect(body.records?.[0]?.["dataset_id"]).toBe("user-dataset-alpha");
+		expect(body.records?.[1]?.["dataset_id"]).toBe("user-dataset-alpha");
+		expect(body.records?.[2]?.["dataset_id"]).toBe("user-dataset-beta");
+		expect(body.records?.[3]?.["dataset_id"]).toBe("user-dataset-beta");
+		// Only 1 header read + 1 coalesced data range read (instead of 1 + 2 reads)
+		expect(ranges).toEqual([
+			{ offset: 0, length: merged.headerSize },
+			{ offset: b0.startByte, length: b0.length + b1.length },
+		]);
+		// Only 1 block query to D1 (plus 1 table_version metadata query) instead of 4 sequential tier queries
+		const blockQueries = calls.filter((c) =>
+			c.sql.includes("FROM block_indexes bi"),
+		);
+		expect(blockQueries).toHaveLength(1);
+	});
+
+	it("extracts epoch ms timestamp from UUIDv7 env_uuid", () => {
+		// 0x01982a3b4c5d = 1753055186013 ms
+		const uuidV7 = "01982a3b-4c5d-7000-8000-000000000001";
+		expect(extractTimestampFromUuidV7(uuidV7)).toBe(0x01982a3b4c5d);
+		expect(extractTimestampFromUuidV7("11111111-1111-4111-8111-111111111111")).toBeNull();
+		expect(extractTimestampFromUuidV7("not-a-uuid")).toBeNull();
+	});
+
+	it("consolidates multiple null-codec OCF blocks into a single block during mergeAvroOCF", () => {
+		const reblocked = mergeAvroOCF([battleFixtureBytes, battleFixtureBytes]);
+		const unReblocked = mergeAvroOCF(
+			[battleFixtureBytes, battleFixtureBytes],
+			{ reblock: false },
+		);
+		// Reblocked OCF strips intermediate 16-byte sync marker + block count/size varints
+		expect(reblocked.byteLength).toBeLessThan(unReblocked.byteLength);
+		const decoded = decodeAvroOcfToJson(reblocked);
+		expect(decoded).toHaveLength(4);
 	});
 });
