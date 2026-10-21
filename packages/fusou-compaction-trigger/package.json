@@ -51,13 +51,13 @@
     "@aws-sdk/client-s3": "^3.1136.0",
     "@dotenvx/dotenvx": "^1.75.1",
     "@fusou/compaction-core": "workspace:*",
-    "@trigger.dev/sdk": "^4.6.3",
+    "@trigger.dev/sdk": "4.6.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@trigger.dev/build": "^4.6.3",
+    "@trigger.dev/build": "4.6.3",
     "@types/node": "^22.20.4",
-    "trigger.dev": "^4.6.3",
+    "trigger.dev": "4.6.3",
     "typescript": "^5.9.3"
   }
 }

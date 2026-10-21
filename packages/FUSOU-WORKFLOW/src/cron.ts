@@ -532,12 +532,17 @@ export async function handleCron(env: Env): Promise<void> {
 
         // Register file in D1
         try {
-          const chunkWindowStart = Math.min(
-            ...chunk.blocks.map((b) => b.startTimestamp),
-          );
-          const chunkWindowEnd = Math.max(
+          const rawMaxTimestamp = Math.max(
             ...chunk.blocks.map((b) => b.endTimestamp),
           );
+          const HOUR_MS = 60 * 60 * 1000;
+          const anchorTimestamp =
+            Number.isFinite(rawMaxTimestamp) && rawMaxTimestamp > 0
+              ? rawMaxTimestamp
+              : runTimestamp;
+          const chunkWindowStart =
+            Math.floor(anchorTimestamp / HOUR_MS) * HOUR_MS;
+          const chunkWindowEnd = chunkWindowStart + HOUR_MS - 1;
 
           const fileId = await registerArchivedFile(
             env.BATTLE_INDEX_DB,
@@ -547,7 +552,7 @@ export async function handleCron(env: Env): Promise<void> {
             "hourly",
             chunkWindowStart,
             chunkWindowEnd,
-            "deflate",
+            "null",
           );
 
           // FIXED: Create block indexes using accurate boundaries from merge result
@@ -573,8 +578,8 @@ export async function handleCron(env: Env): Promise<void> {
               record_count: block.recordCount,
               start_timestamp: block.startTimestamp,
               end_timestamp: block.endTimestamp,
-              window_start_ms: block.startTimestamp,
-              window_end_ms: block.endTimestamp,
+              window_start_ms: chunkWindowStart,
+              window_end_ms: chunkWindowEnd,
               source_file_count: block.recordCount,
               trust_tag: block.trust_tag,
             });
