@@ -568,6 +568,12 @@ function readBlock(
   return records;
 }
 
+export type PreparedAvroDecoderContext = {
+  header: OcfHeader;
+  schema: SchemaNode;
+  named: NamedSchemas;
+};
+
 function parseHeaderForDecoder(header: Uint8Array): OcfHeader {
   try {
     return parseOcfHeader(header);
@@ -579,17 +585,39 @@ function parseHeaderForDecoder(header: Uint8Array): OcfHeader {
   }
 }
 
+export function prepareAvroDecoderContext(
+  header: Uint8Array | OcfHeader,
+): PreparedAvroDecoderContext {
+  const parsedHeader =
+    header instanceof Uint8Array ? parseHeaderForDecoder(header) : header;
+  const schema = parsedHeader.schema as SchemaNode;
+  const named: NamedSchemas = new Map();
+  collectNamedSchemas(schema, named);
+  return {
+    header: parsedHeader,
+    schema,
+    named,
+  };
+}
+
+function resolveDecoderContext(
+  headerOrContext: OcfHeader | PreparedAvroDecoderContext,
+): PreparedAvroDecoderContext {
+  if ("named" in headerOrContext && headerOrContext.named instanceof Map) {
+    return headerOrContext;
+  }
+  return prepareAvroDecoderContext(headerOrContext as OcfHeader);
+}
+
 function decodeNullBody(
-  header: OcfHeader,
+  headerOrContext: OcfHeader | PreparedAvroDecoderContext,
   body: Uint8Array,
   options: {
     maxRecords?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): AvroJsonRecord[] {
-  const schema = header.schema as SchemaNode;
-  const named: NamedSchemas = new Map();
-  collectNamedSchemas(schema, named);
+  const { header, schema, named } = resolveDecoderContext(headerOrContext);
   const cursor: Cursor = { offset: 0 };
   const records: AvroJsonRecord[] = [];
   const decodedRecords = { count: 0 };
@@ -639,16 +667,14 @@ async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
 }
 
 async function decodeDeflateBody(
-  header: OcfHeader,
+  headerOrContext: OcfHeader | PreparedAvroDecoderContext,
   body: Uint8Array,
   options: {
     maxRecords?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): Promise<AvroJsonRecord[]> {
-  const schema = header.schema as SchemaNode;
-  const named: NamedSchemas = new Map();
-  collectNamedSchemas(schema, named);
+  const { header, schema, named } = resolveDecoderContext(headerOrContext);
   const records: AvroJsonRecord[] = [];
   const decodedRecords = { count: 0 };
   let offset = 0;
@@ -740,6 +766,18 @@ export function parseNullAvroBlock(
   return decodeNullBody(parsedHeader, dataBlock);
 }
 
+export function parseNullAvroBlockWithContext(
+  context: PreparedAvroDecoderContext,
+  dataBlock: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): AvroJsonRecord[] {
+  requireCodec(context.header, "null");
+  return decodeNullBody(context, dataBlock, options);
+}
+
 export function parseAllNullAvroBlocks(
   header: Uint8Array,
   body: Uint8Array,
@@ -754,6 +792,39 @@ export async function parseDeflateAvroBlock(
   const parsedHeader = parseHeaderForDecoder(header);
   requireCodec(parsedHeader, "deflate");
   return decodeDeflateBody(parsedHeader, dataBlock);
+}
+
+export async function parseDeflateAvroBlockWithContext(
+  context: PreparedAvroDecoderContext,
+  dataBlock: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): Promise<AvroJsonRecord[]> {
+  requireCodec(context.header, "deflate");
+  return decodeDeflateBody(context, dataBlock, options);
+}
+
+export async function decodeAvroDataBlocksWithContext(
+  context: PreparedAvroDecoderContext,
+  dataBlock: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): Promise<AvroJsonRecord[]> {
+  const codec = context.header.codec ?? "null";
+  if (codec === "null") {
+    return decodeNullBody(context, dataBlock, options);
+  }
+  if (codec === "deflate") {
+    return decodeDeflateBody(context, dataBlock, options);
+  }
+  throw new AvroOcfError(
+    "UNSUPPORTED_CODEC",
+    `Unsupported Avro codec: ${codec}`,
+  );
 }
 
 export async function parseAllDeflateAvroBlocks(

@@ -4,20 +4,32 @@ export interface MergeResult {
   headerSize: number;
 }
 
+export interface MergeAvroOptions {
+  /**
+   * When true (default for null-codec OCFs), consolidates multiple uncompressed
+   * Avro data blocks within each source slice into a single data block, stripping
+   * redundant intermediate block framing and 16-byte sync markers.
+   */
+  reblock?: boolean;
+}
+
 export * from "./avro.js";
 
 interface OCFHeader {
   metadataEnd: number;
   syncMarker: Uint8Array;
+  codec: string;
 }
+
+const TEXT_DECODER = new TextDecoder();
 
 function readZigzagVarInt(data: Uint8Array, offset: number): { value: number; bytesRead: number } {
   if (offset >= data.byteLength) {
     throw new Error("Cannot read varint: offset exceeds buffer");
   }
 
-  let raw = 0;
-  let shift = 0;
+  let raw = 0n;
+  let shift = 0n;
   let bytesRead = 0;
   while (offset + bytesRead < data.byteLength && bytesRead < 10) {
     const byte = data[offset + bytesRead];
@@ -25,15 +37,34 @@ function readZigzagVarInt(data: Uint8Array, offset: number): { value: number; by
       throw new Error("Cannot read varint: byte is missing");
     }
     bytesRead += 1;
-    raw |= (byte & 0x7f) << shift;
+    raw |= BigInt(byte & 0x7f) << shift;
     if ((byte & 0x80) === 0) {
-      const value = (raw >>> 1) ^ -(raw & 1);
+      const decoded = raw % 2n === 0n ? raw / 2n : -(raw + 1n) / 2n;
+      const value = Number(decoded);
+      if (!Number.isSafeInteger(value)) {
+        throw new Error("Varint exceeds safe integer range");
+      }
       return { value, bytesRead };
     }
-    shift += 7;
+    shift += 7n;
   }
 
   throw new Error("Malformed varint");
+}
+
+function encodeZigzagVarInt(value: number): Uint8Array {
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`Cannot encode unsafe integer as varint: ${value}`);
+  }
+  const v = BigInt(value);
+  let zigzag = v >= 0n ? v * 2n : -v * 2n - 1n;
+  const bytes: number[] = [];
+  while (zigzag > 0x7fn) {
+    bytes.push(Number((zigzag & 0x7fn) | 0x80n));
+    zigzag >>= 7n;
+  }
+  bytes.push(Number(zigzag & 0x7fn));
+  return new Uint8Array(bytes);
 }
 
 function parseOCFHeader(data: Uint8Array): OCFHeader {
@@ -42,6 +73,7 @@ function parseOCFHeader(data: Uint8Array): OCFHeader {
     throw new Error("Invalid Avro magic bytes");
   }
 
+  let codec = "null";
   let pos = 4;
   while (pos < data.byteLength) {
     const { value: blockCount, bytesRead } = readZigzagVarInt(data, pos);
@@ -60,12 +92,17 @@ function parseOCFHeader(data: Uint8Array): OCFHeader {
       if (keyLen < 0 || keyLen > data.byteLength - pos) {
         throw new Error("Malformed metadata key");
       }
+      const keyStr = keyLen === 10 ? TEXT_DECODER.decode(data.subarray(pos, pos + keyLen)) : "";
       pos += keyLen;
 
       const { value: valueLen, bytesRead: valueLenBytes } = readZigzagVarInt(data, pos);
       pos += valueLenBytes;
       if (valueLen < 0 || valueLen > data.byteLength - pos) {
         throw new Error("Malformed metadata value");
+      }
+      if (keyStr === "avro.codec") {
+        const rawCodec = TEXT_DECODER.decode(data.subarray(pos, pos + valueLen)).trim();
+        codec = rawCodec || "null";
       }
       pos += valueLen;
     }
@@ -78,6 +115,7 @@ function parseOCFHeader(data: Uint8Array): OCFHeader {
   return {
     metadataEnd: pos,
     syncMarker: new Uint8Array(data.slice(pos, pos + 16)),
+    codec,
   };
 }
 
@@ -141,31 +179,121 @@ function rewriteSyncMarkers(
   return out;
 }
 
-export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeResult {
+/**
+ * Consolidates multiple uncompressed ('null' codec) Avro data blocks into a single
+ * Avro data block while validating every sync marker.
+ */
+function consolidateNullDataBlocks(
+  dataBlocks: Uint8Array,
+  originalMarker: Uint8Array,
+  newMarker: Uint8Array,
+): Uint8Array {
+  if (dataBlocks.byteLength === 0) return dataBlocks;
+
+  const payloadSlices: Uint8Array[] = [];
+  let totalCount = 0;
+  let totalPayloadSize = 0;
+  let pos = 0;
+
+  while (pos < dataBlocks.byteLength) {
+    const { value: blockCount, bytesRead: countBytes } = readZigzagVarInt(dataBlocks, pos);
+    pos += countBytes;
+
+    if (blockCount === 0) {
+      break;
+    }
+    if (blockCount < 0) {
+      throw new Error("Invalid OCF block record count");
+    }
+
+    const { value: blockSize, bytesRead: sizeBytes } = readZigzagVarInt(dataBlocks, pos);
+    pos += sizeBytes;
+
+    if (!Number.isFinite(blockSize) || blockSize < 0) {
+      throw new Error("Invalid OCF block size");
+    }
+
+    const syncPos = pos + blockSize;
+    if (syncPos + 16 > dataBlocks.byteLength) {
+      throw new Error("OCF block exceeds available bytes");
+    }
+
+    for (let i = 0; i < 16; i += 1) {
+      const outputByte = dataBlocks[syncPos + i];
+      const originalByte = originalMarker[i];
+      if (outputByte === undefined || originalByte === undefined || outputByte !== originalByte) {
+        throw new Error("Unexpected sync marker at OCF block boundary");
+      }
+    }
+
+    payloadSlices.push(dataBlocks.subarray(pos, syncPos));
+    totalCount += blockCount;
+    totalPayloadSize += blockSize;
+    pos = syncPos + 16;
+  }
+
+  if (payloadSlices.length === 0 || totalCount === 0) {
+    return new Uint8Array(0);
+  }
+
+  if (payloadSlices.length === 1) {
+    return rewriteSyncMarkers(dataBlocks, originalMarker, newMarker);
+  }
+
+  const encodedCount = encodeZigzagVarInt(totalCount);
+  const encodedSize = encodeZigzagVarInt(totalPayloadSize);
+  const out = new Uint8Array(
+    encodedCount.byteLength + encodedSize.byteLength + totalPayloadSize + 16,
+  );
+  let writeOffset = 0;
+  out.set(encodedCount, writeOffset);
+  writeOffset += encodedCount.byteLength;
+  out.set(encodedSize, writeOffset);
+  writeOffset += encodedSize.byteLength;
+  for (const slice of payloadSlices) {
+    out.set(slice, writeOffset);
+    writeOffset += slice.byteLength;
+  }
+  out.set(newMarker, writeOffset);
+  return out;
+}
+
+export function mergeAvroOCFWithBoundaries(
+  ocfDataArray: Uint8Array[],
+  options?: MergeAvroOptions,
+): MergeResult {
   if (ocfDataArray.length === 0) throw new Error("Cannot merge empty OCF array");
 
   const first = ocfDataArray[0];
   if (first === undefined) throw new Error("Cannot merge empty OCF array");
   const unifiedHeader = parseOCFHeader(first);
   const headerSize = unifiedHeader.metadataEnd + 16;
+  const shouldReblock = (options?.reblock ?? true) && unifiedHeader.codec === "null";
 
   const dataBlocksList: Uint8Array[] = [];
   const boundaries: Array<{ sourceIndex: number; startByte: number; length: number }> = [];
+  let runningDataBytes = 0;
 
   for (let i = 0; i < ocfDataArray.length; i += 1) {
     const source = ocfDataArray[i];
     if (source === undefined) throw new Error("OCF source is missing");
     const sourceHeader = parseOCFHeader(source);
     const rawBlocks = extractDataBlocksRaw(source, sourceHeader);
-    const rewritten = rewriteSyncMarkers(rawBlocks, sourceHeader.syncMarker, unifiedHeader.syncMarker);
-    const prior = dataBlocksList.reduce((sum, b) => sum + b.byteLength, 0);
-    boundaries.push({ sourceIndex: i, startByte: headerSize + prior, length: rewritten.byteLength });
+    const rewritten =
+      shouldReblock && sourceHeader.codec === "null"
+        ? consolidateNullDataBlocks(rawBlocks, sourceHeader.syncMarker, unifiedHeader.syncMarker)
+        : rewriteSyncMarkers(rawBlocks, sourceHeader.syncMarker, unifiedHeader.syncMarker);
+    boundaries.push({
+      sourceIndex: i,
+      startByte: headerSize + runningDataBytes,
+      length: rewritten.byteLength,
+    });
     dataBlocksList.push(rewritten);
+    runningDataBytes += rewritten.byteLength;
   }
 
-  const dataSize = dataBlocksList.reduce((sum, b) => sum + b.byteLength, 0);
-  const merged = new Uint8Array(headerSize + dataSize);
-  merged.set(first.slice(0, headerSize), 0);
+  const merged = new Uint8Array(headerSize + runningDataBytes);
+  merged.set(first.subarray(0, headerSize), 0);
   let offset = headerSize;
   for (const block of dataBlocksList) {
     merged.set(block, offset);
@@ -175,8 +303,29 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
   return { merged, boundaries, headerSize };
 }
 
-export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
-  return mergeAvroOCFWithBoundaries(ocfDataArray).merged;
+export function mergeAvroOCF(
+  ocfDataArray: Uint8Array[],
+  options?: MergeAvroOptions,
+): Uint8Array {
+  const result = mergeAvroOCFWithBoundaries(ocfDataArray, options);
+  if (ocfDataArray.length <= 1 || options?.reblock === false) {
+    return result.merged;
+  }
+  const first = ocfDataArray[0];
+  if (!first) return result.merged;
+  const header = parseOCFHeader(first);
+  if (header.codec !== "null") {
+    return result.merged;
+  }
+  const consolidatedBody = consolidateNullDataBlocks(
+    result.merged.subarray(result.headerSize),
+    header.syncMarker,
+    header.syncMarker,
+  );
+  const consolidated = new Uint8Array(result.headerSize + consolidatedBody.byteLength);
+  consolidated.set(result.merged.subarray(0, result.headerSize), 0);
+  consolidated.set(consolidatedBody, result.headerSize);
+  return consolidated;
 }
 
 export function mergeAvroOCFBuffers(bufferArray: ArrayBuffer[]): ArrayBuffer {
