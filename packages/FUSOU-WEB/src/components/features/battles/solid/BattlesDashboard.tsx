@@ -724,16 +724,48 @@ export default function BattlesDashboard(props: {
     }
 
     void (async () => {
+      const shouldLoadInitialDataset = initialTab !== "detail" || !initialDetailId;
+      if (shouldLoadInitialDataset) {
+        cachedFetch("/api/master-data/json?table_name=mst_ship").catch(() => undefined);
+        cachedFetch("/api/master-data/json?table_name=mst_slotitem").catch(() => undefined);
+      }
+      const immediateR2Period: PeriodSummary | null =
+        shouldLoadInitialDataset &&
+        repository.kind === "r2" &&
+        (!initialPeriodTag ||
+          initialPeriodTag === "latest" ||
+          initialPeriodTag === "all" ||
+          Boolean(initialTableVersion))
+          ? {
+              period_tag: initialPeriodTag?.trim() || "latest",
+              table_version: initialTableVersion?.trim() || null,
+            }
+          : null;
+      const immediateLoadPromise = immediateR2Period
+        ? loadData(immediateR2Period)
+        : null;
       try {
         const rows = await fetchPeriodSummary();
         if (rows.length > 0) {
           const idx = resolveInitialPeriodIndex(rows, initialPeriodTag, initialTableVersion);
           setSelectedPeriodIdx(idx);
-          if (initialTab !== "detail" || !initialDetailId) {
-            await loadData(rows[idx]);
+          if (shouldLoadInitialDataset) {
+            const resolvedPeriod = rows[idx];
+            if (
+              immediateLoadPromise &&
+              resolvedPeriod &&
+              resolvedPeriod.period_tag === immediateR2Period?.period_tag &&
+              (resolvedPeriod.table_version ?? null) ===
+                (immediateR2Period?.table_version ?? null)
+            ) {
+              await immediateLoadPromise;
+            } else {
+              await loadData(resolvedPeriod);
+            }
           }
         }
       } catch (cause) {
+        loadDataAbortController?.abort();
         const sourceLabel = repository.kind === "local-avro" ? "ローカル AVRO" : "R2";
         const fallbackPeriod: PeriodSummary = {
           period_tag: initialPeriodTag || "latest",
@@ -744,7 +776,6 @@ export default function BattlesDashboard(props: {
       }
     })();
   });
-
   createEffect(() => {
     const tab = activeTab();
     const period = selectedPeriod();

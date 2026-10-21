@@ -227,6 +227,8 @@ type BattleRecordsPayload = {
   records?: Array<Record<string, unknown>>;
   period_tag?: string;
   table_version?: string | null;
+  matched_min_start_timestamp_ms?: number | null;
+  matched_max_end_timestamp_ms?: number | null;
 };
 
 function parseRecordsPayload(value: unknown): BattleRecordsPayload | null {
@@ -234,6 +236,8 @@ function parseRecordsPayload(value: unknown): BattleRecordsPayload | null {
   if (!("records" in value)) return {};
   const records = parseJsonRecords(value["records"]);
   if (!records) return null;
+  const matchedMin = value["matched_min_start_timestamp_ms"];
+  const matchedMax = value["matched_max_end_timestamp_ms"];
   return {
     records,
     ...(typeof value["period_tag"] === "string"
@@ -241,6 +245,12 @@ function parseRecordsPayload(value: unknown): BattleRecordsPayload | null {
       : {}),
     ...(typeof value["table_version"] === "string" || value["table_version"] === null
       ? { table_version: value["table_version"] }
+      : {}),
+    ...(typeof matchedMin === "number" && Number.isFinite(matchedMin)
+      ? { matched_min_start_timestamp_ms: matchedMin }
+      : {}),
+    ...(typeof matchedMax === "number" && Number.isFinite(matchedMax)
+      ? { matched_max_end_timestamp_ms: matchedMax }
       : {}),
   };
 }
@@ -278,6 +288,16 @@ function parseJsonObjectText(text: string): Record<string, unknown> {
   return parsed;
 }
 
+const MASTER_DATA_MEM_CACHE_TTL_MS = 5 * 60 * 1000;
+const masterDataDbPayloadCache = new WeakMap<
+  object,
+  Map<string, { expiresAt: number; promise: Promise<MasterDataJsonPayload> }>
+>();
+const masterDataImmutableRecordsCache = new Map<
+  string,
+  Array<Record<string, unknown>>
+>();
+
 async function fetchMasterDataJsonDirect(
   c: Context<{ Bindings: Bindings }>,
   tableName: string,
@@ -288,108 +308,154 @@ async function fetchMasterDataJsonDirect(
   const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (!db || !bucket) throw new Error("Master data storage not configured");
 
-  const latestMaster = await getLatestMasterPeriodTag(db, kv);
-  const latestPeriodTag = latestMaster?.period_tag;
-  if (!latestPeriodTag) {
-    return {
-      table_name: tableName,
-      table_version: null,
-      period_tag: null,
-      period_revision: null,
-      count: 0,
-      records: [],
-    };
+  let dbCache = masterDataDbPayloadCache.get(db);
+  if (!dbCache) {
+    dbCache = new Map();
+    masterDataDbPayloadCache.set(db, dbCache);
+  }
+  const now = Date.now();
+  const cachedEntry = dbCache.get(tableName);
+  if (cachedEntry && cachedEntry.expiresAt > now) {
+    return cachedEntry.promise;
   }
 
-  const rowResult = await db
-    .prepare(
-      `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
-       FROM master_data_tables t
-       JOIN master_data_index i ON i.id = t.master_data_id
-       WHERE i.upload_status = 'completed' AND t.table_name = ? AND i.period_tag = ?
-       ORDER BY i.completed_at DESC, i.period_revision DESC
-       LIMIT 1`,
-    )
-    .bind(tableName, latestPeriodTag)
-    .first();
-
-  if (rowResult === null) {
-    return {
-      table_name: tableName,
-      table_version: null,
-      period_tag: latestPeriodTag,
-      period_revision: null,
-      count: 0,
-      records: [],
-    };
-  }
-  const parsedRow = BattleMasterDataRowSchema.safeParse(rowResult);
-  if (!parsedRow.success) {
-    throw new Error("Invalid master data row");
-  }
-  const row = parsedRow.data;
-
-  const cacheKey = `master-data:json:${tableName}:${row.table_version}:${row.period_tag}:${row.period_revision}`;
-  if (kv) {
-    try {
-      const cachedStr = await kv.get(cacheKey);
-      if (cachedStr) {
-        const decodedRecords = parseBattleJsonRecords(JSON.parse(cachedStr));
-        if (decodedRecords) {
-          return {
-            table_name: tableName,
-            table_version: row.table_version,
-            period_tag: row.period_tag,
-            period_revision: row.period_revision,
-            count: decodedRecords.length,
-            records: decodedRecords,
-          };
-        }
-        console.warn(`[battle-data] master-data KV cache has invalid records: ${cacheKey}`);
-      }
-    } catch (kvErr) {
-      console.warn(`[battle-data] master-data KV read failed for ${cacheKey}:`, kvErr);
+  const loadPromise = (async (): Promise<MasterDataJsonPayload> => {
+    const latestMaster = await getLatestMasterPeriodTag(db, kv);
+    const latestPeriodTag = latestMaster?.period_tag;
+    if (!latestPeriodTag) {
+      return {
+        table_name: tableName,
+        table_version: null,
+        period_tag: null,
+        period_revision: null,
+        count: 0,
+        records: [],
+      };
     }
-  }
 
-  const r2Object = await bucket.get(row.r2_key);
-  if (!r2Object) {
+    const rowResult = await db
+      .prepare(
+        `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
+         FROM master_data_tables t
+         JOIN master_data_index i ON i.id = t.master_data_id
+         WHERE i.upload_status = 'completed' AND t.table_name = ? AND i.period_tag = ?
+         ORDER BY i.completed_at DESC, i.period_revision DESC
+         LIMIT 1`,
+      )
+      .bind(tableName, latestPeriodTag)
+      .first();
+
+    if (rowResult === null) {
+      return {
+        table_name: tableName,
+        table_version: null,
+        period_tag: latestPeriodTag,
+        period_revision: null,
+        count: 0,
+        records: [],
+      };
+    }
+    const parsedRow = BattleMasterDataRowSchema.safeParse(rowResult);
+    if (!parsedRow.success) {
+      throw new Error("Invalid master data row");
+    }
+    const row = parsedRow.data;
+
+    const cacheKey = `master-data:json:${tableName}:${row.table_version}:${row.period_tag}:${row.period_revision}`;
+    const immutableHit = masterDataImmutableRecordsCache.get(cacheKey);
+    if (immutableHit) {
+      return {
+        table_name: tableName,
+        table_version: row.table_version,
+        period_tag: row.period_tag,
+        period_revision: row.period_revision,
+        count: immutableHit.length,
+        records: immutableHit,
+      };
+    }
+
+    if (kv) {
+      try {
+        const cachedStr = await kv.get(cacheKey);
+        if (cachedStr) {
+          const decodedRecords = parseBattleJsonRecords(JSON.parse(cachedStr));
+          if (decodedRecords) {
+            if (masterDataImmutableRecordsCache.size >= 16) {
+              const oldestKey = masterDataImmutableRecordsCache.keys().next().value;
+              if (oldestKey) masterDataImmutableRecordsCache.delete(oldestKey);
+            }
+            masterDataImmutableRecordsCache.set(cacheKey, decodedRecords);
+            return {
+              table_name: tableName,
+              table_version: row.table_version,
+              period_tag: row.period_tag,
+              period_revision: row.period_revision,
+              count: decodedRecords.length,
+              records: decodedRecords,
+            };
+          }
+          console.warn(`[battle-data] master-data KV cache has invalid records: ${cacheKey}`);
+        }
+      } catch (kvErr) {
+        console.warn(`[battle-data] master-data KV read failed for ${cacheKey}:`, kvErr);
+      }
+    }
+
+    const r2Object = await bucket.get(row.r2_key);
+    if (!r2Object) {
+      return {
+        table_name: tableName,
+        table_version: row.table_version,
+        period_tag: row.period_tag,
+        period_revision: row.period_revision,
+        count: 0,
+        records: [],
+      };
+    }
+
+    const MAX_AVRO_BYTES = 50 * 1024 * 1024;
+    if (r2Object.size > MAX_AVRO_BYTES) {
+      throw new Error(`Master data object too large: ${r2Object.size} bytes`);
+    }
+    const avroBytes = new Uint8Array(await r2Object.arrayBuffer());
+    const decodedRecords = parseBattleJsonRecords(
+      decodeAvroOcfToJson(avroBytes),
+    );
+    if (!decodedRecords) {
+      throw new Error("Decoded master data payload is not a record array");
+    }
+    if (masterDataImmutableRecordsCache.size >= 16) {
+      const oldestKey = masterDataImmutableRecordsCache.keys().next().value;
+      if (oldestKey) masterDataImmutableRecordsCache.delete(oldestKey);
+    }
+    masterDataImmutableRecordsCache.set(cacheKey, decodedRecords);
+    if (kv) {
+      try {
+        await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 });
+      } catch (kvErr) {
+        console.warn(`[battle-data] master-data KV write failed for ${cacheKey}:`, kvErr);
+      }
+    }
     return {
       table_name: tableName,
       table_version: row.table_version,
       period_tag: row.period_tag,
       period_revision: row.period_revision,
-      count: 0,
-      records: [],
+      count: decodedRecords.length,
+      records: decodedRecords,
     };
-  }
+  })();
 
-  const MAX_AVRO_BYTES = 50 * 1024 * 1024;
-  if (r2Object.size > MAX_AVRO_BYTES) {
-    throw new Error(`Master data object too large: ${r2Object.size} bytes`);
+  dbCache.set(tableName, {
+    expiresAt: now + MASTER_DATA_MEM_CACHE_TTL_MS,
+    promise: loadPromise,
+  });
+  try {
+    return await loadPromise;
+  } catch (err) {
+    dbCache.delete(tableName);
+    throw err;
   }
-  const avroBytes = new Uint8Array(await r2Object.arrayBuffer());
-  const decodedRecords = parseBattleJsonRecords(
-    decodeAvroOcfToJson(avroBytes),
-  );
-  if (!decodedRecords) {
-    throw new Error("Decoded master data payload is not a record array");
-  }
-  if (kv) {
-    try {
-      await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 });
-    } catch (kvErr) {
-      console.warn(`[battle-data] master-data KV write failed for ${cacheKey}:`, kvErr);
-    }
-  }
-  return {
-    table_name: tableName,
-    table_version: row.table_version,
-    period_tag: row.period_tag,
-    period_revision: row.period_revision,
-    count: decodedRecords.length,
-    records: decodedRecords,
-  };
 }
 
 async function fetchBattleEnvBundleInternal(
@@ -398,6 +464,7 @@ async function fetchBattleEnvBundleInternal(
   tableVersion: string,
   periodTag: string,
   datasetId?: string,
+  timeWindow?: { fromTimestampMs?: number; toTimestampMs?: number },
 ): Promise<BattleEnvBundlePayload> {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const normalizedDatasetId = datasetId?.trim() || "";
@@ -417,13 +484,25 @@ async function fetchBattleEnvBundleInternal(
     }
   }
 
-  const scope = {
+  const baseScope = {
     periodTag,
     tableVersion,
     ...(normalizedDatasetId ? { datasetId: normalizedDatasetId } : {}),
   };
-  const [ownDecks, ownShips, ownSlotItems, enemyDecks, enemyShips, enemySlotItems] =
-    await Promise.all([
+
+  const runBundleFetch = async (windowScope: {
+    fromTimestampMs?: number;
+    toTimestampMs?: number;
+  }) => {
+    const scope = { ...baseScope, ...windowScope };
+    const [
+      ownDecks,
+      ownShips,
+      ownSlotItems,
+      enemyDecks,
+      enemyShips,
+      enemySlotItems,
+    ] = await Promise.all([
       fetchGlobalRecordsInternal(c, {
         table: "own_deck",
         ...scope,
@@ -467,15 +546,27 @@ async function fetchBattleEnvBundleInternal(
         filter: { env_uuid: envUuid },
       }),
     ]);
-
-  const payload = {
-    ownDecks,
-    ownShips,
-    ownSlotItems,
-    enemyDecks,
-    enemyShips,
-    enemySlotItems,
+    return {
+      ownDecks,
+      ownShips,
+      ownSlotItems,
+      enemyDecks,
+      enemyShips,
+      enemySlotItems,
+    };
   };
+
+  const hasTimeWindow =
+    timeWindow?.fromTimestampMs !== undefined ||
+    timeWindow?.toTimestampMs !== undefined;
+  let payload = await runBundleFetch(timeWindow ?? {});
+  if (
+    hasTimeWindow &&
+    payload.ownDecks.length === 0 &&
+    payload.enemyDecks.length === 0
+  ) {
+    payload = await runBundleFetch({});
+  }
 
   if (cache) {
     const response = new Response(JSON.stringify(payload), {
@@ -490,26 +581,52 @@ async function fetchBattleEnvBundleInternal(
   return payload;
 }
 
+const WEAPON_ICON_CACHE_TTL_MS = 10 * 60 * 1000;
+const weaponIconBucketCache = new WeakMap<
+  object,
+  { expiresAt: number; promise: Promise<Record<string, unknown>> }
+>();
+
 async function fetchWeaponIconFramesDirect(
   c: Context<{ Bindings: Bindings }>,
 ): Promise<Record<string, unknown>> {
   const envCtx = createEnvContext(c);
   const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
   if (!bucket) throw new Error("Asset storage not configured");
-  const r2Object = await bucket.get("assets/kcs2/img/common/common_icon_weapon.json");
-  if (!r2Object) {
-    if (envCtx.isDev) {
-      console.warn("[battle-data] Sprite atlas 'assets/kcs2/img/common/common_icon_weapon.json' not found in ASSET_SYNC_BUCKET; returning empty frames in dev mode");
-      return {};
-    }
-    throw new Error("Sprite atlas not found");
+
+  const now = Date.now();
+  const cached = weaponIconBucketCache.get(bucket);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
   }
-  const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
+
+  const loadPromise = (async (): Promise<Record<string, unknown>> => {
+    const r2Object = await bucket.get("assets/kcs2/img/common/common_icon_weapon.json");
+    if (!r2Object) {
+      if (envCtx.isDev) {
+        console.warn("[battle-data] Sprite atlas 'assets/kcs2/img/common/common_icon_weapon.json' not found in ASSET_SYNC_BUCKET; returning empty frames in dev mode");
+        return {};
+      }
+      throw new Error("Sprite atlas not found");
+    }
+    const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
+    try {
+      return parseJsonObjectText(new TextDecoder().decode(atlasRaw));
+    } catch {
+      const decompressed = await brotliDecompressAsync(atlasRaw);
+      return parseJsonObjectText(decompressed.toString("utf8"));
+    }
+  })();
+
+  weaponIconBucketCache.set(bucket, {
+    expiresAt: now + WEAPON_ICON_CACHE_TTL_MS,
+    promise: loadPromise,
+  });
   try {
-    return parseJsonObjectText(new TextDecoder().decode(atlasRaw));
-  } catch {
-    const decompressed = await brotliDecompressAsync(atlasRaw);
-    return parseJsonObjectText(decompressed.toString("utf8"));
+    return await loadPromise;
+  } catch (err) {
+    weaponIconBucketCache.delete(bucket);
+    throw err;
   }
 }
 
@@ -550,13 +667,7 @@ async function fetchGlobalRecordsPayloadInternal(
   const datasetId = options.datasetId ?? c.req.query("dataset_id")?.trim();
   const pathOptions =
     datasetId === undefined ? options : { ...options, datasetId };
-  const rawPayload = await fetchBattleDataJsonInternal(
-    c,
-    buildGlobalRecordsPath(pathOptions),
-  );
-  const payload = parseRecordsPayload(rawPayload);
-  if (!payload) throw new Error("Invalid battle records response");
-  return payload;
+  return queryGlobalRecordsDirect(c, pathOptions);
 }
 
 function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
@@ -567,6 +678,12 @@ function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
 type CompactionTier = "hourly" | "daily" | "weekly" | "period";
 const TIER_PRIORITY: CompactionTier[] = ["period", "weekly", "daily", "hourly"];
+const TIER_RANK: Record<CompactionTier, number> = {
+  period: 0,
+  weekly: 1,
+  daily: 2,
+  hourly: 3,
+};
 
 function parseCompactionTier(value: string | undefined): CompactionTier | null {
   if (!value) return null;
@@ -582,54 +699,96 @@ function parseCompactionTier(value: string | undefined): CompactionTier | null {
   return null;
 }
 
+const PERIOD_META_MEM_CACHE_TTL_MS = 60 * 1000;
+const allowedPeriodsByDbCache = new WeakMap<
+  object,
+  Map<string, { expiresAt: number; promise: Promise<Set<string>> }>
+>();
+const resolvedPeriodVersionByDbCache = new WeakMap<
+  object,
+  Map<
+    string,
+    {
+      expiresAt: number;
+      promise: Promise<{
+        resolvedPeriodTag: string | null;
+        resolvedTableVersion: string | null;
+      }>;
+    }
+  >
+>();
+
 async function resolveAllowedPeriodTagsForRecords(
   c: { env: Bindings },
   indexDb: D1Database,
   table: string,
   cacheKV?: KVNamespace,
 ): Promise<Set<string>> {
-  try {
-    return await getAllowedPeriodTagSet(c, cacheKV);
-  } catch (error) {
-    console.warn(
-      "[battle-data] allow-list fetch failed; falling back to local period tags:",
-      error,
-    );
+  let dbCache = allowedPeriodsByDbCache.get(indexDb);
+  if (!dbCache) {
+    dbCache = new Map();
+    allowedPeriodsByDbCache.set(indexDb, dbCache);
+  }
+  const now = Date.now();
+  const cached = dbCache.get(table);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
   }
 
-  const fallbackRowsResult = await indexDb
-    .prepare(
-      "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC LIMIT 200",
-    )
-    .bind(table)
-    .all();
-  const parsedFallbackRows = BattlePeriodTagRowsSchema.safeParse(
-    fallbackRowsResult.results ?? [],
-  );
-  if (!parsedFallbackRows.success) {
-    throw new Error("Invalid battle period-tag rows");
-  }
-
-  const fallbackSet = new Set<string>();
-  for (const row of parsedFallbackRows.data) {
-    const periodTag = row?.period_tag;
-    if (typeof periodTag !== "string" || !periodTag) continue;
-    const validation = await validateCachedPeriodTag(c, periodTag, {
-      fieldName: "period_tag",
-      ...(cacheKV ? { cacheKV } : {}),
-    });
-    if (validation.ok) {
-      fallbackSet.add(periodTag);
+  const loadPromise = (async (): Promise<Set<string>> => {
+    try {
+      return await getAllowedPeriodTagSet(c, cacheKV);
+    } catch (error) {
+      console.warn(
+        "[battle-data] allow-list fetch failed; falling back to local period tags:",
+        error,
+      );
     }
-  }
 
-  if (fallbackSet.size > 0) {
-    return fallbackSet;
-  }
+    const fallbackRowsResult = await indexDb
+      .prepare(
+        "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC LIMIT 200",
+      )
+      .bind(table)
+      .all();
+    const parsedFallbackRows = BattlePeriodTagRowsSchema.safeParse(
+      fallbackRowsResult.results ?? [],
+    );
+    if (!parsedFallbackRows.success) {
+      throw new Error("Invalid battle period-tag rows");
+    }
 
-  throw new Error(`Failed to resolve allowed period tags for table ${table}`);
+    const fallbackSet = new Set<string>();
+    for (const row of parsedFallbackRows.data) {
+      const periodTag = row?.period_tag;
+      if (typeof periodTag !== "string" || !periodTag) continue;
+      const validation = await validateCachedPeriodTag(c, periodTag, {
+        fieldName: "period_tag",
+        ...(cacheKV ? { cacheKV } : {}),
+      });
+      if (validation.ok) {
+        fallbackSet.add(periodTag);
+      }
+    }
+
+    if (fallbackSet.size > 0) {
+      return fallbackSet;
+    }
+
+    throw new Error(`Failed to resolve allowed period tags for table ${table}`);
+  })();
+
+  dbCache.set(table, {
+    expiresAt: now + PERIOD_META_MEM_CACHE_TTL_MS,
+    promise: loadPromise,
+  });
+  try {
+    return await loadPromise;
+  } catch (err) {
+    dbCache.delete(table);
+    throw err;
+  }
 }
-
 function parsePositiveInt(
   value: string | undefined,
   fallbackValue: number,
@@ -942,23 +1101,6 @@ async function decodeIndexedBlocksCoalesced(
       const minStartByte = sortedTasks[0]?.startByte ?? 0;
       if (minStartByte <= 0) return;
 
-      let context: PreparedAvroDecoderContext;
-      try {
-        context = await getOrLoadDecoderContext(
-          bucket,
-          filePath,
-          minStartByte,
-          contextCache,
-        );
-      } catch (err) {
-        console.warn("[battle-data] failed to load header in /global/records", {
-          table,
-          filePath,
-          error: String(err),
-        });
-        return;
-      }
-
       type CoalescedGroup = {
         groupStart: number;
         groupEnd: number;
@@ -988,30 +1130,115 @@ async function decodeIndexedBlocksCoalesced(
         }
       }
 
-      await Promise.all(
-        groups.map(async (group) => {
-          let groupBytes: Uint8Array;
-          try {
-            const dataObject = await bucket.get(filePath, {
-              range: {
-                offset: group.groupStart,
-                length: group.groupEnd - group.groupStart,
-              },
-            });
-            if (!dataObject) return;
-            groupBytes = new Uint8Array(await dataObject.arrayBuffer());
-            if (groupBytes.length === 0) return;
-          } catch (err) {
+      const firstGroup = groups[0];
+      let prefetchedFirstGroupPromise: Promise<Uint8Array | null> | null = null;
+      let contextPromise: Promise<PreparedAvroDecoderContext>;
+
+      if (
+        !contextCache.has(filePath) &&
+        firstGroup !== undefined &&
+        firstGroup.groupStart <= MAX_R2_COALESCE_GAP_BYTES &&
+        firstGroup.groupEnd <= MAX_R2_COALESCE_SPAN_BYTES
+      ) {
+        const combinedLoadPromise = (async () => {
+          const combinedObject = await bucket.get(filePath, {
+            range: {
+              offset: 0,
+              length: firstGroup.groupEnd,
+            },
+          });
+          if (!combinedObject) {
+            throw new Error(`AVRO object not found: ${filePath}`);
+          }
+          const combinedBytes = new Uint8Array(await combinedObject.arrayBuffer());
+          const headerLimit = Math.min(
+            firstGroup.groupStart,
+            combinedBytes.byteLength,
+          );
+          const headerSlice = combinedBytes.subarray(0, headerLimit);
+          const headerLength = parseOcfHeader(headerSlice).bodyOffset;
+          const ctx = prepareAvroDecoderContext(
+            headerSlice.subarray(0, headerLength),
+          );
+          const groupBytes =
+            combinedBytes.byteLength > firstGroup.groupStart
+              ? combinedBytes.subarray(
+                  firstGroup.groupStart,
+                  Math.min(firstGroup.groupEnd, combinedBytes.byteLength),
+                )
+              : new Uint8Array(0);
+          return { ctx, groupBytes };
+        })();
+
+        contextPromise = combinedLoadPromise.then((res) => res.ctx);
+        contextCache.set(filePath, contextPromise);
+        contextPromise.catch(() => {
+          contextCache.delete(filePath);
+        });
+        prefetchedFirstGroupPromise = combinedLoadPromise
+          .then((res) => res.groupBytes)
+          .catch((err) => {
             console.warn(
-              "[battle-data] failed to read coalesced R2 range in /global/records",
+              "[battle-data] failed to load coalesced header+group in /global/records",
               {
                 table,
                 filePath,
-                groupStart: group.groupStart,
-                groupLength: group.groupEnd - group.groupStart,
                 error: String(err),
               },
             );
+            return null;
+          });
+      } else {
+        contextPromise = getOrLoadDecoderContext(
+          bucket,
+          filePath,
+          minStartByte,
+          contextCache,
+        );
+      }
+
+      await Promise.all(
+        groups.map(async (group, groupIndex) => {
+          let groupBytes: Uint8Array;
+          if (groupIndex === 0 && prefetchedFirstGroupPromise !== null) {
+            const prefetched = await prefetchedFirstGroupPromise;
+            if (!prefetched || prefetched.length === 0) return;
+            groupBytes = prefetched;
+          } else {
+            try {
+              const dataObject = await bucket.get(filePath, {
+                range: {
+                  offset: group.groupStart,
+                  length: group.groupEnd - group.groupStart,
+                },
+              });
+              if (!dataObject) return;
+              groupBytes = new Uint8Array(await dataObject.arrayBuffer());
+              if (groupBytes.length === 0) return;
+            } catch (err) {
+              console.warn(
+                "[battle-data] failed to read coalesced R2 range in /global/records",
+                {
+                  table,
+                  filePath,
+                  groupStart: group.groupStart,
+                  groupLength: group.groupEnd - group.groupStart,
+                  error: String(err),
+                },
+              );
+              return;
+            }
+          }
+
+          let context: PreparedAvroDecoderContext;
+          try {
+            context = await contextPromise;
+          } catch (err) {
+            console.warn("[battle-data] failed to load header in /global/records", {
+              table,
+              filePath,
+              error: String(err),
+            });
             return;
           }
 
@@ -1073,7 +1300,419 @@ async function decodeIndexedBlocksCoalesced(
 
   return results;
 }
+export function pruneSubsumedTierBlocks(rows: BattleBlockRow[]): {
+  rows: BattleBlockRow[];
+  effectiveTier: CompactionTier | null;
+} {
+  const seenBlockIds = new Set<number>();
+  const uniqueRows: BattleBlockRow[] = [];
+  for (const row of rows) {
+    const id = Number(row?.id ?? NaN);
+    if (Number.isFinite(id)) {
+      if (seenBlockIds.has(id)) continue;
+      seenBlockIds.add(id);
+    }
+    uniqueRows.push(row);
+  }
 
+  const byTierPriority = [...uniqueRows].sort((a, b) => {
+    const tierA = parseCompactionTier(a.compaction_tier ?? undefined);
+    const tierB = parseCompactionTier(b.compaction_tier ?? undefined);
+    const rankA = tierA ? TIER_RANK[tierA] : 4;
+    const rankB = tierB ? TIER_RANK[tierB] : 4;
+    if (rankA !== rankB) return rankA - rankB;
+    return (
+      (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
+      (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER)
+    );
+  });
+
+  type CoveredInterval = {
+    rank: number;
+    tier: CompactionTier;
+    startMs: number;
+    endMs: number;
+  };
+  const coveredByDatasetAndPeriod = new Map<string, CoveredInterval[]>();
+  const accepted: BattleBlockRow[] = [];
+  const usedTiers = new Set<CompactionTier>();
+
+  for (const row of byTierPriority) {
+    const rowTier = parseCompactionTier(row.compaction_tier ?? undefined);
+    const rowRank = rowTier ? TIER_RANK[rowTier] : 4;
+    const ds = String(row.dataset_id ?? "");
+    const pt = String(row.period_tag ?? "");
+    const key = `${ds}\0${pt}`;
+    const startTs = normalizeTimestamp(row.start_timestamp) ?? 0;
+    const endTs = normalizeTimestamp(row.end_timestamp) ?? startTs;
+
+    const existingIntervals = coveredByDatasetAndPeriod.get(key);
+    let subsumed = false;
+    if (existingIntervals) {
+      for (const cov of existingIntervals) {
+        if (cov.rank < rowRank) {
+          if (
+            cov.tier === "period" ||
+            (startTs >= cov.startMs && endTs <= cov.endMs)
+          ) {
+            subsumed = true;
+            break;
+          }
+        }
+      }
+    }
+    if (subsumed) {
+      continue;
+    }
+
+    accepted.push(row);
+    if (rowTier) {
+      usedTiers.add(rowTier);
+      if (rowRank < 3) {
+        const winStart = normalizeTimestamp(row.window_start_ms);
+        const winEnd = normalizeTimestamp(row.window_end_ms);
+        const covStart =
+          winStart !== null && winStart > 0
+            ? Math.min(winStart, startTs)
+            : startTs;
+        const covEnd =
+          winEnd !== null && winEnd > 0 ? Math.max(winEnd, endTs) : endTs;
+        const list = existingIntervals ?? [];
+        list.push({
+          rank: rowRank,
+          tier: rowTier,
+          startMs: covStart,
+          endMs: covEnd,
+        });
+        coveredByDatasetAndPeriod.set(key, list);
+      }
+    }
+  }
+
+  accepted.sort(
+    (a, b) =>
+      (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
+      (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER),
+  );
+
+  return {
+    rows: accepted,
+    effectiveTier: usedTiers.size === 1 ? ([...usedTiers][0] ?? null) : null,
+  };
+}
+
+async function resolvePeriodAndTableVersionCached(params: {
+  indexDb: D1Database;
+  table: string;
+  periodTagParam: string;
+  tableVersionParam: string;
+  datasetId: string | undefined;
+  allowedPeriodTagSet: Set<string>;
+}): Promise<{
+  resolvedPeriodTag: string | null;
+  resolvedTableVersion: string | null;
+}> {
+  const {
+    indexDb,
+    table,
+    periodTagParam,
+    tableVersionParam,
+    datasetId,
+    allowedPeriodTagSet,
+  } = params;
+
+  if (periodTagParam !== "latest" && (periodTagParam === "all" || tableVersionParam)) {
+    return {
+      resolvedPeriodTag: periodTagParam === "all" ? null : periodTagParam,
+      resolvedTableVersion: tableVersionParam || null,
+    };
+  }
+
+  let dbCache = resolvedPeriodVersionByDbCache.get(indexDb);
+  if (!dbCache) {
+    dbCache = new Map();
+    resolvedPeriodVersionByDbCache.set(indexDb, dbCache);
+  }
+  const cacheKey = `${table}\0${periodTagParam}\0${tableVersionParam || ""}\0${datasetId || ""}`;
+  const now = Date.now();
+  const cached = dbCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  const loadPromise = (async () => {
+    let resolvedPeriodTag: string | null = null;
+    let resolvedTableVersion: string | null = tableVersionParam || null;
+    if (periodTagParam === "latest") {
+      let latestPeriodSql =
+        "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ?";
+      const latestPeriodParams: unknown[] = [table];
+      if (tableVersionParam) {
+        latestPeriodSql += " AND table_version = ?";
+        latestPeriodParams.push(tableVersionParam);
+      }
+      if (datasetId) {
+        latestPeriodSql += " AND dataset_id = ?";
+        latestPeriodParams.push(datasetId);
+      }
+      latestPeriodSql += " ORDER BY period_tag DESC, table_version DESC LIMIT 200";
+      const latestRowsResult = await indexDb
+        .prepare(latestPeriodSql)
+        .bind(...latestPeriodParams)
+        .all();
+      const parsedLatestRows = BattleSummaryRowsSchema.safeParse(
+        latestRowsResult.results ?? [],
+      );
+      if (!parsedLatestRows.success) {
+        throw new Error("Invalid latest battle period-tag rows");
+      }
+      const latestAllowed = parsedLatestRows.data.find((row) =>
+        allowedPeriodTagSet.has(row.period_tag),
+      );
+      resolvedPeriodTag = latestAllowed?.period_tag ?? null;
+      const latestPeriodRows = latestAllowed
+        ? parsedLatestRows.data.filter(
+            (row) => row.period_tag === latestAllowed.period_tag,
+          )
+        : [];
+      const latestResolvedVersion = latestPeriodRows.reduce<string | null>(
+        (latestVersion, row) =>
+          latestVersion === null ||
+          compareTableVersions(row.table_version, latestVersion) > 0
+            ? row.table_version
+            : latestVersion,
+        null,
+      );
+      resolvedTableVersion = latestResolvedVersion ?? (tableVersionParam || null);
+    } else if (periodTagParam !== "all") {
+      resolvedPeriodTag = periodTagParam;
+      if (!tableVersionParam) {
+        const versionRowsResult = await indexDb
+          .prepare(
+            "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? AND period_tag = ?" +
+              (datasetId ? " AND dataset_id = ?" : "") +
+              " ORDER BY table_version DESC LIMIT 200",
+          )
+          .bind(
+            ...([
+              table,
+              periodTagParam,
+              ...(datasetId ? [datasetId] : []),
+            ] as unknown[]),
+          )
+          .all();
+        const parsedVersionRows = BattleSummaryRowsSchema.safeParse(
+          versionRowsResult.results ?? [],
+        );
+        if (!parsedVersionRows.success) {
+          throw new Error("Invalid battle table-version rows");
+        }
+        resolvedTableVersion = parsedVersionRows.data.reduce<string | null>(
+          (latestVersion, row) =>
+            latestVersion === null ||
+            compareTableVersions(row.table_version, latestVersion) > 0
+              ? row.table_version
+              : latestVersion,
+          null,
+        );
+      }
+    }
+    return { resolvedPeriodTag, resolvedTableVersion };
+  })();
+
+  dbCache.set(cacheKey, {
+    expiresAt: now + PERIOD_META_MEM_CACHE_TTL_MS,
+    promise: loadPromise,
+  });
+  try {
+    return await loadPromise;
+  } catch (err) {
+    dbCache.delete(cacheKey);
+    throw err;
+  }
+}
+
+async function queryGlobalRecordsDirect(
+  c: Context<{ Bindings: Bindings }>,
+  options: {
+    table: string;
+    periodTag: string;
+    tableVersion: string;
+    datasetId?: string;
+    limitBlocks: number;
+    limitRecords: number;
+    filter?: Record<string, unknown>;
+    includeSortieKey?: boolean;
+    fromTimestampMs?: number;
+    toTimestampMs?: number;
+  },
+): Promise<BattleRecordsPayload> {
+  const env = createEnvContext(c);
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"];
+  if (!indexDb || !bucket) {
+    throw new Error("Storage not configured");
+  }
+
+  const table = options.table.trim();
+  const periodTagParam = (options.periodTag || "latest").trim();
+  const tableVersionParam = (options.tableVersion || "").trim();
+  const datasetId = options.datasetId?.trim() || undefined;
+  const limitBlocks = Math.max(1, Math.min(options.limitBlocks, 400));
+  const limitRecords = Math.max(1, Math.min(options.limitRecords, 40000));
+  const fromTimestampMs =
+    options.fromTimestampMs != null && Number.isFinite(options.fromTimestampMs)
+      ? Math.trunc(options.fromTimestampMs)
+      : null;
+  const toTimestampMs =
+    options.toTimestampMs != null && Number.isFinite(options.toTimestampMs)
+      ? Math.trunc(options.toTimestampMs)
+      : null;
+
+  const allowedPeriodTagSet = await resolveAllowedPeriodTagsForRecords(
+    c,
+    indexDb,
+    table,
+    env.runtime["DATA_LOADER_CACHE_KV"],
+  );
+
+  const { resolvedPeriodTag, resolvedTableVersion } =
+    await resolvePeriodAndTableVersionCached({
+      indexDb,
+      table,
+      periodTagParam,
+      tableVersionParam,
+      datasetId,
+      allowedPeriodTagSet,
+    });
+
+  const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
+  let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
+             FROM block_indexes bi
+             JOIN archived_files af ON af.id = bi.file_id
+             WHERE bi.table_name = ?`;
+  const params: unknown[] = [table];
+
+  if (resolvedTableVersion) {
+    sql += " AND bi.table_version = ?";
+    params.push(resolvedTableVersion);
+  }
+
+  if (resolvedPeriodTag) {
+    sql += " AND bi.period_tag = ?";
+    params.push(resolvedPeriodTag);
+  } else {
+    const allowedTags = [...allowedPeriodTagSet];
+    if (allowedTags.length === 0) {
+      return {
+        records: [],
+        period_tag: periodTagParam,
+        table_version: resolvedTableVersion,
+      };
+    }
+    const placeholders = allowedTags.map(() => "?").join(", ");
+    sql += ` AND bi.period_tag IN (${placeholders})`;
+    params.push(...allowedTags);
+  }
+
+  if (fromTimestampMs != null) {
+    sql += " AND bi.end_timestamp >= ?";
+    params.push(fromTimestampMs);
+  }
+
+  if (toTimestampMs != null) {
+    sql += " AND bi.start_timestamp <= ?";
+    params.push(toTimestampMs);
+  }
+
+  if (datasetId) {
+    sql += " AND bi.dataset_id = ?";
+    params.push(datasetId);
+  }
+
+  sql +=
+    " ORDER BY CASE bi.compaction_tier WHEN 'period' THEN 0 WHEN 'weekly' THEN 1 WHEN 'daily' THEN 2 ELSE 3 END ASC, bi.start_timestamp DESC LIMIT ?";
+  params.push(perTierFetchLimit);
+
+  const result = await indexDb.prepare(sql).bind(...params).all?.();
+  if (!result) {
+    return {
+      records: [],
+      period_tag: resolvedPeriodTag || periodTagParam,
+      table_version: resolvedTableVersion,
+    };
+  }
+  const parsedRows = parseBattleBlockRows(result.results || []);
+  if (!parsedRows) {
+    throw new Error("D1 returned malformed results for block query");
+  }
+
+  const pruned = pruneSubsumedTierBlocks(parsedRows);
+  const rows = pruned.rows.slice(0, limitBlocks);
+  if (rows.length === 0) {
+    return {
+      records: [],
+      period_tag: resolvedPeriodTag || periodTagParam,
+      table_version: resolvedTableVersion,
+    };
+  }
+
+  const compiledFilter = options.filter
+    ? compileRecordFilter(options.filter)
+    : null;
+  const decodedBlocks = await decodeIndexedBlocksCoalesced(
+    bucket,
+    rows,
+    table,
+    compiledFilter,
+  );
+
+  const decodedRecords: AvroJsonRecord[] = [];
+  let matchedMinStartTimestampMs: number | null = null;
+  let matchedMaxEndTimestampMs: number | null = null;
+  outer: for (let blockIdx = 0; blockIdx < decodedBlocks.length; blockIdx += 1) {
+    const recs = decodedBlocks[blockIdx] ?? [];
+    if (recs.length > 0) {
+      const blockRow = rows[blockIdx];
+      const bStart = normalizeTimestamp(blockRow?.start_timestamp);
+      const bEnd = normalizeTimestamp(blockRow?.end_timestamp) ?? bStart;
+      if (bStart !== null) {
+        matchedMinStartTimestampMs =
+          matchedMinStartTimestampMs === null
+            ? bStart
+            : Math.min(matchedMinStartTimestampMs, bStart);
+      }
+      if (bEnd !== null) {
+        matchedMaxEndTimestampMs =
+          matchedMaxEndTimestampMs === null
+            ? bEnd
+            : Math.max(matchedMaxEndTimestampMs, bEnd);
+      }
+    }
+    for (const rec of recs) {
+      decodedRecords.push(rec);
+      if (decodedRecords.length >= limitRecords) {
+        break outer;
+      }
+    }
+  }
+
+  if (table === "battle" && options.includeSortieKey) {
+    attachSortieIds(decodedRecords);
+  }
+
+  return {
+    records: decodedRecords,
+    period_tag: resolvedPeriodTag || periodTagParam,
+    table_version: resolvedTableVersion,
+    ...(matchedMinStartTimestampMs !== null
+      ? { matched_min_start_timestamp_ms: matchedMinStartTimestampMs }
+      : {}),
+    ...(matchedMaxEndTimestampMs !== null
+      ? { matched_max_end_timestamp_ms: matchedMaxEndTimestampMs }
+      : {}),
+  };
+}
 // validateAvroHeader is now imported from avro-validator
 
 /**
@@ -2169,76 +2808,15 @@ app.get("/global/records", async (c) => {
       env.runtime["DATA_LOADER_CACHE_KV"],
     );
 
-    let resolvedPeriodTag: string | null = null;
-    let resolvedTableVersion: string | null = tableVersionParam || null;
-    if (periodTagParam === "latest") {
-      let latestPeriodSql =
-        "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ?";
-      const latestPeriodParams: unknown[] = [table];
-      if (tableVersionParam) {
-        latestPeriodSql += " AND table_version = ?";
-        latestPeriodParams.push(tableVersionParam);
-      }
-      if (datasetId) {
-        latestPeriodSql += " AND dataset_id = ?";
-        latestPeriodParams.push(datasetId);
-      }
-      latestPeriodSql += " ORDER BY period_tag DESC, table_version DESC LIMIT 200";
-      const latestRowsResult = await indexDb
-        .prepare(latestPeriodSql)
-        .bind(...latestPeriodParams)
-        .all();
-      const parsedLatestRows = BattleSummaryRowsSchema.safeParse(
-        latestRowsResult.results ?? [],
-      );
-      if (!parsedLatestRows.success) {
-        throw new Error("Invalid latest battle period-tag rows");
-      }
-      const latestAllowed = parsedLatestRows.data.find((row) => {
-        return allowedPeriodTagSet.has(row.period_tag);
+    const { resolvedPeriodTag, resolvedTableVersion } =
+      await resolvePeriodAndTableVersionCached({
+        indexDb,
+        table,
+        periodTagParam,
+        tableVersionParam,
+        datasetId,
+        allowedPeriodTagSet,
       });
-      resolvedPeriodTag = latestAllowed?.period_tag ?? null;
-      const latestPeriodRows = latestAllowed
-        ? parsedLatestRows.data.filter(
-            (row) => row.period_tag === latestAllowed.period_tag,
-          )
-        : [];
-      const latestResolvedVersion = latestPeriodRows.reduce<string | null>(
-        (latestVersion, row) =>
-          latestVersion === null ||
-          compareTableVersions(row.table_version, latestVersion) > 0
-            ? row.table_version
-            : latestVersion,
-        null,
-      );
-          resolvedTableVersion = latestResolvedVersion ?? (tableVersionParam || null);
-    } else if (periodTagParam !== "all") {
-      resolvedPeriodTag = periodTagParam;
-      if (!tableVersionParam) {
-        const versionRowsResult = await indexDb
-          .prepare(
-            "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? AND period_tag = ?" +
-              (datasetId ? " AND dataset_id = ?" : "") +
-              " ORDER BY table_version DESC LIMIT 200",
-          )
-          .bind(...([table, periodTagParam, ...(datasetId ? [datasetId] : [])] as unknown[]))
-          .all();
-        const parsedVersionRows = BattleSummaryRowsSchema.safeParse(
-          versionRowsResult.results ?? [],
-        );
-        if (!parsedVersionRows.success) {
-          throw new Error("Invalid battle table-version rows");
-        }
-        resolvedTableVersion = parsedVersionRows.data.reduce<string | null>(
-          (latestVersion, row) =>
-            latestVersion === null ||
-            compareTableVersions(row.table_version, latestVersion) > 0
-              ? row.table_version
-              : latestVersion,
-          null,
-        );
-      }
-    }
 
     const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
 
@@ -2301,7 +2879,7 @@ app.get("/global/records", async (c) => {
 
       sql += tier
         ? " ORDER BY bi.start_timestamp DESC LIMIT ?"
-        : " ORDER BY bi.start_timestamp DESC, CASE bi.compaction_tier WHEN 'period' THEN 0 WHEN 'weekly' THEN 1 WHEN 'daily' THEN 2 ELSE 3 END ASC LIMIT ?";
+        : " ORDER BY CASE bi.compaction_tier WHEN 'period' THEN 0 WHEN 'weekly' THEN 1 WHEN 'daily' THEN 2 ELSE 3 END ASC, bi.start_timestamp DESC LIMIT ?";
       params.push(perTierFetchLimit);
 
       const result = await indexDb.prepare(sql).bind(...params).all?.();
@@ -2324,28 +2902,9 @@ app.get("/global/records", async (c) => {
     } else {
       blockResult = await fetchBlocks(null);
       if (blockResult?.results) {
-        const seenBlockIds = new Set<number>();
-        const deduped: BattleBlockRow[] = [];
-        const usedTiers = new Set<CompactionTier>();
-        for (const row of blockResult.results) {
-          const id = Number(row?.id ?? NaN);
-          if (Number.isFinite(id)) {
-            if (seenBlockIds.has(id)) continue;
-            seenBlockIds.add(id);
-          }
-          deduped.push(row);
-          const rowTier = parseCompactionTier(row.compaction_tier ?? undefined);
-          if (rowTier) {
-            usedTiers.add(rowTier);
-          }
-        }
-        deduped.sort(
-          (a, b) =>
-            (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
-            (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER),
-        );
-        blockResult = { results: deduped };
-        effectiveTier = usedTiers.size === 1 ? ([...usedTiers][0] ?? null) : null;
+        const pruned = pruneSubsumedTierBlocks(blockResult.results);
+        blockResult = { results: pruned.rows };
+        effectiveTier = pruned.effectiveTier;
       }
     }
 
@@ -2432,7 +2991,27 @@ app.get("/global/records", async (c) => {
 
     const decodedRecords: AvroJsonRecord[] = [];
     let recordsLimitReached = false;
-    outer: for (const recs of decodedBlocks) {
+    let matchedMinStartTimestampMs: number | null = null;
+    let matchedMaxEndTimestampMs: number | null = null;
+    outer: for (let blockIdx = 0; blockIdx < decodedBlocks.length; blockIdx += 1) {
+      const recs = decodedBlocks[blockIdx] ?? [];
+      if (recs.length > 0) {
+        const blockRow = rows[blockIdx];
+        const bStart = normalizeTimestamp(blockRow?.start_timestamp);
+        const bEnd = normalizeTimestamp(blockRow?.end_timestamp) ?? bStart;
+        if (bStart !== null) {
+          matchedMinStartTimestampMs =
+            matchedMinStartTimestampMs === null
+              ? bStart
+              : Math.min(matchedMinStartTimestampMs, bStart);
+        }
+        if (bEnd !== null) {
+          matchedMaxEndTimestampMs =
+            matchedMaxEndTimestampMs === null
+              ? bEnd
+              : Math.max(matchedMaxEndTimestampMs, bEnd);
+        }
+      }
       for (const rec of recs) {
         decodedRecords.push(rec);
         if (decodedRecords.length >= limitRecords) {
@@ -2461,6 +3040,12 @@ app.get("/global/records", async (c) => {
       count: decodedRecords.length,
       records: decodedRecords,
       source_blocks: rows.length,
+      ...(matchedMinStartTimestampMs !== null
+        ? { matched_min_start_timestamp_ms: matchedMinStartTimestampMs }
+        : {}),
+      ...(matchedMaxEndTimestampMs !== null
+        ? { matched_max_end_timestamp_ms: matchedMaxEndTimestampMs }
+        : {}),
     };
     const response = c.json(payload);
     response.headers.set("Cache-Control", cacheControl);
@@ -2521,71 +3106,78 @@ app.get("/global/overview", async (c) => {
   }
 
   try {
-    const [battles, cells, battleResults, mstShipPayload] =
-      await Promise.all([
-        fetchGlobalRecordsInternal(c, {
-          table: "battle",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-          includeSortieKey: true,
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "cells",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "battle_result",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        }),
-        fetchMasterDataJsonDirect(c, "mst_ship"),
-      ]);
+    const [
+      battles,
+      cells,
+      battleResults,
+      allEnemyDecks,
+      allEnemyShips,
+      mstShipPayload,
+    ] = await Promise.all([
+      fetchGlobalRecordsInternal(c, {
+        table: "battle",
+        periodTag,
+        tableVersion,
+        limitBlocks,
+        limitRecords,
+        includeSortieKey: true,
+      }),
+      fetchGlobalRecordsInternal(c, {
+        table: "cells",
+        periodTag,
+        tableVersion,
+        limitBlocks,
+        limitRecords,
+      }),
+      fetchGlobalRecordsInternal(c, {
+        table: "battle_result",
+        periodTag,
+        tableVersion,
+        limitBlocks,
+        limitRecords,
+      }),
+      fetchGlobalRecordsInternal(c, {
+        table: "enemy_deck",
+        periodTag,
+        tableVersion,
+        limitBlocks: Math.max(limitBlocks, 400),
+        limitRecords: 20000,
+      }),
+      fetchGlobalRecordsInternal(c, {
+        table: "enemy_ship",
+        periodTag,
+        tableVersion,
+        limitBlocks: Math.max(limitBlocks, 400),
+        limitRecords: 40000,
+      }),
+      fetchMasterDataJsonDirect(c, "mst_ship"),
+    ]);
 
     const mstShips = mstShipPayload.records || [];
 
-    const deckIds = [
-      ...new Set(
-        battles
-          .map((b) =>
-            typeof b["e_deck_id"] === "string" ? b["e_deck_id"] : "",
-          )
-          .filter(Boolean),
-      ),
-    ];
+    const deckIdSet = new Set(
+      battles
+        .map((b) =>
+          typeof b["e_deck_id"] === "string" ? b["e_deck_id"] : "",
+        )
+        .filter(Boolean),
+    );
     const enemyDecks =
-      deckIds.length > 0
-        ? await fetchGlobalRecordsInternal(c, {
-            table: "enemy_deck",
-            periodTag,
-            tableVersion,
-            limitBlocks: 400,
-            limitRecords: 2000,
-            filter: { uuid: deckIds },
-          })
+      deckIdSet.size > 0
+        ? allEnemyDecks.filter(
+            (d) => typeof d["uuid"] === "string" && deckIdSet.has(d["uuid"]),
+          )
         : [];
 
-    const shipGroupIds = [
-      ...new Set(
-        enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d["ship_ids"])),
-      ),
-    ];
+    const shipGroupIdSet = new Set(
+      enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d["ship_ids"])),
+    );
     const enemyShips =
-      shipGroupIds.length > 0
-        ? await fetchGlobalRecordsInternal(c, {
-            table: "enemy_ship",
-            periodTag,
-            tableVersion,
-            limitBlocks: 400,
-            limitRecords: 4000,
-            filter: { uuid: shipGroupIds },
-          })
+      shipGroupIdSet.size > 0
+        ? allEnemyShips.filter(
+            (s) =>
+              typeof s["uuid"] === "string" && shipGroupIdSet.has(s["uuid"]),
+          )
         : [];
 
     const payload = buildBattleOverviewPayload({
@@ -2616,7 +3208,6 @@ app.get("/global/overview", async (c) => {
     return c.json({ error: "Failed to build overview payload" }, 500);
   }
 });
-
 app.get("/global/drops", async (c) => {
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const tableVersion = (c.req.query("table_version") || "").trim();
@@ -2739,18 +3330,36 @@ app.get("/detail", async (c) => {
     const DETAIL_BATTLE_LIMIT_RECORDS = 2000;
     const datasetScope = datasetId ? { datasetId } : {};
 
-    const fetchBattles = async (tag: string) =>
+    const envUuidTimestampMs = extractTimestampFromUuidV7(envUuid);
+    const fetchBattles = async (
+      tag: string,
+      timeWindow?: { fromTimestampMs?: number; toTimestampMs?: number },
+    ) =>
       fetchGlobalRecordsPayloadInternal(c, {
         table: "battle",
         periodTag: tag,
         tableVersion,
         ...datasetScope,
+        ...timeWindow,
         limitBlocks: 120,
         limitRecords: DETAIL_BATTLE_LIMIT_RECORDS,
         filter: { env_uuid: envUuid },
       });
 
-    const primaryBattlePayload = await fetchBattles(periodTag);
+    let primaryBattlePayload =
+      envUuidTimestampMs !== null
+        ? await fetchBattles(periodTag, {
+            fromTimestampMs: envUuidTimestampMs - 30 * 60_000,
+            toTimestampMs: envUuidTimestampMs + 120 * 60_000,
+          })
+        : await fetchBattles(periodTag);
+    if (
+      envUuidTimestampMs !== null &&
+      (primaryBattlePayload.records?.length ?? 0) === 0
+    ) {
+      primaryBattlePayload = await fetchBattles(periodTag);
+    }
+
     const battles = primaryBattlePayload.records || [];
     if (battles.length === 0) {
       return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
@@ -2775,6 +3384,54 @@ app.get("/detail", async (c) => {
       ? { datasetId: resolvedDatasetId }
       : {};
 
+    const battleTimestamps = battles
+      .map(
+        (row) =>
+          normalizeTimestamp(row["timestamp"]) ??
+          normalizeTimestamp(row["midnight_timestamp"]),
+      )
+      .filter((ts): ts is number => ts !== null && ts > 0);
+    const minBattleTs =
+      battleTimestamps.length > 0
+        ? Math.min(...battleTimestamps)
+        : envUuidTimestampMs;
+    const maxBattleTs =
+      battleTimestamps.length > 0
+        ? Math.max(...battleTimestamps)
+        : envUuidTimestampMs;
+
+    const matchedMinBlockTs =
+      primaryBattlePayload.matched_min_start_timestamp_ms ?? null;
+    const matchedMaxBlockTs =
+      primaryBattlePayload.matched_max_end_timestamp_ms ?? null;
+
+    let detailTimeWindowScope: {
+      fromTimestampMs?: number;
+      toTimestampMs?: number;
+    } = {};
+    if (
+      minBattleTs !== null &&
+      maxBattleTs !== null &&
+      matchedMinBlockTs !== null &&
+      matchedMaxBlockTs !== null &&
+      Math.abs(minBattleTs - matchedMinBlockTs) <= 24 * 3600_000
+    ) {
+      detailTimeWindowScope = {
+        fromTimestampMs: minBattleTs - 15 * 60_000,
+        toTimestampMs: maxBattleTs + 90 * 60_000,
+      };
+    } else if (matchedMinBlockTs !== null && matchedMaxBlockTs !== null) {
+      detailTimeWindowScope = {
+        fromTimestampMs: matchedMinBlockTs - 60_000,
+        toTimestampMs: matchedMaxBlockTs + 60_000,
+      };
+    } else if (minBattleTs !== null && maxBattleTs !== null) {
+      detailTimeWindowScope = {
+        fromTimestampMs: minBattleTs - 2 * 3600_000,
+        toTimestampMs: maxBattleTs + 2 * 3600_000,
+      };
+    }
+
     const detailPeriodTag =
       primaryBattlePayload.period_tag?.trim() || periodTag;
     const detailTableVersion =
@@ -2783,6 +3440,7 @@ app.get("/detail", async (c) => {
       periodTag: detailPeriodTag,
       tableVersion: detailTableVersion,
       ...resolvedDatasetScope,
+      ...detailTimeWindowScope,
     };
 
     const hasMidnight = shouldFetchBattlePhase(targetBattle, "midnight_hougeki");
@@ -2826,6 +3484,7 @@ app.get("/detail", async (c) => {
               detailTableVersion,
               detailPeriodTag,
               resolvedDatasetId || undefined,
+              detailTimeWindowScope,
             )
           : Promise.resolve({
               ownDecks: [],
@@ -2834,8 +3493,7 @@ app.get("/detail", async (c) => {
               enemyDecks: [],
               enemyShips: [],
               enemySlotItems: [],
-            }),
-        fetchMasterDataJsonDirect(c, "mst_ship"),
+            }),        fetchMasterDataJsonDirect(c, "mst_ship"),
         fetchMasterDataJsonDirect(c, "mst_slotitem"),
         fetchWeaponIconFramesDirect(c),
         hasMidnight
