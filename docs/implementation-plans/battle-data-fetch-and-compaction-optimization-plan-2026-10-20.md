@@ -476,3 +476,89 @@ export function extractTimestampFromUuidV7(uuidStr: string): number | null {
    - `env_uuid`（UUID v7）から抽出されたタイムスタンプ窓と `dataset_id` により、最新 120 ブロックより古い出撃データでも詳細モーダルが正常に表示されること、および D1 クエリ数・R2 取得ブロック数が激減していることを確認する。
 3. **パフォーマンス計測**:
    - Cache Bypass（`? nocache` 相当またはキャッシュクリア状態）での `/api/battle-data/global/overview`, `/global/drops`, `/detail` の Server-Timing / 応答時間を計測し、Before / After を比較する。
+
+
+---
+
+## 9. Phase 2: 本番実測（`fusou.dev`）に基づく深層ボトルネック調査・技術的限界値・追加実装計画
+
+### 9.1 Phase 1 デプロイ後の本番実測値と残存課題の特定
+
+Phase 1（Avro デコーダコンテキスト再利用、R2 Range Coalescing、UUID `Set` 事前コンパイル、`/detail` 未使用フェーズスキップ、D1 複合インデックス追加、ローカル AVRO 並列化）を本番環境（`https://fusou.dev`）へデプロイして計測した結果、以下の実測値が得られた。
+
+- **本番 API Warm 応答時間**:
+  - `/api/battle-data/global/summary`: 最速 `76 ms` / 平均 `111 ms`
+  - `/api/battle-data/global/overview`: 最速 `182 ms` / 平均 `204 ms`
+  - `/api/battle-data/global/drops`: 最速 `144 ms` / 平均 `161 ms`
+  - `/api/battle-data/global/records` (`dataset_id` 指定): 最速 `383 ms` / 平均 `391 ms`
+  - `/api/battle-data/detail`: 最速 `196 ms` / 平均 `198 ms`
+- **残存課題（Origin Cold およびブラウザ初回ウォーターフォール）**:
+  - 未キャッシュの出撃（`env_uuid`）に対する `/api/battle-data/detail` の **Origin Cold 応答時間** が `3,273 ms 〜 7,397 ms` 要している。
+  - `/api/battle-data/global/overview` の **Origin Cold 応答時間** が `1,021 ms` 要している。
+  - ブラウザで `https://fusou.dev/battles` を開いた際、初回マウント時に `/api/battle-data/global/summary`（`583 ms`）の完了を待ってから `overview`・`mst_ship`・`mst_slotitem` が発火しており、初回一覧表示完了まで `2,992 ms` 要している。
+
+---
+
+### 9.2 深掘り調査で判明した 5 つの深層ボトルネック（Root Causes）
+
+#### [P2-1] コンパクションティア包含プルーニング（Tier Subsumption Pruning）の欠落と `/detail` タイムスタンプ絞り込みの未適用
+- **現状の挙動と問題点**:
+  1. **上位ティア包含プルーニングの欠落（重複 R2 読込＋重複レコード返却）**:
+     - 本番 D1（`BATTLE_INDEX_DB`）の `2026-10-14` 期間の `battle` テーブルには、`weekly` 1ブロック（7件）・`daily` 3ブロック（28件）・`hourly` 12ブロック（28件）の計 16 ブロックが共存している。
+     - `daily`（`8666`, `8616`）および `weekly`（`8617`）は下位の `hourly` 12ブロック＋`daily` 1ブロックを既に統合済みであるにもかかわらず、`/global/records` が `bi.id` のみで重複排除していたため、**統合済みの下位 `hourly`/`daily` 13ファイルを毎回重複ダウンロードし、同一レコードを2〜3重に重複返却（68件ではなく149件）** していた。
+  2. **`/detail` におけるタイムスタンプウィンドウ絞り込みの未適用**:
+     - `2026-10-14` の子テーブル（`cells`, `own_deck`, `hougeki` 等）には各 12 個の `hourly` ブロックが存在する。
+     - `/detail` は `env_uuid` でフィルタしたうえで `limitRecords: 200`（または `2000`/`4000`）を指定して `/global/records` を呼び出しているが、**1回の出撃（`env_uuid`）に含まれるレコード数は各テーブルで 1〜5 件しかないため、`limitRecords` による早期打ち切りが一切発動しない**。
+     - その結果、`/detail` の1リクエストで **期間内の全ブロック（`2026-10-14` では約 184 個の R2 ファイル × 2 RTT = 368 回の R2 読込）をすべてダウンロード・デコード** していた。
+- **解決策（Tier Subsumption Pruning & Block/Battle Timestamp Window Pushdown）**:
+  1. `/global/records`（`compactionTier === null` 時）において、`period > weekly > daily > hourly` の優先順でブロックを走査し、同一 `(dataset_id, period_tag)` の上位ティアブロックの `[window_start_ms, window_end_ms]`（または `[start_timestamp, end_timestamp]`）に包含される下位ティアブロックを D1 結果から自動プルーニング（`pruneSubsumedTierBlocks`）する。これにより `2026-10-14` の `battle` 読込は **16 ファイル → 3 ファイル** に減少し、レコード重複も完全に解消される。
+  2. `battle` テーブル取得時、`env_uuid` が UUID v7 であれば `extractTimestampFromUuidV7(envUuid)` から出撃開始時刻 `ts` を抽出し、`[ts - 12h, ts + 12h]` で D1 の `block_indexes` を絞り込む（0件の場合のみ期間全体へフォールバック）。
+  3. `battle` レコード取得後は、マッチした `battle` ブロックの `start_timestamp` / `end_timestamp` および戦闘レコードの最小・最大 `timestamp`（`[minBattleTs - 15m, maxBattleTs + 90m]`）からタイムスタンプ窓を確定し、後続の 14 子テーブル（`cells`, `battle_result`, `own_deck`, `own_ship`, `own_slotitem`, `enemy_deck`, `enemy_ship`, `enemy_slotitem`, `hougeki` 等）に対して **`fromTimestampMs` / `toTimestampMs` を強制プッシュダウン** する。
+- **定量効果**: `2026-10-14` における `/detail` 1リクエストあたりの R2 読込対象ファイル数を **約 184 ファイル → 10〜12 ファイル（1テーブルあたり1ファイル、約94%削減）** に激減させる。
+
+#### [P2-2] 未キャッシュ R2 ファイルに対する「ヘッダ取得」＋「データブロック取得」の直列 2 往復（2-RTT）I/O
+- **現状の挙動と問題点**:
+  - `decodeIndexedBlocksCoalesced` において、対象ファイルの `PreparedAvroDecoderContext` が未キャッシュの場合、まず `getOrLoadDecoderContext` が `range: { offset: 0, length: minStartByte }`（例：`0..3078`）で R2 GET（1往復目：約 80〜150ms）を実行して完了を待ち、その後に `groups.map` が `range: { offset: 3078, length: ... }` で 2回目の R2 GET（2往復目：約 80〜150ms）を実行している。
+- **解決策（Single-RTT Header + First Group Read）**:
+  - `sortedTasks[0].startByte`（＝`minStartByte`）は Avro OCF ヘッダ直後の第1データブロック開始位置そのものであるため、ヘッダ `[0, minStartByte)` と第1結合グループ `[groups[0].groupStart, groups[0].groupEnd)` はバイトオフセット上で完全に連続（または `MAX_R2_COALESCE_GAP_BYTES` 以内で近接）している。
+  - `contextCache` ミス時は、第1グループを **`range: { offset: 0, length: groups[0].groupEnd }` の 1回の R2 GET** で一括取得し、先頭 `[0, minStartByte)` から `prepareAvroDecoderContext` を生成してキャッシュに登録しつつ、同バッファの `[groups[0].groupStart, groups[0].groupEnd)` スライスから第1グループのレコードを即座にデコードする。
+  - **定量効果**: Cold 時の R2 リクエスト回数とネットワーク往復遅延（RTT）を **完全に 50% 削減（2 RTT → 1 RTT）** する。
+
+#### [P2-3] サーバー側 `/global/overview` における 3 段階直列ウォーターフォール（`battle` → `enemy_deck` → `enemy_ship`）
+- **現状の挙動と問題点**:
+  - `app.get("/global/overview")` では、第1段階で `[battle, cells, battle_result, mst_ship]` を取得し、完了後に第2段階で `enemy_deck` を取得し、さらに完了後に第3段階で `enemy_ship` を取得する **3段階直列構造** になっている。
+  - `enemy_deck`（`limitRecords: 2000`）および `enemy_ship`（`limitRecords: 4000`）はフィルタ後のレコード数が上限に達しないため、結局対象ブロック群をすべて走査している。
+- **解決策（1-Stage Parallel Fetch & In-Memory Join）**:
+  - `[battle, cells, battle_result, enemy_deck, enemy_ship, mst_ship]` の 6 要素を **単一の `Promise.all`（1段階）で完全並列取得** し、取得後にメモリ上の `Set`（`deckIds`, `shipGroupIds`）でフィルタリングする。
+  - **定量効果**: `/global/overview` の Origin Cold レイテンシから 2 段階分の直列 D1+R2 待ち時間（約 500〜650ms）を削減し、**`1,021 ms → 300〜400 ms`（約 2.5〜3倍高速化）** を実現する。
+
+#### [P2-4] 内部 HTTP ループバック（`app.fetch`）による重複 KV/D1 クエリ・JSON 再変換とマスターデータの非キャッシュ読込
+- **現状の挙動と問題点**:
+  1. `fetchGlobalRecordsPayloadInternal` が URL 文字列を組み立てて `app.fetch(new Request(...))` を呼び出しているため、`/detail`（15テーブル）や `/overview`（5テーブル）の1リクエスト内で、毎回 `validateCachedPeriodTag`（KV）、`resolveAllowedPeriodTagsForRecords`（KV）、`SELECT DISTINCT period_tag, table_version ...`（D1）が 5〜15 回重複実行され、さらに毎回 `c.json()` で巨大 JSON 文字列化 → `await response.json()` で再パース → `parseRecordsPayload` で全件ループ検証が行われている。
+  2. `fetchMasterDataJsonDirect`（`mst_ship` 1,751件 / `mst_slotitem` 741件）が呼ばれるたびに D1 を2回クエリし、KV から数 MB の文字列を読んで毎回 `JSON.parse` している。
+  3. `fetchWeaponIconFramesDirect` が `/detail` のたびに `ASSET_SYNC_BUCKET`（R2）から `common_icon_weapon.json` をダウンロードし、Brotli 解凍＋`JSON.parse` を毎回実行している（キャッシュなし）。
+- **解決策（Direct In-Process Query Function & Isolate Memory Cache）**:
+  1. Worker Isolate メモリキャッシュ（TTL 5分）を導入し、`mst_ship`・`mst_slotitem`・`common_icon_weapon.json`・`allowedPeriodTagSet`・最新 `(period_tag, table_version)` をパース済み JS オブジェクトとしてキャッシュする。
+  2. `/global/records` のコア取得処理を直接呼び出し可能な内部関数 `queryGlobalRecordsDirect(c, options)` として切り出し、`app.fetch` の HTTP ループバックおよび `JSON.stringify` / `JSON.parse` 往復を完全に廃止する。
+
+#### [P2-5] フロントエンド `BattlesDashboard.tsx` の初回マウント時における `summary` 完了待ちウォーターフォール
+- **現状の挙動と問題点**:
+  - 本番ブラウザトレース（`/battles?source=r2`）において、`+1288ms`〜`+1871ms`（`583 ms`）の間、`repository.listPeriods("battle")`（`/api/battle-data/global/summary?table=battle`）の完了を待ってから `overview` と `mst_ship` / `mst_slotitem` がリクエストされている。
+  - しかし `repository.kind === "r2"` かつ初期 `period_tag`（`latest` または URL 指定の `period_tag`）が既知の場合、`/api/battle-data/global/overview` と `/api/master-data/json` は `summary` のレスポンスを一切必要としない。
+- **解決策（Zero-Waterfall Parallel Pre-Fetch on Mount）**:
+  - `BattlesDashboard.tsx` の `loadPeriods` において、`repository.kind === "r2"` の場合は `repository.listPeriods("battle")` を開始するのと **同時に**、`mst_ship`・`mst_slotitem`・初期 `overview`（または `drops`）のリクエストを並列先行発火（プリフェッチ）し、`loadData` 側でその Promise を引き継ぐ。
+  - **定量効果**: 初回表示のネットワーククリティカルパスから `summary` の待ち時間（本番実測 **`583 ms`**）を丸ごと削減する。
+
+---
+
+### 9.3 技術的限界値（Theoretical & Practical Technical Limits）
+
+Cloudflare Workers（APAC/KIX リージョン）＋ D1 ＋ R2 ＋ ブラウザにおける物理的下限と、Phase 2 実装後の到達目標値は以下の通りである。
+
+| 指標 | 初期状態 (改修前) | Phase 1 完了時点 (`fusou.dev`) | **Phase 2 実装後の到達目標** | **物理的な技術限界値 (理論下限)** |
+| :--- | ---: | ---: | ---: | :--- |
+| **`/battles` 初回一覧表示 (Browser E2E)** | `4,500〜6,000 ms` | `2,992 ms` | **`1,400〜1,700 ms`** | **`~1,100 ms`** *(HTML/JS 900ms + API 180ms)* |
+| **`/global/overview` (Origin Cold)** | `2,500〜4,000 ms` | `1,021 ms` | **`280〜400 ms`** | **`~180 ms`** *(D1 10ms + R2 1RTT 80ms + Decode 30ms + 転送 60ms)* |
+| **`/global/overview` (Edge Warm)** | `200〜300 ms` | `182 ms` | **`120〜180 ms`** | **`~100 ms`** *(TLS/HTTP + 270KB 転送)* |
+| **`/detail` 初回取得 (Origin Cold)** | `8,000〜15,000 ms+` | `3,273〜7,397 ms` | **`300〜550 ms`** | **`~160 ms`** *(D1 15ms + R2 1RTT 80ms + Decode 15ms + 転送 50ms)* |
+| **`/detail` 取得 (Edge Warm)** | `200〜300 ms` | `196 ms` | **`120〜190 ms`** | **`~80 ms`** *(75KB 転送)* |
