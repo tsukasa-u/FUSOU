@@ -1,12 +1,20 @@
 /**
- * Client-side fetch cache with request deduplication.
+ * Client-side fetch cache with request deduplication and persistent IndexedDB backing.
  *
  * - Identical in-flight requests are coalesced (same URL → same promise).
- * - Successful JSON responses are cached for `ttlMs` (default 600 s).
+ * - Successful JSON responses are cached in-memory for `ttlMs` (default 600 s).
+ * - Long-lived master data endpoints are persisted in IndexedDB across browser reloads.
  * - Callers get a *cloned* response so each can independently call `.json()`.
  */
 
-interface CacheEntry {
+import {
+  getIdbCache,
+  setIdbCache,
+  clearIdbCache,
+  type IdbCacheRecord,
+} from "./indexedDbCache";
+
+export interface CacheEntry {
   /** Serialised response body */
   body: string;
   status: number;
@@ -22,9 +30,10 @@ const inflightRequests = new Map<string, Promise<Response>>();
 let _totalCacheBytes = 0;
 
 const DEFAULT_TTL_MS = 600_000; // 10 minutes
-const MAX_CACHE_ENTRIES = 60;
-const MAX_CACHE_ENTRY_BYTES = 2_000_000;
-const MAX_TOTAL_CACHE_BYTES = 8_000_000;
+const IDB_PERSISTENT_TTL_MS = 7 * 24 * 3600_000; // 7 days for immutable master data
+const MAX_CACHE_ENTRIES = 100;
+const MAX_CACHE_ENTRY_BYTES = 5_000_000; // 5 MB (sufficient for largest master data JSON)
+const MAX_TOTAL_CACHE_BYTES = 20_000_000; // 20 MB total in-memory ceiling
 
 const CACHEABLE_PATHS = new Set([
   "/api/battle-data/global/records",
@@ -44,6 +53,15 @@ const CACHEABLE_PATHS = new Set([
   "/api/remodel-data/effective-summary",
 ]);
 
+const IDB_PERSISTENT_PATHS = new Set([
+  "/api/master-data/json",
+  "/api/asset-sync/weapon-icon-frames",
+  "/api/quest-tree/graph",
+  "/api/quest-tree/rules",
+  "/api/remodel-data/summary",
+  "/api/remodel-data/effective-summary",
+]);
+
 function buildCacheKey(url: string, init?: RequestInit): string {
   const method = (init?.method || "GET").toUpperCase();
   return `${method}:${url}`;
@@ -58,10 +76,19 @@ function isCacheableRequest(url: string, init?: RequestInit): boolean {
       typeof window !== "undefined"
         ? new URL(url, window.location.origin)
         : new URL(url, "http://localhost");
-    // filter_json 付きも通常パスと同じくキャッシュ許可。
-    // データは1時間ごとの更新のため、同一 URL のキャッシュは問題ない。
-    // サーバー側 KV キャッシュも同様に 3600s TTL を使用している。
     return CACHEABLE_PATHS.has(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isIdbPersistentRequest(url: string): boolean {
+  try {
+    const parsed =
+      typeof window !== "undefined"
+        ? new URL(url, window.location.origin)
+        : new URL(url, "http://localhost");
+    return IDB_PERSISTENT_PATHS.has(parsed.pathname);
   } catch {
     return false;
   }
@@ -157,7 +184,7 @@ function evictStaleEntries(): void {
   }
 }
 
-function buildResponse(entry: CacheEntry): Response {
+function buildResponse(entry: CacheEntry | IdbCacheRecord): Response {
   return new Response(entry.body, {
     status: entry.status,
     headers: entry.headers,
@@ -165,16 +192,16 @@ function buildResponse(entry: CacheEntry): Response {
 }
 
 /**
- * Fetch with deduplication and short-lived cache.
+ * Fetch with deduplication and short-lived cache (plus IndexedDB backing for master data).
  *
  * @param url    Request URL (string)
  * @param init   Optional RequestInit (only `signal` is forwarded for abort support)
- * @param ttlMs  Cache TTL in milliseconds (default 600 000)
+ * @param ttlMs  Cache TTL in milliseconds (default 600 000 ms, or 7 days for IDB persistent data)
  */
 export async function cachedFetch(
   url: string,
   init?: RequestInit,
-  ttlMs: number = DEFAULT_TTL_MS,
+  ttlMs?: number,
 ): Promise<Response> {
   if (!isCacheableRequest(url, init)) {
     const directInit: RequestInit = { ...init, cache: "no-store" };
@@ -182,31 +209,47 @@ export async function cachedFetch(
   }
 
   const cacheKey = buildCacheKey(url, init);
+  const isPersistent = isIdbPersistentRequest(url);
+  const effectiveTtl =
+    ttlMs ?? (isPersistent ? IDB_PERSISTENT_TTL_MS : DEFAULT_TTL_MS);
 
-  // Check local cache first
+  // 1. Check in-memory cache first
   const cached = responseCache.get(cacheKey);
-  if (cached && Date.now() - cached.storedAt < ttlMs) {
+  if (cached && Date.now() - cached.storedAt < effectiveTtl) {
     return buildResponse(cached);
   }
 
-  // Return existing in-flight request if available
+  // 2. Return existing in-flight request if available
   const inflight = inflightRequests.get(cacheKey);
   if (inflight) {
-    // Clone so each consumer can independently read the body
     try {
       await inflight;
     } catch {
       // ignore; handled below
     }
-    // Re-check cache (the in-flight may have populated it)
     const freshCached = responseCache.get(cacheKey);
-    if (freshCached && Date.now() - freshCached.storedAt < ttlMs) {
+    if (freshCached && Date.now() - freshCached.storedAt < effectiveTtl) {
       return buildResponse(freshCached);
     }
     return (await inflight).clone();
   }
 
-  // Make the actual request
+  // 3. For persistent endpoints, check IndexedDB before hitting network
+  if (isPersistent && typeof window !== "undefined") {
+    try {
+      const idbEntry = await getIdbCache(cacheKey);
+      if (idbEntry && Date.now() - idbEntry.storedAt < effectiveTtl) {
+        // Hydrate in-memory cache from IndexedDB
+        responseCache.set(cacheKey, idbEntry);
+        _totalCacheBytes += idbEntry.sizeBytes;
+        return buildResponse(idbEntry);
+      }
+    } catch {
+      // Fall through to network on IDB error
+    }
+  }
+
+  // 4. Make the actual network request
   const fetchInit: RequestInit = {
     ...init,
     cache: init?.cache ?? "no-store",
@@ -231,18 +274,26 @@ export async function cachedFetch(
           response.headers.forEach((value, key) => {
             headerPairs.push([key, value]);
           });
-          // Remove old entry's bytes before overwriting
           const prev = responseCache.get(cacheKey);
           if (prev) _totalCacheBytes -= prev.sizeBytes;
-          responseCache.set(cacheKey, {
+          const entry: CacheEntry = {
             body: bodyText,
             status: response.status,
             headers: headerPairs,
             storedAt: Date.now(),
             sizeBytes,
-          });
+          };
+          responseCache.set(cacheKey, entry);
           _totalCacheBytes += sizeBytes;
           evictStaleEntries();
+
+          // Persist to IndexedDB in background
+          if (isPersistent) {
+            void setIdbCache({
+              key: cacheKey,
+              ...entry,
+            }).catch(() => undefined);
+          }
         } catch {
           // If we can't cache, that's fine — just return the original
         }
@@ -257,7 +308,6 @@ export async function cachedFetch(
 
   inflightRequests.set(cacheKey, promise);
 
-  // Support abort signal — clean up on abort
   if (init?.signal) {
     init.signal.addEventListener(
       "abort",
@@ -271,8 +321,11 @@ export async function cachedFetch(
   return (await promise).clone();
 }
 
-/** Clear the entire fetch cache (e.g. on logout or manual refresh). */
+/** Clear the entire fetch cache (both in-memory and IndexedDB). */
 export function clearFetchCache(): void {
   responseCache.clear();
   inflightRequests.clear();
+  if (typeof window !== "undefined") {
+    void clearIdbCache().catch(() => undefined);
+  }
 }

@@ -496,56 +496,62 @@ async function fetchBattleEnvBundleInternal(
   }) => {
     const scope = { ...baseScope, ...windowScope };
     const [
-      ownDecks,
-      ownShips,
-      ownSlotItems,
-      enemyDecks,
-      enemyShips,
-      enemySlotItems,
-    ] = await Promise.all([
-      fetchGlobalRecordsInternal(c, {
+      ownDecksPayload,
+      ownShipsPayload,
+      ownSlotItemsPayload,
+      enemyDecksPayload,
+      enemyShipsPayload,
+      enemySlotItemsPayload,
+    ] = await queryGlobalRecordsDirectBatch(c, [
+      {
         table: "own_deck",
         ...scope,
         limitBlocks: 120,
         limitRecords: 200,
         filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
+      },
+      {
         table: "own_ship",
         ...scope,
         limitBlocks: 120,
         limitRecords: 2000,
         filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
+      },
+      {
         table: "own_slotitem",
         ...scope,
         limitBlocks: 120,
         limitRecords: 4000,
         filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
+      },
+      {
         table: "enemy_deck",
         ...scope,
         limitBlocks: 120,
         limitRecords: 200,
         filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
+      },
+      {
         table: "enemy_ship",
         ...scope,
         limitBlocks: 120,
         limitRecords: 2000,
         filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
+      },
+      {
         table: "enemy_slotitem",
         ...scope,
         limitBlocks: 120,
         limitRecords: 4000,
         filter: { env_uuid: envUuid },
-      }),
+      },
     ]);
+    const ownDecks = ownDecksPayload?.records || [];
+    const ownShips = ownShipsPayload?.records || [];
+    const ownSlotItems = ownSlotItemsPayload?.records || [];
+    const enemyDecks = enemyDecksPayload?.records || [];
+    const enemyShips = enemyShipsPayload?.records || [];
+    const enemySlotItems = enemySlotItemsPayload?.records || [];
     return {
       ownDecks,
       ownShips,
@@ -1532,21 +1538,25 @@ async function resolvePeriodAndTableVersionCached(params: {
   }
 }
 
-async function queryGlobalRecordsDirect(
+export type TableQueryOptions = {
+  table: string;
+  periodTag: string;
+  tableVersion: string;
+  datasetId?: string;
+  limitBlocks: number;
+  limitRecords: number;
+  filter?: Record<string, unknown>;
+  includeSortieKey?: boolean;
+  fromTimestampMs?: number;
+  toTimestampMs?: number;
+};
+
+export async function queryGlobalRecordsDirectBatch(
   c: Context<{ Bindings: Bindings }>,
-  options: {
-    table: string;
-    periodTag: string;
-    tableVersion: string;
-    datasetId?: string;
-    limitBlocks: number;
-    limitRecords: number;
-    filter?: Record<string, unknown>;
-    includeSortieKey?: boolean;
-    fromTimestampMs?: number;
-    toTimestampMs?: number;
-  },
-): Promise<BattleRecordsPayload> {
+  optionsList: TableQueryOptions[],
+): Promise<BattleRecordsPayload[]> {
+  if (optionsList.length === 0) return [];
+
   const env = createEnvContext(c);
   const indexDb = env.runtime["BATTLE_INDEX_DB"];
   const bucket = env.runtime["BATTLE_DATA_BUCKET"];
@@ -1554,164 +1564,249 @@ async function queryGlobalRecordsDirect(
     throw new Error("Storage not configured");
   }
 
-  const table = options.table.trim();
-  const periodTagParam = (options.periodTag || "latest").trim();
-  const tableVersionParam = (options.tableVersion || "").trim();
-  const datasetId = options.datasetId?.trim() || undefined;
-  const limitBlocks = Math.max(1, Math.min(options.limitBlocks, 400));
-  const limitRecords = Math.max(1, Math.min(options.limitRecords, 40000));
-  const fromTimestampMs =
-    options.fromTimestampMs != null && Number.isFinite(options.fromTimestampMs)
-      ? Math.trunc(options.fromTimestampMs)
-      : null;
-  const toTimestampMs =
-    options.toTimestampMs != null && Number.isFinite(options.toTimestampMs)
-      ? Math.trunc(options.toTimestampMs)
-      : null;
-
-  const allowedPeriodTagSet = await resolveAllowedPeriodTagsForRecords(
-    c,
-    indexDb,
-    table,
-    env.runtime["DATA_LOADER_CACHE_KV"],
-  );
-
-  const { resolvedPeriodTag, resolvedTableVersion } =
-    await resolvePeriodAndTableVersionCached({
-      indexDb,
-      table,
-      periodTagParam,
-      tableVersionParam,
-      datasetId,
-      allowedPeriodTagSet,
-    });
-
-  const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
-  let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
-             FROM block_indexes bi
-             JOIN archived_files af ON af.id = bi.file_id
-             WHERE bi.table_name = ?`;
-  const params: unknown[] = [table];
-
-  if (resolvedTableVersion) {
-    sql += " AND bi.table_version = ?";
-    params.push(resolvedTableVersion);
-  }
-
-  if (resolvedPeriodTag) {
-    sql += " AND bi.period_tag = ?";
-    params.push(resolvedPeriodTag);
-  } else {
-    const allowedTags = [...allowedPeriodTagSet];
-    if (allowedTags.length === 0) {
-      return {
-        records: [],
-        period_tag: periodTagParam,
-        table_version: resolvedTableVersion,
-      };
-    }
-    const placeholders = allowedTags.map(() => "?").join(", ");
-    sql += ` AND bi.period_tag IN (${placeholders})`;
-    params.push(...allowedTags);
-  }
-
-  if (fromTimestampMs != null) {
-    sql += " AND bi.end_timestamp >= ?";
-    params.push(fromTimestampMs);
-  }
-
-  if (toTimestampMs != null) {
-    sql += " AND bi.start_timestamp <= ?";
-    params.push(toTimestampMs);
-  }
-
-  if (datasetId) {
-    sql += " AND bi.dataset_id = ?";
-    params.push(datasetId);
-  }
-
-  sql +=
-    " ORDER BY CASE bi.compaction_tier WHEN 'period' THEN 0 WHEN 'weekly' THEN 1 WHEN 'daily' THEN 2 ELSE 3 END ASC, bi.start_timestamp DESC LIMIT ?";
-  params.push(perTierFetchLimit);
-
-  const result = await indexDb.prepare(sql).bind(...params).all?.();
-  if (!result) {
-    return {
-      records: [],
-      period_tag: resolvedPeriodTag || periodTagParam,
-      table_version: resolvedTableVersion,
-    };
-  }
-  const parsedRows = parseBattleBlockRows(result.results || []);
-  if (!parsedRows) {
-    throw new Error("D1 returned malformed results for block query");
-  }
-
-  const pruned = pruneSubsumedTierBlocks(parsedRows);
-  const rows = pruned.rows.slice(0, limitBlocks);
-  if (rows.length === 0) {
-    return {
-      records: [],
-      period_tag: resolvedPeriodTag || periodTagParam,
-      table_version: resolvedTableVersion,
-    };
-  }
-
-  const compiledFilter = options.filter
-    ? compileRecordFilter(options.filter)
-    : null;
-  const decodedBlocks = await decodeIndexedBlocksCoalesced(
-    bucket,
-    rows,
-    table,
-    compiledFilter,
-  );
-
-  const decodedRecords: AvroJsonRecord[] = [];
-  let matchedMinStartTimestampMs: number | null = null;
-  let matchedMaxEndTimestampMs: number | null = null;
-  outer: for (let blockIdx = 0; blockIdx < decodedBlocks.length; blockIdx += 1) {
-    const recs = decodedBlocks[blockIdx] ?? [];
-    if (recs.length > 0) {
-      const blockRow = rows[blockIdx];
-      const bStart = normalizeTimestamp(blockRow?.start_timestamp);
-      const bEnd = normalizeTimestamp(blockRow?.end_timestamp) ?? bStart;
-      if (bStart !== null) {
-        matchedMinStartTimestampMs =
-          matchedMinStartTimestampMs === null
-            ? bStart
-            : Math.min(matchedMinStartTimestampMs, bStart);
-      }
-      if (bEnd !== null) {
-        matchedMaxEndTimestampMs =
-          matchedMaxEndTimestampMs === null
-            ? bEnd
-            : Math.max(matchedMaxEndTimestampMs, bEnd);
-      }
-    }
-    for (const rec of recs) {
-      decodedRecords.push(rec);
-      if (decodedRecords.length >= limitRecords) {
-        break outer;
-      }
-    }
-  }
-
-  if (table === "battle" && options.includeSortieKey) {
-    attachSortieIds(decodedRecords);
-  }
-
-  return {
-    records: decodedRecords,
-    period_tag: resolvedPeriodTag || periodTagParam,
-    table_version: resolvedTableVersion,
-    ...(matchedMinStartTimestampMs !== null
-      ? { matched_min_start_timestamp_ms: matchedMinStartTimestampMs }
-      : {}),
-    ...(matchedMaxEndTimestampMs !== null
-      ? { matched_max_end_timestamp_ms: matchedMaxEndTimestampMs }
-      : {}),
+  type PreparedTableQuery = {
+    opt: TableQueryOptions;
+    resolvedPeriodTag: string | null;
+    resolvedTableVersion: string | null;
+    statement: D1PreparedStatement | null;
   };
+
+  const preparedQueries: PreparedTableQuery[] = await Promise.all(
+    optionsList.map(async (options) => {
+      const table = options.table.trim();
+      const periodTagParam = (options.periodTag || "latest").trim();
+      const tableVersionParam = (options.tableVersion || "").trim();
+      const datasetId = options.datasetId?.trim() || undefined;
+      const limitBlocks = Math.max(1, Math.min(options.limitBlocks, 400));
+      const fromTimestampMs =
+        options.fromTimestampMs != null && Number.isFinite(options.fromTimestampMs)
+          ? Math.trunc(options.fromTimestampMs)
+          : null;
+      const toTimestampMs =
+        options.toTimestampMs != null && Number.isFinite(options.toTimestampMs)
+          ? Math.trunc(options.toTimestampMs)
+          : null;
+
+      const allowedPeriodTagSet = await resolveAllowedPeriodTagsForRecords(
+        c,
+        indexDb,
+        table,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
+
+      const { resolvedPeriodTag, resolvedTableVersion } =
+        await resolvePeriodAndTableVersionCached({
+          indexDb,
+          table,
+          periodTagParam,
+          tableVersionParam,
+          datasetId,
+          allowedPeriodTagSet,
+        });
+
+      const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
+      let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
+                 FROM block_indexes bi
+                 JOIN archived_files af ON af.id = bi.file_id
+                 WHERE bi.table_name = ?`;
+      const params: unknown[] = [table];
+
+      if (resolvedTableVersion) {
+        sql += " AND bi.table_version = ?";
+        params.push(resolvedTableVersion);
+      }
+
+      if (resolvedPeriodTag) {
+        sql += " AND bi.period_tag = ?";
+        params.push(resolvedPeriodTag);
+      } else {
+        const allowedTags = [...allowedPeriodTagSet];
+        if (allowedTags.length === 0) {
+          return {
+            opt: options,
+            resolvedPeriodTag,
+            resolvedTableVersion,
+            statement: null,
+          };
+        }
+        const placeholders = allowedTags.map(() => "?").join(", ");
+        sql += ` AND bi.period_tag IN (${placeholders})`;
+        params.push(...allowedTags);
+      }
+
+      if (fromTimestampMs != null) {
+        sql += " AND bi.end_timestamp >= ?";
+        params.push(fromTimestampMs);
+      }
+
+      if (toTimestampMs != null) {
+        sql += " AND bi.start_timestamp <= ?";
+        params.push(toTimestampMs);
+      }
+
+      if (datasetId) {
+        sql += " AND bi.dataset_id = ?";
+        params.push(datasetId);
+      }
+
+      sql +=
+        " ORDER BY CASE bi.compaction_tier WHEN 'period' THEN 0 WHEN 'weekly' THEN 1 WHEN 'daily' THEN 2 ELSE 3 END ASC, bi.start_timestamp DESC LIMIT ?";
+      params.push(perTierFetchLimit);
+
+      const statement = indexDb.prepare(sql).bind(...params);
+      return {
+        opt: options,
+        resolvedPeriodTag,
+        resolvedTableVersion,
+        statement,
+      };
+    }),
+  );
+
+  const queriesWithStatements = preparedQueries.filter(
+    (q): q is PreparedTableQuery & { statement: D1PreparedStatement } =>
+      q.statement !== null,
+  );
+
+  const statementResultsMap = new Map<
+    D1PreparedStatement,
+    { results?: Array<Record<string, unknown>> }
+  >();
+
+  if (queriesWithStatements.length === 1) {
+    const single = queriesWithStatements[0]!;
+    const res = await single.statement.all();
+    statementResultsMap.set(single.statement, res || {});
+  } else if (queriesWithStatements.length > 1) {
+    const stmts = queriesWithStatements.map((q) => q.statement);
+    let batchResults: Array<{ results?: Array<Record<string, unknown>> }>;
+    if (typeof (indexDb as unknown as { batch?: unknown }).batch === "function") {
+      batchResults = await (
+        indexDb as unknown as {
+          batch: (
+            s: D1PreparedStatement[],
+          ) => Promise<Array<{ results?: Array<Record<string, unknown>> }>>;
+        }
+      ).batch(stmts);
+    } else {
+      batchResults = await Promise.all(stmts.map((s) => s.all()));
+    }
+    for (let i = 0; i < stmts.length; i++) {
+      statementResultsMap.set(stmts[i]!, batchResults[i] || {});
+    }
+  }
+
+  return Promise.all(
+    preparedQueries.map(async (pq) => {
+      const { opt, resolvedPeriodTag, resolvedTableVersion, statement } = pq;
+      const periodTagParam = (opt.periodTag || "latest").trim();
+      const limitBlocks = Math.max(1, Math.min(opt.limitBlocks, 400));
+      const limitRecords = Math.max(1, Math.min(opt.limitRecords, 40000));
+
+      if (!statement) {
+        return {
+          records: [],
+          period_tag: periodTagParam,
+          table_version: resolvedTableVersion,
+        };
+      }
+
+      const rawResult = statementResultsMap.get(statement);
+      if (!rawResult) {
+        return {
+          records: [],
+          period_tag: resolvedPeriodTag || periodTagParam,
+          table_version: resolvedTableVersion,
+        };
+      }
+
+      const parsedRows = parseBattleBlockRows(rawResult.results || []);
+      if (!parsedRows) {
+        throw new Error("D1 returned malformed results for block query");
+      }
+
+      const pruned = pruneSubsumedTierBlocks(parsedRows);
+      const rows = pruned.rows.slice(0, limitBlocks);
+      if (rows.length === 0) {
+        return {
+          records: [],
+          period_tag: resolvedPeriodTag || periodTagParam,
+          table_version: resolvedTableVersion,
+        };
+      }
+
+      const compiledFilter = opt.filter
+        ? compileRecordFilter(opt.filter)
+        : null;
+      const decodedBlocks = await decodeIndexedBlocksCoalesced(
+        bucket,
+        rows,
+        opt.table,
+        compiledFilter,
+      );
+
+      const decodedRecords: AvroJsonRecord[] = [];
+      let matchedMinStartTimestampMs: number | null = null;
+      let matchedMaxEndTimestampMs: number | null = null;
+      outer: for (
+        let blockIdx = 0;
+        blockIdx < decodedBlocks.length;
+        blockIdx += 1
+      ) {
+        const recs = decodedBlocks[blockIdx] ?? [];
+        if (recs.length > 0) {
+          const blockRow = rows[blockIdx];
+          const bStart = normalizeTimestamp(blockRow?.start_timestamp);
+          const bEnd = normalizeTimestamp(blockRow?.end_timestamp) ?? bStart;
+          if (bStart !== null) {
+            matchedMinStartTimestampMs =
+              matchedMinStartTimestampMs === null
+                ? bStart
+                : Math.min(matchedMinStartTimestampMs, bStart);
+          }
+          if (bEnd !== null) {
+            matchedMaxEndTimestampMs =
+              matchedMaxEndTimestampMs === null
+                ? bEnd
+                : Math.max(matchedMaxEndTimestampMs, bEnd);
+          }
+        }
+        for (const rec of recs) {
+          decodedRecords.push(rec);
+          if (decodedRecords.length >= limitRecords) {
+            break outer;
+          }
+        }
+      }
+
+      if (opt.table === "battle" && opt.includeSortieKey) {
+        attachSortieIds(decodedRecords);
+      }
+
+      return {
+        records: decodedRecords,
+        period_tag: resolvedPeriodTag || periodTagParam,
+        table_version: resolvedTableVersion,
+        ...(matchedMinStartTimestampMs !== null
+          ? { matched_min_start_timestamp_ms: matchedMinStartTimestampMs }
+          : {}),
+        ...(matchedMaxEndTimestampMs !== null
+          ? { matched_max_end_timestamp_ms: matchedMaxEndTimestampMs }
+          : {}),
+      };
+    }),
+  );
+}
+
+async function queryGlobalRecordsDirect(
+  c: Context<{ Bindings: Bindings }>,
+  options: TableQueryOptions,
+): Promise<BattleRecordsPayload> {
+  const [result] = await queryGlobalRecordsDirectBatch(c, [options]);
+  if (!result) {
+    throw new Error(`Failed to query table: ${options.table}`);
+  }
+  return result;
 }
 // validateAvroHeader is now imported from avro-validator
 
@@ -3106,52 +3201,59 @@ app.get("/global/overview", async (c) => {
   }
 
   try {
-    const [
-      battles,
-      cells,
-      battleResults,
-      allEnemyDecks,
-      allEnemyShips,
-      mstShipPayload,
-    ] = await Promise.all([
-      fetchGlobalRecordsInternal(c, {
-        table: "battle",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-        includeSortieKey: true,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "cells",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "battle_result",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "enemy_deck",
-        periodTag,
-        tableVersion,
-        limitBlocks: Math.max(limitBlocks, 400),
-        limitRecords: 20000,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "enemy_ship",
-        periodTag,
-        tableVersion,
-        limitBlocks: Math.max(limitBlocks, 400),
-        limitRecords: 40000,
-      }),
+    const [batchResults, mstShipPayload] = await Promise.all([
+      queryGlobalRecordsDirectBatch(c, [
+        {
+          table: "battle",
+          periodTag,
+          tableVersion,
+          limitBlocks,
+          limitRecords,
+          includeSortieKey: true,
+        },
+        {
+          table: "cells",
+          periodTag,
+          tableVersion,
+          limitBlocks,
+          limitRecords,
+        },
+        {
+          table: "battle_result",
+          periodTag,
+          tableVersion,
+          limitBlocks,
+          limitRecords,
+        },
+        {
+          table: "enemy_deck",
+          periodTag,
+          tableVersion,
+          limitBlocks: Math.max(limitBlocks, 400),
+          limitRecords: 20000,
+        },
+        {
+          table: "enemy_ship",
+          periodTag,
+          tableVersion,
+          limitBlocks: Math.max(limitBlocks, 400),
+          limitRecords: 40000,
+        },
+      ]),
       fetchMasterDataJsonDirect(c, "mst_ship"),
     ]);
+    const [
+      battlesPayload,
+      cellsPayload,
+      battleResultsPayload,
+      enemyDecksPayload,
+      enemyShipsPayload,
+    ] = batchResults;
+    const battles = battlesPayload?.records || [];
+    const cells = cellsPayload?.records || [];
+    const battleResults = battleResultsPayload?.records || [];
+    const allEnemyDecks = enemyDecksPayload?.records || [];
+    const allEnemyShips = enemyShipsPayload?.records || [];
 
     const mstShips = mstShipPayload.records || [];
 
@@ -3231,31 +3333,37 @@ app.get("/global/drops", async (c) => {
   }
 
   try {
-    const [battles, cells, battleResults, mstShipPayload] = await Promise.all([
-      fetchGlobalRecordsInternal(c, {
-        table: "battle",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-        includeSortieKey: true,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "cells",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "battle_result",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-      }),
+    const [batchResults, mstShipPayload] = await Promise.all([
+      queryGlobalRecordsDirectBatch(c, [
+        {
+          table: "battle",
+          periodTag,
+          tableVersion,
+          limitBlocks,
+          limitRecords,
+          includeSortieKey: true,
+        },
+        {
+          table: "cells",
+          periodTag,
+          tableVersion,
+          limitBlocks,
+          limitRecords,
+        },
+        {
+          table: "battle_result",
+          periodTag,
+          tableVersion,
+          limitBlocks,
+          limitRecords,
+        },
+      ]),
       fetchMasterDataJsonDirect(c, "mst_ship"),
     ]);
+    const [battlesPayload, cellsPayload, battleResultsPayload] = batchResults;
+    const battles = battlesPayload?.records || [];
+    const cells = cellsPayload?.records || [];
+    const battleResults = battleResultsPayload?.records || [];
 
     const mstShips = mstShipPayload.records || [];
 
@@ -3459,202 +3567,394 @@ app.get("/detail", async (c) => {
     const hasNightSupportAirattack = shouldFetchBattlePhase(targetBattle, "night_support_airattack");
     const hasBattleResult = shouldFetchBattlePhase(targetBattle, "battle_result");
 
-    const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, airBaseAirAttacks, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
-      await Promise.all([
-        fetchGlobalRecordsInternal(c, {
+    const childQueries: Array<{ key: string; options: TableQueryOptions }> = [
+      {
+        key: "cells",
+        options: {
           table: "cells",
           ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
-        }),
-        hasBattleResult
-          ? fetchGlobalRecordsInternal(c, {
-              table: "battle_result",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        envUuid
-          ? fetchBattleEnvBundleInternal(
-              c,
-              envUuid,
-              detailTableVersion,
-              detailPeriodTag,
-              resolvedDatasetId || undefined,
-              detailTimeWindowScope,
-            )
-          : Promise.resolve({
-              ownDecks: [],
-              ownShips: [],
-              ownSlotItems: [],
-              enemyDecks: [],
-              enemyShips: [],
-              enemySlotItems: [],
-            }),        fetchMasterDataJsonDirect(c, "mst_ship"),
-        fetchMasterDataJsonDirect(c, "mst_slotitem"),
-        fetchWeaponIconFramesDirect(c),
-        hasMidnight
-          ? fetchGlobalRecordsInternal(c, {
-              table: "midnight_hougeki_list",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasOpeningTaisen
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_taisen_list",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasHougeki
-          ? fetchGlobalRecordsInternal(c, {
-              table: "hougeki_list",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasOpeningAirattack
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_airattack_list",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasOpeningRaigeki
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_raigeki",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasClosingRaigeki
-          ? fetchGlobalRecordsInternal(c, {
-              table: "closing_raigeki",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        envUuid && hasAirbaseAssault
-          ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
-          : Promise.resolve([]),
-        envUuid && hasAirbaseAirattack
-          ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
-          : Promise.resolve([]),
-        envUuid && hasAirbaseAirattack
-          ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", ...detailScope, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } })
-          : Promise.resolve([]),
-        envUuid && hasCarrierbaseAssault
-          ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
-          : Promise.resolve([]),
-        envUuid && hasSupportHourai
-          ? fetchGlobalRecordsInternal(c, { table: "support_hourai", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
-          : Promise.resolve([]),
-        envUuid && hasSupportAirattack
-          ? fetchGlobalRecordsInternal(c, { table: "support_airattack", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } })
-          : Promise.resolve([]),
-        hasMidnight
-          ? fetchGlobalRecordsInternal(c, {
-              table: "midnight_hougeki",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasOpeningTaisen
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_taisen",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasHougeki
-          ? fetchGlobalRecordsInternal(c, {
-              table: "hougeki",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasOpeningAirattack
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_airattack",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        fetchGlobalRecordsInternal(c, {
-          table: "destruction_battle",
+        },
+      },
+    ];
+    if (hasBattleResult) {
+      childQueries.push({
+        key: "battleResult",
+        options: {
+          table: "battle_result",
           ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
-        }),
-        hasFriendlySupport
-          ? fetchGlobalRecordsInternal(c, {
-              table: "friendly_support_hourai_list",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasFriendlySupport
-          ? fetchGlobalRecordsInternal(c, {
-              table: "friendly_support_hourai",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasNightSupportHourai
-          ? fetchGlobalRecordsInternal(c, {
-              table: "night_support_hourai",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-        hasNightSupportAirattack
-          ? fetchGlobalRecordsInternal(c, {
-              table: "night_support_airattack",
-              ...detailScope,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { env_uuid: envUuid },
-            })
-          : Promise.resolve([]),
-      ]);
+        },
+      });
+    }
+    if (envUuid) {
+      childQueries.push(
+        {
+          key: "ownDeck",
+          options: {
+            table: "own_deck",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "ownShip",
+          options: {
+            table: "own_ship",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 2000,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "ownSlotItem",
+          options: {
+            table: "own_slotitem",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 4000,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "enemyDeck",
+          options: {
+            table: "enemy_deck",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "enemyShip",
+          options: {
+            table: "enemy_ship",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 2000,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "enemySlotItem",
+          options: {
+            table: "enemy_slotitem",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 4000,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (hasMidnight) {
+      childQueries.push(
+        {
+          key: "midnightHougekiList",
+          options: {
+            table: "midnight_hougeki_list",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "midnightHougeki",
+          options: {
+            table: "midnight_hougeki",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (hasOpeningTaisen) {
+      childQueries.push(
+        {
+          key: "openingTaisenList",
+          options: {
+            table: "opening_taisen_list",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "openingTaisen",
+          options: {
+            table: "opening_taisen",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (hasHougeki) {
+      childQueries.push(
+        {
+          key: "hougekiList",
+          options: {
+            table: "hougeki_list",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "hougeki",
+          options: {
+            table: "hougeki",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (hasOpeningAirattack) {
+      childQueries.push(
+        {
+          key: "openingAirattackList",
+          options: {
+            table: "opening_airattack_list",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "openingAirattack",
+          options: {
+            table: "opening_airattack",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (hasOpeningRaigeki) {
+      childQueries.push({
+        key: "openingRaigeki",
+        options: {
+          table: "opening_raigeki",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    if (hasClosingRaigeki) {
+      childQueries.push({
+        key: "closingRaigeki",
+        options: {
+          table: "closing_raigeki",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    if (envUuid && hasAirbaseAssault) {
+      childQueries.push({
+        key: "airbaseAssault",
+        options: {
+          table: "airbase_assult",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    if (envUuid && hasAirbaseAirattack) {
+      childQueries.push(
+        {
+          key: "airbaseAirattackList",
+          options: {
+            table: "airbase_airattack_list",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "airbaseAirattack",
+          options: {
+            table: "airbase_airattack",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 400,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (envUuid && hasCarrierbaseAssault) {
+      childQueries.push({
+        key: "carrierbaseAssault",
+        options: {
+          table: "carrierbase_assault",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    if (envUuid && hasSupportHourai) {
+      childQueries.push({
+        key: "supportHourai",
+        options: {
+          table: "support_hourai",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    if (envUuid && hasSupportAirattack) {
+      childQueries.push({
+        key: "supportAirattack",
+        options: {
+          table: "support_airattack",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    childQueries.push({
+      key: "destructionBattle",
+      options: {
+        table: "destruction_battle",
+        ...detailScope,
+        limitBlocks: 120,
+        limitRecords: 200,
+        filter: { env_uuid: envUuid },
+      },
+    });
+    if (hasFriendlySupport) {
+      childQueries.push(
+        {
+          key: "friendlySupportHouraiList",
+          options: {
+            table: "friendly_support_hourai_list",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+        {
+          key: "friendlySupportHourai",
+          options: {
+            table: "friendly_support_hourai",
+            ...detailScope,
+            limitBlocks: 120,
+            limitRecords: 200,
+            filter: { env_uuid: envUuid },
+          },
+        },
+      );
+    }
+    if (hasNightSupportHourai) {
+      childQueries.push({
+        key: "nightSupportHourai",
+        options: {
+          table: "night_support_hourai",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
+    if (hasNightSupportAirattack) {
+      childQueries.push({
+        key: "nightSupportAirattack",
+        options: {
+          table: "night_support_airattack",
+          ...detailScope,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        },
+      });
+    }
 
-    const ownDecks = envBundle.ownDecks;
-    const ownShips = envBundle.ownShips;
-    const ownSlotItems = envBundle.ownSlotItems;
-    const enemyDecks = envBundle.enemyDecks;
-    const enemyShips = envBundle.enemyShips;
-    const enemySlotItems = envBundle.enemySlotItems;
+    const [
+      batchResults,
+      mstShipPayload,
+      mstSlotItemPayload,
+      weaponIconFramesPayload,
+    ] = await Promise.all([
+      queryGlobalRecordsDirectBatch(
+        c,
+        childQueries.map((q) => q.options),
+      ),
+      fetchMasterDataJsonDirect(c, "mst_ship"),
+      fetchMasterDataJsonDirect(c, "mst_slotitem"),
+      fetchWeaponIconFramesDirect(c),
+    ]);
+
+    const recordMap = new Map<string, BattleRecord[]>();
+    for (let i = 0; i < childQueries.length; i++) {
+      recordMap.set(childQueries[i]!.key, batchResults[i]?.records || []);
+    }
+
+    const cells = recordMap.get("cells") || [];
+    const battleResults = recordMap.get("battleResult") || [];
+    const ownDecks = recordMap.get("ownDeck") || [];
+    const ownShips = recordMap.get("ownShip") || [];
+    const ownSlotItems = recordMap.get("ownSlotItem") || [];
+    const enemyDecks = recordMap.get("enemyDeck") || [];
+    const enemyShips = recordMap.get("enemyShip") || [];
+    const enemySlotItems = recordMap.get("enemySlotItem") || [];
+    const midnightHougekiLists = recordMap.get("midnightHougekiList") || [];
+    const midnightHougekis = recordMap.get("midnightHougeki") || [];
+    const openingTaisenLists = recordMap.get("openingTaisenList") || [];
+    const openingTaisens = recordMap.get("openingTaisen") || [];
+    const hougekiLists = recordMap.get("hougekiList") || [];
+    const hougekis = recordMap.get("hougeki") || [];
+    const openingAirattackLists = recordMap.get("openingAirattackList") || [];
+    const openingAirattacks = recordMap.get("openingAirattack") || [];
+    const openingRaigekis = recordMap.get("openingRaigeki") || [];
+    const closingRaigekis = recordMap.get("closingRaigeki") || [];
+    const airBaseAssaults = recordMap.get("airbaseAssault") || [];
+    const airBaseAirAttackLists = recordMap.get("airbaseAirattackList") || [];
+    const airBaseAirAttacks = recordMap.get("airbaseAirattack") || [];
+    const carrierBaseAssaults = recordMap.get("carrierbaseAssault") || [];
+    const supportHourais = recordMap.get("supportHourai") || [];
+    const supportAirattacks = recordMap.get("supportAirattack") || [];
+    const nightSupportHourais = recordMap.get("nightSupportHourai") || [];
+    const nightSupportAirattacks = recordMap.get("nightSupportAirattack") || [];
+    const friendlySupportHouraiLists = recordMap.get("friendlySupportHouraiList") || [];
+    const friendlySupportHourais = recordMap.get("friendlySupportHourai") || [];
+    const destructionBattles = recordMap.get("destructionBattle") || [];
 
     const resolvedDetail = resolveBattleDetail({
       periodTag: detailPeriodTag,

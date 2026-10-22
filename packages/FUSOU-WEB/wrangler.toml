@@ -5,6 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 main = "@astrojs/cloudflare/entrypoints/server"
 workers_dev = true
 
+[placement]
+mode = "smart"
+
 [[routes]]
 pattern = "fusou.dev/*"
 zone_id = "731e1832836d28c5388fd1248d79da7c"

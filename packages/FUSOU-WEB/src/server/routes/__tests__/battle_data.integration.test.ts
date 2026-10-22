@@ -19,7 +19,7 @@ vi.mock("@fusou/avro-wasm", () => ({
 }));
 
 import { mergeAvroOCF, mergeAvroOCFWithBoundaries, decodeAvroOcfToJson } from "@fusou/compaction-core";
-import battleDataApp, { attachSortieIds, extractTimestampFromUuidV7, pruneSubsumedTierBlocks } from "../battle_data";
+import battleDataApp, { attachSortieIds, extractTimestampFromUuidV7, pruneSubsumedTierBlocks, queryGlobalRecordsDirectBatch } from "../battle_data";
 
 type QueryResult = { results?: Array<Record<string, unknown>> };
 type D1QueryCall = { sql: string; params: unknown[] };
@@ -34,28 +34,29 @@ function createD1(
 	results: QueryResult["results"] = [],
 	options: D1Options = {},
 ): D1Database {
-	let preparedSql = "";
-	let preparedParams: unknown[] = [];
-	const statement = {
-		bind: (...params: unknown[]) => {
-			preparedParams = params;
-			return statement;
-		},
-		all: async () => {
-			options.calls?.push({ sql: preparedSql, params: [...preparedParams] });
-			return { results: options.resultsForSql?.(preparedSql) ?? results };
-		},
-		first: async () => {
-			options.calls?.push({ sql: preparedSql, params: [...preparedParams] });
-			return results[0] ?? null;
-		},
-		run: async () => ({ success: true, meta: {} }),
-	};
+	function createStatement(sql: string) {
+		let statementParams: unknown[] = [];
+		const stmt = {
+			bind: (...params: unknown[]) => {
+				statementParams = params;
+				return stmt;
+			},
+			all: async () => {
+				options.calls?.push({ sql, params: [...statementParams] });
+				return { results: options.resultsForSql?.(sql) ?? results };
+			},
+			first: async () => {
+				options.calls?.push({ sql, params: [...statementParams] });
+				return results[0] ?? null;
+			},
+			run: async () => ({ success: true, meta: {} }),
+		};
+		return stmt;
+	}
 	return {
-		prepare: (sql: string) => {
-			preparedSql = sql;
-			preparedParams = [];
-			return statement;
+		prepare: (sql: string) => createStatement(sql),
+		batch: async (statements: Array<{ all: () => Promise<QueryResult> }>) => {
+			return Promise.all(statements.map((s) => s.all()));
 		},
 	} as unknown as D1Database;
 }
@@ -674,5 +675,34 @@ describe("battle-data route integration", () => {
 		expect(response.status).toBe(200);
 		expect(requestedKeys).toEqual(["compacted/weekly/battle.avro"]);
 		expect(body.count).toBe(2);
+	});
+
+	it("executes multi-table queries using D1 batch API", async () => {
+		let batchCalledCount = 0;
+		const baseD1 = createD1([]);
+		const batchD1 = {
+			...baseD1,
+			batch: async (statements: Array<{ all: () => Promise<QueryResult> }>) => {
+				batchCalledCount++;
+				return Promise.all(statements.map((s) => s.all()));
+			},
+		} as unknown as D1Database;
+
+		const mockContext = {
+			env: {
+				BATTLE_INDEX_DB: batchD1,
+				BATTLE_DATA_BUCKET: { get: async () => null } as unknown as R2Bucket,
+				DATA_LOADER_CACHE_KV: createPeriodCache(),
+			},
+			req: { url: "http://localhost/api/battle-data" },
+		} as any;
+
+		const results = await queryGlobalRecordsDirectBatch(mockContext, [
+			{ table: "cells", periodTag: "2026-06-26", tableVersion: "v1", limitBlocks: 10, limitRecords: 100 },
+			{ table: "battle_result", periodTag: "2026-06-26", tableVersion: "v1", limitBlocks: 10, limitRecords: 100 },
+		]);
+
+		expect(results).toHaveLength(2);
+		expect(batchCalledCount).toBe(1);
 	});
 });
