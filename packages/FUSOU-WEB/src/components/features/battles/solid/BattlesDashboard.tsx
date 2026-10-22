@@ -451,8 +451,14 @@ export default function BattlesDashboard(props: {
             : null;
         r2OverviewPromise?.catch(() => undefined);
         const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
-          cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
+          cachedFetch("/api/master-data/json?table_name=mst_ship", {
+            signal,
+            cache: forceRefresh ? "reload" : "default",
+          }),
+          cachedFetch("/api/master-data/json?table_name=mst_slotitem", {
+            signal,
+            cache: forceRefresh ? "reload" : "default",
+          }),
         ]);
         if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
           throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
@@ -542,8 +548,14 @@ export default function BattlesDashboard(props: {
             : null;
         r2DropsPromise?.catch(() => undefined);
         const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
-          cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
+          cachedFetch("/api/master-data/json?table_name=mst_ship", {
+            signal,
+            cache: forceRefresh ? "reload" : "default",
+          }),
+          cachedFetch("/api/master-data/json?table_name=mst_slotitem", {
+            signal,
+            cache: forceRefresh ? "reload" : "default",
+          }),
         ]);
         if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
           throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);

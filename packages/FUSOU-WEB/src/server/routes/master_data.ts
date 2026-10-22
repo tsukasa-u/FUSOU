@@ -1105,6 +1105,19 @@ app.get("/json", async (c) => {
     const cacheControl = requestedVersion
       ? "public, max-age=86400, stale-while-revalidate=604800"
       : "public, max-age=60, stale-while-revalidate=300";
+    const etag = `W/"${tableName}-${table_version}-${period_tag}-${period_revision}${requestedRecordId ? `-${requestedRecordId}` : ""}"`;
+
+    const ifNoneMatch = c.req.header("If-None-Match");
+    if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `"${etag}"` || ifNoneMatch === "*")) {
+      return new Response(null, {
+        status: 304,
+        headers: {
+          "ETag": etag,
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        },
+      });
+    }
 
     // Attempt to read from KV first
     if (kv) {
@@ -1137,6 +1150,7 @@ app.get("/json", async (c) => {
               },
               200,
               {
+                "ETag": etag,
                 "Cache-Control": cacheControl,
                 ...CORS_HEADERS,
               },
@@ -1219,6 +1233,7 @@ app.get("/json", async (c) => {
       },
       200,
       {
+        "ETag": etag,
         "Cache-Control": cacheControl,
         ...CORS_HEADERS,
       },
