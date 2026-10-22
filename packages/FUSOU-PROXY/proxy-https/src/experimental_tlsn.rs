@@ -1,7 +1,5 @@
-use http::{request, HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Version};
-use hudsucker::{
-    hyper::{Request, Response},
-    Body,
+use http::{
+    request, HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, Version,
 };
 use hyper::body::Bytes;
 use sha2::{Digest, Sha256};
@@ -16,9 +14,10 @@ const BINDING_HEADER_NAME: HeaderName = HeaderName::from_static("x-attestation-b
 const HOST_HEADER_NAME: HeaderName = HeaderName::from_static("host");
 const CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
 const TRANSFER_ENCODING_HEADER_NAME: HeaderName = HeaderName::from_static("transfer-encoding");
+pub(crate) const MAX_TLSN_SENT_DATA_BYTES: usize = 128 * 1024;
 
 pub type ExperimentalForwardFuture =
-    Pin<Box<dyn Future<Output = Result<Response<Body>, String>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<Response<Bytes>, String>> + Send>>;
 pub type BindingFuture =
     Pin<Box<dyn Future<Output = Result<AttestationBinding, BindingError>> + Send>>;
 pub type TlsnTransportFuture =
@@ -215,6 +214,7 @@ pub enum SerializationError {
     TransferEncodingNotSupported,
     InvalidContentLength,
     ContentLengthMismatch,
+    RequestTooLarge,
     InvalidHeaderValue,
     EmptyRequest,
 }
@@ -233,11 +233,66 @@ impl std::fmt::Display for SerializationError {
             }
             Self::InvalidContentLength => "Content-Length is not canonical decimal",
             Self::ContentLengthMismatch => "Content-Length does not match collected body",
+            Self::RequestTooLarge => "serialized TLSN HTTP request exceeds the sent-data limit",
             Self::InvalidHeaderValue => "header value cannot be serialized safely",
             Self::EmptyRequest => "serialized origin request is empty",
         };
         formatter.write_str(message)
     }
+}
+
+fn add_serialized_len(length: &mut usize, additional: usize) -> Result<(), SerializationError> {
+    *length = length
+        .checked_add(additional)
+        .ok_or(SerializationError::RequestTooLarge)?;
+    if *length > MAX_TLSN_SENT_DATA_BYTES {
+        return Err(SerializationError::RequestTooLarge);
+    }
+    Ok(())
+}
+
+fn add_serialized_header_len(
+    length: &mut usize,
+    name_len: usize,
+    value_len: usize,
+) -> Result<(), SerializationError> {
+    add_serialized_len(length, name_len)?;
+    add_serialized_len(length, 2)?;
+    add_serialized_len(length, value_len)?;
+    add_serialized_len(length, 2)
+}
+
+fn serialized_request_len(
+    parts: &request::Parts,
+    target: &str,
+    body_len: usize,
+    generated_content_length: Option<&str>,
+    binding: &AttestationBinding,
+) -> Result<usize, SerializationError> {
+    let mut length = 0;
+    add_serialized_len(&mut length, parts.method.as_str().len())?;
+    add_serialized_len(&mut length, 1)?;
+    add_serialized_len(&mut length, target.len())?;
+    add_serialized_len(&mut length, b" HTTP/1.1\r\n".len())?;
+
+    for (name, value) in &parts.headers {
+        add_serialized_header_len(&mut length, name.as_str().len(), value.as_bytes().len())?;
+    }
+    if let Some(content_length) = generated_content_length {
+        add_serialized_header_len(
+            &mut length,
+            CONTENT_LENGTH_HEADER_NAME.as_str().len(),
+            content_length.len(),
+        )?;
+    }
+    add_serialized_header_len(
+        &mut length,
+        BINDING_HEADER_NAME.as_str().len(),
+        binding.value.len(),
+    )?;
+    add_serialized_len(&mut length, 2)?;
+    add_serialized_len(&mut length, body_len)?;
+    Ok(length)
 }
 
 pub trait OriginRequestSerializer: Send + Sync {
@@ -317,7 +372,17 @@ impl OriginRequestSerializer for Http1OriginRequestSerializer {
             .path_and_query()
             .map(|value| value.as_str())
             .unwrap_or("/");
-        let mut output = Vec::with_capacity(256 + body.len());
+        let generated_content_length = content_length_values
+            .is_empty()
+            .then(|| body.len().to_string());
+        let serialized_len = serialized_request_len(
+            parts,
+            target,
+            body.len(),
+            generated_content_length.as_deref(),
+            binding,
+        )?;
+        let mut output = Vec::with_capacity(serialized_len);
         output.extend_from_slice(parts.method.as_str().as_bytes());
         output.push(b' ');
         output.extend_from_slice(target.as_bytes());
@@ -326,11 +391,11 @@ impl OriginRequestSerializer for Http1OriginRequestSerializer {
         for (name, value) in &parts.headers {
             append_header(&mut output, name, value)?;
         }
-        if content_length_values.is_empty() {
+        if let Some(content_length) = generated_content_length {
             append_header_value(
                 &mut output,
                 &CONTENT_LENGTH_HEADER_NAME,
-                body.len().to_string().as_bytes(),
+                content_length.as_bytes(),
             )?;
         }
         append_header_value(&mut output, &BINDING_HEADER_NAME, binding.value.as_bytes())?;
@@ -1021,7 +1086,7 @@ impl ExperimentalTlsnForwarder {
         self: Arc<Self>,
         connection_id: u64,
         request: Request<Bytes>,
-    ) -> Result<Response<Body>, String> {
+    ) -> Result<Response<Bytes>, String> {
         self.transition(
             ExperimentalTlsnRuntimeState::Ready,
             ExperimentalTlsnRuntimeState::Selected,
@@ -1104,13 +1169,13 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
     }
 }
 
-fn response_from_origin(response: TlsnOriginResponse) -> Result<Response<Body>, String> {
+fn response_from_origin(response: TlsnOriginResponse) -> Result<Response<Bytes>, String> {
     let mut builder = Response::builder().status(response.status);
     for (name, value) in &response.headers {
         builder = builder.header(name, value);
     }
     builder
-        .body(Body::from(http_body_util::Full::from(response.body)))
+        .body(response.body)
         .map_err(|error| format!("failed to construct browser response: {error}"))
 }
 
@@ -1119,6 +1184,73 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut output = [0_u8; 32];
     output.copy_from_slice(&digest);
     output
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) struct ForwardedRequest {
+        pub connection_id: u64,
+        pub method: Method,
+        pub uri: http::Uri,
+        pub headers: HeaderMap,
+        pub body: Bytes,
+    }
+
+    pub(crate) struct RecordingForwarder {
+        pub requests: Arc<Mutex<Vec<ForwardedRequest>>>,
+        fail: bool,
+    }
+
+    impl RecordingForwarder {
+        pub(crate) fn new() -> Self {
+            Self {
+                requests: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            }
+        }
+
+        pub(crate) fn failing() -> Self {
+            Self {
+                requests: Arc::new(Mutex::new(Vec::new())),
+                fail: true,
+            }
+        }
+    }
+
+    impl ExperimentalRequireInfoForwarder for RecordingForwarder {
+        fn forward(
+            &self,
+            connection_id: u64,
+            request: Request<Bytes>,
+        ) -> ExperimentalForwardFuture {
+            let requests = Arc::clone(&self.requests);
+            let fail = self.fail;
+            Box::pin(async move {
+                let (parts, body) = request.into_parts();
+                requests
+                    .lock()
+                    .map_err(|_| "recording forwarder lock is poisoned".to_owned())?
+                    .push(ForwardedRequest {
+                        connection_id,
+                        method: parts.method,
+                        uri: parts.uri,
+                        headers: parts.headers,
+                        body,
+                    });
+                if fail {
+                    return Err("synthetic TLSN forwarder failure".to_owned());
+                }
+                Response::builder()
+                    .status(StatusCode::CREATED)
+                    .header("x-tlsn-fixture", "shared")
+                    .body(Bytes::from_static(b"shared TLSN response"))
+                    .map_err(|error| error.to_string())
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1307,6 +1439,20 @@ mod tests {
         );
         assert!(text.starts_with("POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\n"));
         assert!(text.ends_with("\r\n\r\nabc"));
+    }
+
+    #[test]
+    fn serializer_rejects_oversized_total_before_allocating_serialized_request() {
+        let mut parts = request(None).into_parts().0;
+        parts.headers.remove(&CONTENT_LENGTH_HEADER_NAME);
+        let oversized_body = Bytes::from(vec![b'a'; MAX_TLSN_SENT_DATA_BYTES]);
+
+        assert_eq!(
+            Http1OriginRequestSerializer
+                .serialize(&parts, oversized_body, &binding())
+                .unwrap_err(),
+            SerializationError::RequestTooLarge
+        );
     }
 
     #[test]

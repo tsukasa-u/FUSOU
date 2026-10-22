@@ -4,6 +4,7 @@ use crate::{
         ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
         TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError, VerificationError,
         VerificationFuture, VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
+        MAX_TLSN_SENT_DATA_BYTES,
     },
     production_tlsn::{
         canonical_json_bytes, ensure_private_candidate_root, validate_private_candidate_directory,
@@ -53,7 +54,7 @@ use tlsn_formats::http::{DefaultHttpCommitter, HttpCommit, HttpTranscript};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
-const MAX_SENT_DATA: usize = 128 * 1024;
+const MAX_SENT_DATA: usize = MAX_TLSN_SENT_DATA_BYTES;
 const MAX_RECV_DATA: usize = 4 * 1024 * 1024;
 const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
 const RESULT_SIGNING_KEY_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";

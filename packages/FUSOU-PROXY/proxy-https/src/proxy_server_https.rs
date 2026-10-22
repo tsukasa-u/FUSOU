@@ -95,10 +95,10 @@ impl ExperimentalRequireInfoRoute {
         }
     }
 
-    fn decide(&self, parts: &request::Parts) -> ExperimentalRequireInfoDecision {
+    fn decide(&self, method: &str, path_and_query: &str) -> ExperimentalRequireInfoDecision {
         if !self.enabled
-            || parts.method != http::Method::POST
-            || parts.uri.path_and_query().map(|value| value.as_str()) != Some(REQUIRE_INFO_TARGET)
+            || method != http::Method::POST.as_str()
+            || path_and_query != REQUIRE_INFO_TARGET
         {
             return ExperimentalRequireInfoDecision::Forward;
         }
@@ -129,16 +129,25 @@ impl ExperimentalRequireInfoRoute {
     async fn forward_selected(
         &self,
         connection_id: u64,
-        part: request::Parts,
-        body: hyper::body::Bytes,
-    ) -> Result<Response<Body>, String> {
+        request: http::Request<hyper::body::Bytes>,
+    ) -> Result<http::Response<hyper::body::Bytes>, String> {
         let Some(forwarder) = &self.forwarder else {
             return Err("Prover-owned origin transport is unavailable".to_owned());
         };
-        forwarder
-            .forward(connection_id, Request::from_parts(part, body))
-            .await
+        forwarder.forward(connection_id, request).await
     }
+}
+
+fn experimental_tlsn_failure_response(message: &'static str) -> http::Response<hyper::body::Bytes> {
+    http::Response::builder()
+        .status(http::StatusCode::SERVICE_UNAVAILABLE)
+        .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(hyper::body::Bytes::from_static(message.as_bytes()))
+        .expect("failed to build Experimental TLSN failure response")
+}
+
+fn to_hudsucker_response(response: http::Response<hyper::body::Bytes>) -> Response<Body> {
+    response.map(|body| Body::from(http_body_util::Full::from(body)))
 }
 
 fn normalize_content_type(content_type: &str) -> String {
@@ -1245,15 +1254,21 @@ impl HttpHandler for LogHandler {
         self.request_uri = req.uri().clone();
 
         let (part, body) = req.into_parts();
+        let route_decision = self.experimental_require_info_route.decide(
+            part.method.as_str(),
+            part.uri
+                .path_and_query()
+                .map(|value| value.as_str())
+                .unwrap_or_default(),
+        );
 
-        let body_vec = match body.collect().await {
-            Ok(collected) => collected.to_bytes().to_vec(),
+        let (body, body_collection_failed) = match body.collect().await {
+            Ok(collected) => (collected.to_bytes(), false),
             Err(e) => {
                 tracing::warn!("failed to collect request body for logging: {}", e);
-                Vec::new()
+                (hyper::body::Bytes::new(), true)
             }
         };
-        let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
@@ -1267,35 +1282,41 @@ impl HttpHandler for LogHandler {
             self.allow_save_api_requests,
         );
 
-        match self.experimental_require_info_route.decide(&part) {
+        match route_decision {
             ExperimentalRequireInfoDecision::Forward => {}
             ExperimentalRequireInfoDecision::Selected => {
-                let response = self
+                if body_collection_failed {
+                    tracing::warn!(
+                        connection_id = ctx.connection_id,
+                        "Experimental TLSN request body could not be collected; request was not forwarded"
+                    );
+                    return hudsucker::RequestOrResponse::Response(to_hudsucker_response(
+                        experimental_tlsn_failure_response(
+                            "Experimental TLSN route failed closed; request body could not be collected",
+                        ),
+                    ));
+                }
+                let response = match self
                     .experimental_require_info_route
-                    .forward_selected(ctx.connection_id, part, body)
+                    .forward_selected(ctx.connection_id, http::Request::from_parts(part, body))
                     .await
-                    .unwrap_or_else(|error| {
+                {
+                    Ok(response) => response,
+                    Err(error) => {
                         tracing::warn!(error = %error, "Experimental TLSN request was not forwarded");
-                        Response::builder()
-                            .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                            .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
-                            .body(hudsucker::Body::from(
-                                "Experimental TLSN route failed closed; the request was not forwarded",
-                            ))
-                            .expect("failed to build Experimental TLSN response")
-                    });
-                return hudsucker::RequestOrResponse::Response(response);
+                        experimental_tlsn_failure_response(
+                            "Experimental TLSN route failed closed; the request was not forwarded",
+                        )
+                    }
+                };
+                return hudsucker::RequestOrResponse::Response(to_hudsucker_response(response));
             }
             ExperimentalRequireInfoDecision::Blocked => {
-                return hudsucker::RequestOrResponse::Response(
-                    Response::builder()
-                        .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                        .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
-                        .body(hudsucker::Body::from(
-                            "Experimental TLSN route rejected a repeated request",
-                        ))
-                        .expect("failed to build Experimental TLSN response"),
-                );
+                return hudsucker::RequestOrResponse::Response(to_hudsucker_response(
+                    experimental_tlsn_failure_response(
+                        "Experimental TLSN route rejected a repeated request",
+                    ),
+                ));
             }
         }
 
@@ -1805,11 +1826,11 @@ mod tests {
     use super::rcgen::{CertificateParams, KeyPair};
     use super::{
         check_ca, create_ca, decode_response_body, parse_content_encodings, ClientStreamHook,
-        ExactWireDirection, ExactWireMetadata, ExperimentalForwardFuture,
-        ExperimentalRequireInfoDecision, ExperimentalRequireInfoForwarder,
+        ExactWireDirection, ExactWireMetadata, ExperimentalRequireInfoDecision,
         ExperimentalRequireInfoRoute, HttpContext, LogHandler, RawCaptureHook, RawCaptureMessage,
         CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
     };
+    use crate::experimental_tlsn::test_support::RecordingForwarder;
     #[cfg(feature = "synthetic-tlsn")]
     use crate::experimental_tlsn::{
         sha256, AttestationBinding, AttestationBindingProvider, BindingFuture,
@@ -2170,7 +2191,14 @@ mod tests {
         let (parts, ()) = request.into_parts();
 
         assert_eq!(
-            route.decide(&parts),
+            route.decide(
+                parts.method.as_str(),
+                parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
             ExperimentalRequireInfoDecision::Forward
         );
     }
@@ -2198,42 +2226,49 @@ mod tests {
         let (query_target_parts, ()) = query_target.into_parts();
 
         assert_eq!(
-            route.decide(&non_target_parts),
+            route.decide(
+                non_target_parts.method.as_str(),
+                non_target_parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
             ExperimentalRequireInfoDecision::Forward
         );
         assert_eq!(
-            route.decide(&query_target_parts),
+            route.decide(
+                query_target_parts.method.as_str(),
+                query_target_parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
             ExperimentalRequireInfoDecision::Forward
         );
         assert_eq!(
-            route.decide(&target_parts),
+            route.decide(
+                target_parts.method.as_str(),
+                target_parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
             ExperimentalRequireInfoDecision::Selected
         );
         assert_eq!(
-            route.decide(&target_parts),
+            route.decide(
+                target_parts.method.as_str(),
+                target_parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
             ExperimentalRequireInfoDecision::Blocked
         );
-    }
-
-    struct RecordingExperimentalForwarder {
-        requests: Arc<Mutex<Vec<Vec<u8>>>>,
-    }
-
-    impl ExperimentalRequireInfoForwarder for RecordingExperimentalForwarder {
-        fn forward(
-            &self,
-            _connection_id: u64,
-            request: Request<hyper::body::Bytes>,
-        ) -> ExperimentalForwardFuture {
-            let requests = Arc::clone(&self.requests);
-            Box::pin(async move {
-                requests
-                    .lock()
-                    .expect("recording forwarder lock")
-                    .push(request.body().to_vec());
-                Ok(Response::new(hudsucker::Body::from("local tlsn response")))
-            })
-        }
     }
 
     #[cfg(feature = "synthetic-tlsn")]
@@ -2374,13 +2409,9 @@ mod tests {
 
     #[tokio::test]
     async fn selected_actual_request_uses_only_the_experimental_forwarder() {
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let route = ExperimentalRequireInfoRoute::new(
-            true,
-            Some(Arc::new(RecordingExperimentalForwarder {
-                requests: Arc::clone(&requests),
-            })),
-        );
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let requests = Arc::clone(&forwarder.requests);
+        let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
         let request = HttpRequest::builder()
             .method("POST")
             .uri("https://game.example.test/kcsapi/api_get_member/require_info")
@@ -2389,30 +2420,48 @@ mod tests {
         let (parts, body) = request.into_parts();
 
         assert_eq!(
-            route.decide(&parts),
+            route.decide(
+                parts.method.as_str(),
+                parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
             ExperimentalRequireInfoDecision::Selected
         );
         let response = route
-            .forward_selected(7, parts, body)
+            .forward_selected(7, HttpRequest::from_parts(parts, body))
             .await
             .expect("experimental forwarder response");
-        assert_eq!(response.status(), http::StatusCode::OK);
+        assert_eq!(response.status(), http::StatusCode::CREATED);
+        assert_eq!(response.body().as_ref(), b"shared TLSN response");
+        let requests = requests.lock().expect("recording forwarder lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].connection_id, 7);
+        assert_eq!(requests[0].method, http::Method::POST);
         assert_eq!(
-            requests
-                .lock()
-                .expect("recording forwarder lock")
-                .as_slice(),
-            [b"actual body".to_vec()]
+            requests[0].uri.path_and_query().map(|value| value.as_str()),
+            Some("/kcsapi/api_get_member/require_info")
         );
         assert_eq!(
+            requests[0].headers.get("host").unwrap(),
+            "game.example.test"
+        );
+        assert_eq!(requests[0].body, Bytes::from_static(b"actual body"));
+        let retry_request = HttpRequest::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .body(())
+            .unwrap();
+        assert_eq!(
             route.decide(
-                &HttpRequest::builder()
-                    .method("POST")
-                    .uri("https://game.example.test/kcsapi/api_get_member/require_info")
-                    .body(())
-                    .unwrap()
-                    .into_parts()
-                    .0,
+                retry_request.method().as_str(),
+                retry_request
+                    .uri()
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
             ),
             ExperimentalRequireInfoDecision::Blocked
         );
@@ -2420,13 +2469,9 @@ mod tests {
 
     #[tokio::test]
     async fn handler_routes_the_actual_request_once_without_production_fallback() {
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let route = ExperimentalRequireInfoRoute::new(
-            true,
-            Some(Arc::new(RecordingExperimentalForwarder {
-                requests: Arc::clone(&requests),
-            })),
-        );
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let requests = Arc::clone(&forwarder.requests);
+        let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
         let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
         let mut handler = LogHandler {
             request_uri: Uri::default(),
@@ -2457,18 +2502,131 @@ mod tests {
         let hudsucker::RequestOrResponse::Response(first) = first else {
             panic!("first require_info request was not handled experimentally");
         };
-        assert_eq!(first.status(), http::StatusCode::OK);
+        assert_eq!(first.status(), http::StatusCode::CREATED);
+        assert_eq!(first.headers().get("x-tlsn-fixture").unwrap(), "shared");
+        let first_body = first
+            .into_body()
+            .collect()
+            .await
+            .expect("shared TLSN fixture response body")
+            .to_bytes();
+        assert_eq!(first_body, Bytes::from_static(b"shared TLSN response"));
         let hudsucker::RequestOrResponse::Response(second) = second else {
             panic!("repeated require_info request was forwarded to Production");
         };
         assert_eq!(second.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        let requests = requests.lock().expect("recording forwarder lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].connection_id, 7);
         assert_eq!(
-            requests
-                .lock()
-                .expect("recording forwarder lock")
-                .as_slice(),
-            [b"actual body".to_vec()]
+            requests[0].headers.get("host").unwrap(),
+            "game.example.test"
         );
+        assert_eq!(requests[0].body, Bytes::from_static(b"actual body"));
+    }
+
+    #[tokio::test]
+    async fn failed_tlsn_forwarder_does_not_fall_back_to_production() {
+        let forwarder = Arc::new(RecordingForwarder::failing());
+        let requests = Arc::clone(&forwarder.requests);
+        let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
+        let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
+        let mut handler = LogHandler {
+            request_uri: Uri::default(),
+            tx_proxy_log: channel.clone_master(),
+            save_path: String::new(),
+            file_prefix: String::new(),
+            allow_save_api_requests: false,
+            allow_save_api_responses: false,
+            allow_save_resources: false,
+            allow_save_main_js_local: false,
+            experimental_require_info_route: route,
+        };
+        let context = HttpContext::new("127.0.0.1:40001".parse().unwrap(), 11);
+        let request = Request::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header("Host", "game.example.test")
+            .header("Content-Length", "11")
+            .body(hudsucker::Body::from("actual body"))
+            .expect("actual require_info request");
+
+        let result = handler.handle_request(&context, request).await;
+        let hudsucker::RequestOrResponse::Response(response) = result else {
+            panic!("failed TLSN request fell back to Production");
+        };
+        assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        let requests = requests.lock().expect("recording forwarder lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].connection_id, 11);
+        assert_eq!(
+            requests[0].headers.get("host").unwrap(),
+            "game.example.test"
+        );
+        assert_eq!(requests[0].body, Bytes::from_static(b"actual body"));
+    }
+
+    #[tokio::test]
+    async fn uncollectable_tlsn_request_is_not_sent_or_forwarded_to_production() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let requests = Arc::clone(&forwarder.requests);
+        let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
+        let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
+        let mut handler = LogHandler {
+            request_uri: Uri::default(),
+            tx_proxy_log: channel.clone_master(),
+            save_path: String::new(),
+            file_prefix: String::new(),
+            allow_save_api_requests: false,
+            allow_save_api_responses: false,
+            allow_save_resources: false,
+            allow_save_main_js_local: false,
+            experimental_require_info_route: route,
+        };
+        let context = HttpContext::new("127.0.0.1:40004".parse().unwrap(), 12);
+        let body = hudsucker::Body::from_stream(hudsucker::futures::stream::iter([Err::<
+            Bytes,
+            std::io::Error,
+        >(
+            std::io::Error::other("synthetic request body failure"),
+        )]));
+        let request = Request::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header("Host", "game.example.test")
+            .header("Content-Length", "1")
+            .body(body)
+            .expect("actual require_info request");
+
+        let result = handler.handle_request(&context, request).await;
+        let hudsucker::RequestOrResponse::Response(response) = result else {
+            panic!("uncollectable TLSN request fell back to Production");
+        };
+        assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert!(requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
+        let retry = handler
+            .handle_request(
+                &context,
+                Request::builder()
+                    .method("POST")
+                    .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+                    .header("Host", "game.example.test")
+                    .header("Content-Length", "11")
+                    .body(hudsucker::Body::from("actual body"))
+                    .expect("require_info retry"),
+            )
+            .await;
+        let hudsucker::RequestOrResponse::Response(retry) = retry else {
+            panic!("request-body failure allowed a retry to Production");
+        };
+        assert_eq!(retry.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert!(requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
     }
 
     #[cfg(feature = "synthetic-tlsn")]
@@ -2660,13 +2818,9 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_actual_handler_returns_request_to_production_path() {
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let route = ExperimentalRequireInfoRoute::new(
-            false,
-            Some(Arc::new(RecordingExperimentalForwarder {
-                requests: Arc::clone(&requests),
-            })),
-        );
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let requests = Arc::clone(&forwarder.requests);
+        let route = ExperimentalRequireInfoRoute::new(false, Some(forwarder));
         let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
         let mut handler = LogHandler {
             request_uri: Uri::default(),
@@ -2703,7 +2857,10 @@ mod tests {
             .expect("production request body")
             .to_bytes();
         assert_eq!(body, Bytes::from_static(b"actual body"));
-        assert!(requests.lock().unwrap().is_empty());
+        assert!(requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
     }
 
     async fn read_http_message<S: AsyncRead + Unpin>(stream: &mut S) -> Vec<u8> {

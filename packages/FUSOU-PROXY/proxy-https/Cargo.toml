@@ -77,7 +77,13 @@ alpha15-tlsn = [
 ]
 tlsn-origin-probe = ["dep:rustls", "dep:tokio-rustls", "dep:x509-parser"]
 synthetic-tlsn = ["alpha15-tlsn", "rcgen"]
-rama-experimental = ["dep:rama", "dep:rama-http-backend", "dep:rustls", "dep:tokio-rustls"]
+rama-experimental = [
+    "dep:rama",
+    "dep:rama-http-backend",
+    "dep:rustls",
+    "dep:tokio-rustls",
+    "rama/http-hyperium",
+]
 kc-api-epoch-genesis = ["fusou-storage/kc-api-epoch-genesis"]
 kc-api-epoch-20250627 = ["fusou-storage/kc-api-epoch-20250627"]
 

@@ -1,12 +1,20 @@
-use super::RawCaptureHook;
-use crate::{capture::ExactWireMetadata, capture_io::CaptureIo};
+use super::{
+    experimental_tlsn_failure_response, ExperimentalRequireInfoDecision,
+    ExperimentalRequireInfoRoute, ExperimentalTlsnDependencies, RawCaptureHook,
+};
+use crate::{
+    capture::ExactWireMetadata, capture_io::CaptureIo, experimental_tlsn::MAX_TLSN_SENT_DATA_BYTES,
+};
 use hudsucker::certificate_authority::CertificateAuthority;
+use hyper::body::Bytes;
 use rama::{
     conversion::RamaTryInto,
     error::{BoxError, BoxErrorExt as _},
     extensions::Extensions,
     http::{
+        body::util::BodyExt,
         conn::TargetHttpVersion,
+        convert::hyperium::{TryIntoHyperiumHttp, TryIntoRamaHttp},
         io::upgrade::{self, Upgraded},
         ws::handshake::{
             client::HttpClientWebSocketExt,
@@ -59,10 +67,53 @@ use tokio_rustls::rustls::{
 };
 
 const WEBSOCKET_CLOSE_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const TLSN_REQUEST_BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const UPSTREAM_TLS_FAILURE_RESPONSE: &[u8] =
     b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
 type TunnelTasks = Arc<AsyncMutex<JoinSet<()>>>;
+
+fn tlsn_failure_response(message: &'static str) -> http::Response<Bytes> {
+    let mut response = experimental_tlsn_failure_response(message);
+    response.headers_mut().insert(
+        http::header::CONNECTION,
+        http::HeaderValue::from_static("close"),
+    );
+    response
+}
+
+fn declared_tlsn_body_exceeds_limit(headers: &rama::http::HeaderMap) -> bool {
+    let mut values = headers.get_all(http::header::CONTENT_LENGTH).iter();
+    let Some(value) = values.next() else {
+        return false;
+    };
+    if values.next().is_some() {
+        return false;
+    }
+    value
+        .to_str()
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length > MAX_TLSN_SENT_DATA_BYTES)
+}
+
+async fn collect_tlsn_request_body(
+    body: Body,
+    timeout: std::time::Duration,
+) -> Result<Bytes, String> {
+    let collected = tokio::time::timeout(
+        timeout,
+        body.limited(MAX_TLSN_SENT_DATA_BYTES).collect(),
+    )
+    .await
+    .map_err(|_| format!("TLSN request body collection timed out after {timeout:?}"))?
+    .map_err(|error| {
+        format!(
+            "TLSN request body collection failed or exceeded {MAX_TLSN_SENT_DATA_BYTES} bytes: {error}"
+        )
+    })?;
+    Ok(collected.to_bytes())
+}
 
 #[derive(Clone)]
 pub struct RamaExperimentalConfig {
@@ -696,7 +747,32 @@ where
     Shutdown: Future<Output = ()> + Send,
 {
     let capture_hook = RawCaptureHook::new(capture_output_root);
-    serve_with_capture_hook(listener, config, ca, capture_hook, shutdown).await
+    serve_with_capture_hook(listener, config, ca, capture_hook, None, shutdown).await
+}
+
+/// Runs the experimental Rama backend through the shared TLSN `require_info` forwarder.
+pub async fn serve_with_experimental_tlsn_dependencies<CA, Shutdown>(
+    listener: TcpListener,
+    config: RamaExperimentalConfig,
+    ca: Arc<CA>,
+    capture_output_root: PathBuf,
+    dependencies: ExperimentalTlsnDependencies,
+    shutdown: Shutdown,
+) -> Result<(), BoxError>
+where
+    CA: CertificateAuthority,
+    Shutdown: Future<Output = ()> + Send,
+{
+    let capture_hook = RawCaptureHook::new(capture_output_root);
+    serve_with_capture_hook(
+        listener,
+        config,
+        ca,
+        capture_hook,
+        Some(dependencies),
+        shutdown,
+    )
+    .await
 }
 
 async fn serve_with_capture_hook<CA, Shutdown>(
@@ -704,12 +780,17 @@ async fn serve_with_capture_hook<CA, Shutdown>(
     config: RamaExperimentalConfig,
     ca: Arc<CA>,
     capture_hook: RawCaptureHook,
+    tlsn_dependencies: Option<ExperimentalTlsnDependencies>,
     shutdown: Shutdown,
 ) -> Result<(), BoxError>
 where
     CA: CertificateAuthority,
     Shutdown: Future<Output = ()> + Send,
 {
+    let experimental_require_info_route = match tlsn_dependencies {
+        Some(dependencies) => ExperimentalRequireInfoRoute::new(true, Some(dependencies.forwarder)),
+        None => ExperimentalRequireInfoRoute::new(false, None),
+    };
     let next_connection_id = Arc::new(AtomicU64::new(1));
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
@@ -730,6 +811,8 @@ where
                 let config = config.clone();
                 let ca = Arc::clone(&ca);
                 let capture_hook = capture_hook.clone();
+                let experimental_require_info_route =
+                    experimental_require_info_route.clone();
                 connections.spawn(async move {
                     let result = serve_connection(
                         socket,
@@ -738,6 +821,7 @@ where
                         config,
                         ca,
                         capture_hook,
+                        experimental_require_info_route,
                     )
                     .await;
                     (connection_id, client_addr, result)
@@ -790,6 +874,7 @@ async fn serve_connection<CA>(
     config: RamaExperimentalConfig,
     ca: Arc<CA>,
     capture_hook: RawCaptureHook,
+    experimental_require_info_route: ExperimentalRequireInfoRoute,
 ) -> Result<(), BoxError>
 where
     CA: CertificateAuthority,
@@ -800,6 +885,7 @@ where
         let config = config.clone();
         let ca = Arc::clone(&ca);
         let capture_hook = capture_hook.clone();
+        let experimental_require_info_route = experimental_require_info_route.clone();
         let tunnel_tasks = Arc::clone(&tunnel_tasks_for_service);
         async move {
             Ok::<_, Infallible>(
@@ -810,6 +896,7 @@ where
                     config,
                     ca,
                     capture_hook,
+                    experimental_require_info_route,
                     tunnel_tasks,
                 )
                 .await,
@@ -848,6 +935,7 @@ async fn handle_connect<CA>(
     config: RamaExperimentalConfig,
     ca: Arc<CA>,
     capture_hook: RawCaptureHook,
+    experimental_require_info_route: ExperimentalRequireInfoRoute,
     tunnel_tasks: TunnelTasks,
 ) -> Response
 where
@@ -889,6 +977,7 @@ where
             connection_id,
             ca,
             capture_hook,
+            experimental_require_info_route,
         )
         .await
         {
@@ -906,6 +995,7 @@ async fn run_tunnel<CA, Upgrade>(
     connection_id: u64,
     ca: Arc<CA>,
     capture_hook: RawCaptureHook,
+    experimental_require_info_route: ExperimentalRequireInfoRoute,
 ) -> Result<(), BoxError>
 where
     CA: CertificateAuthority,
@@ -952,6 +1042,7 @@ where
         authority: authority.to_string(),
         connection_id,
         capture_hook: capture_hook.clone(),
+        experimental_require_info_route,
         websocket_tasks: Arc::clone(&websocket_tasks),
     });
     let result = relay.serve(BridgeIo(ingress, egress)).await;
@@ -1060,6 +1151,7 @@ struct CaptureLayer {
     authority: String,
     connection_id: u64,
     capture_hook: RawCaptureHook,
+    experimental_require_info_route: ExperimentalRequireInfoRoute,
     websocket_tasks: Arc<AsyncMutex<JoinSet<bool>>>,
 }
 
@@ -1068,6 +1160,7 @@ struct CaptureService<S> {
     authority: String,
     connection_id: u64,
     capture_hook: RawCaptureHook,
+    experimental_require_info_route: ExperimentalRequireInfoRoute,
     websocket_tasks: Arc<AsyncMutex<JoinSet<bool>>>,
 }
 
@@ -1078,6 +1171,7 @@ impl<S> Clone for CaptureService<S> {
             authority: self.authority.clone(),
             connection_id: self.connection_id,
             capture_hook: self.capture_hook.clone(),
+            experimental_require_info_route: self.experimental_require_info_route.clone(),
             websocket_tasks: Arc::clone(&self.websocket_tasks),
         }
     }
@@ -1092,8 +1186,29 @@ impl<S> Layer<S> for CaptureLayer {
             authority: self.authority.clone(),
             connection_id: self.connection_id,
             capture_hook: self.capture_hook.clone(),
+            experimental_require_info_route: self.experimental_require_info_route.clone(),
             websocket_tasks: Arc::clone(&self.websocket_tasks),
         }
+    }
+}
+
+impl<S> CaptureService<S> {
+    fn failed_closed_tlsn_response(
+        &self,
+        connection_id: u64,
+        message: &'static str,
+    ) -> Result<Response, BoxError> {
+        let response = to_rama_response(tlsn_failure_response(message)).map_err(|error| {
+            tracing::error!(
+                %error,
+                connection_id,
+                "failed to adapt Rama TLSN error response"
+            );
+            BoxError::from_static_str("Rama TLSN error response conversion failed")
+        })?;
+        self.capture_hook
+            .response_started_for(connection_id, metadata_from_response(&response));
+        Ok(response)
     }
 }
 
@@ -1121,6 +1236,102 @@ where
         if !rewrite_request_uri(&mut request, &self.authority) {
             self.capture_hook.mark_invalid(connection_id);
             return Ok(empty_response(StatusCode::BAD_REQUEST));
+        }
+
+        let path_and_query = request_path_and_query(request.uri());
+        let route_decision = self
+            .experimental_require_info_route
+            .decide(request.method().as_str(), &path_and_query);
+        if route_decision == ExperimentalRequireInfoDecision::Blocked {
+            self.capture_hook.mark_invalid(connection_id);
+            tracing::warn!(
+                connection_id,
+                "Rama blocked a repeated require_info request before reading its body"
+            );
+            return self.failed_closed_tlsn_response(
+                connection_id,
+                "Experimental TLSN route rejected a repeated request",
+            );
+        }
+        if route_decision == ExperimentalRequireInfoDecision::Selected {
+            if declared_tlsn_body_exceeds_limit(request.headers()) {
+                self.capture_hook.mark_invalid(connection_id);
+                tracing::warn!(
+                    connection_id,
+                    limit_bytes = MAX_TLSN_SENT_DATA_BYTES,
+                    "Rama rejected an oversized TLSN request body from Content-Length"
+                );
+                return self.failed_closed_tlsn_response(
+                    connection_id,
+                    "Experimental TLSN route rejected a request body above its byte limit",
+                );
+            }
+            let (parts, body) = request.into_parts();
+            let body = match collect_tlsn_request_body(body, TLSN_REQUEST_BODY_TIMEOUT).await {
+                Ok(body) => body,
+                Err(error) => {
+                    self.capture_hook.mark_invalid(connection_id);
+                    tracing::warn!(
+                        %error,
+                        connection_id,
+                        "Rama TLSN request body could not be collected; request was not forwarded"
+                    );
+                    return self.failed_closed_tlsn_response(
+                        connection_id,
+                        "Experimental TLSN route failed closed while collecting the request body",
+                    );
+                }
+            };
+            self.capture_hook.request_completed_for(connection_id);
+            let common_parts = match parts.try_into_hyperium_http() {
+                Ok(parts) => parts,
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        connection_id,
+                        "Rama TLSN request could not be adapted; request was not forwarded"
+                    );
+                    let response = to_rama_response(experimental_tlsn_failure_response(
+                        "Experimental TLSN route failed closed; request could not be adapted",
+                    ))
+                    .map_err(|error| {
+                        tracing::error!(
+                            %error,
+                            connection_id,
+                            "failed to adapt Rama TLSN error response"
+                        );
+                        BoxError::from_static_str("Rama TLSN error response conversion failed")
+                    })?;
+                    self.capture_hook
+                        .response_started_for(connection_id, metadata_from_response(&response));
+                    return Ok(response);
+                }
+            };
+            let response = self
+                .experimental_require_info_route
+                .forward_selected(connection_id, http::Request::from_parts(common_parts, body))
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::warn!(
+                        %error,
+                        connection_id,
+                        "Rama Experimental TLSN request was not forwarded"
+                    );
+                    experimental_tlsn_failure_response(
+                        "Experimental TLSN route failed closed; the request was not forwarded",
+                    )
+                });
+            let response = to_rama_response(response).map_err(|error| {
+                tracing::error!(
+                    %error,
+                    connection_id,
+                    "failed to adapt Rama Experimental TLSN response"
+                );
+                BoxError::from_static_str("Rama TLSN response conversion failed")
+            })?;
+            self.capture_hook
+                .response_started_for(connection_id, metadata_from_response(&response));
+            return Ok(response);
         }
 
         if !is_websocket_attempt {
@@ -1201,6 +1412,14 @@ where
         self.websocket_tasks.lock().await.spawn(task);
         Ok(response)
     }
+}
+
+fn to_rama_response(response: http::Response<Bytes>) -> Result<Response, String> {
+    let (parts, body) = response.into_parts();
+    let parts = parts
+        .try_into_rama_http()
+        .map_err(|error| format!("failed to convert TLSN response parts for Rama: {error}"))?;
+    Ok(Response::from_parts(parts, Body::from(body)))
 }
 
 #[derive(Clone)]
@@ -1334,12 +1553,17 @@ fn is_websocket_upgrade_attempt(request: &Request<Body>) -> bool {
         .any(|header| request.headers().contains_key(*header))
 }
 
-fn rewrite_request_uri(request: &mut Request<Body>, authority: &str) -> bool {
-    let mut path_and_query = request.uri().path_or_root().into_owned();
-    if let Some(query) = request.uri().query() {
+fn request_path_and_query(uri: &rama::net::uri::Uri) -> String {
+    let mut path_and_query = uri.path_or_root().into_owned();
+    if let Some(query) = uri.query() {
         path_and_query.push('?');
         path_and_query.push_str(&query.as_encoded_str());
     }
+    path_and_query
+}
+
+fn rewrite_request_uri(request: &mut Request<Body>, authority: &str) -> bool {
+    let path_and_query = request_path_and_query(request.uri());
     let Ok(uri) = rama::net::uri::Uri::parse(format!("https://{authority}{path_and_query}")) else {
         return false;
     };
@@ -1357,12 +1581,14 @@ fn empty_response(status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::experimental_tlsn::test_support::RecordingForwarder;
     use rcgen::{CertificateParams, IsCa, KeyPair};
     use std::{
         io,
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::oneshot;
     use tokio_rustls::{
         rustls::{
             pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -1425,6 +1651,7 @@ mod tests {
             authority: "localhost:443".to_owned(),
             connection_id: 1,
             capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(false, None),
             websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
         };
         let valid_key = "dGhlIHNhbXBsZSBub25jZQ==";
@@ -1613,6 +1840,516 @@ mod tests {
                 "injected WebSocket relay read failure",
             )))
         }
+    }
+
+    #[tokio::test]
+    async fn require_info_uses_shared_tlsn_forwarder_without_upstream_fallback() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 73,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        };
+        let make_request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/kcsapi/api_get_member/require_info")
+                .header("Host", "localhost")
+                .header("Content-Length", "11")
+                .body(Body::from(Bytes::from_static(b"actual body")))
+                .expect("Rama require_info request")
+        };
+
+        let first = service
+            .serve(make_request())
+            .await
+            .expect("Rama TLSN response");
+        assert_eq!(first.status(), StatusCode::CREATED);
+        assert_eq!(first.headers().get("x-tlsn-fixture").unwrap(), "shared");
+        let first_body = first
+            .into_body()
+            .collect()
+            .await
+            .expect("shared TLSN fixture response body")
+            .to_bytes();
+        assert_eq!(first_body, Bytes::from_static(b"shared TLSN response"));
+
+        let blocked_body_polls = Arc::new(AtomicUsize::new(0));
+        let blocked_body_polls_by_stream = Arc::clone(&blocked_body_polls);
+        let blocked_body = Body::from_stream(rama::futures::stream::once(async move {
+            blocked_body_polls_by_stream.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, io::Error>(Bytes::from_static(b"blocked"))
+        }));
+        let repeated_request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header("Content-Length", "7")
+            .body(blocked_body)
+            .expect("Rama repeated require_info request");
+        let repeated = service
+            .serve(repeated_request)
+            .await
+            .expect("Rama repeated request rejection");
+        assert_eq!(repeated.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            repeated.headers().get(http::header::CONNECTION).unwrap(),
+            "close"
+        );
+        assert_eq!(blocked_body_polls.load(Ordering::SeqCst), 0);
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+
+        let forwarded_requests = forwarded_requests.lock().expect("recording forwarder lock");
+        assert_eq!(forwarded_requests.len(), 1);
+        assert_eq!(forwarded_requests[0].connection_id, 73);
+        assert_eq!(forwarded_requests[0].method, http::Method::POST);
+        assert_eq!(
+            forwarded_requests[0].headers.get("host").unwrap(),
+            "localhost"
+        );
+        assert_eq!(
+            forwarded_requests[0]
+                .uri
+                .path_and_query()
+                .map(|value| value.as_str()),
+            Some("/kcsapi/api_get_member/require_info")
+        );
+        assert_eq!(
+            forwarded_requests[0].body,
+            Bytes::from_static(b"actual body")
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_require_info_requests_collect_and_forward_only_the_selected_body() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = Arc::new(CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 74,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        });
+
+        let (selected_body_started_tx, selected_body_started_rx) = oneshot::channel();
+        let (selected_body_release_tx, selected_body_release_rx) = oneshot::channel();
+        let selected_body = Body::from_stream(rama::futures::stream::once(async move {
+            let _ = selected_body_started_tx.send(());
+            selected_body_release_rx
+                .await
+                .expect("selected TLSN body release");
+            Ok::<_, io::Error>(Bytes::from_static(b"actual body"))
+        }));
+        let selected_request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header("Content-Length", "11")
+            .body(selected_body)
+            .expect("selected Rama require_info request");
+        let selected_service = Arc::clone(&service);
+        let selected_task =
+            tokio::spawn(async move { selected_service.serve(selected_request).await });
+
+        tokio::time::timeout(Duration::from_secs(2), selected_body_started_rx)
+            .await
+            .expect("selected body was not polled")
+            .expect("selected body poll notification");
+
+        let blocked_body_polls = Arc::new(AtomicUsize::new(0));
+        let blocked_body_polls_by_stream = Arc::clone(&blocked_body_polls);
+        let blocked_body = Body::from_stream(rama::futures::stream::once(async move {
+            blocked_body_polls_by_stream.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, io::Error>(Bytes::from_static(b"blocked"))
+        }));
+        let blocked_request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header("Content-Length", "7")
+            .body(blocked_body)
+            .expect("blocked concurrent require_info request");
+        let blocked_response = service
+            .serve(blocked_request)
+            .await
+            .expect("blocked concurrent request response");
+        assert_eq!(blocked_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            blocked_response
+                .headers()
+                .get(http::header::CONNECTION)
+                .unwrap(),
+            "close"
+        );
+        assert_eq!(blocked_body_polls.load(Ordering::SeqCst), 0);
+        assert!(
+            forwarded_requests
+                .lock()
+                .expect("recording forwarder lock")
+                .is_empty(),
+            "the selected body must finish before a forward is recorded"
+        );
+
+        selected_body_release_tx
+            .send(())
+            .expect("release selected TLSN body");
+        let selected_response = tokio::time::timeout(Duration::from_secs(2), selected_task)
+            .await
+            .expect("selected TLSN request did not finish")
+            .expect("selected TLSN service task")
+            .expect("selected TLSN response");
+        assert_eq!(selected_response.status(), StatusCode::CREATED);
+        assert_eq!(
+            forwarded_requests
+                .lock()
+                .expect("recording forwarder lock")
+                .len(),
+            1
+        );
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn oversized_content_length_is_rejected_without_polling_body() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 75,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        };
+        let body_polls = Arc::new(AtomicUsize::new(0));
+        let body_polls_by_stream = Arc::clone(&body_polls);
+        let body = Body::from_stream(rama::futures::stream::once(async move {
+            body_polls_by_stream.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, io::Error>(Bytes::from_static(b"body"))
+        }));
+        let request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header(
+                http::header::CONTENT_LENGTH,
+                (MAX_TLSN_SENT_DATA_BYTES + 1).to_string(),
+            )
+            .body(body)
+            .expect("oversized Rama require_info request");
+
+        let response = service.serve(request).await.expect("oversized rejection");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get(http::header::CONNECTION).unwrap(),
+            "close"
+        );
+        assert_eq!(body_polls.load(Ordering::SeqCst), 0);
+        assert!(forwarded_requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn chunked_tlsn_body_is_limited_while_collecting() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 76,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        };
+        let body_polls = Arc::new(AtomicUsize::new(0));
+        let body_polls_by_stream = Arc::clone(&body_polls);
+        let body = Body::from_stream(rama::futures::stream::unfold(0usize, move |index| {
+            let body_polls = Arc::clone(&body_polls_by_stream);
+            async move {
+                body_polls.fetch_add(1, Ordering::SeqCst);
+                let chunk = match index {
+                    0 | 1 => Bytes::from(vec![b'x'; MAX_TLSN_SENT_DATA_BYTES / 2]),
+                    2 => Bytes::from_static(b"x"),
+                    _ => Bytes::from_static(b"unread"),
+                };
+                Some((Ok::<_, io::Error>(chunk), index + 1))
+            }
+        }));
+        let request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .body(body)
+            .expect("chunked Rama require_info request");
+
+        let response = tokio::time::timeout(Duration::from_secs(2), service.serve(request))
+            .await
+            .expect("limited collection did not terminate")
+            .expect("chunked body rejection");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get(http::header::CONNECTION).unwrap(),
+            "close"
+        );
+        assert_eq!(body_polls.load(Ordering::SeqCst), 3);
+        assert!(forwarded_requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn stalled_tlsn_body_collection_obeys_deadline() {
+        let body = Body::from_stream(rama::futures::stream::pending::<Result<Bytes, io::Error>>());
+        let error = collect_tlsn_request_body(body, Duration::from_millis(10))
+            .await
+            .expect_err("pending body must time out");
+        assert!(error.contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn failed_shared_tlsn_forwarder_never_falls_back_to_rama_upstream() {
+        let forwarder = Arc::new(RecordingForwarder::failing());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 91,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        };
+        let request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header("Content-Length", "11")
+            .body(Body::from(Bytes::from_static(b"actual body")))
+            .expect("Rama require_info request");
+
+        let response = service
+            .serve(request)
+            .await
+            .expect("Rama TLSN failure response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+        let forwarded_requests = forwarded_requests.lock().expect("recording forwarder lock");
+        assert_eq!(forwarded_requests.len(), 1);
+        assert_eq!(forwarded_requests[0].connection_id, 91);
+        assert_eq!(
+            forwarded_requests[0].headers.get("host").unwrap(),
+            "localhost"
+        );
+        assert_eq!(
+            forwarded_requests[0].body,
+            Bytes::from_static(b"actual body")
+        );
+    }
+
+    #[tokio::test]
+    async fn uncollectable_rama_tlsn_request_is_not_sent_or_forwarded_upstream() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 92,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        };
+        let body = Body::from_stream(rama::futures::stream::iter([Err::<Bytes, std::io::Error>(
+            io::Error::other("synthetic request body failure"),
+        )]));
+        let request = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header("Content-Length", "1")
+            .body(body)
+            .expect("Rama require_info request");
+
+        let response = service
+            .serve(request)
+            .await
+            .expect("Rama TLSN body collection failure response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get(http::header::CONNECTION).unwrap(),
+            "close"
+        );
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+        assert!(forwarded_requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
+        let retry = Request::builder()
+            .method("POST")
+            .uri("/kcsapi/api_get_member/require_info")
+            .header("Host", "localhost")
+            .header("Content-Length", "11")
+            .body(Body::from(Bytes::from_static(b"actual body")))
+            .expect("Rama require_info retry");
+        let retry_response = service
+            .serve(retry)
+            .await
+            .expect("Rama TLSN retry rejection");
+        assert_eq!(retry_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+        assert!(forwarded_requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn oversized_chunked_http1_tlsn_request_closes_connection_without_draining_body() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local HTTP/1 listener");
+        let address = listener.local_addr().expect("local listener address");
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let upstream_calls = Arc::new(AtomicUsize::new(0));
+        let upstream_calls_by_service = Arc::clone(&upstream_calls);
+        let upstream = service_fn(move |_request: Request<Body>| {
+            upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+            async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+        });
+        let service = Arc::new(CaptureService {
+            inner: Arc::new(upstream),
+            authority: "localhost:443".to_owned(),
+            connection_id: 93,
+            capture_hook: RawCaptureHook::new(unique_temp_dir()),
+            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+                true,
+                Some(forwarder),
+            ),
+            websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+        });
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.expect("accept local client");
+            let service_for_request = Arc::clone(&service);
+            let adapter = service_fn(move |request: Request<Body>| {
+                let service = Arc::clone(&service_for_request);
+                async move { service.serve(request).await }
+            });
+            HttpServer::new_http1(Executor::default())
+                .serve(ServiceInput::new(socket), adapter)
+                .await
+        });
+
+        let mut client = TcpStream::connect(address)
+            .await
+            .expect("connect to local HTTP/1 server");
+        let mut request_wire =
+            b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"
+                .to_vec();
+        let chunks = [
+            vec![b'x'; MAX_TLSN_SENT_DATA_BYTES / 2],
+            vec![b'y'; MAX_TLSN_SENT_DATA_BYTES / 2],
+            vec![b'z'],
+            b"unread".to_vec(),
+        ];
+        for chunk in chunks {
+            request_wire.extend_from_slice(format!("{:X}\r\n", chunk.len()).as_bytes());
+            request_wire.extend_from_slice(&chunk);
+            request_wire.extend_from_slice(b"\r\n");
+        }
+        client
+            .write_all(&request_wire)
+            .await
+            .expect("write oversized chunked request and unread remainder");
+        let mut response_wire = Vec::new();
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            client.read_to_end(&mut response_wire),
+        )
+        .await
+        .expect("HTTP/1 server did not close the rejected connection")
+        .expect("read rejected response");
+        let response_text = String::from_utf8_lossy(&response_wire).to_ascii_lowercase();
+        assert!(response_text.starts_with("http/1.1 503"));
+        assert!(response_text.contains("connection: close"));
+        assert_eq!(
+            response_text.matches("http/1.1 ").count(),
+            1,
+            "unread body bytes must not be reinterpreted as another request"
+        );
+        assert!(forwarded_requests
+            .lock()
+            .expect("recording forwarder lock")
+            .is_empty());
+        assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+        tokio::time::timeout(Duration::from_secs(2), server_task)
+            .await
+            .expect("HTTP/1 server task did not complete")
+            .expect("join HTTP/1 server task")
+            .expect("HTTP/1 server failed");
     }
 
     impl AsyncWrite for BrokenIo {
@@ -2330,6 +3067,7 @@ mod tests {
             config,
             Arc::new(proxy_ca),
             capture_hook,
+            None,
             async move {
                 let _ = shutdown_rx.await;
             },
@@ -2677,6 +3415,7 @@ mod tests {
             config,
             Arc::new(proxy_ca),
             capture_hook,
+            None,
             async move {
                 let _ = shutdown_rx.await;
             },
