@@ -72,7 +72,8 @@ The following requirements are fixed for this work:
 | TLS transport | The Production origin transport uses the configured DNS identity, system trust roots, and a single-use send path. The forwarder commits its `Sent` state before transport I/O and has no retry/fallback path. | Source wiring does not establish a live Game Server or Notary operation. A transport failure after a write begins can leave the remote outcome unknown. |
 | Transcript and response | The transport records exact serialized request and raw response bytes. The verifier boundary compares their hashes to the exchange values. The origin response is returned before the deferred proof pipeline completes. | The browser-visible response is not an attestation or Result receipt. Proof failure after response return cannot undo the response already delivered. |
 | Presentation verification | `RealAlpha15DedicatedVerifier` verifies the actual Presentation against the trusted Notary key and compares its observed server identity and transcript hashes with the expected values and captured exchange. It checks the binding session and nonce. | External Notary availability, deployed verifier behavior, and real Presentation evidence are not established by this source review. |
-| Result fields and signing bytes | The Rust `VerifierResult` includes `presentation_sha256`, `server_identity`, transcript sizes/hashes, and both inventory/approval digest slots in canonical JSON and signing bytes. Validation rejects a half-present digest pair. | Generic validation permits both digests to be absent. A Production-specific path must require both. No tracked Production Worker runtime that generates and signs that Result was identified. |
+| Generic Result validators and signing bytes | Complete Result v2 and Sparse Result v3 include both inventory/approval digest slots in canonical JSON and signing bytes. Both generic validators reject a half-present pair but permit both digests to be absent. | Generic validation alone does not require Production provenance. This is distinct from the local Production Evidence Bundle checks below and from Worker-side generation/signing. |
+| Local Production Evidence Bundle verifier | `evidence_bundle.rs::verify_bundle` calls `verify_production_target_approval` for Complete and Sparse Results. It rejects missing/incomplete digest pairs, compares both digests with SHA-256 of the externally supplied raw Inventory/Approval bytes, validates the Approval-to-Inventory relationship and membership in both trust sets, and checks that the Result's server identity matches the external identity used for those checks. | `OBSERVED` in local source; execution in this work is `NOT_CHECKED`. This does not establish deployed Worker generation/signing or real Production evidence. |
 | Result and archive handoff | The local boundary separates signing and delivery. The Worker response is verified by the APP-side verifier; the local filesystem delivery path is not an immutable Production archive. | Durable, immutable Production storage, readback, retention, and independent archive verification are not established. |
 | Runtime Config and APP | The APP source has a feature-gated Production TLSN assembly path, guarded binding issuance and origin transport, Runtime Config verification, Target Approval preflight, and Worker identity checks. APP startup calls the Hudsucker entry point. | Rama remains an explicit experimental entry point, not the APP route. The checked-in Runtime Config bootstrap documentation reports release pins unregistered; actual deployed build inputs are `UNVERIFIED`. |
 | Worker and authorities | The tracked Worker package contains contracts, scripts, and operator documentation. The operator runbook says the Worker runtime, Session Authority handler, Production archive, and evidence collector are not tracked in this checkout. | External deployments may exist, but their code, durability, replay behavior, and current runtime are `NOT_CHECKED`. |
@@ -88,6 +89,8 @@ Relevant source anchors:
 - [`tlsn_runtime_config_manifest.rs`](../../packages/FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs)
 - [`tlsn_preflight.rs`](../../packages/FUSOU-APP/src-tauri/src/tlsn_preflight.rs)
 - [`lib.rs`](../../packages/FUSOU-TLSN-VERIFIER/src/lib.rs)
+- [`sparse_result.rs`](../../packages/FUSOU-TLSN-VERIFIER/src/sparse_result.rs)
+- [`evidence_bundle.rs`](../../packages/FUSOU-TLSN-VERIFIER/src/evidence_bundle.rs)
 - [`production-evidence-contract.mjs`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs)
 - [`production-evidence-operator-runbook.md`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md)
 
@@ -119,11 +122,34 @@ Presentation hash. The Production profile must require the Inventory and
 Target Approval digest pair, and an independent verifier must recompute those
 digests from the independently supplied raw artifacts.
 
-The current generic Rust Result validator requires the two digest options to
-be both present or both absent and includes both optional values in its
-signing bytes. That is not equivalent to a Production-required pair. The
-Production-specific enforcement and Worker signing implementation are
-`BLOCKED` pending tracked implementation and independent validation.
+The three implementation layers must be distinguished:
+
+1. **Generic Result validation — `OBSERVED`:** Complete Result v2
+   ([`VerifierResult`](../../packages/FUSOU-TLSN-VERIFIER/src/lib.rs)) and
+   [Sparse Result v3](../../packages/FUSOU-TLSN-VERIFIER/src/sparse_result.rs)
+   reject a half-present pair but allow both values to be `None`. Canonical
+   JSON always includes both fields as unpadded base64url digest strings or
+   `null`. Each optional digest occupies an ordered UInt16-length-prefixed
+   signing field: 32 digest bytes when present, zero bytes when absent. This
+   signs presence/absence as well as the values, but does not itself require
+   their presence for Production.
+2. **Local Production Evidence Bundle verification — `OBSERVED`:**
+   [`verify_bundle` and `verify_production_target_approval`](../../packages/FUSOU-TLSN-VERIFIER/src/evidence_bundle.rs)
+   require both digests, recompute SHA-256 from the independently supplied raw
+   Inventory and Approval bytes, check the Approval's Inventory digest and
+   target membership in both trust sets, and require the signed Result's
+   server identity to equal the external identity checked against those sets.
+   The same bundle path verifies the Result signature and actual Presentation;
+   the presence of this local implementation is not an execution result.
+   Type checking and tests in this work are `NOT_CHECKED`.
+3. **Production Worker generation, signing, and delivery — `NOT_CHECKED`:**
+   the [operator runbook](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md)
+   identifies the missing tracked runtime/handler/archive coverage. The
+   [APP-side remote Result adapter](../../packages/FUSOU-PROXY/proxy-https/src/real_tlsn.rs)
+   consumes a received Result and can write local artifacts; it is not the
+   Worker's signing implementation. Equivalent checks in a deployed Worker
+   require separately supplied source and execution evidence; deployed
+   behavior remains `UNVERIFIED`. Production acceptance remains `BLOCKED`.
 
 ### Evidence preservation
 
@@ -230,9 +256,17 @@ Choose the required level before implementing further limits:
 | C | Process-wide memory under concurrency | Option B plus bounded connections/tasks, admission control, budgets for TLS/proof/archive work, and load measurements under defined conditions. | OS/kernel allocations or external service memory unless separately included in the measurement boundary. |
 
 The observed 128 KiB body/serialized-request constraints are accepted-input
-limits, not a peak-memory guarantee. Rama's HTTP/1 configuration uses a
-417,792-byte read-buffer ceiling; body limiting observes DATA only after it has
-arrived. The Rama collector materializes the body and the serializer creates
+limits, not a peak-memory guarantee. The
+[FUSOU manifest](../../packages/FUSOU-PROXY/proxy-https/Cargo.toml) pins `rama`
+and `rama-http-backend` to `=0.4.0`. The
+[Rama adapter](../../packages/FUSOU-PROXY/proxy-https/src/proxy_server_https/rama_experimental.rs)
+constructs `HttpServer::new_http1` and `HttpMitmRelay::new` without an explicit
+HTTP/1 read-buffer size setting. The applicable dependency default was not
+established from the dependency source or documentation available in this
+review, so no numeric ingress-buffer ceiling is asserted here. The adapter's
+one-byte `CaptureIo` read-chunk setting is not an allocated-buffer or peak-memory
+limit. Body limiting observes DATA only after it has arrived. The Rama
+collector materializes the body and the serializer creates
 the serialized output, so temporary copies and per-connection buffers may
 coexist. Hudsucker's selected request currently passes through an unbounded
 `body.collect()` and additional body copies. No global concurrency cap or
