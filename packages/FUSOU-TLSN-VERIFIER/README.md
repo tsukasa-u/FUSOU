@@ -10,6 +10,10 @@ wiring only: the embedded Runtime Config URL and signer pins are currently
 unregistered, so enabling `proxy.tlsn.enabled` fails closed before the proxy
 listener starts. The default-disabled ordinary proxy path is unaffected.
 
+The cross-component guarantees and unresolved acceptance decisions are
+documented in the [Data Authenticity Contract](../../docs/architecture/tlsn-data-authenticity-contract.md)
+and its [implementation roadmap](../../docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md).
+
 It currently provides:
 
 - strict unpadded base64url and canonical UInt64 decimal parsing;
