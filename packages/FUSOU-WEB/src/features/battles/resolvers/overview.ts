@@ -83,8 +83,20 @@ export function buildBattleSummaries(args: {
       })
     : () => "-";
 
-  return args.battles
-    .filter((battle) => Number.isFinite(Number(battle["cell_id"] ?? Number.NaN)))
+  const seenBattleKeys = new Set<string>();
+  const uniqueBattles: BattleRecord[] = [];
+  for (const battle of args.battles) {
+    const cellId = Number(battle["cell_id"] ?? Number.NaN);
+    if (!Number.isFinite(cellId)) continue;
+    const uuid = String(battle["uuid"] ?? battle["env_uuid"] ?? "");
+    const index = Number(battle["index"] ?? 0);
+    const key = `${uuid}:${index}:${cellId}`;
+    if (seenBattleKeys.has(key)) continue;
+    seenBattleKeys.add(key);
+    uniqueBattles.push(battle);
+  }
+
+  return uniqueBattles
     .map((battle) => {
       const battleResultUuid = String(battle["battle_result"] ?? "");
       const rawBattleResult =

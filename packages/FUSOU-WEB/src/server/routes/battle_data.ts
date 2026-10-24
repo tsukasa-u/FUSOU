@@ -1743,6 +1743,7 @@ export async function queryGlobalRecordsDirectBatch(
       );
 
       const decodedRecords: AvroJsonRecord[] = [];
+      const seenRecordKeys = new Set<string>();
       let matchedMinStartTimestampMs: number | null = null;
       let matchedMaxEndTimestampMs: number | null = null;
       outer: for (
@@ -1769,6 +1770,13 @@ export async function queryGlobalRecordsDirectBatch(
           }
         }
         for (const rec of recs) {
+          const recUuid = String(rec["uuid"] ?? rec["env_uuid"] ?? "");
+          const recIndex = rec["index"] != null ? String(rec["index"]) : (rec["cell_index"] != null ? String(rec["cell_index"]) : "");
+          const recKey = recUuid ? `${recUuid}:${recIndex}` : "";
+          if (recKey) {
+            if (seenRecordKeys.has(recKey)) continue;
+            seenRecordKeys.add(recKey);
+          }
           decodedRecords.push(rec);
           if (decodedRecords.length >= limitRecords) {
             break outer;

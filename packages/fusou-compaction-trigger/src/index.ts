@@ -6,7 +6,7 @@ import {
   S3Client,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
-import { mergeAvroOCF, mergeAvroOCFWithBoundaries } from "@fusou/compaction-core";
+import { mergeAvroOCF, mergeAvroOCFWithBoundaries, deduplicateNullAvroOcf } from "@fusou/compaction-core";
 import { InternalCompactionClient } from "./internal-api.js";
 import {
   CompactionJobInputSchema,
@@ -246,7 +246,17 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
     }
 
     const merged = mergeAvroOCFWithBoundaries(datasetMergedOcf);
-    await uploadToR2(merged.merged, outputKey, {
+
+    // 重複を禁止（Deduplication）: 同一主キーのレコードは1件に統合
+    const dedup = deduplicateNullAvroOcf(merged.merged, input.table_name);
+    if (dedup.duplicateCount > 0) {
+      console.warn(
+        `[compactor] deduplicated ${dedup.duplicateCount} duplicate records in ${input.table_name} (${input.period_tag}) [original=${dedup.originalCount}, unique=${dedup.uniqueCount}]`,
+      );
+    }
+    const finalMergedBytes = dedup.deduplicatedOcf;
+
+    await uploadToR2(finalMergedBytes, outputKey, {
       tier: input.tier,
       source_tier: input.source_tier,
     });

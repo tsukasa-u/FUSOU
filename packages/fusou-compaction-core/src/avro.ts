@@ -827,6 +827,168 @@ export async function decodeAvroDataBlocksWithContext(
   );
 }
 
+export function encodeZigzagLong(value: number | bigint): Uint8Array {
+  let v = (BigInt(value) << 1n) ^ (BigInt(value) >> 63n);
+  const bytes: number[] = [];
+  while (v >= 0x80n) {
+    bytes.push(Number((v & 0x7fn) | 0x80n));
+    v >>= 7n;
+  }
+  bytes.push(Number(v));
+  return new Uint8Array(bytes);
+}
+
+export function getAvroRecordPrimaryKey(
+  tableName: string,
+  record: AvroJsonRecord,
+): string {
+  const uuid = String(record["uuid"] ?? record["env_uuid"] ?? "");
+  if (!uuid) return JSON.stringify(record);
+
+  switch (tableName) {
+    case "battle":
+    case "destruction_battle":
+    case "own_ship":
+    case "enemy_ship":
+    case "friend_ship":
+    case "own_slotitem":
+    case "enemy_slotitem":
+    case "friend_slotitem":
+    case "plane_info":
+    case "air_base_air_attack":
+    case "opening_air_attack":
+    case "opening_taisen":
+    case "midnight_hougeki":
+    case "friendly_support_hourai":
+      return `${uuid}:${Number(record["index"] ?? 0)}`;
+    case "hougeki":
+      return `${uuid}:${Number(record["index_1"] ?? 0)}:${Number(record["index_2"] ?? 0)}`;
+    case "cells":
+      return `${uuid}:${Number(record["cell_index"] ?? record["cell_id"] ?? 0)}`;
+    case "airbase":
+      return `${uuid}:${Number(record["base_no"] ?? 0)}`;
+    default:
+      return uuid;
+  }
+}
+
+export function deduplicateNullAvroOcf(
+  avroBytes: Uint8Array,
+  tableName: string,
+): {
+  deduplicatedOcf: Uint8Array;
+  originalCount: number;
+  uniqueCount: number;
+  duplicateCount: number;
+} {
+  const header = parseHeaderForDecoder(avroBytes);
+  const codec = header.codec ?? "null";
+  if (codec !== "null") {
+    throw new AvroOcfError(
+      "UNSUPPORTED_CODEC",
+      `Deduplication only supports null codec, got: ${codec}`,
+    );
+  }
+
+  const { schema, named } = resolveDecoderContext(header);
+  const body = avroBytes.slice(header.bodyOffset);
+  const cursor: Cursor = { offset: 0 };
+  const seenKeys = new Set<string>();
+  const uniqueSlices: Uint8Array[] = [];
+  let totalOriginal = 0;
+
+  while (cursor.offset < body.length) {
+    const recordCount = readDataLong(body, cursor);
+    if (!Number.isSafeInteger(recordCount) || recordCount <= 0) {
+      fail("Avro block record count is invalid");
+    }
+    const payloadSize = readDataLong(body, cursor);
+    if (!Number.isSafeInteger(payloadSize) || payloadSize < 0) {
+      fail("Avro block payload size is invalid");
+    }
+    if (payloadSize > body.length - cursor.offset - header.syncMarker.length) {
+      fail("Avro block payload is truncated");
+    }
+
+    const payloadEnd = cursor.offset + payloadSize;
+    const payload = body.subarray(cursor.offset, payloadEnd);
+    const payloadCursor: Cursor = { offset: 0 };
+
+    for (let index = 0; index < recordCount; index += 1) {
+      totalOriginal += 1;
+      const startOffset = payloadCursor.offset;
+      const value = readValue(payload, payloadCursor, schema, named);
+      const endOffset = payloadCursor.offset;
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        value instanceof Uint8Array ||
+        Array.isArray(value)
+      ) {
+        fail("Avro top-level schema did not produce a record");
+      }
+      const record = value as AvroJsonRecord;
+      const key = getAvroRecordPrimaryKey(tableName, record);
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        uniqueSlices.push(payload.subarray(startOffset, endOffset));
+      }
+    }
+
+    if (payloadCursor.offset !== payload.length) {
+      fail("Avro block payload has trailing bytes");
+    }
+    assertSyncMarker(body, payloadEnd, header.syncMarker);
+    cursor.offset = payloadEnd + header.syncMarker.length;
+  }
+
+  const duplicateCount = totalOriginal - seenKeys.size;
+  if (duplicateCount === 0) {
+    return {
+      deduplicatedOcf: avroBytes,
+      originalCount: totalOriginal,
+      uniqueCount: seenKeys.size,
+      duplicateCount: 0,
+    };
+  }
+
+  let totalPayloadBytes = 0;
+  for (const slice of uniqueSlices) {
+    totalPayloadBytes += slice.byteLength;
+  }
+
+  const countBytes = encodeZigzagLong(seenKeys.size);
+  const sizeBytes = encodeZigzagLong(totalPayloadBytes);
+  const newBlockLength =
+    countBytes.byteLength +
+    sizeBytes.byteLength +
+    totalPayloadBytes +
+    header.syncMarker.length;
+
+  const result = new Uint8Array(header.bodyOffset + newBlockLength);
+  result.set(avroBytes.subarray(0, header.bodyOffset), 0);
+
+  let writeOffset = header.bodyOffset;
+  result.set(countBytes, writeOffset);
+  writeOffset += countBytes.byteLength;
+  result.set(sizeBytes, writeOffset);
+  writeOffset += sizeBytes.byteLength;
+
+  for (const slice of uniqueSlices) {
+    result.set(slice, writeOffset);
+    writeOffset += slice.byteLength;
+  }
+
+  result.set(header.syncMarker, writeOffset);
+
+  return {
+    deduplicatedOcf: result,
+    originalCount: totalOriginal,
+    uniqueCount: seenKeys.size,
+    duplicateCount,
+  };
+}
+
 export async function parseAllDeflateAvroBlocks(
   header: Uint8Array,
   body: Uint8Array,
