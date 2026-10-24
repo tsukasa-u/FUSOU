@@ -261,11 +261,21 @@ limits, not a peak-memory guarantee. The
 and `rama-http-backend` to `=0.4.0`. The
 [Rama adapter](../../packages/FUSOU-PROXY/proxy-https/src/proxy_server_https/rama_experimental.rs)
 constructs `HttpServer::new_http1` and `HttpMitmRelay::new` without an explicit
-HTTP/1 read-buffer size setting. The applicable dependency default was not
-established from the dependency source or documentation available in this
-review, so no numeric ingress-buffer ceiling is asserted here. The adapter's
-one-byte `CaptureIo` read-chunk setting is not an allocated-buffer or peak-memory
-limit. Body limiting observes DATA only after it has arrived. The Rama
+HTTP/1 read-buffer size setting. The upstream
+[`rama-http-core` 0.4.0 HTTP/1 builder source](https://docs.rs/rama-http-core/0.4.0/src/rama_http_core/server/conn/http1.rs.html#371-386)
+describes `max_buf_size` as the maximum connection buffer size and states
+“Default is ~400kb.” This is an approximate default description, not an
+example setting or a FUSOU measurement. The builder initializes its override
+to `None`; that is not evidence that the underlying buffer has no limit.
+The complete internal path from FUSOU's server/relay constructors to the
+effective buffer limit has not been established in this review, and no
+runtime execution or measurement was performed. Accordingly, no exact
+ingress-buffer byte ceiling or peak-memory guarantee is asserted for FUSOU.
+The adapter's one-byte
+[`CaptureIo` read-chunk setting](../../packages/FUSOU-PROXY/proxy-https/src/capture_io.rs)
+limits the space offered to the wrapped I/O in each `poll_read` call, not the
+HTTP/1 builder's internal buffer allocation or peak memory. Body limiting
+observes DATA only after it has arrived. The Rama
 collector materializes the body and the serializer creates
 the serialized output, so temporary copies and per-connection buffers may
 coexist. Hudsucker's selected request currently passes through an unbounded
