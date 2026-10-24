@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PublicIdSchema } from "./public-id";
 
 const CompactionTierSchema = z.enum([
   "hourly",
@@ -13,7 +12,7 @@ const NullableNumberSchema = z.number().finite().nullable().optional();
 export const ListSourceBlockRowSchema = z
   .object({
     id: z.number().int().positive(),
-    dataset_id: PublicIdSchema,
+    dataset_id: z.string().min(1),
     table_name: z.string().min(1),
     table_version: z.string().min(1),
     period_tag: z.string().min(1),
@@ -221,7 +220,7 @@ const BlocksRequestFieldSchema = z.preprocess(
       .object({
         dataset_id: z.preprocess(
           (value) => (typeof value === "string" ? value.trim() : value),
-          PublicIdSchema,
+          z.string().min(1),
         ),
         table_name: BlockStringSchema,
         period_tag: BlockStringSchema,
