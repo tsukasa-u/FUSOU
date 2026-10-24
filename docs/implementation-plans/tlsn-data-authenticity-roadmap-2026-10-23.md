@@ -132,6 +132,42 @@ omits CONNECT/TLS does not establish the public APP entry path.
 **Gate:** Required local checks complete with `PASS` for each named test only.
 Unavailable or unsafe checks remain `NOT_CHECKED` or `BLOCKED`.
 
+### Local follow-up: Presentation byte binding in graph derivation
+
+The follow-up based on `8757aeca8886e967106ba17fd1c338cd3ba3d14e` adds a
+fail-closed check to
+[`deriveProductionTrustGraph`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs).
+Before emitting a graph, it requires the semantic Result's and proxy
+provenance's `presentation_sha256` to equal SHA-256 of the supplied raw
+Presentation bytes. It reuses that digest for the Presentation node. This
+enforces an existing byte-binding requirement; it does not decide Q1-Q5.
+
+The standalone
+[`production-evidence-trust-graph-test.mjs`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs)
+imports only Node standard modules and the local contract module. From the
+repository root, the focused command is:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+The initial run reproduced eight missing-rejection failures out of twelve
+tests. After the fix, all twelve tests were `PASS`, with no skipped tests.
+Complete and Sparse graph fixtures cover matching inputs, raw byte mutation,
+missing/invalid Result hashes, mismatched proxy hashes, matching declarations
+for the wrong raw bytes, and the existing Attestation ID mismatch rejection.
+Graph topology, node digests, and unverified provenance status are preserved
+for matching inputs.
+
+These are synthetic structural fixtures, not valid cryptographic Presentations
+or signed Results. The helper does not authenticate the caller's semantic
+verification output or independently verify Result signatures, the outer
+Result envelope, Inventory/Approval, or archives. It is not a deployed Worker
+handler or a real-gameplay path. Rust checks, listener/CONNECT/TLS tests, and
+external runtime behavior remain `NOT_CHECKED` in this follow-up. Phase 3 is
+not complete; real-game TLSN evidence remains `UNVERIFIED` and Production
+acceptance remains `BLOCKED`.
+
 ## Phase 4 — External dependencies and operator evidence
 
 **Current status:** `BLOCKED` until responsible operators provide independently

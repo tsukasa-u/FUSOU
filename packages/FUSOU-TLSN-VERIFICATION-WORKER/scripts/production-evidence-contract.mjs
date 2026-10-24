@@ -640,6 +640,13 @@ export function deriveProductionTrustGraph({
     semanticResult.tlsn_attestation_id,
   );
   assertProductionProxyProvenanceShape(proxyProvenance);
+  const presentationSha256 = sha256Base64Url(presentationBytes);
+  if (semanticResult.presentation_sha256 !== presentationSha256) {
+    throw new Error("Result Presentation hash does not match the raw Presentation bytes");
+  }
+  if (proxyProvenance.presentation_sha256 !== presentationSha256) {
+    throw new Error("proxy provenance Presentation hash does not match the raw Presentation bytes");
+  }
   const sparse = semanticResult.disclosure_mode === "sparse";
   const edgeDefinitions = sparse
     ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
@@ -650,7 +657,7 @@ export function deriveProductionTrustGraph({
     "device-authentication": { device_id: deviceAuthentication.request.device_id, nonce: deviceAuthentication.request.nonce },
     session: { session_id: session.session_id, key_id: session.session_receipt.signer_key_id, binding_sha256: sha256Base64Url(session.binding) },
     binding: { binding_sha256: sha256Base64Url(session.binding), nonce_sha256: sha256Base64Url(session.challenge) },
-    presentation: { presentation_sha256: sha256Base64Url(presentationBytes), attestation_id: attestationId, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
+    presentation: { presentation_sha256: presentationSha256, attestation_id: attestationId, binding_sha256: sha256Base64Url(semanticResult.binding_value) },
     "member-id": sparse
       ? { verified_member_id: semanticResult.verified_member_id, revealed_response_ranges: semanticResult.revealed_response_ranges }
       : { verified_member_id: semanticResult.verified_member_id, response_transcript_sha256: semanticResult.response_transcript_sha256 },
