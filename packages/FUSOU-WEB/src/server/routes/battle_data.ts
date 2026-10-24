@@ -3197,6 +3197,24 @@ app.get("/global/overview", async (c) => {
     }
   }
 
+  const env = createEnvContext(c);
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  if (bucket && !c.req.query("limit_blocks") && !c.req.query("limit_records")) {
+    const snapshotKey = "snapshots/overview/" + (periodTag === "latest" ? "latest/latest" : periodTag + "/latest") + ".json.br";
+    const snapshotObj = await bucket.get(snapshotKey);
+    if (snapshotObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Content-Encoding", "br");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (snapshotObj.httpEtag) {
+        headers.set("ETag", snapshotObj.httpEtag);
+      }
+      return new Response(snapshotObj.body as unknown as BodyInit, { headers });
+    }
+  }
+
   try {
     const [batchResults, mstShipPayload] = await Promise.all([
       queryGlobalRecordsDirectBatch(c, [
@@ -3326,6 +3344,24 @@ app.get("/global/drops", async (c) => {
       const hit = new Response(cached.body, cached);
       hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
+    }
+  }
+
+  const env = createEnvContext(c);
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  if (bucket && !c.req.query("limit_blocks") && !c.req.query("limit_records")) {
+    const snapshotKey = "snapshots/drops/" + (periodTag === "latest" ? "latest/latest" : periodTag + "/latest") + ".json.br";
+    const snapshotObj = await bucket.get(snapshotKey);
+    if (snapshotObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Content-Encoding", "br");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (snapshotObj.httpEtag) {
+        headers.set("ETag", snapshotObj.httpEtag);
+      }
+      return new Response(snapshotObj.body as unknown as BodyInit, { headers });
     }
   }
 
