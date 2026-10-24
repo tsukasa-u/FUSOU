@@ -1209,6 +1209,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
   const now = Date.now();
   for (const sourceFileId of targetIds) {
     statements.push(db.prepare("DELETE FROM block_indexes WHERE file_id = ?").bind(sourceFileId));
+    statements.push(db.prepare("DELETE FROM compaction_output_sources WHERE output_file_id = ?").bind(sourceFileId));
     statements.push(db.prepare("DELETE FROM archived_files WHERE id = ?").bind(sourceFileId));
   }
 
