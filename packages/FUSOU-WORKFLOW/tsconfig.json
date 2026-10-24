@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "module": "ES2022",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
@@ -14,11 +16,22 @@
     "exactOptionalPropertyTypes": true,
     "noPropertyAccessFromIndexSignature": true,
     "esModuleInterop": true,
-    "types": ["@cloudflare/workers-types"],
+    "types": [
+      "@cloudflare/workers-types",
+      "node"
+    ],
     "paths": {
-      "../../avro-wasm/*": ["../avro-wasm/*"]
+      "../../avro-wasm/*": [
+        "../avro-wasm/*"
+      ]
     }
   },
-  "include": ["src/**/*", "../avro-wasm/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*",
+    "../avro-wasm/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

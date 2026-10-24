@@ -26,6 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260329.1",
+    "@types/node": "^22.20.4",
     "typescript": "^5.9.3",
     "wrangler": "^4.135.0"
   },

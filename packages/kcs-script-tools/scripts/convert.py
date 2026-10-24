@@ -485,10 +485,10 @@ def process_map_labels(area_dir, area_tag, spots, official_labels, routes, publi
         s_key = str(sno)
         if sno in port_set:
             if len(ports) == 1:
-                labels[s_key] = '港'
+                labels[s_key] = '1'
             else:
                 idx = ports.index(sno)
-                labels[s_key] = f'港 {idx + 1}'
+                labels[s_key] = str(idx + 1)
             continue
 
         if s_key in labels:
@@ -504,67 +504,6 @@ def process_map_labels(area_dir, area_tag, spots, official_labels, routes, publi
             labels[s_key] = alpha_fallback_label(canon_no)
 
     return labels, ports
-    labels = {}
-
-    # 1. Match official labels to closest spot within 40px
-    used_spots = set()
-    for l in official_labels:
-        lx, ly, name = l["x"], l["y"], l["img"]
-        closest_sno = None
-        min_dist = 999999
-        for sno, s in spots.items():
-            dist = ((s["x"] - lx)**2 + (s["y"] - ly)**2)**0.5
-            if dist < min_dist:
-                min_dist = dist
-                closest_sno = sno
-        if closest_sno is not None and min_dist <= 40.0:
-            labels[str(closest_sno)] = name
-            used_spots.add(closest_sno)
-
-    # 2. Existing manual or pre-extracted labels
-    existing_labels = {}
-    for candidate in [os.path.join(area_dir, "cell_labels.json"),
-                      os.path.join(public_dir, area_tag, "cell_labels.json") if public_dir else None]:
-        if candidate and os.path.exists(candidate):
-            try:
-                with open(candidate, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        for k, v in data.items():
-                            existing_labels[int(k)] = str(v)
-                if existing_labels:
-                    break
-            except Exception:
-                pass
-
-    coord_to_canon = {}
-    for sno, s in spots.items():
-        c = (s["x"], s["y"])
-        if c not in coord_to_canon:
-            coord_to_canon[c] = sno
-
-    # 3. Fill remaining spots
-    for sno, s in sorted(spots.items()):
-        s_key = str(sno)
-        if s_key in labels:
-            continue
-        canon_no = coord_to_canon.get((s["x"], s["y"]), sno)
-        if str(canon_no) in labels:
-            labels[s_key] = labels[str(canon_no)]
-        elif sno in existing_labels:
-            labels[s_key] = existing_labels[sno]
-        elif canon_no in existing_labels:
-            labels[s_key] = existing_labels[canon_no]
-        else:
-            if canon_no == 0:
-                labels[s_key] = "スタート"
-            else:
-                labels[s_key] = alpha_fallback_label(canon_no)
-
-    # labels are now saved in unified data.json
-
-    return labels
-
 def sync_unified_map_data(area_dir, area_tag, map_data, routes, labels, ports, public_dir, dist_client_dir):
     port_set = set(ports)
     slim_spots = []

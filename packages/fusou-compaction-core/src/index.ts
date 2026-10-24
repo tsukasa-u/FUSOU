@@ -338,3 +338,4 @@ export function mergeAvroOCFBuffers(bufferArray: ArrayBuffer[]): ArrayBuffer {
   }
   return buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength);
 }
+export * from "./snapshots.js";

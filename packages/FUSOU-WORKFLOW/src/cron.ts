@@ -1,3 +1,4 @@
+import { generateAndSaveSnapshots } from "./snapshot_generator";
 /**
  * Archiver Cron Worker for Avro OCF merging
  * - Reads Avro OCF files from Turso buffer tables
@@ -612,6 +613,19 @@ export async function handleCron(env: Env): Promise<void> {
     } else {
       console.log(
         `[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`,
+      );
+    }
+
+    // ── Pre-generate R2 Snapshots for Battles Dashboard (Overview / Drops / Sorties) ──
+    try {
+      const snapResult = await generateAndSaveSnapshots(env, rows);
+      console.log(
+        `[Archival] Pre-generated snapshots: ${snapResult.sortiesSaved} sorties saved, updated periods: [${snapResult.snapshotsUpdated.join(", ")}]`,
+      );
+    } catch (snapErr) {
+      console.error(
+        "[Archival] Snapshot generation failed (non-fatal, archival succeeded):",
+        snapErr,
       );
     }
 

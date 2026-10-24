@@ -248,6 +248,39 @@ export default {
       }
     }
 
+    if (path === "/admin/compact" && request.method === "POST") {
+      const adminToken = env.UPLOAD_INGEST_TOKEN;
+      if (!adminToken) {
+        return new Response(
+          JSON.stringify({ error: "Admin compact endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
+          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      const authHeader = request.headers.get("Authorization") ?? "";
+      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (!timingSafeEqual(provided, adminToken)) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+
+      try {
+        console.log("[Admin] Manual compaction triggered via /admin/compact");
+        await handleCron(env);
+        return new Response(
+          JSON.stringify({ status: "success", message: "Compaction completed successfully" }),
+          { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      } catch (err) {
+        console.error("[Admin] Manual compaction failed:", err);
+        return new Response(
+          JSON.stringify({ error: "Compaction failed", detail: err instanceof Error ? err.message : String(err) }),
+          { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     if (path === "/read" && request.method === "GET") {
       return handleRead(request, env, ctx);
     }
