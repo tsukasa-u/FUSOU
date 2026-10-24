@@ -19,8 +19,6 @@ import {
 import {
   decodeAvroDataBlocksWithContext,
   decodeAvroOcfToJson,
-  parseDeflateAvroBlock,
-  parseNullAvroBlock,
   prepareAvroDecoderContext,
   type AvroJsonRecord,
   type PreparedAvroDecoderContext,
@@ -683,7 +681,6 @@ function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
 type CompactionTier = "hourly" | "daily" | "weekly" | "period";
-const TIER_PRIORITY: CompactionTier[] = ["period", "weekly", "daily", "hourly"];
 const TIER_RANK: Record<CompactionTier, number> = {
   period: 0,
   weekly: 1,

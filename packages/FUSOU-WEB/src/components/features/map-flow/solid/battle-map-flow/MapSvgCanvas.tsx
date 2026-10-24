@@ -317,7 +317,7 @@ export default function MapSvgCanvas(props: Props) {
                   spot.cellIds,
                   spot.passCount,
                   spot.battleCount,
-                  undefined,
+                  props.overlay.ports,
                   spot.isPort,
                 );
               const theme = () => CELL_COLOR_THEMES[cellType()];
@@ -348,6 +348,7 @@ export default function MapSvgCanvas(props: Props) {
                       mapKey: props.overlay.asset.mapKey,
                       label: spot.label,
                       cellIds: spot.cellIds,
+                      isPort: spot.isPort,
                     })
                   }
                 >
@@ -368,11 +369,10 @@ export default function MapSvgCanvas(props: Props) {
                   {(() => {
                     const displayLabel = () => {
                       const lbl = spot.label;
-                      if (cellType() === "port" || spot.isPort || lbl.includes("港")) {
-                        const m = lbl.match(/\d+/);
-                        return m ? m[0] : "1";
+                      if (cellType() === "port" || spot.isPort) {
+                        return lbl || "1";
                       }
-                      return lbl;
+                      return lbl || "-";
                     };
                     return (
                       <text
@@ -404,7 +404,7 @@ export default function MapSvgCanvas(props: Props) {
                   spot.cellIds,
                   undefined,
                   undefined,
-                  undefined,
+                  props.overlay.ports,
                   spot.isPort,
                 );
               const isSelected = () => props.selectedCellFilter()?.key === spot.key;

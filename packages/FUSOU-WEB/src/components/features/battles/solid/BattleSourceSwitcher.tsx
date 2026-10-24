@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import {
   clearStoredLocalDirectoryHandle,
   loadStoredLocalDirectoryHandle,

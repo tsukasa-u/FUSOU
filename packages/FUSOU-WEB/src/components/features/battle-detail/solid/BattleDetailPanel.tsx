@@ -18,7 +18,7 @@ import type {
   MstSlotItemRecord,
   ShipInfo,
 } from "@/features/battles/types";
-import { getBattleMapAsset } from "@/data/battleMapAssets";
+import { ensureMapLabels, resolveMapCellLabel } from "@/components/features/map-flow/solid/battle-map-flow/mapLabelCache";
 import { buildShareBattleUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
 import {
@@ -321,7 +321,13 @@ export default function BattleDetailPanel(props: {
     MstShipRecord
   > | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
-  const [cellLabel, setCellLabel] = createSignal<string>("-");
+  const cellLabel = createMemo(() => {
+    const b = battle();
+    if (!b) return "-";
+    const rawCellId = Number(b["cell_id"] ?? NaN);
+    if (!Number.isFinite(rawCellId)) return "-";
+    return resolveMapCellLabel(mapLabel(), rawCellId);
+  });
   const [dropShipInfo, setDropShipInfo] = createSignal<DropShipInfo | null>(
     null,
   );
@@ -507,63 +513,6 @@ export default function BattleDetailPanel(props: {
   const selectableBattleIndexes = createMemo(() => {
     return uniqueBattleIndexesInOrder(battleIndexes());
   });
-
-  const alphaCellLabel = (cellId: number): string => {
-    if (!Number.isFinite(cellId) || cellId <= 0) return "-";
-    let n = Math.floor(cellId);
-    let label = "";
-    while (n > 0) {
-      const rem = (n - 1) % 26;
-      label = String.fromCharCode(65 + rem) + label;
-      n = Math.floor((n - 1) / 26);
-    }
-    return label;
-  };
-
-  async function resolveBattleCellLabel(
-    battleRecord: Record<string, unknown>,
-    mapAreaIdOverride?: number,
-    mapInfoNoOverride?: number,
-  ): Promise<string> {
-    const rawCellId = Number(battleRecord["cell_id"] ?? NaN);
-    if (!Number.isFinite(rawCellId)) return "-";
-    if (rawCellId === 0) return "港";
-
-    const mapAreaId = Number.isFinite(mapAreaIdOverride)
-      ? Number(mapAreaIdOverride)
-      : Number(battleRecord["maparea_id"] ?? NaN);
-    const mapInfoNo = Number.isFinite(mapInfoNoOverride)
-      ? Number(mapInfoNoOverride)
-      : Number(battleRecord["mapinfo_no"] ?? NaN);
-    if (
-      !Number.isFinite(mapAreaId) ||
-      !Number.isFinite(mapInfoNo) ||
-      mapAreaId <= 0 ||
-      mapInfoNo <= 0
-    ) {
-      return alphaCellLabel(rawCellId);
-    }
-
-    const mapKey = `${mapAreaId}-${mapInfoNo}`;
-    const asset = getBattleMapAsset(mapKey);
-    const targetUrl = asset?.dataUrl || asset?.labelsUrl;
-    if (!targetUrl) return alphaCellLabel(rawCellId);
-
-    try {
-      const response = await fetch(targetUrl);
-      if (!response.ok) return alphaCellLabel(rawCellId);
-      const payload = await response.json();
-      const payloadRecord = jsonRecordOf(payload);
-      if (!payloadRecord) return alphaCellLabel(rawCellId);
-      const labelsRecord = jsonRecordOf(payloadRecord["labels"]) ?? payloadRecord;
-      const label = labelsRecord[String(rawCellId)];
-      return typeof label === "string" && label
-        ? label
-        : alphaCellLabel(rawCellId);
-    } catch {
-      return alphaCellLabel(rawCellId);
-    }
-  }
 
   const formations = createMemo(() => {
     const b = battle();
@@ -854,11 +803,16 @@ export default function BattleDetailPanel(props: {
               : fallbackMapInfoNo;
 
           if (disposed || loadToken !== activeLoadToken) return;
-          const resolvedCellLabel = await resolveBattleCellLabel(
-            detailBattle,
-            resolvedMapAreaId,
-            resolvedMapInfoNo,
-          );
+          const currentMapKey =
+            Number.isFinite(resolvedMapAreaId) &&
+            Number.isFinite(resolvedMapInfoNo) &&
+            resolvedMapAreaId > 0 &&
+            resolvedMapInfoNo > 0
+              ? `${resolvedMapAreaId}-${resolvedMapInfoNo}`
+              : null;
+          if (currentMapKey) {
+            ensureMapLabels(currentMapKey);
+          }
           setBattle(detailBattle);
           setFleets({
             friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet),
@@ -866,15 +820,7 @@ export default function BattleDetailPanel(props: {
           });
           setMstSlotItemById(effectiveMstSlotItem);
           setMstShipById(resolvedMstShip);
-          setMapLabel(
-            Number.isFinite(resolvedMapAreaId) &&
-              Number.isFinite(resolvedMapInfoNo) &&
-              resolvedMapAreaId > 0 &&
-              resolvedMapInfoNo > 0
-              ? `${resolvedMapAreaId}-${resolvedMapInfoNo}`
-              : null,
-          );
-          setCellLabel(resolvedCellLabel);
+          setMapLabel(currentMapKey);
           setDropShipInfo(
             dropShipId > 0
               ? {

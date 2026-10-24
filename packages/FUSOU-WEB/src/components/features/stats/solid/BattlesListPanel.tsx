@@ -1,7 +1,8 @@
 ﻿/** @jsxImportSource solid-js */
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { mapKeyOf, formatTimestamp, alphaCellLabel, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, formatTimestamp, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { ensureMapLabels, resolveMapCellLabel } from "../../map-flow/solid/battle-map-flow/mapLabelCache";
 import type { BattleRecord } from "../../map-flow/solid/battle-map-flow/types";
 import {
   battleResultOf as battleResultOfRecord,
@@ -82,11 +83,42 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
 
 
 
+  const mapKeyLookup = createMemo(() => {
+    const b2m = new Map<string, string>();
+    const e2m = new Map<string, string>();
+    for (const c of d.cellRecords()) {
+      const mk = mapKeyOf(c);
+      if (mk === "unknown" || mk === "-") continue;
+      if (c.env_uuid) {
+        e2m.set(c.env_uuid, mk);
+      }
+      if (c.battles) {
+        if (Array.isArray(c.battles)) {
+          c.battles.forEach((u: string) => b2m.set(u, mk));
+        } else if (typeof c.battles === "string") {
+          b2m.set(c.battles, mk);
+        }
+      }
+    }
+    return { battleToMap: b2m, envToMap: e2m };
+  });
+
+  const resolveBattleMapKey = (b: BattleRecord): string => {
+    const direct = mapKeyOf(b);
+    if (direct && direct !== "unknown" && direct !== "-") return direct;
+    const { battleToMap, envToMap } = mapKeyLookup();
+    const byBattle = b.uuid ? battleToMap.get(b.uuid) : undefined;
+    if (byBattle) return byBattle;
+    const byEnv = b.env_uuid ? envToMap.get(b.env_uuid) : undefined;
+    if (byEnv) return byEnv;
+    return "unknown";
+  };
+
   const cellDisplayLabelOf = (b: BattleRecord): string => {
     const cellId = Number(b.cell_id ?? NaN);
     if (!Number.isFinite(cellId)) return "-";
-    if (cellId === 0) return "開始";
-    return alphaCellLabel(cellId);
+    const mapKey = resolveBattleMapKey(b);
+    return resolveMapCellLabel(mapKey, cellId);
   };
 
   const resultFilteredBattles = createMemo(() => {
@@ -101,7 +133,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     let list = resultFilteredBattles();
     const selectedMap = d.mapFilter();
     if (selectedMap) {
-      list = list.filter((b) => mapKeyOf(b) === selectedMap);
+      list = list.filter((b) => resolveBattleMapKey(b) === selectedMap);
     }
     const start = d.startDate().trim();
     const end = d.endDate().trim();
@@ -117,7 +149,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
         if (!shipName && result?.drop_ship_id && mstMap.has(result.drop_ship_id)) {
           shipName = (mstMap.get(result.drop_ship_id) ?? "").toLowerCase();
         }
-        const mapKey = mapKeyOf(b).toLowerCase();
+        const mapKey = resolveBattleMapKey(b).toLowerCase();
         const cellLabel = cellDisplayLabelOf(b).toLowerCase();
         return (
           shipName.includes(query) ||
@@ -131,14 +163,48 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
 
   const totalPages = createMemo(() => Math.ceil(filteredBattles().length / PAGE_SIZE));
 
+  createEffect(() => {
+    // 検索・フィルター条件が変化したときは先頭ページに戻す
+    d.searchQuery();
+    d.mapFilter();
+    d.resultFilter();
+    d.startDate();
+    d.endDate();
+    setCurrentPage(0);
+  });
+
+  createEffect(() => {
+    const pages = totalPages();
+    if (pages > 0 && currentPage() >= pages) {
+      setCurrentPage(pages - 1);
+    }
+  });
+
   const pagedBattles = createMemo(() => {
     const start = currentPage() * PAGE_SIZE;
     return filteredBattles().slice(start, start + PAGE_SIZE);
   });
 
+  createEffect(() => {
+    const selected = d.mapFilter();
+    if (selected && selected !== "unknown") {
+      void ensureMapLabels(selected);
+    }
+    const mapKeys = new Set<string>();
+    for (const b of pagedBattles()) {
+      const mk = resolveBattleMapKey(b);
+      if (mk && mk !== "unknown") {
+        mapKeys.add(mk);
+      }
+    }
+    for (const mk of mapKeys) {
+      void ensureMapLabels(mk);
+    }
+  });
+
   function moveToDetail(battle: BattleRecord) {
     const envUuid = String(battle.env_uuid ?? "").trim();
-    const battleIndex = Number(battle.index ?? Number.NaN);
+    const battleIndex = Number(battle.index ?? (battle as Record<string, unknown>)["battle_index"] ?? Number.NaN);
     if (!envUuid || !Number.isFinite(battleIndex) || battleIndex < 0) {
       window.alert("戦闘詳細を開くために必要な env_uuid または battle_index が不足しています。");
       return;
@@ -186,7 +252,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                   return (
                     <tr class="hover cursor-pointer" onClick={() => moveToDetail(b)}>
                       <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
-                      <td>{mapKeyOf(b)}</td>
+                      <td>{resolveBattleMapKey(b)}</td>
                       <td>{cellDisplayLabelOf(b)}</td>
                       <td>{FORMATION_NAMES[formation] ?? "-"}</td>
                       <td>{airSupLabel || ""}</td>
@@ -237,8 +303,21 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
       <div class="p-0">
         <BattlesTable />
         <Show when={totalPages() > 1}>
-          <div class="flex justify-center py-4 gap-2">
-            <For each={Array.from({ length: Math.min(totalPages(), 10) }, (_, i) => i)}>
+          <div class="flex flex-wrap items-center justify-center py-4 gap-1">
+            <button
+              class="btn btn-sm btn-ghost"
+              disabled={currentPage() === 0}
+              onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+            >
+              前へ
+            </button>
+            <For each={(() => {
+              const total = totalPages();
+              const cur = currentPage();
+              const start = Math.max(0, Math.min(cur - 2, total - 5));
+              const end = Math.min(total, Math.max(cur + 3, 5));
+              return Array.from({ length: Math.max(1, end - start) }, (_, idx) => start + idx).filter((p) => p < total);
+            })()}>
               {(page) => (
                 <button
                   class={`btn btn-sm ${page === currentPage() ? "btn-primary" : "btn-ghost"}`}
@@ -248,6 +327,13 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                 </button>
               )}
             </For>
+            <button
+              class="btn btn-sm btn-ghost"
+              disabled={currentPage() >= totalPages() - 1}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages() - 1, p + 1))}
+            >
+              次へ
+            </button>
           </div>
         </Show>
       </div>

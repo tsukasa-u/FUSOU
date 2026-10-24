@@ -7,6 +7,7 @@ import type { SharedDashboardState } from "../../battles/solid/types";
 import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
 import { mapKeyOf, cellLabel as pureCellLabel, parseMapRoutesPayload, resolveCellType, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
+import { ensureMapLabelsFor, resolveMapCellLabel } from "../../map-flow/solid/battle-map-flow/mapLabelCache";
 import {
   MAP_TRIM_PADDING,
   MAP_VIEWBOX_WIDTH,
@@ -25,12 +26,18 @@ import {
   CELL_BADGE_FONT_SIZE,
   LABEL_FONT_SIZE,
   CELL_COLOR_THEMES,
+  DARK_EMPTY_CELL_FILL,
+  DARK_EMPTY_CELL_STROKE,
+  DARK_EMPTY_CELL_TEXT,
+  MAP_SEA_BG_LIGHT,
+  MAP_SEA_BG_DARK,
   MAP_AIRBASE_DATA,
 } from "../../map-flow/solid/battle-map-flow/constants";
 import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
 import type {
   InferredRouteOverlay,
   CurvedRouteData,
+  BattleRecord,
 } from "../../map-flow/solid/battle-map-flow/types";
 
 import { STYPE_NAMES } from "@/features/simulator/constants";
@@ -188,8 +195,8 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
         if (d.mapFilter() !== mapKey) return;
         const data = isJsonRecord(payload) ? payload : {};
         const rawSpots = Array.isArray(data["spots"]) ? data["spots"] : [];
-        const spots = rawSpots
-          .map((value: unknown) => {
+        const spots: MapSpot[] = rawSpots
+          .map((value: unknown): MapSpot | null => {
             const s = isJsonRecord(value) ? value : null;
             if (!s) return null;
             const line = isJsonRecord(s["line"]) ? s["line"] : {};
@@ -199,15 +206,17 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
             if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
             const lineOffsetX = Number(line["x"] ?? NaN);
             const lineOffsetY = Number(line["y"] ?? NaN);
-            return {
+            const spot: MapSpot = {
               cellId,
               x,
               y,
+              ...(s["isPort"] === true ? { isPort: true } : {}),
               ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
               ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
-            } satisfies MapSpot;
+            };
+            return spot;
           })
-          .filter((s: MapSpot | null): s is MapSpot => s !== null);
+          .filter((s): s is MapSpot => s !== null);
 
         const labels: Record<number, string> = {};
         if (isJsonRecord(data["labels"])) {
@@ -237,7 +246,9 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
       .catch(() => {
         if (d.mapFilter() !== mapKey) return;
         setMapSpots([]);
-                setMapLabels({});
+        setMapLabels({});
+        setMapRoutes([]);
+        setMapPorts([]);
         setMapDataFailed(true);
       })
       .finally(() => {
@@ -284,6 +295,38 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     return new Map(d.mstShips().map((ship) => [ship.id, { name: String(ship.name || ""), stype: Number(ship.stype || 0), backs: Number(ship.backs || 1) }]));
   });
 
+  // 戦闘レコードに海域IDが無い場合の補完用（cellRecords は非同期で届くため必ず memo として参照する）
+  const mapKeyLookup = createMemo(() => {
+    const b2m = new Map<string, string>();
+    const e2m = new Map<string, string>();
+    for (const c of d.cellRecords()) {
+      const mk = mapKeyOf(c);
+      if (mk === "unknown" || mk === "-") continue;
+      if (c.env_uuid) {
+        e2m.set(c.env_uuid, mk);
+      }
+      if (c.battles) {
+        if (Array.isArray(c.battles)) {
+          c.battles.forEach((u: string) => b2m.set(u, mk));
+        } else if (typeof c.battles === "string") {
+          b2m.set(c.battles, mk);
+        }
+      }
+    }
+    return { battleToMap: b2m, envToMap: e2m };
+  });
+
+  const resolveMapKeyForBattle = (b: BattleRecord): string => {
+    const direct = mapKeyOf(b);
+    if (direct !== "unknown" && direct !== "-") return direct;
+    const { battleToMap, envToMap } = mapKeyLookup();
+    const byBattle = b.uuid ? battleToMap.get(b.uuid) : undefined;
+    if (byBattle) return byBattle;
+    const byEnv = b.env_uuid ? envToMap.get(b.env_uuid) : undefined;
+    if (byEnv) return byEnv;
+    return "unknown";
+  };
+
   const allDrops = createMemo(() => {
     return d.battleRecords()
       .map((r) => ({ record: r, result: battleResultOf(r) }))
@@ -301,7 +344,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
         const name = info?.name || `艦#${shipId}`;
         const stype = info?.stype || 0;
         const backs = info?.backs || 1;
-        const mapKey = mapKeyOf(r.record);
+        const mapKey = resolveMapKeyForBattle(r.record);
         const winRank = r.result!.win_rank || "不明";
         return {
           id: r.record.uuid || `${r.record.timestamp}-${shipId}`,
@@ -310,7 +353,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
           backs,
           shipName: name,
           mapKey,
-          cellId: r.record.cell_id,
+          cellId: Number(r.record.cell_id ?? NaN),
           timestamp: r.record.timestamp,
           winRank,
         };
@@ -333,9 +376,10 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     for (const b of d.battleRecords()) {
       if (resultF && battleResultOf(b)?.win_rank !== resultF) continue;
       if ((start || end) && !isWithinDateRange(b.timestamp, start, end)) continue;
-      const mk = mapKeyOf(b);
-      if (mk !== "-" && typeof b.cell_id === "number") {
-        const key = `${mk}:${b.cell_id}`;
+      const mk = resolveMapKeyForBattle(b);
+      const cellId = Number(b.cell_id ?? NaN);
+      if (mk !== "-" && Number.isFinite(cellId)) {
+        const key = `${mk}:${cellId}`;
         counts.set(key, (counts.get(key) || 0) + 1);
       }
     }
@@ -381,20 +425,40 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     return resolveBattleMapSpriteUrl(asset, "light"); // Simplified theme logic
   });
 
+  const selectedSpot = createMemo(() => {
+    const cid = selectedCellId();
+    if (cid === null) return null;
+    return groupedMapSpots().find((s) => s.cellIds.includes(cid)) ?? null;
+  });
+
+  const selectedCellIds = createMemo((): Set<number> => {
+    const spot = selectedSpot();
+    if (!spot) return new Set();
+    return new Set(spot.cellIds);
+  });
+
   const selectedCellDrops = createMemo(() => {
-    const cellId = selectedCellId();
-    if (cellId === null) return dropsInSelectedMap();
-    return dropsInSelectedMap().filter((d) => d.cellId === cellId);
+    const spot = selectedSpot();
+    if (!spot) return dropsInSelectedMap();
+    const ids = selectedCellIds();
+    return dropsInSelectedMap().filter((d) => ids.has(d.cellId));
   });
 
   const totalBattlesInMapScope = createMemo(() => {
     const mapFilter = d.mapFilter();
     if (!mapFilter) return 1;
-    const cellId = selectedCellId();
-    return Math.max(1, d.battleRecords().filter(r => 
-      mapKeyOf(r) === mapFilter &&
-      (cellId === null || r.cell_id === cellId)
-    ).length);
+    const ids = selectedCellIds();
+    const hasCellFilter = ids.size > 0;
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    const resultF = d.resultFilter();
+    return Math.max(1, d.battleRecords().filter(r => {
+      if (resolveMapKeyForBattle(r) !== mapFilter) return false;
+      if (hasCellFilter && !ids.has(Number(r.cell_id ?? NaN))) return false;
+      if (resultF && battleResultOf(r)?.win_rank !== resultF) return false;
+      if ((start || end) && !isWithinDateRange(r.timestamp, start, end)) return false;
+      return true;
+    }).length);
   });
 
   const mapDropsGroupedByStype = createMemo(() => {
@@ -455,9 +519,42 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     return result;
   });
 
+  const filteredOverallBattles = createMemo(() => {
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    const resultF = d.resultFilter();
+    if (!start && !end && !resultF) return Math.max(1, d.battleRecords().length);
+    return Math.max(1, d.battleRecords().filter(r => {
+      if (resultF && battleResultOf(r)?.win_rank !== resultF) return false;
+      if ((start || end) && !isWithinDateRange(r.timestamp, start, end)) return false;
+      return true;
+    }).length);
+  });
+
+  const [viewMode, setViewMode] = createSignal<"map" | "ship">("map");
+
+  // 艦別表示では海域ごとの公式マス名が必要（エイリアス cell_id を同一マスに統合するため）
+  createEffect(() => {
+    if (viewMode() !== "ship") return;
+    ensureMapLabelsFor(allDrops().map((drop) => drop.mapKey));
+  });
+
+  /** 海域+公式マス名ごとの戦闘数（エイリアス cell_id を合算） */
+  const totalBattlesPerMapLabel = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const [key, count] of totalBattlesPerMapCell()) {
+      const sep = key.lastIndexOf(":");
+      const mk = key.slice(0, sep);
+      const cid = Number(key.slice(sep + 1));
+      const labelKey = `${mk}:${resolveMapCellLabel(mk, cid)}`;
+      counts.set(labelKey, (counts.get(labelKey) || 0) + count);
+    }
+    return counts;
+  });
+
   // Global grouping for when NO map is selected
   const dropsGroupedByStype = createMemo(() => {
-    const groupedByStype = new Map<number, { shipId: number; shipName: string; backs: number; drops: { mapKey: string; cellId: number; count: number; winRanks: Record<string, number> }[] }[]>();
+    const groupedByStype = new Map<number, { shipId: number; shipName: string; backs: number; drops: { mapKey: string; label: string; count: number; winRanks: Record<string, number> }[] }[]>();
     for (const drop of allDrops()) {
       let stypeList = groupedByStype.get(drop.stype);
       if (!stypeList) {
@@ -469,12 +566,13 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
         info = { shipId: drop.shipId, shipName: drop.shipName, backs: drop.backs, drops: [] };
         stypeList.push(info);
       }
-      const loc = info.drops.find((l) => l.mapKey === drop.mapKey && l.cellId === drop.cellId);
+      const label = resolveMapCellLabel(drop.mapKey, drop.cellId);
+      const loc = info.drops.find((l) => l.mapKey === drop.mapKey && l.label === label);
       if (loc) {
         loc.count++;
         loc.winRanks[drop.winRank] = (loc.winRanks[drop.winRank] || 0) + 1;
       } else {
-        info.drops.push({ mapKey: drop.mapKey, cellId: drop.cellId, count: 1, winRanks: { [drop.winRank]: 1 } });
+        info.drops.push({ mapKey: drop.mapKey, label, count: 1, winRanks: { [drop.winRank]: 1 } });
       }
     }
     const result = [...groupedByStype.entries()].map(([stype, ships]) => {
@@ -487,7 +585,6 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     return result.sort((a, b) => a.stype - b.stype);
   });
 
-  const [viewMode, setViewMode] = createSignal<"map" | "ship">("map");
 
   const panelTitle = createMemo(() => {
     if (viewMode() === "ship") return "全ドロップ履歴 (艦別)";
@@ -498,7 +595,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   const panelSubtitle = createMemo(() => {
     if (viewMode() === "ship") return "ドロップ歴のあるすべての艦を一覧表示しています。";
     return d.mapFilter()
-      ? "セルをクリックすると、そのマスでドロップした艦に絞り込みます。赤いセルはドロップ実績があるマスです。"
+      ? "セルをクリックすると、そのマスでドロップした艦に絞り込みます。赤いセルは戦闘実績があるマスです。"
       : "ドロップ履歴のある海域一覧です。クリックして詳細なドロップ情報を確認できます。";
   });
 
@@ -543,16 +640,15 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                         {(ship) => {
                           const maxCount = Math.max(...ship.drops.map(d => d.count));
                           const shipTotalDrops = ship.drops.reduce((sum, d) => sum + d.count, 0);
-                          const totalOverallBattles = Math.max(1, d.battleRecords().length);
-                          const overallRate = ((shipTotalDrops / totalOverallBattles) * 100).toFixed(2) + "%";
+                          const overallRate = ((shipTotalDrops / filteredOverallBattles()) * 100).toFixed(2) + "%";
 
-                          const dropLocs = ship.drops.sort((a, b) => b.count - a.count).map(loc => {
+                          const dropLocs = [...ship.drops].sort((a, b) => b.count - a.count).map(loc => {
                             const pct = Math.max(2, (loc.count / maxCount) * 100);
-                            const totalAtLoc = totalBattlesPerMapCell().get(`${loc.mapKey}:${loc.cellId}`) || 0;
+                            const totalAtLoc = totalBattlesPerMapLabel().get(`${loc.mapKey}:${loc.label}`) || 0;
                             const dropRate = totalAtLoc > 0 ? ((loc.count / totalAtLoc) * 100).toFixed(1) + "%" : "-";
                             const ranksStr = Object.entries(loc.winRanks).map(([r, c]) => `${r}:${c}`).join(" ");
                             return {
-                              label: `${loc.mapKey}-${pureCellLabel(loc.cellId, undefined)}`,
+                              label: `${loc.mapKey}-${loc.label}`,
                               dropRateStr: dropRate,
                               ranksStr,
                               count: loc.count,
@@ -617,7 +713,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                     </div>
 
                     <div
-                      class={`rounded-box overflow-hidden border border-base-300 ${isDark() ? "bg-[#18181b]" : "bg-white"} shadow-inner`}
+                      class={`rounded-box overflow-hidden border border-base-300 ${isDark() ? "bg-[#18181b]" : "bg-[#f1f5f9]"} shadow-inner`}
                       style={`aspect-ratio: ${MAP_VIEWBOX_WIDTH} / ${MAP_VIEWBOX_HEIGHT}; width: 100%;`}
                     >
                       <svg
@@ -637,13 +733,13 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                             <path d="M 2 2 L 16 8 L 2 14 L 6 8 Z" fill="#10b981" />
                           </marker>
                         </defs>
-                        {/* 海の背景（灰色を完全排除しクリーンな白） */}
+                        {/* 海の背景（マップ進行と完全に色調を統一） */}
                         <rect
                           x="0"
                           y="0"
                           width={asset().routeLayoutFrame.width}
                           height={asset().routeLayoutFrame.height}
-                          fill={isDark() ? "#454545" : "#ffffff"}
+                          fill={isDark() ? MAP_SEA_BG_DARK : MAP_SEA_BG_LIGHT}
                         />
                         <Show when={resolvedSpriteUrl()}>
                           <image
@@ -719,27 +815,41 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                         {/* セル円＋インラインラベル（ボスマス外側二重丸・港文字非表示） */}
                         <For each={groupedMapSpots()}>
                           {(spot) => {
-                            const drops = () => spot.cellIds.flatMap((cid) => mapDropsByCell().get(cid) || []);
-                            const hasDrops = () => drops().length > 0;
                             const isSelected = () => spot.cellIds.includes(selectedCellId() ?? -999);
+                            const battleCount = () =>
+                              spot.cellIds.reduce(
+                                (sum, cid) =>
+                                  sum + (totalBattlesPerMapCell().get(`${d.mapFilter()}:${cid}`) || 0),
+                                0,
+                              );
+                            const hasBattle = () => battleCount() > 0;
                             const cellType = () =>
                               resolveCellType(
                                 spot.label,
                                 d.mapFilter(),
-                                hasDrops(),
+                                hasBattle(),
                                 spot.cellIds,
-                                undefined,
-                                undefined,
+                                battleCount(),
+                                battleCount(),
                                 mapPorts(),
                                 spot.isPort,
                               );
                             const theme = () => CELL_COLOR_THEMES[cellType()];
                             const r = () => (isSelected() ? SELECTED_CELL_MARKER_RADIUS : BASE_CELL_MARKER_RADIUS);
 
-                            const fill = () => theme().fill;
-                            const stroke = () => (isSelected() ? "#ea580c" : theme().stroke);
+                            const isDarkEmpty = () => isDark() && cellType() === "empty";
+                            const fill = () => (isDarkEmpty() ? DARK_EMPTY_CELL_FILL : theme().fill);
+                            const stroke = () => {
+                              if (isSelected()) return "#ea580c";
+                              if (isDarkEmpty()) return DARK_EMPTY_CELL_STROKE;
+                              return theme().stroke;
+                            };
                             const strokeWidth = () => (isSelected() ? CELL_SELECTED_STROKE_WIDTH : CELL_STROKE_WIDTH);
-                            const textFill = () => (isSelected() ? "#9a3412" : theme().textFill);
+                            const textFill = () => {
+                              if (isSelected()) return "#9a3412";
+                              if (isDarkEmpty()) return DARK_EMPTY_CELL_TEXT;
+                              return theme().textFill;
+                            };
 
                             return (
                               <g
@@ -763,11 +873,10 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 {(() => {
                                   const displayLabel = () => {
                                     const lbl = getCellLabel(spot.cellId);
-                                    if (cellType() === "port" || spot.isPort || lbl.includes("港")) {
-                                      const m = lbl.match(/\d+/);
-                                      return m ? m[0] : "1";
+                                    if (cellType() === "port" || spot.isPort) {
+                                      return lbl || "1";
                                     }
-                                    return lbl;
+                                    return lbl || "-";
                                   };
                                   return (
                                     <text
@@ -794,14 +903,21 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                             const drops = () => spot.cellIds.flatMap((cid) => mapDropsByCell().get(cid) || []);
                             const totalCount = () => drops().reduce((sum, d) => sum + d.count, 0);
                             const isSelected = () => spot.cellIds.includes(selectedCellId() ?? -999);
+                            const battleCount = () =>
+                              spot.cellIds.reduce(
+                                (sum, cid) =>
+                                  sum + (totalBattlesPerMapCell().get(`${d.mapFilter()}:${cid}`) || 0),
+                                0,
+                              );
+                            const hasBattle = () => battleCount() > 0;
                             const cellType = () =>
                               resolveCellType(
                                 spot.label,
                                 d.mapFilter(),
-                                totalCount() > 0,
+                                hasBattle(),
                                 spot.cellIds,
-                                undefined,
-                                undefined,
+                                battleCount(),
+                                battleCount(),
                                 mapPorts(),
                                 spot.isPort,
                               );
@@ -918,7 +1034,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
               <div class="mt-6 border-t border-base-200 pt-6">
                 <h3 class="font-bold text-base mb-3">
-                  {selectedCellId() !== null ? `${getCellLabel(selectedCellId()!)}マスのドロップ` : '海域全体のドロップ'}
+                  {selectedSpot() ? `${selectedSpot()!.label}マスのドロップ` : '海域全体のドロップ'}
                 </h3>
                 <div class="space-y-6 mt-3">
                   <Show when={mapDropsGroupedByStype().length > 0} fallback={<EmptyState size="compact" message="ドロップ履歴がありません" />}>
@@ -935,32 +1051,42 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                                 const count = dropsForShip.length;
                                 const overallRate = ((count / totalBattlesInMapScope()) * 100).toFixed(2) + "%";
                                 
-                                const groupedByCell = new Map<number, { count: number; winRanks: Record<string, number> }>();
-                                for (const d of dropsForShip) {
-                                  if (!groupedByCell.has(d.cellId)) {
-                                    groupedByCell.set(d.cellId, { count: 0, winRanks: {} });
+                                const spotByCid = new Map<number, { label: string; cellIds: number[] }>();
+                                for (const s of groupedMapSpots()) {
+                                  for (const cid of s.cellIds) {
+                                    spotByCid.set(cid, { label: s.label, cellIds: s.cellIds });
                                   }
-                                  const g = groupedByCell.get(d.cellId)!;
+                                }
+
+                                const groupedBySpot = new Map<string, { label: string; cellIds: number[]; count: number; winRanks: Record<string, number> }>();
+                                for (const d of dropsForShip) {
+                                  const spotInfo = spotByCid.get(d.cellId);
+                                  const key = spotInfo ? spotInfo.label : String(d.cellId);
+                                  const label = spotInfo ? spotInfo.label : getCellLabel(d.cellId);
+                                  const cellIds = spotInfo ? spotInfo.cellIds : [d.cellId];
+                                  if (!groupedBySpot.has(key)) {
+                                    groupedBySpot.set(key, { label, cellIds, count: 0, winRanks: {} });
+                                  }
+                                  const g = groupedBySpot.get(key)!;
                                   g.count++;
                                   g.winRanks[d.winRank] = (g.winRanks[d.winRank] || 0) + 1;
                                 }
-                                const cellDrops = [...groupedByCell.entries()]
-                                  .map(([cellId, info]) => ({ cellId, count: info.count, winRanks: info.winRanks }))
-                                  .sort((a, b) => b.count - a.count);
 
-                                const dropLocs = cellDrops.map(loc => {
-                                  const pct = Math.max(2, (loc.count / count) * 100);
-                                  const totalAtLoc = totalBattlesPerMapCell().get(`${d.mapFilter()}:${loc.cellId}`) || 0;
-                                  const dropRate = totalAtLoc > 0 ? ((loc.count / totalAtLoc) * 100).toFixed(1) + "%" : "-";
-                                  const ranksStr = Object.entries(loc.winRanks).map(([r, c]) => `${r}:${c}`).join(" ");
-                                  return {
-                                    label: `${getCellLabel(loc.cellId)}マス`,
-                                    dropRateStr: dropRate,
-                                    ranksStr,
-                                    count: loc.count,
-                                    pct
-                                  };
-                                });
+                                const dropLocs = [...groupedBySpot.values()]
+                                  .map(loc => {
+                                    const pct = Math.max(2, (loc.count / count) * 100);
+                                    const totalAtLoc = loc.cellIds.reduce((sum, cid) => sum + (totalBattlesPerMapCell().get(`${d.mapFilter()}:${cid}`) || 0), 0);
+                                    const dropRate = totalAtLoc > 0 ? ((loc.count / totalAtLoc) * 100).toFixed(1) + "%" : "-";
+                                    const ranksStr = Object.entries(loc.winRanks).map(([r, c]) => `${r}:${c}`).join(" ");
+                                    return {
+                                      label: `${loc.label}マス`,
+                                      dropRateStr: dropRate,
+                                      ranksStr,
+                                      count: loc.count,
+                                      pct
+                                    };
+                                  })
+                                  .sort((a, b) => b.count - a.count);
 
                                 return (
                                   <ShipDropCard

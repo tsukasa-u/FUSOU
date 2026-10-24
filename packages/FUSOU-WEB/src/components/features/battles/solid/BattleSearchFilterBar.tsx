@@ -7,7 +7,8 @@ import {
 } from "@/components/common/solid/SearchFilterBarBase";
 import type { BattleRecord, MstShipRecord } from "../../map-flow/solid/battle-map-flow/types";
 import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
-import { alphaCellLabel } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { resolveMapCellLabel } from "../../map-flow/solid/battle-map-flow/mapLabelCache";
 
 export interface BattleSearchFilterBarProps {
   searchQuery: () => string;
@@ -103,7 +104,8 @@ export function BattleSearchFilterBar(props: BattleSearchFilterBarProps): JSX.El
     for (const b of props.battleRecords()) {
       const cellId = Number(b.cell_id ?? NaN);
       if (!Number.isFinite(cellId) || cellId <= 0) continue;
-      const label = alphaCellLabel(cellId);
+      const mk = mapKeyOf(b);
+      const label = resolveMapCellLabel(mk, cellId);
       if (
         label.toLowerCase().includes(rawQ) ||
         `マス ${label}`.toLowerCase().includes(q) ||

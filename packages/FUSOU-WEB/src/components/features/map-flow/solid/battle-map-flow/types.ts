@@ -243,6 +243,7 @@ export type SelectedCellFilter = {
   mapKey: string;
   label: string;
   cellIds: number[];
+  isPort?: boolean | undefined;
 };
 
 export type MapInfoPayload = {
@@ -315,6 +316,7 @@ export type VisibleLabelSpot = {
 // Everything the SVG canvas needs to render the overlay.
 export type ResolvedRouteOverlay = {
   asset: BattleMapAsset;
+  ports?: number[];
   inferredRoutes: InferredRouteOverlay[];
   markers: OverlayMarker[];
   transitions: TransitionOverlay[];

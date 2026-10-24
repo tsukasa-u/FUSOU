@@ -24,24 +24,37 @@ export function buildBattleSummaries(args: {
   includeOpeningAirAttack?: boolean;
 }): BattleRecord[] {
   const battleResultByUuid = new Map<string, BattleRecord>();
+  const battleResultByBattleUuid = new Map<string, BattleRecord>();
   for (const record of args.battleResults) {
     const uuid = String(record["uuid"] ?? "");
     if (uuid) battleResultByUuid.set(uuid, record);
+    const bUuid = String(record["battle_uuid"] ?? "");
+    if (bUuid) battleResultByBattleUuid.set(bUuid, record);
   }
 
   const mapByBattleUuid = new Map<string, { maparea_id: number; mapinfo_no: number }>();
+  const mapByEnvUuid = new Map<string, { maparea_id: number; mapinfo_no: number }>();
   for (const cell of args.cells) {
-    const battleUuid = String(cell["battles"] ?? "");
     const maparea = normalizeNullableNumber(cell["maparea_id"]);
     const mapinfo = normalizeNullableNumber(cell["mapinfo_no"]);
-    if (
-      battleUuid &&
-      maparea !== null &&
-      mapinfo !== null &&
-      maparea > 0 &&
-      mapinfo > 0
-    ) {
-      mapByBattleUuid.set(battleUuid, { maparea_id: maparea, mapinfo_no: mapinfo });
+    if (maparea === null || mapinfo === null || maparea <= 0 || mapinfo <= 0) continue;
+
+    const mapObj = { maparea_id: maparea, mapinfo_no: mapinfo };
+    const envUuid = String(cell["env_uuid"] ?? "");
+    if (envUuid) mapByEnvUuid.set(envUuid, mapObj);
+
+    const rawBattles = cell["battles"];
+    const battleUuids: string[] = [];
+    if (Array.isArray(rawBattles)) {
+      for (const b of rawBattles) {
+        if (typeof b === "string" && b) battleUuids.push(b);
+      }
+    } else if (typeof rawBattles === "string" && rawBattles) {
+      battleUuids.push(rawBattles);
+    }
+
+    for (const bUuid of battleUuids) {
+      mapByBattleUuid.set(bUuid, mapObj);
     }
   }
 
@@ -77,7 +90,10 @@ export function buildBattleSummaries(args: {
       const rawBattleResult =
         typeof battle["battle_result"] === "object" && battle["battle_result"] !== null
           ? (battle["battle_result"] as BattleRecord)
-          : battleResultByUuid.get(battleResultUuid) || null;
+          : battleResultByUuid.get(battleResultUuid) ||
+            (battle["uuid"] ? battleResultByBattleUuid.get(String(battle["uuid"])) : null) ||
+            (battle["uuid"] ? battleResultByUuid.get(String(battle["uuid"])) : null) ||
+            null;
       const dropShipId = Number(rawBattleResult?.["drop_ship_id"] ?? 0) || null;
       const normalizedBattleResult = rawBattleResult
         ? {
@@ -97,9 +113,16 @@ export function buildBattleSummaries(args: {
         if (detailObj) normalizedOpeningAirAttack = [detailObj];
       }
 
-      const resolvedMap = battle["uuid"]
-        ? mapByBattleUuid.get(String(battle["uuid"]))
-        : undefined;
+      const battleMaparea = normalizeNullableNumber(battle["maparea_id"]);
+      const battleMapinfo = normalizeNullableNumber(battle["mapinfo_no"]);
+      const directMap =
+        battleMaparea !== null && battleMapinfo !== null && battleMaparea > 0 && battleMapinfo > 0
+          ? { maparea_id: battleMaparea, mapinfo_no: battleMapinfo }
+          : undefined;
+      const resolvedMap =
+        directMap ??
+        (battle["uuid"] ? mapByBattleUuid.get(String(battle["uuid"])) : undefined) ??
+        (battle["env_uuid"] ? mapByEnvUuid.get(String(battle["env_uuid"])) : undefined);
       return {
         ...battle,
         ...(resolvedMap || {}),
