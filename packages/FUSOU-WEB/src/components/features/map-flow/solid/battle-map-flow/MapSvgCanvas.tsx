@@ -1,4 +1,4 @@
-﻿/** @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
 import { For, Show, createEffect, createSignal } from "solid-js";
 import { isSafeImageUrl } from "@/utils/security";
 import type { ResolvedRouteOverlay, SelectedCellFilter } from "./types";
@@ -210,6 +210,7 @@ export default function MapSvgCanvas(props: Props) {
             {(marker, i) => {
               const next = o().markers[i() + 1];
               if (!next) return null;
+              if (Math.hypot(next.x - marker.x, next.y - marker.y) < 1e-3) return null;
 
               // セルIDまたは座標（許容誤差18px以内：エイリアスセル対応）で候補ルートを完全一致検索
               const matchedRoute = o().inferredRoutes.find((r) => {

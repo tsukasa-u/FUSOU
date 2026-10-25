@@ -42,15 +42,25 @@ export function parseOfficialMapThemeMode(raw: unknown): OfficialMapThemeMode {
   return raw === "light" || raw === "dark" || raw === "auto" ? raw : "auto";
 }
 
-export function mapKeyOf(rec?: Record<string, unknown> | {
-  maparea_id?: number | string | null;
-  mapinfo_no?: number | string | null;
-  mapAreaId?: number | string | null;
-  mapInfoNo?: number | string | null;
-  map_area_id?: number | string | null;
-  map_info_no?: number | string | null;
-} | null): string {
+export function mapKeyOf(
+  rec?:
+    | Record<string, unknown>
+    | {
+        maparea_id?: number | string | null;
+        mapinfo_no?: number | string | null;
+        mapAreaId?: number | string | null;
+        mapInfoNo?: number | string | null;
+        map_area_id?: number | string | null;
+        map_info_no?: number | string | null;
+      }
+    | string
+    | null,
+): string {
   if (!rec) return "unknown";
+  if (typeof rec === "string") {
+    const trimmed = rec.trim();
+    return /^\d+-\d+$/.test(trimmed) ? trimmed : "unknown";
+  }
   const raw = rec as Record<string, unknown>;
   const explicitKey = raw["mapKey"] ?? raw["map_key"] ?? raw["map"];
   if (typeof explicitKey === "string" && /^\d+-\d+$/.test(explicitKey.trim())) {
@@ -164,7 +174,7 @@ export function cellLabel(
   if (cellId === null || cellId === undefined || cellId === "") return "-";
   const id = Number(cellId);
   if (!Number.isFinite(id)) return "-";
-  const normalizedPorts = ports?.map(Number).filter(Number.isFinite) ?? [];
+  const normalizedPorts = Array.from(new Set(ports?.map(Number).filter(Number.isFinite) ?? []));
 
   // 1. 出撃地点（ポート）は数値（id === 0 または ports 配列に含まれる）で一意に決定
   if (id === 0 || normalizedPorts.includes(id)) {
@@ -271,8 +281,10 @@ export function parseMapRoutesPayload(payload: unknown): CurvedRouteData[] {
       Number.isFinite(endX) &&
       Number.isFinite(endY)
     ) {
+      const routeId = Number(rec["routeId"]);
+      const curvature = Number(rec["curvature"]);
       result.push({
-        routeId: Number(rec["routeId"] ?? 0),
+        routeId: Number.isFinite(routeId) ? routeId : 0,
         from,
         to,
         startX,
@@ -281,7 +293,7 @@ export function parseMapRoutesPayload(payload: unknown): CurvedRouteData[] {
         ctrlY,
         endX,
         endY,
-        curvature: Number(rec["curvature"] ?? 0),
+        curvature: Number.isFinite(curvature) ? curvature : 0,
         isArrow: Boolean(rec["isArrow"]),
       });
     }

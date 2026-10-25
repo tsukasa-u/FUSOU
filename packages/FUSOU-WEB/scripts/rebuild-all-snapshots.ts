@@ -250,7 +250,7 @@ export async function rebuildAllPeriods() {
   const s3 = getS3Client();
 
   console.log("[rebuild-all] Fetching master data...");
-  const base = "https://fusou.ogu-hide-u-425.workers.dev";
+  const base = process.env["API_BASE_URL"] || "https://fusou.dev";
   const [shipRes, slotRes] = await Promise.all([
     fetch(base + "/api/master-data/json?table_name=mst_ship"),
     fetch(base + "/api/master-data/json?table_name=mst_slotitem"),

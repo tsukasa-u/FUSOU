@@ -312,6 +312,44 @@ describe("map-flow data utilities", () => {
     expect(findBattleForCell(12, battlesByCell2, aliasMap)).toBeUndefined();
   });
 
+  it("handles string mapKey and invalid map inputs gracefully in mapKeyOf", () => {
+    expect(mapKeyOf("1-1")).toBe("1-1");
+    expect(mapKeyOf("62-1")).toBe("62-1");
+    expect(mapKeyOf("  7-2  ")).toBe("7-2");
+    expect(mapKeyOf("invalid")).toBe("unknown");
+    expect(mapKeyOf("")).toBe("unknown");
+    expect(mapKeyOf(null)).toBe("unknown");
+  });
+
+  it("deduplicates port list and handles multiple identical ports gracefully in cellLabel", () => {
+    expect(cellLabel(10, {}, [10, 10, 15])).toBe("1");
+    expect(cellLabel(15, {}, [10, 10, 15])).toBe("2");
+    expect(cellLabel(0, {}, [10, 10, 15])).toBe("1");
+  });
+
+  it("safely falls back routeId and curvature to 0 when NaN or invalid in parseMapRoutesPayload", () => {
+    const raw = [
+      {
+        routeId: "not-a-number",
+        from: 1,
+        to: 2,
+        startX: 10,
+        startY: 20,
+        ctrlX: 15,
+        ctrlY: 25,
+        endX: 30,
+        endY: 40,
+        curvature: NaN,
+        isArrow: true,
+      },
+    ];
+    const parsed = parseMapRoutesPayload(raw);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.routeId).toBe(0);
+    expect(parsed[0]!.curvature).toBe(0);
+    expect(parsed[0]!.isArrow).toBe(true);
+  });
+
   it("correctly distinguishes unique route patterns from raw sortie occurrences", () => {
     // 3 sorties with identical cell paths [0, 1, 2]
     const rawSorties = [
