@@ -1,3 +1,18 @@
+
+async function resolveSnapshotPeriodTag(db: D1Database | undefined, requestedTag: string): Promise<string> {
+  const tag = (requestedTag || "").trim();
+  if (tag && tag !== "latest") return tag;
+  if (!db) return "2026-10-14";
+  try {
+    const row = await db
+      .prepare("SELECT period_tag FROM block_indexes WHERE table_name = 'battle' ORDER BY period_tag DESC LIMIT 1")
+      .first<{ period_tag: string }>();
+    return row?.period_tag || "2026-10-14";
+  } catch {
+    return "2026-10-14";
+  }
+}
+
 import { Hono, type Context } from "hono";
 import type { D1Database, KVNamespace, R2Bucket } from "@cloudflare/workers-types";
 import { promisify } from "node:util";
@@ -3207,8 +3222,10 @@ app.get("/global/overview", async (c) => {
 
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket && !c.req.query("limit_blocks") && !c.req.query("limit_records")) {
-    const snapshotKey = "snapshots/overview/" + (periodTag === "latest" ? "latest/latest" : periodTag + "/latest") + ".json.br";
+    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+    const snapshotKey = `snapshots/overview/${activeTag}.json.br`;
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
       try {
@@ -3362,8 +3379,10 @@ app.get("/global/drops", async (c) => {
 
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket && !c.req.query("limit_blocks") && !c.req.query("limit_records")) {
-    const snapshotKey = "snapshots/drops/" + (periodTag === "latest" ? "latest/latest" : periodTag + "/latest") + ".json.br";
+    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+    const snapshotKey = `snapshots/drops/${activeTag}.json.br`;
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
       try {
@@ -3457,8 +3476,10 @@ app.get("/detail-env", async (c) => {
 
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    const envKey = "snapshots/env_detail/" + (periodTag === "latest" ? "latest" : periodTag) + "/" + envUuid + ".json.br";
+    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+    const envKey = `snapshots/env_detail/${activeTag}/${envUuid}.json.br`;
     const envObj = await bucket.get(envKey);
     if (envObj) {
       try {
@@ -3521,9 +3542,11 @@ app.get("/detail", async (c) => {
 
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
+    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
     // 1. Direct single-battle snapshot check
-    const directKey = `snapshots/detail/${periodTag === "latest" ? "latest" : periodTag}/${envUuid}_${battleIndexRaw}.json.br`;
+    const directKey = `snapshots/detail/${activeTag}/${envUuid}_${battleIndexRaw}.json.br`;
     const detailObj = await bucket.get(directKey);
     if (detailObj) {
       try {
@@ -3543,7 +3566,7 @@ app.get("/detail", async (c) => {
     }
 
     // 2. Sortie-level bundled snapshot check
-    const envKey = `snapshots/env_detail/${periodTag === "latest" ? "latest" : periodTag}/${envUuid}.json.br`;
+    const envKey = `snapshots/env_detail/${activeTag}/${envUuid}.json.br`;
     const envObj = await bucket.get(envKey);
     if (envObj) {
       try {

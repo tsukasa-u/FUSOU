@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,13 +6,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
 const BASE_URL = process.env.BASE_URL || "https://fusou.ogu-hide-u-425.workers.dev";
-const PERIOD_TAG = process.env.PERIOD_TAG || "2026-10-14";
+const TARGET_PERIODS = process.env.PERIOD_TAG 
+  ? [process.env.PERIOD_TAG] 
+  : ["2026-10-14", "2026-09-10", "2026-08-05", "2026-07-08"];
 
 console.log("=================================================");
 console.log("       FUSOU COMPACTION VERIFICATION SUITE       ");
 console.log("=================================================");
 console.log(`Target: ${BASE_URL}`);
-console.log(`Period: ${PERIOD_TAG}\n`);
+console.log(`Periods to verify: ${TARGET_PERIODS.join(", ")}\n`);
 
 let passedCount = 0;
 let failedCount = 0;
@@ -31,11 +31,11 @@ function assert(condition, testName, details = "") {
   }
 }
 
-async function verifyPeriodConvergence() {
-  console.log("--- 1. Verifying Period File Convergence in D1 ---");
+async function verifyPeriodConvergence(periodTag) {
+  console.log(`--- 1. [${periodTag}] Verifying Period File Convergence in D1 ---`);
   try {
     const raw = execSync(
-      `pnpm --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command "SELECT file_path FROM archived_files WHERE file_path LIKE '%/${PERIOD_TAG}/period/%' AND file_path NOT LIKE 'compacted/%'"`,
+      `pnpm --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command "SELECT file_path FROM archived_files WHERE file_path LIKE '%/${periodTag}/period/%' AND file_path NOT LIKE 'compacted/%'"`,
       { cwd: REPO_ROOT, encoding: "utf-8" }
     );
     const parsed = JSON.parse(raw);
@@ -43,33 +43,34 @@ async function verifyPeriodConvergence() {
 
     assert(files.length > 0, "Period files exist in D1", `Found ${files.length} active period files`);
 
-    // Check that each table has at most ONE period file (e.g. battle-001.avro, but not battle-002.avro)
+    // Check that each table has at most ONE period file per schema version
     const tableCounts = new Map();
     for (const f of files) {
-      const match = f.match(/\/([^/]+)-001\.avro$/) || f.match(/\/([^/]+)\.avro$/);
-      if (match) {
-        const table = match[1];
-        tableCounts.set(table, (tableCounts.get(table) || 0) + 1);
-      }
+      const parts = f.split("/");
+      const version = parts[0];
+      const filename = parts[parts.length - 1];
+      const table = filename.replace(/-\d+\.avro$/, "").replace(/\.avro$/, "");
+      const key = `${version}/${table}`;
+      tableCounts.set(key, (tableCounts.get(key) || 0) + 1);
     }
 
     let converged = true;
-    for (const [table, count] of tableCounts.entries()) {
+    for (const [key, count] of tableCounts.entries()) {
       if (count > 1) {
         converged = false;
-        console.warn(`         Table ${table} has ${count} period files (not converged)!`);
+        console.warn(`         Table ${key} has ${count} period files (not converged)!`);
       }
     }
-    assert(converged, "All tables are converged to a SINGLE period file (no duplicate period files)");
+    assert(converged, "All tables are converged to a SINGLE period file per version");
   } catch (err) {
     assert(false, "Querying D1 archived_files", err.message);
   }
 }
 
-async function verifyDeduplication() {
-  console.log("\n--- 2. Verifying Record Deduplication (1-2 Sorties & Drops) ---");
+async function verifyDeduplication(periodTag) {
+  console.log(`\n--- 2. [${periodTag}] Verifying Record Deduplication (Sorties & Drops) ---`);
   try {
-    const res = await fetch(`${BASE_URL}/api/battle-data/global/overview?period_tag=${PERIOD_TAG}`);
+    const res = await fetch(`${BASE_URL}/api/battle-data/global/overview?period_tag=${periodTag}`);
     const data = await res.json();
     const battles = data.battles || [];
 
@@ -87,18 +88,20 @@ async function verifyDeduplication() {
   }
 }
 
-async function verifySnapshotsAndMasterData() {
-  console.log("\n--- 3. Verifying Snapshots & Master Data Integrity ---");
+async function verifySnapshotsAndMasterData(periodTag) {
+  console.log(`\n--- 3. [${periodTag}] Verifying Snapshots & Master Data Integrity ---`);
   
+  let sampleBattle = null;
   // Overview
   try {
     const t0 = performance.now();
-    const res = await fetch(`${BASE_URL}/api/battle-data/global/overview?period_tag=latest`);
+    const res = await fetch(`${BASE_URL}/api/battle-data/global/overview?period_tag=${periodTag}`);
     const lat = Math.round(performance.now() - t0);
     assert(res.status === 200, "Overview endpoint status is 200", `HTTP ${res.status}`);
     assert(res.headers.get("x-fusou-cache") === "SNAPSHOT-HIT", "Overview cache is SNAPSHOT-HIT", `Cache: ${res.headers.get("x-fusou-cache")}, Latency: ${lat}ms`);
     const json = await res.json();
     assert(Array.isArray(json.battles) && json.battles.length > 0, "Overview contains valid battles list", `Count: ${json.battles?.length}`);
+    sampleBattle = json.battles[0];
   } catch (err) {
     assert(false, "Overview snapshot verification", err.message);
   }
@@ -106,7 +109,7 @@ async function verifySnapshotsAndMasterData() {
   // Drops
   try {
     const t0 = performance.now();
-    const res = await fetch(`${BASE_URL}/api/battle-data/global/drops?period_tag=latest`);
+    const res = await fetch(`${BASE_URL}/api/battle-data/global/drops?period_tag=${periodTag}`);
     const lat = Math.round(performance.now() - t0);
     assert(res.status === 200, "Drops endpoint status is 200", `HTTP ${res.status}`);
     assert(res.headers.get("x-fusou-cache") === "SNAPSHOT-HIT", "Drops cache is SNAPSHOT-HIT", `Cache: ${res.headers.get("x-fusou-cache")}, Latency: ${lat}ms`);
@@ -118,9 +121,10 @@ async function verifySnapshotsAndMasterData() {
 
   // Detail & Master Data check
   try {
-    const testEnvUuid = "01a13a7f-8c80-7002-8deb-a2c53be59e9d";
+    const sampleEnvUuid = sampleBattle?.env_uuid || sampleBattle?.uuid || "01a13a7f-8c80-7002-8deb-a2c53be59e9d";
+    const sampleBattleIndex = sampleBattle?.index ?? 0;
     const t0 = performance.now();
-    const res = await fetch(`${BASE_URL}/api/battle-data/detail?env_uuid=${testEnvUuid}&battle_index=0&period_tag=${PERIOD_TAG}`);
+    const res = await fetch(`${BASE_URL}/api/battle-data/detail?env_uuid=${sampleEnvUuid}&battle_index=${sampleBattleIndex}&period_tag=${periodTag}`);
     const lat = Math.round(performance.now() - t0);
     assert(res.status === 200, "Detail endpoint status is 200", `HTTP ${res.status}`);
     assert(res.headers.get("x-fusou-cache") === "SNAPSHOT-HIT", "Detail cache is SNAPSHOT-HIT", `Cache: ${res.headers.get("x-fusou-cache")}, Latency: ${lat}ms`);
@@ -139,9 +143,9 @@ async function verifySnapshotsAndMasterData() {
 
   // Detail-Env (Sortie-level bundle) check
   try {
-    const testEnvUuid = "01a13a7f-8c80-7002-8deb-a2c53be59e9d";
+    const sampleEnvUuid = sampleBattle?.env_uuid || sampleBattle?.uuid || "01a13a7f-8c80-7002-8deb-a2c53be59e9d";
     const t0 = performance.now();
-    const res = await fetch(`${BASE_URL}/api/battle-data/detail-env?env_uuid=${testEnvUuid}&period_tag=${PERIOD_TAG}`);
+    const res = await fetch(`${BASE_URL}/api/battle-data/detail-env?env_uuid=${sampleEnvUuid}&period_tag=${periodTag}`);
     const lat = Math.round(performance.now() - t0);
     assert(res.status === 200, "Detail-Env endpoint status is 200", `HTTP ${res.status}`);
     assert(res.headers.get("x-fusou-cache") === "SNAPSHOT-HIT", "Detail-Env cache is SNAPSHOT-HIT", `Cache: ${res.headers.get("x-fusou-cache")}, Latency: ${lat}ms`);
@@ -153,12 +157,17 @@ async function verifySnapshotsAndMasterData() {
 }
 
 async function main() {
-  await verifyPeriodConvergence();
-  await verifyDeduplication();
-  await verifySnapshotsAndMasterData();
+  for (const period of TARGET_PERIODS) {
+    console.log(`\n=================================================`);
+    console.log(`>>> VERIFYING PERIOD: ${period}`);
+    console.log(`=================================================`);
+    await verifyPeriodConvergence(period);
+    await verifyDeduplication(period);
+    await verifySnapshotsAndMasterData(period);
+  }
 
   console.log("\n=================================================");
-  console.log(`VERIFICATION SUMMARY: ${passedCount} PASSED, ${failedCount} FAILED`);
+  console.log(`ALL PERIODS VERIFICATION SUMMARY: ${passedCount} PASSED, ${failedCount} FAILED`);
   console.log("=================================================");
 
   if (failedCount > 0) {

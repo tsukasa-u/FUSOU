@@ -116,6 +116,7 @@
     "@astrojs/react": "^6.0.1",
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/solid-js": "^7.0.1",
+    "@aws-sdk/client-s3": "^3.1136.0",
     "@cloudflare/workers-types": "^5.20260722.1",
     "@dotenvx/dotenvx": "^1.59.1",
     "@faker-js/faker": "^10.5.0",

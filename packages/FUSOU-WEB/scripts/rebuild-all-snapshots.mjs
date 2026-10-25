@@ -1,745 +1,12 @@
 // scripts/rebuild-all-snapshots.ts
-import fs from "node:fs";
-import path from "node:path";
 import zlib from "node:zlib";
 import { execSync } from "node:child_process";
+import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { decodeAvroOcfToJson } from "@fusou/compaction-core";
+import { buildOverviewSnapshot, buildDropsSnapshot } from "@fusou/compaction-core";
 
-// ../fusou-compaction-core/dist/avro.js
-var OcfHeaderError = class extends Error {
-  code = "CORRUPT_AVRO";
-  constructor(message) {
-    super(message);
-    this.name = "OcfHeaderError";
-  }
-};
-var AvroOcfError = class extends Error {
-  code;
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-    this.name = "AvroOcfError";
-  }
-};
-var OCF_MAGIC = Uint8Array.of(79, 98, 106, 1);
-var OCF_SYNC_MARKER_LENGTH = 16;
-var MAX_METADATA_ENTRIES = 4096;
-function fail(message) {
-  throw new AvroOcfError("CORRUPT_AVRO", message);
-}
-function readLong(bytes, cursor) {
-  let raw = 0n;
-  for (let index = 0; index < 10; index += 1) {
-    const byte = bytes[cursor.offset];
-    if (byte === void 0) {
-      throw new OcfHeaderError("Avro integer is truncated");
-    }
-    cursor.offset += 1;
-    raw |= BigInt(byte & 127) << BigInt(index * 7);
-    if ((byte & 128) === 0) {
-      const decoded = raw % 2n === 0n ? raw / 2n : -(raw + 1n) / 2n;
-      const value = Number(decoded);
-      if (!Number.isSafeInteger(value)) {
-        throw new OcfHeaderError("Avro integer is outside the safe range");
-      }
-      return value;
-    }
-  }
-  throw new OcfHeaderError("Avro integer is malformed");
-}
-function readDataLong(bytes, cursor) {
-  try {
-    return readLong(bytes, cursor);
-  } catch (error) {
-    if (error instanceof OcfHeaderError) {
-      return fail(error.message);
-    }
-    throw error;
-  }
-}
-function readBytes(bytes, cursor) {
-  const length = readLong(bytes, cursor);
-  if (length < 0 || !Number.isSafeInteger(length)) {
-    throw new OcfHeaderError("Avro byte value has an invalid length");
-  }
-  if (length > bytes.length - cursor.offset) {
-    throw new OcfHeaderError("Avro byte value is truncated");
-  }
-  const end = cursor.offset + length;
-  const value = bytes.slice(cursor.offset, end);
-  cursor.offset = end;
-  return value;
-}
-function readDataBytes(bytes, cursor) {
-  try {
-    return readBytes(bytes, cursor);
-  } catch (error) {
-    if (error instanceof OcfHeaderError) {
-      return fail(error.message);
-    }
-    throw error;
-  }
-}
-function readString(bytes, cursor) {
-  return new TextDecoder().decode(readBytes(bytes, cursor));
-}
-function readMetadata(bytes, cursor) {
-  const metadata = {};
-  let blockCount = readLong(bytes, cursor);
-  let entryCount = 0;
-  while (blockCount !== 0) {
-    if (!Number.isSafeInteger(blockCount)) {
-      throw new OcfHeaderError("OCF metadata block count is invalid");
-    }
-    let blockEnd;
-    if (blockCount < 0) {
-      blockCount = -blockCount;
-      const blockSize = readLong(bytes, cursor);
-      if (blockSize < 0 || blockSize > bytes.length - cursor.offset) {
-        throw new OcfHeaderError("OCF metadata block size is invalid");
-      }
-      blockEnd = cursor.offset + blockSize;
-    }
-    if (blockCount > MAX_METADATA_ENTRIES || blockCount > Math.floor((bytes.length - cursor.offset) / 2)) {
-      throw new OcfHeaderError("OCF metadata block count is unreasonable");
-    }
-    for (let index = 0; index < blockCount; index += 1) {
-      const key = readString(bytes, cursor);
-      const value = readBytes(bytes, cursor);
-      metadata[key] = new TextDecoder().decode(value);
-      entryCount += 1;
-    }
-    if (blockEnd !== void 0 && cursor.offset !== blockEnd) {
-      throw new OcfHeaderError("OCF metadata block size does not match entries");
-    }
-    blockCount = readLong(bytes, cursor);
-  }
-  if (entryCount > MAX_METADATA_ENTRIES) {
-    throw new OcfHeaderError("OCF metadata contains too many entries");
-  }
-  return metadata;
-}
-function parseSchema(value) {
-  if (!value) {
-    throw new OcfHeaderError("OCF header does not contain avro.schema");
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new OcfHeaderError("OCF header schema is not valid JSON");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || parsed.type !== "record" || !Array.isArray(parsed.fields)) {
-    throw new OcfHeaderError("OCF header schema is not a record schema");
-  }
-  for (const field of parsed.fields ?? []) {
-    if (field === null || typeof field !== "object" || typeof field.name !== "string" || !("type" in field)) {
-      throw new OcfHeaderError("OCF header contains an invalid field schema");
-    }
-  }
-  return parsed;
-}
-function parseOcfHeader(bytes) {
-  if (bytes.length < OCF_MAGIC.length || !OCF_MAGIC.every((value, index) => bytes[index] === value)) {
-    throw new OcfHeaderError("OCF magic bytes are invalid");
-  }
-  const cursor = { offset: OCF_MAGIC.length };
-  const metadata = readMetadata(bytes, cursor);
-  const syncEnd = cursor.offset + OCF_SYNC_MARKER_LENGTH;
-  if (syncEnd > bytes.length) {
-    throw new OcfHeaderError("OCF sync marker is truncated");
-  }
-  return {
-    metadata,
-    schema: parseSchema(metadata["avro.schema"]),
-    codec: metadata["avro.codec"] ?? null,
-    syncMarker: bytes.slice(cursor.offset, syncEnd),
-    bodyOffset: syncEnd
-  };
-}
-function fullName(name, namespace) {
-  return name.includes(".") || !namespace ? name : `${namespace}.${name}`;
-}
-function collectNamedSchemas(node, named, namespace) {
-  if (Array.isArray(node) || typeof node === "string") {
-    if (Array.isArray(node)) {
-      for (const item of node)
-        collectNamedSchemas(item, named, namespace);
-    }
-    return;
-  }
-  if (typeof node.type !== "string") {
-    collectNamedSchemas(node.type, named, namespace);
-    return;
-  }
-  if (node.type === "record" || node.type === "enum" || node.type === "fixed") {
-    if (typeof node.name !== "string")
-      return;
-    const name = fullName(node.name, node.namespace);
-    named.set(name, node);
-    named.set(node.name, node);
-    if (node.type === "record") {
-      const childNamespace = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
-      for (const field of node.fields ?? []) {
-        collectNamedSchemas(field.type, named, childNamespace);
-      }
-    }
-    return;
-  }
-  if (node.type === "array" && node.items) {
-    collectNamedSchemas(node.items, named, namespace);
-  } else if (node.type === "map" && node.values) {
-    collectNamedSchemas(node.values, named, namespace);
-  }
-}
-function resolveSchema(node, named) {
-  if (typeof node !== "string")
-    return node;
-  return named.get(node) ?? node;
-}
-function readFloat(bytes, cursor, size) {
-  if (size > bytes.length - cursor.offset) {
-    return fail("Avro floating-point value is truncated");
-  }
-  const view = new DataView(bytes.buffer, bytes.byteOffset + cursor.offset, size);
-  const value = size === 4 ? view.getFloat32(0, true) : view.getFloat64(0, true);
-  cursor.offset += size;
-  return value;
-}
-function readArray(bytes, cursor, itemSchema, named) {
-  const values = [];
-  let blockCount = readDataLong(bytes, cursor);
-  while (blockCount !== 0) {
-    let blockEnd;
-    if (blockCount < 0) {
-      blockCount = -blockCount;
-      const blockSize = readDataLong(bytes, cursor);
-      if (blockSize < 0 || blockSize > bytes.length - cursor.offset) {
-        return fail("Avro array block size is invalid");
-      }
-      blockEnd = cursor.offset + blockSize;
-    }
-    if (!Number.isSafeInteger(blockCount) || blockCount > bytes.length) {
-      return fail("Avro array block count is invalid");
-    }
-    for (let index = 0; index < blockCount; index += 1) {
-      values.push(readValue(bytes, cursor, itemSchema, named));
-    }
-    if (blockEnd !== void 0 && cursor.offset !== blockEnd) {
-      return fail("Avro array block size does not match values");
-    }
-    blockCount = readDataLong(bytes, cursor);
-  }
-  return values;
-}
-function readMap(bytes, cursor, valueSchema, named) {
-  const values = {};
-  let blockCount = readDataLong(bytes, cursor);
-  while (blockCount !== 0) {
-    let blockEnd;
-    if (blockCount < 0) {
-      blockCount = -blockCount;
-      const blockSize = readDataLong(bytes, cursor);
-      if (blockSize < 0 || blockSize > bytes.length - cursor.offset) {
-        return fail("Avro map block size is invalid");
-      }
-      blockEnd = cursor.offset + blockSize;
-    }
-    if (!Number.isSafeInteger(blockCount) || blockCount > bytes.length) {
-      return fail("Avro map block count is invalid");
-    }
-    for (let index = 0; index < blockCount; index += 1) {
-      const key = readString(bytes, cursor);
-      values[key] = readValue(bytes, cursor, valueSchema, named);
-    }
-    if (blockEnd !== void 0 && cursor.offset !== blockEnd) {
-      return fail("Avro map block size does not match values");
-    }
-    blockCount = readDataLong(bytes, cursor);
-  }
-  return values;
-}
-function readValue(bytes, cursor, originalSchema, named) {
-  const schema = resolveSchema(originalSchema, named);
-  if (Array.isArray(schema)) {
-    const branch = readDataLong(bytes, cursor);
-    if (!Number.isSafeInteger(branch) || branch < 0 || branch >= schema.length) {
-      return fail("Avro union branch is invalid");
-    }
-    const branchSchema = schema[branch];
-    if (branchSchema === void 0)
-      return fail("Avro union branch is invalid");
-    return readValue(bytes, cursor, branchSchema, named);
-  }
-  if (typeof schema === "string") {
-    switch (schema) {
-      case "null":
-        return null;
-      case "boolean": {
-        const byte = bytes[cursor.offset];
-        if (byte === void 0)
-          return fail("Avro boolean is truncated");
-        cursor.offset += 1;
-        if (byte !== 0 && byte !== 1)
-          return fail("Avro boolean is invalid");
-        return byte === 1;
-      }
-      case "int":
-      case "long":
-        return readDataLong(bytes, cursor);
-      case "float":
-        return readFloat(bytes, cursor, 4);
-      case "double":
-        return readFloat(bytes, cursor, 8);
-      case "bytes":
-        return readDataBytes(bytes, cursor);
-      case "string":
-        return new TextDecoder().decode(readDataBytes(bytes, cursor));
-      default:
-        return fail(`Unknown Avro named type: ${schema}`);
-    }
-  }
-  if (typeof schema.type !== "string") {
-    return readValue(bytes, cursor, schema.type, named);
-  }
-  if (schema.logicalType) {
-    return readValue(bytes, cursor, schema.type, named);
-  }
-  switch (schema.type) {
-    case "null":
-    case "boolean":
-    case "int":
-    case "long":
-    case "float":
-    case "double":
-    case "bytes":
-    case "string":
-      return readValue(bytes, cursor, schema.type, named);
-    case "record": {
-      const record = {};
-      for (const field of schema.fields ?? []) {
-        record[field.name] = readValue(bytes, cursor, field.type, named);
-      }
-      return record;
-    }
-    case "enum": {
-      const index = readDataLong(bytes, cursor);
-      const symbols = schema.symbols ?? [];
-      if (index < 0 || index >= symbols.length)
-        return fail("Avro enum index is invalid");
-      const symbol = symbols[index];
-      if (symbol === void 0)
-        return fail("Avro enum symbol is missing");
-      return symbol;
-    }
-    case "fixed": {
-      const size = schema.size;
-      if (!Number.isSafeInteger(size) || size === void 0 || size < 0) {
-        return fail("Avro fixed type has an invalid size");
-      }
-      if (size > bytes.length - cursor.offset)
-        return fail("Avro fixed value is truncated");
-      const value = bytes.slice(cursor.offset, cursor.offset + size);
-      cursor.offset += size;
-      return value;
-    }
-    case "array":
-      if (!schema.items)
-        return fail("Avro array type has no items schema");
-      return readArray(bytes, cursor, schema.items, named);
-    case "map":
-      if (!schema.values)
-        return fail("Avro map type has no values schema");
-      return readMap(bytes, cursor, schema.values, named);
-    default:
-      return fail("Avro schema contains an unsupported type");
-  }
-}
-function assertSyncMarker(bytes, offset, syncMarker) {
-  if (syncMarker.length !== OCF_SYNC_MARKER_LENGTH) {
-    return fail("OCF sync marker has an invalid length");
-  }
-  if (syncMarker.length > bytes.length - offset) {
-    return fail("Avro block sync marker is truncated");
-  }
-  for (let index = 0; index < syncMarker.length; index += 1) {
-    if (bytes[offset + index] !== syncMarker[index]) {
-      return fail("Avro block sync marker does not match the OCF header");
-    }
-  }
-}
-function readBlock(bytes, cursor, schema, syncMarker, named, maxRecords, recordFilter, decodedRecords) {
-  const recordCount = readDataLong(bytes, cursor);
-  if (!Number.isSafeInteger(recordCount) || recordCount <= 0) {
-    return fail("Avro block record count is invalid");
-  }
-  const payloadSize = readDataLong(bytes, cursor);
-  if (!Number.isSafeInteger(payloadSize) || payloadSize < 0) {
-    return fail("Avro block payload size is invalid");
-  }
-  if (payloadSize > bytes.length - cursor.offset - syncMarker.length) {
-    return fail("Avro block payload is truncated");
-  }
-  const payloadEnd = cursor.offset + payloadSize;
-  const payload = bytes.subarray(cursor.offset, payloadEnd);
-  const payloadCursor = { offset: 0 };
-  const records = [];
-  for (let index = 0; index < recordCount; index += 1) {
-    if (!recordFilter && maxRecords !== void 0 && decodedRecords.count >= maxRecords) {
-      throw new AvroOcfError("OUT_OF_MEMORY_GUARD", "Avro decoded record count exceeds the configured limit");
-    }
-    const value = readValue(payload, payloadCursor, schema, named);
-    if (value === null || typeof value !== "object" || value instanceof Uint8Array || Array.isArray(value)) {
-      return fail("Avro top-level schema did not produce a record");
-    }
-    const record = value;
-    if (!recordFilter || recordFilter(record)) {
-      if (maxRecords !== void 0 && decodedRecords.count >= maxRecords) {
-        throw new AvroOcfError("OUT_OF_MEMORY_GUARD", "Avro decoded record count exceeds the configured limit");
-      }
-      records.push(record);
-      decodedRecords.count += 1;
-    }
-  }
-  if (payloadCursor.offset !== payload.length) {
-    return fail("Avro block payload has trailing bytes");
-  }
-  assertSyncMarker(bytes, payloadEnd, syncMarker);
-  cursor.offset = payloadEnd + syncMarker.length;
-  return records;
-}
-function parseHeaderForDecoder(header) {
-  try {
-    return parseOcfHeader(header);
-  } catch (error) {
-    if (error instanceof OcfHeaderError) {
-      return fail(error.message);
-    }
-    throw error;
-  }
-}
-function prepareAvroDecoderContext(header) {
-  const parsedHeader = header instanceof Uint8Array ? parseHeaderForDecoder(header) : header;
-  const schema = parsedHeader.schema;
-  const named = /* @__PURE__ */ new Map();
-  collectNamedSchemas(schema, named);
-  return {
-    header: parsedHeader,
-    schema,
-    named
-  };
-}
-function resolveDecoderContext(headerOrContext) {
-  if ("named" in headerOrContext && headerOrContext.named instanceof Map) {
-    return headerOrContext;
-  }
-  return prepareAvroDecoderContext(headerOrContext);
-}
-function decodeNullBody(headerOrContext, body, options = {}) {
-  const { header, schema, named } = resolveDecoderContext(headerOrContext);
-  const cursor = { offset: 0 };
-  const records = [];
-  const decodedRecords = { count: 0 };
-  while (cursor.offset < body.length) {
-    records.push(...readBlock(body, cursor, schema, header.syncMarker, named, options.maxRecords, options.recordFilter, decodedRecords));
-  }
-  return records;
-}
-function decodeAvroOcfToJson(avroBytes, options = {}) {
-  const header = parseHeaderForDecoder(avroBytes);
-  const codec = header.codec ?? "null";
-  if (codec !== "null") {
-    throw new AvroOcfError("UNSUPPORTED_CODEC", `Unsupported Avro codec: ${codec}`);
-  }
-  return decodeNullBody(header, avroBytes.slice(header.bodyOffset), options);
-}
-
-// ../fusou-compaction-core/dist/snapshots.js
-function normalizeEpochMs(raw) {
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return raw < 1e12 ? raw * 1e3 : raw;
-  }
-  if (typeof raw === "string") {
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) ? parsed < 1e12 ? parsed * 1e3 : parsed : null;
-  }
-  return null;
-}
-function normalizeBattleResult(raw) {
-  if (!raw || typeof raw !== "object")
-    return null;
-  const obj = raw;
-  const winRank = typeof obj["win_rank"] === "string" ? obj["win_rank"] : null;
-  if (!winRank)
-    return null;
-  let mvpIndexes = void 0;
-  if (Array.isArray(obj["mvp_ship_indexes"])) {
-    mvpIndexes = obj["mvp_ship_indexes"].map(Number).filter((n) => Number.isSafeInteger(n) && n >= 0);
-  } else {
-    const rawMvp = Number(obj["api_mvp"] ?? obj["mvp"]);
-    if (Number.isSafeInteger(rawMvp) && rawMvp > 0) {
-      mvpIndexes = [rawMvp - 1];
-    }
-  }
-  const dropShipId = typeof obj["drop_ship_id"] === "number" && Number.isSafeInteger(obj["drop_ship_id"]) && obj["drop_ship_id"] > 0 ? obj["drop_ship_id"] : null;
-  return {
-    ...obj,
-    win_rank: winRank,
-    drop_ship_id: dropShipId,
-    ...mvpIndexes !== void 0 ? { mvp_ship_indexes: mvpIndexes } : {}
-  };
-}
-function buildOverviewSnapshot(sorties, options) {
-  const maxBattles = options?.maxBattles ?? 500;
-  const periodTag = options?.periodTag ?? sorties[0]?.period_tag ?? "latest";
-  const sortedSorties = [...sorties].sort((a, b) => b.timestamp - a.timestamp);
-  const snapshotBattles = [];
-  const snapshotCells = [];
-  const snapshotEnemyDecks = [];
-  const snapshotEnemyShips = [];
-  const seenDeckUuids = /* @__PURE__ */ new Set();
-  const seenShipUuids = /* @__PURE__ */ new Set();
-  const includedEnvUuids = /* @__PURE__ */ new Set();
-  for (const sortie of sortedSorties) {
-    if (snapshotBattles.length >= maxBattles)
-      break;
-    const resultByUuid = /* @__PURE__ */ new Map();
-    const resultByIndex = /* @__PURE__ */ new Map();
-    for (const br of sortie.battleResults) {
-      const u = typeof br["uuid"] === "string" ? br["uuid"] : "";
-      if (u)
-        resultByUuid.set(u, br);
-      const idx = typeof br["index"] === "number" && Number.isFinite(br["index"]) ? br["index"] : null;
-      if (idx !== null)
-        resultByIndex.set(idx, br);
-    }
-    const deckById = /* @__PURE__ */ new Map();
-    if (Array.isArray(sortie.enemyDecks)) {
-      for (const d of sortie.enemyDecks) {
-        const u = typeof d["uuid"] === "string" ? d["uuid"] : "";
-        if (u)
-          deckById.set(u, d);
-      }
-    }
-    const cellByBattleUuid = /* @__PURE__ */ new Map();
-    for (const cell of sortie.cells) {
-      const bRef = cell["battles"];
-      if (typeof bRef === "string" && bRef) {
-        cellByBattleUuid.set(bRef, cell);
-      } else if (Array.isArray(bRef)) {
-        for (const u of bRef) {
-          if (typeof u === "string" && u) {
-            cellByBattleUuid.set(u, cell);
-          }
-        }
-      }
-    }
-    const firstCell = sortie.cells[0];
-    let sortieBattleIdx = 0;
-    for (const battle of sortie.battles) {
-      if (snapshotBattles.length >= maxBattles)
-        break;
-      const rawIndex = battle["index"];
-      const battleIndex = typeof rawIndex === "number" && Number.isFinite(rawIndex) ? rawIndex : sortieBattleIdx;
-      sortieBattleIdx++;
-      const battleUuid = typeof battle["uuid"] === "string" ? battle["uuid"] : "";
-      const brRef = battle["battle_result"];
-      const rawResult = typeof brRef === "object" && brRef !== null ? brRef : (typeof brRef === "string" ? resultByUuid.get(brRef) : null) || resultByUuid.get(battleUuid) || resultByIndex.get(battleIndex) || null;
-      const normalizedResult = normalizeBattleResult(rawResult);
-      let cell = cellByBattleUuid.get(battleUuid);
-      if (!cell) {
-        for (const c of sortie.cells) {
-          if (Array.isArray(c["battle_index"]) && c["battle_index"].map(Number).includes(battleIndex)) {
-            cell = c;
-            break;
-          }
-        }
-      }
-      let derivedCellId = null;
-      if (cell && Array.isArray(cell["battle_index"]) && Array.isArray(cell["cell_index"])) {
-        const pos = cell["battle_index"].map(Number).indexOf(battleIndex);
-        if (pos >= 0 && pos < cell["cell_index"].length) {
-          const cid = Number(cell["cell_index"][pos]);
-          if (Number.isFinite(cid))
-            derivedCellId = cid;
-        }
-      }
-      const rawCellId = battle["cell_id"] ?? derivedCellId ?? cell?.["cell_id"] ?? cell?.["event_id"] ?? NaN;
-      const cellId = Number(rawCellId);
-      if (!Number.isFinite(cellId))
-        continue;
-      const mapareaId = Number(battle["maparea_id"] ?? cell?.["maparea_id"] ?? firstCell?.["maparea_id"] ?? NaN);
-      const mapinfoNo = Number(battle["mapinfo_no"] ?? cell?.["mapinfo_no"] ?? firstCell?.["mapinfo_no"] ?? NaN);
-      const normalizedTs = normalizeEpochMs(battle["timestamp"]) ?? normalizeEpochMs(battle["midnight_timestamp"]) ?? normalizeEpochMs(sortie.timestamp) ?? Date.now();
-      const enemyDeckId = battle["e_deck_id"] != null ? String(battle["e_deck_id"]).trim() : "";
-      const matchedDeck = enemyDeckId ? deckById.get(enemyDeckId) : null;
-      const enemySummary = typeof battle["enemy_summary"] === "string" && battle["enemy_summary"] ? battle["enemy_summary"] : typeof matchedDeck?.["name"] === "string" ? matchedDeck["name"] : void 0;
-      snapshotBattles.push({
-        ...battle,
-        index: battleIndex,
-        cell_id: cellId,
-        timestamp: normalizedTs,
-        env_uuid: sortie.env_uuid,
-        maparea_id: Number.isFinite(mapareaId) ? mapareaId : null,
-        mapinfo_no: Number.isFinite(mapinfoNo) ? mapinfoNo : null,
-        battle_result: normalizedResult,
-        ...enemySummary ? { enemy_summary: enemySummary } : {}
-      });
-      includedEnvUuids.add(sortie.env_uuid);
-    }
-    if (includedEnvUuids.has(sortie.env_uuid)) {
-      if (Array.isArray(sortie.enemyDecks)) {
-        for (const deck of sortie.enemyDecks) {
-          const u = String(deck["uuid"] || "");
-          if (!u || !seenDeckUuids.has(u)) {
-            if (u)
-              seenDeckUuids.add(u);
-            snapshotEnemyDecks.push(deck);
-          }
-        }
-      }
-      if (Array.isArray(sortie.enemyShips)) {
-        for (const ship of sortie.enemyShips) {
-          const u = String(ship["uuid"] || "");
-          if (!u || !seenShipUuids.has(u)) {
-            if (u)
-              seenShipUuids.add(u);
-            snapshotEnemyShips.push(ship);
-          }
-        }
-      }
-      for (const cell of sortie.cells) {
-        snapshotCells.push({
-          ...cell,
-          env_uuid: sortie.env_uuid
-        });
-      }
-    }
-  }
-  if (Array.isArray(options?.existingEnemyDecks)) {
-    for (const deck of options.existingEnemyDecks) {
-      const u = String(deck["uuid"] || "");
-      if (!u || !seenDeckUuids.has(u)) {
-        if (u)
-          seenDeckUuids.add(u);
-        snapshotEnemyDecks.push(deck);
-      }
-    }
-  }
-  if (Array.isArray(options?.existingEnemyShips)) {
-    for (const ship of options.existingEnemyShips) {
-      const u = String(ship["uuid"] || "");
-      if (!u || !seenShipUuids.has(u)) {
-        if (u)
-          seenShipUuids.add(u);
-        snapshotEnemyShips.push(ship);
-      }
-    }
-  }
-  return {
-    success: true,
-    period_tag: periodTag,
-    table_version: sorties[0]?.table_version ?? null,
-    snapshot_timestamp: Date.now(),
-    battles: snapshotBattles,
-    cells: snapshotCells,
-    enemy_decks: snapshotEnemyDecks,
-    enemy_ships: snapshotEnemyShips
-  };
-}
-function buildDropsSnapshot(sorties, options) {
-  const maxBattles = options?.maxBattles ?? 1e3;
-  const periodTag = options?.periodTag ?? sorties[0]?.period_tag ?? "latest";
-  const overview = buildOverviewSnapshot(sorties, { maxBattles, periodTag });
-  return {
-    success: true,
-    period_tag: periodTag,
-    table_version: overview.table_version ?? null,
-    snapshot_timestamp: overview.snapshot_timestamp,
-    battles: overview.battles,
-    mst_ships: []
-  };
-}
-
-// ../../node_modules/.pnpm/nanostores@1.1.0/node_modules/nanostores/clean-stores/index.js
-var clean = /* @__PURE__ */ Symbol("clean");
-
-// ../../node_modules/.pnpm/nanostores@1.1.0/node_modules/nanostores/atom/index.js
-var listenerQueue = [];
-var lqIndex = 0;
-var QUEUE_ITEMS_PER_LISTENER = 4;
-var epoch = 0;
-var atom = /* @__NO_SIDE_EFFECTS__ */ (initialValue) => {
-  let listeners = [];
-  let $atom = {
-    get() {
-      if (!$atom.lc) {
-        $atom.listen(() => {
-        })();
-      }
-      return $atom.value;
-    },
-    lc: 0,
-    listen(listener) {
-      $atom.lc = listeners.push(listener);
-      return () => {
-        for (let i = lqIndex + QUEUE_ITEMS_PER_LISTENER; i < listenerQueue.length; ) {
-          if (listenerQueue[i] === listener) {
-            listenerQueue.splice(i, QUEUE_ITEMS_PER_LISTENER);
-          } else {
-            i += QUEUE_ITEMS_PER_LISTENER;
-          }
-        }
-        let index = listeners.indexOf(listener);
-        if (~index) {
-          listeners.splice(index, 1);
-          if (!--$atom.lc) $atom.off();
-        }
-      };
-    },
-    notify(oldValue, changedKey) {
-      epoch++;
-      let runListenerQueue = !listenerQueue.length;
-      for (let listener of listeners) {
-        listenerQueue.push(listener, $atom.value, oldValue, changedKey);
-      }
-      if (runListenerQueue) {
-        for (lqIndex = 0; lqIndex < listenerQueue.length; lqIndex += QUEUE_ITEMS_PER_LISTENER) {
-          listenerQueue[lqIndex](
-            listenerQueue[lqIndex + 1],
-            listenerQueue[lqIndex + 2],
-            listenerQueue[lqIndex + 3]
-          );
-        }
-        listenerQueue.length = 0;
-      }
-    },
-    /* It will be called on last listener unsubscribing.
-       We will redefine it in onMount and onStop. */
-    off() {
-    },
-    set(newValue) {
-      let oldValue = $atom.value;
-      if (oldValue !== newValue) {
-        $atom.value = newValue;
-        $atom.notify(oldValue);
-      }
-    },
-    subscribe(listener) {
-      let unbind = $atom.listen(listener);
-      listener($atom.value);
-      return unbind;
-    },
-    value: initialValue
-  };
-  if (process.env.NODE_ENV !== "production") {
-    $atom[clean] = () => {
-      listeners = [];
-      $atom.lc = 0;
-      $atom.off();
-    };
-  }
-  return $atom;
-};
+// src/features/simulator/state.ts
+import { atom } from "nanostores";
 
 // src/features/simulator/types.ts
 function emptyFleetSlot() {
@@ -967,13 +234,13 @@ function countValidHps(snapshot) {
 
 // src/features/battles/resolvers/indexes.ts
 function normalizeTimestamp(value) {
-  const normalizeEpochMs2 = (raw) => raw < 1e12 ? raw * 1e3 : raw;
+  const normalizeEpochMs = (raw) => raw < 1e12 ? raw * 1e3 : raw;
   if (typeof value === "number" && Number.isFinite(value)) {
-    return normalizeEpochMs2(value);
+    return normalizeEpochMs(value);
   }
   if (typeof value === "string") {
     const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? normalizeEpochMs2(parsed) : null;
+    return Number.isFinite(parsed) ? normalizeEpochMs(parsed) : null;
   }
   return null;
 }
@@ -1393,49 +660,67 @@ function resolveBattleDetail(options) {
 }
 
 // scripts/rebuild-all-snapshots.ts
-async function rebuildAllSnapshots(options) {
-  const periodTag = options?.periodTag || "2026-10-14";
-  const tableVersion = options?.tableVersion || "0.6.0";
-  const bucketName = "dev-kc-battle-data";
-  console.log(`[rebuild-snapshots] Rebuilding all snapshots for period: ${periodTag}, tableVersion: ${tableVersion}`);
-  console.log("[rebuild-snapshots] Fetching master data...");
-  const base = "https://fusou.ogu-hide-u-425.workers.dev";
-  const [shipRes, slotRes] = await Promise.all([
-    fetch(`${base}/api/master-data/json?table_name=mst_ship`),
-    fetch(`${base}/api/master-data/json?table_name=mst_slotitem`)
-  ]);
-  const shipJson = await shipRes.json();
-  const slotJson = await slotRes.json();
-  const masterShips = shipJson.records || [];
-  const masterSlotItems = slotJson.records || [];
-  console.log(`[rebuild-snapshots] Loaded ${masterShips.length} master ships and ${masterSlotItems.length} master slot items.`);
-  if (masterShips.length === 0 || masterSlotItems.length === 0) {
-    throw new Error("Master data could not be fetched or is empty!");
+function getS3Client() {
+  const endpoint = process.env["R2_S3_ENDPOINT"];
+  const accessKeyId = process.env["R2_ACCESS_KEY_ID"] || "";
+  const secretAccessKey = process.env["R2_SECRET_ACCESS_KEY"] || "";
+  return new S3Client({
+    region: "auto",
+    ...endpoint ? { endpoint } : {},
+    credentials: { accessKeyId, secretAccessKey }
+  });
+}
+async function streamToBuffer(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
-  console.log("[rebuild-snapshots] Finding period Avro files in D1...");
+  return Buffer.concat(chunks);
+}
+async function pMap(items, fn, concurrency = 15) {
+  const results = new Array(items.length);
+  let nextIdx = 0;
+  async function worker() {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+async function rebuildSnapshotsForPeriod(options) {
+  const { periodTag, masterShips, masterSlotItems, s3, bucketName } = options;
+  const tableVersion = options.tableVersion || "0.6.0";
+  console.log("\n========================================================");
+  console.log("[rebuild-snapshots] Processing period: " + periodTag + " (version: " + tableVersion + ")");
+  console.log("========================================================");
   const d1Output = execSync(
-    `pnpm --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command "SELECT file_path FROM archived_files WHERE file_path LIKE '%/${periodTag}/period/%' AND file_path NOT LIKE 'compacted/%'"`,
+    `pnpm --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command "SELECT file_path FROM archived_files WHERE file_path LIKE '%/` + periodTag + `/period/%' AND file_path NOT LIKE 'compacted/%'"`,
     { encoding: "utf-8" }
   );
   const d1Parsed = JSON.parse(d1Output);
   const filePaths = (d1Parsed[0]?.results || []).map((r) => r.file_path);
-  console.log(`[rebuild-snapshots] Found ${filePaths.length} period files for ${periodTag}.`);
-  const tempDir = path.resolve("./temp_rebuild_snapshots");
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-  const tableRecords = {};
-  for (const fp of filePaths) {
-    const match = fp.match(/\/([^/]+)-001\.avro$/) || fp.match(/\/([^/]+)\.avro$/);
-    if (!match) continue;
-    const tableName = match[1];
-    const localFile = path.join(tempDir, `${tableName}.avro`);
-    execSync(
-      `pnpm --filter fusou-web exec wrangler r2 object get ${bucketName}/${fp} --file ${localFile} --remote`,
-      { stdio: "ignore" }
-    );
-    const buf = fs.readFileSync(localFile);
-    tableRecords[tableName] = decodeAvroOcfToJson(buf);
-    fs.unlinkSync(localFile);
+  console.log("[rebuild-snapshots] Found " + filePaths.length + " active period files for " + periodTag + ".");
+  if (filePaths.length === 0) {
+    console.warn("[rebuild-snapshots] No period files found for " + periodTag + ", skipping.");
+    return;
   }
+  console.log("[rebuild-snapshots] Downloading and decoding " + filePaths.length + " tables via S3 API...");
+  const tableRecords = {};
+  await pMap(filePaths, async (fp) => {
+    const match = fp.match(/\/([^/]+)-001\.avro$/) || fp.match(/\/([^/]+)\.avro$/);
+    if (!match) return;
+    const tableName = match[1];
+    try {
+      const obj = await s3.send(new GetObjectCommand({ Bucket: bucketName, Key: fp }));
+      const buf = await streamToBuffer(obj.Body);
+      tableRecords[tableName] = decodeAvroOcfToJson(new Uint8Array(buf));
+    } catch (err) {
+      console.warn("[rebuild-snapshots] Warning: could not download/decode " + fp + ": " + err.message);
+    }
+  }, 10);
   const detailTables = {
     battle: tableRecords["battle"] || [],
     cells: tableRecords["cells"] || [],
@@ -1469,8 +754,13 @@ async function rebuildAllSnapshots(options) {
     destructionBattle: tableRecords["destruction_battle"] || []
   };
   const battles = detailTables.battle;
+  console.log("[rebuild-snapshots] Period " + periodTag + " has " + battles.length + " battles.");
+  if (battles.length === 0) {
+    console.log("[rebuild-snapshots] No battles found for " + periodTag + ", skipping snapshot generation.");
+    return;
+  }
   const uniqueEnvUuids = Array.from(new Set(battles.map((b) => String(b.env_uuid || "")).filter(Boolean)));
-  console.log(`[rebuild-snapshots] Processing ${uniqueEnvUuids.length} unique sorties...`);
+  console.log("[rebuild-snapshots] Processing " + uniqueEnvUuids.length + " unique sorties...");
   const uploadTasks = [];
   for (const envUuid of uniqueEnvUuids) {
     const envBattles = battles.filter((b) => b.env_uuid === envUuid).sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
@@ -1492,12 +782,11 @@ async function rebuildAllSnapshots(options) {
         const battleBr = zlib.brotliCompressSync(Buffer.from(battleJson, "utf-8"), {
           params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 6 }
         });
-        const battleFile = path.join(tempDir, `${envUuid}_${battleIndex}.json.br`);
-        fs.writeFileSync(battleFile, battleBr);
-        uploadTasks.push(
-          { key: `snapshots/detail/${periodTag}/${envUuid}_${battleIndex}.json.br`, localFile: battleFile },
-          { key: `snapshots/detail/latest/${envUuid}_${battleIndex}.json.br`, localFile: battleFile }
-        );
+        uploadTasks.push({
+          key: "snapshots/detail/" + periodTag + "/" + envUuid + "_" + battleIndex + ".json.br",
+          buffer: battleBr,
+          contentType: "application/json"
+        });
       }
     }
     const bundle = {
@@ -1512,14 +801,13 @@ async function rebuildAllSnapshots(options) {
     const bundleBr = zlib.brotliCompressSync(Buffer.from(bundleJson, "utf-8"), {
       params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 6 }
     });
-    const bundleFile = path.join(tempDir, `${envUuid}_bundle.json.br`);
-    fs.writeFileSync(bundleFile, bundleBr);
-    uploadTasks.push(
-      { key: `snapshots/env_detail/${periodTag}/${envUuid}.json.br`, localFile: bundleFile },
-      { key: `snapshots/env_detail/latest/${envUuid}.json.br`, localFile: bundleFile }
-    );
+    uploadTasks.push({
+      key: "snapshots/env_detail/" + periodTag + "/" + envUuid + ".json.br",
+      buffer: bundleBr,
+      contentType: "application/json"
+    });
   }
-  console.log("[rebuild-snapshots] Building Overview and Drops snapshots...");
+  console.log("[rebuild-snapshots] Building Overview and Drops snapshots for " + periodTag + "...");
   const sortiesForOverview = uniqueEnvUuids.map((envUuid) => {
     const sBattles = battles.filter((b) => b.env_uuid === envUuid);
     const sCells = detailTables.cells.filter((c) => c.env_uuid === envUuid);
@@ -1544,42 +832,80 @@ async function rebuildAllSnapshots(options) {
   const overviewBr = zlib.brotliCompressSync(Buffer.from(overviewJson, "utf-8"), {
     params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 6 }
   });
-  const overviewFile = path.join(tempDir, "overview.json.br");
-  fs.writeFileSync(overviewFile, overviewBr);
   const dropsPayload = buildDropsSnapshot(sortiesForOverview, { periodTag });
   dropsPayload.mst_ships = masterShips;
   const dropsJson = JSON.stringify(dropsPayload);
   const dropsBr = zlib.brotliCompressSync(Buffer.from(dropsJson, "utf-8"), {
     params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 6 }
   });
-  const dropsFile = path.join(tempDir, "drops.json.br");
-  fs.writeFileSync(dropsFile, dropsBr);
   uploadTasks.push(
-    { key: `snapshots/overview/${periodTag}/latest.json.br`, localFile: overviewFile },
-    { key: `snapshots/overview/latest/latest.json.br`, localFile: overviewFile },
-    { key: `snapshots/drops/${periodTag}/latest.json.br`, localFile: dropsFile },
-    { key: `snapshots/drops/latest/latest.json.br`, localFile: dropsFile }
+    { key: "snapshots/overview/" + periodTag + ".json.br", buffer: overviewBr, contentType: "application/json" },
+    { key: "snapshots/drops/" + periodTag + ".json.br", buffer: dropsBr, contentType: "application/json" }
   );
-  console.log(`[rebuild-snapshots] Uploading ${uploadTasks.length} snapshot files to R2 bucket ${bucketName}...`);
-  for (let i = 0; i < uploadTasks.length; i++) {
-    const task = uploadTasks[i];
-    execSync(
-      `pnpm --filter fusou-web exec wrangler r2 object put ${bucketName}/${task.key} --file ${task.localFile} --remote`,
-      { stdio: "ignore" }
-    );
-    if ((i + 1) % 20 === 0 || i === uploadTasks.length - 1) {
-      console.log(`[rebuild-snapshots] Uploaded ${i + 1}/${uploadTasks.length} files...`);
+  console.log("[rebuild-snapshots] Uploading " + uploadTasks.length + " snapshot objects via S3 API (concurrency: 20)...");
+  let uploadedCount = 0;
+  await pMap(uploadTasks, async (task) => {
+    await s3.send(new PutObjectCommand({
+      Bucket: bucketName,
+      Key: task.key,
+      Body: task.buffer,
+      ContentType: task.contentType,
+      ContentEncoding: "br"
+    }));
+    uploadedCount++;
+    if (uploadedCount % 50 === 0 || uploadedCount === uploadTasks.length) {
+      console.log("[rebuild-snapshots] " + periodTag + ": uploaded " + uploadedCount + "/" + uploadTasks.length + " objects...");
+    }
+  }, 20);
+  console.log("[rebuild-snapshots] Period " + periodTag + " complete! (" + uploadTasks.length + " objects created, 0 latest aliases)");
+}
+async function rebuildAllPeriods() {
+  const bucketName = process.env["R2_BUCKET"] || "dev-kc-battle-data";
+  const s3 = getS3Client();
+  console.log("[rebuild-all] Fetching master data...");
+  const base = "https://fusou.ogu-hide-u-425.workers.dev";
+  const [shipRes, slotRes] = await Promise.all([
+    fetch(base + "/api/master-data/json?table_name=mst_ship"),
+    fetch(base + "/api/master-data/json?table_name=mst_slotitem")
+  ]);
+  const shipJson = await shipRes.json();
+  const slotJson = await slotRes.json();
+  const masterShips = shipJson.records || [];
+  const masterSlotItems = slotJson.records || [];
+  console.log("[rebuild-all] Loaded " + masterShips.length + " master ships, " + masterSlotItems.length + " master slot items.");
+  console.log("[rebuild-all] Querying D1 for all periods with battle records...");
+  const d1Raw = execSync(
+    `pnpm --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command "SELECT period_tag, table_version, SUM(record_count) as count FROM block_indexes WHERE table_name = 'battle' GROUP BY period_tag, table_version HAVING SUM(record_count) > 0 ORDER BY period_tag DESC"`,
+    { encoding: "utf-8" }
+  );
+  const parsed = JSON.parse(d1Raw);
+  const periods = parsed[0]?.results || [];
+  console.log("[rebuild-all] Found " + periods.length + " periods with battle data:", periods.map((p) => p.period_tag + " (" + p.count + " battles)"));
+  for (const p of periods) {
+    try {
+      await rebuildSnapshotsForPeriod({
+        periodTag: p.period_tag,
+        tableVersion: p.table_version,
+        masterShips,
+        masterSlotItems,
+        s3,
+        bucketName
+      });
+    } catch (err) {
+      console.error("[rebuild-all] Error processing period " + p.period_tag + ":", err);
     }
   }
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  console.log("[rebuild-snapshots] All snapshots rebuilt and uploaded successfully!");
+  console.log("\n========================================================");
+  console.log("[rebuild-all] All periods processed successfully!");
+  console.log("========================================================\n");
 }
 if (process.argv[1]?.includes("rebuild-all-snapshots")) {
-  rebuildAllSnapshots().catch((err) => {
-    console.error("[rebuild-snapshots] Failed:", err);
+  rebuildAllPeriods().catch((err) => {
+    console.error("[rebuild-all] Fatal error:", err);
     process.exit(1);
   });
 }
 export {
-  rebuildAllSnapshots
+  rebuildAllPeriods,
+  rebuildSnapshotsForPeriod
 };
