@@ -34,13 +34,17 @@ test("verified partial outputs survive missing Worker and independent external i
   delete f.options.publicInputsBytes;
   const result = await consumeReleaseRun(f.options, f.dependencies);
   assert.equal(result.build_status, "BUILD_OUTPUTS_VERIFIED");
-  assert.equal(result.status, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(result.status, "BLOCKED_IMPLEMENTATION");
   assert.deepEqual(result.blockers, ["ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING", "PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING"]);
   assert.equal(result.manifest_base64url, undefined);
   const build = verifyProducerBuild({ run: f.run, eligibility: f.eligibility, files: f.files,
     origin: { ...f.metadata(), run_id: 30, workflow_sha: f.run.head_sha } });
   await assert.rejects(assembleReleaseManifest({ eligibility: f.eligibility, run: f.run, build, files: f.files }),
     /ACTUAL_WORKER_BUNDLE/);
+  const g = consumerFixture(); delete g.options.publicInputsBytes;
+  const external = await consumeReleaseRun(g.options, g.dependencies);
+  assert.equal(external.status, "BLOCKED_EXTERNAL_INPUTS");
+  assert.deepEqual(external.blockers, ["PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING"]);
 });
 test("foreign/failed runs, wrong attempts, non-main producer and missing API values fail closed", async () => {
   for (const mutate of [
@@ -176,7 +180,7 @@ test("real crypto adapter never accepts the unsigned synthetic fixture; check PA
   const result = await consumeReleaseRun(f.options, {
     transport: f.dependencies.transport, verifyRuntimeEnvelope: f.dependencies.verifyRuntimeEnvelope,
   });
-  assert.equal(result.status, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(result.status, "BLOCKED_IMPLEMENTATION");
   assert.deepEqual(result.blockers, ["INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED"]);
   const g = consumerFixture(); g.files.delete("check-archive_readback.json"); g.sync();
   assert.equal((await consumeReleaseRun(g.options, g.dependencies)).blockers[0], "REQUIRED_RELEASE_CHECK_RECORDS_MISSING");

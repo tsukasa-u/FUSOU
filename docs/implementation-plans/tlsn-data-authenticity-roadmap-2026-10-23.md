@@ -797,6 +797,8 @@ and exact source/run/attempt/workflow context. A PASS record plus a hash is not
 an offline-verifier or archive execution receipt: the independent check
 execution adapter is **NOT_IMPLEMENTED** and the default route explicitly
 blocks with `INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED`.
+Missing implementation is classified as `BLOCKED_IMPLEMENTATION`, separately
+from `BLOCKED_EXTERNAL_INPUTS`; supplying public pins cannot repair missing code.
 The older Production verification entry also now requires a trusted check
 executor. Only synthetic tests inject mock crypto/check executors.
 

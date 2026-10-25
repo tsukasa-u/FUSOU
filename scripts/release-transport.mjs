@@ -26,7 +26,9 @@ export async function packProducerTransport(report, readOutput) {
   return encodeReleaseTransport(files);
 }
 export class ReleaseBlocked extends Error {
-  constructor(code) { super(code); this.name = "ReleaseBlocked"; this.code = code; }
+  constructor(code, status = "BLOCKED_EXTERNAL_INPUTS") {
+    super(code); this.name = "ReleaseBlocked"; this.code = code; this.status = status;
+  }
 }
 export function encodeReleaseTransport(files) {
   requireRelease(files instanceof Map && files.size > 0 && files.size <= 64, "transport file inventory");

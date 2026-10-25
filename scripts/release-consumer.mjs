@@ -18,7 +18,7 @@ async function verifyRuntime(raw, verification) {
   return verifyTlsnRuntimeConfigProductionEnvelope(raw, verification);
 }
 function unavailableChecks() {
-  throw new ReleaseBlocked("INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED");
+  throw new ReleaseBlocked("INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED", "BLOCKED_IMPLEMENTATION");
 }
 export function parseConsumerInputs(raw, pin, nowMs = Date.now()) {
   if (raw === undefined || !pin) throw new ReleaseBlocked("PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING");
@@ -41,7 +41,7 @@ export function parseConsumerInputs(raw, pin, nowMs = Date.now()) {
 export async function assembleReleaseManifest({ eligibility, run, build, files, inputs },
   { verifyRuntimeEnvelope = verifyRuntime, verifyCheckEvidence = unavailableChecks } = {}) {
   const workers = build.artifacts.filter((a) => a.role === "worker");
-  if (workers.length !== 1) throw new ReleaseBlocked("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING");
+  if (workers.length !== 1) throw new ReleaseBlocked("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING", "BLOCKED_IMPLEMENTATION");
   const platforms = build.artifacts.filter((a) => a.role === "app").map((a) => a.platform).sort();
   requireRelease(canonicalJson(platforms) === canonicalJson([...inputs.required_app_platforms].sort()), "required APP platform inventory");
   const envelope = inputs.runtime_envelope, verification = inputs.verification;
@@ -145,7 +145,10 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     }
     const build = verifyProducerBuild({ run, ...downloaded, eligibility });
     result.build_status = "BUILD_OUTPUTS_VERIFIED";
-    if (!build.artifacts.some((a) => a.role === "worker")) result.blockers.push("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING");
+    if (!build.artifacts.some((a) => a.role === "worker")) {
+      result.status = "BLOCKED_IMPLEMENTATION";
+      result.blockers.push("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING");
+    }
     let inputs;
     if (!publicInputsBytes || !publicInputsSha256) result.blockers.push("PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING");
     else inputs = parseConsumerInputs(publicInputsBytes, publicInputsSha256, nowMs);
@@ -159,6 +162,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
   } catch (error) {
     if (!(error instanceof ReleaseBlocked)) throw error;
     if (finalRecheck) await finalRecheck();
+    result.status = error.status;
     result.blockers.push(error.code);
     return result;
   }
