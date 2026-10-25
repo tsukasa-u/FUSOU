@@ -574,6 +574,71 @@ describe("battle-data route integration", () => {
 		expect(extractTimestampFromUuidV7("not-a-uuid")).toBeNull();
 	});
 
+	it("serves detail from env_detail bundled snapshot even with period_tag=all", async () => {
+		const targetEnvUuid = "01a07619-84b8-7003-96a5-fbdccfa41494";
+		const bundlePayload = {
+			success: true,
+			period_tag: "2026-08-05",
+			table_version: "0.6.0",
+			battles: {
+				"2": {
+					success: true,
+					period_tag: "2026-08-05",
+					table_version: "0.6.0",
+					battle: { index: 2, timestamp: 1788687779000 },
+					refs: {
+						mst_ship: [{ id: 541, name: "夕張改二特" }],
+						mst_slotitem: [{ id: 40, name: "12.7cm連装砲B型改二" }],
+					},
+					derived: {
+						friendly_fleet: [{ shipId: 541, name: "夕張改二特" }],
+						enemy_fleet: [{ shipId: 1505, name: "軽巡ホ級" }],
+					},
+				},
+			},
+		};
+
+		const bucket = {
+			get: async (key: string) => {
+				if (key === "snapshots/env_detail/2026-08-05/" + targetEnvUuid + ".json.br") {
+					const jsonStr = JSON.stringify(bundlePayload);
+					return {
+						arrayBuffer: async () => Buffer.from(jsonStr, "utf-8"),
+						httpEtag: "test-etag",
+					};
+				}
+				return null;
+			},
+		};
+
+		const d1 = {
+			prepare: (sql: string) => ({
+				bind: (...args: unknown[]) => ({
+					first: async () => {
+						if (sql.includes("start_timestamp <= ?")) {
+							return { period_tag: "2026-08-05" };
+						}
+						return { period_tag: "2026-10-14" };
+					},
+				}),
+			}),
+		};
+
+		const res = await request(
+			"/detail?env_uuid=" + targetEnvUuid + "&battle_index=2&period_tag=all",
+			{
+				BATTLE_DATA_BUCKET: bucket,
+				BATTLE_INDEX_DB: d1,
+			},
+		);
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("X-FUSOU-Cache")).toBe("SNAPSHOT-HIT");
+		const data = (await res.json()) as any;
+		expect(data.refs?.mst_ship?.[0]?.name).toBe("夕張改二特");
+		expect(data.derived?.friendly_fleet?.[0]?.name).toBe("夕張改二特");
+	});
+
 	it("consolidates multiple null-codec OCF blocks into a single block during mergeAvroOCF", () => {
 		const reblocked = mergeAvroOCF([battleFixtureBytes, battleFixtureBytes]);
 		const unReblocked = mergeAvroOCF(

@@ -1,11 +1,56 @@
 
-async function resolveSnapshotPeriodTag(db: D1Database | undefined, requestedTag: string): Promise<string> {
+async function decompressSnapshotPayload(arrayBuf: ArrayBuffer): Promise<string> {
+  const buf = Buffer.from(arrayBuf);
+  if (buf.length > 0 && (buf[0] === 0x7b || buf[0] === 0x5b)) {
+    return buf.toString("utf-8");
+  }
+  try {
+    const decompressed = await brotliDecompressAsync(buf);
+    return decompressed.toString("utf-8");
+  } catch {
+    return buf.toString("utf-8");
+  }
+}
+
+async function resolveSnapshotPeriodTag(
+  db: D1Database | undefined,
+  requestedTag: string,
+  envUuid?: string,
+): Promise<string> {
   const tag = (requestedTag || "").trim();
-  if (tag && tag !== "latest") return tag;
+  if (tag && tag !== "latest" && tag !== "all" && /^\d{4}-\d{2}-\d{2}$/.test(tag)) {
+    return tag;
+  }
+
+  if (envUuid && db) {
+    const ts = extractTimestampFromUuidV7(envUuid);
+    if (ts !== null) {
+      try {
+        const row = await db
+          .prepare(
+            "SELECT period_tag FROM block_indexes WHERE table_name = 'battle' AND start_timestamp <= ? AND end_timestamp >= ? ORDER BY period_tag DESC LIMIT 1",
+          )
+          .bind(ts, ts)
+          .first<{ period_tag: string }>();
+        if (row?.period_tag) {
+          return row.period_tag;
+        }
+      } catch {
+        // Fall through
+      }
+    }
+  }
+
+  if (tag && tag !== "latest" && tag !== "all") {
+    return tag;
+  }
+
   if (!db) return "2026-10-14";
   try {
     const row = await db
-      .prepare("SELECT period_tag FROM block_indexes WHERE table_name = 'battle' ORDER BY period_tag DESC LIMIT 1")
+      .prepare(
+        "SELECT period_tag FROM block_indexes WHERE table_name = 'battle' ORDER BY period_tag DESC LIMIT 1",
+      )
       .first<{ period_tag: string }>();
     return row?.period_tag || "2026-10-14";
   } catch {
@@ -3229,8 +3274,7 @@ app.get("/global/overview", async (c) => {
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
       try {
-        const arrayBuf = await snapshotObj.arrayBuffer();
-        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
         const headers = new Headers();
         headers.set("Content-Type", "application/json");
         headers.set("Cache-Control", cacheControl);
@@ -3238,7 +3282,7 @@ app.get("/global/overview", async (c) => {
         if (snapshotObj.httpEtag) {
           headers.set("ETag", snapshotObj.httpEtag);
         }
-        return new Response(decompressed.toString("utf-8"), { headers });
+        return new Response(text, { headers });
       } catch (err) {
         console.warn("[battle_data] failed to decompress overview snapshot:", err);
       }
@@ -3386,8 +3430,7 @@ app.get("/global/drops", async (c) => {
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
       try {
-        const arrayBuf = await snapshotObj.arrayBuffer();
-        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
         const headers = new Headers();
         headers.set("Content-Type", "application/json");
         headers.set("Cache-Control", cacheControl);
@@ -3395,9 +3438,9 @@ app.get("/global/drops", async (c) => {
         if (snapshotObj.httpEtag) {
           headers.set("ETag", snapshotObj.httpEtag);
         }
-        return new Response(decompressed.toString("utf-8"), { headers });
+        return new Response(text, { headers });
       } catch (err) {
-        console.warn("[battle_data] failed to decompress overview snapshot:", err);
+        console.warn("[battle_data] failed to decompress drops snapshot:", err);
       }
     }
   }
@@ -3478,13 +3521,12 @@ app.get("/detail-env", async (c) => {
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
     const envKey = `snapshots/env_detail/${activeTag}/${envUuid}.json.br`;
     const envObj = await bucket.get(envKey);
     if (envObj) {
       try {
-        const arrayBuf = await envObj.arrayBuffer();
-        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
         const headers = new Headers();
         headers.set("Content-Type", "application/json");
         headers.set("Cache-Control", cacheControl);
@@ -3492,7 +3534,7 @@ app.get("/detail-env", async (c) => {
         if (envObj.httpEtag) {
           headers.set("ETag", envObj.httpEtag);
         }
-        return new Response(decompressed.toString("utf-8"), { headers });
+        return new Response(text, { headers });
       } catch (err) {
         console.warn("[battle_data] failed to decompress detail-env snapshot:", err);
       }
@@ -3544,14 +3586,13 @@ app.get("/detail", async (c) => {
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
     // 1. Direct single-battle snapshot check
     const directKey = `snapshots/detail/${activeTag}/${envUuid}_${battleIndexRaw}.json.br`;
     const detailObj = await bucket.get(directKey);
     if (detailObj) {
       try {
-        const arrayBuf = await detailObj.arrayBuffer();
-        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const text = await decompressSnapshotPayload(await detailObj.arrayBuffer());
         const headers = new Headers();
         headers.set("Content-Type", "application/json");
         headers.set("Cache-Control", cacheControl);
@@ -3559,7 +3600,7 @@ app.get("/detail", async (c) => {
         if (detailObj.httpEtag) {
           headers.set("ETag", detailObj.httpEtag);
         }
-        return new Response(decompressed.toString("utf-8"), { headers });
+        return new Response(text, { headers });
       } catch (err) {
         console.warn("[battle_data] failed to decompress detail snapshot:", err);
       }
@@ -3570,9 +3611,8 @@ app.get("/detail", async (c) => {
     const envObj = await bucket.get(envKey);
     if (envObj) {
       try {
-        const arrayBuf = await envObj.arrayBuffer();
-        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
-        const bundle = JSON.parse(decompressed.toString("utf-8"));
+        const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
+        const bundle = JSON.parse(text);
         const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
         if (battlePayload) {
           const res = c.json(battlePayload, 200);
@@ -3637,11 +3677,7 @@ app.get("/detail", async (c) => {
       return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
     }
 
-    const resolvedDatasetId =
-      datasetId ||
-      (typeof targetBattle["dataset_id"] === "string"
-        ? targetBattle["dataset_id"].trim()
-        : "");
+    const resolvedDatasetId = datasetId || "";
     const resolvedDatasetScope = resolvedDatasetId
       ? { datasetId: resolvedDatasetId }
       : {};

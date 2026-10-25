@@ -175,34 +175,65 @@ function toNullableNumber(value: unknown): number | null {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function parseEquipmentInfos(value: unknown): EquipmentInfo[] {
+function parseEquipmentInfos(
+  value: unknown,
+  mstSlotItemMap?: Map<number, MstSlotItemRecord>,
+): EquipmentInfo[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const row = jsonRecordOf(item);
     if (!row) return [];
+    const slotItemId = toNullableNumber(row["slotItemId"]);
+    let name = String(row["name"] ?? "");
+    let iconType = toNullableNumber(row["iconType"]);
+    if ((!name || name.startsWith("装備#")) && slotItemId && mstSlotItemMap) {
+      const mst = mstSlotItemMap.get(slotItemId);
+      if (mst) {
+        if (typeof mst["name"] === "string" && mst["name"]) {
+          name = mst["name"];
+        }
+        if (iconType === null && Array.isArray(mst["type"]) && mst["type"][3] != null) {
+          iconType = Number(mst["type"][3]);
+        }
+      }
+    }
     return [{
-      name: String(row["name"] ?? ""),
+      name,
       level: toNullableNumber(row["level"]),
-      iconType: toNullableNumber(row["iconType"]),
-      slotItemId: toNullableNumber(row["slotItemId"]),
+      iconType,
+      slotItemId,
     }];
   });
 }
 
-function parseFleetRecords(value: Array<Record<string, unknown>> | undefined): ShipInfo[] {
-  return (value ?? []).map((row) => ({
-    name: String(row["name"] ?? "艦"),
-    shipId: toNullableNumber(row["shipId"]),
-    level: toNullableNumber(row["level"]),
-    nowhp: normalizeNullableNumber(row["nowhp"]),
-    maxhp: normalizeNullableNumber(row["maxhp"]),
-    karyoku: normalizeNullableNumber(row["karyoku"]),
-    raisou: normalizeNullableNumber(row["raisou"]),
-    taiku: normalizeNullableNumber(row["taiku"]),
-    soukou: normalizeNullableNumber(row["soukou"]),
-    bannerUrl: String(row["bannerUrl"] ?? ""),
-    equipments: parseEquipmentInfos(row["equipments"]),
-  }));
+function parseFleetRecords(
+  value: Array<Record<string, unknown>> | undefined,
+  mstShipMap?: Map<number, MstShipRecord>,
+  mstSlotItemMap?: Map<number, MstSlotItemRecord>,
+): ShipInfo[] {
+  return (value ?? []).map((row) => {
+    const shipId = toNullableNumber(row["shipId"]);
+    let name = String(row["name"] ?? "艦");
+    if ((name === "艦" || name.startsWith("艦ID:") || name.startsWith("艦#")) && shipId && mstShipMap) {
+      const mst = mstShipMap.get(shipId);
+      if (mst && typeof mst["name"] === "string" && mst["name"]) {
+        name = mst["name"];
+      }
+    }
+    return {
+      name,
+      shipId,
+      level: toNullableNumber(row["level"]),
+      nowhp: normalizeNullableNumber(row["nowhp"]),
+      maxhp: normalizeNullableNumber(row["maxhp"]),
+      karyoku: normalizeNullableNumber(row["karyoku"]),
+      raisou: normalizeNullableNumber(row["raisou"]),
+      taiku: normalizeNullableNumber(row["taiku"]),
+      soukou: normalizeNullableNumber(row["soukou"]),
+      bannerUrl: String(row["bannerUrl"] ?? ""),
+      equipments: parseEquipmentInfos(row["equipments"], mstSlotItemMap),
+    };
+  });
 }
 
 function resolveAirBaseFormations(
@@ -682,7 +713,8 @@ export default function BattleDetailPanel(props: {
 
       if (!envUuid) {
         setMasterDataStatus([]);
-        setError("env_uuid が指定されていません");
+        setBattle(null);
+        setLoading(false);
         return;
       }
 
@@ -751,7 +783,14 @@ export default function BattleDetailPanel(props: {
           const resolvedMstSlotItem = parseMstSlotItemMap(
             payload.refs?.mst_slotitem,
           );
-          const fullMstSlotItem = await getMstSlotItemById(signal);
+          const [fullMstShip, fullMstSlotItem] = await Promise.all([
+            getMstShipById(signal),
+            getMstSlotItemById(signal),
+          ]);
+          const effectiveMstShip = new Map(fullMstShip);
+          for (const [id, row] of resolvedMstShip.entries()) {
+            effectiveMstShip.set(id, row);
+          }
           const effectiveMstSlotItem = new Map(fullMstSlotItem);
           for (const [id, row] of resolvedMstSlotItem.entries()) {
             effectiveMstSlotItem.set(id, row);
@@ -759,8 +798,11 @@ export default function BattleDetailPanel(props: {
           setMasterDataStatus([
             {
               name: "mst_ship",
-              status: resolvedMstShip.size > 0 ? "success" : "failed",
-              detail: `${resolvedMstShip.size}件`,
+              status: effectiveMstShip.size > 0 ? "success" : "failed",
+              detail:
+                effectiveMstShip.size > resolvedMstShip.size
+                  ? `${resolvedMstShip.size}件 + 補完${effectiveMstShip.size - resolvedMstShip.size}件`
+                  : `${resolvedMstShip.size}件`,
             },
             {
               name: "mst_slotitem",
@@ -776,7 +818,7 @@ export default function BattleDetailPanel(props: {
 
           const dropShipId =
             Number(jsonRecordOf(detailBattle["battle_result"])?.["drop_ship_id"] ?? 0) || 0;
-          const dropShip = dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
+          const dropShip = dropShipId > 0 ? effectiveMstShip.get(dropShipId) : null;
           const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
           const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
           const linkedCell = Array.isArray(payload.linked?.cells)
@@ -815,11 +857,11 @@ export default function BattleDetailPanel(props: {
           }
           setBattle(detailBattle);
           setFleets({
-            friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet),
-            enemyShips: parseFleetRecords(payload.derived?.enemy_fleet),
+            friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet, effectiveMstShip, effectiveMstSlotItem),
+            enemyShips: parseFleetRecords(payload.derived?.enemy_fleet, effectiveMstShip, effectiveMstSlotItem),
           });
           setMstSlotItemById(effectiveMstSlotItem);
-          setMstShipById(resolvedMstShip);
+          setMstShipById(effectiveMstShip);
           setMapLabel(currentMapKey);
           setDropShipInfo(
             dropShipId > 0
@@ -998,40 +1040,16 @@ export default function BattleDetailPanel(props: {
       </Show>
 
       {/* Unselected Guidance */}
-        <Show when={isUnselected()}>
-          <div class="fusou-card mb-6 border border-base-content/10 shadow-sm">
-            <div class="fusou-card-body items-center text-center py-12">
-              <div class="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-                </svg>
-              </div>
-              <h2 class="text-lg font-bold">戦闘が選択されていません</h2>
-              <p class="text-sm text-base-content/70 mt-1 max-w-md">
-                戦闘一覧から確認したい戦闘を選択してください。
-              </p>
-              <div class="mt-4">
-                <button
-                  type="button"
-                  class="fusou-btn-primary text-sm gap-2"
-                  onClick={() => {
-                    const url = new URL(window.location.href);
-                    url.searchParams.set("tab", "list");
-                    url.searchParams.delete("env_uuid");
-                    url.searchParams.delete("battle_index");
-                    url.searchParams.delete("detail_id");
-                    window.history.pushState({}, "", url.toString());
-                    window.dispatchEvent(new CustomEvent("fusou:navigate-tab", { detail: "list" }));
-                  }}
-                >
-                  戦闘一覧へ移動
-                </button>
-              </div>
-            </div>
-          </div>
-        </Show>
+      <Show when={isUnselected()}>
+        <div class="rounded-lg border border-base-content/10 bg-base-200/30 p-6 text-center my-4">
+          <p class="text-sm font-medium text-base-content/80">戦闘が選択されていません</p>
+          <p class="mt-1 text-xs text-base-content/60">
+            上部のタブ（「戦闘一覧」や「マップ」など）から確認したい戦闘を選択してください。
+          </p>
+        </div>
+      </Show>
 
-        {/* Error banner */}
+      {/* Error banner */}
         <Show when={error() && !isUnselected()}>
           <div class="fusou-card mb-6">
             <div class="fusou-card-body">
@@ -1278,7 +1296,7 @@ export default function BattleDetailPanel(props: {
       />
 
       {/* Loading state (only when no preloaded data yet) */}
-      <Show when={loading() && !battle()}>
+      <Show when={loading() && !battle() && !isUnselected()}>
         <div class="fusou-card mb-6">
           <div class="fusou-card-body py-12">
             <LoadingState message="戦闘詳細データを読込中..." size="lg" minHeight="min-h-[240px]" />
