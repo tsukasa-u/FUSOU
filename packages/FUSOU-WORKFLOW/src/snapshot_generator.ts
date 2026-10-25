@@ -101,8 +101,8 @@ async function saveOverviewAndDropsSnapshot(
   sorties: SortieBundle[],
   options?: { maxOverview?: number; maxDrops?: number }
 ): Promise<void> {
-  const overviewKey = 'snapshots/overview/' + targetTag + '/latest.json.br';
-  const dropsKey = 'snapshots/drops/' + targetTag + '/latest.json.br';
+  const overviewKey = 'snapshots/overview/' + targetTag + '.json.br';
+  const dropsKey = 'snapshots/drops/' + targetTag + '.json.br';
 
   let mergedSorties = [...sorties];
   let historicalDecks: JsonRecord[] = [];
@@ -273,7 +273,7 @@ export async function generateAndSaveSnapshots(
       const jsonStr = JSON.stringify(detailPayload);
       const compressed = await compressBrotli(jsonStr);
 
-      const r2Key = 'pregenerated/sorties/' + envUuid + '.json.br';
+      const r2Key = 'snapshots/env_detail/' + sortie.period_tag + '/' + envUuid + '.json.br';
       await env.BATTLE_DATA_BUCKET.put(r2Key, compressed, {
         httpMetadata: {
           contentType: 'application/json',
@@ -284,12 +284,12 @@ export async function generateAndSaveSnapshots(
           'env-uuid': envUuid,
           'period-tag': sortie.period_tag,
           'table-version': sortie.table_version,
-          'pregenerated-at': String(Date.now()),
+          'generated-at': String(Date.now()),
         },
       });
       sortiesSaved++;
     } catch (err) {
-      console.error('[SnapshotGenerator] Failed to save pregenerated sortie ' + envUuid + ':', err);
+      console.error('[SnapshotGenerator] Failed to save sortie snapshot ' + envUuid + ':', err);
     }
   }
 
