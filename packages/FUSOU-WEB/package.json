@@ -75,7 +75,8 @@
     "build:deps": "pnpm run build:avro-wasm && pnpm run build:compaction-core",
     "test": "pnpm run build:compaction-core && vitest run",
     "check:tsc": "tsc --noEmit",
-    "check:astro": "astro check"
+    "check:astro": "astro check",
+    "verify:compaction": "pnpm -w run verify:compaction"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.2.6",

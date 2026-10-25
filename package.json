@@ -20,7 +20,8 @@
     "build:compaction-core": "pnpm --filter @fusou/compaction-core run build",
     "test:web": "pnpm --filter fusou-web test",
     "scout:formulas": "node scripts/scout-formulas.mjs",
-    "compact": "node scripts/trigger-compaction.mjs"
+    "compact": "node scripts/trigger-compaction.mjs",
+    "verify:compaction": "pnpm --filter fusou-compaction-trigger run verify:compaction"
   },
   "keywords": [],
   "author": "",

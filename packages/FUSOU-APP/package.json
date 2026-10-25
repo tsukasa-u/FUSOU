@@ -19,7 +19,8 @@
     "check.tsc": "tsc --noEmit",
     "storybook.build": "storybook build",
     "storybook": "storybook dev -p 6007",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:compaction": "pnpm -w run verify:compaction"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.1.1",

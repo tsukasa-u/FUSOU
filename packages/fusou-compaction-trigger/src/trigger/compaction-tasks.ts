@@ -1,5 +1,9 @@
 import { schedules, task } from "@trigger.dev/sdk/v3";
 import { createHash } from "node:crypto";
+import { execSync } from "node:child_process";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { runCompactionJob } from "../index.js";
 import { InternalCompactionClient } from "../internal-api.js";
 import type { CompactionTier } from "../types.js";
@@ -140,6 +144,29 @@ async function runWindowedBackfill(params: {
   }
 }
 
+
+async function triggerSnapshotRebuild(periodTag: string): Promise<void> {
+  console.info(`[compactor] Automatically rebuilding snapshots for period: ${periodTag}...`);
+  try {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidatePaths = [
+      path.resolve(currentDir, "../../../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+      path.resolve(currentDir, "../../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+      path.resolve(process.cwd(), "../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+      path.resolve(process.cwd(), "packages/FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+    ];
+    const scriptPath = candidatePaths.find((p) => fs.existsSync(p));
+    if (scriptPath) {
+      execSync(`node "${scriptPath}"`, { stdio: "inherit", env: { ...process.env, PERIOD_TAG: periodTag } });
+      console.info(`[compactor] Snapshot rebuild complete for period: ${periodTag}`);
+    } else {
+      console.warn(`[compactor] rebuild-all-snapshots.mjs not found in candidates, skipping snapshot rebuild.`);
+    }
+  } catch (err) {
+    console.warn(`[compactor] Failed to automatically rebuild snapshots for ${periodTag}:`, err);
+  }
+}
+
 async function runPeriodBackfill(params: {
   sourceTier: CompactionTier;
   discoveryWindow: Window;
@@ -155,6 +182,8 @@ async function runPeriodBackfill(params: {
     scope: "period",
   });
 
+  const affectedPeriods = new Set<string>();
+
   for (const tableName of params.tableNames) {
     const groups = await client.listSourceGroups({
       tier: params.sourceTier,
@@ -164,6 +193,7 @@ async function runPeriodBackfill(params: {
     });
 
     for (const group of groups) {
+      if (group.period_tag) affectedPeriods.add(group.period_tag);
       await runCompactionJob({
         run_key: `backfill:period:${params.sourceTier}:${group.period_tag}:${group.table_version}`,
         tier: "period",
@@ -177,6 +207,40 @@ async function runPeriodBackfill(params: {
         chunk_limit: params.chunkLimit,
       });
     }
+  }
+
+  // Convergence pass: If promoted from lower tier (e.g. weekly -> period),
+  // automatically merge existing period outputs into a single converged file per table.
+  if (params.sourceTier !== "period") {
+    console.info("[compactor] Running automatic period convergence pass to unify existing period outputs...");
+    for (const tableName of params.tableNames) {
+      const periodGroups = await client.listSourceGroups({
+        tier: "period",
+        table_name: tableName,
+        window_start_ms: 0,
+        window_end_ms: Number.MAX_SAFE_INTEGER,
+      });
+      for (const group of periodGroups) {
+        if (group.period_tag) affectedPeriods.add(group.period_tag);
+        await runCompactionJob({
+          run_key: `converge:period:${group.period_tag}:${group.table_version}`,
+          tier: "period",
+          source_tier: "period",
+          output_group_key: outputGroupKey,
+          table_name: tableName,
+          period_tag: group.period_tag,
+          table_version: group.table_version,
+          window_start_ms: 0,
+          window_end_ms: Number.MAX_SAFE_INTEGER,
+          chunk_limit: params.chunkLimit,
+        });
+      }
+    }
+  }
+
+  // Automatically rebuild snapshots for all affected periods
+  for (const periodTag of affectedPeriods) {
+    await triggerSnapshotRebuild(periodTag);
   }
 }
 
@@ -261,6 +325,23 @@ async function runTierForAllTables(tier: CompactionTier, sourceTier: CompactionT
         chunk_limit: 200,
       });
     }
+  }
+
+  // Automatically rebuild snapshots for affected periods after daily/weekly compaction
+  const affectedPeriods = new Set<string>();
+  for (const tableName of tables) {
+    const groups = await client.listSourceGroups({
+      tier,
+      table_name: tableName,
+      window_start_ms: window.start,
+      window_end_ms: window.end,
+    });
+    for (const g of groups) {
+      if (g.period_tag) affectedPeriods.add(g.period_tag);
+    }
+  }
+  for (const periodTag of affectedPeriods) {
+    await triggerSnapshotRebuild(periodTag);
   }
 }
 

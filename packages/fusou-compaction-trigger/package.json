@@ -45,7 +45,8 @@
     "battle-data:bootstrap:apply": "pnpm run bootstrap:archived-files:apply",
     "battle-data:recover": "pnpm run bootstrap:archived-files && pnpm run reindex:all",
     "battle-data:recover:apply": "pnpm run bootstrap:archived-files:apply && pnpm run reindex:all:apply",
-    "battle-data:verify": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/repair-d1-indexes-from-r2.mjs --remote --db dev-kc-battle-index --bucket dev-kc-battle-data --phase d1-verify"
+    "battle-data:verify": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/repair-d1-indexes-from-r2.mjs --remote --db dev-kc-battle-index --bucket dev-kc-battle-data --phase d1-verify",
+    "verify:compaction": "node scripts/verify-compaction.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1136.0",
