@@ -696,6 +696,179 @@ No Cargo/Rust/WASM, game/service connection, signing-key generation, push
 or tag operation was performed. Real-game TLSN remains `UNVERIFIED` and
 Production acceptance remains `BLOCKED`.
 
+### Independent release consumer and actual build-origin binding
+
+Baseline: `tlsn-first-testplay-candidate`,
+`6f6f33bda699de81eccd356c8f6d5e5bf38ed886`. This follow-up implements a
+separate read-only workflow and data-only artifact consumer, not an executed
+release or a Production acceptance result.
+
+#### Generated outputs versus successful workflow runs
+
+The producer now uploads one `release-transport.json` in an artifact named
+`fusou-release-<coordinator-run-id>-<attempt>`. A blocked coordinator can still
+finish successfully; its downloaded `BLOCKED_EXTERNAL_INPUTS` report remains
+blocked and cannot become build proof. `BUILD_OUTPUTS_GENERATED` must include
+actual output descriptors, raw binary bytes, detailed input records and
+provenance. The build driver wraps the existing detailed APP record with
+source/platform/run/attempt/workflow SHA, byte length, artifact digest and
+Worker version before hashing it into provenance.
+
+The independent consumer re-fetches the producer run, verifies its repository,
+path, main ancestry, workflow blob, source workflow SHA and exact attempt,
+then obtains exactly one named artifact from that run. API metadata is
+checked again after download. Archive SHA-256 is recalculated before parsing
+and after readback. Actual APP/Worker file hashes and lengths, detailed records,
+provenance and report source/tag/run/attempt/version must all agree. The
+manifest validator additionally requires opaque build proofs produced by this
+byte/record validation; green run metadata alone no longer suffices.
+
+Trust premise: protected main owns the build recipe, report producer and
+consumer code; GitHub/API/runner and the selected compiler/dependency inputs
+are trusted execution infrastructure. These are not signed SLSA attestations,
+reproducibility proofs, or proof that a compromised builder actually compiled
+rather than forged its records. Copying an artifact or its original records
+from another run/attempt is rejected; an attacker controlling trusted main or
+the runner is not ruled out by JSON and hashes.
+
+#### Data-only artifact transport and API assumptions
+
+The versioned transport contains canonical JSON with at most 64 basename-only
+logical entries and canonical base64url raw bytes. No artifact code is loaded,
+executed or placed in the consumer checkout. ZIP listing must consist of the
+single literal `release-transport.json` member; installed `unzip -p` reads only
+that member to stdout, never extracts paths or follows archived symlinks.
+Temporary opaque ZIP files are removed in `finally`. Downloaded ZIP and expanded
+transport admission limits are each 512 MiB, with subprocess output/time limits;
+these are not total RSS or concurrent-memory guarantees.
+
+The authenticated API request follows the documented 302 using a separate
+HTTPS storage request without the GitHub token and without further redirects.
+The API-selected short-lived storage URL is a trusted GitHub service response,
+not an artifact-supplied URL. No storage URL or credential is recorded.
+
+Official [artifact REST documentation](https://docs.github.com/en/rest/actions/artifacts?apiVersion=2022-11-28)
+and the official upload Action output contract were inspected. `digest` and
+`workflow_run` are nullable; artifact metadata has **no run_attempt field**.
+Attempt binding uses the unique name plus downloaded report/records and the
+independently fetched run attempt. Missing API digest is
+`ARTIFACT_API_DIGEST_UNAVAILABLE`, not an invented digest. The ZIP's
+`sha256:<hex>` digest, raw members' base64url SHA-256, and Git commit/blob SHA-1
+identifiers are separate values.
+
+New consumer and updated producer Actions use immutable commits confirmed
+from official `actions/*` tag-ref API responses in this task:
+checkout `11d5960a326750d5838078e36cf38b85af677262`;
+setup-node `49933ea5288caeca8642d1e84afbd3f7d6820020`;
+github-script `f28e40c7f34bde8b3046d885e986cb6290c5673b`;
+upload-artifact `ea165f8d65b6e75b540449e92b4886f43607fa02`.
+This verifies public source references, not hosted event payloads or repository
+permission settings.
+
+#### Complete assembly, independent expectations and remaining blockers
+
+`scripts/release-consumer.mjs` exports a complete manifest assembler and a
+separate consumer orchestration entry. Expectations are derived from fresh tag
+validation APIs, producer API metadata, read-back output bytes and independent
+public inputs. An optional producer manifest must equal this independently
+assembled canonical record byte-for-byte; it never supplies `expected`.
+Assembly alone returns `MANIFEST_ASSEMBLED`. Only the subsequent consumer
+validation returns `RELEASE_ARTIFACTS_VALIDATED`, always with
+`publication_authorized: false`, `deployment_status: NOT_CHECKED`, and
+Production acceptance `BLOCKED`.
+
+Independent inputs must come from the trusted-main file
+`scripts/release-consumer-public-inputs.json`, pinned by the separately
+configured `FUSOU_RELEASE_CONSUMER_INPUTS_SHA256` repository variable.
+No file or pin is fabricated here. Canonical schema version 1, scope
+`fusou-release-consumer-inputs-v1`, requires exactly:
+`required_app_platforms`, `runtime_envelope`, and `verification`, in addition
+to schema/scope. The envelope and five existing `independentInputs.*_raw`
+fields use canonical base64url; `verification` otherwise supplies the existing
+Runtime Config trusted signer, policy and independent pin contract.
+Verification uses the consumer's current clock, not an artifact timestamp.
+The real existing signature/freshness/independent-input verifier is the default;
+no test key or unsigned envelope is accepted as a Production substitute.
+
+Worker bundle, APP platform inventory, Runtime Config signer/root/epoch,
+Result/Notary/security registries, Inventory/Approval and four check records
+are joined to the same release. Check evidence must have actual read-back bytes
+and exact source/run/attempt/workflow context. A PASS record plus a hash is not
+an offline-verifier or archive execution receipt: the independent check
+execution adapter is **NOT_IMPLEMENTED** and the default route explicitly
+blocks with `INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED`.
+The older Production verification entry also now requires a trusted check
+executor. Only synthetic tests inject mock crypto/check executors.
+
+Worker source metadata inspection found `src/origin-trust-contract.mjs` but no
+tracked runtime entry, package manifest, Wrangler configuration or Worker
+lockfile in the verification Worker project. The coordinator records
+`TRACKED_WORKER_RUNTIME_AND_BUILD_RECIPE_NOT_AVAILABLE`; no placeholder bundle
+or Worker builder was created. Missing real bundle/record and independent
+public inputs are separately reported while retaining verified partial output
+and tag results. The real route is therefore **BLOCKED**, not release-ready.
+
+Both workflows have only contents/actions read permissions, immutable
+trusted-main event checkouts, no Production environment/secrets/OIDC/write
+permissions, and no signing/publication/deployment calls. Development reports
+remain `NOT_APPLICABLE` to release consumption, without imposing main ancestry
+on their tag commits. The legacy publication stop remains unchanged.
+Environment policies, repository/org secret isolation, branch/tag rules and
+actual workflow_run payloads remain **NOT_CHECKED**. Workflow text cannot keep
+an arbitrary branch workflow away from Production secrets stored with overly
+broad repository/org access; external credential isolation is still required.
+
+#### Executed local verification and acceptance work
+
+The exact safe suite executed from the repository root was:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs \
+  scripts/release-build.test.mjs scripts/release-consumer.test.mjs \
+  scripts/release-transport.test.mjs scripts/evidence-delivery-policy.test.mjs \
+  scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs \
+  scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+Result: **110 PASS, 0 FAIL, 0 skipped**. Counts: eligibility 10, manifest 11,
+injected build 4, consumer 14, transport/real synthetic ZIP 7, delivery 5,
+workflow 5, targets 3, Rama 5, graph 46. The initial focused run had 12 PASS /
+24 FAIL because basename validation rejected uppercase characters in
+base64url-derived evidence names. The filename grammar was corrected, retaining
+strict basename/canonical encoding requirements, and all tests rerun.
+The VS Code test tool did not discover these Node tests; explicit Node commands
+were used. Node YAML packages were absent; installed PyYAML parsed four
+workflows and Node compiled five embedded scripts without executing them.
+These checks are not actionlint or a GitHub-hosted execution.
+
+No actual APP/Worker build, release artifact, positive Runtime Config signature
+integration, Cargo/Rust/WASM, service connection, key generation, signing,
+publication or deployment was executed. Hudsucker remains the default;
+the five Rama source/handshake tests are static/synthetic, not Rust/runtime
+equivalence. Q1-Q5/local delivery policy and unresolved P0-01/P0-10 protocol
+compatibility are unchanged; no recurring human release approval was added.
+
+Next acceptance, in order:
+
+1. Restore the actual tracked Worker runtime, handlers, package/config/lock and
+   approved unsigned build recipe. Generate bundle bytes plus source/toolchain/
+   lock/run/attempt/provenance records; never replace missing runtime with fixtures.
+2. Supply registered public Runtime Config/registry/target/bootstrap bytes and
+   independent policy pins. Positive real signature verification must pass;
+   wrong epoch/version/root/digest and missing inputs must fail.
+3. Implement trusted archive-readback/offline/dependency/compiled-input check
+   execution against actual source and evidence, then emit and independently
+   verify run-bound receipts. Do not lift the missing-executor gate using PASS
+   strings or self-attested hashes.
+4. With execution permission, perform actual unsigned APP/Worker generation and
+   a hosted consumer run, confirming real artifact API/payload/attempt/digest
+   behavior. Only actual complete data may promote release artifact status.
+5. Separately verify one-time credential/environment policies and implement
+   signed publication/idempotency and authenticated post-deploy observation.
+   None is authorized by this read-only consumer result.
+
 ## Phase 4 — External dependencies and operator evidence
 
 **Current status:** `BLOCKED` until responsible operators provide independently

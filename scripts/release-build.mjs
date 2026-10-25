@@ -4,6 +4,7 @@ import { open, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { sha256, MAX_RELEASE_RECORD_BYTES } from "./release-manifest.mjs";
+import { assertAppBuildRecordBinding } from "./release-build-proof.mjs";
 
 export async function readRegularFile(path) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -107,16 +108,17 @@ export async function generateReleaseBuild({
   if (!artifactPath.startsWith(`${resolve(workspace)}${sep}`)) throw new Error("APP output escaped build workspace");
   const bytes = await readArtifact(artifactPath);
   const record = built.record;
-  if (record.app_source_sha !== eligibility.commit_sha || record.worker_source_sha !== eligibility.commit_sha ||
-      record.active_version_id !== inputs.worker_reference.cloudflare.version_id ||
-      record.artifact.sha256 !== sha256(bytes) || record.artifact.byte_length !== bytes.length ||
-      record.compiled_input_comparison !== "VERIFIED" || record.runtime_config_bootstrap_comparison !== "VERIFIED" ||
-      record.public_app_configuration_comparison !== "VERIFIED" || record.authority_status !== "UNVERIFIED") {
-    throw new Error("built APP record/bytes/Worker binding mismatch");
-  }
+  assertAppBuildRecordBinding(record, { sourceSha: eligibility.commit_sha,
+    workerVersionId: inputs.worker_reference.cloudflare.version_id, artifactBytes: bytes });
   await unchanged();
   await mkdir(outputDirectory, { recursive: true });
-  const recordBytes = Buffer.from(canonicalJson(record));
+  const recordBytes = Buffer.from(canonicalJson({
+    schema_version: 1, scope: "fusou-release-artifact-build-record-v1",
+    source_sha: eligibility.commit_sha, run_id: runId, run_attempt: runAttempt,
+    workflow_sha: eligibility.coordinator_sha, platform: inputs.platform,
+    artifact_sha256: sha256(bytes), byte_length: bytes.length,
+    worker_version_id: record.active_version_id, details: record,
+  }));
   const provenance = {
     schema_version: 1, scope: "fusou-release-build-provenance-v1",
     source_sha: eligibility.commit_sha, run_id: runId, run_attempt: runAttempt,
@@ -129,6 +131,13 @@ export async function generateReleaseBuild({
   return {
     status: "BUILD_OUTPUTS_GENERATED", tag_status: eligibility.status,
     source_sha: eligibility.commit_sha, public_inputs_sha256: publicInputsSha256,
+    worker_version_id: record.active_version_id,
+    artifacts: [{
+      name: "app", role: "app", platform: inputs.platform, file: `app-${inputs.platform}.bin`,
+      build_record_file: "app-build-record.json", provenance_file: "release-build-provenance.json",
+      sha256: sha256(bytes), byte_length: bytes.length, build_record_sha256: sha256(recordBytes),
+      provenance_sha256: sha256(Buffer.from(canonicalJson(provenance))),
+    }],
     artifact_sha256: sha256(bytes), provenance_sha256: sha256(Buffer.from(canonicalJson(provenance))),
     artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED", deployment_status: "NOT_CHECKED",
     blockers: ["COMPLETE_RELEASE_MANIFEST_AND_INDEPENDENT_CONSUMER_REQUIRED"], deployed: false,

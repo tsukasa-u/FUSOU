@@ -26,7 +26,9 @@ test("coordinator only uses trusted main code and API metadata, never tag code o
   assert.doesNotMatch(yaml, /secrets\.|id-token:|: write|environment:|download-artifact|ref:.*head_sha/);
   assert.match(yaml, /report\.status === 'PRODUCTION_ELIGIBLE'/);
   assert.match(yaml, /recheckEligibility: \(\) => evaluateReleaseRun/);
-  assert.match(yaml, /release-output\//);
+  assert.match(yaml, /packProducerTransport/);
+  assert.match(yaml, /name: fusou-release-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/);
+  assert.match(yaml, /path: release-transport.json/);
 });
 test("legacy publishing is explicitly blocked before any environment-qualified privileged job", () => {
   const yaml = read("publish_and_create_version_tag.yml");
@@ -41,10 +43,25 @@ test("legacy publishing is explicitly blocked before any environment-qualified p
 test("unsigned generation does not introduce an unpinned new external Action dependency", () => {
   const yaml = read("tlsn-release-eligibility.yml");
   assert.deepEqual([...yaml.matchAll(/uses: (\S+)/g)].map((m) => m[1]), [
-    "actions/checkout@v4", "actions/setup-node@v4", "actions/github-script@v7", "actions/upload-artifact@v4",
+    "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
   ]);
   const build = readFileSync(new URL("./release-build.mjs", import.meta.url), "utf8");
   assert.match(build, /--frozen-lockfile/);
   assert.match(build, /http\.extraHeader/);
   assert.doesNotMatch(build, /TAURI_SIGNING_PRIVATE|DOTENV_PRIVATE|wrangler.*deploy|createRelease|updateRelease/);
+});
+test("independent consumer checks out only immutable trusted main code and has no publication authority", () => {
+  const yaml = read("tlsn-release-consumer.yml");
+  assert.match(yaml, /workflows: \[FUSOU release eligibility\]/);
+  assert.match(yaml, /ref: \$\{\{ github.sha \}\}/);
+  assert.match(yaml, /context.ref !== 'refs\/heads\/main'/);
+  assert.match(yaml, /trustedSha !== context.sha/);
+  assert.match(yaml, /runAttempt: context.payload.workflow_run.run_attempt/);
+  assert.match(yaml, /contents: read/); assert.match(yaml, /actions: read/);
+  assert.doesNotMatch(yaml, /secrets\.|environment:|: write|id-token:|download-artifact|wrangler|cargo |pnpm |createRelease/);
+  assert.match(yaml, /publication_authorized: false/);
+  for (const [, action] of yaml.matchAll(/uses: (\S+)/g)) assert.match(action, /@[0-9a-f]{40}$/);
 });

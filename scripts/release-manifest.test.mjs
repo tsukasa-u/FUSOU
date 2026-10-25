@@ -1,29 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { consumerFixture } from "./release-consumer-fixture.mjs";
+import { verifyProducerBuild } from "./release-build-proof.mjs";
 import { RELEASE_SCOPE, sha256, encodeReleaseManifest, parseReleaseManifest, validateReleaseManifest,
   observeReleaseBuildRuns, assertReleaseRuntimeConfigBinding, verifyProductionReleaseManifest,
   recheckReleaseManifestTag } from "./release-manifest.mjs";
 
 const commit = "a".repeat(40), coordinator = "b".repeat(40);
 function fixture() {
-  const evidenceBytes = new Map(), artifactBytes = new Map(), buildRecords = new Map();
+  const f = consumerFixture();
+  const built = verifyProducerBuild({ run: f.run, files: f.files, eligibility: f.eligibility,
+    origin: { ...f.metadata(), run_id: 30, workflow_sha: coordinator } });
+  const { evidenceBytes, artifactBytes, buildRecords, buildProofs, artifacts } = built;
   const blob = (label) => { const b = Buffer.from(label); const hash = sha256(b); evidenceBytes.set(hash, b); return hash; };
-  const artifacts = ["app", "worker"].map((role) => {
-    const raw = Buffer.from(`synthetic ${role} bytes`), platform = role === "app" ? "linux-x86_64" : "cloudflare-workers";
-    const record = Buffer.from(JSON.stringify({
-      artifact_sha256: sha256(raw), input_record_sha256: blob(`${role} detailed build record`),
-      platform, run_attempt: 1, run_id: 30, schema_version: 1, scope: "fusou-release-build-provenance-v1",
-      source_sha: commit, workflow_sha: coordinator,
-    }));
-    artifactBytes.set(role, raw); buildRecords.set(role, record);
-    return { name: role, role, platform, sha256: sha256(raw), byte_length: raw.length, source_sha: commit,
-      build_run_id: 30, build_run_attempt: 1, build_workflow_sha: coordinator, build_record_sha256: sha256(record) };
-  });
   const manifest = {
     schema_version: 1, scope: RELEASE_SCOPE,
     release: { repository: "tsukasa-u/FUSOU", tag: "fusou-v0.6.0", kind: "production", commit_sha: commit, app_version: "0.6.0" },
     validation: { run_id: 10, run_attempt: 1, workflow_path: ".github/workflows/tlsn-tag-validation.yml", workflow_blob_sha: coordinator, source_sha: commit },
-    eligibility: { run_id: 20, run_attempt: 1, coordinator_sha: coordinator, status: "PRODUCTION_ELIGIBLE" },
+    eligibility: { run_id: 30, run_attempt: 1, coordinator_sha: coordinator, status: "PRODUCTION_ELIGIBLE" },
     artifacts,
     worker: { name: "fusou-verifier", source_sha: commit, artifact_sha256: artifacts[1].sha256, version_id: "11111111-1111-1111-1111-111111111111" },
     runtime_config: { schema_version: 2, epoch: "1", manifest_sha256: blob("runtime envelope"), signer_key_id: "runtime", trust_root_sha256: blob("public root") },
@@ -41,8 +35,15 @@ function fixture() {
     head_repository: { full_name: "tsukasa-u/FUSOU" }, event: "workflow_run",
     path: ".github/workflows/tlsn-release-eligibility.yml", head_branch: "main", head_sha: coordinator,
     status: "completed", conclusion: "success" }]]);
-  return { manifest, options: { expected: structuredClone(manifest), artifactBytes, buildRecords, evidenceBytes, observedRuns } };
+  return { manifest, options: { expected: structuredClone(manifest), artifactBytes, buildRecords, evidenceBytes, observedRuns, buildProofs } };
 }
+test("green build metadata and matching manifest claims cannot replace actual build proof", () => {
+  const f = fixture();
+  delete f.options.buildProofs;
+  assert.throws(() => validateReleaseManifest(encodeReleaseManifest(f.manifest), f.options), /independent/);
+  f.options.buildProofs = new Map([["app", { status: "BUILD_OUTPUTS_VERIFIED" }]]);
+  assert.throws(() => validateReleaseManifest(encodeReleaseManifest(f.manifest), f.options), /build proof/);
+});
 test("manifest canonical roundtrip binds actual bytes without authorizing signing or deployment", () => {
   const { manifest, options } = fixture();
   const raw = encodeReleaseManifest(manifest);

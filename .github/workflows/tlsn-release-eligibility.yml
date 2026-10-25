@@ -13,15 +13,15 @@ jobs:
   eligibility:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22.16.0
       - name: Independently evaluate the run and current tag using trusted main code
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         env:
           PUBLIC_BUILD_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_PUBLIC_INPUTS_SHA256 }}
           SOURCE_READ_TOKEN: ${{ github.token }}
@@ -80,17 +80,25 @@ jobs:
                 if (buildWorkspace) rmSync(buildWorkspace, { recursive: true });
               }
             }
-            writeFileSync('release-report.json', `${JSON.stringify(report, null, 2)}\n`);
+            if (report.status === 'PRODUCTION_ELIGIBLE') {
+              report.worker_build = {
+                status: 'BLOCKED_IMPLEMENTATION',
+                blockers: ['TRACKED_WORKER_RUNTIME_AND_BUILD_RECIPE_NOT_AVAILABLE'],
+              };
+            }
+            const { packProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
+            const { readRegularFile } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-build.mjs`).href);
+            const transport = await packProducerTransport(report,
+              (name) => readRegularFile(join(process.env.GITHUB_WORKSPACE, 'release-output', name)));
+            writeFileSync('release-transport.json', transport);
             await core.summary.addCodeBlock(JSON.stringify(report, null, 2), 'json').write();
             if (report.status === 'TAG_INVALID' || report.build?.status === 'FAIL') {
               core.setFailed(`Release gate: ${report.status}, build: ${report.build?.status}`);
             }
       - name: Preserve the machine-readable report, including blocked and failed runs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-eligibility-${{ github.event.workflow_run.id }}
-          path: |
-            release-report.json
-            release-output/
+          name: fusou-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-transport.json
           if-no-files-found: error

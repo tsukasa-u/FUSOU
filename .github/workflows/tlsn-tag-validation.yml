@@ -43,6 +43,8 @@ jobs:
             scripts/release-eligibility.test.mjs \
             scripts/release-manifest.test.mjs \
             scripts/release-build.test.mjs \
+            scripts/release-consumer.test.mjs \
+            scripts/release-transport.test.mjs \
             scripts/evidence-delivery-policy.test.mjs \
             scripts/release-workflow.test.mjs \
             scripts/production-target-contract.test.mjs \

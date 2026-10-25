@@ -1,0 +1,72 @@
+name: FUSOU independent release consumer
+
+on:
+  workflow_run:
+    workflows: [FUSOU release eligibility]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consume:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+      - name: Read back data-only artifacts with trusted main code
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          CONSUMER_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_CONSUMER_INPUTS_SHA256 }}
+          ARTIFACT_READ_TOKEN: ${{ github.token }}
+        with:
+          script: |
+            const { execFileSync } = require('node:child_process');
+            const { writeFileSync } = require('node:fs');
+            const { pathToFileURL } = require('node:url');
+            let report;
+            try {
+              const trustedSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+              if (context.ref !== 'refs/heads/main' || trustedSha !== context.sha) {
+                throw new Error('consumer requires the immutable main workflow event SHA');
+              }
+              const load = (file) => import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/${file}`).href);
+              const { consumeReleaseRun } = await load('release-consumer.mjs');
+              const { downloadGithubArtifact } = await load('release-transport.mjs');
+              const { readRegularFile } = await load('release-build.mjs');
+              let publicInputsBytes;
+              if (process.env.CONSUMER_INPUT_SHA256) {
+                try {
+                  publicInputsBytes = await readRegularFile('scripts/release-consumer-public-inputs.json');
+                } catch (error) {
+                  if (error.code !== 'ENOENT') throw error;
+                }
+              }
+              report = await consumeReleaseRun({
+                github, trustedSha, runId: context.payload.workflow_run.id,
+                runAttempt: context.payload.workflow_run.run_attempt,
+                publicInputsBytes, publicInputsSha256: process.env.CONSUMER_INPUT_SHA256,
+                downloadArchive: (artifactId) => downloadGithubArtifact({ artifactId, token: process.env.ARTIFACT_READ_TOKEN }),
+              });
+            } catch (error) {
+              report = {
+                schema_version: 1, status: 'FAIL', error: error.message, artifact_status: 'NOT_CHECKED',
+                publication_authorized: false, deployment_status: 'NOT_CHECKED', production_acceptance: 'BLOCKED',
+              };
+              core.setFailed(report.error);
+            }
+            writeFileSync('release-consumer-report.json', `${JSON.stringify(report, null, 2)}\n`);
+            await core.summary.addCodeBlock(JSON.stringify(report, null, 2), 'json').write();
+      - name: Preserve independent validation or explicit blocking reasons
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fusou-consumer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-consumer-report.json
+          if-no-files-found: error

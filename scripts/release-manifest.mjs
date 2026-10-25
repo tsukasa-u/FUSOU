@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
+import { sha256, MAX_RELEASE_RECORD_BYTES } from "./release-bytes.mjs";
+import { assertArtifactBuildProof } from "./release-build-proof.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { classifyReleaseTag, evaluateReleaseRun, TAG_WORKFLOW_PATH } from "./release-eligibility.mjs";
 
 export const RELEASE_SCOPE = "fusou-release-manifest-v1";
-export const MAX_RELEASE_RECORD_BYTES = 1024 * 1024;
-export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("base64url");
+export { sha256, MAX_RELEASE_RECORD_BYTES };
 const commit = /^[a-f0-9]{40}$/;
 const id = /^[A-Za-z0-9._-]{1,128}$/;
 const platforms = new Set(["linux-x86_64", "linux-aarch64", "windows-x86_64", "windows-aarch64", "macos-x86_64", "macos-aarch64"]);
@@ -97,10 +97,10 @@ export function parseReleaseManifest(bytes) {
 
 // Expected references and observed bytes come from a separate trusted consumer,
 // never from this manifest's claims. This verifies linkage, not TLSN signatures.
-export function validateReleaseManifest(bytes, { expected, artifactBytes, buildRecords, evidenceBytes, observedRuns } = {}) {
+export function validateReleaseManifest(bytes, { expected, artifactBytes, buildRecords, evidenceBytes, observedRuns, buildProofs } = {}) {
   const m = parseReleaseManifest(bytes);
   requireValue(expected && artifactBytes instanceof Map && buildRecords instanceof Map &&
-    evidenceBytes instanceof Map && observedRuns instanceof Map, "independent expectations/observations required");
+    evidenceBytes instanceof Map && observedRuns instanceof Map && buildProofs instanceof Map, "independent expectations/observations required");
   for (const field of ["release", "validation", "eligibility", "worker", "runtime_config", "registries", "targets", "checks"]) {
     requireValue(isDeepStrictEqual(m[field], expected[field]), `${field} differs from independent reference`);
   }
@@ -108,6 +108,7 @@ export function validateReleaseManifest(bytes, { expected, artifactBytes, buildR
   requireValue(artifactBytes.size === m.artifacts.length && buildRecords.size === m.artifacts.length, "missing/extra observations");
   for (const a of m.artifacts) {
     assertBuildRun(observedRuns.get(`${a.build_run_id}:${a.build_run_attempt}`), a, m.release.repository);
+    assertArtifactBuildProof(buildProofs.get(a.name), a);
     const raw = artifactBytes.get(a.name);
     const record = buildRecords.get(a.name);
     binary(raw); binary(record);
@@ -226,7 +227,9 @@ export async function recheckReleaseManifestTag(github, manifest, trustedSha) {
   return fresh;
 }
 
-export async function verifyProductionReleaseManifest(bytes, observations, { github, runtimeVerification, trustedSha } = {}) {
+export async function verifyProductionReleaseManifest(bytes, observations, {
+  github, runtimeVerification, trustedSha, verifyCheckEvidence,
+} = {}) {
   const manifest = parseReleaseManifest(bytes);
   const envelope = observations?.evidenceBytes?.get(manifest.runtime_config.manifest_sha256);
   binary(envelope);
@@ -239,6 +242,8 @@ export async function verifyProductionReleaseManifest(bytes, observations, { git
     sha256(Buffer.from(runtimeVerification.trustedSigner.public_key_spki, "base64url")) === manifest.runtime_config.trust_root_sha256,
   "Runtime Config external signer/root");
   assertReleaseRuntimeConfigBinding(manifest, verified.payload, envelope);
+  requireValue(typeof verifyCheckEvidence === "function", "independent release check executor required");
+  await verifyCheckEvidence({ manifest, observations, runtime: verified });
   await recheckReleaseManifestTag(github, manifest, trustedSha);
   const securitySet = JSON.parse(Buffer.from(observations.evidenceBytes.get(manifest.registries.security_registry_set_sha256)).toString("utf8"));
   const notaryRaw = observations.evidenceBytes.get(manifest.registries.notary_registry_sha256);

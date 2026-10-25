@@ -22,6 +22,7 @@ function fixture(root) {
     recheckEligibility: async () => { checks++; return structuredClone(eligibility); },
     buildApp: async () => { builds++; return {
       artifactPath: join(root, "synthetic.bin"), record: {
+        schema_version: 3, scope: "fusou-tlsn-app-operator-build-record",
         app_source_sha: eligibility.commit_sha, worker_source_sha: eligibility.commit_sha,
         active_version_id: inputs.worker_reference.cloudflare.version_id,
         artifact: { sha256: sha256(bytes), byte_length: bytes.length },
