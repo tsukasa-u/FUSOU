@@ -614,6 +614,23 @@ export function assertProductionPresentationCaptureMetadata(metadata, presentati
   return metadata;
 }
 
+function assertUniqueResultJsonKeys(text) {
+  // JSON.parse has already validated syntax; scan only strings and container boundaries.
+  const scopes = [];
+  for (const match of text.matchAll(/"(?:[^"\\]|\\[\s\S])*"|[{}\[\]]/g)) {
+    const token = match[0];
+    if (token === "{") scopes.push(new Set());
+    else if (token === "[") scopes.push(null);
+    else if (token === "}" || token === "]") scopes.pop();
+    else if (/^[ \t\r\n]*:/.test(text.slice(match.index + token.length))) {
+      const keys = scopes.at(-1);
+      const key = JSON.parse(token);
+      if (keys.has(key)) throw new Error("Result bytes contain a duplicate JSON object key");
+      keys.add(key);
+    }
+  }
+}
+
 export function deriveProductionTrustGraph({
   captureId,
   authenticatedUserId,
@@ -655,12 +672,15 @@ export function deriveProductionTrustGraph({
   if (proxyProvenance.presentation_sha256 !== presentationSha256) {
     throw new Error("proxy provenance Presentation hash does not match the raw Presentation bytes");
   }
+  let resultText;
   let parsedResult;
   try {
-    parsedResult = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(resultBytes));
+    resultText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(resultBytes);
+    parsedResult = JSON.parse(resultText);
   } catch {
     throw new Error("Result bytes must contain valid UTF-8 JSON");
   }
+  assertUniqueResultJsonKeys(resultText);
   if (!parsedResult || typeof parsedResult !== "object" || Array.isArray(parsedResult) ||
       !isDeepStrictEqual(parsedResult, result) || !isDeepStrictEqual(result, semanticResult)) {
     throw new Error("Result bytes do not match the parsed and semantic Result");

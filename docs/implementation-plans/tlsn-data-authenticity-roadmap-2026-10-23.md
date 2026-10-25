@@ -293,6 +293,64 @@ This is not an exhaustive repository correctness claim. Remaining named
 roadmap work crosses decision, external-input, or prohibited execution
 boundaries above; it is not replaced by fixture evidence.
 
+### Result duplicate-key resolution (2026-10-25)
+
+**Baseline:** `068908bf337c88ce66910ce0c0e2673517bfbd78`.
+**Source finding:** `OBSERVED`; Rust execution in this follow-up is
+`NOT_CHECKED`.
+
+The existing
+[`parse_verifier_result` / `expect_result_field` / `parse_range_array`](../../packages/FUSOU-TLSN-VERIFIER/src/lib.rs)
+read a fixed, single occurrence of each Complete Result v2 field and each
+range's `start`, `length`, and `bytes`, then require the full input bytes to
+equal `canonical_json()`. The
+[`Sparse Result v3 parser`](../../packages/FUSOU-TLSN-VERIFIER/src/sparse_result.rs)
+uses the same field/range helpers and canonical byte comparison. Neither
+implements first-key/last-key precedence. Duplicate, unknown, reordered, or
+escaped field names and noncanonical whitespace cannot pass those parsers.
+The Sparse parser's existing negative test explicitly includes a duplicate
+`version`; the Complete parser's tests include unknown fields and whitespace.
+These are source observations, not newly executed Rust tests or closure of
+P0-10.
+
+In contrast, the graph constructor previously accepted duplicate keys whenever
+`JSON.parse()`'s last value matched the supplied Result/semantic Result.
+That mismatch is actionable without deciding receipt JSON policy or Sparse
+Presentation wire semantics. The constructor now checks decoded object keys
+for uniqueness in every object, including range objects. A lexical scan runs
+only after `JSON.parse()` validates syntax; it tracks object/array scopes and
+decodes key string tokens with `JSON.parse()`. It is not a replacement JSON
+parser, schema validator, canonical serializer, or cryptographic verifier.
+No dependency was added.
+
+The graph still permits whitespace, key ordering, and equivalent escaped
+unique keys for its local value-association check. This is deliberately not a
+claim that its accepted bytes pass the stricter Rust Result parser. Complete
+and Sparse Result verification must still use their actual parser, schema,
+signing bytes and signature checks. The graph's Result node continues hashing
+the exact supplied bytes, not decoded/re-encoded JSON.
+
+The focused command below first produced 40 `PASS` / 4 `FAIL` out of 44
+tests, reproducing missing duplicate rejection in both modes. After the fix:
+44 `PASS`, zero `FAIL`, zero skipped. Added cases cover different and identical
+duplicate values, escaped spellings of the same top-level key, nested range
+duplicates, independent object key scopes, escaped string contents, and raw
+hash preservation; existing formatting and byte-view cases remain.
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE \
+  node --test --test-reporter=spec \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+Only structural fixtures and Node standard modules are used by this test.
+No key, signature, real Presentation, receipt, or external-service evidence
+was generated. The previous 123-test result above is historical, not a
+rerun: readiness/handoff tests import a fixture that generates ephemeral
+keys, which is prohibited in this follow-up. Those tests, Rust/WASM and the
+real build/launcher remain `NOT_CHECKED` here. No further unrelated local
+warning search is part of this bounded follow-up.
+
 ## Phase 4 — External dependencies and operator evidence
 
 **Current status:** `BLOCKED` until responsible operators provide independently
@@ -316,10 +374,11 @@ and verify:
 
 Do not fill missing inputs with test values. Do not infer deployed identity from
 CI, source comments, a health response alone, or the package being verified.
-The tracked Worker operator runbook reports that the Worker runtime,
-Session Authority handler, archive implementation, and collector are not
-present in this checkout; an external implementation must be supplied and
-reviewed rather than assumed.
+The tracked Worker operator runbook records missing runtime, Session Authority
+handler, archive and collector source in the reviewed checkout. This does not
+establish whether an external deployment exists. External existence,
+implementation identity and behavior remain `UNVERIFIED` until operators
+supply independently reviewable evidence.
 
 ### Operator handoff and restart conditions
 
@@ -331,19 +390,53 @@ and
 [`revision/contract audit`](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md);
 historical observations there are not current deployment evidence.
 
-| Item | Classification | Status | Required evidence or decision | Responsible role | Resume after resolution |
-| --- | --- | --- | --- | --- | --- |
-| P0-01 revision/patch approval | Human approval | `BLOCKED` | Explicit approval of upstream alpha.15 revision `47aee45b53e06648c1b2ad3689b367b8c923fdec`, exact sparse transcript/proof-opening patches and mux source/diff, compatibility, license and independent security review recorded in the revision audit. Source mapping is not approval. | Release/security approvers and license reviewer | Approve the exact dependency/patch set for Phase 0 and the candidate build. |
-| P0-10 Sparse/cross-language contract | Protocol decision | `BLOCKED` | Versioned precedence for ClaimBindingBytes 8-/11-field layouts, receipt JSON canonicalization/unknown fields, normative Sparse Presentation serialization/range semantics, independent expected values and WASM provenance. Source-derived fixtures are not a normative oracle. | Protocol owner and human release authority | Fix the approved implementation/testplay scope and independent interoperability expectations; no unapproved exploratory exception. |
-| Q1-Q5 | Protocol/product decision | `BLOCKED` | Attempt scope; failure/retry/recovery; response/evidence states; Session/receipt freshness and revalidation; accepted-size versus per-request/process-wide memory boundary. | Protocol/product owners and human release authority | Implement only the approved Phase 2 controls and dependent Phase 3 tests. |
-| Runtime Config bootstrap | External trust/release inputs | `BLOCKED` | Independently approved endpoint and signer/root pin, registered production signer, signed manifest, active epoch and raw digest-bound artifacts. Local signing/publication registration is still gated. | Trust authority and Runtime Config/release operators | Supply controlled APP build inputs, publish/read back the approved manifest, then run runtime preflight. |
-| Actual target, Origin Inventory and Target Approval | External target/approval evidence | `BLOCKED` | Canonical lowercase DNS target from an authoritative source, exact raw artifacts, signatures, relationship and membership. APP selection is only an expectation. | Human target owner and deployment operator | Runtime must verify approval before proxy start; post-capture must independently match Presentation-derived identity. |
-| Worker deployment/reference and Result authority | External implementation/deployment evidence | `UNVERIFIED` | Actual runtime/collector/archive source, deployed SHA/version, exact endpoint mapping, independently pinned reference hash, Result signer registry/envelope/root pins and observed generation/signing/delivery. | Worker/release and evidence-storage operators | Review the implementation, obtain the real pinned reference, then prepare the APP candidate and archive readback. |
-| Notary | External service/trust evidence | `UNVERIFIED` | Deployed revision/patch identity, endpoint, raw registry and selected key from independent trust information. | Notary operator and trust authority | Verify the configured trust binding, then capture against the approved real Notary. |
-| Auth/device/Session and Binding Authority | External authenticated authority | `UNVERIFIED` | Nonanonymous Auth, registered device ownership and revocation state, deployed handlers/registries, signed Session/consume receipts bound to the same device/session/binding/Presentation, and replay state. | WEB/Auth and authority operators | Establish the authenticated APP session and runtime gates; independently verify receipts and replay after capture. |
-| Clean approved APP candidate build | Local/release preparation | `NOT_CHECKED` | Approved APP SHA/patch set, committed lockfile, locked dependencies, pinned toolchain, independent Worker reference and controlled public/bootstrap inputs. Mock build success is not a build. | Release operator | In an authorized environment, perform the real build, compiled-input comparison and local/runtime preflight. This task must not run that protected-file-sensitive path. |
-| Human gameplay authorization | Human approval | `BLOCKED` | Approved dependency/wire scope, target, operator, evidence plan and stop conditions, with all pre-capture runtime gates satisfied. | Human release authority | Human-only APP gameplay; a local readiness report never substitutes for this decision. |
-| Real capture, archive and independent verification | Human/service evidence | `UNVERIFIED` | Same-communication raw Presentation, transcript, signed Result, Session/consume receipts, independent keys/registries/Inventory/Approval, exact archive keys/readback/lengths/hashes, and separate-machine offline verification including negative mutations. | Human operator, evidence-storage operator and independent verifier | Evaluate the human gameplay gate; only then evaluate the separate Production acceptance criteria. |
+#### Approval requests: decisions must identify exact scope and revision
+
+Each owner must return a dated approval/decision record identifying the
+reviewer, source/contract revision, evidence, covered mode(s), exclusions and
+stop conditions. No row is approved by this document. Q1-Q5 and P0-10 remain
+`UNRESOLVED`; dependent implementation/gameplay is `BLOCKED`.
+
+| Request / current status | Owner and next submission | Grounds and acceptance condition | Until accepted, do not |
+| --- | --- | --- | --- |
+| P0-01 dependency/patch approval — `BLOCKED` | Release/security approvers and license reviewer: approve or reject the exact upstream alpha.15 revision `47aee45b53e06648c1b2ad3689b367b8c923fdec`, local sparse patch set, and mux implementation for the candidate. | Use the revision audit's source map and independent-review package. The submission must identify patch/source digests, APP/Proxy/Verifier dependency differences, packed transcript/proof-opening effects, serializer compatibility, mux resource implications, license obligations and independent review findings/disposition. Missing evidence includes general adversarial/independent compatibility coverage and mux resource-pressure evidence noted in the dossier. Accept only an explicit authorized decision covering those risks and the exact candidate; a manifest revision or one passing sample is insufficient. | Infer independent security/license approval, change forks to hide gaps, or authorize a broader testplay scope than approved. |
+| P0-10 ClaimBindingBytes — `UNRESOLVED` | Protocol owner, then human release authority: select precedence/supersession and applicability of the documented 8-field and 11-field layouts. | Return a versioned field/domain/encoding specification, migration/compatibility rules and expected bytes/rejections linked to the conflicting definitions in the revision audit. Accept when producers/consumers and allowed testplay scope are explicitly identified. | Choose a layout from current code or passing vectors and call it normative. |
+| P0-10 receipt JSON — `UNRESOLVED` | Protocol/authority owners: decide canonicalization, duplicate/unknown-field handling and applicability for each receipt type. | Specify signed preimage versus raw artifact bytes, escaping, ordering, number rules, parser rejection rules and compatibility; approve examples and negative expectations. Result parser behavior does not settle receipt policy. | Apply the graph's Result duplicate check to receipts or silently change receipt signing semantics. |
+| P0-10 Sparse Presentation — `UNRESOLVED` | Protocol owner: publish the normative Presentation wire contract, distinct from Sparse Result v3 JSON. | Specify serializer/version/configuration, integer/range encoding and normalization, packed transcript/opening semantics, trailing/malformed-byte policy and compatibility scope. Accept a versioned contract plus validation obligations grounded in the revision audit, not a source-derived sample alone. | Treat the existing sparse fixture or today's serializer output as the approved wire format. |
+| P0-10 independent expectations — `UNRESOLVED` | Protocol owner and independent verifier/reviewer: provide independently grounded expected bytes, digests and rejection cases for the approved contracts. | Identify provenance, generation method, exact approved contract and independent implementation/reference; compare Complete/Sparse signing bytes and receipt framing separately from Presentation decoding. Existing local corpus is implementation evidence only. | Claim cross-language protocol approval from two source-derived implementations or generate replacement signatures/keys in this task. |
+| P0-10 WASM provenance — `NOT_CHECKED` | Build/release and independent reviewers: supply an artifact-to-source provenance dossier from a separately authorized environment. | Identify artifact digest, exact approved source/patches, lock/toolchain/features/build inputs and reproducibility/verification records. Wrapper/source correspondence is not established by exported API names. No protected WASM source or Rust/WASM build was inspected/executed here; owner review and approved contract scope remain required. | Inspect protected source, build WASM here, or infer that a packaged artifact equals current Rust source. |
+| Q1 attempt identity/scope — `UNRESOLVED` | Protocol/product and authority owners: decide scope (for example logical attempt versus connection/session), issuer, uniqueness, binding and restart behavior. | Use the authenticity contract's Q1 alternatives and competing-connection cases. Accept a versioned scope/state definition and cross-connection negative expectations. | Promote connection/job IDs to authority, add new attempt identifiers or replace the current scope by assumption. |
+| Q2 failure/retry/recovery — `UNRESOLVED` | Protocol/authority owners: decide consumption and reconciliation at body rejection, authority uncertainty and possibly partial origin I/O. | Submit a state/side-effect table, recovery owner, idempotency constraints and failure/replay cases. Accept explicit rules preventing accidental duplicate Game Server effects. | Retry after uncertain send, silently recover through a new request, or invent receipt/authority reconciliation rules. |
+| Q3 response/evidence timing — `UNRESOLVED` | Product/protocol and human release authority: decide whether pre-proof response return is intended and how pending/failure/verified/signed/archived states surface. | Base the decision on the contract's existing deferred pipeline; specify observable transitions, stop conditions and tests. Accept an explicit policy, not the local async/sync compatibility check. | Turn browser response or local preflight success into proof, or choose a new synchronous/asynchronous gameplay policy. |
+| Q4 expiry/revalidation — `UNRESOLVED` | Session/Binding Authority and protocol owners: set session/receipt freshness, clock assumptions and checks at send, deferred verification and delivery. | Provide policy and boundary/restart tests distinct from Runtime Config lifetime and Result key eligibility. Accept explicit validation times and failure handling. | Reuse manifest/key expiry as receipt expiry, add timeouts as authorization policy, or relax stale-receipt checks. |
+| Q5 memory boundary — `UNRESOLVED` | Proxy/product owners and resource reviewer: choose accepted-size-only, per-request peak or process-wide accounting and concurrency boundary. | Use the contract's Q5 choices, buffer-layer distinctions and measurement plan; identify included buffers/tasks and evidence needed for the chosen claim. Body and serialized-request limits remain separate. | Treat 128 KiB limits, `CaptureIo` read-chunk size or upstream approximate buffering defaults as measured peak/process memory guarantees. |
+
+#### Operational submissions: public trust evidence, not secrets
+
+Operators must supply approved public references, raw evidence and validation
+records through the authorized process; do not submit private keys, access
+tokens or unredacted credentials. Existing external deployment existence is
+not inferred either way. `UNVERIFIED` records a lack of evidence here.
+
+| Input / current status | Owner and next submission | Acceptance condition / next operation | Until accepted, do not |
+| --- | --- | --- | --- |
+| Runtime Config — `BLOCKED` | Trust authority and Runtime Config/release operators: approved endpoint, independent signer/root public pin, registration record, signed manifest, epoch and referenced raw artifacts. | Verify signature, source/deployment binding, active epoch/freshness and exact artifact digests with independently obtained pins; register the approved release inputs and publish/read back under authorized operations before runtime preflight. | Invent/register a signer or endpoint, publish here, or let local fingerprint consistency substitute for manifest authentication. |
+| Canonical target / Inventory / Target Approval — `BLOCKED` | Authoritative target owner and deployment operator: actual lowercase DNS hostname, raw Inventory/Approval, signatures and approval relationship/membership evidence. | Independently verify raw hashes and signatures, Approval-to-Inventory relation and target membership before proxy start. After capture, match the Presentation-derived server identity and Result's mandatory digest pair to those exact artifacts. | Use a URL/IP/port/certificate pin/custom root as target identity, substitute candidate selection for observed identity, or bypass Target Approval. |
+| Worker deployment / release reference — `UNVERIFIED` | Worker/release operator: actual implementation/source reference, deployed SHA/version and authenticated control-plane endpoint mapping, plus independent exact reference hash. | Match approved release inputs, active version and endpoint mapping using independent observation. Local reference validation checks consistency, not live existence; after validation prepare the candidate against that pin. | Infer deployed SHA from CI, fetch external control plane here, or claim absent tracked handlers prove no external service exists. |
+| Result signing registry / root — `UNVERIFIED` | Trust authority and Result service operator: public signer identity, exact raw registry, signed registry envelope and independent root/key pins tied to the approved deployment. | Verify envelope signature and raw registry digest, signer membership/eligibility and reference/manifest consistency; independently verify the captured inner Result signature using the required signing domain. | Create a test root/signer as a Production substitute or treat graph value equality as signature verification. |
+| Notary registry / key — `UNVERIFIED` | Notary operator and trust authority: deployed revision/patch identity, approved endpoint, exact registry and independently selected public verifying key. | Match registry membership, Runtime Config and APP inputs; actual Presentation verification must authenticate the Notary key and transcript under the approved implementation. | Infer real Notary participation from a mock or Presentation key without an independent trust pin. |
+| Auth / registered device / Session / binding receipt — `UNVERIFIED` | WEB/Auth and authority operators: authenticated nonanonymous-user evidence, device ownership/revocation record, deployed authority references, public registries and exact signed receipts. | Verify signatures and same user/device/session/binding/Presentation association plus replay/consumption state under approved Q1/Q2/Q4 rules. Complete runtime gates before gameplay and recheck capture receipts independently. | Fabricate receipts, skip revocation/ownership, or elevate a synthetic device-authentication match into real Auth. |
+| Actual Result generation / collector / archive — `UNVERIFIED` | Worker/verifier and evidence-storage operators: reviewable generation/signing/delivery/collector implementation and deployed identity, storage policy and exact capture/archive references. | Demonstrate the same raw Presentation produces the corresponding signed inner Result and outer response; retain applicable execution/consume receipts and exact envelope binding. Read back immutable archives, compare lengths/hashes to original bytes and record failure behavior. Resume evidence collection only with the approved path. | Treat local graph construction as runtime wiring, or mocks/local filesystem output as immutable Production storage. |
+| Clean candidate APP build / pre-capture checks — `NOT_CHECKED` | Release operator: approved source/patch SHA, committed lock, locked dependencies, pinned toolchain, independent Worker reference and controlled public/bootstrap inputs; real build and compiled-input reports. | In a separately authorized environment, confirm build provenance, artifact hash, compiled-input comparison, local preflight and runtime Config/target/Auth gates. Hudsucker remains default; Rama is opt-in experimental. `LOCAL_APP_PREFLIGHT_PASS` alone grants no gameplay. | Run the protected-file-sensitive build/launcher here, infer actual binary behavior from mock tests, or introduce process/image authority/TPM. |
+| Human gameplay authorization — `BLOCKED` | Human release authority: signed/dated scope naming operator, exact approved versions/modes/target, evidence plan and stop conditions after prerequisite review. | Explicitly approve the resolved dependency/wire/policy scope and real runtime inputs; only then may the named human use normal APP operations. If a narrower exception is proposed it must itself be explicitly approved, not inferred. | Have AI/tests contact the Game Server, waive P0-01/P0-10/Q decisions, or equate readiness with authorization. |
+| Capture / readback / independent offline verification — `UNVERIFIED` | Human operator, storage operator and independent verifier: real same-communication Presentation, signed Result, applicable receipts, raw archives and separately acquired public trust references. | Verify Presentation cryptography, authenticated transcript/server identity and Notary trust; inner Result signature and exact Presentation/Inventory/Approval hashes; session/binding/receipt association; exact archive readback lengths/hashes and applicable outer response/execution receipt binding. Run an independent offline verifier with approved negative mutations and record exact versions/output. Only this can support evaluating the real-game gate; Production acceptance remains separate. | Replace real capture with fixtures, claim a hash is a TLSN proof, or promote a successful CLI/local test to Production acceptance. |
+
+**Next human actions:** appoint the approval/service owners; return P0-01 and
+the separate P0-10/Q decision records; provide the public operational input
+package; authorize the actual build/runtime preflight; then authorize human
+capture and independent verification. Record each accepted row's evidence,
+reviewer and date before advancing its dependent operation. This is a
+handoff request, not permission to execute any external step in this task.
 
 **Gate:** `BLOCKED` while any required endpoint, trust root, authority,
 deployment, archive, or independent reference is absent or unverified.

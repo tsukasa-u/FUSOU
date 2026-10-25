@@ -265,6 +265,61 @@ for (const mode of ["complete", "sparse"]) {
     assert.deepEqual(Array.from(inputs.resultBytes), Array.from(bytes));
   });
 
+  test(`${mode}: Result bytes reject duplicate fields even when JSON.parse selects the expected value`, () => {
+    for (const field of ["binding_value", "presentation_sha256", "tlsn_attestation_id", "signature"]) {
+      for (const sameValue of [false, true]) {
+        for (const escapedKey of [false, true]) {
+          const inputs = inputsFor(mode);
+          inputs.result.signature = "synthetic signature";
+          const value = JSON.stringify(inputs.result[field]);
+          const key = JSON.stringify(field);
+          const alias = escapedKey ? `"\\u${field.charCodeAt(0).toString(16).padStart(4, "0")}${field.slice(1)}"` : key;
+          const raw = JSON.stringify(inputs.result).replace(
+            `${key}:${value}`,
+            `${alias}:${sameValue ? value : '"unexpected"'},${key}:${value}`,
+          );
+          assert.deepEqual(JSON.parse(raw), inputs.result);
+          inputs.resultBytes = Buffer.from(raw);
+          assert.throws(() => deriveProductionTrustGraph(inputs), /Result bytes.*duplicate JSON object key/);
+        }
+      }
+    }
+  });
+
+  test(`${mode}: Result bytes reject duplicate nested range fields`, () => {
+    for (const field of ["start", "length", "bytes"]) {
+      for (const sameValue of [false, true]) {
+        const inputs = inputsFor(mode);
+        const range = { start: "0", length: "4", bytes: Buffer.from("test").toString("base64url") };
+        inputs.result.revealed_response_ranges = [range];
+        const key = JSON.stringify(field);
+        const alias = `"\\u${field.charCodeAt(0).toString(16).padStart(4, "0")}${field.slice(1)}"`;
+        const value = JSON.stringify(range[field]);
+        const raw = JSON.stringify(inputs.result).replace(
+          `${key}:${value}`, `${alias}:${sameValue ? value : '"unexpected"'},${key}:${value}`,
+        );
+        assert.deepEqual(JSON.parse(raw), inputs.result);
+        inputs.resultBytes = Buffer.from(raw);
+        assert.throws(() => deriveProductionTrustGraph(inputs), /Result bytes.*duplicate JSON object key/);
+      }
+    }
+  });
+
+  test(`${mode}: duplicate detection preserves escaped strings and independent object key scopes`, () => {
+    const inputs = inputsFor(mode);
+    inputs.result.revealed_response_ranges = [
+      { start: "0", length: "4", bytes: 'text: "{[\\",\\"start\\":0' },
+      { bytes: "second", length: "4", start: "8" },
+    ];
+    const raw = JSON.stringify(inputs.result, null, 2).replace(
+      '"binding_value"', '"\\u0062inding_value"',
+    );
+    inputs.resultBytes = Buffer.from(raw);
+    const graph = deriveProductionTrustGraph(inputs);
+    assert.equal(graph.nodes.find(({ id }) => id === "result").identity.result_sha256, digest(inputs.resultBytes));
+    assert.equal(graph.nodes.find(({ id }) => id === "production-proxy").identity.cryptographic_status, "UNVERIFIED");
+  });
+
   test(`${mode}: separately parsed graph identities match by value`, () => {
     const graph = deriveProductionTrustGraph(inputsFor(mode));
     const expected = JSON.parse(JSON.stringify(
