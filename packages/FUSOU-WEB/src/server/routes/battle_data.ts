@@ -1,22 +1,65 @@
 
+function isPlainJsonBuffer(bytes: Uint8Array): boolean {
+  for (let i = 0; i < bytes.length && i < 100; i++) {
+    const b = bytes[i];
+    if (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) continue;
+    return b === 0x7b || b === 0x5b; // '{' or '['
+  }
+  return false;
+}
+
 async function decompressSnapshotPayload(arrayBuf: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(arrayBuf);
+  if (isPlainJsonBuffer(bytes)) {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
   const buf = Buffer.from(arrayBuf);
   try {
     const decompressed = await brotliDecompressAsync(buf);
     return decompressed.toString("utf-8");
   } catch {
-    const text = buf.toString("utf-8");
-    if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
-      try {
-        JSON.parse(text);
-        return text;
-      } catch {
-        // invalid json
-      }
-    }
-    throw new Error("Failed to decompress snapshot payload");
+    return new TextDecoder("utf-8").decode(bytes);
   }
 }
+
+async function buildSnapshotResponse(
+  c: Context,
+  arrayBuf: ArrayBuffer,
+  cacheControl: string,
+  etag?: string | null,
+): Promise<Response> {
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  headers.set("Cache-Control", cacheControl);
+  headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+  headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
+  if (etag) {
+    headers.set("ETag", etag);
+  }
+
+  const bytes = new Uint8Array(arrayBuf);
+  const isPlainJson = isPlainJsonBuffer(bytes);
+
+  if (isPlainJson) {
+    return new Response(arrayBuf, { headers });
+  }
+
+  const acceptEncoding = c.req.header("accept-encoding") || "";
+  if (acceptEncoding.includes("br")) {
+    headers.set("Content-Encoding", "br");
+    return new Response(arrayBuf, { headers });
+  }
+
+  try {
+    const text = await decompressSnapshotPayload(arrayBuf);
+    return new Response(text, { headers });
+  } catch (err) {
+    console.error("[battle_data] failed to decompress snapshot:", err);
+    return c.json({ error: "Failed to decompress snapshot payload", code: "SNAPSHOT_DECOMPRESS_ERROR" }, 500);
+  }
+}
+
+const KNOWN_PERIOD_TAGS = ["2026-10-14", "2026-09-10", "2026-08-05", "2026-07-08"];
 
 async function resolveSnapshotPeriodTag(
   db: D1Database | undefined,
@@ -40,6 +83,20 @@ async function resolveSnapshotPeriodTag(
           .first<{ period_tag: string }>();
         if (row?.period_tag) {
           return row.period_tag;
+        }
+      } catch {
+        // Fall through
+      }
+
+      try {
+        const row2 = await db
+          .prepare(
+            "SELECT period_tag FROM archived_files WHERE window_start_ms <= ? AND window_end_ms >= ? ORDER BY period_tag DESC LIMIT 1",
+          )
+          .bind(ts, ts)
+          .first<{ period_tag: string }>();
+        if (row2?.period_tag) {
+          return row2.period_tag;
         }
       } catch {
         // Fall through
@@ -3285,26 +3342,7 @@ app.get("/global/overview", async (c) => {
     );
   }
 
-  const headers = new Headers();
-  headers.set("Content-Type", "application/json");
-  headers.set("Cache-Control", cacheControl);
-  headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-  headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
-  if (snapshotObj.httpEtag) {
-    headers.set("ETag", snapshotObj.httpEtag);
-  }
-  const acceptEncoding = c.req.header("accept-encoding") || "";
-  if (acceptEncoding.includes("br")) {
-    headers.set("Content-Encoding", "br");
-    return new Response(await snapshotObj.arrayBuffer(), { headers });
-  }
-  try {
-    const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
-    return new Response(text, { headers });
-  } catch (err) {
-    console.error("[battle_data] failed to decompress overview snapshot:", err);
-    return c.json({ error: "Failed to decompress snapshot payload", code: "SNAPSHOT_DECOMPRESS_ERROR" }, 500);
-  }
+  return await buildSnapshotResponse(c, await snapshotObj.arrayBuffer(), cacheControl, snapshotObj.httpEtag);
 });
 
 app.get("/global/drops", async (c) => {
@@ -3343,26 +3381,7 @@ app.get("/global/drops", async (c) => {
     );
   }
 
-  const headers = new Headers();
-  headers.set("Content-Type", "application/json");
-  headers.set("Cache-Control", cacheControl);
-  headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-  headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
-  if (snapshotObj.httpEtag) {
-    headers.set("ETag", snapshotObj.httpEtag);
-  }
-  const acceptEncoding = c.req.header("accept-encoding") || "";
-  if (acceptEncoding.includes("br")) {
-    headers.set("Content-Encoding", "br");
-    return new Response(await snapshotObj.arrayBuffer(), { headers });
-  }
-  try {
-    const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
-    return new Response(text, { headers });
-  } catch (err) {
-    console.error("[battle_data] failed to decompress drops snapshot:", err);
-    return c.json({ error: "Failed to decompress snapshot payload", code: "SNAPSHOT_DECOMPRESS_ERROR" }, 500);
-  }
+  return await buildSnapshotResponse(c, await snapshotObj.arrayBuffer(), cacheControl, snapshotObj.httpEtag);
 });
 
 app.get("/detail-env", async (c) => {
@@ -3379,7 +3398,7 @@ app.get("/detail-env", async (c) => {
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
+    let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
     const envKey = `snapshots/env_detail/${activeTag}/${envUuid}.json.br`;
     const envObj = await bucket.get(envKey);
     if (envObj) {
@@ -3505,106 +3524,109 @@ app.get("/detail", async (c) => {
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
-    // 1. Direct single-battle snapshot check
-    const directKey = `snapshots/detail/${activeTag}/${envUuid}_${battleIndexRaw}.json.br`;
-    const detailObj = await bucket.get(directKey);
-    if (detailObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (detailObj.httpEtag) {
-        headers.set("ETag", detailObj.httpEtag);
+    let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
+    const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
+      // 1. Direct single-battle snapshot check
+      const directKey = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
+      const detailObj = await bucket.get(directKey);
+      if (detailObj) {
+        return await buildSnapshotResponse(c, await detailObj.arrayBuffer(), cacheControl, detailObj.httpEtag);
       }
-      const acceptEncoding = c.req.header("accept-encoding") || "";
-      if (acceptEncoding.includes("br")) {
-        headers.set("Content-Encoding", "br");
-        return new Response(await detailObj.arrayBuffer(), { headers });
-      }
-      try {
-        const text = await decompressSnapshotPayload(await detailObj.arrayBuffer());
-        return new Response(text, { headers });
-      } catch (err) {
-        console.warn("[battle_data] failed to decompress detail snapshot:", err);
-      }
-    }
 
-    // 2. Sortie-level bundled snapshot check
-    const envKey = `snapshots/env_detail/${activeTag}/${envUuid}.json.br`;
-    const envObj = await bucket.get(envKey);
-    if (envObj) {
-      try {
-        const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
-        const bundle = JSON.parse(text);
-        // Format A: pre-resolved battles bundle
-        const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
-        if (battlePayload) {
-          const res = c.json(battlePayload, 200);
-          res.headers.set("Cache-Control", cacheControl);
-          res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-          return res;
-        }
-
-        // Format B: raw tables bundle (generated by workflow snapshot_generator)
-        if (bundle.tables && typeof bundle.tables === "object") {
-          const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] =
-            await Promise.all([
-              fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
-              fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
-              fetchWeaponIconFramesDirect(c).catch(() => ({})),
-            ]);
-          const resolvedDetail = resolveBattleDetail({
-            periodTag: bundle.period_tag || activeTag,
-            tableVersion: bundle.table_version || tableVersion || null,
-            envUuid,
-            battleIndex,
-            masterShips: mstShipPayload.records || [],
-            masterSlotItems: mstSlotItemPayload.records || [],
-            weaponIconFrames: weaponIconFramesPayload,
-            tables: {
-              battle: bundle.tables["battle"] || [],
-              cells: bundle.tables["cells"] || [],
-              battleResult: bundle.tables["battle_result"] || [],
-              ownDeck: bundle.tables["own_deck"] || [],
-              ownShip: bundle.tables["own_ship"] || [],
-              ownSlotItem: bundle.tables["own_slotitem"] || [],
-              enemyDeck: bundle.tables["enemy_deck"] || [],
-              enemyShip: bundle.tables["enemy_ship"] || [],
-              enemySlotItem: bundle.tables["enemy_slotitem"] || [],
-              midnightHougekiLists: bundle.tables["midnight_hougeki_list"] || [],
-              midnightHougekis: bundle.tables["midnight_hougeki"] || [],
-              openingTaisenLists: bundle.tables["opening_taisen_list"] || [],
-              openingTaisens: bundle.tables["opening_taisen"] || [],
-              hougekiLists: bundle.tables["hougeki_list"] || [],
-              hougekis: bundle.tables["hougeki"] || [],
-              openingAirattackLists: bundle.tables["opening_airattack_list"] || [],
-              openingAirattacks: bundle.tables["opening_airattack"] || [],
-              openingRaigeki: bundle.tables["opening_raigeki"] || [],
-              closingRaigeki: bundle.tables["closing_raigeki"] || [],
-              airbaseAssault: bundle.tables["airbase_assault"] || [],
-              airbaseAirattackLists: bundle.tables["airbase_airattack_list"] || [],
-              airbaseAirattacks: bundle.tables["airbase_airattack"] || [],
-              carrierbaseAssault: bundle.tables["carrierbase_assault"] || [],
-              supportHourai: bundle.tables["support_hourai"] || [],
-              supportAirattack: bundle.tables["support_airattack"] || [],
-              nightSupportHourai: bundle.tables["night_support_hourai"] || [],
-              nightSupportAirattack: bundle.tables["night_support_airattack"] || [],
-              friendlySupportHouraiLists: bundle.tables["friendly_support_hourai_list"] || [],
-              friendlySupportHourai: bundle.tables["friendly_support_hourai"] || [],
-              destructionBattle: bundle.tables["destruction_battle"] || [],
-            },
-          });
-          if (resolvedDetail) {
-            const res = c.json(resolvedDetail.payload, 200);
+      // 2. Sortie-level bundled snapshot check
+      const envKey = `snapshots/env_detail/${targetTag}/${envUuid}.json.br`;
+      const envObj = await bucket.get(envKey);
+      if (envObj) {
+        try {
+          const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
+          const bundle = JSON.parse(text);
+          // Format A: pre-resolved battles bundle
+          const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
+          if (battlePayload) {
+            const res = c.json(battlePayload, 200);
             res.headers.set("Cache-Control", cacheControl);
             res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+            res.headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
             return res;
           }
+
+          // Format B: raw tables bundle (generated by workflow snapshot_generator)
+          if (bundle.tables && typeof bundle.tables === "object") {
+            const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] =
+              await Promise.all([
+                fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchWeaponIconFramesDirect(c).catch(() => ({})),
+              ]);
+            const resolvedDetail = resolveBattleDetail({
+              periodTag: bundle.period_tag || targetTag,
+              tableVersion: bundle.table_version || tableVersion || null,
+              envUuid,
+              battleIndex,
+              masterShips: mstShipPayload.records || [],
+              masterSlotItems: mstSlotItemPayload.records || [],
+              weaponIconFrames: weaponIconFramesPayload,
+              tables: {
+                battle: bundle.tables["battle"] || [],
+                cells: bundle.tables["cells"] || [],
+                battleResult: bundle.tables["battle_result"] || [],
+                ownDeck: bundle.tables["own_deck"] || [],
+                ownShip: bundle.tables["own_ship"] || [],
+                ownSlotItem: bundle.tables["own_slotitem"] || [],
+                enemyDeck: bundle.tables["enemy_deck"] || [],
+                enemyShip: bundle.tables["enemy_ship"] || [],
+                enemySlotItem: bundle.tables["enemy_slotitem"] || [],
+                midnightHougekiLists: bundle.tables["midnight_hougeki_list"] || [],
+                midnightHougekis: bundle.tables["midnight_hougeki"] || [],
+                openingTaisenLists: bundle.tables["opening_taisen_list"] || [],
+                openingTaisens: bundle.tables["opening_taisen"] || [],
+                hougekiLists: bundle.tables["hougeki_list"] || [],
+                hougekis: bundle.tables["hougeki"] || [],
+                openingAirattackLists: bundle.tables["opening_airattack_list"] || [],
+                openingAirattacks: bundle.tables["opening_airattack"] || [],
+                openingRaigeki: bundle.tables["opening_raigeki"] || [],
+                closingRaigeki: bundle.tables["closing_raigeki"] || [],
+                airbaseAssault: bundle.tables["airbase_assault"] || [],
+                airbaseAirattackLists: bundle.tables["airbase_airattack_list"] || [],
+                airbaseAirattacks: bundle.tables["airbase_airattack"] || [],
+                carrierbaseAssault: bundle.tables["carrierbase_assault"] || [],
+                supportHourai: bundle.tables["support_hourai"] || [],
+                supportAirattack: bundle.tables["support_airattack"] || [],
+                nightSupportHourai: bundle.tables["night_support_hourai"] || [],
+                nightSupportAirattack: bundle.tables["night_support_airattack"] || [],
+                friendlySupportHouraiLists: bundle.tables["friendly_support_hourai_list"] || [],
+                friendlySupportHourai: bundle.tables["friendly_support_hourai"] || [],
+                destructionBattle: bundle.tables["destruction_battle"] || [],
+              },
+            });
+            if (resolvedDetail) {
+              const res = c.json(resolvedDetail.payload, 200);
+              res.headers.set("Cache-Control", cacheControl);
+              res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+              res.headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
+              return res;
+            }
+          }
+        } catch (err) {
+          console.warn("[battle_data] failed to read env_detail snapshot:", err);
         }
-      } catch (err) {
-        console.warn("[battle_data] failed to read env_detail snapshot:", err);
       }
+      return null;
+    };
+
+    let resolvedResp = await tryResolveDetail(activeTag);
+    if (!resolvedResp && (periodTag === "all" || periodTag === "latest")) {
+      for (const fallbackTag of KNOWN_PERIOD_TAGS) {
+        if (fallbackTag === activeTag) continue;
+        resolvedResp = await tryResolveDetail(fallbackTag);
+        if (resolvedResp) {
+          activeTag = fallbackTag;
+          break;
+        }
+      }
+    }
+    if (resolvedResp) {
+      return resolvedResp;
     }
 
     return c.json(

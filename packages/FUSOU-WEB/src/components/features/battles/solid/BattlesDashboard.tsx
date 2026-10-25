@@ -698,10 +698,9 @@ export default function BattlesDashboard(props: {
 
     void (async () => {
       const shouldLoadInitialDataset = initialTab !== "detail" || !initialDetailId;
-      if (shouldLoadInitialDataset) {
-        cachedFetch("/api/master-data/json?table_name=mst_ship").catch(() => undefined);
-        cachedFetch("/api/master-data/json?table_name=mst_slotitem").catch(() => undefined);
-      }
+      // Always pre-warm master data cache so ship and item names resolve immediately in all tabs
+      cachedFetch("/api/master-data/json?table_name=mst_ship").catch(() => undefined);
+      cachedFetch("/api/master-data/json?table_name=mst_slotitem").catch(() => undefined);
       const immediateR2Period: PeriodSummary | null =
         shouldLoadInitialDataset &&
         repository.kind === "r2" &&
