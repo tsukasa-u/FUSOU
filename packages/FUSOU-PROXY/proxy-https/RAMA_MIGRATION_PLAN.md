@@ -209,7 +209,7 @@ Rama uses `is_websocket_upgrade_attempt` and calls `validate_http_client_request
 - Upgrade capture session-map cleanup before relay completion and finalized buffer release are **VERIFIED**. This is separate from socket/task lifetime: completed or injected-failure relay tasks terminate in the tested cases, but a valid open WebSocket can retain its task/socket indefinitely because there is intentionally no idle timeout. Rama's Close-handshake deadline starts only after a Close frame begins.
 - HTTP/2 is not enabled in the current Hudsucker dependency configuration and is not implemented or tested by this Rama experiment.
 - Rama's experimental configuration is intentionally fixed to one canonical authority and socket address. It is not connected to production target selection, Origin Inventory, or Target Approval.
-- The Rama backend still uses the Hudsucker fork's certificate-authority trait and implementation. Removing that dependency requires a separately reviewed CA/certificate-cache design.
+- The Rama backend now consumes `DownstreamTlsConfigProvider`; the compatibility adapter still delegates to the Hudsucker fork's CA implementation. Removing the implementation dependency still requires a separately reviewed CA/certificate-cache design. This source-level seam is not evidence that a replacement CA or a fork-free build works.
 - `CaptureLimits::default()` remains unbounded. A production cap and the behavior on limit exhaustion need a separate policy decision; introducing an arbitrary cap could change ordinary HTTP relay behavior.
 - Hudsucker and Rama's tested malformed WebSocket attempts are rejected before upstream connection/service dispatch as detailed in “Hudsucker/Rama WebSocket Request Validation.” This evidence does not establish every RFC handshake validation edge case.
 - `upstream_websocket_handshake_failure_returns_502_without_capture` uses a local TLS upstream that rejects the WebSocket handshake with 403; the proxy returns 502, removes the capture session, and writes no artifact. Hudsucker's corresponding 403 case is covered by `fork_proxy_upstream_handshake_failure_does_not_send_101_or_capture`.
@@ -217,6 +217,58 @@ Rama uses `is_websocket_upgrade_attempt` and calls `validate_http_client_request
 - No production deployment, real game-server, external-service, or real-gameplay validation was performed. The backend must not be described as production accepted.
 
 ## This Audit's Local Validation
+
+### 2026-10-25 migration preparation (not a Rust execution result)
+
+Rama's entry points and tunnel now take
+[`DownstreamTlsConfigProvider`](src/proxy_server_https/downstream_tls.rs).
+The adapter passes the same `http::uri::Authority` to the existing
+`CertificateAuthority::gen_server_config` and returns its unchanged
+`Arc<rustls::ServerConfig>`. SNI binding, upstream certificate verification,
+capture creation, HTTP/101 sealing and relay teardown are unchanged.
+The provider is downstream interception configuration only; its CA is not
+an upstream Web PKI trust root. Existing callers remain supported through
+the blanket compatibility implementation. No key/certificate generation,
+cache policy, trust root or new error fallback was added.
+
+| Fork capability | Rama source / preparation | Remaining removal or parity condition |
+| --- | --- | --- |
+| Dynamic downstream CA / cache | Neutral provider plus unchanged compatibility adapter | Implement/review an independent provider against the existing issuance/cache behavior; run independent-provider and CONNECT/SNI tests. |
+| Connection ID / client stream wrapper | Rama accept counter and `CaptureIo` | Keep exact client-observed read/write bytes, offsets and separate connection state. |
+| Callback / completion extensions | Shared `RawCaptureHook` and explicit Rama lifecycle | Extract shared capture lifecycle out of the Hudsucker callback adapter before claiming a fork-free dependency graph. |
+| TLSN `require_info` forwarding | Shared forwarder, explicit experimental injection | No fallback to ordinary upstream on capture/proof failure; runtime production target wiring is still absent. |
+| WebSocket lifecycle / task ownership | Completed request/101 capture is sealed before frame relay; separate clean/unclean outcome and task sets | Retain HTTP-only evidence, including after later relay failure; frames must never enter the evidence artifact. |
+
+Key-free Node checks in `scripts/rama-migration-boundary.test.mjs` read only
+the named Proxy sources and manifest. They check provider wiring,
+compatibility delegation and opt-in/default boundaries, not Rust type
+correctness or behavior. The new Rust test
+`provider_can_be_used_without_a_hudsucker_ca` uses an empty certificate
+resolver (no generated keys) to check independent-provider dispatch and
+`Arc` identity; it is defined but **NOT_CHECKED** in this task.
+The two Node source-boundary assertions passed in the final combined run
+(64 PASS, 0 FAIL, 0 skipped). This is not a Rust test result.
+
+In a separately authorized environment, the minimum next execution is the
+feature-enabled library test with the
+`provider_can_be_used_without_a_hudsucker_ca` selector, followed by
+`rejects_downstream_sni_that_disagrees_with_connect_authority`,
+`rejects_untrusted_and_hostname_mismatched_upstream_tls`,
+`require_info_uses_shared_tlsn_forwarder_without_upstream_fallback`,
+`captures_websocket_handshake_and_upgrade_stream_until_clean_close`,
+`shutdown_aborts_open_websocket_and_keeps_handshake_capture`, and
+`outer_task_abort_closes_websocket_and_reports_unclean`.
+Require zero upstream connects for rejected SNI, no capture on upstream TLS
+failure, no ordinary-forwarding fallback, exact handshake-only artifact bytes,
+exactly-once persistence and complete task/socket cleanup. Full default and
+feature-enabled check/test runs are required before removal/default selection.
+Those paths may generate synthetic test certificates and read build inputs;
+they must not be run under this task's restrictions.
+
+Hudsucker remains the default and a Cargo dependency. This is a concrete
+provider-decoupling step, not completed migration, fork removal, current
+loopback evidence or real-game equivalence. Historical results below are
+not reruns for this source revision.
 
 Commands ran from the sanitized mirror; no production endpoint, Notary, R2, external CI, or example CA material was used.
 

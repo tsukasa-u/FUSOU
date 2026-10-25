@@ -1,0 +1,49 @@
+name: FUSOU release eligibility
+
+on:
+  workflow_run:
+    workflows: [FUSOU tag validation]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  eligibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Independently evaluate the run and current tag using trusted main code
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { execFileSync } = require('node:child_process');
+            const { writeFileSync } = require('node:fs');
+            const { evaluateReleaseRun } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-eligibility.mjs`).href);
+            const trustedSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            let report;
+            try {
+              report = await evaluateReleaseRun({
+                github, repository: context.repo, runId: context.payload.workflow_run.id, trustedSha,
+              });
+            } catch (error) {
+              report = { schema_version: 1, status: 'FAIL', error: error.message, deployed: false };
+            }
+            writeFileSync('release-report.json', `${JSON.stringify(report, null, 2)}\n`);
+            await core.summary.addCodeBlock(JSON.stringify(report, null, 2), 'json').write();
+            if (report.status !== 'PASS') core.setFailed(`Release gate: ${report.status}`);
+      - name: Preserve the machine-readable report, including blocked and failed runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-eligibility-${{ github.event.workflow_run.id }}
+          path: release-report.json
+          if-no-files-found: error

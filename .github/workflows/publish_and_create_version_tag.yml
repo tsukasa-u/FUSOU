@@ -6,8 +6,30 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+
 jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require the trusted main workflow
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          EXPECTED_WORKFLOW: ${{ github.repository }}/.github/workflows/publish_and_create_version_tag.yml@refs/heads/main
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$WORKFLOW_REF" = "$EXPECTED_WORKFLOW"
+      - name: Refuse unlinked legacy publication before credentials or build code
+        run: |
+          echo 'BLOCKED_EXTERNAL_INPUTS: use the main-owned FUSOU release eligibility coordinator. Linked APP/Worker/Runtime Config release evidence and credential isolation are not established.' >&2
+          exit 1
+
   create-release:
+    needs: release-gate
+    environment: production-release
     defaults:
       run:
         working-directory: ./packages/FUSOU-APP
@@ -117,6 +139,7 @@ jobs:
             return data.id
 
   build-tauri:
+    environment: production-release
     needs: create-release
     defaults:
       run:
@@ -208,6 +231,7 @@ jobs:
           assetNamePattern: "[name]-[platform]-[arch][ext]"
 
   verify-updater-manifest:
+    environment: production-release
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -234,6 +258,7 @@ jobs:
           bash .github/scripts/verify-updater-manifest.sh
 
   publish-release:
+    environment: production-release
     permissions:
       contents: write
     runs-on: ubuntu-latest

@@ -19,6 +19,7 @@ function inputsFor(disclosureMode) {
   const result = {
     tlsn_attestation_id: attestationId,
     presentation_sha256: presentationSha256,
+    server_identity: "game.example.test",
     disclosure_mode: disclosureMode,
     binding_value: "synthetic binding",
     verified_member_id: "123",
@@ -48,7 +49,7 @@ function inputsFor(disclosureMode) {
     },
     presentationBytes,
     semanticVerification: {
-      verified_presentation: { tlsn_attestation_id: attestationId },
+      verified_presentation: { tlsn_attestation_id: attestationId, server_identity: result.server_identity },
       result,
     },
     result,
@@ -121,6 +122,21 @@ for (const mode of ["complete", "sparse"]) {
     inputs.deviceId = 1;
     inputs.deviceAuthentication.request = { device_id: 1 };
     assert.throws(() => deriveProductionTrustGraph(inputs), /device authentication.*device identity/);
+  });
+
+  test(`${mode}: candidate or Result identity cannot replace the observed Presentation identity`, () => {
+    const inputs = inputsFor(mode);
+    inputs.result.server_identity = "another.example.test";
+    inputs.resultBytes = Buffer.from(JSON.stringify(inputs.result));
+    assert.throws(() => deriveProductionTrustGraph(inputs), /verified Presentation identity/);
+    for (const identity of [undefined, "Game.example.test", "https://game.example.test", "game.example.test:443", "*.example.test", "127.0.0.1"]) {
+      const malformed = inputsFor(mode);
+      malformed.semanticVerification.verified_presentation.server_identity = identity;
+      malformed.result.server_identity = identity;
+      if (identity === undefined) delete malformed.result.server_identity;
+      malformed.resultBytes = Buffer.from(JSON.stringify(malformed.result));
+      assert.throws(() => deriveProductionTrustGraph(malformed), /server_identity/);
+    }
   });
 
   test(`${mode}: Uint8Array and byte-offset views preserve the Buffer graph`, () => {

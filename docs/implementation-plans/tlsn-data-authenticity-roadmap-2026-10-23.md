@@ -351,6 +351,172 @@ keys, which is prohibited in this follow-up. Those tests, Rust/WASM and the
 real build/launcher remain `NOT_CHECKED` here. No further unrelated local
 warning search is part of this bounded follow-up.
 
+### Tag validation and bounded release automation (2026-10-25)
+
+Baseline: `90c1f56b932ffc047b8a9fc951f007c21bf45bfe`.
+Local tag metadata contains `fusou-v0.0.0` through `fusou-v0.5.0` release
+names, alongside unrelated archive/dataset tags. No remote tag or CI lookup
+was performed. Existing `fusou-vX.Y.Z` is retained for stable Production;
+new `fusou-dev-*` names are development-only. Dataset/archive names are
+not reclassified. A development tag can point at any branch commit: no merge
+or main ancestry is required. The ordinary operation is to tag the intended
+commit, not to switch to main; this task creates/pushes no tags.
+
+[`tlsn-tag-validation.yml`](../../.github/workflows/tlsn-tag-validation.yml)
+checks out the exact pushed SHA without persisted credentials, checks that
+the checkout matches it, validates the namespace, verifies committed/nonignored
+lockfiles, and runs key-free Node contracts and static migration checks.
+It has only contents-read permission, no environment, secrets or OIDC grant,
+and runs no APP build, Rust, dependency install or deployment.
+This checks lockfile presence/tracking, not dependency resolution or a build.
+
+[`tlsn-release-eligibility.yml`](../../.github/workflows/tlsn-release-eligibility.yml)
+is a read-only `workflow_run` coordinator whose definition must be installed
+on the trusted default branch (main). It checks out main code, never the
+triggering tag code, and queries run/ref/branch/content metadata through
+[`release-eligibility.mjs`](../../scripts/release-eligibility.mjs):
+
+- Require a successful same-repository push run from the exact validation
+  workflow path; missing tag/run/API evidence fails, never defaults to main.
+- Resolve lightweight/annotated tags to a full commit SHA; require equality
+  with the tested SHA and reject moved tags.
+- For Production only, independently resolve main and require the tag commit
+  to be its ancestor, using comparison status and merge-base identity.
+- Compare the validation workflow blob to the trusted coordinator checkout
+  and recheck the tag after validation. No tag-provided executable or
+  downloaded workflow artifact is run by this coordinator.
+
+The JSON report records tag, tested/coordinator/main SHAs, validation run,
+eligibility, explicit blockers, and deployment state. Artifact hashes,
+Worker version and Runtime Config identity remain empty/null until real
+linked release evidence exists. Production currently returns
+`BLOCKED_EXTERNAL_INPUTS`, not a success-shaped release or deployment.
+Failed/blocked reports are preserved and fail the coordinator job.
+Actual GitHub event payloads, hosted execution, settings and API behavior
+remain `NOT_CHECKED`; in particular missing tag identity in run metadata is
+a rejection, not permission to guess a tag.
+
+The old manual
+[`publish_and_create_version_tag.yml`](../../.github/workflows/publish_and_create_version_tag.yml)
+previously created/published APP releases independently of TLSN readiness.
+It now explicitly fails before its privileged jobs; those jobs also name
+`production-release`. This intentionally suspends that bypass path, rather
+than pretending the missing APP/Worker/Runtime Config linkage is implemented.
+Do not simply remove the stop to enable publishing. APP build, initialized
+Worker deploy, post-deploy verification and final linked release reporting
+are still implementation work; this task executes none of them.
+
+#### One-time trust setup versus ordinary releases
+
+Repository code alone cannot prevent a modified tag workflow from reading a
+repository/org secret or obtaining an overly broad OIDC role. Before enabling
+privileged automation, administrators must supply auditable evidence of:
+
+1. All Production credentials removed from general repository/org visibility
+   and scoped to a protected `production-release` Environment. Use distinct
+   least-privilege credentials for unrelated docs/simulator workflows;
+   moving one secret reference in YAML does not revoke its old exposure.
+2. Environment deployment branch policy allowing **main branches only, not
+   tags**; protected main/rulesets and trusted workflow/script review.
+   A tag that modifies its own conditions must still be denied by this
+   external policy. Settings, administrator bypass and access controls are
+   not verified here. Reviewers may be an initial setup control, but are not
+   a proposed recurring protocol-approval step.
+3. If OIDC is later used, provider trust restricted to the approved
+   repository/environment and trusted main-owned workflow identity, with
+   least privilege. No OIDC request or grant was added here.
+4. Existing Worker/storage/authority services, signer/root bootstrap and
+   Runtime Config registration, versioned protocol decisions and independent
+   public pins. Tags must not create accounts/buckets/services/keys or fill
+   absent inputs with test values.
+
+After this one-time setup and contract finalization, ordinary releases
+should mechanically verify the selected tag SHA, required CI, locked build
+and artifact hashes, initialized Worker deployment/version, signed Runtime
+Config epoch/digests and the exact APP/Worker/config release linkage. A
+future privileged job must consume a fresh trusted eligibility decision,
+recheck mutable tag/deployment state before publication, and never execute
+non-main-history candidate code with Production credentials. Current
+read-only reports confer no such permission.
+
+P0-01/P0-10 and Q1-Q5 are design-time decisions, not intended recurring
+manual approvals for each tag or gameplay session. Once decided, encode
+the approved revision/patch identities, wire semantics, vectors and policy
+version in contracts/tests/CI and reject mismatches mechanically. Changing
+those trust/contract versions is a separate governed operation. Existing
+unresolved rows below remain unresolved; this task does not select their
+semantics. Hostname-list correctness can be the routine operator input,
+but initial public trust roots, service/credential setup, key rotation and
+trusted release execution remain security assumptions, not properties
+derived from a hostname list.
+
+#### Evidence automation limits and concrete local progress
+
+The graph now rejects a Result server identity that differs from the supplied
+verified Presentation identity and requires that observed identity to be
+canonical. It reuses the shared hostname validator and does not convert a
+candidate identity into authority. The caller must still authenticate the
+Presentation and semantic output: this local check is not TLSN/Web PKI
+verification or proof that its result is wired into a deployed Worker.
+Key-free structural tests also exercise canonical hostname rejection and the
+existing Inventory/Target Approval resolver's membership, raw serialization
+and digest/order constraints. No production hostname or trust root is added.
+
+Presentation cryptography, Result signature/domain, required Production
+Inventory/Approval digests, receipt/device/replay correlation and exact
+archive readback remain separate required checks. Existing Rust verifier
+source and local checks are not evidence of deployed generation/storage.
+Runtime Config epoch checks plus a local accepted-epoch record can reject
+rollback relative to that retained state; restoring/deleting OS-controlled
+state can remove that history. No external monotonic checkpoint, process
+attestation or rollback-proof OS storage is established here.
+
+Rama provider decoupling and required future tests are recorded in the
+[`migration plan`](../../packages/FUSOU-PROXY/proxy-https/RAMA_MIGRATION_PLAN.md).
+Hudsucker remains default; the fork and shared capture-hook dependencies are
+not removed. Source/static checks do not establish compiled or runtime parity.
+
+| Remaining work class | Next concrete output / acceptance |
+| --- | --- |
+| Implementation | A main-owned privileged release consumer of the fresh eligibility report; immutable APP/Worker/config artifact linkage, hashes, initialized-only deployment and post-deploy verification. Must fail on missing/stale/mixed inputs and never accept arbitrary tag code before credentials. The old manual gate stays closed. |
+| One-time external setup | Auditable credential relocation, main-only Environment policy, main/workflow governance, public bootstrap pins and existing service registration. Missing settings are `NOT_CHECKED`, not assumed absent or configured. |
+| Protocol decisions | Resolve existing P0-01/P0-10/Q1-Q5 choices once; encode the selected contract versions, vectors and compatibility/migration rules in tests and release gates. No inferred wire/session semantics. |
+| Not authorized / not executed | Rust/default+Rama checks, APP builds, hosted tag-event trials, service health/deployment and actual gameplay capture/offline verification. Require separately permitted execution and the actual SHA/artifact/readback results, not source/static assertions. |
+
+#### Local validation for this change
+
+The final run used:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE \
+  node --test --test-reporter=spec \
+  scripts/release-eligibility.test.mjs \
+  scripts/release-workflow.test.mjs \
+  scripts/production-target-contract.test.mjs \
+  scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+Result: **64 PASS, 0 FAIL, 0 skipped**: graph 46, target policy 3,
+mock release eligibility 10, workflow-source assertions 3, Rama-source
+assertions 2. Inputs are synthetic; APIs are mocked; no keys are generated.
+An intermediate 62-test run had three test-harness failures (undefined
+fixture property versus serialized absence in both Result modes, and an
+incorrect source slice ending at the first conditional test annotation);
+these were corrected without weakening the expected identity rejection or
+provider boundary, and both subsequent 62- and 64-test runs passed.
+Installed PyYAML parsed the three changed workflows successfully;
+this is YAML syntax validation, not GitHub Actions schema/actionlint or
+hosted execution. No actionlint was available.
+
+APP readiness/handoff and crypto fixture tests were not rerun because their
+fixture paths generate ephemeral keys. No Cargo/Rust/WASM execution, APP
+build, network/service request, deployment, gameplay or cryptographic proof
+verification was performed. The normal scoped commit hook must still pass;
+its static analysis is not a substitute for any of these runtime checks.
+Protected source/config files are not test inputs. Only the explicit changed
+paths are candidates for staging; global index metadata is not blob content.
+
 ## Phase 4 — External dependencies and operator evidence
 
 **Current status:** `BLOCKED` until responsible operators provide independently

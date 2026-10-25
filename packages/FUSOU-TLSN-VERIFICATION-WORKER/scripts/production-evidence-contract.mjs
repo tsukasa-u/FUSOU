@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual, TextDecoder } from "node:util";
 import { isUint8Array } from "node:util/types";
+import { assertCanonicalServerIdentity } from "../src/origin-trust-contract.mjs";
 
 export const PRODUCTION_EVIDENCE_SCOPE = "tlsn-production-evidence";
 export const PRODUCTION_EVIDENCE_SCHEMA_VERSION = 1;
@@ -684,6 +685,10 @@ export function deriveProductionTrustGraph({
   if (!parsedResult || typeof parsedResult !== "object" || Array.isArray(parsedResult) ||
       !isDeepStrictEqual(parsedResult, result) || !isDeepStrictEqual(result, semanticResult)) {
     throw new Error("Result bytes do not match the parsed and semantic Result");
+  }
+  assertCanonicalServerIdentity(verifiedPresentation.server_identity);
+  if (verifiedPresentation.server_identity !== semanticResult.server_identity) {
+    throw new Error("Result server identity does not match the verified Presentation identity");
   }
   if (typeof session.binding !== "string" || !session.binding || session.binding !== semanticResult.binding_value) {
     throw new Error("Session and Result bindings must match as non-empty strings");

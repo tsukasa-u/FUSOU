@@ -1,0 +1,47 @@
+name: FUSOU tag validation
+
+on:
+  push:
+    tags:
+      - 'fusou-dev-*'
+      - 'fusou-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Bind validation to the exact pushed tag commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node --input-type=module -e 'import { classifyReleaseTag } from "./scripts/release-eligibility.mjs"; classifyReleaseTag(process.env.RELEASE_TAG);'
+          git ls-files --error-unmatch -- packages/FUSOU-APP/src-tauri/Cargo.lock pnpm-lock.yaml
+          for lockfile in packages/FUSOU-APP/src-tauri/Cargo.lock pnpm-lock.yaml; do
+            if git check-ignore --quiet --no-index -- "$lockfile"; then
+              echo "Tracked release lockfile is ignored: $lockfile" >&2
+              exit 1
+            else
+              status=$?
+              test "$status" -eq 1
+            fi
+          done
+      - name: Run key-free local contracts
+        run: |
+          env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+            scripts/release-eligibility.test.mjs \
+            scripts/release-workflow.test.mjs \
+            scripts/production-target-contract.test.mjs \
+            scripts/rama-migration-boundary.test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs

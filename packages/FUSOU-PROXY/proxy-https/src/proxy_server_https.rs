@@ -37,6 +37,8 @@ pub use crate::experimental_tlsn::{
 use crate::{bidirectional_channel, capture};
 
 #[cfg(feature = "rama-experimental")]
+pub mod downstream_tls;
+#[cfg(feature = "rama-experimental")]
 pub mod rama_experimental;
 
 use configs;

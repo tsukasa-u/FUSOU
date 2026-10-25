@@ -5,7 +5,7 @@ use super::{
 use crate::{
     capture::ExactWireMetadata, capture_io::CaptureIo, experimental_tlsn::MAX_TLSN_SENT_DATA_BYTES,
 };
-use hudsucker::certificate_authority::CertificateAuthority;
+use super::downstream_tls::DownstreamTlsConfigProvider;
 use hyper::body::Bytes;
 use rama::{
     conversion::RamaTryInto,
@@ -743,7 +743,7 @@ pub async fn serve<CA, Shutdown>(
     shutdown: Shutdown,
 ) -> Result<(), BoxError>
 where
-    CA: CertificateAuthority,
+    CA: DownstreamTlsConfigProvider,
     Shutdown: Future<Output = ()> + Send,
 {
     let capture_hook = RawCaptureHook::new(capture_output_root);
@@ -760,7 +760,7 @@ pub async fn serve_with_experimental_tlsn_dependencies<CA, Shutdown>(
     shutdown: Shutdown,
 ) -> Result<(), BoxError>
 where
-    CA: CertificateAuthority,
+    CA: DownstreamTlsConfigProvider,
     Shutdown: Future<Output = ()> + Send,
 {
     let capture_hook = RawCaptureHook::new(capture_output_root);
@@ -784,7 +784,7 @@ async fn serve_with_capture_hook<CA, Shutdown>(
     shutdown: Shutdown,
 ) -> Result<(), BoxError>
 where
-    CA: CertificateAuthority,
+    CA: DownstreamTlsConfigProvider,
     Shutdown: Future<Output = ()> + Send,
 {
     let experimental_require_info_route = match tlsn_dependencies {
@@ -877,7 +877,7 @@ async fn serve_connection<CA>(
     experimental_require_info_route: ExperimentalRequireInfoRoute,
 ) -> Result<(), BoxError>
 where
-    CA: CertificateAuthority,
+    CA: DownstreamTlsConfigProvider,
 {
     let tunnel_tasks: TunnelTasks = Arc::new(AsyncMutex::new(JoinSet::new()));
     let tunnel_tasks_for_service = Arc::clone(&tunnel_tasks);
@@ -939,7 +939,7 @@ async fn handle_connect<CA>(
     tunnel_tasks: TunnelTasks,
 ) -> Response
 where
-    CA: CertificateAuthority,
+    CA: DownstreamTlsConfigProvider,
 {
     if request.method() != rama::http::Method::CONNECT {
         return empty_response(StatusCode::METHOD_NOT_ALLOWED);
@@ -998,11 +998,11 @@ async fn run_tunnel<CA, Upgrade>(
     experimental_require_info_route: ExperimentalRequireInfoRoute,
 ) -> Result<(), BoxError>
 where
-    CA: CertificateAuthority,
+    CA: DownstreamTlsConfigProvider,
     Upgrade: Future<Output = Result<Upgraded, BoxError>> + Send + 'static,
 {
     let upgraded = pending_upgrade.await?;
-    let server_config = ca.gen_server_config(&authority).await;
+    let server_config = ca.server_config(&authority).await;
     let downstream_tls_config = TlsServerConfig::new()
         .with_alpn_http_1()
         .with_dynamic_config(Arc::new(SniBoundConfig {
