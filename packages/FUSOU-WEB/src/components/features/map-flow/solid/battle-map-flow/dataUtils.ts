@@ -14,6 +14,7 @@ export function normalizeEpochMs(
   value: number | string | null | undefined,
 ): number | null {
   if (value === null || value === undefined) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -27,9 +28,8 @@ export function normalizeEpochMs(
     }
     return null;
   }
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n < 1_000_000_000_000 ? n * 1000 : n;
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value < 1_000_000_000_000 ? value * 1000 : value;
 }
 
 export function formatTimestamp(ts: number | string | null | undefined): string {
@@ -96,9 +96,10 @@ export function resolveRouteCellsWithPort(
   const normalizedPorts = ports.map(Number).filter(Number.isFinite);
   if (normalizedPorts.length === 0) return normalizedCells;
 
+  const safeSpots = Array.isArray(spots) ? spots : [];
   const firstCell = normalizedCells[0]!;
   const firstPort = normalizedPorts[0]!;
-  const firstCellSpot = spots.find((spot) => Number(spot.cellId) === firstCell);
+  const firstCellSpot = safeSpots.find((spot) => Number(spot.cellId) === firstCell);
   // If first cell is already a port or cell 0, do not prepend another port
   if (firstCell === 0 || normalizedPorts.includes(firstCell) || firstCellSpot?.isPort) return normalizedCells;
 
@@ -112,7 +113,7 @@ export function resolveRouteCellsWithPort(
       if (normalizedPorts.includes(rFrom)) {
         if (rTo === firstCell) return [rFrom, ...normalizedCells];
         if (firstCellSpot) {
-          const toSpot = spots.find((spot) => Number(spot.cellId) === rTo);
+          const toSpot = safeSpots.find((spot) => Number(spot.cellId) === rTo);
           if (toSpot && Math.hypot(toSpot.x - firstCellSpot.x, toSpot.y - firstCellSpot.y) < 18) {
             return [rFrom, ...normalizedCells];
           }
@@ -122,7 +123,7 @@ export function resolveRouteCellsWithPort(
       if (normalizedPorts.includes(rTo)) {
         if (rFrom === firstCell) return [rTo, ...normalizedCells];
         if (firstCellSpot) {
-          const fromSpot = spots.find((spot) => Number(spot.cellId) === rFrom);
+          const fromSpot = safeSpots.find((spot) => Number(spot.cellId) === rFrom);
           if (fromSpot && Math.hypot(fromSpot.x - firstCellSpot.x, fromSpot.y - firstCellSpot.y) < 18) {
             return [rTo, ...normalizedCells];
           }
@@ -141,7 +142,7 @@ export function resolveRouteCellsWithPort(
   let nearestPort = firstPort;
   let nearestDistance = Number.POSITIVE_INFINITY;
   for (const portCellId of normalizedPorts) {
-    const portSpot = spots.find((spot) => Number(spot.cellId) === portCellId);
+    const portSpot = safeSpots.find((spot) => Number(spot.cellId) === portCellId);
     if (!portSpot) continue;
     const dx = firstCellSpot.x - portSpot.x;
     const dy = firstCellSpot.y - portSpot.y;
@@ -156,10 +157,11 @@ export function resolveRouteCellsWithPort(
 }
 
 export function cellLabel(
-  cellId: number | string,
+  cellId: number | string | null | undefined,
   labels: Record<number | string, string> | undefined,
   ports?: number[],
 ): string {
+  if (cellId === null || cellId === undefined || cellId === "") return "-";
   const id = Number(cellId);
   if (!Number.isFinite(id)) return "-";
   const normalizedPorts = ports?.map(Number).filter(Number.isFinite) ?? [];
@@ -207,7 +209,8 @@ const alphaCellFallbackLabel = alphaCellLabel;
 /**
  * Checks whether a timestamp (in epoch ms or s) falls within the specified date range (YYYY-MM-DD in JST).
  */
-function normalizeDateString(dateStr: string): string {
+function normalizeDateString(dateStr: unknown): string {
+  if (typeof dateStr !== "string") return "";
   const trimmed = dateStr.trim().replace(/\//g, "-");
   if (!trimmed) return "";
   const dateOnly = trimmed.split(/[T\s]/)[0] ?? trimmed;
@@ -356,6 +359,7 @@ export function buildAliasCellMap(
   spots: Array<{ cellId: number; x: number; y: number }>,
 ): Map<number, number[]> {
   const coordMap = new Map<string, number[]>();
+  if (!Array.isArray(spots)) return new Map();
   for (const spot of spots) {
     const key = `${spot.x}:${spot.y}`;
     const list = coordMap.get(key) || [];

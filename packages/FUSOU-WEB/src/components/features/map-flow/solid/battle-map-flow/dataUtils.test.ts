@@ -87,6 +87,19 @@ describe("map-flow data utilities", () => {
     expect(alphaCellLabel(-1)).toBe("-");
   });
 
+  it("does not mistake null, undefined, empty string or boolean as port 0", () => {
+    const ports = [0];
+    expect(cellLabel(null, undefined, ports)).toBe("-");
+    expect(cellLabel(undefined, undefined, ports)).toBe("-");
+    expect(cellLabel("", undefined, ports)).toBe("-");
+    expect(normalizeEpochMs(true as any)).toBeNull();
+    expect(normalizeEpochMs(false as any)).toBeNull();
+    expect(normalizeEpochMs([] as any)).toBeNull();
+    expect(isWithinDateRange(1700000000000, undefined as any, undefined as any)).toBe(true);
+    expect(resolveRouteCellsWithPort([1, 2], [10], undefined as any)).toEqual([10, 1, 2]);
+    expect(buildAliasCellMap(undefined as any).size).toBe(0);
+  });
+
   it("sorts missing or NaN timestamps after valid epoch zero in either direction", () => {
     expect(compareNullableTimestamps(0, null)).toBeLessThan(0);
     expect(compareNullableTimestamps(null, 0)).toBeGreaterThan(0);

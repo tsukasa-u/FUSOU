@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
+const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const BASE_URL = process.env.BASE_URL || "https://fusou.ogu-hide-u-425.workers.dev";
 const TARGET_PERIODS = process.env.PERIOD_TAG 
@@ -35,7 +36,7 @@ async function verifyPeriodConvergence(periodTag) {
   console.log(`--- 1. [${periodTag}] Verifying Period File Convergence in D1 ---`);
   try {
     const raw = execSync(
-      `pnpm --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command "SELECT file_path FROM archived_files WHERE file_path LIKE '%/${periodTag}/period/%' AND file_path NOT LIKE 'compacted/%'"`,
+      `${pnpmCmd} --filter fusou-web exec wrangler d1 execute dev-kc-battle-index --remote --json --command \"SELECT file_path FROM archived_files WHERE file_path LIKE '%/${periodTag}/period/%' AND file_path NOT LIKE 'compacted/%'\"`,
       { cwd: REPO_ROOT, encoding: "utf-8" }
     );
     const parsed = JSON.parse(raw);
@@ -150,7 +151,8 @@ async function verifySnapshotsAndMasterData(periodTag) {
     assert(res.status === 200, "Detail-Env endpoint status is 200", `HTTP ${res.status}`);
     assert(res.headers.get("x-fusou-cache") === "SNAPSHOT-HIT", "Detail-Env cache is SNAPSHOT-HIT", `Cache: ${res.headers.get("x-fusou-cache")}, Latency: ${lat}ms`);
     const json = await res.json();
-    assert(typeof json.battles === "object" && Object.keys(json.battles).length > 0, "Detail-Env bundle contains all sortie battles", `Battles: [${Object.keys(json.battles).join(", ")}]`);
+    const battlesCount = json.battles ? Object.keys(json.battles).length : (json.tables?.battle?.length || 0);
+    assert(battlesCount > 0, "Detail-Env bundle contains valid sortie battles", `Battles: ${battlesCount} battle(s)`);
   } catch (err) {
     assert(false, "Detail-Env verification", err.message);
   }

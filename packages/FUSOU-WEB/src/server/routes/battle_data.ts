@@ -3527,14 +3527,75 @@ app.get("/detail-env", async (c) => {
     if (envObj) {
       try {
         const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
-        const headers = new Headers();
-        headers.set("Content-Type", "application/json");
-        headers.set("Cache-Control", cacheControl);
-        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-        if (envObj.httpEtag) {
-          headers.set("ETag", envObj.httpEtag);
+        const bundle = JSON.parse(text);
+        if (bundle.tables && typeof bundle.tables === "object" && (!bundle.battles || Object.keys(bundle.battles).length === 0)) {
+          const battlesList = Array.isArray(bundle.tables["battle"]) ? bundle.tables["battle"] : [];
+          if (battlesList.length > 0) {
+            const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] =
+              await Promise.all([
+                fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchWeaponIconFramesDirect(c).catch(() => ({})),
+              ]);
+            const battlesMap: Record<string, unknown> = {};
+            for (const b of battlesList) {
+              const bIdx = Number(b["index"] ?? 0);
+              const resolved = resolveBattleDetail({
+                periodTag: bundle.period_tag || activeTag,
+                tableVersion: bundle.table_version || null,
+                envUuid,
+                battleIndex: bIdx,
+                masterShips: mstShipPayload.records || [],
+                masterSlotItems: mstSlotItemPayload.records || [],
+                weaponIconFrames: weaponIconFramesPayload,
+                tables: {
+                  battle: battlesList,
+                  cells: bundle.tables["cells"] || [],
+                  battleResult: bundle.tables["battle_result"] || [],
+                  ownDeck: bundle.tables["own_deck"] || [],
+                  ownShip: bundle.tables["own_ship"] || [],
+                  ownSlotItem: bundle.tables["own_slotitem"] || [],
+                  enemyDeck: bundle.tables["enemy_deck"] || [],
+                  enemyShip: bundle.tables["enemy_ship"] || [],
+                  enemySlotItem: bundle.tables["enemy_slotitem"] || [],
+                  midnightHougekiLists: bundle.tables["midnight_hougeki_list"] || [],
+                  midnightHougekis: bundle.tables["midnight_hougeki"] || [],
+                  openingTaisenLists: bundle.tables["opening_taisen_list"] || [],
+                  openingTaisens: bundle.tables["opening_taisen"] || [],
+                  hougekiLists: bundle.tables["hougeki_list"] || [],
+                  hougekis: bundle.tables["hougeki"] || [],
+                  openingAirattackLists: bundle.tables["opening_airattack_list"] || [],
+                  openingAirattacks: bundle.tables["opening_airattack"] || [],
+                  openingRaigeki: bundle.tables["opening_raigeki"] || [],
+                  closingRaigeki: bundle.tables["closing_raigeki"] || [],
+                  airbaseAssault: bundle.tables["airbase_assault"] || [],
+                  airbaseAirattackLists: bundle.tables["airbase_airattack_list"] || [],
+                  airbaseAirattacks: bundle.tables["airbase_airattack"] || [],
+                  carrierbaseAssault: bundle.tables["carrierbase_assault"] || [],
+                  supportHourai: bundle.tables["support_hourai"] || [],
+                  supportAirattack: bundle.tables["support_airattack"] || [],
+                  nightSupportHourai: bundle.tables["night_support_hourai"] || [],
+                  nightSupportAirattack: bundle.tables["night_support_airattack"] || [],
+                  friendlySupportHouraiLists: bundle.tables["friendly_support_hourai_list"] || [],
+                  friendlySupportHourai: bundle.tables["friendly_support_hourai"] || [],
+                  destructionBattle: bundle.tables["destruction_battle"] || [],
+                },
+              });
+              if (resolved) {
+                battlesMap[String(bIdx)] = resolved.payload;
+              }
+            }
+            bundle.battles = battlesMap;
+            bundle.success = true;
+          }
         }
-        return new Response(text, { headers });
+        const res = c.json(bundle, 200);
+        res.headers.set("Cache-Control", cacheControl);
+        res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+        if (envObj.httpEtag) {
+          res.headers.set("ETag", envObj.httpEtag);
+        }
+        return res;
       } catch (err) {
         console.warn("[battle_data] failed to decompress detail-env snapshot:", err);
       }
@@ -3613,12 +3674,70 @@ app.get("/detail", async (c) => {
       try {
         const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
         const bundle = JSON.parse(text);
+        // Format A: pre-resolved battles bundle
         const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
         if (battlePayload) {
           const res = c.json(battlePayload, 200);
           res.headers.set("Cache-Control", cacheControl);
           res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
           return res;
+        }
+
+        // Format B: raw tables bundle (generated by workflow snapshot_generator)
+        if (bundle.tables && typeof bundle.tables === "object") {
+          const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] =
+            await Promise.all([
+              fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
+              fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
+              fetchWeaponIconFramesDirect(c).catch(() => ({})),
+            ]);
+          const resolvedDetail = resolveBattleDetail({
+            periodTag: bundle.period_tag || activeTag,
+            tableVersion: bundle.table_version || tableVersion || null,
+            envUuid,
+            battleIndex,
+            masterShips: mstShipPayload.records || [],
+            masterSlotItems: mstSlotItemPayload.records || [],
+            weaponIconFrames: weaponIconFramesPayload,
+            tables: {
+              battle: bundle.tables["battle"] || [],
+              cells: bundle.tables["cells"] || [],
+              battleResult: bundle.tables["battle_result"] || [],
+              ownDeck: bundle.tables["own_deck"] || [],
+              ownShip: bundle.tables["own_ship"] || [],
+              ownSlotItem: bundle.tables["own_slotitem"] || [],
+              enemyDeck: bundle.tables["enemy_deck"] || [],
+              enemyShip: bundle.tables["enemy_ship"] || [],
+              enemySlotItem: bundle.tables["enemy_slotitem"] || [],
+              midnightHougekiLists: bundle.tables["midnight_hougeki_list"] || [],
+              midnightHougekis: bundle.tables["midnight_hougeki"] || [],
+              openingTaisenLists: bundle.tables["opening_taisen_list"] || [],
+              openingTaisens: bundle.tables["opening_taisen"] || [],
+              hougekiLists: bundle.tables["hougeki_list"] || [],
+              hougekis: bundle.tables["hougeki"] || [],
+              openingAirattackLists: bundle.tables["opening_airattack_list"] || [],
+              openingAirattacks: bundle.tables["opening_airattack"] || [],
+              openingRaigeki: bundle.tables["opening_raigeki"] || [],
+              closingRaigeki: bundle.tables["closing_raigeki"] || [],
+              airbaseAssault: bundle.tables["airbase_assault"] || [],
+              airbaseAirattackLists: bundle.tables["airbase_airattack_list"] || [],
+              airbaseAirattacks: bundle.tables["airbase_airattack"] || [],
+              carrierbaseAssault: bundle.tables["carrierbase_assault"] || [],
+              supportHourai: bundle.tables["support_hourai"] || [],
+              supportAirattack: bundle.tables["support_airattack"] || [],
+              nightSupportHourai: bundle.tables["night_support_hourai"] || [],
+              nightSupportAirattack: bundle.tables["night_support_airattack"] || [],
+              friendlySupportHouraiLists: bundle.tables["friendly_support_hourai_list"] || [],
+              friendlySupportHourai: bundle.tables["friendly_support_hourai"] || [],
+              destructionBattle: bundle.tables["destruction_battle"] || [],
+            },
+          });
+          if (resolvedDetail) {
+            const res = c.json(resolvedDetail.payload, 200);
+            res.headers.set("Cache-Control", cacheControl);
+            res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+            return res;
+          }
         }
       } catch (err) {
         console.warn("[battle_data] failed to read env_detail snapshot:", err);

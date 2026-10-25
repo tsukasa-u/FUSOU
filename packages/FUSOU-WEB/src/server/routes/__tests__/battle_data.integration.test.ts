@@ -639,6 +639,75 @@ describe("battle-data route integration", () => {
 		expect(data.derived?.friendly_fleet?.[0]?.name).toBe("夕張改二特");
 	});
 
+	it("serves detail from env_detail raw-tables snapshot format (FUSOU-WORKFLOW schema)", async () => {
+		const targetEnvUuid = "01a1729e-b4b0-7001-9706-4d24bf9b25cc";
+		const workflowSnapshotPayload = {
+			env_uuid: targetEnvUuid,
+			period_tag: "2026-10-14",
+			table_version: "0.6.0",
+			timestamp: 1792454400000,
+			tables: {
+				battle: [{ index: 0, env_uuid: targetEnvUuid, timestamp: 1792454400000 }],
+				cells: [{ env_uuid: targetEnvUuid, maparea_id: 1, mapinfo_no: 2 }],
+				battle_result: [{ env_uuid: targetEnvUuid, drop_ship_id: 541 }],
+				own_ship: [{ env_uuid: targetEnvUuid, ship_id: 541, name: "夕張改二特" }],
+				own_slotitem: [{ env_uuid: targetEnvUuid, mst_slotitem_id: 40 }],
+			},
+		};
+
+		const bucket = {
+			get: async (key: string) => {
+				if (key === "snapshots/env_detail/2026-10-14/" + targetEnvUuid + ".json.br") {
+					const jsonStr = JSON.stringify(workflowSnapshotPayload);
+					return {
+						arrayBuffer: async () => Buffer.from(jsonStr, "utf-8"),
+						httpEtag: "test-etag",
+					};
+				}
+				if (key.includes("mst_ship")) {
+					return {
+						arrayBuffer: async () => Buffer.from(JSON.stringify([{ id: 541, name: "夕張改二特" }])),
+					};
+				}
+				if (key.includes("mst_slotitem")) {
+					return {
+						arrayBuffer: async () => Buffer.from(JSON.stringify([{ id: 40, name: "12.7cm連装砲B型改二" }])),
+					};
+				}
+				return null;
+			},
+		};
+
+		const d1 = {
+			prepare: (sql: string) => ({
+				bind: (...args: unknown[]) => ({
+					first: async () => {
+						return { period_tag: "2026-10-14" };
+					},
+					all: async () => ({
+						results: [{ period_tag: "2026-10-14", table_version: "0.6.0" }],
+					}),
+				}),
+			}),
+		};
+
+		const res = await request(
+			"/detail?env_uuid=" + targetEnvUuid + "&battle_index=0&period_tag=latest",
+			{
+				BATTLE_DATA_BUCKET: bucket,
+				BATTLE_INDEX_DB: d1,
+				MASTER_DATA_INDEX_DB: d1,
+				MASTER_DATA_BUCKET: bucket,
+			},
+		);
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("X-FUSOU-Cache")).toBe("SNAPSHOT-HIT");
+		const data = (await res.json()) as any;
+		expect(data.battle?.index).toBe(0);
+		expect(data.period_tag).toBe("2026-10-14");
+	});
+
 	it("consolidates multiple null-codec OCF blocks into a single block during mergeAvroOCF", () => {
 		const reblocked = mergeAvroOCF([battleFixtureBytes, battleFixtureBytes]);
 		const unReblocked = mergeAvroOCF(
