@@ -37,26 +37,31 @@ async function buildSnapshotResponse(
     headers.set("ETag", etag);
   }
 
-  const bytes = new Uint8Array(arrayBuf);
-  const isPlainJson = isPlainJsonBuffer(bytes);
-
-  if (isPlainJson) {
-    return new Response(arrayBuf, { headers });
-  }
-
   const acceptEncoding = c.req.header("accept-encoding") || "";
-  if (acceptEncoding.includes("br")) {
-    headers.set("Content-Encoding", "br");
-    return new Response(arrayBuf, { headers });
+  const buf = Buffer.from(arrayBuf);
+
+  // 1. Rigorously test if it is a genuine Brotli compressed binary
+  let decompressedText: string | null = null;
+  let decompError: string | null = null;
+  try {
+    const decomp = await brotliDecompressAsync(buf);
+    decompressedText = decomp.toString("utf-8");
+  } catch (err) {
+    decompError = err instanceof Error ? err.message : String(err);
+    decompressedText = null;
   }
 
-  try {
-    const text = await decompressSnapshotPayload(arrayBuf);
-    return new Response(text, { headers });
-  } catch (err) {
-    console.error("[battle_data] failed to decompress snapshot:", err);
-    return c.json({ error: "Failed to decompress snapshot payload", code: "SNAPSHOT_DECOMPRESS_ERROR" }, 500);
+  if (decompressedText !== null) {
+    // Valid Brotli binary
+    if (acceptEncoding.includes("br")) {
+      headers.set("Content-Encoding", "br");
+      return new Response(arrayBuf, { headers });
+    }
+    return new Response(decompressedText, { headers });
   }
+
+  // 2. Uncompressed plain JSON stored in R2
+  return new Response(arrayBuf, { headers });
 }
 
 const KNOWN_PERIOD_TAGS = ["2026-10-14", "2026-09-10", "2026-08-05", "2026-07-08"];
