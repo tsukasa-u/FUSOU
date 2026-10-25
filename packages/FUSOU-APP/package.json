@@ -29,7 +29,7 @@
     "@storybook/addon-onboarding": "^10.3.3",
     "@storybook/addon-styling-webpack": "^3.0.1",
     "@storybook/addon-themes": "^10.3.3",
-    "@storybook/addon-vitest": "^10.3.3",
+    "@storybook/addon-vitest": "^10.6.2",
     "@tailwindcss/postcss": "^4.3.3",
     "@tauri-apps/cli": "^2.9.4",
     "@typescript-eslint/eslint-plugin": "^8.48.0",
