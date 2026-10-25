@@ -334,15 +334,6 @@ export async function generateAndSaveSnapshots(
     }
   }
 
-  // 2. ALWAYS update the default 'latest' master snapshot across all sorties
-  try {
-    await saveOverviewAndDropsSnapshot(env, 'latest', allSortieBundles);
-    if (!snapshotsUpdated.includes('latest')) {
-      snapshotsUpdated.push('latest');
-    }
-  } catch (err) {
-    console.error('[SnapshotGenerator] Failed to update master "latest" snapshot:', err);
-  }
-
+  // 2. 'latest' alias generation removed: API dynamically resolves current period
   return { sortiesSaved, snapshotsUpdated };
 }
