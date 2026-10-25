@@ -16,6 +16,8 @@ type BackfillPayload = {
   end_ms?: number;
   table_names?: string[];
   chunk_limit?: number;
+  period_tag?: string | undefined;
+  table_version?: string | undefined;
 };
 
 function requiredEnv(name: string): string {
@@ -172,6 +174,8 @@ async function runPeriodBackfill(params: {
   discoveryWindow: Window;
   tableNames: string[];
   chunkLimit: number;
+  periodTag?: string | undefined;
+  tableVersion?: string | undefined;
 }): Promise<void> {
   const client = buildInternalClient();
   const outputGroupKey = createOutputGroupKey({
@@ -185,11 +189,17 @@ async function runPeriodBackfill(params: {
   const affectedPeriods = new Set<string>();
 
   for (const tableName of params.tableNames) {
-    const groups = await client.listSourceGroups({
+    const rawGroups = await client.listSourceGroups({
       tier: params.sourceTier,
       table_name: tableName,
       window_start_ms: params.discoveryWindow.start,
       window_end_ms: params.discoveryWindow.end,
+    });
+
+    const groups = rawGroups.filter((g) => {
+      if (params.periodTag && g.period_tag !== params.periodTag) return false;
+      if (params.tableVersion && g.table_version !== params.tableVersion) return false;
+      return true;
     });
 
     for (const group of groups) {
@@ -214,11 +224,16 @@ async function runPeriodBackfill(params: {
   if (params.sourceTier !== "period") {
     console.info("[compactor] Running automatic period convergence pass to unify existing period outputs...");
     for (const tableName of params.tableNames) {
-      const periodGroups = await client.listSourceGroups({
+      const rawPeriodGroups = await client.listSourceGroups({
         tier: "period",
         table_name: tableName,
         window_start_ms: 0,
         window_end_ms: Number.MAX_SAFE_INTEGER,
+      });
+      const periodGroups = rawPeriodGroups.filter((g) => {
+        if (params.periodTag && g.period_tag !== params.periodTag) return false;
+        if (params.tableVersion && g.table_version !== params.tableVersion) return false;
+        return true;
       });
       for (const group of periodGroups) {
         if (group.period_tag) affectedPeriods.add(group.period_tag);
@@ -351,6 +366,8 @@ async function runBackfillCascade(params: {
   discoveryWindow: Window;
   tableNames: string[];
   chunkLimit: number;
+  periodTag?: string | undefined;
+  tableVersion?: string | undefined;
 }): Promise<void> {
   const order: Exclude<CompactionTier, "hourly">[] = ["daily", "weekly", "period"];
   const startIndex = order.indexOf(params.startTier);
@@ -366,6 +383,8 @@ async function runBackfillCascade(params: {
         discoveryWindow: params.discoveryWindow,
         tableNames: params.tableNames,
         chunkLimit: params.chunkLimit,
+        periodTag: params.periodTag,
+        tableVersion: params.tableVersion,
       });
 
       // Converge period outputs to a single file per table/period/version by
@@ -376,6 +395,8 @@ async function runBackfillCascade(params: {
           discoveryWindow: params.discoveryWindow,
           tableNames: params.tableNames,
           chunkLimit: params.chunkLimit,
+          periodTag: params.periodTag,
+          tableVersion: params.tableVersion,
         });
       }
       continue;
@@ -425,7 +446,7 @@ export const backfillCompaction = task({
   },
   run: async (payload: BackfillPayload) => {
     const tier = payload.tier;
-    const sourceTier = payload.source_tier ?? defaultSourceTierFor(tier);
+    const sourceTier = payload.source_tier ?? (tier === "period" ? "period" : defaultSourceTierFor(tier));
     const requestedTables = resolveRequestedTables(payload.table_names);
     const tableNames = await resolveTargetTables({
       sourceTier,
@@ -467,6 +488,8 @@ export const backfillCompaction = task({
       discoveryWindow: { start, end },
       tableNames,
       chunkLimit,
+      periodTag: payload.period_tag,
+      tableVersion: payload.table_version ?? "0.6.0",
     });
 
     return {

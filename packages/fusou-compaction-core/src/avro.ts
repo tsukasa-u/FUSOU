@@ -339,7 +339,7 @@ function readArray(
       values.push(readValue(bytes, cursor, itemSchema, named));
     }
     if (blockEnd !== undefined && cursor.offset !== blockEnd) {
-      return fail("Avro array block size does not match values");
+      cursor.offset = blockEnd;
     }
     blockCount = readDataLong(bytes, cursor);
   }
@@ -374,7 +374,7 @@ function readMap(
       values[key] = readValue(bytes, cursor, valueSchema, named);
     }
     if (blockEnd !== undefined && cursor.offset !== blockEnd) {
-      return fail("Avro map block size does not match values");
+      cursor.offset = blockEnd;
     }
     blockCount = readDataLong(bytes, cursor);
   }
