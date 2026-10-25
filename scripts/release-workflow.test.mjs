@@ -15,13 +15,18 @@ test("development tag validation has no privileged event, secrets, environments 
 test("coordinator only uses trusted main code and API metadata, never tag code or downloaded artifacts", () => {
   const yaml = read("tlsn-release-eligibility.yml");
   assert.match(yaml, /workflow_run:/);
-  assert.match(yaml, /ref: refs\/heads\/main/);
+  assert.match(yaml, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(yaml, /context\.ref !== 'refs\/heads\/main'/);
+  assert.match(yaml, /trustedSha !== context\.sha/);
   assert.match(yaml, /persist-credentials: false/);
   assert.match(yaml, /actions: read/);
   assert.match(yaml, /contents: read/);
   assert.match(yaml, /core\.setFailed/);
   assert.match(yaml, /if: always\(\)/);
   assert.doesNotMatch(yaml, /secrets\.|id-token:|: write|environment:|download-artifact|ref:.*head_sha/);
+  assert.match(yaml, /report\.status === 'PRODUCTION_ELIGIBLE'/);
+  assert.match(yaml, /recheckEligibility: \(\) => evaluateReleaseRun/);
+  assert.match(yaml, /release-output\//);
 });
 test("legacy publishing is explicitly blocked before any environment-qualified privileged job", () => {
   const yaml = read("publish_and_create_version_tag.yml");
@@ -32,4 +37,14 @@ test("legacy publishing is explicitly blocked before any environment-qualified p
   assert.doesNotMatch(gate, /secrets\.|: write|environment:/);
   assert.match(yaml, /create-release:\n    needs: release-gate\n    environment: production-release/);
   assert.equal((yaml.match(/environment: production-release/g) ?? []).length, 4);
+});
+test("unsigned generation does not introduce an unpinned new external Action dependency", () => {
+  const yaml = read("tlsn-release-eligibility.yml");
+  assert.deepEqual([...yaml.matchAll(/uses: (\S+)/g)].map((m) => m[1]), [
+    "actions/checkout@v4", "actions/setup-node@v4", "actions/github-script@v7", "actions/upload-artifact@v4",
+  ]);
+  const build = readFileSync(new URL("./release-build.mjs", import.meta.url), "utf8");
+  assert.match(build, /--frozen-lockfile/);
+  assert.match(build, /http\.extraHeader/);
+  assert.doesNotMatch(build, /TAURI_SIGNING_PRIVATE|DOTENV_PRIVATE|wrangler.*deploy|createRelease|updateRelease/);
 });

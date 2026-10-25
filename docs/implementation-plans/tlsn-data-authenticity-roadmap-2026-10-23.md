@@ -1,6 +1,7 @@
 # FUSOU TLSN Data Authenticity Implementation Roadmap
 
-**Status:** Draft; pending Q1-Q5 decisions and human release authority.
+**Status:** Release contracts and conservative local delivery policy implemented;
+broader authority/wire semantics and external execution remain blocked.
 **Source baseline:** `tlsn-first-testplay-candidate` at
 `e1d985bf326378346d1cf86b2e5269e3fe03cd95`.
 **Contract:** [`tlsn-data-authenticity-contract.md`](../architecture/tlsn-data-authenticity-contract.md).
@@ -516,6 +517,184 @@ verification was performed. The normal scoped commit hook must still pass;
 its static analysis is not a substitute for any of these runtime checks.
 Protected source/config files are not test inputs. Only the explicit changed
 paths are candidates for staging; global index metadata is not blob content.
+
+### Release record and unsigned generation follow-up (2026-10-25)
+
+Basis: `516948ecf1a322645f3956c2e8ee80a489a5bfc9`.
+This supersedes the previous report's schema-v1 status semantics; historical
+test counts above remain historical.
+
+[`release-eligibility.mjs`](../../scripts/release-eligibility.mjs) now emits
+schema v2. Tag validity is independent of artifact/deployment readiness:
+
+| Axis/state | Meaning here |
+| --- | --- |
+| `TAG_INVALID` | Coordinator could not authenticate the run/tag/history/validation route. Error is recorded; no generation. |
+| `DEVELOPMENT_VALIDATED` | Nonprivileged tag checks accepted, without querying main ancestry. No Production authorization. |
+| `PRODUCTION_ELIGIBLE` | Exact tag/run/source and trusted validation workflow/main history accepted. Preserved even when later build/config inputs are blocked. |
+| `BLOCKED_EXTERNAL_INPUTS` | Separate release/build readiness field. Missing public input pins/registrations or complete release linkage do not erase tag eligibility. |
+| `RELEASE_ARTIFACTS_VALIDATED` | The manifest validator matched independently supplied references, raw artifacts/build records/evidence and observed CI metadata. This is byte/provenance linkage, not a claim of TLSN or release signatures. Only synthetic cases reached this in this task. |
+| `DEPLOYMENT_VERIFIED` | Reserved for authenticated live deployment verification; no emitter/positive path is implemented here. Manifest self-assertion of this state is rejected. |
+
+The coordinator checks out its immutable event SHA and requires the event ref
+to be main. A missing/mismatching run ID or attempt is rejected, not inferred.
+A valid eligibility job may finish successfully with a blocked release
+record: green read-only CI is explicitly not successful Production release.
+Tag failures and actual generation failures still fail the job.
+
+#### Manifest v1: exact bytes and independent inputs
+
+[`release-manifest.mjs`](../../scripts/release-manifest.mjs) defines
+`fusou-release-manifest-v1`. It binds stable Production tag/version/source,
+validation path/blob SHA/run/attempt, eligibility coordinator/run/attempt,
+APP platform artifacts, Worker artifact/version, Runtime Config v2
+epoch/envelope/root digest, Result signer/registry, Notary registry,
+Session Authority ID, security registry set, Inventory/Target Approval,
+check-evidence hashes and an explicitly unverified deployment state.
+
+Serialization is the existing recursive sorted-key `canonicalJson`: UTF-8,
+no BOM, indentation or trailing newline. Object construction order does not
+change emitted bytes. Arrays retain order. Git commit/blob identifiers are
+40-character hex; artifact/evidence hashes are SHA-256 of **actual raw bytes**
+encoded base64url without padding. Epoch is a positive u64 decimal string;
+run IDs/attempts/lengths are positive safe integers. Canonical parse comparison
+rejects alternate key order/whitespace, duplicate/escaped duplicate keys and
+unknown fields (including added credential fields). Record input is capped
+at 1 MiB. This release-record contract does not change existing Result or
+receipt wire/canonicalization rules.
+
+The structural validator requires separate expected references and actual
+artifact, build-record, check/registry/config readback bytes. It also requires
+independently observed same-repository successful main-owned build run
+metadata, including exact run attempt and workflow SHA. Expected references
+must come from trusted main policy/control-plane records, never by copying
+the downloaded manifest. Synthetic tests clone fixtures solely to test
+mutations; that is not evidence of operational input independence.
+Each check is a canonical `fusou-release-check-v1` record with check name,
+`PASS` result, exact source/run/attempt/workflow, and a separately read-back
+evidence digest. A failed check is rejected even when all its hashes and
+expected record references match. This authenticates CI-linked records;
+it does not reinterpret a record's `PASS` as independently executed TLSN
+cryptography in this local task.
+
+The Production adapter calls the **existing**
+`verifyTlsnRuntimeConfigProductionEnvelope`: signature, independently pinned
+inputs, expiry/epoch and registry checks are not replaced by JSON IDs.
+It then binds the verified payload to release Worker/source/version/epoch,
+signer/registry/security set and target digests, relates the Notary registry
+to that signed set, queries build runs, and rechecks the current tag before
+and after validation. Positive cryptographic execution of that adapter is
+**NOT_CHECKED**; only its no-verification-input failure and pure linkage
+mutations were run here. No module signs a release or permits publication.
+`publication_authorized` remains false even after artifact linkage passes.
+
+#### Implemented generation route, not an executed build
+
+The existing read-only coordinator now calls
+[`release-build.mjs`](../../scripts/release-build.mjs). It adds no external
+Action dependency or new Action invocation: the existing checkout/setup-node/
+github-script/upload-artifact steps are reused. Their existing mutable Action
+references are not promoted to officially verified immutable pins; official
+source/pin verification was not available without an external request.
+
+Before any checkout/build, require the independently configured public
+`FUSOU_RELEASE_PUBLIC_INPUTS_SHA256` pin and matching canonical
+`scripts/release-public-build-inputs.json` on trusted main. That document is
+**not supplied/created here** and contains only schema version, selected APP
+source SHA, approved Worker reference, public APP inputs, registered Runtime
+Config bootstrap inputs, exact Rust toolchain and platform. Existing Worker
+reference/public-input/bootstrap validators apply. Missing inputs produce a
+blocked record, not generated keys, dummy configuration or inferred services.
+This is a bootstrap publication interface, not an intended per-tag manual
+editing procedure: a future trusted initialized Worker/config publisher must
+derive and pin changed release-specific references automatically.
+
+The implemented Linux x86_64 driver rechecks eligibility, fetches/checks out
+the exact accepted commit into a separate temporary repository, provisions
+the existing Linux build prerequisites/selected Rust toolchain, enables
+Corepack and installs frozen dependencies without install scripts. It uses
+the existing `buildApprovedApp` no-bundle/locked/compiled-report comparison
+path. The independently pinned public input provider replaces encrypted
+dotenv loading: no DOTENV/updater signing secret is supplied, and public
+input mutation is checked. Read-only source credentials are never persisted
+or inherited by build commands; subprocess failure details are sanitized.
+
+Before copying output, the driver checks exact binary hash/length, APP and
+Worker source, active Worker version and compiled configuration comparisons,
+then rechecks the live tag. Only binary bytes, the existing detailed APP
+build record, a canonical run/source/platform provenance wrapper and the
+release report are uploaded. Temporary source/target files are cleaned up.
+`BUILD_OUTPUTS_GENERATED` is not `RELEASE_ARTIFACTS_VALIDATED`: Worker bundle,
+complete linked manifest and independent consumer checks are still required.
+No installer, updater signature, GitHub release or deployment is produced.
+Only Linux x86_64 generation is implemented; no other platform is silently
+omitted from a caller's required artifact inventory.
+
+The old manual publish workflow remains stopped. New read-only code has no
+sign/publish/deploy operation. The external main-only Environment policy,
+credential relocation and branch governance remain **NOT_CHECKED**, and
+must prevent modified tag workflows from accessing repository/org credentials
+regardless of conditions in this checkout.
+
+#### Decisions and remaining implementation
+
+The [authenticity contract](../architecture/tlsn-data-authenticity-contract.md)
+now adopts conservative **local delivery policy v1** with executable tests:
+exact existing correlation tuple, no automatic retry, terminal uncertainty,
+response distinct from pending proof, fresh authorization at readback, and
+accepted-input memory limits only. It is not wired into APP/Worker and
+does not mint authoritative attempts, alter signing bytes or resolve issuer
+restart/recovery semantics. P0-01 exact dependency/license/security evidence,
+P0-10 8/11-field precedence, receipt/wire format and independent vectors,
+and WASM provenance remain unverified/unresolved where no safe source-derived
+norm exists. These are one-time versioned compatibility work, not recurring
+human approval prompts. No protected WASM source was inspected.
+
+Next code acceptance: generate/hash a Worker bundle and its source/run record;
+automatically publish initialized public Worker/config references; feed
+downloaded artifacts into a clean trusted consumer without execution; connect
+the real independent verifier/authorization clock to the delivery adapter;
+implement authenticated post-deploy observation before any
+`DEPLOYMENT_VERIFIED` transition. Keep the legacy stop until updater/package
+parity, required platform inventory, release-signature registration,
+fresh eligibility and one-publication/idempotency checks are implemented.
+
+#### Executed follow-up validation
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE \
+  node --test --test-reporter=spec \
+  scripts/release-eligibility.test.mjs \
+  scripts/release-workflow.test.mjs \
+  scripts/release-manifest.test.mjs \
+  scripts/release-build.test.mjs \
+  scripts/evidence-delivery-policy.test.mjs \
+  scripts/production-target-contract.test.mjs \
+  scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+Final result: **87 PASS, 0 FAIL, 0 skipped**. Counts: tag eligibility 10,
+workflow source 4, manifest 10, injected synthetic build 4, delivery policy 5,
+target policy 3, Rama/source+handshake audit 5, existing graph 46.
+The first focused run exposed a misplaced nested export in the new manifest
+module (two test files could not load); it was corrected and the related
+suites rerun. No assertion or test was disabled.
+
+Installed PyYAML parsed both changed workflows and the unchanged stopped
+publish workflow. The coordinator's embedded JavaScript was syntax-compiled
+with `AsyncFunction` **without executing it**. These checks are not actionlint,
+GitHub event/permission validation or a hosted run. Explicit-path worktree
+diff checks passed; staged-path checks and the normal scoped commit hook
+are still required before committing.
+
+The build tests inject nonexecuting synthetic bytes/records and temporary
+output directories; the default native build driver was never called.
+No actual APP/Worker release artifact, Production release manifest,
+release signature, deployment or live readback was generated/verified.
+No Cargo/Rust/WASM, game/service connection, signing-key generation, push
+or tag operation was performed. Real-game TLSN remains `UNVERIFIED` and
+Production acceptance remains `BLOCKED`.
 
 ## Phase 4 — External dependencies and operator evidence
 

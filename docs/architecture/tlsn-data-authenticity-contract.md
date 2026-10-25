@@ -1,6 +1,7 @@
 # FUSOU TLSN Data Authenticity Contract
 
-**Status:** Draft for decision; not an implementation or Production acceptance.
+**Status:** Source-derived contract with an implemented local delivery policy v1;
+broader wire/authority questions remain open. Not Production acceptance.
 **Repository basis:** `tlsn-first-testplay-candidate` at `e1d985bf326378346d1cf86b2e5269e3fe03cd95`.
 
 This document separates contracts visible in the checked-in source from
@@ -22,8 +23,9 @@ Use only these labels for conclusions:
   promote a broader gate.
 - `FAIL`: a specific stated verification failed.
 
-The Q1-Q5 items below remain decision requests. Recommendations are not
-approved behavior.
+The broader Q1-Q5 authority/runtime questions remain distinct from the
+conservative local delivery policy adopted below. The local policy is code
+and tests, not a recurring human approval procedure or a deployed APP policy.
 
 ## Scope and fixed requirements
 
@@ -206,10 +208,42 @@ Do not describe any of these failures as retryable or recoverable until the
 logical attempt identifier, authority idempotency, and recovery procedure are
 approved and evidenced.
 
-## Open decisions Q1-Q5
+## Conservative local delivery policy v1 (2026-10-25)
 
-These are the only decision requests in this document. They remain `BLOCKED`;
-no option below is an adopted policy.
+[`evidence-delivery-policy.mjs`](../../scripts/evidence-delivery-policy.mjs)
+defines `fusou-evidence-delivery-policy-v1`, with key-free contract tests.
+This is an **implemented, opt-in consumer adapter, NOT_WIRED into APP/Worker
+runtime**, not a new receipt/signature format or an authority issuer.
+The selected defaults favor rejecting incomplete evidence over retrying
+possibly effectful Game Server requests:
+
+| Issue | Selected local default / enforced transition | Cost and remaining boundary |
+| --- | --- | --- |
+| Q1 correlation | Immutable exact `(session_id, binding_value, capture_id)` tuple. A trusted verifier must return that same tuple and exact Presentation/Result hashes. Never merge evidence across tuples or turn connection/job IDs into authority. | These existing fields correlate artifacts; they do not establish a new globally unique logical attempt or restart/recovery authority. That broader scope is still unresolved. |
+| Q2 failure/retry | `PENDING -> FAILED` on explicit evidence failure; `PENDING -> FAILED_UNCERTAIN` on uncertain send. Both are terminal; no retry event or transition revives them. `retry_permitted` is always false. | Availability is sacrificed after uncertainty. This adapter neither consumes an authority receipt nor authorizes another origin request. Authoritative reconciliation/idempotency remains unimplemented. |
+| Q3 response/evidence | `ORIGIN_RESPONSE` only sets a separate response-delivered bit; evidence stays `PENDING`. Only exact archive readback plus trusted verifier success can produce `READBACK_ACCEPTED`. All terminal states reject further transitions. | Retains the source's asynchronous response/proof separation. No new UI/runtime wiring or claim of signed/archived proof from an HTTP response. |
+| Q4 freshness | At delivery, after deferred verification, require `issued_at_ms <= now_ms < expires_at_ms` from the trusted verifier's authenticated authorization result. No grace period and no invented TTL. Missing authorization or clock fails closed. | No assumption that Runtime Config/key expiry equals session/receipt expiry. Actual receipt parsing, trusted-clock assumptions, pre-send revalidation and runtime integration remain separate obligations. |
+| Q5 guarantee | Adopt accepted-input limits only (Option A), not peak/RSS claims. This local adapter admits at most 16 MiB per Presentation/Result/readback object before copying or invoking the verifier; release JSON records are capped at 1 MiB. | Four accepted buffers can require four snapshots; caller allocations, verifier/proof work, concurrency and OS memory are not bounded by these limits. A proof over 16 MiB is rejected even if cryptographically valid. This is an operational consumer limit, not a new TLSN wire limit or a replacement for existing 128 KiB body/serialized-request ceilings. |
+
+`READBACK_ACCEPTED` is conditional on the trusted verifier interface. Tests
+mock that interface; they do **not** perform TLSN/Notary/receipt signature
+verification. The adapter requires a verifier function and clock, with no
+successful default, and rejects changed verifier bytes and expired deferred
+results. It snapshots inputs so external mutation during verification cannot
+silently change the accepted bytes.
+
+No rollout is authorized by these local tests. Runtime adoption must wire
+the actual independent verifier and authenticated receipt validity fields,
+exercise failure/expiry/restart cases, and preserve the existing authority
+consumption semantics. The conservative rules are now version-controlled;
+ordinary tags should check their policy version/tests, not solicit the same
+human design decision again.
+
+## Remaining broader decisions Q1-Q5
+
+The local defaults above settle the consumer's fail-closed behavior. The
+following original questions describe broader issuer, runtime and product
+semantics not established by that adapter; those parts remain `BLOCKED`.
 
 ### Q1 — What is the authoritative attempt identity and scope?
 

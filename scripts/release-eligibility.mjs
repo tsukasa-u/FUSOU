@@ -34,6 +34,7 @@ export async function evaluateReleaseRun({ github, repository, runId, trustedSha
   const { data: run } = await github.rest.actions.getWorkflowRun({ ...repository, run_id: runId });
   const fullName = `${repository.owner}/${repository.repo}`;
   if (run.repository?.full_name !== fullName || run.head_repository?.full_name !== fullName ||
+      run.id !== runId || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 ||
       run.event !== "push" || run.path !== TAG_WORKFLOW_PATH ||
       run.status !== "completed" || run.conclusion !== "success") {
     throw new Error("successful same-repository tag-validation push run is required");
@@ -43,18 +44,19 @@ export async function evaluateReleaseRun({ github, repository, runId, trustedSha
   const sha = assertSha(run.head_sha);
   if (await resolveTagCommit(github, repository, tag) !== sha) throw new Error("tag moved after validation");
   const report = {
-    schema_version: 1,
+    schema_version: 2,
     tag,
     kind,
     commit_sha: sha,
     validation_run_id: runId,
+    validation_run_attempt: run.run_attempt,
     coordinator_sha: trustedSha,
     main_sha: null,
     eligibility: "DEVELOPMENT_ONLY",
-    status: "PASS",
-    artifact_hashes: [],
-    worker_version: null,
-    runtime_config_identity: null,
+    status: "DEVELOPMENT_VALIDATED",
+    release_status: "NOT_APPLICABLE",
+    artifact_status: "NOT_CHECKED",
+    deployment_status: "NOT_CHECKED",
     blockers: [],
     deployed: false,
     production_acceptance: "BLOCKED",
@@ -80,7 +82,9 @@ export async function evaluateReleaseRun({ github, repository, runId, trustedSha
     ...report,
     main_sha: mainSha,
     eligibility: "MAIN_HISTORY_VALIDATED",
-    status: "BLOCKED_EXTERNAL_INPUTS",
+    status: "PRODUCTION_ELIGIBLE",
+    validation_workflow_blob_sha: files[0].sha,
+    release_status: "BLOCKED_EXTERNAL_INPUTS",
     blockers: [
       "PRODUCTION_ENVIRONMENT_AND_CREDENTIAL_ISOLATION_NOT_OBSERVED",
       "APP_WORKER_RUNTIME_CONFIG_RELEASE_LINK_NOT_IMPLEMENTED",

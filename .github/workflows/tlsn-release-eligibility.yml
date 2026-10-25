@@ -15,35 +15,82 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: refs/heads/main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
       - name: Independently evaluate the run and current tag using trusted main code
         uses: actions/github-script@v7
+        env:
+          PUBLIC_BUILD_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_PUBLIC_INPUTS_SHA256 }}
+          SOURCE_READ_TOKEN: ${{ github.token }}
         with:
           script: |
             const { pathToFileURL } = require('node:url');
             const { execFileSync } = require('node:child_process');
-            const { writeFileSync } = require('node:fs');
+            const { writeFileSync, readFileSync, mkdtempSync, rmSync } = require('node:fs');
+            const { tmpdir } = require('node:os');
+            const { join } = require('node:path');
             const { evaluateReleaseRun } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-eligibility.mjs`).href);
             const trustedSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
             let report;
             try {
+              if (context.ref !== 'refs/heads/main' || trustedSha !== context.sha) {
+                throw new Error('coordinator must use the immutable main workflow event SHA');
+              }
               report = await evaluateReleaseRun({
                 github, repository: context.repo, runId: context.payload.workflow_run.id, trustedSha,
               });
+              report.eligibility_run = {
+                run_id: context.runId, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT), coordinator_sha: trustedSha,
+              };
             } catch (error) {
-              report = { schema_version: 1, status: 'FAIL', error: error.message, deployed: false };
+              report = { schema_version: 2, status: 'TAG_INVALID', error: error.message, deployed: false };
+            }
+            if (report.status === 'PRODUCTION_ELIGIBLE') {
+              let buildWorkspace;
+              try {
+                const { generateReleaseBuild } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-build.mjs`).href);
+                let publicInputsBytes;
+                if (process.env.PUBLIC_BUILD_INPUT_SHA256) {
+                  try {
+                    publicInputsBytes = readFileSync('scripts/release-public-build-inputs.json');
+                  } catch (error) {
+                    if (error.code !== 'ENOENT') throw error;
+                  }
+                }
+                buildWorkspace = mkdtempSync(join(tmpdir(), 'fusou-unsigned-release-'));
+                report.build = await generateReleaseBuild({
+                  eligibility: report, publicInputsBytes,
+                  publicInputsSha256: process.env.PUBLIC_BUILD_INPUT_SHA256,
+                  workspace: buildWorkspace,
+                  outputDirectory: join(process.env.GITHUB_WORKSPACE, 'release-output'),
+                  runId: context.runId, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+                  sourceToken: process.env.SOURCE_READ_TOKEN,
+                }, {
+                  recheckEligibility: () => evaluateReleaseRun({
+                    github, repository: context.repo, runId: context.payload.workflow_run.id, trustedSha,
+                  }),
+                });
+              } catch (error) {
+                report.build = { status: 'FAIL', error: error instanceof SyntaxError ?
+                  'public release input JSON is malformed' : error.message, deployed: false };
+              } finally {
+                if (buildWorkspace) rmSync(buildWorkspace, { recursive: true });
+              }
             }
             writeFileSync('release-report.json', `${JSON.stringify(report, null, 2)}\n`);
             await core.summary.addCodeBlock(JSON.stringify(report, null, 2), 'json').write();
-            if (report.status !== 'PASS') core.setFailed(`Release gate: ${report.status}`);
+            if (report.status === 'TAG_INVALID' || report.build?.status === 'FAIL') {
+              core.setFailed(`Release gate: ${report.status}, build: ${report.build?.status}`);
+            }
       - name: Preserve the machine-readable report, including blocked and failed runs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: release-eligibility-${{ github.event.workflow_run.id }}
-          path: release-report.json
+          path: |
+            release-report.json
+            release-output/
           if-no-files-found: error

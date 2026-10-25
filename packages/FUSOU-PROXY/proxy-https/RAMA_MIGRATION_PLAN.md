@@ -220,6 +220,27 @@ Rama uses `is_websocket_upgrade_attempt` and calls `validate_http_client_request
 
 ### 2026-10-25 migration preparation (not a Rust execution result)
 
+Follow-up: `scripts/proxy-handshake-artifact.mjs` adds an executable,
+backend-neutral raw-byte boundary audit. Its input names correspond to the
+existing request/response wire files and independently client-observed bytes;
+it does not read a capture directory or any repository configuration.
+Both directions must end at the first CRLF-CRLF with no post-header bytes,
+match their own client observation exactly, and have HTTP/1.1 GET/101 lines.
+This is not a full WebSocket/HTTP semantics parser, TLS verifier, capture
+manifest validator or proof that a relay generated those bytes. Its 128 KiB
+header admission cap is audit-tool policy, not a process-memory guarantee.
+Tests reject frame inclusion, incomplete headers, wrong response status and
+substituted client observations; differing header casing between backends
+is allowed when each matches its own client-facing bytes.
+
+The source boundary checks also guard the order
+SNI-bound downstream handshake -> verified upstream TLS -> capture session
+creation, and retain the named TLSN-failure/abort regression tests.
+They cannot demonstrate actual failure routing, task/socket cleanup or
+cancel behavior. Those still require the authorized Rust tests below.
+No Rust source, default feature, CA provider or fork dependency was changed
+by this follow-up.
+
 Rama's entry points and tunnel now take
 [`DownstreamTlsConfigProvider`](src/proxy_server_https/downstream_tls.rs).
 The adapter passes the same `http::uri::Authority` to the existing

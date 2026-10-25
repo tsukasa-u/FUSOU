@@ -8,7 +8,7 @@ const repository = { owner: "tsukasa-u", repo: "FUSOU" };
 function fixture(tag = "fusou-v0.6.0") {
   const calls = [];
   const state = {
-    run: { repository: { full_name: "tsukasa-u/FUSOU" }, head_repository: { full_name: "tsukasa-u/FUSOU" },
+    run: { id: 1, run_attempt: 1, repository: { full_name: "tsukasa-u/FUSOU" }, head_repository: { full_name: "tsukasa-u/FUSOU" },
       event: "push", path: TAG_WORKFLOW_PATH, status: "completed", conclusion: "success",
       head_branch: tag, head_sha: sha },
     object: { type: "commit", sha },
@@ -32,6 +32,8 @@ test("development namespace accepts candidate tags without a main ancestry requi
   const report = await evaluateReleaseRun(f.options);
   assert.equal(report.commit_sha, sha);
   assert.equal(report.eligibility, "DEVELOPMENT_ONLY");
+  assert.equal(report.status, "DEVELOPMENT_VALIDATED");
+  assert.equal(report.release_status, "NOT_APPLICABLE");
   assert.equal(report.deployed, false);
   assert.equal(f.calls.some(([name]) => name === "main"), false);
 });
@@ -46,9 +48,10 @@ test("Production binds exact SHA, main comparison, workflow bytes and explicit u
   const report = await evaluateReleaseRun(f.options);
   assert.equal(report.commit_sha, sha);
   assert.equal(report.main_sha, trustedSha);
-  assert.equal(report.status, "BLOCKED_EXTERNAL_INPUTS");
-  assert.equal(report.worker_version, null);
-  assert.deepEqual(report.artifact_hashes, []);
+  assert.equal(report.status, "PRODUCTION_ELIGIBLE");
+  assert.equal(report.release_status, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(report.artifact_status, "NOT_CHECKED");
+  assert.equal(report.deployment_status, "NOT_CHECKED");
   assert.ok(report.blockers.length);
   assert.equal(f.calls.find(([name]) => name === "compare")[1].basehead, `${sha}...${trustedSha}`);
 });
@@ -66,6 +69,7 @@ test("unsuccessful, foreign, branch and replacement-workflow runs cannot qualify
   for (const change of [
     { conclusion: "failure" }, { status: "in_progress" }, { event: "workflow_dispatch" },
     { path: "other.yml" }, { head_branch: "main" }, { head_branch: null }, { head_branch: undefined }, { head_sha: "abc" },
+    { id: 2 }, { run_attempt: undefined }, { run_attempt: 0 },
     { repository: { full_name: "other/repo" } }, { head_repository: { full_name: "other/repo" } },
   ]) {
     const f = fixture();
@@ -117,7 +121,8 @@ test("even a tag at main remains blocked without linked release and bootstrap ev
   const report = await evaluateReleaseRun(f.options);
   assert.equal(report.commit_sha, report.main_sha);
   assert.equal(report.eligibility, "MAIN_HISTORY_VALIDATED");
-  assert.equal(report.status, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(report.status, "PRODUCTION_ELIGIBLE");
+  assert.equal(report.release_status, "BLOCKED_EXTERNAL_INPUTS");
   assert.equal(report.deployed, false);
   assert.equal(report.production_acceptance, "BLOCKED");
 });
