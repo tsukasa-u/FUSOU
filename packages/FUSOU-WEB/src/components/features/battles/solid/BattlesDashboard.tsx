@@ -20,6 +20,7 @@ import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataLoadStatusAlert";
 import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 import BattleSearchFilterBar from "./BattleSearchFilterBar";
+import type { MasterDataJsonResponse } from "@/features/simulator/api-response-schemas";
 
 // We'll lazy load or dynamically import the sub-panels to keep bundle size manageable if needed,
 // but for SPA we can just import them directly.
@@ -49,7 +50,6 @@ import type {
   BattleDataRepository,
 } from "@/features/battles/repository/types";
 import type { LocalAvroLoadLimits } from "@/features/battles/local-directory/limits";
-import { MasterDataJsonResponseSchema } from "@/features/simulator/api-response-schemas";
 import type {
   BattleRecord,
   CellRecord,
@@ -147,6 +147,11 @@ function formatLoadError(
     `原因: ${cause}`,
   ].filter((part): part is string => part !== null).join(" / ");
 }
+
+let sharedMasterDataCache: {
+  mstShip: MasterDataJsonResponse;
+  mstSlotItem: MasterDataJsonResponse;
+} | null = null;
 
 export default function BattlesDashboard(props: {
   repository: BattleDataRepository;
@@ -405,6 +410,95 @@ export default function BattlesDashboard(props: {
     return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
   }
 
+  function applyMasterData(
+    shipPayload: MasterDataJsonResponse,
+    itemPayload: MasterDataJsonResponse,
+  ) {
+    setMasterDataStatus([
+      {
+        name: "mst_ship",
+        status: "success",
+        detail: `${shipPayload.records?.length ?? 0}件` +
+          (shipPayload.period_tag
+            ? ` / ${shipPayload.period_tag} rev${shipPayload.period_revision ?? "?"}`
+            : ""),
+      },
+      {
+        name: "mst_slotitem",
+        status: "success",
+        detail: `${itemPayload.records?.length ?? 0}件` +
+          (itemPayload.period_tag
+            ? ` / ${itemPayload.period_tag} rev${itemPayload.period_revision ?? "?"}`
+            : ""),
+      },
+    ]);
+    setMstShips(parseMasterShipRecords(shipPayload.records));
+    setMstSlotItems(parseMasterSlotItemRecords(itemPayload.records));
+    setWeaponIconFrames({});
+    setWeaponIconMeta({ width: 0, height: 0 });
+    setMasterDataMeta({
+      ...(shipPayload.period_tag !== undefined
+        ? { period_tag: shipPayload.period_tag }
+        : {}),
+      ...(shipPayload.period_revision !== undefined
+        ? { period_revision: shipPayload.period_revision }
+        : {}),
+      ...(shipPayload.table_version !== undefined
+        ? { table_version: shipPayload.table_version }
+        : {}),
+    });
+  }
+
+  async function loadMasterDataAsync(signal: AbortSignal, forceRefresh: boolean) {
+    if (sharedMasterDataCache && !forceRefresh) {
+      applyMasterData(sharedMasterDataCache.mstShip, sharedMasterDataCache.mstSlotItem);
+      return;
+    }
+    try {
+      const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
+        cachedFetch("/api/master-data/json?table_name=mst_ship", {
+          signal,
+          cache: forceRefresh ? "reload" : "default",
+        }),
+        cachedFetch("/api/master-data/json?table_name=mst_slotitem", {
+          signal,
+          cache: forceRefresh ? "reload" : "default",
+        }),
+      ]);
+      if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
+        throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
+      }
+      const [shipJson, itemJson] = await Promise.all([
+        masterShipResponse.json(),
+        masterSlotItemResponse.json(),
+      ]);
+      if (
+        !shipJson ||
+        typeof shipJson !== "object" ||
+        !Array.isArray((shipJson as any).records) ||
+        !itemJson ||
+        typeof itemJson !== "object" ||
+        !Array.isArray((itemJson as any).records)
+      ) {
+        throw new Error("Invalid master data JSON payload");
+      }
+      sharedMasterDataCache = {
+        mstShip: shipJson as MasterDataJsonResponse,
+        mstSlotItem: itemJson as MasterDataJsonResponse,
+      };
+      if (signal.aborted) return;
+      applyMasterData(shipJson as MasterDataJsonResponse, itemJson as MasterDataJsonResponse);
+    } catch (err: unknown) {
+      const errorRecord = err && typeof err === "object" ? (err as Record<string, unknown>) : {};
+      if (errorRecord["name"] === "AbortError" || signal.aborted) return;
+      console.warn("[BattlesDashboard] Failed to load master data in background:", err);
+      setMasterDataStatus([
+        { name: "mst_ship", status: "failed", detail: "取得失敗（ID表示）" },
+        { name: "mst_slotitem", status: "failed", detail: "取得失敗（ID表示）" },
+      ]);
+    }
+  }
+
   async function loadData(periodOverride?: PeriodSummary | null, { forceRefresh = false }: { forceRefresh?: boolean } = {}) {
     const requestedPeriod = periodOverride ?? selectedPeriod();
     if (!requestedPeriod) {
@@ -433,204 +527,77 @@ export default function BattlesDashboard(props: {
       { name: "mst_slotitem", status: "pending" },
     ]);
 
-    let masterDataLoaded = false;
+    // 非同期バックグラウンドでマスターデータを取得（画面表示をブロックしない）
+    void loadMasterDataAsync(signal, forceRefresh);
+
     try {
       if (datasetKind === "overview") {
-        const r2OverviewPromise =
-          repository.kind === "r2"
-            ? repository.getOverview({
-                periodTag: requestedPeriodTag,
-                ...(requestedPeriod.table_version
-                  ? { tableVersion: requestedPeriod.table_version }
-                  : {}),
-                limitBlocks: limitBlocks(),
-                limitRecords: limitRecords(),
-                signal,
-                forceRefresh,
-              })
-            : null;
-        r2OverviewPromise?.catch(() => undefined);
-        const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch("/api/master-data/json?table_name=mst_ship", {
-            signal,
-            cache: forceRefresh ? "reload" : "default",
-          }),
-          cachedFetch("/api/master-data/json?table_name=mst_slotitem", {
-            signal,
-            cache: forceRefresh ? "reload" : "default",
-          }),
-        ]);
-        if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
-          throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
-        }
-        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
-          await masterShipResponse.json(),
-        );
-        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
-          await masterSlotItemResponse.json(),
-        );
-        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
-          throw new Error("Invalid master data response");
-        }
-        const masterShipPayload = parsedMasterShip.data;
-        const masterSlotItemPayload = parsedMasterSlotItem.data;
-        setMasterDataStatus([
-          {
-            name: "mst_ship",
-            status: "success",
-            detail: `${masterShipPayload.records?.length ?? 0}件` +
-              (masterShipPayload.period_tag
-                ? ` / ${masterShipPayload.period_tag} rev${masterShipPayload.period_revision ?? "?"}`
-                : ""),
-          },
-          {
-            name: "mst_slotitem",
-            status: "success",
-            detail: `${masterSlotItemPayload.records?.length ?? 0}件` +
-              (masterSlotItemPayload.period_tag
-                ? ` / ${masterSlotItemPayload.period_tag} rev${masterSlotItemPayload.period_revision ?? "?"}`
-                : ""),
-          },
-        ]);
-        masterDataLoaded = true;
-        const payload = await (r2OverviewPromise ??
-          repository.getOverview(
-            {
+        const payload = await (repository.kind === "r2"
+          ? repository.getOverview({
               periodTag: requestedPeriodTag,
               ...(requestedPeriod.table_version
                 ? { tableVersion: requestedPeriod.table_version }
                 : {}),
-              masterShips: masterShipPayload.records || [],
               limitBlocks: limitBlocks(),
               limitRecords: limitRecords(),
               signal,
               forceRefresh,
-            },
-            repository.kind === "local-avro"
-              ? { onProgress: setLocalProgress }
-              : {},
-          ));
+            })
+          : repository.getOverview(
+              {
+                periodTag: requestedPeriodTag,
+                ...(requestedPeriod.table_version
+                  ? { tableVersion: requestedPeriod.table_version }
+                  : {}),
+                masterShips: sharedMasterDataCache?.mstShip.records || [],
+                limitBlocks: limitBlocks(),
+                limitRecords: limitRecords(),
+                signal,
+                forceRefresh,
+              },
+              { onProgress: setLocalProgress },
+            ));
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords(parseCellRecords(payload.cells));
         setEnemyDecks(parseEnemyDeckRecords(payload.enemy_decks));
         setEnemyShips(parseEnemyShipRecords(payload.enemy_ships));
         setEnemySlotItems(parseEnemySlotItemRecords([]));
-        setMstShips(parseMasterShipRecords(masterShipPayload.records));
-        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
-        setWeaponIconFrames({});
-        setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta({
-          ...(masterShipPayload.period_tag !== undefined
-            ? { period_tag: masterShipPayload.period_tag }
-            : {}),
-          ...(masterShipPayload.period_revision !== undefined
-            ? { period_revision: masterShipPayload.period_revision }
-            : {}),
-          ...(masterShipPayload.table_version !== undefined
-            ? { table_version: masterShipPayload.table_version }
-            : {}),
-        });
         setLoadedDatasetKind("overview");
       } else {
-        const r2DropsPromise =
-          repository.kind === "r2"
-            ? repository.getDrops({
-                periodTag: requestedPeriodTag,
-                ...(requestedPeriod.table_version
-                  ? { tableVersion: requestedPeriod.table_version }
-                  : {}),
-                limitBlocks: limitBlocks(),
-                limitRecords: limitRecords(),
-                signal,
-                forceRefresh,
-              })
-            : null;
-        r2DropsPromise?.catch(() => undefined);
-        const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch("/api/master-data/json?table_name=mst_ship", {
-            signal,
-            cache: forceRefresh ? "reload" : "default",
-          }),
-          cachedFetch("/api/master-data/json?table_name=mst_slotitem", {
-            signal,
-            cache: forceRefresh ? "reload" : "default",
-          }),
-        ]);
-        if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
-          throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
-        }
-        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
-          await masterShipResponse.json(),
-        );
-        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
-          await masterSlotItemResponse.json(),
-        );
-        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
-          throw new Error("Invalid master data response");
-        }
-        const masterShipPayload = parsedMasterShip.data;
-        const masterSlotItemPayload = parsedMasterSlotItem.data;
-        setMasterDataStatus([
-          {
-            name: "mst_ship",
-            status: "success",
-            detail: `${masterShipPayload.records?.length ?? 0}件` +
-              (masterShipPayload.period_tag
-                ? ` / ${masterShipPayload.period_tag} rev${masterShipPayload.period_revision ?? "?"}`
-                : ""),
-          },
-          {
-            name: "mst_slotitem",
-            status: "success",
-            detail: `${masterSlotItemPayload.records?.length ?? 0}件` +
-              (masterSlotItemPayload.period_tag
-                ? ` / ${masterSlotItemPayload.period_tag} rev${masterSlotItemPayload.period_revision ?? "?"}`
-                : ""),
-          },
-        ]);
-        masterDataLoaded = true;
-        const payload = await (r2DropsPromise ??
-          repository.getDrops(
-            {
+        const payload = await (repository.kind === "r2"
+          ? repository.getDrops({
               periodTag: requestedPeriodTag,
               ...(requestedPeriod.table_version
                 ? { tableVersion: requestedPeriod.table_version }
                 : {}),
-              masterShips: masterShipPayload.records || [],
               limitBlocks: limitBlocks(),
               limitRecords: limitRecords(),
               signal,
               forceRefresh,
-            },
-            repository.kind === "local-avro"
-              ? { onProgress: setLocalProgress }
-              : {},
-          ));
+            })
+          : repository.getDrops(
+              {
+                periodTag: requestedPeriodTag,
+                ...(requestedPeriod.table_version
+                  ? { tableVersion: requestedPeriod.table_version }
+                  : {}),
+                masterShips: sharedMasterDataCache?.mstShip.records || [],
+                limitBlocks: limitBlocks(),
+                limitRecords: limitRecords(),
+                signal,
+                forceRefresh,
+              },
+              { onProgress: setLocalProgress },
+            ));
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords([]);
         setEnemyDecks([]);
         setEnemyShips([]);
         setEnemySlotItems([]);
-        setMstShips(parseMasterShipRecords(masterShipPayload.records));
-        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
-        setWeaponIconFrames({});
-        setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta({
-          ...(masterShipPayload.period_tag !== undefined
-            ? { period_tag: masterShipPayload.period_tag }
-            : {}),
-          ...(masterShipPayload.period_revision !== undefined
-            ? { period_revision: masterShipPayload.period_revision }
-            : {}),
-          ...(masterShipPayload.table_version !== undefined
-            ? { table_version: masterShipPayload.table_version }
-            : {}),
-        });
         setLoadedDatasetKind("drops");
       }
-
     } catch (e: unknown) {
       const errorRecord =
         e && typeof e === "object" ? (e as Record<string, unknown>) : {};
@@ -640,27 +607,19 @@ export default function BattlesDashboard(props: {
         signal.aborted ||
         loadDataAbortController !== abortController
       ) return;
-      const diagnostic = masterDataLoaded
-        ? formatLoadError(
-            e,
-            requestedPeriod,
-            localProgress(),
-            repository.kind === "local-avro" ? "ローカル AVRO" : "R2",
-          )
-        : `データソース: R2 / 対象: マスターデータ（mst_ship, mst_slotitem） / 原因: ${
-            typeof errorRecord["message"] === "string"
-              ? errorRecord["message"]
-              : "原因不明のエラー"
-          }`;
+      const diagnostic = formatLoadError(
+        e,
+        requestedPeriod,
+        localProgress(),
+        repository.kind === "local-avro" ? "ローカル AVRO" : "R2",
+      );
       setError(
-        masterDataLoaded
-          ? repository.kind === "local-avro"
-            ? "ローカル AVRO の戦闘データ読込に失敗しました。"
-            : "R2 の戦闘データ読込に失敗しました。"
-          : "マスターデータ（取得元: R2）の読込に失敗しました。",
+        repository.kind === "local-avro"
+          ? "ローカル AVRO の戦闘データ読込に失敗しました。"
+          : "R2 の戦闘データ読込に失敗しました。",
       );
       setErrorDetail(diagnostic);
-      if (masterDataLoaded && repository.kind === "r2") {
+      if (repository.kind === "r2") {
         setQueryErrorStatus({
           name: "R2 戦闘データ",
           status: "failed",
@@ -673,15 +632,6 @@ export default function BattlesDashboard(props: {
       setEnemyDecks([]);
       setEnemyShips([]);
       setEnemySlotItems([]);
-      if (!masterDataLoaded) {
-        setMstShips([]);
-        setMstSlotItems([]);
-        setMasterDataMeta(null);
-        setMasterDataStatus([
-          { name: "mst_ship", status: "failed", detail: "R2 / 読込失敗", diagnostic },
-          { name: "mst_slotitem", status: "failed", detail: "R2 / 読込失敗", diagnostic },
-        ]);
-      }
       setLoadedDatasetKind(null);
     } finally {
       if (loadDataAbortController === abortController) {
@@ -696,6 +646,17 @@ export default function BattlesDashboard(props: {
   }
 
   onMount(() => {
+    const handleNavigateTab = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail && ["overview", "list", "map-flow", "stats", "drops"].includes(customEvent.detail)) {
+        setActiveTab(customEvent.detail as "list" | "detail" | "map-flow" | "stats" | "drops");
+      }
+    };
+    window.addEventListener("fusou:navigate-tab", handleNavigateTab);
+    onCleanup(() => {
+      window.removeEventListener("fusou:navigate-tab", handleNavigateTab);
+    });
+
     const params = new URLSearchParams(window.location.search);
     const initialPeriodTag = params.get("period_tag");
     const initialTableVersion = params.get("table_version");

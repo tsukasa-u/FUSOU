@@ -956,6 +956,8 @@ export default function BattleDetailPanel(props: {
 
   // ── Render ────────────────────────────────────────────────────────
 
+  const isUnselected = () => !props.battleId || props.battleId.trim() === "";
+
   return (
     <div class="max-w-[1280px] mx-auto px-4 pt-2 pb-8">
       <Show when={selectableBattleIndexes().length > 1}>
@@ -995,21 +997,55 @@ export default function BattleDetailPanel(props: {
         </div>
       </Show>
 
-      {/* Error banner */}
-      <Show when={error()}>
-        <div class="fusou-card mb-6">
-          <div class="fusou-card-body">
-            <h2 class="card-title">戦闘詳細</h2>
-            <span
-              class={
-                error()!.includes("エラー") ? "text-error" : "text-warning"
-              }
-            >
-              {error()}
-            </span>
+      {/* Unselected Guidance */}
+        <Show when={isUnselected()}>
+          <div class="fusou-card mb-6 border border-base-content/10 shadow-sm">
+            <div class="fusou-card-body items-center text-center py-12">
+              <div class="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                </svg>
+              </div>
+              <h2 class="text-lg font-bold">戦闘が選択されていません</h2>
+              <p class="text-sm text-base-content/70 mt-1 max-w-md">
+                戦闘一覧から確認したい戦闘を選択してください。
+              </p>
+              <div class="mt-4">
+                <button
+                  type="button"
+                  class="fusou-btn-primary text-sm gap-2"
+                  onClick={() => {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("tab", "list");
+                    url.searchParams.delete("env_uuid");
+                    url.searchParams.delete("battle_index");
+                    url.searchParams.delete("detail_id");
+                    window.history.pushState({}, "", url.toString());
+                    window.dispatchEvent(new CustomEvent("fusou:navigate-tab", { detail: "list" }));
+                  }}
+                >
+                  戦闘一覧へ移動
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </Show>
+        </Show>
+
+        {/* Error banner */}
+        <Show when={error() && !isUnselected()}>
+          <div class="fusou-card mb-6">
+            <div class="fusou-card-body">
+              <h2 class="card-title">戦闘詳細</h2>
+              <span
+                class={
+                  error()!.includes("エラー") ? "text-error" : "text-warning"
+                }
+              >
+                {error()}
+              </span>
+            </div>
+          </div>
+        </Show>
 
       <Show when={battle()}>
         {(b) => (

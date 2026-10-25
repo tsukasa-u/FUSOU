@@ -9,6 +9,7 @@ import {
 } from "../../map-flow/solid/battle-map-flow/recordParsers";
 import { firstJsonRecordOf } from "@/features/battles/payload-guards";
 import { bannerUrl } from "@/features/simulator/equip-calc";
+import { ShipBanner } from "@/components/common/solid/ShipBanner";
 import { VictoryRankBadge } from "@/components/common/solid/VictoryRankBadge";
 import { EmptyState } from "@/components/common/solid/EmptyState";
 import { LoadingState } from "@/components/common/solid/LoadingState";
@@ -260,14 +261,11 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                       <td>
                         {result?.drop_ship_id ? (
                           <div class="flex items-center gap-1 min-w-[100px]">
-                            <img
-                              src={bannerUrl(result.drop_ship_id)}
-                              alt={result.drop_ship_name ?? "艦"}
-                              class="h-5 w-20 object-contain rounded bg-base-300"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLElement).style.display = "none";
-                              }}
-                            />
+                            <ShipBanner
+                                src={bannerUrl(result.drop_ship_id)}
+                                alt={result.drop_ship_name ?? "艦"}
+                                class="h-5 w-20"
+                              />
                             <span class="text-xs truncate max-w-[100px]">
                               {result.drop_ship_name ?? (result.drop_ship_id ? mstShipNameMap().get(result.drop_ship_id) : undefined) ?? `#${result.drop_ship_id}`}
                             </span>
