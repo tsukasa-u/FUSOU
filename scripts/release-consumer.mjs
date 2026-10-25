@@ -3,6 +3,7 @@ import { evaluateReleaseRun, TAG_WORKFLOW_PATH } from "./release-eligibility.mjs
 import { assertProducerRun, verifyProducerBuild, parseReleaseRecord, requireRelease, producerWorkflow } from "./release-build-proof.mjs";
 import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { sha256, encodeReleaseManifest, validateReleaseManifest, assertReleaseRuntimeConfigBinding } from "./release-manifest.mjs";
+import { verifyReleaseChecks } from "./release-checks.mjs";
 
 const repository = { owner: "tsukasa-u", repo: "FUSOU" };
 const checks = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
@@ -16,9 +17,6 @@ async function verifyRuntime(raw, verification) {
   const { verifyTlsnRuntimeConfigProductionEnvelope } = await import(
     "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs");
   return verifyTlsnRuntimeConfigProductionEnvelope(raw, verification);
-}
-function unavailableChecks() {
-  throw new ReleaseBlocked("INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED", "BLOCKED_IMPLEMENTATION");
 }
 export function parseConsumerInputs(raw, pin, nowMs = Date.now()) {
   if (raw === undefined || !pin) throw new ReleaseBlocked("PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING");
@@ -38,22 +36,23 @@ export function parseConsumerInputs(raw, pin, nowMs = Date.now()) {
   }
   return { ...input, runtime_envelope: bytes(input.runtime_envelope) };
 }
-export async function assembleReleaseManifest({ eligibility, run, build, files, inputs },
-  { verifyRuntimeEnvelope = verifyRuntime, verifyCheckEvidence = unavailableChecks } = {}) {
-  const workers = build.artifacts.filter((a) => a.role === "worker");
-  if (workers.length !== 1) throw new ReleaseBlocked("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING", "BLOCKED_IMPLEMENTATION");
-  const platforms = build.artifacts.filter((a) => a.role === "app").map((a) => a.platform).sort();
-  requireRelease(canonicalJson(platforms) === canonicalJson([...inputs.required_app_platforms].sort()), "required APP platform inventory");
-  const envelope = inputs.runtime_envelope, verification = inputs.verification;
-  const verified = await verifyRuntimeEnvelope(envelope, verification), payload = verified.payload;
-  requireRelease(verified.state === "MANIFEST_AND_SIGNED_PINS_VERIFIED", "Runtime Config verification incomplete");
-  const independent = verification.independentInputs, evidenceBytes = new Map(build.evidenceBytes);
+function collectCheckEvidence({ eligibility, run, build, files }, { allowMissing = false } = {}) {
+  const evidenceBytes = new Map(build.evidenceBytes);
   const add = (raw) => { const hash = sha256(raw); evidenceBytes.set(hash, Buffer.from(raw)); return hash; };
-  const security = JSON.parse(independent.security_registry_set_raw.toString("utf8"));
+  for (const [name, raw] of files) {
+    const match = /^evidence-([A-Za-z0-9_-]{43})\.bin$/.exec(name);
+    if (match) {
+      requireRelease(sha256(raw) === match[1], "check evidence raw filename/hash");
+      add(raw);
+    }
+  }
   const records = {}, checkDigests = {};
   for (const key of checks) {
     const raw = files.get(`check-${key}.json`);
-    if (!raw) throw new ReleaseBlocked("REQUIRED_RELEASE_CHECK_RECORDS_MISSING");
+    if (!raw) {
+      if (allowMissing) continue;
+      throw new ReleaseBlocked("REQUIRED_RELEASE_CHECK_RECORDS_MISSING");
+    }
     const record = parseReleaseRecord(raw);
     const evidence = files.get(`evidence-${record.evidence_sha256}.bin`);
     requireRelease(evidence instanceof Uint8Array && sha256(evidence) === record.evidence_sha256 &&
@@ -62,8 +61,23 @@ export async function assembleReleaseManifest({ eligibility, run, build, files, 
     "check evidence source/run/readback");
     records[key] = record; checkDigests[key] = add(raw); add(evidence);
   }
+  return { records, evidenceBytes, checkDigests, add };
+}
+export async function assembleReleaseManifest({ eligibility, run, build, files, inputs },
+  { verifyRuntimeEnvelope = verifyRuntime, verifyCheckEvidence, checkVerification } = {}) {
+  const workers = build.artifacts.filter((a) => a.role === "worker");
+  if (workers.length !== 1) throw new ReleaseBlocked("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING", "BLOCKED_IMPLEMENTATION");
+  const platforms = build.artifacts.filter((a) => a.role === "app").map((a) => a.platform).sort();
+  requireRelease(canonicalJson(platforms) === canonicalJson([...inputs.required_app_platforms].sort()), "required APP platform inventory");
+  const envelope = inputs.runtime_envelope, verification = inputs.verification;
+  const verified = await verifyRuntimeEnvelope(envelope, verification), payload = verified.payload;
+  requireRelease(verified.state === "MANIFEST_AND_SIGNED_PINS_VERIFIED", "Runtime Config verification incomplete");
+  const independent = verification.independentInputs;
+  const { records, evidenceBytes, checkDigests, add } = collectCheckEvidence({ eligibility, run, build, files });
+  const security = JSON.parse(independent.security_registry_set_raw.toString("utf8"));
   // A PASS string and hash are not an offline-verifier or archive execution receipt.
-  await verifyCheckEvidence({ records, evidenceBytes, build, eligibility, inputs, payload });
+  const verify = verifyCheckEvidence ?? ((args) => verifyReleaseChecks(args, checkVerification));
+  const checkResult = await verify({ records, evidenceBytes, build, eligibility, inputs, payload, run });
   const expected = {
     schema_version: 1, scope: "fusou-release-manifest-v1",
     release: { repository: "tsukasa-u/FUSOU", tag: eligibility.tag, kind: "production",
@@ -93,11 +107,12 @@ export async function assembleReleaseManifest({ eligibility, run, build, files, 
   if (files.has("release-manifest.json")) {
     requireRelease(Buffer.from(files.get("release-manifest.json")).equals(manifestBytes), "candidate manifest differs from independent assembly");
   }
-  return { status: "MANIFEST_ASSEMBLED", manifestBytes,
+  return { status: "MANIFEST_ASSEMBLED", manifestBytes, checkResult,
     observations: { expected, ...build, evidenceBytes, observedRuns: new Map([[`${run.id}:${run.run_attempt}`, run]]) } };
 }
 export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha, downloadArchive,
-  publicInputsBytes, publicInputsSha256, nowMs }, dependencies = {}) {
+  publicInputsBytes, publicInputsSha256, publicBuildInputsBytes, publicBuildInputsSha256,
+  checkPolicyBytes, checkPolicySha256, nowMs }, dependencies = {}) {
   requireRelease(/^[0-9a-f]{40}$/.test(trustedSha), "trusted main SHA missing");
   const run = (await github.rest.actions.getWorkflowRun({ ...repository, run_id: runId })).data;
   assertProducerRun(run, runId, runAttempt);
@@ -152,17 +167,36 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     let inputs;
     if (!publicInputsBytes || !publicInputsSha256) result.blockers.push("PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING");
     else inputs = parseConsumerInputs(publicInputsBytes, publicInputsSha256, nowMs);
-    if (result.blockers.length) { await recheck(); return result; }
-    const assembled = await assembleReleaseManifest({ eligibility, run, build, files: downloaded.files, inputs }, dependencies);
+    if (result.blockers.length) {
+      const checkData = collectCheckEvidence({ eligibility, run, build, files: downloaded.files }, { allowMissing: true });
+      const verify = dependencies.verifyCheckEvidence ?? ((args) => verifyReleaseChecks(args,
+        { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
+          authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
+          authenticateArchiveReadback: dependencies.authenticateArchiveReadback, nowMs }));
+      try {
+        const partial = await verify({ ...checkData, build, eligibility, run });
+        result.check_results = partial?.checks;
+      } catch (error) {
+        if (!(error instanceof ReleaseBlocked)) throw error;
+        result.check_results = error.check_results;
+        result.blockers.push(error.code);
+      }
+      await recheck(); return result;
+    }
+    const assembled = await assembleReleaseManifest({ eligibility, run, build, files: downloaded.files, inputs },
+      { ...dependencies, checkVerification: { github, publicBuildInputsBytes, publicBuildInputsSha256,
+        checkPolicyBytes, checkPolicySha256, authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
+        authenticateArchiveReadback: dependencies.authenticateArchiveReadback, nowMs } });
     const validated = validateReleaseManifest(assembled.manifestBytes, assembled.observations);
     await recheck();
     return { ...result, ...validated, artifact_status: "RELEASE_ARTIFACTS_VALIDATED",
       signature_status: "RUNTIME_CONFIG_AND_INDEPENDENT_PINS_VERIFIED",
-      manifest_base64url: assembled.manifestBytes.toString("base64url"), blockers: [] };
+      manifest_base64url: assembled.manifestBytes.toString("base64url"), check_results: assembled.checkResult?.checks, blockers: [] };
   } catch (error) {
     if (!(error instanceof ReleaseBlocked)) throw error;
     if (finalRecheck) await finalRecheck();
     result.status = error.status;
+    if (error.check_results) result.check_results = error.check_results;
     result.blockers.push(error.code);
     return result;
   }

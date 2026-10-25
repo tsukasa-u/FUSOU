@@ -81,10 +81,8 @@ jobs:
               }
             }
             if (report.status === 'PRODUCTION_ELIGIBLE') {
-              report.worker_build = {
-                status: 'BLOCKED_IMPLEMENTATION',
-                blockers: ['TRACKED_WORKER_RUNTIME_AND_BUILD_RECIPE_NOT_AVAILABLE'],
-              };
+              const { inspectWorkerSourceAt } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-worker-source.mjs`).href);
+              report.worker_build = await inspectWorkerSourceAt(github, report.commit_sha);
             }
             const { packProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
             const { readRegularFile } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-build.mjs`).href);

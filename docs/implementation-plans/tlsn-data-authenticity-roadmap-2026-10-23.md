@@ -1017,3 +1017,196 @@ its own evidence.
   [`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](./tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
 - Rama remains experimental and Hudsucker remains the default; see
   [`RAMA_MIGRATION_PLAN.md`](../../packages/FUSOU-PROXY/proxy-https/RAMA_MIGRATION_PLAN.md).
+
+## Worker location and independent execution adapters
+
+Baseline for this follow-up: `tlsn-first-testplay-candidate`,
+`635c55b2a62fb511f5758e9777ec73deeac26adb`.
+Earlier statements that the inspected release revision lacks a Worker runtime
+remain accurate **for that revision**, not for all repository history.
+
+### Located implementation, not an inferred replacement
+
+Local tracked-tree and history inspection found the real verification Worker
+on the ordinary branch `tlsn-phase0-investigation`, at
+`bd85ec7aa8eb7e7c598038fceb6e0dc8b5c1c8ff`.
+That revision contains the Worker package manifest, Wrangler configurations,
+`src/index.ts` Hono fetch handler, `TlsnBindingAuthorityDurableObject`,
+verification job/queue and direct-verifier boundaries, signing/receipt helpers,
+WASM build recipe, and `result_archive.ts` R2 write/readback implementation.
+Its routes include `/health`, `/attestation/session`, `/verify/tlsn`,
+`/verify/tlsn/sparse`, status/retry, and internal direct-verifier control/input/
+completion handlers. The independent native verifier entrypoint is already
+tracked on the release branch:
+[`verify_fusou_tlsn_evidence.rs`](../../packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs).
+The separate battle-data/queue Worker and browser local worker are not substitutes.
+
+The historical Worker uses the workspace pnpm lock, `build:wasm`, and the
+production Wrangler recipe. The WASM build invokes native tooling and verifier
+sources; it was inspected, **not executed**. No historical runtime was restored,
+cherry-picked, or silently made compatible with the current release contracts.
+The release SHA still lacks that implementation, so actual bundle generation
+remains `BLOCKED_IMPLEMENTATION`.
+
+[`release-worker-source.mjs`](../../scripts/release-worker-source.mjs) now checks
+an explicit safe source allowlist at the exact target SHA, verifies returned Git
+blob hashes, distinguishes missing files (404) from other API failures, and
+records each input's raw-byte SHA-256 and length. The inventory is a minimum
+recipe inventory, **not** a complete import closure or runtime semantic proof:
+`SOURCE_INPUTS_PRESENT` retains `runtime_semantics: NOT_CHECKED` and
+`bundle_status: NOT_CHECKED`.
+
+The unsigned builder requires explicit execution authorization and a trusted
+isolated recipe executor; none is registered by default. Its output adapter
+checks source/context/toolchain/command snapshots, JS and WASM output bytes,
+record/provenance, and the independently supplied Worker reference. The Worker
+package is a canonical JSON container of original module bytes, not a deployed
+version. `active_version_id` is a supplied reference, never generated from a
+fixture or guessed from a Git SHA. There is no default executor or verified
+actual bundle in this follow-up.
+
+### Check propositions and evidence
+
+[`release-checks.mjs`](../../scripts/release-checks.mjs) provides the concrete
+capture/verification contracts below. Every execution receipt has scope
+`fusou-release-check-execution-v1`, schema version 1, check name, repository,
+source SHA, actual producer run/attempt/workflow SHA, raw input descriptors,
+canonical input digest, result/exit code/error, and check-specific observations.
+The existing `fusou-release-check-v1` record hashes those exact canonical bytes.
+Input bytes remain raw; only explicitly defined JSON records/projections are
+canonicalized. Git commit/blob SHA-1 and raw-byte SHA-256 are different fields.
+
+| Check / proposition | Required data and execution | Consumer verification / remaining boundary |
+| --- | --- | --- |
+| `locked_dependencies`: the observed APP build used frozen/locked dependency inputs | Raw root package manifest, workspace pnpm lock, APP Cargo lock; successful exact frozen pnpm and locked Tauri commands; observed pnpm version; detailed APP record | Exact-SHA API bytes, complete command observations, package-manager version, Cargo lock digest, opaque API-origin build proof and run/attempt must agree. Existence of a lockfile alone does not pass. |
+| `compiled_inputs`: APP and Worker outputs correspond to the independently registered public inputs | APP executable hash before/after report invocation, original stdout and exact report argv, APP/Worker records; Runtime Config reference/bootstrap, projection, public input and Worker toolchain pins | Reuses the existing APP report validators; checks raw record/output hashes, source recipe snapshot, Worker package modules, script/version reference, independent bootstrap signer and public projection. APP-only generation saves observations but does not invent a complete compiled-input PASS. |
+| `archive_readback`: original and actually retrieved Presentation/Result bytes are identical | Trusted backend `get` callback, normalized observed backend/object/version/session/capture/job/attempt identity; original and readback bytes and timestamps | Checks bytes, lengths, hashes, role separation, attempt-derived archive paths and independent freshness/context. A typed capture capability, not JSON metadata or a PASS string, is required to authenticate the read. No real backend is connected. |
+| `offline_verification`: the independently pinned native verifier actually accepted these same archived inputs | Explicit trusted executor, pinned executable, exact formal CLI arguments, all seven CLI file inputs, all 19 mandatory bundle artifacts, original stdout and exit code | Checks every raw digest/path, CLI/bundle registry equality, all native trust results, observed DNS identity, Runtime Config signer/Notary/authority pins, signed bundle source/capture/session, and identical archived Presentation/Result. Requires a typed execution capability; a JSON success report, serialized capability, foreign attempt or declared binary hash alone cannot authenticate execution. |
+
+The archive attempt path is grounded in the historical
+`verificationAttemptArchiveKeys` contract. The historical final Result envelope
+does **not** contain job/attempt fields: those are storage/authority context,
+not invented signed Result fields. Authenticating their live authority mapping
+remains a backend integration requirement. Native signature verification and
+the signed bundle's session/capture/source correlation are separate checks.
+
+### Consumer wiring and fail-closed status
+
+The independent read-only consumer now uses the concrete check adapters by
+default. It verifies all raw evidence sidecars, including their filename hash,
+before assembly. Missing external inputs preserve independently executable
+check results; malformed evidence fails rather than being ignored.
+
+Trusted-main public input files remain separately pinned:
+
+- `scripts/release-consumer-public-inputs.json` with
+  `FUSOU_RELEASE_CONSUMER_INPUTS_SHA256`;
+- `scripts/release-public-build-inputs.json` with
+  `FUSOU_RELEASE_PUBLIC_INPUTS_SHA256`;
+- `scripts/release-check-public-inputs.json` with
+  `FUSOU_RELEASE_CHECK_INPUTS_SHA256`.
+
+No files or pin values were fabricated. The check policy has scope
+`fusou-release-check-inputs-v1`, schema version 1, repository and exact source
+SHA, Worker toolchain pins, authenticated archive context/freshness, and native
+executable/input/argument/derived-identity pins. Candidate manifests never
+provide these expected values.
+
+Execution capabilities are intentionally process-local and cannot be
+serialized into the producer artifact. A trusted adapter can use
+`captureArchiveReadback` / `captureOfflineExecution` with an actual authenticated
+backend / provisioned pinned executable; mock callbacks in tests only model
+that boundary. The hosted consumer currently has **neither** adapter.
+Consequently data-only transport does not bootstrap execution authority:
+
+- archive intake absent:
+  `AUTHENTICATED_ARCHIVE_READBACK_INTAKE_NOT_CONFIGURED`;
+- native intake absent:
+  `AUTHENTICATED_OFFLINE_EXECUTION_INTAKE_NOT_CONFIGURED`;
+- missing independently registered public inputs:
+  `BLOCKED_EXTERNAL_INPUTS`;
+- missing target-SHA Worker implementation, executor, or authenticated intake:
+  `BLOCKED_IMPLEMENTATION`.
+
+This is not a remote execution-attestation wire protocol or a completed
+cross-run authenticated intake. Such a protocol was not guessed from JSON
+fields. Trusted main/runner code and registered backend/executor adapters are
+trust roots; the records do not mathematically prove execution against a
+compromised trusted runner. A fresh local epoch also does not prevent rollback
+by an attacker controlling OS state or external storage.
+
+All mock-only end-to-end success tests explicitly supply mock Runtime Config,
+archive, and native-execution boundaries. Real release artifacts remain
+`NOT_CHECKED`; signing/live deployment remain `NOT_CHECKED`, and Production
+acceptance remains `BLOCKED`. `publication_authorized` remains `false`;
+deployment remains `NOT_CHECKED`. No new Actions, permissions, Production
+Environment, secrets, OIDC, signing/publication/deploy path, or legacy publishing
+bypass was added. Hosted events, repository/organization secrets isolation,
+Environment policies and branch protection remain `NOT_CHECKED`.
+
+### Next implementation acceptance gates
+
+1. Reconcile the located Worker runtime and its full dependency/import closure
+   with the exact release SHA. Review Result/receipt/authority/Notary contracts
+   before integrating it; then separately authorize actual locked JS/WASM
+   bundle generation. Require real module bytes and source/toolchain/run-bound
+   records, not the presence of filenames.
+2. Register an authenticated archive adapter and its authority attempt mapping,
+   then exercise real readback/mutation/truncation/cleanup failures. Register
+   the independent native executable and permitted executor or an authenticated
+   cross-run intake whose provenance can actually be validated. Producer JSON
+   may never mint either execution capability.
+3. Supply real independently authenticated Runtime Config, registry, trust
+   root, Inventory and Approval bytes. Add machine-generated per-release policy
+   acquisition from those authorities instead of requiring recurring manual
+   design decisions or copying candidate manifest declarations.
+4. Under separate authorization, run actual APP/Worker builds and native
+   verification, then the hosted consumer against their real artifact
+   metadata. Require all four authenticated checks before reporting
+   `RELEASE_ARTIFACTS_VALIDATED`; do not infer deployment from it.
+5. Only a separate authenticated live observation may establish deployment.
+   Preserve the stopped legacy publication route and absence of publication
+   authority throughout this phase.
+
+No Cargo/Rust/WASM/native verifier, APP/Worker build, external service, actual
+archive, gameplay, Production signing/deployment, or key generation was
+executed. Q1-Q5 and existing protocol bytes were not redefined. The key-free
+Rama boundary tests remain static contracts: Hudsucker stays the default,
+Rama stays opt-in, and Rust runtime parity remains `NOT_CHECKED`.
+
+Validation performed for this follow-up, from the repository root:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-eligibility.test.mjs \
+  scripts/release-manifest.test.mjs \
+  scripts/release-build.test.mjs \
+  scripts/release-consumer.test.mjs \
+  scripts/release-transport.test.mjs \
+  scripts/release-worker-source.test.mjs \
+  scripts/release-checks.test.mjs \
+  scripts/evidence-delivery-policy.test.mjs \
+  scripts/release-workflow.test.mjs \
+  scripts/production-target-contract.test.mjs \
+  scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+Final result: **161 PASS, 0 FAIL, 0 cancelled, 0 skipped**.
+The focused first run of the two new test files had 34 PASS / 4 FAIL because
+the new archive mutation test addressed an observation array as a map; it was
+fixed. The first expanded regression had 150 PASS / 6 FAIL (a wrongly nested
+new fixture helper and an error-message contract mismatch); both were fixed,
+followed by 156 PASS. A later added test was accidentally registered inside
+another test (159 PASS / 1 FAIL / 1 cancelled); it was moved to the top level
+and the full command above was rerun to the final result. No assertions were
+removed or weakened, and no tests were skipped.
+
+The VS Code runner did not discover these Node test files; the explicit Node
+runner above supplied the actual result. Separately, existing PyYAML parsed the
+four named release/tag/legacy workflows; Node's async-function constructor
+compiled all five embedded JavaScript bodies without invoking them. Static
+permission checks and `node --check` of the new implementation/fixture/environment
+modules passed. No dependency installation was needed. Scoped `git diff --check`
+also passed. All successful execution/process/storage/authentication cases in
+these tests are explicitly injected doubles, not live build or crypto evidence.

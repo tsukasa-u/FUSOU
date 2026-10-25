@@ -25,6 +25,8 @@ jobs:
         env:
           CONSUMER_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_CONSUMER_INPUTS_SHA256 }}
           ARTIFACT_READ_TOKEN: ${{ github.token }}
+          PUBLIC_BUILD_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_PUBLIC_INPUTS_SHA256 }}
+          CHECK_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_CHECK_INPUTS_SHA256 }}
         with:
           script: |
             const { execFileSync } = require('node:child_process');
@@ -48,10 +50,19 @@ jobs:
                   if (error.code !== 'ENOENT') throw error;
                 }
               }
+              const readPinned = async (pin, path) => {
+                if (!pin) return undefined;
+                try { return await readRegularFile(path); }
+                catch (error) { if (error.code !== 'ENOENT') throw error; return undefined; }
+              };
+              const publicBuildInputsBytes = await readPinned(process.env.PUBLIC_BUILD_INPUT_SHA256, 'scripts/release-public-build-inputs.json');
+              const checkPolicyBytes = await readPinned(process.env.CHECK_INPUT_SHA256, 'scripts/release-check-public-inputs.json');
               report = await consumeReleaseRun({
                 github, trustedSha, runId: context.payload.workflow_run.id,
                 runAttempt: context.payload.workflow_run.run_attempt,
                 publicInputsBytes, publicInputsSha256: process.env.CONSUMER_INPUT_SHA256,
+                publicBuildInputsBytes, publicBuildInputsSha256: process.env.PUBLIC_BUILD_INPUT_SHA256,
+                checkPolicyBytes, checkPolicySha256: process.env.CHECK_INPUT_SHA256,
                 downloadArchive: (artifactId) => downloadGithubArtifact({ artifactId, token: process.env.ARTIFACT_READ_TOKEN }),
               });
             } catch (error) {

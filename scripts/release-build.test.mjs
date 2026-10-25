@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { generateReleaseBuild } from "./release-build.mjs";
 import { sha256 } from "./release-manifest.mjs";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
+import { LOCK_PATHS } from "./release-checks.mjs";
 
 function fixture(root) {
   const eligibility = { schema_version: 2, status: "PRODUCTION_ELIGIBLE", commit_sha: "a".repeat(40),
@@ -83,4 +84,30 @@ test("artifact corruption, Worker mismatch, escaped output and post-build tag mo
     const f = fixture("/unused-synthetic-path"); mutate(f);
     await assert.rejects(generateReleaseBuild(f.options, f.deps));
   }
+});
+test("injected process observations produce exact sidecars without inventing full compiled-input success", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fusou-release-observations-"));
+  try {
+    const f = fixture(root), build = f.deps.buildApp;
+    const locks = new Map(LOCK_PATHS.map((path) => [path, Buffer.from(`synthetic source ${path}`)]));
+    locks.set("package.json", Buffer.from('{"packageManager":"pnpm@10.0.0"}'));
+    const stdout = Buffer.from('{"synthetic":"raw stdout"}\n');
+    f.deps.buildApp = async () => {
+      const result = await build();
+      result.record.cargo_lock_sha256 = sha256(locks.get(LOCK_PATHS[1]));
+      return { ...result, execution: { sourceFiles: locks, pnpmVersion: "10.0.0",
+        commands: [{ argv: ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"], exit_code: 0 },
+          { argv: ["pnpm", "exec", "tauri", "build", "--ci", "--no-bundle", "--features", "tlsn-production,custom-protocol", "--", "--locked"], exit_code: 0 }],
+        reports: { worker: { raw: stdout, argv: ["--tlsn-compiled-worker-entry"], exit_code: 0,
+          stdout_sha256: sha256(stdout), executable_sha256: result.record.artifact.sha256 } } } };
+    };
+    const result = await generateReleaseBuild(f.options, f.deps);
+    assert.ok(result.check_files.includes("check-locked_dependencies.json"));
+    assert.equal(result.check_files.includes("check-compiled_inputs.json"), false);
+    const observation = JSON.parse(await readFile(join(root, "outputs/app-compiled-observations.json")));
+    assert.equal(observation.run_id, f.options.runId); assert.equal(observation.run_attempt, f.options.runAttempt);
+    assert.equal(observation.reports.worker.stdout_sha256, sha256(stdout));
+    assert.deepEqual(await readFile(join(root, `outputs/evidence-${sha256(stdout)}.bin`)), stdout);
+    assert.equal(result.artifact_status, "NOT_CHECKED");
+  } finally { await rm(root, { recursive: true }); }
 });

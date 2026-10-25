@@ -63,5 +63,8 @@ test("independent consumer checks out only immutable trusted main code and has n
   assert.match(yaml, /contents: read/); assert.match(yaml, /actions: read/);
   assert.doesNotMatch(yaml, /secrets\.|environment:|: write|id-token:|download-artifact|wrangler|cargo |pnpm |createRelease/);
   assert.match(yaml, /publication_authorized: false/);
+  assert.match(yaml, /FUSOU_RELEASE_CHECK_INPUTS_SHA256/);
+  assert.match(yaml, /scripts\/release-check-public-inputs.json/);
+  assert.match(yaml, /scripts\/release-public-build-inputs.json/);
   for (const [, action] of yaml.matchAll(/uses: (\S+)/g)) assert.match(action, /@[0-9a-f]{40}$/);
 });

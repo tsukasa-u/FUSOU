@@ -21,6 +21,11 @@ export async function packProducerTransport(report, readOutput) {
         requireRelease(!files.has(name), "duplicate producer output filename");
         files.set(name, await readOutput(name));
       }
+      for (const name of report.build.check_files ?? []) {
+        requireRelease(/^(?:check-[a-z_]+\.json|evidence-[A-Za-z0-9_-]{43}\.bin|app-compiled-observations\.json)$/.test(name) &&
+          !files.has(name), "producer check output filename");
+        files.set(name, await readOutput(name));
+      }
     }
   }
   return encodeReleaseTransport(files);

@@ -45,6 +45,8 @@ jobs:
             scripts/release-build.test.mjs \
             scripts/release-consumer.test.mjs \
             scripts/release-transport.test.mjs \
+            scripts/release-worker-source.test.mjs \
+            scripts/release-checks.test.mjs \
             scripts/evidence-delivery-policy.test.mjs \
             scripts/release-workflow.test.mjs \
             scripts/production-target-contract.test.mjs \

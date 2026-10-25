@@ -177,11 +177,9 @@ test("independent public pin, required platforms, Worker version and Runtime Con
 test("real crypto adapter never accepts the unsigned synthetic fixture; check PASS claims alone remain blocked", async () => {
   const f = consumerFixture();
   await assert.rejects(consumeReleaseRun(f.options, { transport: f.dependencies.transport }));
-  const result = await consumeReleaseRun(f.options, {
+  await assert.rejects(consumeReleaseRun(f.options, {
     transport: f.dependencies.transport, verifyRuntimeEnvelope: f.dependencies.verifyRuntimeEnvelope,
-  });
-  assert.equal(result.status, "BLOCKED_IMPLEMENTATION");
-  assert.deepEqual(result.blockers, ["INDEPENDENT_RELEASE_CHECK_EXECUTION_NOT_IMPLEMENTED"]);
+  }));
   const g = consumerFixture(); g.files.delete("check-archive_readback.json"); g.sync();
   assert.equal((await consumeReleaseRun(g.options, g.dependencies)).blockers[0], "REQUIRED_RELEASE_CHECK_RECORDS_MISSING");
 });

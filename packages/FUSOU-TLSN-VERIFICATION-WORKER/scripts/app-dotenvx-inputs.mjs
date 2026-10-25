@@ -6,19 +6,12 @@ import { Worker } from "node:worker_threads";
 import {
   APP_PUBLIC_CONFIGURATION_CONTRACT, publicAppConfigurationSha256, validatePublicAppInputs,
 } from "./app-public-configuration.mjs";
+export { publicToolEnvironment } from "./app-build-tool-environment.mjs";
+import { publicToolEnvironment } from "./app-build-tool-environment.mjs";
 
 const require = createRequire(import.meta.url);
 const dotenvxVersion = require("@dotenvx/dotenvx/package.json").version;
 const digest = (bytes) => createHash("sha256").update(bytes).digest("base64url");
-
-export function publicToolEnvironment(environment) {
-  const result = {};
-  for (const name of ["PATH", "HOME", "USER", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot",
-    "TMP", "TEMP", "TMPDIR", "RUSTUP_HOME", "CARGO_HOME", "CARGO_NET_OFFLINE", "RUSTUP_AUTO_INSTALL"]) {
-    if (environment[name] !== undefined) result[name] = environment[name];
-  }
-  return result;
-}
 
 async function snapshot(path, label) {
   let stat;

@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, openSync, fstatSync, readFileSync, closeSync } from "node:fs";
 import { open, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { sha256, MAX_RELEASE_RECORD_BYTES } from "./release-manifest.mjs";
 import { assertAppBuildRecordBinding } from "./release-build-proof.mjs";
+import { LOCK_PATHS, recordLockedDependenciesExecution } from "./release-checks.mjs";
 
 export async function readRegularFile(path) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -18,7 +19,7 @@ export async function readRegularFile(path) {
 
 async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken }) {
   const {
-    buildApprovedApp, assertBuildReference, runtimeConfigBootstrapInputs,
+    buildApprovedApp, assertBuildReference, runtimeConfigBootstrapInputs, runPublicBuildCommand,
   } = await import("../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs");
   const { validatePublicAppInputs } = await import("../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs");
   const reference = assertBuildReference(inputs.worker_reference, eligibility.commit_sha);
@@ -31,6 +32,7 @@ async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken })
   const root = resolve(workspace);
   if (typeof sourceToken !== "string" || !sourceToken) throw new Error("read-only source token required");
   const source = join(root, "source");
+  const commands = [], reports = {};
   const referencePath = join(root, "worker-reference.json");
   const template = join(root, "empty-template");
   await mkdir(template);
@@ -53,15 +55,42 @@ async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken })
   run("sudo", ["apt-get", "install", "-y", "libwebkit2gtk-4.1-dev", "libappindicator3-dev", "librsvg2-dev", "patchelf"]);
   run("rustup", ["toolchain", "install", inputs.rust_toolchain, "--profile", "minimal"]);
   run("corepack", ["enable"]);
+  const sourceFiles = new Map(await Promise.all(LOCK_PATHS.map(async (path) =>
+    [path, await readRegularFile(join(source, path))])));
+  const pnpmVersion = run("pnpm", ["--version"], source).toString().trim();
   run("pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"], source);
+  commands.push({ argv: ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"], exit_code: 0 });
   const referenceBytes = Buffer.from(canonicalJson(reference));
   await writeFile(referencePath, referenceBytes, { flag: "wx", mode: 0o600 });
-  return buildApprovedApp({
+  const built = await buildApprovedApp({
     referencePath, expectedReferenceSha256: sha256(referenceBytes),
     expectedWorkerSha: eligibility.commit_sha, expectedAppSha: eligibility.commit_sha,
     outputDirectory: join(root, "app-build"), repositoryDirectory: source,
     toolchain: inputs.rust_toolchain, environment: { ...toolEnv, ...bootstrap },
   }, {
+    run: (command, args, options) => {
+      const kind = args.length === 1 && args[0] === "--tlsn-compiled-worker-entry" ? "worker" :
+        args.length === 1 && args[0] === "--app-compiled-public-configuration" ? "public" : null;
+      const readExecutable = () => {
+        if (!resolve(command).startsWith(`${root}${sep}`)) throw new Error("compiled report executable escaped workspace");
+        const fd = openSync(command, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          if (!fstatSync(fd).isFile()) throw new Error("compiled report executable must be regular");
+          return readFileSync(fd);
+        } finally { closeSync(fd); }
+      };
+      const before = kind ? sha256(readExecutable()) : null;
+      const stdout = runPublicBuildCommand(command, args, options);
+      if (command === "pnpm" && args[0] === "exec" && args[1] === "tauri") {
+        commands.push({ argv: ["pnpm", ...args], exit_code: 0 });
+      }
+      if (kind) {
+        if (sha256(readExecutable()) !== before) throw new Error("compiled executable changed during observation");
+        const raw = Buffer.from(stdout);
+        reports[kind] = { argv: args, exit_code: 0, stdout_sha256: sha256(raw), executable_sha256: before, raw };
+      }
+      return stdout;
+    },
     loadDotenvx: async () => ({
       inputs: publicInputs,
       reference: { scope: "independently-pinned-public-release-inputs", sha256: sha256(Buffer.from(canonicalJson(inputs))) },
@@ -72,6 +101,10 @@ async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken })
       },
     }),
   });
+  for (const [path, before] of sourceFiles) {
+    if (!before.equals(await readRegularFile(join(source, path)))) throw new Error("release dependency input changed during build");
+  }
+  return { ...built, execution: { sourceFiles, commands, reports, pnpmVersion } };
 }
 
 export async function generateReleaseBuild({
@@ -128,10 +161,34 @@ export async function generateReleaseBuild({
   await writeFile(join(outputDirectory, `app-${inputs.platform}.bin`), bytes, { flag: "wx" });
   await writeFile(join(outputDirectory, "app-build-record.json"), recordBytes, { flag: "wx" });
   await writeFile(join(outputDirectory, "release-build-provenance.json"), canonicalJson(provenance), { flag: "wx" });
+  const checkFiles = new Map();
+  if (built.execution) {
+    const context = { repository: "tsukasa-u/FUSOU", source_sha: eligibility.commit_sha, run_id: runId,
+      run_attempt: runAttempt, workflow_sha: eligibility.coordinator_sha };
+    const locked = recordLockedDependenciesExecution({ context, inputs: built.execution.sourceFiles, appRecord: record,
+      output: { commands: built.execution.commands, pnpm_version: built.execution.pnpmVersion } });
+    for (const [name, raw] of locked.files) checkFiles.set(name, raw);
+    const reports = {};
+    for (const [role, report] of Object.entries(built.execution.reports)) {
+      const { raw, ...metadata } = report;
+      if (metadata.executable_sha256 !== sha256(bytes) || sha256(raw) !== metadata.stdout_sha256) {
+        throw new Error("actual compiled observation/artifact mismatch");
+      }
+      reports[role] = metadata;
+      checkFiles.set(`evidence-${sha256(raw)}.bin`, raw);
+    }
+    checkFiles.set("app-compiled-observations.json", Buffer.from(canonicalJson({
+      schema_version: 1, scope: "fusou-app-compiled-execution-observations-v1", ...context,
+      executable_sha256: sha256(bytes), reports, app_build_record_sha256: sha256(recordBytes),
+      public_build_inputs_sha256: publicInputsSha256,
+    })));
+    for (const [name, raw] of checkFiles) await writeFile(join(outputDirectory, name), raw, { flag: "wx" });
+  }
   return {
     status: "BUILD_OUTPUTS_GENERATED", tag_status: eligibility.status,
     source_sha: eligibility.commit_sha, public_inputs_sha256: publicInputsSha256,
     worker_version_id: record.active_version_id,
+    check_files: [...checkFiles.keys()].sort(),
     artifacts: [{
       name: "app", role: "app", platform: inputs.platform, file: `app-${inputs.platform}.bin`,
       build_record_file: "app-build-record.json", provenance_file: "release-build-provenance.json",

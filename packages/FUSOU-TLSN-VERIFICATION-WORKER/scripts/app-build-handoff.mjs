@@ -6,7 +6,7 @@ import { assertWorkerEndpointMapping } from "./app-worker-endpoint-mapping.mjs";
 import {
   assertNotaryRegistryConsistency, assertResultSigningIdentity, canonicalJson,
 } from "./production-trust-contract.mjs";
-import { loadCanonicalAppDotenvx, publicToolEnvironment } from "./app-dotenvx-inputs.mjs";
+import { publicToolEnvironment } from "./app-build-tool-environment.mjs";
 import {
   publicAppConfigurationSha256, publicAppEnvironment, validatePublicAppInputs,
 } from "./app-public-configuration.mjs";
@@ -304,7 +304,7 @@ export function assertCompiledPublicConfiguration(report, inputs) {
 export async function buildApprovedApp({
   referencePath, expectedReferenceSha256, expectedWorkerSha, expectedAppSha, outputDirectory,
   repositoryDirectory, toolchain, profile = "release", environment = process.env,
-}, { run = runPublicBuildCommand, loadDotenvx = loadCanonicalAppDotenvx } = {}) {
+}, { run = runPublicBuildCommand, loadDotenvx } = {}) {
   if (!digestPattern.test(expectedReferenceSha256 ?? "") || !shaPattern.test(expectedAppSha ?? "") ||
       !/^\d+\.\d+\.\d+$/.test(toolchain ?? "") || !["debug", "release"].includes(profile)) {
     throw new Error("independent reference hash, APP source, exact Rust toolchain and build profile are required");
@@ -326,7 +326,8 @@ export async function buildApprovedApp({
   if (sha256(bytes) !== expectedReferenceSha256) throw new Error("reference raw SHA-256 does not match the independent approved pin");
   const reference = assertBuildReference(parseJson(bytes, "APP Worker reference"), expectedWorkerSha);
   const appDirectory = join(repositoryDirectory, "packages/FUSOU-APP");
-  const dotenvxInputs = await loadDotenvx(appDirectory, environment);
+  const loader = loadDotenvx ?? (await import("./app-dotenvx-inputs.mjs")).loadCanonicalAppDotenvx;
+  const dotenvxInputs = await loader(appDirectory, environment);
   const publicInputs = validatePublicAppInputs(dotenvxInputs.inputs);
   const targetDirectory = join(outputDirectory, "cargo-target");
   const env = {
