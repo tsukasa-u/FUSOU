@@ -3435,6 +3435,37 @@ app.get("/global/drops", async (c) => {
   }
 });
 
+app.get("/detail-env", async (c) => {
+  const envUuid = (c.req.query("env_uuid") || "").trim();
+  const periodTag = (c.req.query("period_tag") || "latest").trim();
+  const tableVersion = (c.req.query("table_version") || "").trim();
+  const cacheControl = getBattleDataCacheControl(periodTag);
+
+  if (!envUuid) {
+    return c.json({ error: "env_uuid is required" }, 400);
+  }
+
+  const env = createEnvContext(c);
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  if (bucket) {
+    const envKey = "snapshots/env_detail/" + (periodTag === "latest" ? "latest" : periodTag) + "/" + envUuid + ".json.br";
+    const envObj = await bucket.get(envKey);
+    if (envObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Content-Encoding", "br");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (envObj.httpEtag) {
+        headers.set("ETag", envObj.httpEtag);
+      }
+      return new Response(envObj.body as unknown as BodyInit, { headers });
+    }
+  }
+
+  return c.json({ error: "Sortie detail snapshot not found for env_uuid" }, 404);
+});
+
 app.get("/detail", async (c) => {
   const envUuid = (c.req.query("env_uuid") || "").trim();
   const battleIndexRaw = (c.req.query("battle_index") || "").trim();
@@ -3470,6 +3501,45 @@ app.get("/detail", async (c) => {
       const hit = new Response(cached.body, cached);
       hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
+    }
+  }
+
+  const env = createEnvContext(c);
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  if (bucket) {
+    // 1. Direct single-battle snapshot check
+    const directKey = `snapshots/detail/${periodTag === "latest" ? "latest" : periodTag}/${envUuid}_${battleIndexRaw}.json.br`;
+    const detailObj = await bucket.get(directKey);
+    if (detailObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Content-Encoding", "br");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (detailObj.httpEtag) {
+        headers.set("ETag", detailObj.httpEtag);
+      }
+      return new Response(detailObj.body as unknown as BodyInit, { headers });
+    }
+
+    // 2. Sortie-level bundled snapshot check
+    const envKey = `snapshots/env_detail/${periodTag === "latest" ? "latest" : periodTag}/${envUuid}.json.br`;
+    const envObj = await bucket.get(envKey);
+    if (envObj) {
+      try {
+        const arrayBuf = await envObj.arrayBuffer();
+        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const bundle = JSON.parse(decompressed.toString("utf-8"));
+        const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
+        if (battlePayload) {
+          const res = c.json(battlePayload, 200);
+          res.headers.set("Cache-Control", cacheControl);
+          res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+          return res;
+        }
+      } catch (err) {
+        console.warn("[battle_data] failed to read env_detail snapshot:", err);
+      }
     }
   }
 

@@ -319,3 +319,13 @@ export function buildDropsSnapshot(
     mst_ships: [],
   };
 }
+
+export interface EnvDetailSnapshotBundle {
+  success: true;
+  env_uuid: string;
+  period_tag: string;
+  table_version?: string | null | undefined;
+  snapshot_timestamp: number;
+  /** Keyed by battle index (0, 1, 2...) */
+  battles: Record<string, JsonRecord>;
+}
