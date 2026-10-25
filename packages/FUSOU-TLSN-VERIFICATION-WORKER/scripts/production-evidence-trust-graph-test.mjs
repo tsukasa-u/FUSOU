@@ -85,10 +85,42 @@ for (const mode of ["complete", "sparse"]) {
     const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
     assert.equal(nodes.get("presentation").identity.presentation_sha256, digest(inputs.presentationBytes));
     assert.equal(nodes.get("result").identity.result_sha256, digest(inputs.resultBytes));
+    assert.equal(nodes.get("session").identity.binding_sha256, nodes.get("presentation").identity.binding_sha256);
+    assert.equal(nodes.get("binding").identity.binding_sha256, nodes.get("presentation").identity.binding_sha256);
     assert.equal(nodes.get("production-proxy").identity.cryptographic_status, "UNVERIFIED");
     assert.equal(nodes.get("remote-attestation").identity.status, "UNVERIFIED");
     const edge = graph.edges.find(({ id }) => id === "session-binding-authenticates-presentation");
     assert.equal(edge.binding_fields.includes("revealed_request_ranges"), mode === "sparse");
+  });
+
+  test(`${mode}: graph rejects a Session and Result with different bindings`, () => {
+    const changedSession = inputsFor(mode);
+    changedSession.session.binding = "another session binding";
+    assert.throws(() => deriveProductionTrustGraph(changedSession), /Session and Result bindings/);
+
+    const changedResult = inputsFor(mode);
+    changedResult.result.binding_value = "another Result binding";
+    changedResult.resultBytes = Buffer.from(JSON.stringify(changedResult.result));
+    assert.throws(() => deriveProductionTrustGraph(changedResult), /Session and Result bindings/);
+
+    for (const binding of [null, "", 1, []]) {
+      const malformed = inputsFor(mode);
+      malformed.session.binding = binding;
+      malformed.result.binding_value = binding;
+      malformed.resultBytes = Buffer.from(JSON.stringify(malformed.result));
+      assert.throws(() => deriveProductionTrustGraph(malformed), /Session and Result bindings/);
+    }
+  });
+
+  test(`${mode}: graph rejects authentication for a different device`, () => {
+    const inputs = inputsFor(mode);
+    inputs.deviceAuthentication.request.device_id = "another-device";
+    assert.throws(() => deriveProductionTrustGraph(inputs), /device authentication.*device identity/);
+    delete inputs.deviceAuthentication.request;
+    assert.throws(() => deriveProductionTrustGraph(inputs), /device authentication.*device identity/);
+    inputs.deviceId = 1;
+    inputs.deviceAuthentication.request = { device_id: 1 };
+    assert.throws(() => deriveProductionTrustGraph(inputs), /device authentication.*device identity/);
   });
 
   test(`${mode}: Uint8Array and byte-offset views preserve the Buffer graph`, () => {
@@ -179,6 +211,58 @@ for (const mode of ["complete", "sparse"]) {
     const inputs = inputsFor(mode);
     inputs.semanticVerification.result.tlsn_attestation_id = Buffer.alloc(16, 2).toString("base64url");
     assert.throws(() => deriveProductionTrustGraph(inputs), /Attestation IDs do not match/);
+  });
+
+  test(`${mode}: raw Result, parsed Result, and semantic Result cannot be mixed`, () => {
+    for (const mutate of [
+      (inputs) => { inputs.result = { ...inputs.result, verified_member_id: "456" }; },
+      (inputs) => {
+        inputs.semanticVerification.result = { ...inputs.result, notary_key_id: "another-notary" };
+      },
+      (inputs) => {
+        inputs.resultBytes = Buffer.from(JSON.stringify({ ...inputs.result, verified_member_id: "456" }));
+      },
+      (inputs) => {
+        inputs.result = { ...inputs.result, signature: "synthetic changed signature" };
+        inputs.resultBytes = Buffer.from(JSON.stringify(inputs.result));
+      },
+    ]) {
+      const inputs = inputsFor(mode);
+      mutate(inputs);
+      assert.throws(() => deriveProductionTrustGraph(inputs), /Result bytes.*parsed and semantic Result/);
+    }
+  });
+
+  test(`${mode}: Result bytes must be binary UTF-8 JSON containing a Result object`, () => {
+    for (const bytes of [
+      "not binary",
+      new DataView(new ArrayBuffer(4)),
+      Buffer.from("not JSON"),
+      Buffer.from("{} trailing bytes"),
+      Buffer.from("null"),
+      Buffer.from("[]"),
+      Buffer.from([0xff]),
+    ]) {
+      const inputs = inputsFor(mode);
+      inputs.resultBytes = bytes;
+      assert.throws(() => deriveProductionTrustGraph(inputs), /Result bytes/);
+    }
+  });
+
+  test(`${mode}: Result byte binding preserves whitespace, key order, and byte views`, () => {
+    const inputs = inputsFor(mode);
+    const reordered = Object.fromEntries(Object.entries(inputs.result).reverse());
+    const bytes = Buffer.from(`\n ${JSON.stringify(reordered, null, 2)} \n`);
+    const storage = new Uint8Array(bytes.length + 8).fill(255);
+    storage.set(bytes, 4);
+    inputs.resultBytes = storage.subarray(4, 4 + bytes.length);
+    inputs.result = JSON.parse(bytes.toString());
+    const graph = deriveProductionTrustGraph(inputs);
+    assert.equal(
+      graph.nodes.find(({ id }) => id === "result").identity.result_sha256,
+      digest(bytes),
+    );
+    assert.deepEqual(Array.from(inputs.resultBytes), Array.from(bytes));
   });
 
   test(`${mode}: separately parsed graph identities match by value`, () => {

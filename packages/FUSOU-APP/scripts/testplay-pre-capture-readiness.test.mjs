@@ -11,12 +11,19 @@ import {
   account,
   controls,
   customMapping,
+  environment,
+  manifest,
   now,
+  provenance,
   release,
   version1,
 } from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-reference-fixture.mjs";
-import { createAppWorkerReference } from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-deployment-reference.mjs";
+import { approvedProductionRelease, createAppWorkerReference } from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-deployment-reference.mjs";
 import { createPreCaptureReadiness } from "./testplay-pre-capture-readiness.mjs";
+import {
+  appConfigurationProjectionSha256,
+  recomputeAppConfigurationCombinedSha256,
+} from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/candidate-artifact-identity.mjs";
 
 const expectedWorkerSha = "a".repeat(40);
 const expectedAppSha = "b".repeat(40);
@@ -56,22 +63,57 @@ const requiredPreflightCheckNames = [
   "tlsn_artifact_output_path",
 ];
 
-function reference() {
-  const observed = controls(release, version1);
+function reference(disclosureMode = release.disclosureMode) {
+  const selectedRelease = approvedProductionRelease(
+    { ...environment, TLSN_PRODUCTION_DISCLOSURE_MODE: disclosureMode },
+    provenance,
+    manifest,
+  );
+  const observed = controls(selectedRelease, version1);
   return createAppWorkerReference(
-    release,
+    selectedRelease,
     observed.deployment,
     observed.version,
     account,
     now,
-    customMapping(release),
+    customMapping(selectedRelease),
   );
 }
 
-function inputs() {
-  const workerReference = reference();
+function inputs(disclosureMode = "complete", responseMode = "async") {
+  const workerReference = reference(disclosureMode);
   const workerReferenceBytes = Buffer.from(`${JSON.stringify(workerReference)}\n`);
   const expectedReferenceSha256 = sha256(workerReferenceBytes);
+  const pins = workerReference.compile_inputs;
+  const compileTimeProjection = {
+    expected_deployment_id: pins.FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID,
+    expected_worker_name: pins.FUSOU_TLSN_EXPECTED_WORKER_NAME,
+    expected_git_commit_sha: pins.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA,
+    expected_binding_mode: pins.FUSOU_TLSN_EXPECTED_BINDING_MODE,
+    worker_health_endpoint: pins.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT,
+    verification_endpoint: pins.FUSOU_TLSN_VERIFICATION_ENDPOINT,
+    notary_endpoint: pins.FUSOU_TLSN_NOTARY_ENDPOINT,
+    notary_verifying_key: pins.FUSOU_TLSN_NOTARY_VERIFYING_KEY,
+    session_authority_endpoint: pins.FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT,
+    session_authority_key_id: pins.FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID,
+    session_authority_public_key: pins.FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY,
+    result_public_key_spki: pins.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI,
+    result_signer_key_id: pins.FUSOU_TLSN_RESULT_SIGNER_KEY_ID,
+    result_signing_key_registry: pins.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
+  };
+  const fingerprints = {
+    schema_version: 2,
+    scope: "fusou-tlsn-app-public-configuration",
+    compile_time_sha256: appConfigurationProjectionSha256("compile_time", compileTimeProjection),
+    runtime_sha256: appConfigurationProjectionSha256("runtime", {
+      experiment_enabled: true,
+      candidate_capture_enabled: true,
+      disclosure_mode: workerReference.disclosure_mode,
+      response_mode: responseMode,
+    }),
+    candidate_binding_status: "UNBOUND",
+  };
+  fingerprints.combined_sha256 = recomputeAppConfigurationCombinedSha256(fingerprints);
   const compiledReport = {
     schema_version: 2,
     scope: "fusou-tlsn-app-compiled-worker-entry-report",
@@ -108,19 +150,13 @@ function inputs() {
     feature_enabled: true,
     build_profile: buildProfile,
     config_path: configPath,
-    public_configuration_fingerprints: {
-      schema_version: 2,
-      scope: "fusou-tlsn-app-public-configuration",
-      compile_time_sha256: "d".repeat(43),
-      runtime_sha256: "e".repeat(43),
-      combined_sha256: "f".repeat(43),
-      candidate_binding_status: "UNBOUND",
-    },
+    public_configuration_fingerprints: fingerprints,
     ready: true,
     checks: requiredPreflightCheckNames.map((name) => ({
       name,
       status: "pass",
-      detail: "fixture check",
+      detail: name === "tlsn_response_mode" ? responseMode
+        : name === "tlsn_disclosure_mode" ? workerReference.disclosure_mode : "fixture check",
     })),
   };
 
@@ -136,22 +172,29 @@ function inputs() {
   };
 }
 
-test("pre-capture gate binds the active Worker reference and verified APP reports", () => {
-  const readiness = createPreCaptureReadiness(inputs());
+for (const mode of ["complete", "sparse"]) {
+  for (const response of ["async", "sync"]) {
+    test(`${mode}/${response}: pre-capture gate binds the reference and APP reports without granting gameplay`, () => {
+      const readiness = createPreCaptureReadiness(inputs(mode, response));
 
-  assert.equal(readiness.schema_version, 2);
-  assert.equal(readiness.status, "LOCAL_APP_PREFLIGHT_PASS");
-  assert.equal(readiness.active_version_id, version1);
-  assert.equal(readiness.gameplay_authorized, false);
-  assert.equal(readiness.production_acceptance, "BLOCKED");
-  assert.equal(readiness.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
-  assert.deepEqual(readiness.target_identity, {
-    status: "NOT_YET_OBSERVED",
-    server_identity: null,
-  });
-  assert.equal(readiness.gates.auth_and_registered_device, "REQUIRES_APP_RUNTIME");
-  assert.equal(readiness.gates.human_gameplay_approval, "REQUIRES_HUMAN_OPERATOR");
-});
+      assert.equal(readiness.schema_version, 2);
+      assert.equal(readiness.status, "LOCAL_APP_PREFLIGHT_PASS");
+      assert.equal(readiness.active_version_id, version1);
+      assert.equal(readiness.authority_status, "UNVERIFIED");
+      assert.equal(readiness.gameplay_authorized, false);
+      assert.equal(readiness.production_acceptance, "BLOCKED");
+      assert.equal(readiness.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
+      assert.deepEqual(readiness.target_identity, {
+        status: "NOT_YET_OBSERVED",
+        server_identity: null,
+      });
+      assert.equal(readiness.gates.runtime_target_approval, "REQUIRES_APP_RUNTIME");
+      assert.equal(readiness.gates.target_approval, "POST_CAPTURE_REQUIRED");
+      assert.equal(readiness.gates.auth_and_registered_device, "REQUIRES_APP_RUNTIME");
+      assert.equal(readiness.gates.human_gameplay_approval, "REQUIRES_HUMAN_OPERATOR");
+    });
+  }
+}
 
 test("pre-capture gate rejects a changed reference byte or independent digest", () => {
   const values = inputs();
@@ -220,4 +263,44 @@ test("pre-capture gate blocks an APP preflight without a valid embedded Runtime 
   assert.throws(() => createPreCaptureReadiness(values), /did not pass the candidate pre-capture preflight/);
   values.appPreflightReport.ready = true;
   assert.throws(() => createPreCaptureReadiness(values), /tlsn_runtime_config_bootstrap/);
+});
+
+test("pre-capture gate rejects inconsistent or unrelated APP configuration fingerprints", () => {
+  for (const mutate of [
+    (fingerprints) => { fingerprints.combined_sha256 = sha256("another combined fingerprint"); },
+    (fingerprints) => {
+      fingerprints.compile_time_sha256 = sha256("another build's public configuration");
+      fingerprints.combined_sha256 = recomputeAppConfigurationCombinedSha256(fingerprints);
+    },
+    (fingerprints) => {
+      fingerprints.runtime_sha256 = appConfigurationProjectionSha256("runtime", {
+        experiment_enabled: false, candidate_capture_enabled: true,
+        disclosure_mode: "complete", response_mode: "async",
+      });
+      fingerprints.combined_sha256 = recomputeAppConfigurationCombinedSha256(fingerprints);
+    },
+  ]) {
+    const values = inputs();
+    mutate(values.appPreflightReport.public_configuration_fingerprints);
+    assert.throws(() => createPreCaptureReadiness(values), /fingerprint/i);
+  }
+});
+
+test("pre-capture gate rejects disclosure disagreement and missing, duplicate, warning, or error checks", () => {
+  const wrongMode = inputs();
+  wrongMode.appPreflightReport.checks.find(
+    (check) => check.name === "tlsn_disclosure_mode",
+  ).detail = "sparse";
+  assert.throws(() => createPreCaptureReadiness(wrongMode), /disclosure/i);
+  for (const name of requiredPreflightCheckNames) {
+    for (const operation of ["missing", "duplicate", "warning", "error"]) {
+      const values = inputs();
+      const checks = values.appPreflightReport.checks;
+      const check = checks.find((entry) => entry.name === name);
+      if (operation === "missing") values.appPreflightReport.checks = checks.filter((entry) => entry !== check);
+      else if (operation === "duplicate") checks.push({ ...check });
+      else check.status = operation;
+      assert.throws(() => createPreCaptureReadiness(values), /pre-capture|preflight/i);
+    }
+  }
 });

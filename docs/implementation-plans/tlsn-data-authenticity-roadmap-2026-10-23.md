@@ -107,7 +107,10 @@ when a safe execution route is available.
 
 ## Phase 3 — Local protocol and integration verification
 
-**Current status:** `NOT_CHECKED` for execution in this documentation task.
+**Current status:** Focused Node checks are `PASS` in the local follow-up
+below. Rust/WASM, listener/CONNECT/TLS, real-service integration, and the
+remaining decision-dependent cases are not established by those checks;
+Phase 3 as a whole is not complete.
 
 Use test layers appropriate to each claim:
 
@@ -207,6 +210,89 @@ archive readback, Worker/APP wiring, or external runtime was verified here.
 Q1-Q5 remain undecided. Rust/WASM integration remains `NOT_CHECKED`, real-game
 TLSN evidence remains `UNVERIFIED`, and Production acceptance remains `BLOCKED`.
 
+### Local follow-up: Result association, preflight, and reference consistency
+
+This follow-up starts at
+`504c6a1aa0673ab886c30626a6d64aa026bbd0af` on
+`tlsn-first-testplay-candidate`. It addresses concrete input-consistency
+failures without selecting a Q1-Q5 policy or authorizing live operations:
+
+- [`deriveProductionTrustGraph`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs)
+  now requires binary `resultBytes` (`Buffer` or `Uint8Array`), valid UTF-8
+  object JSON, and full JSON-value equality between the parsed artifact,
+  `result`, and `semanticVerification.result`. Previously those three could
+  describe different Results while the graph hashed only `resultBytes`.
+  Result whitespace/key order may differ; the Result node still hashes the
+  original supplied bytes, not a reserialization. This artifact is the inner
+  Result JSON, not the outer Worker response envelope.
+- The same constructor rejects a Session binding different from the Result's
+  binding, empty/non-string bindings, and device authentication for a
+  different device. These previously yielded a graph with inconsistent
+  identities. The normal binding-node digests, topology, and unverified
+  authority states are unchanged. These are association checks, not
+  Session/consume receipt signature verification or device ownership proof.
+- [`createPreCaptureReadiness`](../../packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.mjs)
+  reuses the shared fingerprint validator and projection hashes. It verifies
+  the combined preimage, compile-time projection against the pinned Worker
+  reference, and runtime projection against enabled candidate capture and
+  the reported disclosure/response modes. Previously arbitrary hash-shaped
+  values could pass. Disclosure must match the reference; existing `async`
+  and `sync` modes remain supported, without choosing Q3.
+  Missing/duplicate/non-passing required checks reject. The additive
+  `gates.runtime_target_approval` field remains `REQUIRES_APP_RUNTIME`,
+  separately from `gates.target_approval: POST_CAPTURE_REQUIRED`.
+  Neither grants gameplay authorization or establishes an observed target.
+- [`assertBuildReference`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs)
+  reuses the existing Result signing identity/envelope validator and Notary
+  registry consistency validator at reference consumption. It rejects
+  corrupted registry signatures, unrelated or missing root/envelope inputs,
+  changed raw registry bytes, a different Result signer, and Notary key
+  mismatches before a build. It reuses existing active-key eligibility rules;
+  it adds no Session/receipt expiry policy. The root is supplied by the
+  independently pinned reference; this check cannot itself establish the
+  external authority of that pin.
+
+Execution evidence for this follow-up is `PASS`: 123 tests, zero failures,
+zero skipped tests, using the following command from the repository root:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE \
+  node --test --test-reporter=spec \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs \
+  packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff-test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-deployment-reference-test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-endpoint-mapping-test.mjs \
+  packages/FUSOU-APP/scripts/testplay-verify.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest-test.mjs
+```
+
+The graph's 38 tests use structural fixtures, not valid TLSN Presentations
+or signed Results. The 12 readiness tests use synthetic reports, including
+Complete/Sparse and async/sync positive cases that retain the runtime,
+post-capture, and human gates. Reference tests use ephemeral test keys;
+control-plane requests and builds are mocked. Launcher recovery tests use
+temporary synthetic configuration files and local test processes, never the
+real APP configuration or an APP launch. Runtime Config tests use test-only
+signing and object stores; Production signing remains blocked by the existing
+registration guard. No Rust build, WASM integration, real service access,
+deployment, or gameplay was executed.
+
+| Phase 3 surface | Status | Evidence and remaining boundary |
+| --- | --- | --- |
+| Complete/Sparse Presentation/Result/Session/device graph association and identities | `PASS` | Local constructor tests only. No caller authenticates semantic outputs here; JavaScript/TypeScript call-site search found only the graph test, not a runtime collector. |
+| APP local fingerprint/report consistency and gate preservation | `PASS` | Synthetic reports only; not binary execution, process authority, runtime proxy start, or gameplay permission. |
+| Handoff/reference/endpoint mapping and Runtime Config consumers | `PASS` | Isolated build mocks, mock control plane, test-only signing/storage. Runtime Config preparation also consumes the strengthened reference validator. |
+| Actual compiled APP, Rust/Node signed-byte interoperability, Presentation cryptography, listener/CONNECT/TLS | `NOT_CHECKED` | Existing definitions/source are not execution evidence. Cargo/Rust/WASM and the real launcher are excluded from this verification route. |
+| Attempt competition, retry/recovery, response/evidence timing, expiry, memory guarantees | `BLOCKED` | Relevant Q1-Q5 decisions must precede new state/limit semantics and their tests. |
+| Production Worker generation/signing, authority handlers, capture collector and archive persistence | `BLOCKED` | The checked Worker `src` index contains only the shared origin trust contract; the named runtime/archive entry candidates are not tracked. Obtain the actual implementation and deployment references, rather than inventing handlers or treating the local graph as wired runtime code. |
+
+The checked JavaScript association/preflight/handoff surfaces have no further
+identified independent defect after these fixes and the related tests.
+This is not an exhaustive repository correctness claim. Remaining named
+roadmap work crosses decision, external-input, or prohibited execution
+boundaries above; it is not replaced by fixture evidence.
+
 ## Phase 4 — External dependencies and operator evidence
 
 **Current status:** `BLOCKED` until responsible operators provide independently
@@ -234,6 +320,30 @@ The tracked Worker operator runbook reports that the Worker runtime,
 Session Authority handler, archive implementation, and collector are not
 present in this checkout; an external implementation must be supplied and
 reviewed rather than assumed.
+
+### Operator handoff and restart conditions
+
+Owner names below are roles, not an assertion that a particular person has
+been appointed. No approvals, real endpoints, or trust material were supplied
+by this local follow-up. Follow the existing
+[`operator runbook`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md)
+and
+[`revision/contract audit`](tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md);
+historical observations there are not current deployment evidence.
+
+| Item | Classification | Status | Required evidence or decision | Responsible role | Resume after resolution |
+| --- | --- | --- | --- | --- | --- |
+| P0-01 revision/patch approval | Human approval | `BLOCKED` | Explicit approval of upstream alpha.15 revision `47aee45b53e06648c1b2ad3689b367b8c923fdec`, exact sparse transcript/proof-opening patches and mux source/diff, compatibility, license and independent security review recorded in the revision audit. Source mapping is not approval. | Release/security approvers and license reviewer | Approve the exact dependency/patch set for Phase 0 and the candidate build. |
+| P0-10 Sparse/cross-language contract | Protocol decision | `BLOCKED` | Versioned precedence for ClaimBindingBytes 8-/11-field layouts, receipt JSON canonicalization/unknown fields, normative Sparse Presentation serialization/range semantics, independent expected values and WASM provenance. Source-derived fixtures are not a normative oracle. | Protocol owner and human release authority | Fix the approved implementation/testplay scope and independent interoperability expectations; no unapproved exploratory exception. |
+| Q1-Q5 | Protocol/product decision | `BLOCKED` | Attempt scope; failure/retry/recovery; response/evidence states; Session/receipt freshness and revalidation; accepted-size versus per-request/process-wide memory boundary. | Protocol/product owners and human release authority | Implement only the approved Phase 2 controls and dependent Phase 3 tests. |
+| Runtime Config bootstrap | External trust/release inputs | `BLOCKED` | Independently approved endpoint and signer/root pin, registered production signer, signed manifest, active epoch and raw digest-bound artifacts. Local signing/publication registration is still gated. | Trust authority and Runtime Config/release operators | Supply controlled APP build inputs, publish/read back the approved manifest, then run runtime preflight. |
+| Actual target, Origin Inventory and Target Approval | External target/approval evidence | `BLOCKED` | Canonical lowercase DNS target from an authoritative source, exact raw artifacts, signatures, relationship and membership. APP selection is only an expectation. | Human target owner and deployment operator | Runtime must verify approval before proxy start; post-capture must independently match Presentation-derived identity. |
+| Worker deployment/reference and Result authority | External implementation/deployment evidence | `UNVERIFIED` | Actual runtime/collector/archive source, deployed SHA/version, exact endpoint mapping, independently pinned reference hash, Result signer registry/envelope/root pins and observed generation/signing/delivery. | Worker/release and evidence-storage operators | Review the implementation, obtain the real pinned reference, then prepare the APP candidate and archive readback. |
+| Notary | External service/trust evidence | `UNVERIFIED` | Deployed revision/patch identity, endpoint, raw registry and selected key from independent trust information. | Notary operator and trust authority | Verify the configured trust binding, then capture against the approved real Notary. |
+| Auth/device/Session and Binding Authority | External authenticated authority | `UNVERIFIED` | Nonanonymous Auth, registered device ownership and revocation state, deployed handlers/registries, signed Session/consume receipts bound to the same device/session/binding/Presentation, and replay state. | WEB/Auth and authority operators | Establish the authenticated APP session and runtime gates; independently verify receipts and replay after capture. |
+| Clean approved APP candidate build | Local/release preparation | `NOT_CHECKED` | Approved APP SHA/patch set, committed lockfile, locked dependencies, pinned toolchain, independent Worker reference and controlled public/bootstrap inputs. Mock build success is not a build. | Release operator | In an authorized environment, perform the real build, compiled-input comparison and local/runtime preflight. This task must not run that protected-file-sensitive path. |
+| Human gameplay authorization | Human approval | `BLOCKED` | Approved dependency/wire scope, target, operator, evidence plan and stop conditions, with all pre-capture runtime gates satisfied. | Human release authority | Human-only APP gameplay; a local readiness report never substitutes for this decision. |
+| Real capture, archive and independent verification | Human/service evidence | `UNVERIFIED` | Same-communication raw Presentation, transcript, signed Result, Session/consume receipts, independent keys/registries/Inventory/Approval, exact archive keys/readback/lengths/hashes, and separate-machine offline verification including negative mutations. | Human operator, evidence-storage operator and independent verifier | Evaluate the human gameplay gate; only then evaluate the separate Production acceptance criteria. |
 
 **Gate:** `BLOCKED` while any required endpoint, trust root, authority,
 deployment, archive, or independent reference is absent or unverified.

@@ -4,6 +4,10 @@ import {
   assertCompiledReport,
   sha256,
 } from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
+import {
+  appConfigurationProjectionSha256,
+  verifyAppConfigurationFingerprint,
+} from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/candidate-artifact-identity.mjs";
 
 const digestPattern = /^[A-Za-z0-9_-]{43}$/;
 
@@ -15,7 +19,7 @@ function parseReference(bytes) {
   }
 }
 
-function assertAppPreflight(report, { configPath, buildProfile }) {
+function assertAppPreflight(report, { configPath, buildProfile, reference }) {
   if (!report || typeof report !== "object" || Array.isArray(report) ||
       report.feature_enabled !== true || report.ready !== true ||
       report.config_path !== configPath || report.build_profile !== buildProfile ||
@@ -30,7 +34,7 @@ function assertAppPreflight(report, { configPath, buildProfile }) {
         typeof check.detail !== "string" || checks.has(check.name)) {
       throw new Error("actual APP binary returned an invalid pre-capture check inventory");
     }
-    checks.set(check.name, check.status);
+    checks.set(check.name, check);
   }
   for (const name of [
     "compile_time_feature",
@@ -58,21 +62,45 @@ function assertAppPreflight(report, { configPath, buildProfile }) {
     "tlsn_origin_inventory",
     "tlsn_artifact_output_path",
   ]) {
-    if (checks.get(name) !== "pass") {
+    if (checks.get(name)?.status !== "pass") {
       throw new Error(`actual APP pre-capture preflight did not pass required check ${name}`);
     }
   }
   if (report.checks.some((check) => check?.status === "error")) {
     throw new Error("actual APP binary reported a failed pre-capture check");
   }
-  const fingerprints = report.public_configuration_fingerprints;
-  if (!fingerprints || fingerprints.schema_version !== 2 ||
-      fingerprints.scope !== "fusou-tlsn-app-public-configuration" ||
-      !digestPattern.test(fingerprints.compile_time_sha256 ?? "") ||
-      !digestPattern.test(fingerprints.runtime_sha256 ?? "") ||
-      !digestPattern.test(fingerprints.combined_sha256 ?? "") ||
-      fingerprints.candidate_binding_status !== "UNBOUND") {
-    throw new Error("actual APP binary returned invalid public configuration fingerprints");
+  const disclosureMode = checks.get("tlsn_disclosure_mode").detail;
+  const responseMode = checks.get("tlsn_response_mode").detail;
+  if (disclosureMode !== reference.disclosure_mode || !["async", "sync"].includes(responseMode)) {
+    throw new Error("actual APP preflight disclosure/response mode does not match the candidate contract");
+  }
+  const fingerprints = verifyAppConfigurationFingerprint(report.public_configuration_fingerprints);
+  const pins = reference.compile_inputs;
+  const compileTimeSha256 = appConfigurationProjectionSha256("compile_time", {
+    expected_deployment_id: pins.FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID,
+    expected_worker_name: pins.FUSOU_TLSN_EXPECTED_WORKER_NAME,
+    expected_git_commit_sha: pins.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA,
+    expected_binding_mode: pins.FUSOU_TLSN_EXPECTED_BINDING_MODE,
+    worker_health_endpoint: pins.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT,
+    verification_endpoint: pins.FUSOU_TLSN_VERIFICATION_ENDPOINT,
+    notary_endpoint: pins.FUSOU_TLSN_NOTARY_ENDPOINT,
+    notary_verifying_key: pins.FUSOU_TLSN_NOTARY_VERIFYING_KEY,
+    session_authority_endpoint: pins.FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT,
+    session_authority_key_id: pins.FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID,
+    session_authority_public_key: pins.FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY,
+    result_public_key_spki: pins.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI,
+    result_signer_key_id: pins.FUSOU_TLSN_RESULT_SIGNER_KEY_ID,
+    result_signing_key_registry: pins.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
+  });
+  const runtimeSha256 = appConfigurationProjectionSha256("runtime", {
+    experiment_enabled: true,
+    candidate_capture_enabled: true,
+    disclosure_mode: disclosureMode,
+    response_mode: responseMode,
+  });
+  if (fingerprints.compile_time_sha256 !== compileTimeSha256 ||
+      fingerprints.runtime_sha256 !== runtimeSha256) {
+    throw new Error("actual APP configuration fingerprints do not match the approved candidate inputs");
   }
 }
 
@@ -130,7 +158,7 @@ export function createPreCaptureReadiness({
     buildProfile,
     appBuildRecord.runtime_config_bootstrap,
   );
-  assertAppPreflight(appPreflightReport, { configPath, buildProfile });
+  assertAppPreflight(appPreflightReport, { configPath, buildProfile, reference });
 
   return {
     schema_version: 2,
@@ -160,6 +188,7 @@ export function createPreCaptureReadiness({
       auth_and_registered_device: "REQUIRES_APP_RUNTIME",
       human_gameplay_approval: "REQUIRES_HUMAN_OPERATOR",
       target_identity: "NOT_YET_OBSERVED",
+      runtime_target_approval: "REQUIRES_APP_RUNTIME",
       target_approval: "POST_CAPTURE_REQUIRED",
       gameplay_authorization: "NOT_GRANTED",
       production_acceptance: "BLOCKED",

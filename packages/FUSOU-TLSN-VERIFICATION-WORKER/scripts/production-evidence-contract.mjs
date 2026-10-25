@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
+import { isDeepStrictEqual, TextDecoder } from "node:util";
 import { isUint8Array } from "node:util/types";
 
 export const PRODUCTION_EVIDENCE_SCOPE = "tlsn-production-evidence";
@@ -635,6 +635,9 @@ export function deriveProductionTrustGraph({
   if (!isUint8Array(presentationBytes)) {
     throw new TypeError("Presentation bytes must be a Buffer or Uint8Array");
   }
+  if (!isUint8Array(resultBytes)) {
+    throw new TypeError("Result bytes must be a Buffer or Uint8Array");
+  }
   const verifiedPresentation = semanticVerification?.verified_presentation;
   const semanticResult = semanticVerification?.result;
   if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId || !resultRegistrySha256 || !resultRegistryEnvelopeSha256 || !resultRegistryRootKeyId || !resultRegistryRootPublicKeySpki || !proxyProvenance) {
@@ -651,6 +654,22 @@ export function deriveProductionTrustGraph({
   }
   if (proxyProvenance.presentation_sha256 !== presentationSha256) {
     throw new Error("proxy provenance Presentation hash does not match the raw Presentation bytes");
+  }
+  let parsedResult;
+  try {
+    parsedResult = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(resultBytes));
+  } catch {
+    throw new Error("Result bytes must contain valid UTF-8 JSON");
+  }
+  if (!parsedResult || typeof parsedResult !== "object" || Array.isArray(parsedResult) ||
+      !isDeepStrictEqual(parsedResult, result) || !isDeepStrictEqual(result, semanticResult)) {
+    throw new Error("Result bytes do not match the parsed and semantic Result");
+  }
+  if (typeof session.binding !== "string" || !session.binding || session.binding !== semanticResult.binding_value) {
+    throw new Error("Session and Result bindings must match as non-empty strings");
+  }
+  if (typeof deviceId !== "string" || deviceAuthentication.request?.device_id !== deviceId) {
+    throw new Error("device authentication does not match the device identity");
   }
   const sparse = semanticResult.disclosure_mode === "sparse";
   const edgeDefinitions = sparse

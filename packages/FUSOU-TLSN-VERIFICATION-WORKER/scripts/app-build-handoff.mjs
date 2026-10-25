@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { assertWorkerEndpointMapping } from "./app-worker-endpoint-mapping.mjs";
-import { canonicalJson } from "./production-trust-contract.mjs";
+import {
+  assertNotaryRegistryConsistency, assertResultSigningIdentity, canonicalJson,
+} from "./production-trust-contract.mjs";
 import { loadCanonicalAppDotenvx, publicToolEnvironment } from "./app-dotenvx-inputs.mjs";
 import {
   publicAppConfigurationSha256, publicAppEnvironment, validatePublicAppInputs,
@@ -188,6 +190,21 @@ export function assertBuildReference(reference, expectedWorkerSha) {
   ]) {
     if (cf.checked_public_bindings[name] !== expected) throw new Error(`APP build reference public binding disagrees: ${name}`);
   }
+  const bindings = cf.checked_public_bindings;
+  assertResultSigningIdentity({
+    registry: inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
+    registryRaw: inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
+    keyId: inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID,
+    publicKeySpki: inputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI,
+    registryEnvelope: bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE,
+    registryRootKeyId: bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID,
+    registryRootPublicKeySpki: bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI,
+  });
+  assertNotaryRegistryConsistency({
+    sourceRegistryRaw: bindings.TLSN_PRODUCTION_NOTARY_REGISTRY,
+    keyId: bindings.TLSN_CANDIDATE_NOTARY_KEY_ID,
+    appVerifyingKey: inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY,
+  });
   return reference;
 }
 

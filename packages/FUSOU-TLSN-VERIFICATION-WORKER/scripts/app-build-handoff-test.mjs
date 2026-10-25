@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
-  buildApprovedApp, entryInputSha256, ENTRY_INPUT_CONTRACT, runPublicBuildCommand, runtimeConfigBootstrapInputs,
+  assertBuildReference, buildApprovedApp, entryInputSha256, ENTRY_INPUT_CONTRACT, runPublicBuildCommand, runtimeConfigBootstrapInputs,
   runtimeConfigBootstrapReport, RUNTIME_CONFIG_BOOTSTRAP_INPUTS, sha256,
 } from "./app-build-handoff.mjs";
 import { createAppWorkerReference } from "./app-worker-deployment-reference.mjs";
-import { account, controls, customMapping, now, release, version1, version2 } from "./app-worker-reference-fixture.mjs";
+import { account, controls, customMapping, key, now, release, version1, version2 } from "./app-worker-reference-fixture.mjs";
 import {
   APP_CONFIGURATION_FINGERPRINT_CONTRACT, appConfigurationProjectionSha256,
 } from "./candidate-artifact-identity.mjs";
@@ -26,6 +26,49 @@ const testBootstrapEnvironment = Object.freeze({
 function reference(version = version1) {
   const input = controls(release, version);
   return createAppWorkerReference(release, input.deployment, input.version, account, now, customMapping(release));
+}
+
+for (const [label, mutate] of [
+  ["a corrupted Result registry envelope signature", (r) => {
+    const envelope = JSON.parse(r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE);
+    const signature = Buffer.from(envelope.signature_base64url, "base64url");
+    signature[0] ^= 1;
+    envelope.signature_base64url = signature.toString("base64url");
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE = JSON.stringify(envelope);
+  }],
+  ["an unrelated Result root ID", (r) => {
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID = "another-root";
+  }],
+  ["an unrelated Result root public key", (r) => {
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI = key().publicKey;
+  }],
+  ["a missing Result registry envelope/root set", (r) => {
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE = "";
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID = "";
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI = "";
+  }],
+  ["different raw Result registry bytes", (r) => {
+    r.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY += "\n";
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY =
+      r.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY;
+  }],
+  ["a Result signer key outside the registry", (r) => {
+    r.compile_inputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI = key().publicKey;
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI =
+      r.compile_inputs.FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI;
+  }],
+  ["a Notary ID outside the registry", (r) => {
+    r.cloudflare.checked_public_bindings.TLSN_CANDIDATE_NOTARY_KEY_ID = "missing-notary";
+  }],
+  ["an unrelated compile-time Notary key", (r) => {
+    r.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = "unrelated-notary-key";
+  }],
+]) {
+  test(`APP reference rejects ${label} before a build`, () => {
+    const changed = reference();
+    mutate(changed);
+    assert.throws(() => assertBuildReference(changed, "a".repeat(40)), /registry|root|signing|Notary/i);
+  });
 }
 
 async function withBuild(action, initialReference = reference()) {
