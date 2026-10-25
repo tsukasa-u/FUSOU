@@ -44,7 +44,7 @@ describe("R2BattleRepository", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
-      "/api/battle-data/global/overview?period_tag=2026-02-13&table_version=0.7.0&dataset_id=dataset%2Fone&limit_blocks=120&limit_records=20000",
+      "/api/battle-data/global/overview?period_tag=2026-02-13&table_version=0.7.0&dataset_id=dataset%2Fone",
       undefined,
     );
   });

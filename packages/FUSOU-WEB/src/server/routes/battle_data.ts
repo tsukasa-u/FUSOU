@@ -3241,13 +3241,6 @@ app.get("/global/records", async (c) => {
 
 app.get("/global/overview", async (c) => {
   const periodTag = (c.req.query("period_tag") || "latest").trim();
-  const tableVersion = (c.req.query("table_version") || "").trim();
-  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 200, 400);
-  const limitRecords = parsePositiveInt(
-    c.req.query("limit_records"),
-    20000,
-    20000,
-  );
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
@@ -3274,151 +3267,48 @@ app.get("/global/overview", async (c) => {
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
-  if (bucket) {
-    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
-    const snapshotKey = `snapshots/overview/${activeTag}.json.br`;
-    const snapshotObj = await bucket.get(snapshotKey);
-    if (snapshotObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (snapshotObj.httpEtag) {
-        headers.set("ETag", snapshotObj.httpEtag);
-      }
-      const acceptEncoding = c.req.header("accept-encoding") || "";
-      if (acceptEncoding.includes("br")) {
-        headers.set("Content-Encoding", "br");
-        return new Response(await snapshotObj.arrayBuffer(), { headers });
-      }
-      try {
-        const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
-        return new Response(text, { headers });
-      } catch (err) {
-        console.warn("[battle_data] failed to decompress overview snapshot:", err);
-      }
-    }
+  if (!bucket) {
+    return c.json({ error: "Failed to build overview payload", details: "Storage not configured" }, 500);
   }
 
-  try {
-    const [batchResults, mstShipPayload] = await Promise.all([
-      queryGlobalRecordsDirectBatch(c, [
-        {
-          table: "battle",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-          includeSortieKey: true,
-        },
-        {
-          table: "cells",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        },
-        {
-          table: "battle_result",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        },
-        {
-          table: "enemy_deck",
-          periodTag,
-          tableVersion,
-          limitBlocks: Math.max(limitBlocks, 400),
-          limitRecords: 20000,
-        },
-        {
-          table: "enemy_ship",
-          periodTag,
-          tableVersion,
-          limitBlocks: Math.max(limitBlocks, 400),
-          limitRecords: 40000,
-        },
-      ]),
-      fetchMasterDataJsonDirect(c, "mst_ship"),
-    ]);
-    const [
-      battlesPayload,
-      cellsPayload,
-      battleResultsPayload,
-      enemyDecksPayload,
-      enemyShipsPayload,
-    ] = batchResults;
-    const battles = battlesPayload?.records || [];
-    const cells = cellsPayload?.records || [];
-    const battleResults = battleResultsPayload?.records || [];
-    const allEnemyDecks = enemyDecksPayload?.records || [];
-    const allEnemyShips = enemyShipsPayload?.records || [];
-
-    const mstShips = mstShipPayload.records || [];
-
-    const deckIdSet = new Set(
-      battles
-        .map((b) =>
-          typeof b["e_deck_id"] === "string" ? b["e_deck_id"] : "",
-        )
-        .filter(Boolean),
-    );
-    const enemyDecks =
-      deckIdSet.size > 0
-        ? allEnemyDecks.filter(
-            (d) => typeof d["uuid"] === "string" && deckIdSet.has(d["uuid"]),
-          )
-        : [];
-
-    const shipGroupIdSet = new Set(
-      enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d["ship_ids"])),
-    );
-    const enemyShips =
-      shipGroupIdSet.size > 0
-        ? allEnemyShips.filter(
-            (s) =>
-              typeof s["uuid"] === "string" && shipGroupIdSet.has(s["uuid"]),
-          )
-        : [];
-
-    const payload = buildBattleOverviewPayload({
-      periodTag,
-      tableVersion,
-      masterData: {
-        period_tag: mstShipPayload.period_tag || null,
-        period_revision: mstShipPayload.period_revision ?? null,
-        table_version: mstShipPayload.table_version || null,
+  const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+  const snapshotKey = `snapshots/overview/${activeTag}.json.br`;
+  const snapshotObj = await bucket.get(snapshotKey);
+  if (!snapshotObj) {
+    return c.json(
+      {
+        error: `Overview snapshot not found for period: ${activeTag}`,
+        code: "SNAPSHOT_NOT_FOUND",
+        period_tag: activeTag,
       },
-      battles,
-      cells,
-      battleResults,
-      mstShips,
-      enemyDecks,
-      enemyShips,
-    });
+      404,
+    );
+  }
 
-    const response = c.json(payload);
-    response.headers.set("Cache-Control", cacheControl);
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putCacheSafely(c, cache, cacheKey, response);
-    }
-    return response;
-  } catch (error) {
-    console.error("[battle-data] Failed to build overview payload:", error);
-    return c.json({ error: "Failed to build overview payload" }, 500);
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  headers.set("Cache-Control", cacheControl);
+  headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+  headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
+  if (snapshotObj.httpEtag) {
+    headers.set("ETag", snapshotObj.httpEtag);
+  }
+  const acceptEncoding = c.req.header("accept-encoding") || "";
+  if (acceptEncoding.includes("br")) {
+    headers.set("Content-Encoding", "br");
+    return new Response(await snapshotObj.arrayBuffer(), { headers });
+  }
+  try {
+    const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
+    return new Response(text, { headers });
+  } catch (err) {
+    console.error("[battle_data] failed to decompress overview snapshot:", err);
+    return c.json({ error: "Failed to decompress snapshot payload", code: "SNAPSHOT_DECOMPRESS_ERROR" }, 500);
   }
 });
+
 app.get("/global/drops", async (c) => {
   const periodTag = (c.req.query("period_tag") || "latest").trim();
-  const tableVersion = (c.req.query("table_version") || "").trim();
-  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 200, 400);
-  const limitRecords = parsePositiveInt(
-    c.req.query("limit_records"),
-    20000,
-    20000,
-  );
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
@@ -3435,91 +3325,43 @@ app.get("/global/drops", async (c) => {
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
-  if (bucket) {
-    const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
-    const snapshotKey = `snapshots/drops/${activeTag}.json.br`;
-    const snapshotObj = await bucket.get(snapshotKey);
-    if (snapshotObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (snapshotObj.httpEtag) {
-        headers.set("ETag", snapshotObj.httpEtag);
-      }
-      const acceptEncoding = c.req.header("accept-encoding") || "";
-      if (acceptEncoding.includes("br")) {
-        headers.set("Content-Encoding", "br");
-        return new Response(await snapshotObj.arrayBuffer(), { headers });
-      }
-      try {
-        const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
-        return new Response(text, { headers });
-      } catch (err) {
-        console.warn("[battle_data] failed to decompress drops snapshot:", err);
-      }
-    }
+  if (!bucket) {
+    return c.json({ error: "Failed to build drops payload", details: "Storage not configured" }, 500);
   }
 
-  try {
-    const [batchResults, mstShipPayload] = await Promise.all([
-      queryGlobalRecordsDirectBatch(c, [
-        {
-          table: "battle",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-          includeSortieKey: true,
-        },
-        {
-          table: "cells",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        },
-        {
-          table: "battle_result",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        },
-      ]),
-      fetchMasterDataJsonDirect(c, "mst_ship"),
-    ]);
-    const [battlesPayload, cellsPayload, battleResultsPayload] = batchResults;
-    const battles = battlesPayload?.records || [];
-    const cells = cellsPayload?.records || [];
-    const battleResults = battleResultsPayload?.records || [];
-
-    const mstShips = mstShipPayload.records || [];
-
-    const payload = buildBattleDropsPayload({
-      periodTag,
-      tableVersion,
-      masterData: {
-        period_tag: mstShipPayload.period_tag || null,
-        period_revision: mstShipPayload.period_revision ?? null,
-        table_version: mstShipPayload.table_version || null,
+  const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+  const snapshotKey = `snapshots/drops/${activeTag}.json.br`;
+  const snapshotObj = await bucket.get(snapshotKey);
+  if (!snapshotObj) {
+    return c.json(
+      {
+        error: `Drops snapshot not found for period: ${activeTag}`,
+        code: "SNAPSHOT_NOT_FOUND",
+        period_tag: activeTag,
       },
-      battles,
-      cells,
-      battleResults,
-      mstShips,
-    });
+      404,
+    );
+  }
 
-    const response = c.json(payload);
-    response.headers.set("Cache-Control", cacheControl);
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putCacheSafely(c, cache, cacheKey, response);
-    }
-    return response;
-  } catch (error) {
-    console.error("[battle-data] Failed to build drops payload:", error);
-    return c.json({ error: "Failed to build drops payload" }, 500);
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  headers.set("Cache-Control", cacheControl);
+  headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+  headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
+  if (snapshotObj.httpEtag) {
+    headers.set("ETag", snapshotObj.httpEtag);
+  }
+  const acceptEncoding = c.req.header("accept-encoding") || "";
+  if (acceptEncoding.includes("br")) {
+    headers.set("Content-Encoding", "br");
+    return new Response(await snapshotObj.arrayBuffer(), { headers });
+  }
+  try {
+    const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
+    return new Response(text, { headers });
+  } catch (err) {
+    console.error("[battle_data] failed to decompress drops snapshot:", err);
+    return c.json({ error: "Failed to decompress snapshot payload", code: "SNAPSHOT_DECOMPRESS_ERROR" }, 500);
   }
 });
 
@@ -3764,585 +3606,20 @@ app.get("/detail", async (c) => {
         console.warn("[battle_data] failed to read env_detail snapshot:", err);
       }
     }
-  }
 
-  try {
-    // Keep a wider cap than the old 200-record window so per-env battle
-    // ordering is not truncated for long sorties/retries.
-    const DETAIL_BATTLE_LIMIT_RECORDS = 2000;
-    const datasetScope = datasetId ? { datasetId } : {};
-
-    const envUuidTimestampMs = extractTimestampFromUuidV7(envUuid);
-    const fetchBattles = async (
-      tag: string,
-      timeWindow?: { fromTimestampMs?: number; toTimestampMs?: number },
-    ) =>
-      fetchGlobalRecordsPayloadInternal(c, {
-        table: "battle",
-        periodTag: tag,
-        tableVersion,
-        ...datasetScope,
-        ...timeWindow,
-        limitBlocks: 120,
-        limitRecords: DETAIL_BATTLE_LIMIT_RECORDS,
-        filter: { env_uuid: envUuid },
-      });
-
-    let primaryBattlePayload =
-      envUuidTimestampMs !== null
-        ? await fetchBattles(periodTag, {
-            fromTimestampMs: envUuidTimestampMs - 30 * 60_000,
-            toTimestampMs: envUuidTimestampMs + 120 * 60_000,
-          })
-        : await fetchBattles(periodTag);
-    if (
-      envUuidTimestampMs !== null &&
-      (primaryBattlePayload.records?.length ?? 0) === 0
-    ) {
-      primaryBattlePayload = await fetchBattles(periodTag);
-    }
-
-    const battles = primaryBattlePayload.records || [];
-    if (battles.length === 0) {
-      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
-    }
-    const targetBattle = battles
-      .filter((row) => Number(row["index"] ?? Number.NaN) === battleIndex)
-      .sort(
-        (left, right) =>
-          (normalizeTimestamp(left["timestamp"]) ?? Number.MAX_SAFE_INTEGER) -
-          (normalizeTimestamp(right["timestamp"]) ?? Number.MAX_SAFE_INTEGER),
-      )[0];
-    if (!targetBattle) {
-      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
-    }
-
-    const resolvedDatasetId = datasetId || "";
-    const resolvedDatasetScope = resolvedDatasetId
-      ? { datasetId: resolvedDatasetId }
-      : {};
-
-    const battleTimestamps = battles
-      .map(
-        (row) =>
-          normalizeTimestamp(row["timestamp"]) ??
-          normalizeTimestamp(row["midnight_timestamp"]),
-      )
-      .filter((ts): ts is number => ts !== null && ts > 0);
-    const minBattleTs =
-      battleTimestamps.length > 0
-        ? Math.min(...battleTimestamps)
-        : envUuidTimestampMs;
-    const maxBattleTs =
-      battleTimestamps.length > 0
-        ? Math.max(...battleTimestamps)
-        : envUuidTimestampMs;
-
-    const matchedMinBlockTs =
-      primaryBattlePayload.matched_min_start_timestamp_ms ?? null;
-    const matchedMaxBlockTs =
-      primaryBattlePayload.matched_max_end_timestamp_ms ?? null;
-
-    let detailTimeWindowScope: {
-      fromTimestampMs?: number;
-      toTimestampMs?: number;
-    } = {};
-    if (
-      minBattleTs !== null &&
-      maxBattleTs !== null &&
-      matchedMinBlockTs !== null &&
-      matchedMaxBlockTs !== null &&
-      Math.abs(minBattleTs - matchedMinBlockTs) <= 24 * 3600_000
-    ) {
-      detailTimeWindowScope = {
-        fromTimestampMs: minBattleTs - 15 * 60_000,
-        toTimestampMs: maxBattleTs + 90 * 60_000,
-      };
-    } else if (matchedMinBlockTs !== null && matchedMaxBlockTs !== null) {
-      detailTimeWindowScope = {
-        fromTimestampMs: matchedMinBlockTs - 60_000,
-        toTimestampMs: matchedMaxBlockTs + 60_000,
-      };
-    } else if (minBattleTs !== null && maxBattleTs !== null) {
-      detailTimeWindowScope = {
-        fromTimestampMs: minBattleTs - 2 * 3600_000,
-        toTimestampMs: maxBattleTs + 2 * 3600_000,
-      };
-    }
-
-    const detailPeriodTag =
-      primaryBattlePayload.period_tag?.trim() || periodTag;
-    const detailTableVersion =
-      primaryBattlePayload.table_version?.trim() || tableVersion;
-    const detailScope = {
-      periodTag: detailPeriodTag,
-      tableVersion: detailTableVersion,
-      ...resolvedDatasetScope,
-      ...detailTimeWindowScope,
-    };
-
-    const hasMidnight = shouldFetchBattlePhase(targetBattle, "midnight_hougeki");
-    const hasOpeningTaisen = shouldFetchBattlePhase(targetBattle, "opening_taisen");
-    const hasHougeki = shouldFetchBattlePhase(targetBattle, "hougeki");
-    const hasOpeningAirattack = shouldFetchBattlePhase(targetBattle, "opening_air_attack");
-    const hasOpeningRaigeki = shouldFetchBattlePhase(targetBattle, "opening_raigeki");
-    const hasClosingRaigeki = shouldFetchBattlePhase(targetBattle, "closing_raigeki");
-    const hasAirbaseAssault = shouldFetchBattlePhase(targetBattle, "air_base_assault");
-    const hasAirbaseAirattack = shouldFetchBattlePhase(targetBattle, "air_base_air_attacks");
-    const hasCarrierbaseAssault = shouldFetchBattlePhase(targetBattle, "carrier_base_assault");
-    const hasSupportHourai = shouldFetchBattlePhase(targetBattle, "support_hourai");
-    const hasSupportAirattack = shouldFetchBattlePhase(targetBattle, "support_airattack");
-    const hasFriendlySupport = shouldFetchBattlePhase(targetBattle, "friendly_force_attack");
-    const hasNightSupportHourai = shouldFetchBattlePhase(targetBattle, "night_support_hourai");
-    const hasNightSupportAirattack = shouldFetchBattlePhase(targetBattle, "night_support_airattack");
-    const hasBattleResult = shouldFetchBattlePhase(targetBattle, "battle_result");
-
-    const childQueries: Array<{ key: string; options: TableQueryOptions }> = [
+    return c.json(
       {
-        key: "cells",
-        options: {
-          table: "cells",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
+        error: `Battle detail snapshot not found for env_uuid: ${envUuid}, battle_index: ${battleIndexRaw}`,
+        code: "SNAPSHOT_NOT_FOUND",
+        env_uuid: envUuid,
+        battle_index: battleIndex,
+        period_tag: activeTag,
       },
-    ];
-    if (hasBattleResult) {
-      childQueries.push({
-        key: "battleResult",
-        options: {
-          table: "battle_result",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (envUuid) {
-      childQueries.push(
-        {
-          key: "ownDeck",
-          options: {
-            table: "own_deck",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "ownShip",
-          options: {
-            table: "own_ship",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 2000,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "ownSlotItem",
-          options: {
-            table: "own_slotitem",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 4000,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "enemyDeck",
-          options: {
-            table: "enemy_deck",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "enemyShip",
-          options: {
-            table: "enemy_ship",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 2000,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "enemySlotItem",
-          options: {
-            table: "enemy_slotitem",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 4000,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (hasMidnight) {
-      childQueries.push(
-        {
-          key: "midnightHougekiList",
-          options: {
-            table: "midnight_hougeki_list",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "midnightHougeki",
-          options: {
-            table: "midnight_hougeki",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (hasOpeningTaisen) {
-      childQueries.push(
-        {
-          key: "openingTaisenList",
-          options: {
-            table: "opening_taisen_list",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "openingTaisen",
-          options: {
-            table: "opening_taisen",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (hasHougeki) {
-      childQueries.push(
-        {
-          key: "hougekiList",
-          options: {
-            table: "hougeki_list",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "hougeki",
-          options: {
-            table: "hougeki",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (hasOpeningAirattack) {
-      childQueries.push(
-        {
-          key: "openingAirattackList",
-          options: {
-            table: "opening_airattack_list",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "openingAirattack",
-          options: {
-            table: "opening_airattack",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (hasOpeningRaigeki) {
-      childQueries.push({
-        key: "openingRaigeki",
-        options: {
-          table: "opening_raigeki",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (hasClosingRaigeki) {
-      childQueries.push({
-        key: "closingRaigeki",
-        options: {
-          table: "closing_raigeki",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (envUuid && hasAirbaseAssault) {
-      childQueries.push({
-        key: "airbaseAssault",
-        options: {
-          table: "airbase_assult",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (envUuid && hasAirbaseAirattack) {
-      childQueries.push(
-        {
-          key: "airbaseAirattackList",
-          options: {
-            table: "airbase_airattack_list",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "airbaseAirattack",
-          options: {
-            table: "airbase_airattack",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 400,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (envUuid && hasCarrierbaseAssault) {
-      childQueries.push({
-        key: "carrierbaseAssault",
-        options: {
-          table: "carrierbase_assault",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (envUuid && hasSupportHourai) {
-      childQueries.push({
-        key: "supportHourai",
-        options: {
-          table: "support_hourai",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (envUuid && hasSupportAirattack) {
-      childQueries.push({
-        key: "supportAirattack",
-        options: {
-          table: "support_airattack",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    childQueries.push({
-      key: "destructionBattle",
-      options: {
-        table: "destruction_battle",
-        ...detailScope,
-        limitBlocks: 120,
-        limitRecords: 200,
-        filter: { env_uuid: envUuid },
-      },
-    });
-    if (hasFriendlySupport) {
-      childQueries.push(
-        {
-          key: "friendlySupportHouraiList",
-          options: {
-            table: "friendly_support_hourai_list",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-        {
-          key: "friendlySupportHourai",
-          options: {
-            table: "friendly_support_hourai",
-            ...detailScope,
-            limitBlocks: 120,
-            limitRecords: 200,
-            filter: { env_uuid: envUuid },
-          },
-        },
-      );
-    }
-    if (hasNightSupportHourai) {
-      childQueries.push({
-        key: "nightSupportHourai",
-        options: {
-          table: "night_support_hourai",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-    if (hasNightSupportAirattack) {
-      childQueries.push({
-        key: "nightSupportAirattack",
-        options: {
-          table: "night_support_airattack",
-          ...detailScope,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { env_uuid: envUuid },
-        },
-      });
-    }
-
-    const [
-      batchResults,
-      mstShipPayload,
-      mstSlotItemPayload,
-      weaponIconFramesPayload,
-    ] = await Promise.all([
-      queryGlobalRecordsDirectBatch(
-        c,
-        childQueries.map((q) => q.options),
-      ),
-      fetchMasterDataJsonDirect(c, "mst_ship"),
-      fetchMasterDataJsonDirect(c, "mst_slotitem"),
-      fetchWeaponIconFramesDirect(c),
-    ]);
-
-    const recordMap = new Map<string, BattleRecord[]>();
-    for (let i = 0; i < childQueries.length; i++) {
-      recordMap.set(childQueries[i]!.key, batchResults[i]?.records || []);
-    }
-
-    const cells = recordMap.get("cells") || [];
-    const battleResults = recordMap.get("battleResult") || [];
-    const ownDecks = recordMap.get("ownDeck") || [];
-    const ownShips = recordMap.get("ownShip") || [];
-    const ownSlotItems = recordMap.get("ownSlotItem") || [];
-    const enemyDecks = recordMap.get("enemyDeck") || [];
-    const enemyShips = recordMap.get("enemyShip") || [];
-    const enemySlotItems = recordMap.get("enemySlotItem") || [];
-    const midnightHougekiLists = recordMap.get("midnightHougekiList") || [];
-    const midnightHougekis = recordMap.get("midnightHougeki") || [];
-    const openingTaisenLists = recordMap.get("openingTaisenList") || [];
-    const openingTaisens = recordMap.get("openingTaisen") || [];
-    const hougekiLists = recordMap.get("hougekiList") || [];
-    const hougekis = recordMap.get("hougeki") || [];
-    const openingAirattackLists = recordMap.get("openingAirattackList") || [];
-    const openingAirattacks = recordMap.get("openingAirattack") || [];
-    const openingRaigekis = recordMap.get("openingRaigeki") || [];
-    const closingRaigekis = recordMap.get("closingRaigeki") || [];
-    const airBaseAssaults = recordMap.get("airbaseAssault") || [];
-    const airBaseAirAttackLists = recordMap.get("airbaseAirattackList") || [];
-    const airBaseAirAttacks = recordMap.get("airbaseAirattack") || [];
-    const carrierBaseAssaults = recordMap.get("carrierbaseAssault") || [];
-    const supportHourais = recordMap.get("supportHourai") || [];
-    const supportAirattacks = recordMap.get("supportAirattack") || [];
-    const nightSupportHourais = recordMap.get("nightSupportHourai") || [];
-    const nightSupportAirattacks = recordMap.get("nightSupportAirattack") || [];
-    const friendlySupportHouraiLists = recordMap.get("friendlySupportHouraiList") || [];
-    const friendlySupportHourais = recordMap.get("friendlySupportHourai") || [];
-    const destructionBattles = recordMap.get("destructionBattle") || [];
-
-    const resolvedDetail = resolveBattleDetail({
-      periodTag: detailPeriodTag,
-      tableVersion: detailTableVersion || null,
-      envUuid,
-      battleIndex,
-      masterShips: mstShipPayload.records || [],
-      masterSlotItems: mstSlotItemPayload.records || [],
-      weaponIconFrames: weaponIconFramesPayload,
-      tables: {
-        battle: battles,
-        cells,
-        battleResult: battleResults,
-        ownDeck: ownDecks,
-        ownShip: ownShips,
-        ownSlotItem: ownSlotItems,
-        enemyDeck: enemyDecks,
-        enemyShip: enemyShips,
-        enemySlotItem: enemySlotItems,
-        midnightHougekiLists,
-        midnightHougekis,
-        openingTaisenLists,
-        openingTaisens,
-        hougekiLists,
-        hougekis,
-        openingAirattackLists,
-        openingAirattacks,
-        openingRaigeki: openingRaigekis,
-        closingRaigeki: closingRaigekis,
-        airbaseAssault: airBaseAssaults,
-        airbaseAirattackLists: airBaseAirAttackLists,
-        airbaseAirattacks: airBaseAirAttacks,
-        carrierbaseAssault: carrierBaseAssaults,
-        supportHourai: supportHourais,
-        supportAirattack: supportAirattacks,
-        nightSupportHourai: nightSupportHourais,
-        nightSupportAirattack: nightSupportAirattacks,
-        friendlySupportHouraiLists,
-        friendlySupportHourai: friendlySupportHourais,
-        destructionBattle: destructionBattles,
-      },
-    });
-
-    if (!resolvedDetail) {
-      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
-    }
-
-    const resolvedResponse = c.json(resolvedDetail.payload);
-    resolvedResponse.headers.set("Cache-Control", cacheControl);
-    resolvedResponse.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putCacheSafely(c, cache, cacheKey, resolvedResponse);
-    }
-    return resolvedResponse;
-  } catch (error) {
-    console.error("[battle-data] Failed to build detail payload:", error);
-    return c.json({ error: "Failed to build detail payload" }, 500);
+      404,
+    );
   }
+
+  return c.json({ error: "Storage not configured" }, 500);
 });
 
 /**

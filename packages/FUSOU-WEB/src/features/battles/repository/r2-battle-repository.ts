@@ -271,8 +271,6 @@ function buildOverviewUrl(
   params.set("period_tag", query.periodTag);
   appendOptionalQuery(params, "table_version", query.tableVersion);
   appendOptionalQuery(params, "dataset_id", query.datasetId);
-  params.set("limit_blocks", String(query.limitBlocks ?? DEFAULT_LIMIT_BLOCKS));
-  params.set("limit_records", String(query.limitRecords ?? DEFAULT_LIMIT_RECORDS));
   return `/api/battle-data/global${path}?${params.toString()}`;
 }
 
