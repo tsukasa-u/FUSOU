@@ -3211,15 +3211,20 @@ app.get("/global/overview", async (c) => {
     const snapshotKey = "snapshots/overview/" + (periodTag === "latest" ? "latest/latest" : periodTag + "/latest") + ".json.br";
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Content-Encoding", "br");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (snapshotObj.httpEtag) {
-        headers.set("ETag", snapshotObj.httpEtag);
+      try {
+        const arrayBuf = await snapshotObj.arrayBuffer();
+        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const headers = new Headers();
+        headers.set("Content-Type", "application/json");
+        headers.set("Cache-Control", cacheControl);
+        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+        if (snapshotObj.httpEtag) {
+          headers.set("ETag", snapshotObj.httpEtag);
+        }
+        return new Response(decompressed.toString("utf-8"), { headers });
+      } catch (err) {
+        console.warn("[battle_data] failed to decompress overview snapshot:", err);
       }
-      return new Response(snapshotObj.body as unknown as BodyInit, { headers });
     }
   }
 
@@ -3361,15 +3366,20 @@ app.get("/global/drops", async (c) => {
     const snapshotKey = "snapshots/drops/" + (periodTag === "latest" ? "latest/latest" : periodTag + "/latest") + ".json.br";
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Content-Encoding", "br");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (snapshotObj.httpEtag) {
-        headers.set("ETag", snapshotObj.httpEtag);
+      try {
+        const arrayBuf = await snapshotObj.arrayBuffer();
+        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const headers = new Headers();
+        headers.set("Content-Type", "application/json");
+        headers.set("Cache-Control", cacheControl);
+        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+        if (snapshotObj.httpEtag) {
+          headers.set("ETag", snapshotObj.httpEtag);
+        }
+        return new Response(decompressed.toString("utf-8"), { headers });
+      } catch (err) {
+        console.warn("[battle_data] failed to decompress overview snapshot:", err);
       }
-      return new Response(snapshotObj.body as unknown as BodyInit, { headers });
     }
   }
 
@@ -3451,15 +3461,20 @@ app.get("/detail-env", async (c) => {
     const envKey = "snapshots/env_detail/" + (periodTag === "latest" ? "latest" : periodTag) + "/" + envUuid + ".json.br";
     const envObj = await bucket.get(envKey);
     if (envObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Content-Encoding", "br");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (envObj.httpEtag) {
-        headers.set("ETag", envObj.httpEtag);
+      try {
+        const arrayBuf = await envObj.arrayBuffer();
+        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const headers = new Headers();
+        headers.set("Content-Type", "application/json");
+        headers.set("Cache-Control", cacheControl);
+        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+        if (envObj.httpEtag) {
+          headers.set("ETag", envObj.httpEtag);
+        }
+        return new Response(decompressed.toString("utf-8"), { headers });
+      } catch (err) {
+        console.warn("[battle_data] failed to decompress detail-env snapshot:", err);
       }
-      return new Response(envObj.body as unknown as BodyInit, { headers });
     }
   }
 
@@ -3511,15 +3526,20 @@ app.get("/detail", async (c) => {
     const directKey = `snapshots/detail/${periodTag === "latest" ? "latest" : periodTag}/${envUuid}_${battleIndexRaw}.json.br`;
     const detailObj = await bucket.get(directKey);
     if (detailObj) {
-      const headers = new Headers();
-      headers.set("Content-Type", "application/json");
-      headers.set("Content-Encoding", "br");
-      headers.set("Cache-Control", cacheControl);
-      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-      if (detailObj.httpEtag) {
-        headers.set("ETag", detailObj.httpEtag);
+      try {
+        const arrayBuf = await detailObj.arrayBuffer();
+        const decompressed = await brotliDecompressAsync(Buffer.from(arrayBuf));
+        const headers = new Headers();
+        headers.set("Content-Type", "application/json");
+        headers.set("Cache-Control", cacheControl);
+        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+        if (detailObj.httpEtag) {
+          headers.set("ETag", detailObj.httpEtag);
+        }
+        return new Response(decompressed.toString("utf-8"), { headers });
+      } catch (err) {
+        console.warn("[battle_data] failed to decompress detail snapshot:", err);
       }
-      return new Response(detailObj.body as unknown as BodyInit, { headers });
     }
 
     // 2. Sortie-level bundled snapshot check
