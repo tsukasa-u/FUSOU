@@ -7,6 +7,7 @@ import { generateReleaseBuild } from "./release-build.mjs";
 import { sha256 } from "./release-manifest.mjs";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { LOCK_PATHS } from "./release-checks.mjs";
+import { checkFixture, wasmFixture } from "./release-check-fixture.mjs";
 
 function fixture(root) {
   const eligibility = { schema_version: 2, status: "PRODUCTION_ELIGIBLE", commit_sha: "a".repeat(40),
@@ -43,6 +44,42 @@ test("missing public input pin blocks before source checkout, tool execution or 
   assert.equal(result.tag_status, "PRODUCTION_ELIGIBLE");
   assert.deepEqual(f.counts(), { builds: 0, checks: 0 });
 });
+test("combined APP/Worker producer binds both raw records and WASM sidecars without inventing archive or offline execution", async () => {
+  const f = await checkFixture(), root = await mkdtemp(join(tmpdir(), "fusou-combined-build-"));
+  try {
+    const app = f.report.build.artifacts.find((a) => a.role === "app"), worker = f.report.build.artifacts.find((a) => a.role === "worker");
+    const receipt = JSON.parse(f.compiled.receipt);
+    const reports = receipt.output.app_reports.app;
+    const locked = JSON.parse(f.evidenceBytes.get(f.records.locked_dependencies.evidence_sha256));
+    const bytes = Buffer.from(canonicalJson(f.publicBuildInputs));
+    const result = await generateReleaseBuild({ eligibility: f.eligibility, publicInputsBytes: bytes, publicInputsSha256: sha256(bytes),
+      workspace: root, outputDirectory: join(root, "outputs"), runId: f.context.run_id, runAttempt: f.context.run_attempt,
+      workerBuildAuthorized: true }, {
+      recheckEligibility: async () => structuredClone(f.eligibility),
+      buildApp: async () => ({ artifactPath: join(root, "synthetic-app"), record: JSON.parse(f.files.get(app.build_record_file)).details,
+        execution: { sourceFiles: new Map(LOCK_PATHS.map((path) => [path, f.sourceFiles.get(path)])),
+          pnpmVersion: locked.output.pnpm_version, commands: locked.output.commands,
+          reports: Object.fromEntries(["worker", "public"].map((name) => [name,
+            { ...reports[name], executable_sha256: app.sha256, raw: f.evidenceBytes.get(reports[name].stdout_sha256) }])) } }),
+      readArtifact: async () => f.files.get(app.file),
+      buildWorker: async ({ executionAllowed, runId, runAttempt }) => {
+        assert.equal(executionAllowed, true); assert.equal(runId, f.context.run_id); assert.equal(runAttempt, f.context.run_attempt);
+        return { status: "BUILD_OUTPUTS_GENERATED", raw: f.files.get(worker.file), recordRaw: f.files.get(worker.build_record_file),
+          provenance: f.files.get(worker.provenance_file), wasmArtifacts: wasmFixture(f.context.source_sha).artifacts };
+      },
+    });
+    assert.deepEqual(result.artifacts.map((a) => a.role), ["app", "worker"]);
+    assert.equal(result.artifact_status, "NOT_CHECKED"); assert.equal(result.deployed, false);
+    assert.equal(result.publication_authorized, false);
+    for (const claim of result.artifacts) {
+      assert.equal(sha256(await readFile(join(root, "outputs", claim.file))), claim.sha256);
+      assert.equal(sha256(await readFile(join(root, "outputs", claim.build_record_file))), claim.build_record_sha256);
+    }
+    assert.ok(result.check_files.includes("check-compiled_inputs.json"));
+    assert.equal(result.check_files.includes("check-archive_readback.json"), false);
+    assert.equal(result.check_files.includes("check-offline_verification.json"), false);
+  } finally { await rm(root, { recursive: true }); }
+});
 test("synthetic build writes exact observed bytes and provenance, never declares release/deployment complete", async () => {
   const root = await mkdtemp(join(tmpdir(), "fusou-release-build-"));
   try {
@@ -51,7 +88,8 @@ test("synthetic build writes exact observed bytes and provenance, never declares
     assert.equal(result.status, "BUILD_OUTPUTS_GENERATED");
     assert.equal(result.artifact_status, "NOT_CHECKED");
     assert.equal(result.deployed, false);
-    assert.deepEqual(f.counts(), { builds: 1, checks: 2 });
+    assert.deepEqual(f.counts(), { builds: 1, checks: 3 });
+    assert.deepEqual(result.worker_build, { status: "BLOCKED_EXTERNAL_INPUTS", blockers: ["WORKER_BUILD_EXECUTION_NOT_AUTHORIZED"] });
     assert.equal(sha256(await readFile(join(root, "outputs/app-linux-x86_64.bin"))), result.artifact_sha256);
     assert.equal(sha256(await readFile(join(root, "outputs/release-build-provenance.json"))), result.provenance_sha256);
   } finally { await rm(root, { recursive: true }); }

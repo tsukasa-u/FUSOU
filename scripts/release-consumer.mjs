@@ -161,8 +161,9 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     const build = verifyProducerBuild({ run, ...downloaded, eligibility });
     result.build_status = "BUILD_OUTPUTS_VERIFIED";
     if (!build.artifacts.some((a) => a.role === "worker")) {
-      result.status = "BLOCKED_IMPLEMENTATION";
-      result.blockers.push("ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING");
+      const blocked = build.report.build.worker_build;
+      result.status = blocked?.status === "BLOCKED_EXTERNAL_INPUTS" ? "BLOCKED_EXTERNAL_INPUTS" : "BLOCKED_IMPLEMENTATION";
+      result.blockers.push(...(blocked?.blockers?.length ? blocked.blockers : ["ACTUAL_WORKER_BUNDLE_AND_BUILD_RECORD_MISSING"]));
     }
     let inputs;
     if (!publicInputsBytes || !publicInputsSha256) result.blockers.push("PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING");

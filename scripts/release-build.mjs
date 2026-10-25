@@ -1,21 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { constants, openSync, fstatSync, readFileSync, closeSync } from "node:fs";
-import { open, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { sha256, MAX_RELEASE_RECORD_BYTES } from "./release-manifest.mjs";
 import { assertAppBuildRecordBinding } from "./release-build-proof.mjs";
-import { LOCK_PATHS, recordLockedDependenciesExecution } from "./release-checks.mjs";
-
-export async function readRegularFile(path) {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    if (!(await file.stat()).isFile()) throw new Error("release input/output must be a regular file");
-    return await file.readFile();
-  } finally {
-    await file.close();
-  }
-}
+import { LOCK_PATHS, recordLockedDependenciesExecution, recordCompiledInputsExecution } from "./release-checks.mjs";
+import { readRegularFile } from "./release-files.mjs";
+import { buildUnsignedWorker } from "./release-worker-build.mjs";
+export { readRegularFile } from "./release-files.mjs";
 
 async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken }) {
   const {
@@ -109,8 +102,8 @@ async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken })
 
 export async function generateReleaseBuild({
   eligibility, publicInputsBytes, publicInputsSha256, workspace, outputDirectory,
-  runId, runAttempt, sourceToken,
-}, { recheckEligibility, buildApp = buildUnsignedApp, readArtifact = readRegularFile } = {}) {
+  runId, runAttempt, sourceToken, workerBuildAuthorized = false,
+}, { recheckEligibility, buildApp = buildUnsignedApp, buildWorker = buildUnsignedWorker, readArtifact = readRegularFile } = {}) {
   if (eligibility?.schema_version !== 2 || eligibility.status !== "PRODUCTION_ELIGIBLE") {
     throw new Error("Production eligibility is required before build");
   }
@@ -184,19 +177,50 @@ export async function generateReleaseBuild({
     })));
     for (const [name, raw] of checkFiles) await writeFile(join(outputDirectory, name), raw, { flag: "wx" });
   }
+  const artifacts = [{
+    name: "app", role: "app", platform: inputs.platform, file: `app-${inputs.platform}.bin`,
+    build_record_file: "app-build-record.json", provenance_file: "release-build-provenance.json",
+    sha256: sha256(bytes), byte_length: bytes.length, build_record_sha256: sha256(recordBytes),
+    provenance_sha256: sha256(Buffer.from(canonicalJson(provenance))),
+  }];
+  const worker = await buildWorker({ inputs, eligibility, workspace, runId, runAttempt, executionAllowed: workerBuildAuthorized });
+  await unchanged();
+  if (worker.status === "BUILD_OUTPUTS_GENERATED") {
+    for (const [name, raw] of [["worker.bin", worker.raw], ["worker-build-record.json", worker.recordRaw],
+      ["worker-build-provenance.json", worker.provenance]]) {
+      await writeFile(join(outputDirectory, name), raw, { flag: "wx" });
+    }
+    for (const raw of worker.wasmArtifacts.values()) {
+      const name = `evidence-${sha256(raw)}.bin`;
+      if (!checkFiles.has(name)) await writeFile(join(outputDirectory, name), raw, { flag: "wx" });
+      checkFiles.set(name, raw);
+    }
+    artifacts.push({ name: "worker", role: "worker", platform: "cloudflare-workers", file: "worker.bin",
+      build_record_file: "worker-build-record.json", provenance_file: "worker-build-provenance.json",
+      sha256: sha256(worker.raw), byte_length: worker.raw.length, build_record_sha256: sha256(worker.recordRaw),
+      provenance_sha256: sha256(worker.provenance) });
+    if (built.execution) {
+      const compiled = recordCompiledInputsExecution({ context: { repository: "tsukasa-u/FUSOU",
+        source_sha: eligibility.commit_sha, run_id: runId, run_attempt: runAttempt, workflow_sha: eligibility.coordinator_sha },
+        publicBuildInputs: inputs, artifacts, buildRecords: new Map([["app", recordBytes], ["worker", worker.recordRaw]]),
+        artifactBytes: new Map([["app", bytes], ["worker", worker.raw]]),
+        observations: new Map([["app", checkFiles.get("app-compiled-observations.json")]]),
+        rawEvidence: new Map([...checkFiles.values()].map((raw) => [sha256(raw), raw])) });
+      for (const [name, raw] of compiled.files) {
+        if (!checkFiles.has(name)) await writeFile(join(outputDirectory, name), raw, { flag: "wx" });
+        checkFiles.set(name, raw);
+      }
+    }
+  }
   return {
     status: "BUILD_OUTPUTS_GENERATED", tag_status: eligibility.status,
     source_sha: eligibility.commit_sha, public_inputs_sha256: publicInputsSha256,
     worker_version_id: record.active_version_id,
     check_files: [...checkFiles.keys()].sort(),
-    artifacts: [{
-      name: "app", role: "app", platform: inputs.platform, file: `app-${inputs.platform}.bin`,
-      build_record_file: "app-build-record.json", provenance_file: "release-build-provenance.json",
-      sha256: sha256(bytes), byte_length: bytes.length, build_record_sha256: sha256(recordBytes),
-      provenance_sha256: sha256(Buffer.from(canonicalJson(provenance))),
-    }],
+    artifacts,
+    worker_build: { status: worker.status, blockers: worker.blockers ?? [] },
     artifact_sha256: sha256(bytes), provenance_sha256: sha256(Buffer.from(canonicalJson(provenance))),
-    artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED", deployment_status: "NOT_CHECKED",
+    artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED", deployment_status: "NOT_CHECKED", publication_authorized: false,
     blockers: ["COMPLETE_RELEASE_MANIFEST_AND_INDEPENDENT_CONSUMER_REQUIRED"], deployed: false,
   };
 }

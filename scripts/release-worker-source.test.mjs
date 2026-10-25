@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { workerSourceFixture, fixtureToolchain } from "./release-check-fixture.mjs";
+import { workerSourceFixture, fixtureToolchain, wasmFixture } from "./release-check-fixture.mjs";
 import { readReleaseSource, inspectWorkerSource, inspectWorkerSourceAt, generateUnsignedWorkerBuild,
   encodeUnsignedWorkerPackage, WORKER_ROOT } from "./release-worker-source.mjs";
 const sourceSha = "a".repeat(40);
@@ -11,10 +11,11 @@ function setup() {
     run_id: 30, run_attempt: 1, workflow_sha: "b".repeat(40) }, toolchain: { ...fixtureToolchain },
   workerReference: { worker_git_commit_sha: sourceSha, active_version_id: "11111111-1111-1111-1111-111111111111", script_name: "fusou-verifier" },
   executionAllowed: true };
+  const wasm = wasmFixture(sourceSha);
   const executor = async ({ source, toolchain, context }) => ({ context: { ...context }, source_inputs_sha256: source.source_inputs_sha256,
     toolchain: { ...toolchain }, completed_commands: structuredClone(source.commands), exit_code: 0,
-    modules: new Map([["index.js", Buffer.from("// synthetic compiler output")],
-      ["verifier.wasm", Buffer.from([0, 97, 115, 109, 1, 0, 0, 0])]]) });
+    modules: wasm.modules, wasmArtifacts: wasm.artifacts, wasmToolchain: wasm.toolchain, wasmProvenanceRaw: wasm.raw,
+    wasmSourceInputs: wasm.provenance.source_inputs });
   return { args, executor };
 }
 test("source presence is not runtime semantics or a generated bundle", () => {

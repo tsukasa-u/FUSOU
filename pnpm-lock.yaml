@@ -182,6 +182,25 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@30.1.0(@noble/hashes@1.8.0))(vite@7.3.5(@types/node@26.6.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.8.3))
 
+  packages/FUSOU-TLSN-VERIFICATION-WORKER:
+    dependencies:
+      hono:
+        specifier: '>=4.12.7'
+        version: 4.13.5
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20260329.1
+        version: 4.20260329.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      wrangler:
+        specifier: ^4.135.0
+        version: 4.135.0(@cloudflare/workers-types@4.20260329.1)(@types/node@26.6.2)
+
   packages/FUSOU-URL-SHORTER:
     dependencies:
       '@hono/zod-validator':

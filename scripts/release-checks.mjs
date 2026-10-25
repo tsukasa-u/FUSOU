@@ -6,8 +6,9 @@ import {
 import { sha256 } from "./release-bytes.mjs";
 import { requireRelease, parseReleaseRecord, assertArtifactBuildProof } from "./release-build-proof.mjs";
 import { ReleaseBlocked } from "./release-transport.mjs";
-import { readReleaseSource, inspectWorkerSourceAt, encodeUnsignedWorkerPackage } from "./release-worker-source.mjs";
+import { readReleaseSource, inspectWorkerSourceAt, encodeUnsignedWorkerPackage, parseUnsignedWorkerPackage } from "./release-worker-source.mjs";
 import { assertCanonicalServerIdentity } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs";
+import { assertReleaseWasmProof } from "./release-wasm-proof.mjs";
 
 export const CHECKS = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
 // Data-only artifacts cannot carry these in-process execution capabilities.
@@ -73,9 +74,11 @@ export function parsePinnedCheckInputs(raw, pin, scope) {
   requireRelease(value.schema_version === 1 && value.scope === scope, "independent check policy scope");
   return value;
 }
-export function recordCompiledInputsExecution({ context, publicBuildInputs, artifacts, buildRecords, observations, rawEvidence }) {
+export function recordCompiledInputsExecution({ context, publicBuildInputs, artifacts, buildRecords, observations, rawEvidence, artifactBytes }) {
   requireRelease(artifacts.some((a) => a.role === "app") && artifacts.filter((a) => a.role === "worker").length === 1,
     "complete APP and Worker outputs required before recording compiled check");
+  requireRelease(buildRecords instanceof Map && artifactBytes instanceof Map && observations instanceof Map && rawEvidence instanceof Map,
+    "actual compiled records/artifact bytes/observations required");
   const inputs = new Map([["public_build_inputs", jsonBytes(publicBuildInputs)]]), appReports = {};
   for (const artifact of artifacts) {
     const raw = buildRecords.get(artifact.name), wrapper = parseReleaseRecord(raw);
@@ -83,7 +86,19 @@ export function recordCompiledInputsExecution({ context, publicBuildInputs, arti
       wrapper.run_attempt === context.run_attempt && wrapper.workflow_sha === context.workflow_sha &&
       wrapper.artifact_sha256 === artifact.sha256, "compiled recorder build identity");
     inputs.set(`record_${artifact.name}`, raw);
-    if (artifact.role !== "app") continue;
+    if (artifact.role !== "app") {
+      const bundle = parseUnsignedWorkerPackage(artifactBytes.get(artifact.name));
+      const raw = Buffer.from(bundle.modules["wasm-provenance.json"].bytes, "base64url");
+      requireRelease(sha256(raw) === wrapper.details.wasm_provenance_sha256, "Worker WASM provenance record binding");
+      inputs.set("wasm_provenance", raw);
+      for (const descriptor of JSON.parse(raw).artifacts) {
+        const bytes = rawEvidence.get(descriptor.sha256);
+        requireRelease(bytes instanceof Uint8Array && sha256(bytes) === descriptor.sha256 &&
+          bytes.byteLength === descriptor.byte_length, "actual generated WASM evidence");
+        inputs.set(`wasm_${descriptor.name}`, bytes);
+      }
+      continue;
+    }
     const observation = parseReleaseRecord(observations.get(artifact.name));
     requireRelease(observation.scope === "fusou-app-compiled-execution-observations-v1" &&
       Object.entries(context).every(([key, value]) => observation[key] === value) &&
@@ -131,7 +146,7 @@ export async function verifyLockedDependencies({ inputs, receipt, github, contex
     requireRelease(record.details.cargo_lock_sha256 === sha256(expected.get(LOCK_PATHS[1])), "build Cargo.lock differs from exact source");
   }
 }
-export async function verifyCompiledInputs({ inputs, receipt, build, payload, publicBuildInputs, runtimeVerification, github, context, workerToolchain }) {
+export async function verifyCompiledInputs({ inputs, receipt, build, payload, publicBuildInputs, runtimeVerification, github, context, workerToolchain, wasmToolchain, wasmSourceInputs }) {
   requireRelease(build.artifacts.some((a) => a.role === "app") &&
     build.artifacts.filter((a) => a.role === "worker").length === 1, "APP and Worker compiled inputs required");
   requireRelease(publicBuildInputs.app_source_sha === context.source_sha &&
@@ -167,15 +182,18 @@ export async function verifyCompiledInputs({ inputs, receipt, build, payload, pu
       }
     } else {
       if (!workerToolchain) throw new ReleaseBlocked("PINNED_WORKER_TOOLCHAIN_MISSING");
+      if (!wasmToolchain) throw new ReleaseBlocked("PINNED_WORKER_WASM_TOOLCHAIN_MISSING");
+      if (!Array.isArray(wasmSourceInputs) || !wasmSourceInputs.length) throw new ReleaseBlocked("PINNED_WORKER_WASM_SOURCE_INPUTS_MISSING");
       const source = await inspectWorkerSourceAt(github, context.source_sha);
       if (source.status !== "SOURCE_INPUTS_PRESENT") throw new ReleaseBlocked("WORKER_SOURCE_INCOMPLETE_AT_RELEASE_SHA", "BLOCKED_IMPLEMENTATION");
       requireRelease(d.scope === "fusou-unsigned-worker-build-v1" &&
         d.source_inputs_sha256 === source.source_inputs_sha256 && isDeepStrictEqual(d.source_inputs, source.source_inputs) &&
         isDeepStrictEqual(d.commands, source.commands) && d.version_reference?.worker_git_commit_sha === context.source_sha &&
+        isDeepStrictEqual(d.import_closure, source.import_closure) &&
         d.version_reference.active_version_id === payload.source.active_version_id &&
         d.version_reference.script_name === payload.source.script_name &&
         isDeepStrictEqual(d.toolchain, workerToolchain), "Worker source/recipe/reference/toolchain mismatch");
-      const bundleRaw = build.artifactBytes.get(artifact.name), bundle = parseReleaseRecord(bundleRaw);
+      const bundleRaw = build.artifactBytes.get(artifact.name), bundle = parseUnsignedWorkerPackage(bundleRaw);
       requireRelease(bundle.scope === "fusou-unsigned-worker-package-v1" && bundle.schema_version === 1 &&
         bundle.entrypoint === "index.js" && bundle.modules["index.js"] &&
         Object.keys(bundle.modules).some((name) => name.endsWith(".wasm")), "dummy/missing Worker package");
@@ -187,6 +205,21 @@ export async function verifyCompiledInputs({ inputs, receipt, build, payload, pu
         modules.set(name, bytes);
       }
       requireRelease(encodeUnsignedWorkerPackage(modules).equals(Buffer.from(bundleRaw)), "Worker package output contract");
+      const wasmRaw = modules.get("wasm-provenance.json");
+      requireRelease(wasmRaw instanceof Uint8Array && sha256(wasmRaw) === d.wasm_provenance_sha256 &&
+        inputs.get("wasm_provenance") instanceof Uint8Array &&
+        Buffer.from(inputs.get("wasm_provenance")).equals(wasmRaw), "Worker WASM provenance bytes/digest");
+      const rawWasm = new Map(JSON.parse(wasmRaw).artifacts.map((a) => [a.name, inputs.get(`wasm_${a.name}`)]));
+      const wasm = assertReleaseWasmProof(wasmRaw, { sourceSha: context.source_sha, sourceInputs: wasmSourceInputs,
+        toolchain: wasmToolchain, artifactBytes: rawWasm, modules });
+      requireRelease(isDeepStrictEqual(d.wasm_toolchain, wasm.toolchain) && isDeepStrictEqual(d.wasm_source_inputs, wasm.source_inputs),
+        "Worker WASM build record source/toolchain");
+      expected.set("wasm_provenance", wasmRaw);
+      for (const [name, raw] of rawWasm) expected.set(`wasm_${name}`, raw);
+      requireRelease(source.source_inputs["packages/configs/tlsn-origin-inventory.json.txt"].sha256 ===
+        payload.production_authority_pins.origin_inventory_sha256 &&
+        source.source_inputs["packages/configs/tlsn-target-approval.json.txt"].sha256 ===
+        payload.production_authority_pins.target_approval_artifact_sha256, "Worker target bytes/independent Runtime Config pins");
     }
   }
   sameInputs(inputs, expected);
@@ -227,10 +260,11 @@ export function verifyArchiveReadback({ inputs, receipt, policy, nowMs }) {
   for (const role of ["presentation", "result"]) {
     const identity = policy.objects[role], object = receipt.output.objects.find((o) => o.role === role);
     requireRelease(identity.role === role && identity.session_id === policy.session_id && identity.capture_id === policy.capture_id &&
-      ["backend_id", "object_key", "version_id", "session_id", "capture_id", "job_id", "verification_attempt_id", "sha256"]
+      ["backend_id", "object_key", "version_id", "session_id", "capture_id", "job_id", "verification_attempt_id", "binding_id", "source_sha", "sha256"]
         .every((key) => typeof identity[key] === "string" && identity[key].length > 0) &&
       identity.verification_attempt_id === policy.objects.result.verification_attempt_id &&
       identity.job_id === policy.objects.result.job_id &&
+      identity.binding_id === policy.objects.result.binding_id && identity.source_sha === policy.source_sha &&
       identity.object_key === `tlsn-verification/${identity.verification_attempt_id}/${role}.${role === "presentation" ? "bin" : "json"}` &&
       object && Object.entries(identity).every(([key, value]) => object[key] === value) &&
       Number.isSafeInteger(object.read_at_ms) && object.read_at_ms >= policy.not_before_ms &&
@@ -346,7 +380,8 @@ export function verifyOfflineExecution({ inputs, receipt, policy, archiveInputs,
   const manifest = JSON.parse(Buffer.from(inputs.get("bundle")));
   const session = JSON.parse(Buffer.from(inputs.get("bundle_artifact_session")));
   requireRelease(manifest.security_identity?.git_commit_sha === context.source_sha &&
-    manifest.capture_id === archivePolicy.capture_id && session.session_id === archivePolicy.session_id,
+    manifest.capture_id === archivePolicy.capture_id && session.session_id === archivePolicy.session_id &&
+    typeof session.binding === "string" && sha256(Buffer.from(session.binding)) === archivePolicy.objects.result.binding_id,
   "signed bundle source/capture/session correlation");
 }
 export async function verifyReleaseChecks({ records, evidenceBytes, build, eligibility, inputs, payload, run },
@@ -370,14 +405,15 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
         if (!payload || !inputs?.verification) throw new ReleaseBlocked("VERIFIED_RUNTIME_CONFIG_REQUIRED");
         requireRelease(sha256(publicBuildInputsBytes) === publicBuildInputsSha256, "independent public build input hash");
         const publicBuildInputs = parseReleaseRecord(publicBuildInputsBytes);
-        const workerToolchain = checkPolicyBytes && checkPolicySha256 ?
-          pinnedPolicy().worker_toolchain : undefined;
+        const policy = checkPolicyBytes && checkPolicySha256 ? pinnedPolicy() : {};
         await verifyCompiledInputs({ ...execution, build, payload, publicBuildInputs,
-          runtimeVerification: inputs.verification, github, context, workerToolchain });
+          runtimeVerification: inputs.verification, github, context, workerToolchain: policy.worker_toolchain,
+          wasmToolchain: policy.worker_wasm_toolchain, wasmSourceInputs: policy.worker_wasm_source_inputs });
       }
       if (check === "archive_readback") {
         const checkPolicy = pinnedPolicy();
         if (!checkPolicy.archive) throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_CONTEXT_MISSING");
+        requireRelease(checkPolicy.archive.source_sha === context.source_sha, "archive policy/release source");
         verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, nowMs });
         if (typeof authenticateArchiveReadback !== "function") {
           throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_READBACK_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");

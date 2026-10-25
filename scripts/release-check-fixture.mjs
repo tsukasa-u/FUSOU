@@ -8,18 +8,37 @@ import { sha256 } from "./release-bytes.mjs";
 import { jsonBytes, checkContext, recordCheckExecution, recordCompiledInputsExecution, captureArchiveReadback,
   captureOfflineExecution, OFFLINE_BUNDLE_ARTIFACTS, LOCK_PATHS } from "./release-checks.mjs";
 import { verifyProducerBuild } from "./release-build-proof.mjs";
+import { createWasmArtifactProvenance, WASM_ARTIFACT_NAMES, WASM_BUILD_ARGUMENTS } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/wasm-provenance.mjs";
 
 export function workerSourceFixture() {
-  const files = new Map(WORKER_SOURCE_PATHS.map((path) => [path, Buffer.from(`synthetic source snapshot: ${path}`)]));
+  const files = new Map(WORKER_SOURCE_PATHS.map((path) => [path, Buffer.from(`// synthetic source snapshot: ${path}\n`)]));
   files.set("package.json", jsonBytes({ packageManager: "pnpm@10.0.0" }));
-  files.set(`${WORKER_ROOT}/package.json`, jsonBytes({ main: "src/index.ts", scripts: { "build:wasm": "node scripts/build-wasm.mjs" },
+  files.set(`${WORKER_ROOT}/package.json`, jsonBytes({ main: "src/index.ts", scripts: { "build:wasm": "node scripts/build-wasm.mjs",
+    "verify:wasm-provenance": "node scripts/verify-wasm-provenance.mjs", typecheck: "tsc --noEmit" },
     dependencies: { hono: "4.12.34", zod: "3.24.0" }, devDependencies: { wrangler: "4.78.0" } }));
   files.set(`${WORKER_ROOT}/wrangler.toml`, Buffer.from('main = "src/index.ts"\n'));
   return files;
 }
+export function wasmFixture(sourceSha) {
+  const artifacts = new Map(WASM_ARTIFACT_NAMES.map((name) => [name, name.endsWith(".wasm") ?
+    Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]) : Buffer.from(`// synthetic generated ${name}\n`)]));
+  const toolchain = { target: "wasm32-unknown-unknown", profile: "release", cargo_net_offline: true,
+    wasm_pack_arguments: WASM_BUILD_ARGUMENTS,
+    rustc: "synthetic rustc", wasm_pack: "synthetic wasm-pack", wasm_bindgen: "synthetic wasm-bindgen",
+    wasm_opt: "synthetic wasm-opt", clang_name: "synthetic clang", clang: "synthetic compiler version",
+    cflags_sha256: sha256(Buffer.from("synthetic flags")) };
+  const provenance = createWasmArtifactProvenance({ sourceCommitSha: sourceSha, sourceTreeStatus: "CLEAN",
+    sourceInputs: [{ path: "packages/FUSOU-TLSN-VERIFIER/Cargo.toml", sha256: sha256(Buffer.from("synthetic verifier manifest")) }],
+    toolchain, artifacts: [...artifacts].map(([name, raw]) => ({ name, sha256: sha256(raw), byte_length: raw.length })) });
+  const raw = jsonBytes(provenance);
+  return { artifacts, toolchain, provenance, raw, modules: new Map([["index.js", Buffer.from("// synthetic compiler output\n")],
+    ["verifier.wasm", artifacts.get("fusou_tlsn_verifier_bg.wasm")], ["wasm-provenance.json", raw]]) };
+}
 export const fixtureToolchain = { node: "22.16.0", pnpm: "10.0.0", rust: "1.95.0", wrangler: "4.78.0" };
 export async function checkFixture() {
   const f = consumerFixture(), sourceSha = f.eligibility.commit_sha, sourceFiles = workerSourceFixture();
+  sourceFiles.set("packages/configs/tlsn-origin-inventory.json.txt", Buffer.from(f.publicInput.verification.independentInputs.origin_inventory_raw, "base64url"));
+  sourceFiles.set("packages/configs/tlsn-target-approval.json.txt", Buffer.from(f.publicInput.verification.independentInputs.target_approval_raw, "base64url"));
   sourceFiles.set(LOCK_PATHS[1], Buffer.from("synthetic committed Cargo lock"));
   const context = checkContext(f.run, sourceSha), source = inspectWorkerSource(sourceFiles, sourceSha);
   const rootSpki = Buffer.from("302a300506032b6570032100d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "hex").toString("base64url");
@@ -72,10 +91,12 @@ export async function checkFixture() {
     executable_sha256: app.sha256, reports, app_build_record_sha256: sha256(wrappers.get(app.name)),
     public_build_inputs_sha256: sha256(jsonBytes(publicBuildInputs)) }));
   const worker = f.report.build.artifacts[1];
-  updateArtifact(worker, encodeUnsignedWorkerPackage(new Map([["index.js", Buffer.from("// synthetic compiler output\n")],
-    ["verifier.wasm", Buffer.from([0, 97, 115, 109, 1, 0, 0, 0])]])),
+  const wasm = wasmFixture(sourceSha);
+  for (const raw of wasm.artifacts.values()) rawEvidence.set(sha256(raw), raw);
+  updateArtifact(worker, encodeUnsignedWorkerPackage(wasm.modules),
   { scope: "fusou-unsigned-worker-build-v1", source_inputs: source.source_inputs, source_inputs_sha256: source.source_inputs_sha256,
-    commands: source.commands, toolchain: fixtureToolchain, version_reference: f.payload.source });
+    commands: source.commands, toolchain: fixtureToolchain, version_reference: f.payload.source, import_closure: source.import_closure,
+    wasm_provenance_sha256: sha256(wasm.raw), wasm_toolchain: wasm.toolchain, wasm_source_inputs: wasm.provenance.source_inputs });
   const add = (execution) => { for (const [name, raw] of execution.files) f.files.set(name, raw); };
   add(recordCheckExecution("locked_dependencies", context, new Map(LOCK_PATHS.map((path) => [path, sourceFiles.get(path)])), {
     pnpm_version: "10.0.0", commands: [
@@ -84,13 +105,16 @@ export async function checkFixture() {
     ],
   }));
   const compiled = recordCompiledInputsExecution({ context, publicBuildInputs, artifacts: f.report.build.artifacts,
+    artifactBytes: new Map(f.report.build.artifacts.map((a) => [a.name, f.files.get(a.file)])),
     buildRecords: wrappers, observations, rawEvidence }); add(compiled);
   const presentation = Buffer.from("synthetic Presentation, not TLSN"), result = jsonBytes({ synthetic: true });
-  const archive = { session_id: "synthetic-session", capture_id: "synthetic-capture", not_before_ms: 800, max_age_ms: 500, objects: {} };
+  const archive = { session_id: "synthetic-session", capture_id: "synthetic-capture", source_sha: sourceSha,
+    not_before_ms: 800, max_age_ms: 500, objects: {} };
   for (const [role, raw] of [["presentation", presentation], ["result", result]]) archive.objects[role] = {
     role, backend_id: "mock-archive", object_key: `tlsn-verification/attempt-1/${role}.${role === "presentation" ? "bin" : "json"}`,
     version_id: `${role}-version-1`, session_id: archive.session_id, capture_id: archive.capture_id,
     job_id: "job-1", verification_attempt_id: "attempt-1", sha256: sha256(raw),
+    binding_id: sha256(Buffer.from("synthetic binding")), source_sha: sourceSha,
   };
   const saved = new Map([["presentation", presentation], ["result", result]]);
   const archiveExecution = await captureArchiveReadback({ context, expected: archive, sourceBytes: saved, now: () => 900,
@@ -99,7 +123,7 @@ export async function checkFixture() {
   const nativeInputs = new Map(), artifacts = {};
   for (const role of OFFLINE_BUNDLE_ARTIFACTS) {
     const raw = role === "presentation" ? presentation : role === "result" ? result :
-      role === "session" ? jsonBytes({ session_id: archive.session_id }) :
+      role === "session" ? jsonBytes({ session_id: archive.session_id, binding: "synthetic binding" }) :
       role === "notary_registry" ? jsonBytes(security.notary_registry) :
       ["session_authority_registry", "binding_authority_registry"].includes(role) ? Buffer.from(`synthetic CLI ${role}`) : Buffer.from(`synthetic ${role}`);
     nativeInputs.set(`bundle_artifact_${role}`, raw);
@@ -128,7 +152,8 @@ export async function checkFixture() {
   const offlineExecution = await captureOfflineExecution({ context, inputs: nativeInputs, policy: offline }, { execute: executor }); add(offlineExecution);
   f.dependencies.authenticateOfflineExecution = async () => offlineExecution.executionProof;
   const checkPolicy = { schema_version: 1, scope: "fusou-release-check-inputs-v1", repository: context.repository, source_sha: sourceSha,
-    worker_toolchain: fixtureToolchain, archive, offline };
+    worker_toolchain: fixtureToolchain, worker_wasm_toolchain: wasm.toolchain,
+    worker_wasm_source_inputs: wasm.provenance.source_inputs, archive, offline };
   f.files.set("release-report.json", jsonBytes(f.report)); f.sync();
   const originalContent = f.github.rest.repos.getContent;
   f.github.rest.repos.getContent = async (p) => {

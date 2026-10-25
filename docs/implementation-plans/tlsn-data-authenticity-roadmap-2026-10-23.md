@@ -1210,3 +1210,213 @@ permission checks and `node --check` of the new implementation/fixture/environme
 modules passed. No dependency installation was needed. Scoped `git diff --check`
 also passed. All successful execution/process/storage/authentication cases in
 these tests are explicitly injected doubles, not live build or crypto evidence.
+
+## Selective Worker runtime integration and release wiring
+
+**Integration baseline:** `tlsn-first-testplay-candidate`,
+`209a675c56ef30ac27e85b926add875b5560e902`.
+**Historical source:** `tlsn-phase0-investigation`,
+`bd85ec7aa8eb7e7c598038fceb6e0dc8b5c1c8ff`.
+No branch merge or commit cherry-pick was performed.
+
+### Selected source and current-contract changes
+
+The following missing files were selectively restored from that exact commit,
+not replaced with fixture implementations:
+
+- `src/index.ts`, `binding_authority.ts`, `verification_jobs.ts`,
+  `attestation_receipts.ts`, `private_key_validation_cache.ts`,
+  `verifier_identity.ts`, `execution_boundary.ts`, `result_archive.ts`,
+  `direct_verifier.ts`, `origin-trust-contract.d.mts`, `text-module.d.ts`;
+- `tsconfig.json`;
+- `scripts/build-wasm.mjs`, `verify-wasm-provenance.mjs`,
+  `wasm-provenance.mjs`.
+
+All paths above are relative to
+[`FUSOU-TLSN-VERIFICATION-WORKER`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/).
+The shared Origin contract and public Inventory/Approval bytes were already
+identical to the historical source and were not overwritten. The historical
+package's provisioning, key/fixture generation, benchmarks, remote tests and
+deployment scripts were not imported. The new minimal package exposes only
+WASM build, provenance verification and a no-build TypeScript check. The root
+lock adds its importer without changing existing resolved dependency versions.
+Wrangler resource names are historical references, not observed deployments.
+
+Current adaptations:
+
+- [`production-result-contract.mjs`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/production-result-contract.mjs)
+  requires independently configured
+  `TLSN_PRODUCTION_ORIGIN_INVENTORY_SHA256` and
+  `TLSN_PRODUCTION_TARGET_APPROVAL_ARTIFACT_SHA256`, then checks shipped raw
+  bytes and the existing Inventory/Approval contract. An old `APPROVED` marker
+  and date cannot establish current authority without those independent pins.
+  No new Production pin was registered.
+- Both sync and completion paths pass through the same Complete v2/Sparse v3
+  profile, canonical Production DNS, raw Presentation digest and mandatory
+  target-digest-pair checks. Existing V2 signing domains, native-derived signing
+  byte comparisons and the separate Result envelope remain in place.
+- Production archive writes carry source, session, job, attempt and hashed
+  binding metadata. Readback verifies actual length/hash, metadata and the
+  same R2 generation before the authority commit. Cleanup failures are explicit;
+  a changed/unconfirmed generation requires reconciliation rather than blind
+  deletion. Generation equality is not immutable retention.
+- APP endpoint mappings were compared statically with the actual restored
+  routes. This is not a live handler, Session Authority or Notary test.
+  P0-01/P0-10 and unresolved wire semantics were not redefined.
+
+### Unsigned build and independent consumption
+
+[`release-worker-build.mjs`](../../scripts/release-worker-build.mjs) is now the
+trusted driver used by [`release-build.mjs`](../../scripts/release-build.mjs).
+It is disabled unless explicitly authorized. The coordinator passes that
+authorization only when the public repository variable
+`FUSOU_RELEASE_WORKER_BUILD_ENABLED` equals `true`; this task did not read or
+change that external setting or run the workflow.
+
+The future authorized recipe uses the exact APP checkout SHA, frozen pnpm
+installation with lifecycle scripts disabled, offline/locked WASM compilation,
+provenance verification, TypeScript checking, and Wrangler **dry-run only**.
+The driver checks HEAD and actual source bytes before/after execution. Native
+source fingerprints are collected separately from generated provenance, not
+copied from that provenance as expected values. WASM authorization and explicit
+release SHA/toolchain checks precede native collectors and tools.
+
+The canonical Worker package contains actual JS/WASM modules and raw
+`wasm-provenance.json`; the four generated WASM files are transported as
+hash-addressed raw evidence. Records bind source SHA, run/attempt, trusted
+workflow SHA, import closure, dependency manifests/lock, compiler/toolchain,
+flags and raw output hashes/lengths. Worker package parsing uses the existing
+transport admission limit, not the smaller 1 MiB metadata-record limit.
+
+`worker.bin` is this data-only package, not a claimed Cloudflare deployment.
+The expected Cloudflare script/version reference remains independent input;
+neither a bundle SHA-256 nor a Git SHA is used to manufacture a version ID.
+Deployment stays `NOT_CHECKED`.
+
+The producer now transports both APP/Worker records and emits a
+`compiled_inputs` receipt only when both real output paths and APP process
+observations are supplied. APP-only generation remains distinguishable from
+a complete release. A missing authorization produces
+`WORKER_BUILD_EXECUTION_NOT_AUTHORIZED`, not a fabricated build.
+
+The default independent consumer compares exact-source imports and raw Worker
+contents, recomputes WASM hashes, and requires independently pinned
+`worker_wasm_toolchain` and `worker_wasm_source_inputs` in the trusted check
+policy. Missing pins yield `BLOCKED_EXTERNAL_INPUTS`; candidate record values
+are not substituted. The shipped target bytes must also match authenticated
+Runtime Config authority pins. Existing Runtime Config signature, expiry,
+epoch and independent bootstrap/root verification remain required; Worker
+environment digest pins do not replace them.
+
+### Check execution boundaries
+
+| Check | Implemented local boundary | Real execution status |
+|---|---|---|
+| `locked_dependencies` | Exact-source lock bytes, frozen/locked command receipts, run/attempt and toolchain comparison | Release build `NOT_CHECKED`; only offline dependency restoration for local type checking was performed |
+| `compiled_inputs` | APP observations, APP/Worker records, raw WASM sidecars, independent source/toolchain/Runtime Config/target pins | Contract tests `VERIFIED`; actual APP/Worker compilation `NOT_CHECKED` |
+| `archive_readback` | Runtime generation/metadata/byte checks and callback-based actual R2 `.get()` adapter with independent capture resolver | Mock backend only; authenticated hosted intake `BLOCKED_IMPLEMENTATION`, real archive `NOT_CHECKED` |
+| `offline_verification` | Formal native CLI input/output and exact archive/session/binding correlation; opaque authenticated execution capability remains mandatory | Mock executor only; authenticated hosted intake `BLOCKED_IMPLEMENTATION`, real TLSN crypto `NOT_CHECKED` |
+
+Serialized PASS/VERIFIED strings do not mint backend/native capabilities.
+The R2 adapter reads observed metadata rather than echoing candidate expected
+values. A capture registry/resolver and an authenticated cross-workflow intake
+still need an agreed implementation; none was invented here.
+
+The independent consumer can assemble/validate complete mock releases using
+its existing manifest path. No complete **real** release manifest or actual
+`RELEASE_ARTIFACTS_VALIDATED` was produced. No manifest self-declaration can
+set `DEPLOYMENT_VERIFIED`. `publication_authorized` remains `false`.
+
+### Executed verification in this integration
+
+The following explicit command, from the repository root, was last rerun on
+the final implementation (Node `v22.21.1`):
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-eligibility.test.mjs \
+  scripts/release-manifest.test.mjs \
+  scripts/release-build.test.mjs \
+  scripts/release-consumer.test.mjs \
+  scripts/release-transport.test.mjs \
+  scripts/release-worker-source.test.mjs \
+  scripts/release-worker-integration.test.mjs \
+  scripts/release-checks.test.mjs \
+  scripts/evidence-delivery-policy.test.mjs \
+  scripts/release-workflow.test.mjs \
+  scripts/production-target-contract.test.mjs \
+  scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+Final result: **189 PASS, 0 FAIL, 0 cancelled, 0 skipped**. This is a newly
+executed result, not the previous phase's 161 PASS. The first expanded run in
+this phase had 184 PASS before the additional independent-pin/producer cases.
+The initial three-file targeted run (build/source/checks) had 54 PASS / 1 FAIL:
+the new post-Worker tag recheck changed its exact count from two to three.
+A later four-file targeted run (adding integration tests) had 74 PASS /
+7 FAIL / 12 cancelled: a new test used an absent observation field and two
+tests were inadvertently nested inside a mutation loop. The fixture was
+corrected to use actual report descriptors and the tests were moved to the
+top level. No assertions were weakened and no test was skipped.
+
+Those targeted commands were:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-worker-source.test.mjs scripts/release-checks.test.mjs \
+  scripts/release-build.test.mjs
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-build.test.mjs scripts/release-worker-source.test.mjs \
+  scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs
+```
+
+After changing the package/lock manifests, local dependency restoration used:
+
+```sh
+env COREPACK_ENABLE_NETWORK=0 PNPM_DISABLE_SELF_UPDATE_CHECK=1 CI=1 \
+  pnpm --filter fusou-tlsn-verification-worker install \
+  --offline --ignore-scripts --frozen-lockfile
+env -u NODE_OPTIONS -u NODE_PATH node node_modules/typescript/lib/tsc.js \
+  --noEmit --project packages/FUSOU-TLSN-VERIFICATION-WORKER/tsconfig.json
+```
+
+Both passed. Type checking used already-present ignored generated type
+declarations; it does **not** verify a fresh WASM ABI or compiled module.
+No native source collector was invoked by the tests: authorized build tests
+inject source snapshots, command results and artifact bytes explicitly.
+No full package test/build script was executed.
+
+Static validation also passed: existing PyYAML parsed the four named
+release/tag/legacy workflows and pnpm lock; Python `tomllib` parsed the
+Worker config; Node's async-function constructor compiled all five embedded
+JavaScript bodies without running them. `node --check` passed for
+`release-worker-build.mjs`, `release-worker-imports.mjs` and
+`verify-wasm-provenance.mjs`; scoped whitespace validation passed.
+
+### Remaining acceptance gates
+
+1. **External public inputs:** supply authenticated current target approval,
+   signed Runtime Config v2/bootstrap/root/registry pins, expected Worker
+   reference, independent exact-source WASM input fingerprints and compiler
+   pins. Do not use historical marker/digests or the manifest as authority.
+2. **Separately authorize real builds:** provision the pinned Rust/WASM/Clang
+   toolchain and offline dependencies; build APP and Worker at one committed
+   release SHA; verify fresh generated ABI, dry-run output names, raw bundle,
+   provenance, APP reports and independently consumed receipts. Missing
+   tools/outputs/source agreement must fail closed, with no deploy fallback.
+3. **Authenticated execution intake:** connect actual R2 capture/version/session
+   mapping and the formal pinned native verifier to independent consumer
+   execution proofs. Require exact raw Presentation/Result/receipt/registry
+   inputs and successful native TLSN/Notary/signature/identity/digest checks.
+   Structural Node checks and mock stdout are insufficient.
+4. **Separately authorize real deployment/gameplay:** confirm Session Authority,
+   dedicated verifier/Result signer/Notary services, hosted-event and credential
+   isolation policies, live Worker version/config and real human-gameplay
+   evidence. Only authenticated live observation may establish deployment.
+
+No Cargo/Rust/WASM execution, APP/Worker build, external service connection,
+real archive, native cryptographic verification, real game, key generation,
+Production signing/publication/deployment, push, PR or tag creation was
+performed. Hudsucker remains the dependency/default; no Rust runtime
+equivalence to Rama was claimed. Production acceptance remains **BLOCKED**.

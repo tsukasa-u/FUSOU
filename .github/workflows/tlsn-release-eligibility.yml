@@ -24,6 +24,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         env:
           PUBLIC_BUILD_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_PUBLIC_INPUTS_SHA256 }}
+          WORKER_BUILD_ENABLED: ${{ vars.FUSOU_RELEASE_WORKER_BUILD_ENABLED }}
           SOURCE_READ_TOKEN: ${{ github.token }}
         with:
           script: |
@@ -62,6 +63,7 @@ jobs:
                 }
                 buildWorkspace = mkdtempSync(join(tmpdir(), 'fusou-unsigned-release-'));
                 report.build = await generateReleaseBuild({
+                  workerBuildAuthorized: process.env.WORKER_BUILD_ENABLED === 'true',
                   eligibility: report, publicInputsBytes,
                   publicInputsSha256: process.env.PUBLIC_BUILD_INPUT_SHA256,
                   workspace: buildWorkspace,
@@ -82,7 +84,7 @@ jobs:
             }
             if (report.status === 'PRODUCTION_ELIGIBLE') {
               const { inspectWorkerSourceAt } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-worker-source.mjs`).href);
-              report.worker_build = await inspectWorkerSourceAt(github, report.commit_sha);
+              report.worker_source = await inspectWorkerSourceAt(github, report.commit_sha);
             }
             const { packProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
             const { readRegularFile } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-build.mjs`).href);

@@ -123,13 +123,14 @@ test("independently pinned Worker toolchain and source snapshot reject mismatche
   f.sourceFiles.set("pnpm-lock.yaml", Buffer.from("changed exact-SHA source"));
   await assert.rejects(verifyReleaseChecks(f.args, f.config), /inventory/);
 });
-for (const mutation of ["version", "source", "commands", "dummy_bundle", "empty_wasm"]) {
+for (const mutation of ["version", "source", "commands", "import_closure", "dummy_bundle", "empty_wasm"]) {
   test(`valid outer build hashes do not hide Worker ${mutation} mismatch`, async () => {
     const f = await checkFixture();
     replaceWorker(f, (details, bytes) => {
       if (mutation === "version") details.version_reference.active_version_id = "other";
       if (mutation === "source") details.source_inputs_sha256 = "0".repeat(43);
       if (mutation === "commands") details.commands.pop();
+      if (mutation === "import_closure") details.import_closure.entrypoint = "other.ts";
       if (mutation === "dummy_bundle") return jsonBytes({ dummy: true });
       if (mutation === "empty_wasm") {
         const pkg = JSON.parse(bytes);
@@ -147,6 +148,29 @@ test("a missing exact-SHA runtime entrypoint remains an implementation blocker",
     assert.equal(error.status, "BLOCKED_IMPLEMENTATION");
     assert.equal(error.check_results.compiled_inputs.blocker, "WORKER_SOURCE_INCOMPLETE_AT_RELEASE_SHA"); return true;
   });
+});
+test("independent WASM toolchain and source pins are mandatory and cannot be replaced by build self-declarations", async () => {
+  const f = await checkFixture();
+  for (const field of ["worker_wasm_toolchain", "worker_wasm_source_inputs"]) {
+    const policy = structuredClone(f.checkPolicy); delete policy[field];
+    const raw = jsonBytes(policy);
+    await assert.rejects(verifyReleaseChecks(f.args, { ...f.config, checkPolicyBytes: raw, checkPolicySha256: sha256(raw) }), (error) => {
+      assert.equal(error.check_results.compiled_inputs.status, "BLOCKED_EXTERNAL_INPUTS");
+      assert.equal(error.check_results.locked_dependencies.status, "VERIFIED");
+      return true;
+    });
+  }
+  const policy = structuredClone(f.checkPolicy); policy.worker_wasm_source_inputs[0].sha256 = "z".repeat(43);
+  const raw = jsonBytes(policy);
+  await assert.rejects(verifyReleaseChecks(f.args, { ...f.config, checkPolicyBytes: raw, checkPolicySha256: sha256(raw) }), /source input fingerprint/);
+});
+test("missing generated WASM raw evidence and foreign archive release source fail independently of PASS labels", async () => {
+  const f = await checkFixture(), receipt = JSON.parse(f.compiled.receipt);
+  f.args.evidenceBytes.delete(receipt.inputs["wasm_fusou_tlsn_verifier_bg.wasm"].sha256);
+  await assert.rejects(verifyReleaseChecks(f.args, f.config), /required raw check input/);
+  const other = await checkFixture(), policy = structuredClone(other.checkPolicy); policy.archive.source_sha = "c".repeat(40);
+  const raw = jsonBytes(policy);
+  await assert.rejects(verifyReleaseChecks(other.args, { ...other.config, checkPolicyBytes: raw, checkPolicySha256: sha256(raw) }), /archive policy\/release source/);
 });
 test("APP actual stdout arguments and independently pinned policy release identity are enforced", async () => {
   const f = await checkFixture(), receipt = JSON.parse(f.compiled.receipt);

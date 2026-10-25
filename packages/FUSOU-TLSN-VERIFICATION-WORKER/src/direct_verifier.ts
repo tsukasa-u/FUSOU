@@ -1,0 +1,232 @@
+import { Hono } from "hono";
+import {
+  processVerificationCompletion,
+  benchmarkEnabled,
+  canarySynchronousResponseEnabled,
+  decodeBase64Url,
+  directCallbackSecret,
+  readRawBody,
+  readRawBytes,
+  verificationCompletionContextFromHono,
+  type Bindings,
+  type TestDirectFault,
+  TlsnBindingAuthorityDurableObject,
+} from "./index.js";
+import { verifyInternalRequest } from "./verification_jobs.js";
+import {
+  CANARY_VERIFIER_WORKER_NAME,
+  canaryVerifierExecutionKeyPairMatches,
+  createCanaryVerifierExecutionReceipt,
+  type CanaryVerifierExecutionReceiptSigner,
+} from "./verifier_identity.js";
+
+const MAX_INTERNAL_CALLBACK_JSON_BYTES = 64 * 1024;
+const MAX_PRESENTATION_BYTES = 8 * 1024 * 1024;
+const MAX_CONTROL_METADATA_BYTES = 64 * 1024;
+const DIRECT_METADATA_HEADER = "X-FUSOU-TLSN-Direct-Metadata";
+const DIRECT_CONTROL_HEADER = "X-FUSOU-TLSN-Benchmark-Control";
+
+type DirectVerifierBindings = Bindings & {
+  TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8?: string;
+};
+
+const app = new Hono<{ Bindings: DirectVerifierBindings }>();
+
+function canaryVerifierExecutionReceiptSigner(
+  env: DirectVerifierBindings,
+): CanaryVerifierExecutionReceiptSigner | undefined {
+  if (env.TLSN_ENVIRONMENT !== "production" || env.TLSN_DEPLOYMENT_ROLE !== "canary") return undefined;
+  const privateKey = env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const publicKey = env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+  const runtimeVersionId = env.CF_VERSION_METADATA?.id;
+  const verifierKeyId = env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID;
+  const deploymentId = env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID;
+  if (!privateKey || !publicKey || !runtimeVersionId || !verifierKeyId || !deploymentId) return undefined;
+  return async ({ jobId, verificationAttemptId, presentationBytes, resultBytes }) => {
+    return createCanaryVerifierExecutionReceipt({
+      jobId,
+      verificationAttemptId,
+      deploymentId,
+      runtimeVersionId,
+      verifierKeyId,
+      verifierPublicKeySpki: publicKey,
+      verifierSigningPrivateKeyPkcs8: decodeBase64Url(privateKey, 4096),
+      presentationBytes,
+      resultBytes,
+    });
+  };
+}
+
+async function canaryVerifierExecutionHealth(env: DirectVerifierBindings) {
+  const productionCanary = env.TLSN_ENVIRONMENT === "production" && env.TLSN_DEPLOYMENT_ROLE === "canary";
+  const runtimeVersionId = env.CF_VERSION_METADATA?.id ?? null;
+  const verifierPrivateKey = env.TLSN_CANARY_VERIFIER_IDENTITY_SIGNING_PRIVATE_KEY_PKCS8;
+  const verifierPublicKey = env.TLSN_CANARY_VERIFIER_PUBLIC_KEY_SPKI;
+  const verifierKeyPairValid = productionCanary
+    ? await canaryVerifierExecutionKeyPairMatches(verifierPrivateKey, verifierPublicKey)
+    : true;
+  const verifierIdentity = productionCanary
+    ? {
+        key_id: env.TLSN_CANARY_VERIFIER_IDENTITY_KEY_ID ?? null,
+        public_key_spki: verifierPublicKey ?? null,
+        deployment_id: env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
+        worker_name: CANARY_VERIFIER_WORKER_NAME,
+        keypair_valid: verifierKeyPairValid,
+      }
+    : null;
+  return {
+    productionCanary,
+    runtimeVersionId,
+    verifierIdentity,
+    identityComplete: !productionCanary || Boolean(
+      runtimeVersionId
+      && verifierIdentity?.key_id
+      && verifierIdentity.public_key_spki
+      && verifierIdentity.deployment_id
+      && verifierIdentity.keypair_valid,
+    ),
+  };
+}
+
+app.get("/health", async (c) => {
+  const { productionCanary, runtimeVersionId, verifierIdentity, identityComplete } = await canaryVerifierExecutionHealth(c.env);
+  return c.json({
+    schema_version: 1,
+    ok: identityComplete,
+    environment: c.env.TLSN_ENVIRONMENT,
+    deployment_role: c.env.TLSN_DEPLOYMENT_ROLE ?? "production",
+    git_commit_sha: c.env.TLSN_GIT_COMMIT_SHA ?? null,
+    deployment_id: c.env.TLSN_CANARY_VERIFIER_DEPLOYMENT_ID ?? null,
+    worker_name: CANARY_VERIFIER_WORKER_NAME,
+    runtime_version: runtimeVersionId ? { version_id: runtimeVersionId } : null,
+    verifier_identity: verifierIdentity,
+  }, identityComplete ? 200 : 503);
+});
+
+async function delayTestDirectVerifier(env: Bindings): Promise<void> {
+  if (env.TLSN_ENVIRONMENT !== "test") return;
+  const delayMs = Number(env.TLSN_TEST_DIRECT_VERIFIER_DELAY_MS);
+  if (!Number.isInteger(delayMs) || delayMs <= 0 || delayMs > 5_000) return;
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+app.post("/internal/tlsn/verification-complete", async (c) => {
+  const callbackEntryStartedAt = performance.now();
+  const requestedMode = c.req.header("X-FUSOU-TLSN-Test-Fault")?.trim();
+  const configuredMode = c.env.TLSN_TEST_DIRECT_VERIFIER_MODE?.trim();
+  const mode: TestDirectFault | undefined = requestedMode === "failure" || requestedMode === "timeout" || requestedMode === "late_success" || requestedMode === "pause_before_result_commit" || requestedMode === "pause_after_result_commit"
+    ? requestedMode
+    : configuredMode === "failure" || configuredMode === "timeout" || configuredMode === "late_success" || configuredMode === "pause_before_result_commit" || configuredMode === "pause_after_result_commit"
+      ? configuredMode
+      : undefined;
+  if (c.env.TLSN_ENVIRONMENT === "test") {
+    if (mode === "failure") {
+      return new Response(null, { status: 503 });
+    }
+    if (mode === "timeout" || mode === "late_success") {
+      await delayTestDirectVerifier(c.env);
+    }
+  }
+  const executionStartedAt = Date.now();
+  const encodedMetadata = c.req.header(DIRECT_METADATA_HEADER);
+  let rawBody: string | null = null;
+  let presentationBytes: Uint8Array | undefined;
+  let presentationReadTiming: {
+    readStartedAt: number;
+    readCompletedAt: number;
+    readDurationMilliseconds: number;
+  } | undefined;
+  if (encodedMetadata) {
+    const presentationReadStartedAt = performance.now();
+    const presentationReadStartedWallClock = Date.now();
+    presentationBytes = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
+    const presentationReadCompletedAt = performance.now();
+    const presentationReadCompletedWallClock = Date.now();
+    try {
+      rawBody = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+        decodeBase64Url(encodedMetadata, MAX_INTERNAL_CALLBACK_JSON_BYTES),
+      );
+      presentationReadTiming = {
+        readStartedAt: presentationReadStartedWallClock,
+        readCompletedAt: presentationReadCompletedWallClock,
+        readDurationMilliseconds: presentationReadCompletedAt - presentationReadStartedAt,
+      };
+    } catch {
+      rawBody = null;
+    }
+  } else {
+    rawBody = await readRawBody(c.req.raw, MAX_INTERNAL_CALLBACK_JSON_BYTES).catch(() => null);
+  }
+  const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
+  const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
+  const requestedExecutionMode = c.req.header("X-FUSOU-TLSN-Execution-Mode");
+  if (requestedExecutionMode !== null && requestedExecutionMode !== "trigger" && requestedExecutionMode !== "direct") {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (requestedExecutionMode === "direct" && !encodedMetadata) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  if (requestedExecutionMode === "trigger" && encodedMetadata) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  const synchronousCandidate = (c.env.TLSN_ENVIRONMENT === "test"
+    && c.req.header("X-FUSOU-TLSN-Synchronous-Candidate") === "true")
+    || (canarySynchronousResponseEnabled(c.env)
+      && c.req.header("X-FUSOU-TLSN-Synchronous-Response") === "true");
+  if (rawBody === null || (encodedMetadata && !presentationBytes) || !jobId || !signature) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const response = await processVerificationCompletion(
+    verificationCompletionContextFromHono(c, canaryVerifierExecutionReceiptSigner(c.env)),
+    rawBody,
+    jobId,
+    signature,
+    requestedExecutionMode === "trigger" ? "trigger" : "direct",
+    false,
+    executionStartedAt,
+    mode,
+    presentationBytes,
+    presentationReadTiming,
+    callbackEntryStartedAt,
+    synchronousCandidate,
+  );
+  return response;
+});
+
+app.post("/internal/tlsn/direct-control", async (c) => {
+  if (!benchmarkEnabled(c.env) || c.env.TLSN_ENVIRONMENT !== "test") {
+    return c.json({ error: "not_found" }, 404);
+  }
+  if (c.req.header(DIRECT_CONTROL_HEADER) !== "direct-service-binding-v1") {
+    return c.json({ error: "not_found" }, 404);
+  }
+  const encodedMetadata = c.req.header(DIRECT_METADATA_HEADER);
+  const rawBody = await readRawBytes(c.req.raw, MAX_PRESENTATION_BYTES).catch(() => undefined);
+  const jobId = c.req.header("X-FUSOU-TLSN-Job-Id") ?? "";
+  const signature = c.req.header("X-FUSOU-TLSN-Signature") ?? null;
+  const callbackSecret = directCallbackSecret(c.env);
+  if (!encodedMetadata || !rawBody || !jobId || !signature || !callbackSecret) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+      decodeBase64Url(encodedMetadata, MAX_CONTROL_METADATA_BYTES),
+    ));
+  } catch {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  if (
+    typeof metadata !== "object"
+    || metadata === null
+    || (metadata as { schema_version?: unknown }).schema_version !== 1
+    || (metadata as { control?: unknown }).control !== "direct-service-binding"
+    || !await verifyInternalRequest(callbackSecret, jobId, JSON.stringify(metadata), signature)
+  ) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  return c.json({ ok: true, control: "direct-service-binding-v1", received_bytes: rawBody.byteLength });
+});
+
+export { app, TlsnBindingAuthorityDurableObject };
+export default { fetch: app.fetch };

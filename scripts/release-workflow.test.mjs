@@ -29,6 +29,9 @@ test("coordinator only uses trusted main code and API metadata, never tag code o
   assert.match(yaml, /packProducerTransport/);
   assert.match(yaml, /name: fusou-release-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/);
   assert.match(yaml, /path: release-transport.json/);
+  assert.match(yaml, /WORKER_BUILD_ENABLED: \$\{\{ vars.FUSOU_RELEASE_WORKER_BUILD_ENABLED \}\}/);
+  assert.match(yaml, /workerBuildAuthorized: process.env.WORKER_BUILD_ENABLED === 'true'/);
+  assert.match(yaml, /report.worker_source = await inspectWorkerSourceAt/);
 });
 test("legacy publishing is explicitly blocked before any environment-qualified privileged job", () => {
   const yaml = read("publish_and_create_version_tag.yml");

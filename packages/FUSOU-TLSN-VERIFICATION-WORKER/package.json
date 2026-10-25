@@ -1,0 +1,22 @@
+{
+  "name": "fusou-tlsn-verification-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Selectively integrated TLSN verifier runtime; publication and deployment are not authorized",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "verify:wasm-provenance": "node scripts/verify-wasm-provenance.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.34",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260329.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.135.0"
+  }
+}
