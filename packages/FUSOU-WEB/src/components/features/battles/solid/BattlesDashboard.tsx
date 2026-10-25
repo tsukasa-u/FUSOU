@@ -4,6 +4,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -748,20 +749,25 @@ export default function BattlesDashboard(props: {
       }
     })();
   });
-  createEffect(() => {
-    const tab = activeTab();
-    const period = selectedPeriod();
-    const wantedDatasetKind = datasetKindForTab(tab);
-    if (
-      wantedDatasetKind &&
-      !loading() &&
-      loadedDatasetKind() !== wantedDatasetKind &&
-      period &&
-      (props.source !== "local-avro" || props.localStatus === "ready")
-    ) {
-      void loadData(period);
-    }
-  });
+  createEffect(
+    on(
+      activeTab,
+      (tab, prevTab) => {
+        if (tab === prevTab) return;
+        const wantedDatasetKind = datasetKindForTab(tab);
+        const period = selectedPeriod();
+        if (
+          wantedDatasetKind &&
+          loadedDatasetKind() !== wantedDatasetKind &&
+          period &&
+          (props.source !== "local-avro" || props.localStatus === "ready")
+        ) {
+          void loadData(period);
+        }
+      },
+      { defer: true },
+    ),
+  );
 
   onCleanup(() => {
     loadDataAbortController?.abort();

@@ -1,4 +1,4 @@
-﻿---
+---
 import "@/assets/app.css";
 import FocusBehavior from "@/components/common/astro/ui/FocusBehavior.astro";
 import TutorialModal from "@/components/common/astro/ui/TutorialModal.astro";
@@ -71,14 +71,21 @@ const canonicalUrl = Astro.url.toString();
     <meta name="twitter:description" content={ogDescription} />
     <meta name="twitter:image" content={absoluteOgImage} />
     {
-      import.meta.env.PROD && (
-        <script
-          defer
-          is:inline
-          src="https://static.cloudflareinsights.com/beacon.min.js"
-          data-cf-beacon={`{"token": "${import.meta.env["PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN"]}"}`}
-        />
-      )
+      (() => {
+        const token = import.meta.env["PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN"];
+        const isValidToken =
+          typeof token === "string" &&
+          token.trim().length > 0 &&
+          !token.startsWith("encrypted:");
+        return import.meta.env.PROD && isValidToken ? (
+          <script
+            defer
+            is:inline
+            src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon={`{"token": "${token.trim()}"}`}
+          />
+        ) : null;
+      })()
     }
     <slot name="head" />
   </head>
