@@ -168,6 +168,45 @@ external runtime behavior remain `NOT_CHECKED` in this follow-up. Phase 3 is
 not complete; real-game TLSN evidence remains `UNVERIFIED` and Production
 acceptance remains `BLOCKED`.
 
+### Local follow-up: binary inputs and reloaded Sparse graph identities
+
+The next follow-up is based on
+`cc96021eec0ab2b6412f926888a80151caef2ae0`. Scoped JavaScript/TypeScript
+call-site searches found the local graph test's `Buffer.from(...)` fixtures,
+not a Worker runtime caller. `deriveProductionTrustGraph` now checks
+`presentationBytes` with Node's `isUint8Array` before hashing or other binding
+checks. This accepts `Buffer` and `Uint8Array`, including offset views, and
+rejects strings, encoded text, other view types, and prototype-only lookalikes
+with an explicit `TypeError`. It does not coerce input. The shared hash helper
+still accepts strings for session bindings and challenges; its contract was
+not changed.
+
+For Phase 3 evidence association checks,
+`assertTrustGraphNodeIdentities` previously used reference equality for each
+identity field. Consequently, separately JSON-parsed Sparse response ranges
+were rejected even when all values matched. It now uses Node's
+`isDeepStrictEqual` for field values. Object key order does not affect this
+in-memory comparison, but range order, field presence, types, offsets,
+lengths, and byte strings must match. This is not normalization of raw evidence
+bytes or signed JSON, and topology validation still runs first.
+
+The same standalone graph test command above exercises both changes using
+synthetic structural fixtures. Before the input guard, twenty tests produced
+fourteen `PASS` and six `FAIL`; after the guard, all twenty were `PASS`.
+Adding identity regressions reproduced two false rejections out of twenty-eight
+tests before the value-comparison fix. After both fixes, all twenty-eight were
+`PASS`, with no skipped tests. Coverage retains the earlier digest and
+Attestation ID checks and adds byte-view acceptance, invalid-type rejection,
+JSON-reloaded identities, scalar mismatches, topology rejection, and changed
+Sparse range content/types/order/fields.
+
+These changes guard local graph construction and comparison only. Expected
+identities must still come from independently verified inputs; comparing them
+does not authenticate either side. No signature, Presentation cryptography,
+archive readback, Worker/APP wiring, or external runtime was verified here.
+Q1-Q5 remain undecided. Rust/WASM integration remains `NOT_CHECKED`, real-game
+TLSN evidence remains `UNVERIFIED`, and Production acceptance remains `BLOCKED`.
+
 ## Phase 4 — External dependencies and operator evidence
 
 **Current status:** `BLOCKED` until responsible operators provide independently

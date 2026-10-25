@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   assertTrustGraph,
+  assertTrustGraphNodeIdentities,
   deriveProductionTrustGraph,
 } from "./production-evidence-contract.mjs";
 
@@ -24,7 +25,12 @@ function inputsFor(disclosureMode) {
     notary_key_id: "synthetic-notary",
     response_transcript_sha256: digest("synthetic response"),
     revealed_request_ranges: [],
-    revealed_response_ranges: [],
+    revealed_response_ranges: disclosureMode === "sparse"
+      ? [
+        { start: "0", length: "4", bytes: Buffer.from("test").toString("base64url") },
+        { start: "8", length: "4", bytes: Buffer.from("more").toString("base64url") },
+      ]
+      : [],
   };
   return {
     captureId: "synthetic-capture",
@@ -85,6 +91,55 @@ for (const mode of ["complete", "sparse"]) {
     assert.equal(edge.binding_fields.includes("revealed_request_ranges"), mode === "sparse");
   });
 
+  test(`${mode}: Uint8Array and byte-offset views preserve the Buffer graph`, () => {
+    const inputs = inputsFor(mode);
+    const expected = deriveProductionTrustGraph(inputs);
+    const bytes = new Uint8Array(inputs.presentationBytes);
+    assert.deepEqual(deriveProductionTrustGraph({ ...inputs, presentationBytes: bytes }), expected);
+    const storage = new Uint8Array(bytes.length + 8).fill(255);
+    storage.set(bytes, 4);
+    assert.deepEqual(
+      deriveProductionTrustGraph({ ...inputs, presentationBytes: storage.subarray(4, 4 + bytes.length) }),
+      expected,
+    );
+  });
+
+  for (const encoding of ["utf8", "base64url"]) {
+    test(`${mode}: ${encoding} string is rejected even with matching declared hashes`, () => {
+      const inputs = inputsFor(mode);
+      inputs.presentationBytes = inputs.presentationBytes.toString(encoding);
+      const hash = digest(inputs.presentationBytes);
+      inputs.semanticVerification.result.presentation_sha256 = hash;
+      inputs.proxyProvenance.presentation_sha256 = hash;
+      assert.throws(() => deriveProductionTrustGraph(inputs), {
+        name: "TypeError",
+        message: /Presentation bytes must be a Buffer or Uint8Array/,
+      });
+    });
+  }
+
+  test(`${mode}: other Presentation input types are rejected at the byte boundary`, () => {
+    for (const value of [
+      null,
+      undefined,
+      [],
+      { 0: 1, length: 1 },
+      new String("synthetic Presentation"),
+      new ArrayBuffer(4),
+      new DataView(new ArrayBuffer(4)),
+      new Uint16Array([1, 2]),
+      Object.create(Uint8Array.prototype),
+      42,
+    ]) {
+      const inputs = inputsFor(mode);
+      inputs.presentationBytes = value;
+      assert.throws(() => deriveProductionTrustGraph(inputs), {
+        name: "TypeError",
+        message: /Presentation bytes must be a Buffer or Uint8Array/,
+      });
+    }
+  });
+
   test(`${mode}: changed raw Presentation bytes are rejected`, () => {
     const inputs = inputsFor(mode);
     inputs.presentationBytes[0] ^= 1;
@@ -125,4 +180,79 @@ for (const mode of ["complete", "sparse"]) {
     inputs.semanticVerification.result.tlsn_attestation_id = Buffer.alloc(16, 2).toString("base64url");
     assert.throws(() => deriveProductionTrustGraph(inputs), /Attestation IDs do not match/);
   });
+
+  test(`${mode}: separately parsed graph identities match by value`, () => {
+    const graph = deriveProductionTrustGraph(inputsFor(mode));
+    const expected = JSON.parse(JSON.stringify(
+      Object.fromEntries(graph.nodes.map(({ id, identity }) => [id, identity])),
+    ));
+    const reloaded = JSON.parse(JSON.stringify(graph));
+    assert.equal(assertTrustGraphNodeIdentities(reloaded, expected), reloaded);
+  });
+
+  test(`${mode}: graph identity checking still rejects scalar mismatches`, () => {
+    const graph = deriveProductionTrustGraph(inputsFor(mode));
+    for (const [nodeId, field, value] of [
+      ["authenticated-user", "user_id", "another-user"],
+      ["result", "result_sha256", digest("another Result")],
+      ["member-id", "verified_member_id", "456"],
+      ["device", "device_id", 42],
+    ]) {
+      assert.throws(
+        () => assertTrustGraphNodeIdentities(graph, { [nodeId]: { [field]: value } }),
+        new RegExp(`trust graph ${nodeId} identity mismatch: ${field}`),
+      );
+    }
+    assert.throws(
+      () => assertTrustGraphNodeIdentities(graph, { "missing-node": { id: "missing" } }),
+      /identity node is missing/,
+    );
+  });
+
+  test(`${mode}: graph identity checking still validates topology first`, () => {
+    const graph = deriveProductionTrustGraph(inputsFor(mode));
+    graph.edges[0].source = "result";
+    assert.throws(
+      () => assertTrustGraphNodeIdentities(graph, {}),
+      /trust graph edge protocol mismatch/,
+    );
+  });
 }
+
+test("sparse: range object key order does not change identity values", () => {
+  const inputs = inputsFor("sparse");
+  const graph = deriveProductionTrustGraph(inputs);
+  const expectedRanges = inputs.semanticVerification.result.revealed_response_ranges.map(
+    ({ start, length, bytes }) => ({ bytes, length, start }),
+  );
+  assert.equal(assertTrustGraphNodeIdentities(graph, {
+    "member-id": { revealed_response_ranges: expectedRanges },
+  }), graph);
+});
+
+test("sparse: range content, types, order, and fields must match exactly", () => {
+  const inputs = inputsFor("sparse");
+  const graph = deriveProductionTrustGraph(inputs);
+  const ranges = inputs.semanticVerification.result.revealed_response_ranges;
+  const changedRange = (fields) => [{ ...ranges[0], ...fields }, { ...ranges[1] }];
+  for (const changed of [
+    changedRange({ start: "1" }),
+    changedRange({ length: "5" }),
+    changedRange({ bytes: Buffer.from("fake").toString("base64url") }),
+    changedRange({ start: 0 }),
+    changedRange({ unexpected: true }),
+    [...ranges].reverse(),
+    ranges.slice(1),
+    [...ranges, { start: "16", length: "4", bytes: Buffer.from("last").toString("base64url") }],
+    [{ start: ranges[0].start, length: ranges[0].length }, { ...ranges[1] }],
+    JSON.stringify(ranges),
+    null,
+  ]) {
+    assert.throws(
+      () => assertTrustGraphNodeIdentities(graph, {
+        "member-id": { revealed_response_ranges: changed },
+      }),
+      /trust graph member-id identity mismatch: revealed_response_ranges/,
+    );
+  }
+});

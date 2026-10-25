@@ -351,6 +351,7 @@ class ScopedCodeReviewGraphTests(unittest.TestCase):
 
     def test_protected_staged_path_fails_before_blob_or_worktree_reads(self):
         protected_paths = (
+            "justfile",
             "packages/FUSOU-APP/src-tauri/roaming/user/configs.toml",
             "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs",
         )

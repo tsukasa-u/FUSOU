@@ -1,5 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { isUint8Array } from "node:util/types";
 
 export const PRODUCTION_EVIDENCE_SCOPE = "tlsn-production-evidence";
 export const PRODUCTION_EVIDENCE_SCHEMA_VERSION = 1;
@@ -630,6 +632,9 @@ export function deriveProductionTrustGraph({
   resultRegistryRootPublicKeySpki,
   proxyProvenance,
 }) {
+  if (!isUint8Array(presentationBytes)) {
+    throw new TypeError("Presentation bytes must be a Buffer or Uint8Array");
+  }
   const verifiedPresentation = semanticVerification?.verified_presentation;
   const semanticResult = semanticVerification?.result;
   if (!captureId || !authenticatedUserId || !deviceId || !devicePublicKeySha256 || !deviceAuthentication || !session || !presentationBytes || !verifiedPresentation || !semanticResult || !result || !resultBytes || !resultSignerKeyId || !resultRegistrySha256 || !resultRegistryEnvelopeSha256 || !resultRegistryRootKeyId || !resultRegistryRootPublicKeySpki || !proxyProvenance) {
@@ -809,7 +814,7 @@ export function assertTrustGraphNodeIdentities(graph, expectedIdentities) {
     const node = nodes.get(nodeId);
     if (!node) throw new Error(`trust graph identity node is missing: ${nodeId}`);
     for (const [field, value] of Object.entries(expected)) {
-      if (node.identity?.[field] !== value) {
+      if (!isDeepStrictEqual(node.identity?.[field], value)) {
         throw new Error(`trust graph ${nodeId} identity mismatch: ${field}`);
       }
     }
