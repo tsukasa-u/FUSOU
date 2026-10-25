@@ -1,7 +1,7 @@
-﻿/** @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
 import { For, Show, createMemo, createSignal, createEffect } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { mapKeyOf, formatTimestamp, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, formatTimestamp, isWithinDateRange, compareNullableTimestamps } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { ensureMapLabels, resolveMapCellLabel } from "../../map-flow/solid/battle-map-flow/mapLabelCache";
 import type { BattleRecord } from "../../map-flow/solid/battle-map-flow/types";
 import {
@@ -73,6 +73,7 @@ function battleResultOf(b: BattleRecord) {
 export default function BattlesListPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
   const [currentPage, setCurrentPage] = createSignal(0);
+  const [sortOrder, setSortOrder] = createSignal<"desc" | "asc">("desc");
 
   const mstShipNameMap = createMemo(() => {
     const map = new Map<number, string>();
@@ -162,7 +163,14 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     return list;
   });
 
-  const totalPages = createMemo(() => Math.ceil(filteredBattles().length / PAGE_SIZE));
+  const sortedBattles = createMemo(() => {
+    const list = [...filteredBattles()];
+    const order = sortOrder();
+    list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp, order));
+    return list;
+  });
+
+  const totalPages = createMemo(() => Math.ceil(sortedBattles().length / PAGE_SIZE));
 
   createEffect(() => {
     // 検索・フィルター条件が変化したときは先頭ページに戻す
@@ -183,7 +191,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
 
   const pagedBattles = createMemo(() => {
     const start = currentPage() * PAGE_SIZE;
-    return filteredBattles().slice(start, start + PAGE_SIZE);
+    return sortedBattles().slice(start, start + PAGE_SIZE);
   });
 
   createEffect(() => {
@@ -291,10 +299,30 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
 
   return (
     <div class="fusou-card">
-      <div class="fusou-card-body p-4 border-b border-base-300/60">
-        <h3 class="font-bold text-lg">戦闘一覧</h3>
-        <div class="text-xs text-base-content/60 mt-1">
-          これまでの戦闘を時系列で表示します。
+      <div class="fusou-card-body p-4 border-b border-base-300/60 flex flex-row items-center justify-between gap-4">
+        <div>
+          <h3 class="font-bold text-lg">戦闘一覧</h3>
+          <div class="text-xs text-base-content/60 mt-1">
+            これまでの戦闘を時系列で表示します。
+          </div>
+        </div>
+        <div class="join">
+          <button
+            type="button"
+            class={`join-item btn btn-xs ${sortOrder() === "desc" ? "btn-primary" : "btn-ghost border border-base-300"}`}
+            onClick={() => { setSortOrder("desc"); setCurrentPage(0); }}
+            title="最新の戦闘を先頭に表示"
+          >
+            新しい順 ↓
+          </button>
+          <button
+            type="button"
+            class={`join-item btn btn-xs ${sortOrder() === "asc" ? "btn-primary" : "btn-ghost border border-base-300"}`}
+            onClick={() => { setSortOrder("asc"); setCurrentPage(0); }}
+            title="古い戦闘を先頭に表示"
+          >
+            古い順 ↑
+          </button>
         </div>
       </div>
 

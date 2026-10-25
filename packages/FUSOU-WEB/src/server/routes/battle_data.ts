@@ -1,14 +1,20 @@
 
 async function decompressSnapshotPayload(arrayBuf: ArrayBuffer): Promise<string> {
   const buf = Buffer.from(arrayBuf);
-  if (buf.length > 0 && (buf[0] === 0x7b || buf[0] === 0x5b)) {
-    return buf.toString("utf-8");
-  }
   try {
     const decompressed = await brotliDecompressAsync(buf);
     return decompressed.toString("utf-8");
   } catch {
-    return buf.toString("utf-8");
+    const text = buf.toString("utf-8");
+    if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
+      try {
+        JSON.parse(text);
+        return text;
+      } catch {
+        // invalid json
+      }
+    }
+    throw new Error("Failed to decompress snapshot payload");
   }
 }
 
@@ -3268,20 +3274,25 @@ app.get("/global/overview", async (c) => {
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
-  if (bucket && !c.req.query("limit_blocks") && !c.req.query("limit_records")) {
+  if (bucket) {
     const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
     const snapshotKey = `snapshots/overview/${activeTag}.json.br`;
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (snapshotObj.httpEtag) {
+        headers.set("ETag", snapshotObj.httpEtag);
+      }
+      const acceptEncoding = c.req.header("accept-encoding") || "";
+      if (acceptEncoding.includes("br")) {
+        headers.set("Content-Encoding", "br");
+        return new Response(await snapshotObj.arrayBuffer(), { headers });
+      }
       try {
         const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
-        const headers = new Headers();
-        headers.set("Content-Type", "application/json");
-        headers.set("Cache-Control", cacheControl);
-        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-        if (snapshotObj.httpEtag) {
-          headers.set("ETag", snapshotObj.httpEtag);
-        }
         return new Response(text, { headers });
       } catch (err) {
         console.warn("[battle_data] failed to decompress overview snapshot:", err);
@@ -3424,20 +3435,25 @@ app.get("/global/drops", async (c) => {
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
-  if (bucket && !c.req.query("limit_blocks") && !c.req.query("limit_records")) {
+  if (bucket) {
     const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
     const snapshotKey = `snapshots/drops/${activeTag}.json.br`;
     const snapshotObj = await bucket.get(snapshotKey);
     if (snapshotObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (snapshotObj.httpEtag) {
+        headers.set("ETag", snapshotObj.httpEtag);
+      }
+      const acceptEncoding = c.req.header("accept-encoding") || "";
+      if (acceptEncoding.includes("br")) {
+        headers.set("Content-Encoding", "br");
+        return new Response(await snapshotObj.arrayBuffer(), { headers });
+      }
       try {
         const text = await decompressSnapshotPayload(await snapshotObj.arrayBuffer());
-        const headers = new Headers();
-        headers.set("Content-Type", "application/json");
-        headers.set("Cache-Control", cacheControl);
-        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-        if (snapshotObj.httpEtag) {
-          headers.set("ETag", snapshotObj.httpEtag);
-        }
         return new Response(text, { headers });
       } catch (err) {
         console.warn("[battle_data] failed to decompress drops snapshot:", err);
@@ -3652,15 +3668,20 @@ app.get("/detail", async (c) => {
     const directKey = `snapshots/detail/${activeTag}/${envUuid}_${battleIndexRaw}.json.br`;
     const detailObj = await bucket.get(directKey);
     if (detailObj) {
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.set("Cache-Control", cacheControl);
+      headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
+      if (detailObj.httpEtag) {
+        headers.set("ETag", detailObj.httpEtag);
+      }
+      const acceptEncoding = c.req.header("accept-encoding") || "";
+      if (acceptEncoding.includes("br")) {
+        headers.set("Content-Encoding", "br");
+        return new Response(await detailObj.arrayBuffer(), { headers });
+      }
       try {
         const text = await decompressSnapshotPayload(await detailObj.arrayBuffer());
-        const headers = new Headers();
-        headers.set("Content-Type", "application/json");
-        headers.set("Cache-Control", cacheControl);
-        headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-        if (detailObj.httpEtag) {
-          headers.set("ETag", detailObj.httpEtag);
-        }
         return new Response(text, { headers });
       } catch (err) {
         console.warn("[battle_data] failed to decompress detail snapshot:", err);

@@ -18,6 +18,41 @@ describe("BattlesListPanel helpers and logic", () => {
     expect(resolveMapCellLabel("1-5", 1)).toBe("A");
   });
 
+  it("sorts battles by timestamp correctly using compareNullableTimestamps", () => {
+    const list = [
+      { timestamp: 1000, name: "old" },
+      { timestamp: 3000, name: "latest" },
+      { timestamp: 2000, name: "middle" },
+      { timestamp: null, name: "unknown" },
+    ];
+
+    // Descending (newest first)
+    const desc = [...list].sort((a, b) => {
+      const aMs = a.timestamp;
+      const bMs = b.timestamp;
+      if (aMs === null) return 1;
+      if (bMs === null) return -1;
+      return bMs - aMs;
+    });
+    expect(desc[0]!.name).toBe("latest");
+    expect(desc[1]!.name).toBe("middle");
+    expect(desc[2]!.name).toBe("old");
+    expect(desc[3]!.name).toBe("unknown");
+
+    // Ascending (oldest first)
+    const asc = [...list].sort((a, b) => {
+      const aMs = a.timestamp;
+      const bMs = b.timestamp;
+      if (aMs === null) return 1;
+      if (bMs === null) return -1;
+      return aMs - bMs;
+    });
+    expect(asc[0]!.name).toBe("old");
+    expect(asc[1]!.name).toBe("middle");
+    expect(asc[2]!.name).toBe("latest");
+    expect(asc[3]!.name).toBe("unknown");
+  });
+
   it("handles pagination calculations correctly", () => {
     const PAGE_SIZE = 20;
     const calcPages = (total: number) => Math.ceil(total / PAGE_SIZE);
