@@ -8,6 +8,7 @@ import { sha256 } from "./release-manifest.mjs";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { LOCK_PATHS } from "./release-checks.mjs";
 import { checkFixture, wasmFixture } from "./release-check-fixture.mjs";
+import { packProducerTransport, decodeReleaseTransport } from "./release-transport.mjs";
 
 function fixture(root) {
   const eligibility = { schema_version: 2, status: "PRODUCTION_ELIGIBLE", commit_sha: "a".repeat(40),
@@ -78,6 +79,12 @@ test("combined APP/Worker producer binds both raw records and WASM sidecars with
     assert.ok(result.check_files.includes("check-compiled_inputs.json"));
     assert.equal(result.check_files.includes("check-archive_readback.json"), false);
     assert.equal(result.check_files.includes("check-offline_verification.json"), false);
+    const report = { ...f.report, build: result };
+    const packed = decodeReleaseTransport(await packProducerTransport(report, (name) => readFile(join(root, "outputs", name))));
+    const origin = JSON.parse(packed.get("release-execution-origin.json"));
+    assert.deepEqual(Object.keys(origin.checks).sort(), ["compiled_inputs", "locked_dependencies"]);
+    assert.deepEqual(origin.unattested_checks, []);
+    assert.equal(origin.subject.public_build_inputs_sha256, sha256(bytes));
   } finally { await rm(root, { recursive: true }); }
 });
 test("synthetic build writes exact observed bytes and provenance, never declares release/deployment complete", async () => {

@@ -36,7 +36,8 @@ export function consumerFixture({ includeWorker = true } = {}) {
     claims.push(claim);
   }
   const report = { ...eligibility, eligibility_run: { run_id: 30, run_attempt: 1, coordinator_sha: coordinator },
-    build: { status: "BUILD_OUTPUTS_GENERATED", source_sha: commit, worker_version_id: version, artifacts: claims } };
+    build: { status: "BUILD_OUTPUTS_GENERATED", source_sha: commit, worker_version_id: version, artifacts: claims,
+      public_inputs_sha256: sha256(Buffer.from("synthetic independent build inputs")) } };
   files.set("release-report.json", recordBytes(report));
   for (const check of ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"]) {
     const evidence = Buffer.from(`synthetic ${check} evidence`), hash = sha256(evidence);

@@ -94,7 +94,11 @@ test("producer packages only explicit filenames and preserves blocked reports wi
   assert.equal(decodeReleaseTransport(raw).size, 1); assert.equal(reads, 0);
   const f = consumerFixture();
   const actual = await packProducerTransport(f.report, async (name) => f.files.get(name));
-  assert.equal(decodeReleaseTransport(actual).size, 7);
+  const files = decodeReleaseTransport(actual);
+  assert.equal(files.size, 8);
+  const origin = JSON.parse(files.get("release-execution-origin.json"));
+  assert.deepEqual(origin.checks, {});
+  assert.equal(origin.scope, "fusou-release-execution-origin-v1");
   f.report.build.artifacts[0].file = "../protected";
   await assert.rejects(packProducerTransport(f.report, async () => { throw new Error("must not read"); }), /filename/);
 });

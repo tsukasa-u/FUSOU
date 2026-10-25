@@ -86,9 +86,9 @@ jobs:
               const { inspectWorkerSourceAt } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-worker-source.mjs`).href);
               report.worker_source = await inspectWorkerSourceAt(github, report.commit_sha);
             }
-            const { packProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
+            const { packProducerTransport: packCapturedProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
             const { readRegularFile } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-build.mjs`).href);
-            const transport = await packProducerTransport(report,
+            const transport = await packCapturedProducerTransport(report,
               (name) => readRegularFile(join(process.env.GITHUB_WORKSPACE, 'release-output', name)));
             writeFileSync('release-transport.json', transport);
             await core.summary.addCodeBlock(JSON.stringify(report, null, 2), 'json').write();

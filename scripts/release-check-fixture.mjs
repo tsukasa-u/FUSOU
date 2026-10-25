@@ -9,6 +9,9 @@ import { jsonBytes, checkContext, recordCheckExecution, recordCompiledInputsExec
   captureOfflineExecution, OFFLINE_BUNDLE_ARTIFACTS, LOCK_PATHS } from "./release-checks.mjs";
 import { verifyProducerBuild } from "./release-build-proof.mjs";
 import { createWasmArtifactProvenance, WASM_ARTIFACT_NAMES, WASM_BUILD_ARGUMENTS } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/wasm-provenance.mjs";
+import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
+import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
+import { EXECUTION_ORIGIN_FILE, executionSubject, executionDescriptor } from "./release-execution-origin.mjs";
 
 export function workerSourceFixture() {
   const files = new Map(WORKER_SOURCE_PATHS.map((path) => [path, Buffer.from(`// synthetic source snapshot: ${path}\n`)]));
@@ -135,7 +138,10 @@ export async function checkFixture() {
   nativeInputs.set("trusted_notary_registry", jsonBytes(security.notary_registry));
   nativeInputs.set("origin_inventory", Buffer.from(f.publicInput.verification.independentInputs.origin_inventory_raw, "base64url"));
   nativeInputs.set("target_approval", Buffer.from(f.publicInput.verification.independentInputs.target_approval_raw, "base64url"));
+  const executable = Buffer.from("independently pinned synthetic executable");
+  nativeInputs.set("verifier_executable", executable);
   const offline = { executable_sha256: sha256(Buffer.from("independently pinned synthetic executable")),
+    executable_version: "synthetic-verifier-v1",
     input_sha256: Object.fromEntries([...nativeInputs].map(([name, raw]) => [name, sha256(raw)])),
     options: Object.fromEntries(["evidence-root-key-id", "evidence-root-public-key-spki", "session-authority-key-id",
       "session-authority-public-key-spki", "binding-authority-key-id", "binding-authority-public-key-spki", "canonical-user-id",
@@ -148,7 +154,8 @@ export async function checkFixture() {
   const nativeReport = { status: "VERIFIED", verification: "FUSOU_TLSN_EVIDENCE_BUNDLE",
     trust: Object.fromEntries(["evidence_root", "result_registry", "result_signature", "result_evidence_binding",
       "tlsn_presentation", "notary", "artifact_manifest"].map((key) => [key, "VERIFIED"])), derived: offline.expected_derived };
-  const executor = async ({ argv }) => ({ argv, stdout: jsonBytes(nativeReport), exit_code: 0, executable_sha256: offline.executable_sha256 });
+  const executor = async ({ argv }) => ({ argv, stdout: jsonBytes(nativeReport), exit_code: 0, executable_sha256: offline.executable_sha256,
+    executable_before: executable, executable_after: executable, executable_version: offline.executable_version });
   const offlineExecution = await captureOfflineExecution({ context, inputs: nativeInputs, policy: offline }, { execute: executor }); add(offlineExecution);
   f.dependencies.authenticateOfflineExecution = async () => offlineExecution.executionProof;
   const checkPolicy = { schema_version: 1, scope: "fusou-release-check-inputs-v1", repository: context.repository, source_sha: sourceSha,
@@ -159,7 +166,10 @@ export async function checkFixture() {
   f.github.rest.repos.getContent = async (p) => {
     if (!WORKER_SOURCE_PATHS.includes(p.path) && p.path !== LOCK_PATHS[1]) return originalContent(p);
     if (!sourceFiles.has(p.path)) throw Object.assign(new Error("source not found"), { status: 404 });
-    if (p.ref !== sourceSha) throw new Error("wrong exact source ref");
+    if (p.ref !== sourceSha) {
+      if (p.ref === f.run.head_sha || p.ref === f.options.trustedSha) return originalContent(p);
+      throw new Error("wrong exact source ref");
+    }
     const raw = sourceFiles.get(p.path);
     return { data: { type: "file", encoding: "base64", content: raw.toString("base64"),
       sha: createHash("sha1").update(`blob ${raw.length}\0`).update(raw).digest("hex") } };
@@ -167,6 +177,21 @@ export async function checkFixture() {
   Object.assign(f.options, { nowMs: 1000, publicInputsBytes: jsonBytes(f.publicInput), publicInputsSha256: sha256(jsonBytes(f.publicInput)),
     publicBuildInputsBytes: jsonBytes(publicBuildInputs), publicBuildInputsSha256: sha256(jsonBytes(publicBuildInputs)),
     checkPolicyBytes: jsonBytes(checkPolicy), checkPolicySha256: sha256(jsonBytes(checkPolicy)) });
+  f.report.build.public_inputs_sha256 = f.options.publicBuildInputsSha256;
+  f.files.set("release-report.json", jsonBytes(f.report));
+  // A mock authenticated GitHub issuer, not a producer execution or signature.
+  f.files.set(EXECUTION_ORIGIN_FILE, jsonBytes({ schema_version: 1, scope: "fusou-release-execution-origin-v1",
+    issuer: { kind: "github-actions-artifact", repository: context.repository, workflow_path: f.run.path,
+      run_id: f.run.id, run_attempt: f.run.run_attempt, workflow_sha: f.run.head_sha },
+    subject: executionSubject(f.report), unattested_checks: [],
+    checks: Object.fromEntries(["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"].map((check) => {
+      const raw = f.files.get(`check-${check}.json`), record = JSON.parse(raw);
+      return [check, executionDescriptor(raw, f.files.get(`evidence-${record.evidence_sha256}.bin`))];
+    })) }));
+  f.sync();
+  const downloaded = await acquireReleaseTransport({ github: f.github, run: f.run, downloadArchive: f.options.downloadArchive, ...f.dependencies.transport });
+  const intake = createCrossRunExecutionIntake({ github: f.github, run: f.run, trustedSha: f.options.trustedSha,
+    downloaded, eligibility: f.eligibility, publicBuildInputsSha256: f.options.publicBuildInputsSha256 });
   const build = verifyProducerBuild({ run: f.run, eligibility: f.eligibility, files: f.files,
     origin: { ...f.metadata(), run_id: f.run.id, workflow_sha: f.run.head_sha } });
   const records = Object.fromEntries(["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"].map(
@@ -183,5 +208,12 @@ export async function checkFixture() {
     config: { github: f.github, publicBuildInputsBytes: f.options.publicBuildInputsBytes, publicBuildInputsSha256: f.options.publicBuildInputsSha256,
       checkPolicyBytes: f.options.checkPolicyBytes, checkPolicySha256: f.options.checkPolicySha256,
       authenticateOfflineExecution: f.dependencies.authenticateOfflineExecution,
-      authenticateArchiveReadback: f.dependencies.authenticateArchiveReadback, nowMs: 1000 } };
+      authenticateArchiveReadback: f.dependencies.authenticateArchiveReadback,
+      authenticateCheckExecution: (execution) => {
+        if (["archive_readback", "offline_verification"].includes(execution.check)) {
+          throw new ReleaseBlocked(execution.check === "archive_readback" ?
+            "AUTHENTICATED_ARCHIVE_READBACK_INTAKE_NOT_CONFIGURED" : "AUTHENTICATED_OFFLINE_EXECUTION_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
+        }
+        return intake.authenticate(execution);
+      }, nowMs: 1000 } };
 }

@@ -6,27 +6,40 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { producerArtifactName, requireRelease } from "./release-build-proof.mjs";
+import { createProducerExecutionOrigin, EXECUTION_ORIGIN_FILE } from "./release-execution-origin.mjs";
+const authenticatedTransports = new WeakMap();
+const transportBinding = ({ files, origin }, run) => canonicalJson({ origin, run,
+  files: Object.fromEntries([...files].map(([name, bytes]) => [name,
+    { sha256: createHash("sha256").update(bytes).digest("hex"), byte_length: bytes.byteLength }])) });
+export function assertAuthenticatedReleaseTransport(downloaded, run) {
+  requireRelease(authenticatedTransports.get(downloaded.authenticationProof) === transportBinding(downloaded, run),
+    "unauthenticated/changed GitHub release transport");
+}
 
 // Operational admission limits, not a bound on process RSS.
 export const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 export const MAX_TRANSPORT_BYTES = 512 * 1024 * 1024;
 const fileName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const exec = promisify(execFile);
-export async function packProducerTransport(report, readOutput) {
+export async function packProducerTransport(report, readOutput, { executionProofs } = {}) {
   const files = new Map([["release-report.json", Buffer.from(canonicalJson(report))]]);
   if (report.build?.status === "BUILD_OUTPUTS_GENERATED") {
     for (const claim of report.build.artifacts) {
       for (const name of [claim.file, claim.build_record_file, claim.provenance_file]) {
-        requireRelease(typeof name === "string" && fileName.test(name) && name !== "__proto__", "producer output filename");
+        requireRelease(typeof name === "string" && fileName.test(name) && name !== "__proto__" && name !== EXECUTION_ORIGIN_FILE,
+          "producer output filename");
         requireRelease(!files.has(name), "duplicate producer output filename");
         files.set(name, await readOutput(name));
       }
-      for (const name of report.build.check_files ?? []) {
+    }
+    for (const name of report.build.check_files ?? []) {
         requireRelease(/^(?:check-[a-z_]+\.json|evidence-[A-Za-z0-9_-]{43}\.bin|app-compiled-observations\.json)$/.test(name) &&
           !files.has(name), "producer check output filename");
         files.set(name, await readOutput(name));
-      }
     }
+    files.set(EXECUTION_ORIGIN_FILE, createProducerExecutionOrigin({ report, files, executionProofs,
+      context: { repository: "tsukasa-u/FUSOU", source_sha: report.commit_sha,
+        run_id: report.eligibility_run.run_id, run_attempt: report.eligibility_run.run_attempt, workflow_sha: report.coordinator_sha } }));
   }
   return encodeReleaseTransport(files);
 }
@@ -127,6 +140,9 @@ export async function acquireReleaseTransport({ github, run, downloadArchive, re
   const fresh = (await github.rest.actions.getArtifact({ owner: "tsukasa-u", repo: "FUSOU", artifact_id: metadata.id })).data;
   assertMetadata(fresh, run);
   requireRelease(canonicalJson(fresh) === snapshot, "artifact metadata changed during readback");
-  return { files, origin: Object.freeze({ id: metadata.id, name: metadata.name, digest: metadata.digest,
-    run_id: run.id, workflow_sha: run.head_sha }), archive_byte_length: archive.length };
+  const result = { files: new Map([...files].map(([name, raw]) => [name, Buffer.from(raw)])),
+    origin: Object.freeze({ id: metadata.id, name: metadata.name, digest: metadata.digest,
+      run_id: run.id, workflow_sha: run.head_sha }), archive_byte_length: archive.length, authenticationProof: Object.freeze({}) };
+  authenticatedTransports.set(result.authenticationProof, transportBinding(result, run));
+  return result;
 }

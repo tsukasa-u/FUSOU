@@ -9,6 +9,14 @@ import { LOCK_PATHS, recordLockedDependenciesExecution, recordCompiledInputsExec
 import { readRegularFile } from "./release-files.mjs";
 import { buildUnsignedWorker } from "./release-worker-build.mjs";
 export { readRegularFile } from "./release-files.mjs";
+const localBuildExecutions = new WeakMap();
+export function assertLocalBuildCheckExecution(proof, { build, check, recordRaw, receiptRaw }) {
+  const captured = localBuildExecutions.get(proof);
+  if (!captured || captured.build_sha256 !== sha256(Buffer.from(canonicalJson(build))) ||
+      captured.checks[check]?.record_sha256 !== sha256(recordRaw) || captured.checks[check]?.receipt_sha256 !== sha256(receiptRaw)) {
+    throw new Error("unauthenticated/mismatched local build execution");
+  }
+}
 
 async function buildUnsignedApp({ inputs, eligibility, workspace, sourceToken }) {
   const {
@@ -212,7 +220,7 @@ export async function generateReleaseBuild({
       }
     }
   }
-  return {
+  const generated = {
     status: "BUILD_OUTPUTS_GENERATED", tag_status: eligibility.status,
     source_sha: eligibility.commit_sha, public_inputs_sha256: publicInputsSha256,
     worker_version_id: record.active_version_id,
@@ -223,4 +231,18 @@ export async function generateReleaseBuild({
     artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED", deployment_status: "NOT_CHECKED", publication_authorized: false,
     blockers: ["COMPLETE_RELEASE_MANIFEST_AND_INDEPENDENT_CONSUMER_REQUIRED"], deployed: false,
   };
+  if (built.execution) {
+    const captured = {};
+    for (const check of ["locked_dependencies", "compiled_inputs"]) {
+      const raw = checkFiles.get(`check-${check}.json`);
+      if (raw) {
+        const record = JSON.parse(raw);
+        captured[check] = { record_sha256: sha256(raw), receipt_sha256: record.evidence_sha256 };
+      }
+    }
+    const proof = Object.freeze({});
+    localBuildExecutions.set(proof, { build_sha256: sha256(Buffer.from(canonicalJson(generated))), checks: captured });
+    Object.defineProperty(generated, "executionProof", { value: proof });
+  }
+  return generated;
 }

@@ -4,6 +4,7 @@ import { assertProducerRun, verifyProducerBuild, parseReleaseRecord, requireRele
 import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { sha256, encodeReleaseManifest, validateReleaseManifest, assertReleaseRuntimeConfigBinding } from "./release-manifest.mjs";
 import { verifyReleaseChecks } from "./release-checks.mjs";
+import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
 
 const repository = { owner: "tsukasa-u", repo: "FUSOU" };
 const checks = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
@@ -130,7 +131,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
   const result = { schema_version: 1, status: "BLOCKED_EXTERNAL_INPUTS", tag_status: "NOT_CHECKED",
     build_status: "NOT_CHECKED", artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED",
     deployment_status: "NOT_CHECKED", publication_authorized: false, production_acceptance: "BLOCKED", blockers: [] };
-  let finalRecheck;
+  let finalRecheck, executionIntake;
   try {
     const downloaded = await acquireReleaseTransport({ github, run, downloadArchive, ...dependencies.transport });
     result.transport = downloaded.origin;
@@ -150,6 +151,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       const fresh = await evaluate();
       requireRelease(["tag", "commit_sha", "validation_run_attempt", "validation_workflow_blob_sha"].every(
         (key) => fresh[key] === eligibility[key]), "release changed during consumption");
+      if (executionIntake) await executionIntake.recheck();
     };
     finalRecheck = recheck;
     if (report.build?.status === "BLOCKED_EXTERNAL_INPUTS") {
@@ -159,6 +161,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       return result;
     }
     const build = verifyProducerBuild({ run, ...downloaded, eligibility });
+    executionIntake = createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256 });
     result.build_status = "BUILD_OUTPUTS_VERIFIED";
     if (!build.artifacts.some((a) => a.role === "worker")) {
       const blocked = build.report.build.worker_build;
@@ -173,7 +176,8 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       const verify = dependencies.verifyCheckEvidence ?? ((args) => verifyReleaseChecks(args,
         { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
           authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
-          authenticateArchiveReadback: dependencies.authenticateArchiveReadback, nowMs }));
+          authenticateArchiveReadback: dependencies.authenticateArchiveReadback,
+          authenticateCheckExecution: dependencies.authenticateCheckExecution ?? executionIntake.authenticate, nowMs }));
       try {
         const partial = await verify({ ...checkData, build, eligibility, run });
         result.check_results = partial?.checks;
@@ -187,7 +191,8 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     const assembled = await assembleReleaseManifest({ eligibility, run, build, files: downloaded.files, inputs },
       { ...dependencies, checkVerification: { github, publicBuildInputsBytes, publicBuildInputsSha256,
         checkPolicyBytes, checkPolicySha256, authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
-        authenticateArchiveReadback: dependencies.authenticateArchiveReadback, nowMs } });
+        authenticateArchiveReadback: dependencies.authenticateArchiveReadback,
+        authenticateCheckExecution: dependencies.authenticateCheckExecution ?? executionIntake.authenticate, nowMs } });
     const validated = validateReleaseManifest(assembled.manifestBytes, assembled.observations);
     await recheck();
     return { ...result, ...validated, artifact_status: "RELEASE_ARTIFACTS_VALIDATED",

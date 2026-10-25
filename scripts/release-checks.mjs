@@ -9,11 +9,19 @@ import { ReleaseBlocked } from "./release-transport.mjs";
 import { readReleaseSource, inspectWorkerSourceAt, encodeUnsignedWorkerPackage, parseUnsignedWorkerPackage } from "./release-worker-source.mjs";
 import { assertCanonicalServerIdentity } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs";
 import { assertReleaseWasmProof } from "./release-wasm-proof.mjs";
+import { assertAuthenticatedCrossRunExecution } from "./release-execution-intake.mjs";
 
 export const CHECKS = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
 // Data-only artifacts cannot carry these in-process execution capabilities.
 const offlineExecutionProofs = new WeakMap();
 const archiveReadbackProofs = new WeakMap();
+export function assertLocalCapturedExecution(proof, { check, receipt, inputs }) {
+  const expected = { receipt_sha256: sha256(jsonBytes(receipt)), inputs: descriptors(inputs) };
+  if (check === "offline_verification") expected.executable_sha256 = receipt.output.executable_sha256;
+  requireRelease(["archive_readback", "offline_verification"].includes(check) &&
+    isDeepStrictEqual((check === "archive_readback" ? archiveReadbackProofs : offlineExecutionProofs).get(proof), expected),
+  "unauthenticated/mismatched local execution capture");
+}
 export const LOCK_PATHS = ["pnpm-lock.yaml", "packages/FUSOU-APP/src-tauri/Cargo.lock", "package.json"];
 export const jsonBytes = (value) => Buffer.from(canonicalJson(value));
 export function checkContext(run, sourceSha) {
@@ -252,13 +260,19 @@ export async function captureArchiveReadback({ context, expected, sourceBytes, b
   archiveReadbackProofs.set(execution.executionProof, { receipt_sha256: sha256(execution.receipt), inputs: descriptors(inputs) });
   return execution;
 }
+export function resolvePinnedArchiveObject(policy, role, observed) {
+  const expected = policy.objects?.[role];
+  requireRelease(expected && observed && Object.entries(expected).every(([key, value]) => observed[key] === value),
+    "archive independent capture resolver mismatch");
+  return expected;
+}
 export function verifyArchiveReadback({ inputs, receipt, policy, nowMs }) {
   requireRelease(Number.isSafeInteger(nowMs) && Number.isSafeInteger(policy.not_before_ms) &&
     Number.isSafeInteger(policy.max_age_ms) && policy.max_age_ms > 0 &&
     receipt.output.session_id === policy.session_id && receipt.output.capture_id === policy.capture_id &&
     Array.isArray(receipt.output.objects) && receipt.output.objects.length === 2, "archive session/capture correlation");
   for (const role of ["presentation", "result"]) {
-    const identity = policy.objects[role], object = receipt.output.objects.find((o) => o.role === role);
+    const object = receipt.output.objects.find((o) => o.role === role), identity = resolvePinnedArchiveObject(policy, role, object);
     requireRelease(identity.role === role && identity.session_id === policy.session_id && identity.capture_id === policy.capture_id &&
       ["backend_id", "object_key", "version_id", "session_id", "capture_id", "job_id", "verification_attempt_id", "binding_id", "source_sha", "sha256"]
         .every((key) => typeof identity[key] === "string" && identity[key].length > 0) &&
@@ -266,7 +280,6 @@ export function verifyArchiveReadback({ inputs, receipt, policy, nowMs }) {
       identity.job_id === policy.objects.result.job_id &&
       identity.binding_id === policy.objects.result.binding_id && identity.source_sha === policy.source_sha &&
       identity.object_key === `tlsn-verification/${identity.verification_attempt_id}/${role}.${role === "presentation" ? "bin" : "json"}` &&
-      object && Object.entries(identity).every(([key, value]) => object[key] === value) &&
       Number.isSafeInteger(object.read_at_ms) && object.read_at_ms >= policy.not_before_ms &&
       object.read_at_ms <= nowMs && nowMs - object.read_at_ms <= policy.max_age_ms, "archive origin/version/freshness");
     const saved = inputs.get(`saved_${role}`), readback = inputs.get(`readback_${role}`);
@@ -301,6 +314,10 @@ export const OFFLINE_BUNDLE_ARTIFACTS = ["presentation", "result", "result_regis
   "capture_metadata", "semantic_verification", "trust_root", "subject"];
 export function offlineLayout(policy, inputs) {
   const files = new Map(), required = [...Object.keys(fileFlags)], bundle = JSON.parse(Buffer.from(inputs.get("bundle")));
+  requireRelease(typeof policy.executable_version === "string" && policy.executable_version.length > 0 &&
+    inputs.get("verifier_executable") instanceof Uint8Array &&
+    sha256(inputs.get("verifier_executable")) === policy.executable_sha256, "pinned native executable bytes/version");
+  required.push("verifier_executable");
   requireRelease(bundle.artifacts && OFFLINE_BUNDLE_ARTIFACTS.every((role) => bundle.artifacts[role]), "native bundle required artifacts");
   for (const role of Object.keys(fileFlags)) files.set(`${role}.input`, inputs.get(role));
   for (const [role, descriptor] of Object.entries(bundle.artifacts)) {
@@ -335,12 +352,16 @@ export async function captureOfflineExecution({ context, inputs, policy }, { exe
     policySnapshot.equals(jsonBytes(policy)) && contextSnapshot.equals(jsonBytes(context)) &&
     isDeepStrictEqual(fileSnapshot, descriptors(executionFiles)) &&
     result.stdout instanceof Uint8Array &&
+    result.executable_before instanceof Uint8Array && result.executable_after instanceof Uint8Array &&
+    Buffer.from(result.executable_before).equals(inputs.get("verifier_executable")) &&
+    Buffer.from(result.executable_after).equals(result.executable_before) &&
+    result.executable_version === policy.executable_version &&
     result.executable_sha256 === policy.executable_sha256 && isDeepStrictEqual(result.argv, argv) &&
     Number.isInteger(result.exit_code), "native execution source/executable/command");
   const rawInputs = new Map(inputs); rawInputs.set("stdout", result.stdout);
   if (result.exit_code === 0) assertOfflineReport(result.stdout, policy);
   const execution = recordCheckExecution("offline_verification", context, rawInputs,
-    { executable_sha256: result.executable_sha256, argv, stdout_sha256: sha256(result.stdout) },
+    { executable_sha256: result.executable_sha256, executable_version: result.executable_version, argv, stdout_sha256: sha256(result.stdout) },
     result.exit_code === 0 ? {} : { status: "FAIL", exitCode: result.exit_code, error: "native verifier rejected evidence" });
   if (result.exit_code === 0) {
     execution.executionProof = Object.freeze({});
@@ -367,6 +388,7 @@ function assertOfflineReport(stdout, policy) {
 }
 export function verifyOfflineExecution({ inputs, receipt, policy, archiveInputs, archivePolicy, context }) {
   requireRelease(receipt.output.executable_sha256 === policy.executable_sha256 &&
+    receipt.output.executable_version === policy.executable_version &&
     isDeepStrictEqual(receipt.output.argv, offlineInvocation(policy)), "offline executable/independent arguments");
   const stdout = inputs.get("stdout");
   requireRelease(stdout instanceof Uint8Array && sha256(stdout) === receipt.output.stdout_sha256, "offline actual stdout");
@@ -386,10 +408,10 @@ export function verifyOfflineExecution({ inputs, receipt, policy, archiveInputs,
 }
 export async function verifyReleaseChecks({ records, evidenceBytes, build, eligibility, inputs, payload, run },
   { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
-    authenticateOfflineExecution, authenticateArchiveReadback, nowMs = Date.now() } = {}) {
+    authenticateOfflineExecution, authenticateArchiveReadback, authenticateCheckExecution, nowMs = Date.now() } = {}) {
   requireRelease(build.artifacts.length > 0, "check producer build origin required");
   for (const artifact of build.artifacts) assertArtifactBuildProof(build.buildProofs.get(artifact.name), artifact);
-  const context = checkContext(run, eligibility.commit_sha), results = {}, verified = {};
+  const context = checkContext(run, eligibility.commit_sha), results = {}, verified = {}, locallyAuthenticated = new Set();
   const pinnedPolicy = () => {
     const policy = parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1");
     requireRelease(policy.repository === context.repository && policy.source_sha === context.source_sha,
@@ -415,13 +437,16 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
         if (!checkPolicy.archive) throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_CONTEXT_MISSING");
         requireRelease(checkPolicy.archive.source_sha === context.source_sha, "archive policy/release source");
         verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, nowMs });
-        if (typeof authenticateArchiveReadback !== "function") {
+        if (typeof authenticateArchiveReadback !== "function" && typeof authenticateCheckExecution !== "function") {
           throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_READBACK_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
         }
-        const proof = await authenticateArchiveReadback({ ...execution, policy: checkPolicy.archive, context });
-        requireRelease(proof && isDeepStrictEqual(archiveReadbackProofs.get(proof), {
+        if (typeof authenticateArchiveReadback === "function") {
+          const proof = await authenticateArchiveReadback({ ...execution, policy: checkPolicy.archive, context });
+          requireRelease(proof && isDeepStrictEqual(archiveReadbackProofs.get(proof), {
           receipt_sha256: sha256(jsonBytes(execution.receipt)), inputs: descriptors(execution.inputs),
-        }), "unauthenticated/mismatched archive readback proof");
+          }), "unauthenticated/mismatched archive readback proof");
+          locallyAuthenticated.add(check);
+        }
       }
       if (check === "offline_verification") {
         const checkPolicy = pinnedPolicy();
@@ -445,13 +470,39 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
         "offline signed Runtime Config Notary registry/identity");
         verifyOfflineExecution({ ...execution, policy: checkPolicy.offline, archiveInputs: verified.archive_readback.inputs,
           archivePolicy: checkPolicy.archive, context });
-        if (typeof authenticateOfflineExecution !== "function") {
+        if (typeof authenticateOfflineExecution !== "function" && typeof authenticateCheckExecution !== "function") {
           throw new ReleaseBlocked("AUTHENTICATED_OFFLINE_EXECUTION_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
         }
-        const proof = await authenticateOfflineExecution({ ...execution, policy: checkPolicy.offline, context });
-        assertAuthenticatedOfflineExecution(proof, execution, checkPolicy.offline);
+        if (typeof authenticateOfflineExecution === "function") {
+          const proof = await authenticateOfflineExecution({ ...execution, policy: checkPolicy.offline, context });
+          assertAuthenticatedOfflineExecution(proof, execution, checkPolicy.offline);
+          locallyAuthenticated.add(check);
+        }
       }
       verified[check] = execution; results[check] = { status: "VERIFIED", evidence_sha256: records[check].evidence_sha256 };
+    } catch (error) {
+      if (!(error instanceof ReleaseBlocked)) throw error;
+      results[check] = { status: error.status, blocker: error.code };
+    }
+  }
+  for (const check of CHECKS.filter((name) => verified[name])) {
+    try {
+      if (check === "offline_verification" && results.archive_readback.status !== "VERIFIED") {
+        throw new ReleaseBlocked("VERIFIED_ARCHIVE_READBACK_REQUIRED");
+      }
+      if (locallyAuthenticated.has(check)) {
+        results[check].authentication = "LOCAL_CAPTURE_ONLY";
+        results[check].verification = checkVerificationLayers(check, "LOCAL_CAPTURE_ONLY");
+        continue;
+      }
+      if (typeof authenticateCheckExecution !== "function") {
+        throw new ReleaseBlocked(`AUTHENTICATED_${check.toUpperCase()}_INTAKE_NOT_CONFIGURED`, "BLOCKED_IMPLEMENTATION");
+      }
+      const execution = { check, ...verified[check], context, build };
+      const proof = await authenticateCheckExecution(execution);
+      assertAuthenticatedCrossRunExecution(proof, execution);
+      results[check].authentication = "GITHUB_ACTIONS_ARTIFACT";
+      results[check].verification = checkVerificationLayers(check, "GITHUB_ACTIONS_ARTIFACT");
     } catch (error) {
       if (!(error instanceof ReleaseBlocked)) throw error;
       results[check] = { status: error.status, blocker: error.code };
@@ -464,4 +515,11 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
     error.check_results = results; throw error;
   }
   return { status: "CHECK_EXECUTIONS_VERIFIED", checks: results };
+}
+function checkVerificationLayers(check, authentication) {
+  return { evidence_presence: "OBSERVED", raw_byte_binding: "VERIFIED", producer_authentication: authentication,
+    execution_context: "VERIFIED", target_correlation: ["archive_readback", "offline_verification"].includes(check) ? "VERIFIED" : "NOT_APPLICABLE",
+    independent_verifier_result: check === "offline_verification" ?
+      authentication === "GITHUB_ACTIONS_ARTIFACT" ? "AUTHENTICATED_NATIVE_EXECUTION_REPORT" : "LOCAL_CAPTURE_ONLY" : "NOT_APPLICABLE",
+    consumer_native_crypto_reexecution: "NOT_CHECKED" };
 }

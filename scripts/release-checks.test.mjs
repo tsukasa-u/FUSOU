@@ -212,7 +212,8 @@ test("native executor is opt-in, receives all formal CLI files, and rejected out
   await assert.rejects(captureOfflineExecution(args), /OFFLINE_EXECUTOR/);
   let filesSeen;
   await captureOfflineExecution(args, { execute: async (request) => { filesSeen = request.files; return f.executor(request); } });
-  assert.equal(filesSeen.size, f.nativeInputs.size);
+  assert.equal(filesSeen.size, f.nativeInputs.size - 1);
+  assert.equal(filesSeen.has("verifier_executable.input"), false);
   await assert.rejects(captureOfflineExecution(args, { execute: async (request) => ({
     ...await f.executor(request), stdout: jsonBytes({ status: "REJECTED" }),
   }) }), /result\/trust/);

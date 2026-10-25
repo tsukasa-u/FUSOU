@@ -1420,3 +1420,197 @@ real archive, native cryptographic verification, real game, key generation,
 Production signing/publication/deployment, push, PR or tag creation was
 performed. Hudsucker remains the dependency/default; no Rust runtime
 equivalence to Rama was claimed. Production acceptance remains **BLOCKED**.
+
+## Authenticated cross-run execution evidence intake
+
+This follow-up started on `tlsn-first-testplay-candidate` at
+`78fc0b87d01313019e9d0caa6c4a6bb37a5a01a3`, with the selected task paths
+and their index entries clean. The owner explicitly selected reuse of the
+existing trusted coordinator and GitHub authentication contract. This does
+not approve a new signing key, arbitrary collector workflow, historical target
+approval, or Production trust pin.
+
+### Authentication root and the six distinct verification layers
+
+The root remains authenticated GitHub API metadata for `tsukasa-u/FUSOU`:
+the existing main-history coordinator workflow, exact producer run/attempt,
+workflow revision, unique attempt-qualified artifact name, repository identity,
+artifact ID/API archive SHA-256, downloaded archive bytes, and metadata readback.
+Git blob identity is not a raw evidence SHA-256 or a Cloudflare version ID.
+No OIDC permission, new signature wire format, signing credential, or external
+attestation issuer was added.
+
+1. **Existence:** the required record, receipt, and raw inputs must be present;
+   a `PASS` string or `authenticated: true` is not an existence proof.
+2. **Byte binding:** existing raw artifact/evidence hashes and lengths are
+   checked, including executable bytes. Downloaded files are copied and bound
+   to a private transport capability; changing any file invalidates it.
+3. **Issuer authentication:** the producer's
+   [`release-execution-origin.mjs`](../../scripts/release-execution-origin.mjs)
+   only records checks backed by its private, process-local build/capture
+   capability. The JSON origin file is **not itself a signature**. The consumer
+   requires the API-authenticated artifact and independently compares all
+   pinned capture implementation Git blobs against its trusted main revision.
+   The fixed allowlist covers 35 JavaScript modules plus the coordinator
+   workflow; a literal local JavaScript import-closure regression test guards
+   against omitting a transitive helper. Artifact contents cannot extend it.
+4. **Execution scope:** source SHA, producer workflow SHA, run/attempt,
+   validation run/attempt, tag, exact report, independently pinned public build
+   inputs, check record, receipt, and raw-input digest must match.
+5. **TLSN target correlation:** the independently pinned check policy, not
+   the candidate's origin record, supplies archive capture/session/job/attempt/
+   binding/source/object key/immutable generation expectations. Readback bytes
+   must equal saved bytes, and those bytes must be the verifier inputs together
+   with the required receipt/registry bundle artifacts. The named
+   `resolvePinnedArchiveObject` enforces this policy-to-observation lookup; it
+   is not a live R2 client or a newly authenticated registry service.
+6. **Independent verifier result:** authenticated native execution reports
+   are separately labeled `AUTHENTICATED_NATIVE_EXECUTION_REPORT`. Consumer
+   native cryptographic reexecution remains `NOT_CHECKED`; Node structural
+   checks are not TLSN/Notary/signature verification. Local capabilities remain
+   labeled `LOCAL_CAPTURE_ONLY`, not cross-run authentication.
+
+[`release-execution-intake.mjs`](../../scripts/release-execution-intake.mjs)
+mints a new, private consumer proof only after these checks. It does not
+deserialize a producer capability. Producer reruns, changed artifacts, changed
+target scope, missing origin, and unattested checks are rejected or blocked.
+Final consumption rechecks producer attempt and artifact metadata as well as
+the existing live tag check. Revalidating the same immutable artifact against
+the same scope within the required freshness window is intentionally
+idempotent; no global single-use ledger is implemented or claimed.
+
+Runtime Config, registry, and deployment attestation signatures retain their
+existing scopes; they are not repurposed as arbitrary execution signatures.
+Issuer/workflow and public input expectations come from trusted code,
+independent API observations, and separately pinned consumer inputs, not
+the candidate manifest. Current hostname/Inventory/Target Approval,
+Runtime Config signature/expiry/epoch/root, Worker reference, and WASM
+source/compiler requirements remain in their existing production validators.
+Historical `APPROVED` markers do not supply these expectations.
+
+### Four check paths and their actual evidence status
+
+| Check | Implemented path | Evidence observed in this follow-up |
+|---|---|---|
+| `locked_dependencies` | Actual builder execution produces a nonserializable build capability; packaging binds frozen/locked commands, lockfile bytes, source, toolchain, records and run context; consumer authenticates the captured record. Worker import/source closure is independently checked with the compiled-input evidence. | Mock process/API contract tests only; real frozen/locked execution `NOT_CHECKED`. |
+| `compiled_inputs` | The same build capability binds APP/Worker artifact and build/provenance bytes, APP invocation/output observations, Worker modules, WASM sidecars/source/compiler pins, compile/bootstrap inputs, public pins and Runtime Config reference. | Mock builds only; APP/Worker build, launch and fresh WASM ABI `NOT_CHECKED`. |
+| `archive_readback` | Existing capture checks actual callback-returned bytes/version/metadata; origin packaging accepts only its private capture capability; intake and the pinned capture resolver bind exact raw inputs and immutable object metadata. | Mock backend only. Real R2 backend/capture registration in the producer workflow is `BLOCKED_IMPLEMENTATION`; real readback `NOT_CHECKED`. |
+| `offline_verification` | Exact executable bytes/digest, independently expected version, before/after executable measurements, CLI arguments/input bytes, exit/stdout/structured native report and archive/receipt/registry correlation are required before capture and cross-run intake. | Mock executor only. The approved formal native launcher/version observation adapter is `BLOCKED_IMPLEMENTATION`; real native cryptographic verification `NOT_CHECKED`. |
+
+The existing coordinator now packages capture-gated origin data, and the
+existing trusted-main consumer invokes the intake by default. The coordinator
+has no registered real archive/native collector: missing capabilities are
+explicitly `unattested_checks`, never fabricated successful captures.
+Serialized proofs, detached/unregistered signatures and bare JSON cannot
+authorize a check. The APP-plus-Worker packaging loop also now includes shared
+check files once, rather than duplicating them for each artifact.
+
+### External registration and acceptance requirements
+
+- **One-time authority setup:** authenticate the current canonical DNS
+  allowlist and its Inventory/Target Approval authority; establish existing
+  Runtime Config signer/bootstrap/epoch/registry roots, the approved Worker
+  reference authority, and independent WASM source/compiler pins. Verify raw
+  digests and scoped signatures independently. Missing values remain
+  `BLOCKED_EXTERNAL_INPUTS`; never derive roots from the candidate or historical
+  approval marker. This is not a request to manually reapprove hostnames on
+  every ordinary release.
+- **Machine-produced per-release expectations:** exact capture/session/job/
+  generation data must come from an approved independent resolver/registry and
+  be bound to the existing pinned check policy. The current file/pin contract
+  verifies those inputs, but no live catalog generator or authenticated
+  registry backend was implemented or contacted here. Register the concrete
+  backend, immutable-version semantics and approved collection implementation
+  once, then automate observations; do not substitute a per-release human
+  `PASS` declaration.
+- **Formal native execution:** register the existing verifier executable and
+  input/output contract with an approved launcher that observes actual binary
+  bytes/version, arguments, exit status and raw output. No guessed `--version`
+  flag was introduced. Supply real measured execution under the pinned
+  producer implementation and correlate all archive/receipt/registry bytes.
+- **Hosted trust boundary:** actual GitHub hosted events, main/workflow
+  protection, artifact API behavior and repository/organization credential
+  isolation still require separately authorized observation. API mock PASS
+  is not evidence that these settings exist or are correctly isolated.
+- **Real release acceptance:** separately authorize exact-source APP/Worker/
+  WASM builds, real archive capture and native verification, then require all
+  authenticated raw evidence before accepting a real release. Separate live
+  deployment/gameplay authorization and observation are still needed.
+
+Arbitrary external producer workflows and new cryptographic issuers remain
+unregistered and fail closed. This intake establishes a local implementation
+for the approved coordinator-to-consumer path, not completed real-evidence or
+Production acceptance.
+
+### Commands executed and results
+
+The first targeted run had **66 PASS / 3 FAIL / 0 cancelled / 0 skipped**:
+the authentication phase was incorrectly nested inside the structural loop,
+and a transport inventory assertion did not yet include the new origin file.
+After fixing those causes, the same four-file command had **69 PASS / 0 FAIL**:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-build.test.mjs scripts/release-consumer.test.mjs \
+  scripts/release-transport.test.mjs scripts/release-checks.test.mjs
+```
+
+Adding `scripts/release-execution-intake.test.mjs` to that command produced
+**97 PASS / 0 FAIL**, then **103 PASS / 0 FAIL** after adding explicit
+verification layers, pinned capture resolution and stale-capture rejection.
+The final run below additionally includes the capture import-closure guard:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-eligibility.test.mjs \
+  scripts/release-manifest.test.mjs \
+  scripts/release-build.test.mjs \
+  scripts/release-consumer.test.mjs \
+  scripts/release-transport.test.mjs \
+  scripts/release-worker-source.test.mjs \
+  scripts/release-worker-integration.test.mjs \
+  scripts/release-checks.test.mjs \
+  scripts/release-execution-intake.test.mjs \
+  scripts/evidence-delivery-policy.test.mjs \
+  scripts/release-workflow.test.mjs \
+  scripts/production-target-contract.test.mjs \
+  scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+**224 PASS, 0 FAIL, 0 cancelled, 0 skipped**, newly executed in this follow-up.
+The 35 additional intake tests cover issuer/subject/raw bytes/source/run/
+attempt/workflow mismatches, missing/unattested evidence, serialized capability
+rejection, artifact replacement/rerun, capture target/generation/freshness
+correlation, native binary/version measurement and complete consumer behavior.
+All positive execution tests use explicit GitHub/storage/process doubles.
+They do not certify a real archive, bundle, executable execution or issuer.
+
+Existing PyYAML parsed the four explicitly named tag/coordinator/consumer/
+legacy workflows; Node's async-function constructor compiled their five
+embedded JavaScript bodies without executing them. `node --check` passed
+for these twelve explicitly named source/test files:
+
+```sh
+for file in \
+  scripts/release-execution-origin.mjs scripts/release-execution-intake.mjs \
+  scripts/release-execution-intake.test.mjs scripts/release-build.mjs \
+  scripts/release-checks.mjs scripts/release-transport.mjs \
+  scripts/release-consumer.mjs scripts/release-check-fixture.mjs \
+  scripts/release-consumer-fixture.mjs scripts/release-build.test.mjs \
+  scripts/release-checks.test.mjs scripts/release-transport.test.mjs
+do
+  env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check "$file" || exit
+done
+```
+
+The protected files and audited Result byte-binding test were not operated on.
+No Cargo/Rust/WASM execution, APP/Worker actual build, external connection,
+credential-backed service operation, real R2 readback, native cryptographic
+verification, real gameplay, key/secret generation, Production signing,
+deployment, publication, push, PR, or tag operation was performed.
+Hudsucker and its dependencies/default were unchanged.
+`publication_authorized: false`, deployment `NOT_CHECKED` and Production
+acceptance **BLOCKED** remain mandatory, including the fully synthetic
+consumer success test. No real `RELEASE_ARTIFACTS_VALIDATED` or
+`DEPLOYMENT_VERIFIED` was established.
