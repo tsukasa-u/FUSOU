@@ -1834,3 +1834,242 @@ Source wiring and synthetic contract tests are verified, but actual producer
 connectivity is not complete. No real `RELEASE_ARTIFACTS_VALIDATED` or
 `DEPLOYMENT_VERIFIED` is established. `publication_authorized: false`,
 deployment `NOT_CHECKED` and Production acceptance **BLOCKED** remain enforced.
+
+## Read-only archive catalog and native identity investigation
+
+Branch at entry: `tlsn-first-testplay-candidate`; actual entry HEAD:
+`5f1474bac8b7854d93259485459b71a6fb4f14c1`, matching the requested baseline.
+Entry worktree/index checks were limited to the allowed task paths and were
+clean. Later checks and the local commit use explicit paths only. This section
+describes source and synthetic verification, not observed external execution.
+
+### Source implementation and independent expectations
+
+- The real archive writer now returns a snapshot **after** its existing
+  put/get, version/custom-metadata, exact-byte/length/hash checks. Failure and
+  cleanup behavior remain in the writer; no snapshot is created on failure.
+- Both Production callback and synchronous Result paths pass the Presentation
+  and exact outer Result snapshots to `commitVerifiedResult`, still after
+  both archives have been verified. Generic paths without Production inventory
+  preserve their existing behavior.
+- The existing binding authority saves a catalog in the **same storage
+  transaction** as consumed binding state, exact Result bytes and optional raw
+  verifier execution receipt bytes. Snapshot identity must match the authority's
+  session/job/attempt/binding, Presentation digest and exact Result digest/key.
+  The Result digest covers the entire envelope, including its consume receipt;
+  no reserialized inner receipt is presented as original receipt bytes.
+- Capture ID is the consumed binding ID. The two archive objects must have the
+  same configured Worker source SHA. `created_at` is recorded by the authority
+  at commit; `authority_used_at` separately preserves the consumed Result time.
+  This source SHA and the `TLSN_BINDINGS`/`TLSN_PRESENTATIONS` binding names
+  identify the source/configuration scope, **not independently authenticated
+  deployment identity or provider configuration**.
+- Existing consumed-result and replay RPCs return the optional catalog and
+  check it against independently stored authority Result/receipt bytes. Legacy
+  records without writer-observed generation cannot be backfilled from a
+  producer's claims. Same snapshots/target can be retried idempotently; changed
+  generation, digest, subject, or omission of an existing catalog cannot
+  replace it. No global single-use ledger was introduced.
+- `readAuthorityArchiveCatalog` reads the existing trusted authority interface,
+  not an intake record. `createAuthorityCatalogReadback` checks the independent
+  release source and subject/job lookup, then maps **only** Presentation/Result
+  to authority-owned keys. It exposes get only, not put/delete/list. Readback
+  metadata/version, raw length and digest must match the catalog. The exported
+  catalog is a copy and cannot mutate the reader's private expectations.
+- New modules are included in the Worker source/import inventory and trusted
+  capture implementation parity set. No historical approval marker, new
+  Production pin, key, signature wire format or credential was adopted.
+
+The library read-only adapter accepts a trusted in-runtime authority reader and
+R2 binding. It does **not** authenticate arbitrary callbacks or serialized JSON
+across processes. No public HTTP route was mounted. The trusted producer
+workflow still has no registered Actions-to-binding transport; its existing
+pinned-policy local adapter is not reported as an authority-catalog service.
+The independent consumer retains its existing API-authenticated producer
+artifact/run/source/policy checks. It has **not** authenticated a real catalog
+HTTP response or accepted new real archive/native evidence in this phase.
+
+### R2 generation semantics: deliberately limited
+
+The installed Workers types expose `R2Object.version` as a string, and the
+existing binding read path uses `get(key)`. Its get options do not expose a
+past-generation/version selector. The implemented guarantee is exactly
+`CURRENT_OBJECT_VERSION_EQUALITY`: compare the currently returned opaque
+version string and exact bytes with the authority snapshot.
+
+This detects a changed observed version or changed bytes, but does not prevent
+an overwrite, prove provider-level uniqueness/immutability, retain deleted
+objects, or retrieve older generations. `version_id` in the existing check
+format is **not** being redefined as an S3 VersionId or retrieval token.
+`previous_generation_retrieval: NOT_IMPLEMENTED` and
+`retention_status: NOT_CHECKED` are enforced catalog values. Claims upgrading
+either are rejected. No conditional-write/write-once API was added without an
+approved provider semantics contract. No external official documentation or
+provider behavior was fetched/verified under the no-network restriction.
+
+`EXACT_CONSUMED_BINDING` is a target scope, not an invented retention/freshness
+period. Binding authorization TTL is not reused as archive TTL. An approved
+HTTP authorization policy must separately define request expiration, catalog
+access scope and any freshness limit. No expired-capture acceptance policy is
+silently inferred.
+
+### Authentication and native producer blockers
+
+| Missing contract | Existing root and why it is insufficient | Required independent input/registration |
+| --- | --- | --- |
+| `ACTIONS_R2_BINDING_TRANSPORT_NOT_REGISTERED` | Coordinator/consumer GitHub API authentication proves run/artifact origin, not permission for a Worker HTTP request. No TLSN OIDC audience/claim policy or verifier is registered. | Owner-approved HTTP authentication/provider contract; repository/trusted workflow/revision/run/attempt/release scope and capture authorization; if OIDC is selected, independently registered audience, issuer/signature/JWKS/expiry policy and verified available claims. |
+| Cross-run authority-catalog resolver | Durable Object consumed state now supplies independent generations/digests internally; an artifact JSON copy or callback cannot authenticate that state remotely. | Approved authenticated route from GitHub execution to the real authority and `TLSN_PRESENTATIONS` binding, subject/capture lookup authorization, source/deployment mapping, freshness policy and concrete environment/provider registration. |
+| Retention/past-generation contract | Current version and bytes equality are not retention or historical retrieval. | Explicit provider/operations retention requirements and approved semantics, then authorized provider validation; missing guarantees remain NOT_CHECKED/NOT_IMPLEMENTED. |
+| `FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` | Existing private build proofs and artifact roles cover APP/Worker, not a formal native build. Formal CLI source has help but no observed `--version`/build-ID contract. An API-authenticated archive hash alone does not prove the native build recipe ran. | Trusted native builder workflow/revision/run/attempt, exact source and chosen committed dependency lock, compiler/toolchain and recipe pins, independently authenticated artifact acquisition and executable digest, and an execution capture adapter. |
+
+The producer diagnostic now distinguishes the candidate identity model
+`AUTHENTICATED_BUILD_PROVENANCE_AND_EXECUTABLE_SHA256` from a semantic version.
+This is **not** a registered provenance wire contract or native success path.
+No version string or `--version` call was invented. Existing native input,
+executable/version, argument and output guards were not weakened. A future
+versionless admission must explicitly reconcile those guards with authenticated
+binary provenance rather than fill their version field with a fabricated
+string. Native manifest-directory tracked inventory did not establish a
+chosen committed native lockfile/build recipe; no Rust execution was used to
+resolve that question.
+
+No new long-lived Cloudflare token or secret name was introduced. Binding
+configuration names were read from source only; credential existence,
+environment registration and real deployment mapping remain **UNVERIFIED**.
+These cannot be completed by local code changes alone. After owner-approved
+contracts/registration, separately authorized validation must observe a real
+identity, real authority catalog/R2 readback, authenticated producer artifact
+intake and the formal native launcher. Consumer authentication of a native
+execution report still does not mean the consumer independently reran native
+cryptographic verification.
+
+### Four checks and evidence states
+
+| Check | Source state | Synthetic verification | Real artifact/authenticated external evidence |
+| --- | --- | --- | --- |
+| `locked_dependencies` | Existing frozen/locked execution and private origin checks preserved. | PASS in the selected Node regressions. | NOT_RUN in this phase. |
+| `compiled_inputs` | Existing APP/Worker artifact roles and source/compiler/provenance pins preserved; no native role silently added. | PASS in the selected Node regressions. | NOT_RUN; no fresh WASM ABI or build claim. |
+| `archive_readback` | Writer/authority catalog/internal read-only adapter implemented; Actions HTTP/provider remains BLOCKED_IMPLEMENTATION. | Actual writer and authority methods run with in-memory storage/R2 doubles; mutations/rollback/idempotence checked. | No real R2 or authenticated remote catalog evidence; BLOCKED_EXTERNAL_INPUTS and missing transport contract. |
+| `offline_verification` | Diagnostic requirements clarified; formal native builder/launcher registration remains BLOCKED_IMPLEMENTATION. | Existing mock execution and rejection contracts preserved. | No executable run or authenticated real native report; no independent crypto rerun. |
+
+### Exact local validation commands and outcomes
+
+Commands below were run from the repository root. Output redirections and
+summary extraction only write/read the named session logs. No package script
+or automatic test discovery was used.
+
+The same Node-only no-emit command passed three times (zero diagnostics):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/.bin/tsc --noEmit -p packages/FUSOU-TLSN-VERIFICATION-WORKER/tsconfig.json > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-typecheck-initial.log 2>&1; result=$?; tail -n 28 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-typecheck-initial.log; exit "$result"
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/.bin/tsc --noEmit -p packages/FUSOU-TLSN-VERIFICATION-WORKER/tsconfig.json > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-typecheck-next.log 2>&1; result=$?; tail -n 18 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-typecheck-next.log; exit "$result"
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/.bin/tsc --noEmit -p packages/FUSOU-TLSN-VERIFICATION-WORKER/tsconfig.json > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-typecheck-final.log 2>&1; result=$?; tail -n 18 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-typecheck-final.log; exit "$result"
+```
+
+Targeted Node run: initially **62 PASS / 28 FAIL**, caused by the new test's
+incorrect exported authority class name. Correcting it and extending tests
+gave **101 PASS / 0 FAIL**, cancelled/skipped zero. No assertion was removed,
+weakened or skipped. Later private-expectation/rollback/replay additions are
+included in the final full regression, not retroactively counted here.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-archive-catalog.test.mjs scripts/release-worker-integration.test.mjs scripts/release-evidence-producer.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-targeted-initial.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-targeted-initial.log; exit "$result"
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-archive-catalog.test.mjs scripts/release-worker-integration.test.mjs scripts/release-evidence-producer.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-targeted-next.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-targeted-next.log; exit "$result"
+```
+
+Full explicit 16-file regression: first **302 PASS / 0 FAIL**, then
+**303 PASS / 0 FAIL** after adding exported-catalog mutation isolation.
+Cancelled/skipped zero in both runs.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs scripts/release-build.test.mjs scripts/release-consumer.test.mjs scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-regression.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-regression.log; exit "$result"
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs scripts/release-build.test.mjs scripts/release-consumer.test.mjs scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-regression-final.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/catalog-node-regression-final.log; exit "$result"
+```
+
+Static checks: **7 changed JS files PASS**, **4 workflow YAML files PASS**,
+**5 embedded JS bodies compile-only PASS**:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+for file in scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/release-execution-intake.mjs scripts/release-worker-source.mjs scripts/release-worker-integration.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs; do env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check "$file" || exit; done; printf 'PASS: 7 changed JavaScript files syntax-checked without execution.\n'
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE python3 - <<'PY'
+from pathlib import Path
+import subprocess
+import yaml
+paths = ('.github/workflows/tlsn-tag-validation.yml', '.github/workflows/tlsn-release-eligibility.yml', '.github/workflows/tlsn-release-consumer.yml', '.github/workflows/publish_and_create_version_tag.yml')
+count = 0
+for path in paths:
+    document = yaml.safe_load(Path(path).read_text())
+    for job in document.get('jobs', {}).values():
+        for step in job.get('steps', []):
+            body = step.get('with', {}).get('script')
+            if body is not None:
+                subprocess.run(['node', '-e', 'const fs=require("node:fs");const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;new AsyncFunction(fs.readFileSync(0,"utf8"));'], input=body, text=True, check=True)
+                count += 1
+print(f'PASS: {len(paths)} workflow YAML files; {count} embedded JavaScript bodies compiled without execution.')
+PY
+```
+
+Source inspection and scoped Git metadata are not counted as test passes.
+The normal commit hook was inspected: analysis materializes only allowed staged
+blobs in a temporary repository, then runs local AST graph analysis there.
+No APP/Worker/native build is part of that analysis.
+
+### NOT_RUN and unchanged acceptance boundaries
+
+- OIDC signature/issuer/audience/expiry and authenticated HTTP method/run/workflow
+  rejection tests: **NOT_RUN**; there is no registered authentication policy or
+  mounted endpoint. An all-reject stub/synthetic JWT success was not substituted
+  for real protocol implementation.
+- Authorized/unknown/expired capture HTTP requests: **NOT_RUN**; no registered
+  HTTP scope/freshness contract. Internal unknown capture, unrelated
+  subject/job, arbitrary key/role and storage absence cases are tested.
+- GitHub API, Cloudflare, R2, authority, Notary and official-doc network access:
+  **NOT_RUN**, expressly disallowed. No real credential was used or registered.
+- Cargo/Rust/WASM, APP/Worker/native verifier build or executable invocation:
+  **NOT_RUN**, expressly disallowed; Node no-emit/static parsing is not a build
+  or native cryptographic verifier run.
+- Real artifact verification, authenticated real catalog/native intake,
+  Production execution/gameplay, deployment/publishing/signing, push/PR/tag:
+  **NOT_RUN**. No new key/secret or Hudsucker/default dependency change.
+- Prescribed protected files were not read, hashed, searched, edited or included
+  in the commit. The audited Result byte-binding test remains unmodified.
+
+Source catalog implementation and synthetic contracts are verified; full
+Actions transport/native registration and real-evidence acceptance are not.
+`RELEASE_ARTIFACTS_VALIDATED` and `DEPLOYMENT_VERIFIED` were not established.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain unchanged.
+
+### Scoped local commit commands
+
+The explicit path list below is also the changed-file inventory: writer,
+authority, both Worker commit paths, catalog implementation/declarations,
+source/TCB inventory, producer diagnostics, related Node tests and this record.
+The normal pre-commit hook is retained. Commit SHA/parent and final scoped
+worktree/index state are reported from Git after the local commit; no push is
+authorized.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+git diff --check -- scripts/release-archive-catalog.test.mjs scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-worker-integration.test.mjs scripts/release-worker-source.mjs scripts/release-execution-intake.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git add -- scripts/release-archive-catalog.test.mjs scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-worker-integration.test.mjs scripts/release-worker-source.mjs scripts/release-execution-intake.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git diff --cached --check -- scripts/release-archive-catalog.test.mjs scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-worker-integration.test.mjs scripts/release-worker-source.mjs scripts/release-execution-intake.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git -c commit.gpgsign=false commit --only -m "feat(tlsn): persist authority-backed archive capture catalog" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- scripts/release-archive-catalog.test.mjs scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-worker-integration.test.mjs scripts/release-worker-source.mjs scripts/release-execution-intake.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git branch --show-current
+git rev-parse HEAD HEAD^
+git status --short -- scripts/release-archive-catalog.test.mjs scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-worker-integration.test.mjs scripts/release-worker-source.mjs scripts/release-execution-intake.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```

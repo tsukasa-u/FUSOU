@@ -29,6 +29,7 @@ import {
 } from "./verifier_identity.js";
 import { canaryVerifierExecutionReceiptCapabilityAvailable } from "./execution_boundary.js";
 import { persistAndVerifyPresentationArchive, persistAndVerifyResultArchive } from "./result_archive.js";
+import type { ArchiveObjectSnapshot } from "./archive-catalog.mjs";
 import {
   verificationCallbackSchema,
   verificationFinalResponseSchema,
@@ -3647,18 +3648,22 @@ async function completeVerification(
       source_sha: c.env.TLSN_GIT_COMMIT_SHA ?? "", session_id: completionRecord.session_id,
       job_id: callback.job_id, verification_attempt_id: verificationAttemptId, binding_id: callback.binding_id,
     } : undefined;
+    const archiveSnapshots: ArchiveObjectSnapshot[] = [];
     if (config.productionInventoryMode) {
       benchmarkR2Operation(c.env, callback.job_id, "presentation_archive_put");
-      await persistAndVerifyPresentationArchive(
+      const snapshot = await persistAndVerifyPresentationArchive(
         c.env.TLSN_PRESENTATIONS,
         attemptArchiveKeys.presentation,
         storedPresentation,
         storedPresentationId,
         archiveContext,
       );
+      if (snapshot) archiveSnapshots.push(snapshot);
     }
     benchmarkR2Operation(c.env, callback.job_id, "result_archive_put");
-    await persistAndVerifyResultArchive(c.env.TLSN_PRESENTATIONS, attemptResultKey, finalResponseBytes, resultSha256, archiveContext);
+    const resultSnapshot = await persistAndVerifyResultArchive(c.env.TLSN_PRESENTATIONS, attemptResultKey, finalResponseBytes, resultSha256, archiveContext);
+    if (resultSnapshot) archiveSnapshots.push(resultSnapshot);
+    if (config.productionInventoryMode) commitInput.archive_snapshots = archiveSnapshots;
     const doCommitStartedAt = performance.now();
     benchmarkDOOperation(c.env, callback.job_id, "commit_verified_result");
     committedBinding = await authority.commitVerifiedResult(callback.binding_id, commitInput);
@@ -4741,18 +4746,21 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       source_sha: c.env.TLSN_GIT_COMMIT_SHA ?? "", session_id: requestBody.session_id,
       job_id: synchronousJobId, verification_attempt_id: synchronousAttemptId, binding_id: synchronousBindingId,
     } : undefined;
+    const archiveSnapshots: ArchiveObjectSnapshot[] = [];
     if (config.productionInventoryMode) {
       benchmarkR2Operation(c.env, synchronousJobId, "presentation_archive_put");
-      await persistAndVerifyPresentationArchive(
+      const snapshot = await persistAndVerifyPresentationArchive(
         c.env.TLSN_PRESENTATIONS,
         synchronousArchiveKeys.presentation,
         presentationBytes,
         presentationId,
         archiveContext,
       );
+      if (snapshot) archiveSnapshots.push(snapshot);
     }
     benchmarkR2Operation(c.env, synchronousJobId, "result_archive_put");
-    await persistAndVerifyResultArchive(c.env.TLSN_PRESENTATIONS, synchronousResultKey, finalResponseBytes, resultSha256, archiveContext);
+    const resultSnapshot = await persistAndVerifyResultArchive(c.env.TLSN_PRESENTATIONS, synchronousResultKey, finalResponseBytes, resultSha256, archiveContext);
+    if (resultSnapshot) archiveSnapshots.push(resultSnapshot);
     benchmarkDOOperation(c.env, synchronousJobId, "commit_verified_result");
     const committedBinding = await authority.commitVerifiedResult(synchronousBindingId, {
       session_id: requestBody.session_id,
@@ -4768,6 +4776,7 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
       result_sha256: resultSha256,
       result_object_key: synchronousResultKey,
       result_bytes: finalResponseBytes,
+      ...(config.productionInventoryMode ? { archive_snapshots: archiveSnapshots } : {}),
       used_at: usedAt,
       now: Date.now(),
       benchmark_timing: benchmarkEnabled(c.env),

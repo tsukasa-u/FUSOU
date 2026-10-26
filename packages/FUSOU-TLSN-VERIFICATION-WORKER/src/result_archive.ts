@@ -25,8 +25,8 @@ export async function persistAndVerifyResultArchive(
   resultBytes: Uint8Array,
   expectedSha256: string,
   context?: ArchiveContext,
-): Promise<void> {
-  await persistArchive(bucket, objectKey, resultBytes, expectedSha256, "result", context);
+): Promise<ArchiveObjectSnapshot | undefined> {
+  return persistArchive(bucket, objectKey, resultBytes, expectedSha256, "result", context);
 }
 
 export async function assertPresentationArchiveBytes(
@@ -48,15 +48,16 @@ export async function persistAndVerifyPresentationArchive(
   presentationBytes: Uint8Array,
   expectedSha256: string,
   context?: ArchiveContext,
-): Promise<void> {
-  await persistArchive(bucket, objectKey, presentationBytes, expectedSha256, "presentation", context);
+): Promise<ArchiveObjectSnapshot | undefined> {
+  return persistArchive(bucket, objectKey, presentationBytes, expectedSha256, "presentation", context);
 }
 import { archiveCustomMetadata, assertArchiveGeneration, type ArchiveContext } from "./archive-readback.mjs";
+import { archiveObjectSnapshot, type ArchiveObjectSnapshot } from "./archive-catalog.mjs";
 
 async function persistArchive(
   bucket: Pick<R2Bucket, "put" | "get" | "delete">, objectKey: string, bytes: Uint8Array, digest: string,
   role: "presentation" | "result", context?: ArchiveContext,
-): Promise<void> {
+): Promise<ArchiveObjectSnapshot | undefined> {
   const label = role === "result" ? "Result" : "Presentation";
   const customMetadata = context ? archiveCustomMetadata(role, context) : undefined;
   let written: R2Object | null | undefined;
@@ -70,6 +71,7 @@ async function persistArchive(
     if (context) assertArchiveGeneration(written, object, role, context);
     const readback = new Uint8Array(await object.arrayBuffer());
     await (role === "result" ? assertResultArchiveBytes : assertPresentationArchiveBytes)(bytes, readback, digest);
+    return context ? archiveObjectSnapshot(object, role, context, objectKey, digest, readback.byteLength) : undefined;
   } catch (cause) {
     if (context && (!written?.version || observedVersion && written.version !== observedVersion)) {
       throw new Error(`authoritative ${label} archive verification failed; changed generation requires cleanup reconciliation`, { cause });

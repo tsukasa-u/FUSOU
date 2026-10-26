@@ -83,8 +83,10 @@ export async function collectReleaseEvidence({ report, identity, checkPolicyByte
     if (!(error instanceof ReleaseBlocked)) throw error;
     checks.archive_readback = { status: error.status, blocker: error.code };
   }
-  // The formal CLI has no approved executable version/build-identity observation contract.
-  checks.offline_verification = { status: "BLOCKED_IMPLEMENTATION", blocker: EVIDENCE_IMPLEMENTATION_BLOCKERS.offline_verification };
+  // A semantic version is not a substitute for an authenticated builder artifact.
+  checks.offline_verification = { status: "BLOCKED_IMPLEMENTATION", blocker: EVIDENCE_IMPLEMENTATION_BLOCKERS.offline_verification,
+    identity_model: "AUTHENTICATED_BUILD_PROVENANCE_AND_EXECUTABLE_SHA256",
+    missing_contracts: ["TRUSTED_NATIVE_BUILDER_ARTIFACT", "NATIVE_LOCKFILE_AND_RECIPE", "NATIVE_LAUNCHER_EXECUTION_CAPTURE"] };
   return { report: { schema_version: 1, scope: EVIDENCE_PRODUCTION_SCOPE, ...context,
     ...(policyDigest ? { check_policy_sha256: policyDigest } : {}), checks,
     publication_authorized: false, deployment_status: "NOT_CHECKED", production_acceptance: "BLOCKED" }, executions };

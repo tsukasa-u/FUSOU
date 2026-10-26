@@ -38,6 +38,10 @@ test("concrete R2-binding collector emits locally captured raw evidence, never n
   assert.equal(result.report.checks.archive_readback.status, "LOCAL_CAPTURE_ONLY");
   assert.equal(result.report.checks.archive_readback.retention_status, "NOT_CHECKED");
   assert.equal(result.report.checks.offline_verification.blocker, "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED");
+  assert.equal(result.report.checks.offline_verification.status, "BLOCKED_IMPLEMENTATION");
+  assert.equal(result.report.checks.offline_verification.identity_model, "AUTHENTICATED_BUILD_PROVENANCE_AND_EXECUTABLE_SHA256");
+  assert.deepEqual(result.report.checks.offline_verification.missing_contracts,
+    ["TRUSTED_NATIVE_BUILDER_ARTIFACT", "NATIVE_LOCKFILE_AND_RECIPE", "NATIVE_LAUNCHER_EXECUTION_CAPTURE"]);
   assert.deepEqual([...result.executions.keys()], ["archive_readback"]);
   const receipt = JSON.parse(result.executions.get("archive_readback").receipt);
   assert.deepEqual(receipt.output.objects.map((o) => o.version_id), ["presentation-version-1", "result-version-1"]);

@@ -179,7 +179,8 @@ const archiveContext = { source_sha: sourceSha, session_id: "session", job_id: "
 async function archiveFunctions() {
   const path = `${WORKER_ROOT}/src/result_archive.ts`;
   const source = stripTypeScriptTypes((await read(path)).toString(), { mode: "strip" })
-    .replace('"./archive-readback.mjs"', JSON.stringify(new URL(`${WORKER_ROOT}/src/archive-readback.mjs`, root).href));
+    .replace('"./archive-readback.mjs"', JSON.stringify(new URL(`${WORKER_ROOT}/src/archive-readback.mjs`, root).href))
+    .replace('"./archive-catalog.mjs"', JSON.stringify(new URL(`${WORKER_ROOT}/src/archive-catalog.mjs`, root).href));
   return import("data:text/javascript," + encodeURIComponent(source));
 }
 test("archive persistence checks actual readback generation, authority metadata, bytes and explicit cleanup failures", async () => {
@@ -194,7 +195,7 @@ test("archive persistence checks actual readback generation, authority metadata,
       customMetadata: mutation === "metadata" ? {} : metadata,
       arrayBuffer: async () => mutation === "bytes" || mutation === "cleanup" ? Buffer.from("corrupt") : bytes }),
     delete: async () => { deletes++; if (mutation === "cleanup") throw new Error("cleanup failed"); } };
-    const call = () => persist(bucket, "object", bytes, sha256(bytes), archiveContext);
+    const call = () => persist(bucket, `tlsn-verification/${archiveContext.verification_attempt_id}/result.json`, bytes, sha256(bytes), archiveContext);
     if (mutation === "none") await call();
     else await assert.rejects(call(), (error) => mutation === "cleanup" ? error instanceof AggregateError && error.errors.length === 2 :
       /archive verification failed/.test(error.message));

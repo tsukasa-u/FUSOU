@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { ARCHIVE_CATALOG_STORAGE_KEY, ArchiveCatalogError, archiveCatalogEqual, assertConsumedArchiveCatalog, createConsumedArchiveCatalog,
+  type ArchiveObjectSnapshot, type ConsumedArchiveCatalog } from "./archive-catalog.mjs";
 
 const BINDING_PREFIX = new TextEncoder().encode("FUSOU-ATTESTATION-BINDING-V1\0");
 const BINDING_NONCE_BYTES = 32;
@@ -60,6 +62,7 @@ export type BindingRecord = {
   result_sha256?: string;
   result_object_key?: string;
   used_at?: string;
+  archive_catalog_created_at?: string;
   presentation_id?: string;
 };
 
@@ -148,6 +151,7 @@ export type CommitVerifiedResultInput = {
   result_object_key: string;
   result_bytes: Uint8Array;
   verifier_execution_receipt_bytes?: Uint8Array;
+  archive_snapshots?: ArchiveObjectSnapshot[];
   used_at: string;
   now: number;
   benchmark_timing?: boolean;
@@ -176,6 +180,7 @@ export type ConsumedVerificationResult = {
   record: BindingRecord;
   bytes: Uint8Array;
   verifier_execution_receipt_bytes?: Uint8Array;
+  archive_catalog?: ConsumedArchiveCatalog;
 };
 
 type VerificationResultResponse =
@@ -939,6 +944,18 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       if (record.status === "consumed") {
         const storedBytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
         const storedReceiptBytes = await transaction.get<Uint8Array>(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+        const storedCatalog = await transaction.get<ConsumedArchiveCatalog>(ARCHIVE_CATALOG_STORAGE_KEY);
+        if (Boolean(storedCatalog) !== Boolean(input.archive_snapshots)) {
+          result = { ok: false, error: "binding_consumed" }; return;
+        }
+        let candidateCatalog: ConsumedArchiveCatalog | undefined;
+        try {
+          candidateCatalog = input.archive_snapshots ? await createConsumedArchiveCatalog(
+            record, input.archive_snapshots, input.result_bytes, input.verifier_execution_receipt_bytes) : undefined;
+        } catch (error) {
+          if (!(error instanceof ArchiveCatalogError)) throw error;
+          result = { ok: false, error: "verification_result_mismatch" }; return;
+        }
         const receiptBytesMatch = input.verifier_execution_receipt_bytes
           ? storedReceiptBytes instanceof Uint8Array && equalBytes(input.verifier_execution_receipt_bytes, storedReceiptBytes)
           : storedReceiptBytes === undefined;
@@ -952,6 +969,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           record.result_object_key === input.result_object_key &&
           storedBytes instanceof Uint8Array
           && receiptBytesMatch
+          && archiveCatalogEqual(storedCatalog, candidateCatalog)
         ) {
           result = { ok: true, record };
           return;
@@ -985,6 +1003,7 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
         ...record,
         status: "consumed",
         used_at: input.used_at,
+        ...(input.archive_snapshots ? { archive_catalog_created_at: new Date().toISOString() } : {}),
         result_sha256: input.result_sha256,
         result_object_key: input.result_object_key,
         ...(input.benchmark_timing
@@ -999,6 +1018,16 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
           }
           : {}),
       };
+      if (input.archive_snapshots) {
+        try {
+          const catalog = await createConsumedArchiveCatalog(consumed, input.archive_snapshots, input.result_bytes,
+            input.verifier_execution_receipt_bytes);
+          await transaction.put(ARCHIVE_CATALOG_STORAGE_KEY, catalog);
+        } catch (error) {
+          if (!(error instanceof ArchiveCatalogError)) throw error;
+          result = { ok: false, error: "verification_result_mismatch" }; return;
+        }
+      }
       await transaction.put(VERIFICATION_RESULT_STORAGE_KEY, input.result_bytes);
       if (input.verifier_execution_receipt_bytes) {
         await transaction.put(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY, input.verifier_execution_receipt_bytes);
@@ -1032,11 +1061,14 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
       const verifierExecutionReceiptBytes = await transaction.get<Uint8Array>(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+      const archiveCatalog = await transaction.get<ConsumedArchiveCatalog>(ARCHIVE_CATALOG_STORAGE_KEY);
       if (bytes instanceof Uint8Array) {
+        if (archiveCatalog) await assertConsumedArchiveCatalog(archiveCatalog, record, bytes, verifierExecutionReceiptBytes);
         candidate = {
           record,
           bytes,
           ...(verifierExecutionReceiptBytes instanceof Uint8Array ? { verifier_execution_receipt_bytes: verifierExecutionReceiptBytes } : {}),
+          ...(archiveCatalog ? { archive_catalog: archiveCatalog } : {}),
         };
       }
     });
@@ -1080,11 +1112,14 @@ export class TlsnBindingAuthorityDurableObject extends DurableObject {
       }
       const bytes = await transaction.get<Uint8Array>(VERIFICATION_RESULT_STORAGE_KEY);
       const verifierExecutionReceiptBytes = await transaction.get<Uint8Array>(VERIFIER_EXECUTION_RECEIPT_STORAGE_KEY);
+      const archiveCatalog = await transaction.get<ConsumedArchiveCatalog>(ARCHIVE_CATALOG_STORAGE_KEY);
       if (bytes instanceof Uint8Array) {
+        if (archiveCatalog) await assertConsumedArchiveCatalog(archiveCatalog, record, bytes, verifierExecutionReceiptBytes);
         candidate = {
           record,
           bytes,
           ...(verifierExecutionReceiptBytes instanceof Uint8Array ? { verifier_execution_receipt_bytes: verifierExecutionReceiptBytes } : {}),
+          ...(archiveCatalog ? { archive_catalog: archiveCatalog } : {}),
         };
       }
     });
