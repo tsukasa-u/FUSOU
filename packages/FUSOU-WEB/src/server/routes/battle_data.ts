@@ -51,40 +51,89 @@ async function buildSnapshotResponse(
   return new Response(payloadText, { headers });
 }
 
-const KNOWN_PERIOD_TAGS = ["2026-10-14", "2026-09-10", "2026-08-05", "2026-07-08"];
+/**
+ * Dynamically resolves all active snapshot period tags by listing R2 snapshot prefixes,
+ * with edge KV caching (TTL: 1 hour) so R2 is not hammered repeatedly.
+ * Fully dynamic: zero hardcoded maintenance dates.
+ */
+export async function getDynamicSnapshotPeriodTags(
+  bucket: R2Bucket | undefined,
+  kv: KVNamespace | undefined,
+  db?: D1Database | undefined,
+): Promise<string[]> {
+  const cacheKey = "battle_data:dynamic_period_tags:v2";
+  if (kv) {
+    try {
+      const cached = await kv.get(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore KV errors
+    }
+  }
 
-export function inferPeriodTagFromTimestamp(ts: number): string {
-  // Direct instant mapping based on official event / maintenance boundaries
-  if (ts >= 1791936000000) return "2026-10-14";
-  if (ts >= 1788998400000) return "2026-09-10";
-  if (ts >= 1785888000000) return "2026-08-05";
-  return "2026-07-08";
+  const tags = new Set<string>();
+
+  if (bucket && typeof bucket.list === "function") {
+    try {
+      const listed = await bucket.list({ prefix: "snapshots/overview/" });
+      if (listed && Array.isArray(listed.objects)) {
+        for (const obj of listed.objects) {
+          const m = obj.key.match(/^snapshots\/overview\/(\d{4}-\d{2}-\d{2})\.json(\.br)?$/);
+          if (m && m[1]) {
+            tags.add(m[1]);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[battle-data] Failed to list dynamic period tags from R2:", err);
+    }
+  }
+
+  if (tags.size === 0 && db && typeof db.prepare === "function") {
+    try {
+      const rows = await db
+        .prepare("SELECT DISTINCT period_tag FROM block_indexes WHERE period_tag IS NOT NULL AND period_tag != '' ORDER BY period_tag DESC")
+        .all();
+      if (rows.results && Array.isArray(rows.results)) {
+        for (const r of rows.results as Array<{ period_tag?: string }>) {
+          if (r.period_tag && /^\d{4}-\d{2}-\d{2}$/.test(r.period_tag)) {
+            tags.add(r.period_tag);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const sortedTags = Array.from(tags).sort((a, b) => b.localeCompare(a));
+  if (sortedTags.length > 0 && kv) {
+    try {
+      await kv.put(cacheKey, JSON.stringify(sortedTags), { expirationTtl: 3600 });
+    } catch {
+      // ignore KV errors
+    }
+  }
+  return sortedTags;
 }
 
-async function resolveSnapshotPeriodTag(
-  db: D1Database | undefined,
+export async function resolveSnapshotPeriodTag(
+  bucket: R2Bucket | undefined,
+  kv: KVNamespace | undefined,
   requestedTag: string,
-  envUuid?: string,
 ): Promise<string> {
   const tag = (requestedTag || "").trim();
   if (tag && tag !== "latest" && tag !== "all" && /^\d{4}-\d{2}-\d{2}$/.test(tag)) {
     return tag;
   }
 
-  if (envUuid) {
-    const ts = extractTimestampFromUuidV7(envUuid);
-    if (ts !== null) {
-      // Instant calculation from UUID v7 timestamp without slow D1 queries (0ms)
-      return inferPeriodTagFromTimestamp(ts);
-    }
-  }
-
-  if (tag && tag !== "latest" && tag !== "all") {
-    return tag;
-  }
-
-  // Pure deterministic R2 snapshot default: eliminate all D1 block_indexes queries
-  return KNOWN_PERIOD_TAGS[0] ?? "2026-10-14";
+  const tags = await getDynamicSnapshotPeriodTags(bucket, kv);
+  return tags[0] ?? "";
 }
 
 import { Hono, type Context } from "hono";
@@ -395,9 +444,12 @@ async function fetchMasterDataJsonDirect(
   const bucket = env.runtime["MASTER_DATA_BUCKET"];
   if (!bucket) throw new Error("Master data storage not configured");
 
+  const battleBucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
+  const availableTags = await getDynamicSnapshotPeriodTags(battleBucket, kv);
   const targetTag = periodTagParam && periodTagParam !== "latest" && periodTagParam !== "all"
     ? periodTagParam
-    : "2026-10-14";
+    : (availableTags[0] ?? "");
 
   const cacheKey = `${tableName}:${targetTag}`;
   const now = Date.now();
@@ -407,25 +459,25 @@ async function fetchMasterDataJsonDirect(
   }
 
   const loadPromise = (async (): Promise<MasterDataJsonPayload> => {
-    const candidateR2Keys = [
-      `master_data/0.6.0/${targetTag}/rev1/${tableName}.avro`,
-      `master_data/1.0/${targetTag}/rev1/${tableName}.avro`,
-      `master_data/0.5.0/${targetTag}/rev1/${tableName}.avro`,
-      `master_data/0.6.0/2026-10-14/rev1/${tableName}.avro`,
-    ];
-
     let r2Object: Awaited<ReturnType<R2Bucket["get"]>> = null;
-    for (const key of candidateR2Keys) {
-      const obj = await bucket.get(key);
-      if (obj) {
-        r2Object = obj;
-        break;
-      }
-    }
-
-    let rowVersion: string | null = "0.6.0";
+    let rowVersion: string | null = null;
     let rowPeriodTag: string | null = targetTag;
     let rowRevision: number | null = 1;
+
+    try {
+      const listed = await bucket.list({ prefix: "master_data/" });
+      for (const obj of listed.objects) {
+        if (obj.key.endsWith(`/${tableName}.avro`) && (targetTag ? obj.key.includes(`/${targetTag}/`) : true)) {
+          r2Object = await bucket.get(obj.key);
+          const parts = obj.key.split("/");
+          rowVersion = parts[1] ?? null;
+          rowPeriodTag = parts[2] ?? targetTag;
+          break;
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     if (!r2Object) {
       const db = env.runtime["MASTER_DATA_INDEX_DB"];
@@ -3241,8 +3293,9 @@ app.get("/global/records", async (c) => {
 async function getAggregatedOverviewPayload(
   bucket: R2Bucket,
   kv: KVNamespace | undefined,
+  periodTags: string[],
 ): Promise<string> {
-  const kvKey = "overview:snapshot:all:v3";
+  const kvKey = "overview:snapshot:all:v4";
   if (kv) {
     try {
       const cached = await kv.get(kvKey);
@@ -3255,7 +3308,7 @@ async function getAggregatedOverviewPayload(
   }
 
   const snapshots = await Promise.all(
-    KNOWN_PERIOD_TAGS.map(async (tag) => {
+    periodTags.map(async (tag) => {
       try {
         const obj = await bucket.get(`snapshots/overview/${tag}.json.br`);
         if (!obj) return null;
@@ -3340,8 +3393,9 @@ async function getAggregatedOverviewPayload(
 async function getAggregatedDropsPayload(
   bucket: R2Bucket,
   kv: KVNamespace | undefined,
+  periodTags: string[],
 ): Promise<string> {
-  const kvKey = "drops:snapshot:all:v3";
+  const kvKey = "drops:snapshot:all:v4";
   if (kv) {
     try {
       const cached = await kv.get(kvKey);
@@ -3354,7 +3408,7 @@ async function getAggregatedDropsPayload(
   }
 
   const snapshots = await Promise.all(
-    KNOWN_PERIOD_TAGS.map(async (tag) => {
+    periodTags.map(async (tag) => {
       try {
         const obj = await bucket.get(`snapshots/drops/${tag}.json.br`);
         if (!obj) return null;
@@ -3441,14 +3495,15 @@ app.get("/global/overview", async (c) => {
 
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
-  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   const kv = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
   if (!bucket) {
     return c.json({ error: "Failed to build overview payload", details: "Storage not configured" }, 500);
   }
 
+  const availableTags = await getDynamicSnapshotPeriodTags(bucket, kv);
+
   if (periodTag === "all") {
-    const payloadText = await getAggregatedOverviewPayload(bucket, kv);
+    const payloadText = await getAggregatedOverviewPayload(bucket, kv, availableTags);
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
     headers.set("Cache-Control", cacheControl);
@@ -3457,7 +3512,7 @@ app.get("/global/overview", async (c) => {
     return new Response(payloadText, { status: 200, headers });
   }
 
-  const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+  const activeTag = await resolveSnapshotPeriodTag(bucket, kv, periodTag);
   const snapshotKey = `snapshots/overview/${activeTag}.json.br`;
   const snapshotObj = await bucket.get(snapshotKey);
   if (!snapshotObj) {
@@ -3501,14 +3556,15 @@ app.get("/global/drops", async (c) => {
 
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
-  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   const kv = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
   if (!bucket) {
     return c.json({ error: "Failed to build drops payload", details: "Storage not configured" }, 500);
   }
 
+  const availableTags = await getDynamicSnapshotPeriodTags(bucket, kv);
+
   if (periodTag === "all") {
-    const payloadText = await getAggregatedDropsPayload(bucket, kv);
+    const payloadText = await getAggregatedDropsPayload(bucket, kv, availableTags);
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
     headers.set("Cache-Control", cacheControl);
@@ -3517,7 +3573,7 @@ app.get("/global/drops", async (c) => {
     return new Response(payloadText, { status: 200, headers });
   }
 
-  const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
+  const activeTag = await resolveSnapshotPeriodTag(bucket, kv, periodTag);
   const snapshotKey = `snapshots/drops/${activeTag}.json.br`;
   const snapshotObj = await bucket.get(snapshotKey);
   if (!snapshotObj) {
@@ -3568,12 +3624,12 @@ app.get("/detail-env", async (c) => {
   }
 
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
-  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
+    const availableTags = await getDynamicSnapshotPeriodTags(bucket, cacheKV);
+    let activeTag = await resolveSnapshotPeriodTag(bucket, cacheKV, periodTag);
     let envObj = await bucket.get(`snapshots/env_detail/${activeTag}/${envUuid}.json.br`);
     if (!envObj && (periodTag === "all" || periodTag === "latest")) {
-      const fallbackTags = KNOWN_PERIOD_TAGS.filter((t) => t !== activeTag);
+      const fallbackTags = availableTags.filter((t) => t !== activeTag);
       const fallbackObjs = await Promise.all(
         fallbackTags.map(async (tag) => {
           const obj = await bucket.get(`snapshots/env_detail/${tag}/${envUuid}.json.br`);
@@ -3751,9 +3807,9 @@ app.get("/detail", async (c) => {
   }
 
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
-  const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
-    let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
+    const availableTags = await getDynamicSnapshotPeriodTags(bucket, cacheKV);
+    let activeTag = await resolveSnapshotPeriodTag(bucket, cacheKV, periodTag);
     const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
       // 1. Direct single-battle snapshot check in R2 (checks plain .json and .json.br)
       const directKeyJson = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json`;
@@ -3901,7 +3957,7 @@ app.get("/detail", async (c) => {
 
     let resolvedResp = await tryResolveDetail(activeTag);
     if (!resolvedResp && (periodTag === "all" || periodTag === "latest")) {
-      const fallbackTags = KNOWN_PERIOD_TAGS.filter((t) => t !== activeTag);
+      const fallbackTags = availableTags.filter((t) => t !== activeTag);
       const fallbackResults = await Promise.all(fallbackTags.map((tag) => tryResolveDetail(tag)));
       const hit = fallbackResults.find((r) => r !== null);
       if (hit) {
@@ -4192,6 +4248,135 @@ app.get("/dev/local-records", async (c) => {
     console.error("[battle-data] DEV: Failed to query local records:", err);
     return c.json({ error: "Failed to query local records" }, 500);
   }
+});
+
+
+app.post("/internal/rebuild-detail-snapshots", async (c) => {
+  const env = createEnvContext(c);
+  const authHeader = c.req.header("authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const adminToken = getEnv(env, "ADMIN_TOKEN") || getEnv(env, "INTERNAL_COMPACTION_TOKEN");
+  if (!adminToken || token !== adminToken) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
+  if (!bucket) {
+    return c.json({ error: "Storage not configured" }, 500);
+  }
+
+  const tags = await getDynamicSnapshotPeriodTags(bucket, kv);
+  const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] = await Promise.all([
+    fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
+    fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
+    fetchWeaponIconFramesDirect(c).catch(() => ({})),
+  ]);
+
+  let totalSortiesProcessed = 0;
+  let totalBattlesGenerated = 0;
+
+  for (const tag of tags) {
+    const overviewObj = await bucket.get(`snapshots/overview/${tag}.json.br`);
+    if (!overviewObj) continue;
+    const overviewText = await decompressSnapshotPayload(await overviewObj.arrayBuffer());
+    const overviewData = JSON.parse(overviewText);
+    const battlesList = Array.isArray(overviewData.battles) ? overviewData.battles : [];
+    const envUuidSet = new Set<string>();
+    for (const b of battlesList) {
+      if (b.env_uuid) envUuidSet.add(String(b.env_uuid));
+    }
+
+    for (const envUuid of envUuidSet) {
+      totalSortiesProcessed++;
+      const envKey = `snapshots/env_detail/${tag}/${envUuid}.json.br`;
+      const envObj = await bucket.get(envKey);
+      if (!envObj) continue;
+
+      try {
+        const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
+        const bundle = JSON.parse(text);
+        if (!bundle.tables || typeof bundle.tables !== "object") continue;
+
+        const battles = Array.isArray(bundle.tables["battle"]) ? bundle.tables["battle"] : [];
+        const resolvedBattlesMap: Record<string, unknown> = {};
+
+        for (const b of battles) {
+          const bIdx = Number(b.index ?? 0);
+          const resolved = resolveBattleDetail({
+            periodTag: bundle.period_tag || tag,
+            tableVersion: bundle.table_version || null,
+            envUuid,
+            battleIndex: bIdx,
+            masterShips: mstShipPayload.records || [],
+            masterSlotItems: mstSlotItemPayload.records || [],
+            weaponIconFrames: weaponIconFramesPayload,
+            tables: {
+              battle: bundle.tables["battle"] || [],
+              cells: bundle.tables["cells"] || [],
+              battleResult: bundle.tables["battle_result"] || [],
+              ownDeck: bundle.tables["own_deck"] || [],
+              ownShip: bundle.tables["own_ship"] || [],
+              ownSlotItem: bundle.tables["own_slotitem"] || [],
+              enemyDeck: bundle.tables["enemy_deck"] || [],
+              enemyShip: bundle.tables["enemy_ship"] || [],
+              enemySlotItem: bundle.tables["enemy_slotitem"] || [],
+              midnightHougekiLists: bundle.tables["midnight_hougeki_list"] || [],
+              midnightHougekis: bundle.tables["midnight_hougeki"] || [],
+              openingTaisenLists: bundle.tables["opening_taisen_list"] || [],
+              openingTaisens: bundle.tables["opening_taisen"] || [],
+              hougekiLists: bundle.tables["hougeki_list"] || [],
+              hougekis: bundle.tables["hougeki"] || [],
+              openingAirattackLists: bundle.tables["opening_airattack_list"] || [],
+              openingAirattacks: bundle.tables["opening_airattack"] || [],
+              openingRaigeki: bundle.tables["opening_raigeki"] || [],
+              closingRaigeki: bundle.tables["closing_raigeki"] || [],
+              airbaseAssault: bundle.tables["airbase_assault"] || [],
+              airbaseAirattackLists: bundle.tables["airbase_airattack_list"] || [],
+              airbaseAirattacks: bundle.tables["airbase_airattack"] || [],
+              carrierbaseAssault: bundle.tables["carrierbase_assault"] || [],
+              supportHourai: bundle.tables["support_hourai"] || [],
+              supportAirattack: bundle.tables["support_airattack"] || [],
+              nightSupportHourai: bundle.tables["night_support_hourai"] || [],
+              nightSupportAirattack: bundle.tables["night_support_airattack"] || [],
+              friendlySupportHouraiLists: bundle.tables["friendly_support_hourai_list"] || [],
+              friendlySupportHourai: bundle.tables["friendly_support_hourai"] || [],
+              destructionBattle: bundle.tables["destruction_battle"] || [],
+            },
+          });
+
+          if (resolved) {
+            resolvedBattlesMap[String(bIdx)] = resolved.payload;
+            const singleBattleJson = JSON.stringify(resolved.payload);
+            const directKey = `snapshots/detail/${tag}/${envUuid}_${bIdx}.json`;
+            await bucket.put(directKey, singleBattleJson, {
+              httpMetadata: { contentType: "application/json" },
+            });
+            totalBattlesGenerated++;
+          }
+        }
+
+        bundle.battles = resolvedBattlesMap;
+        const updatedBundleStr = JSON.stringify(bundle);
+        const compressedBundle = await brotliCompressAsync(Buffer.from(updatedBundleStr, "utf-8"));
+        await bucket.put(envKey, compressedBundle, {
+          httpMetadata: {
+            contentType: "application/json",
+            contentEncoding: "br",
+          },
+        });
+      } catch (err) {
+        console.warn(`[rebuild-detail-snapshots] Failed for env_uuid ${envUuid}:`, err);
+      }
+    }
+  }
+
+  return c.json({
+    success: true,
+    tags,
+    totalSortiesProcessed,
+    totalBattlesGenerated,
+  });
 });
 
 export default app;

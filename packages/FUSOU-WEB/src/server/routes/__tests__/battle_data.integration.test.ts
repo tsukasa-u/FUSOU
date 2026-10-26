@@ -599,6 +599,9 @@ describe("battle-data route integration", () => {
 		};
 
 		const bucket = {
+			list: async () => ({
+				objects: [{ key: "snapshots/overview/2026-08-05.json.br" }],
+			}),
 			get: async (key: string) => {
 				if (key === "snapshots/env_detail/2026-08-05/" + targetEnvUuid + ".json.br") {
 					const jsonStr = JSON.stringify(bundlePayload);
@@ -656,6 +659,12 @@ describe("battle-data route integration", () => {
 		};
 
 		const bucket = {
+			list: async () => ({
+				objects: [
+					{ key: "snapshots/overview/2026-10-14.json.br" },
+					{ key: "snapshots/overview/2026-08-05.json.br" },
+				],
+			}),
 			get: async (key: string) => {
 				if (key === "snapshots/env_detail/2026-10-14/" + targetEnvUuid + ".json.br") {
 					const jsonStr = JSON.stringify(workflowSnapshotPayload);
@@ -861,6 +870,12 @@ describe("battle-data route integration", () => {
 		const snap2Buf = await compress(Buffer.from(JSON.stringify(snap2)));
 
 		const bucket = {
+			list: async () => ({
+				objects: [
+					{ key: "snapshots/overview/2026-10-14.json.br" },
+					{ key: "snapshots/overview/2026-08-05.json.br" },
+				],
+			}),
 			get: async (key: string) => {
 				if (key.includes("2026-10-14")) {
 					return { arrayBuffer: async () => snap1Buf, httpEtag: "etag1" };

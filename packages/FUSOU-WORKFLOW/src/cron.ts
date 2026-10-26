@@ -31,6 +31,8 @@ interface Env {
   WORKFLOW_STATE_KV?: KVNamespace;
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN: string;
+  INTERNAL_COMPACTION_TOKEN?: string;
+  INTERNAL_WEB_URL?: string;
 }
 
 const KV_PROCESSING_ACTIVE_KEY = "buffer_processing_active";
@@ -622,6 +624,7 @@ export async function handleCron(env: Env): Promise<void> {
       console.log(
         `[Archival] Pre-generated snapshots: ${snapResult.sortiesSaved} sorties saved, updated periods: [${snapResult.snapshotsUpdated.join(", ")}]`,
       );
+      await triggerDetailSnapshotPreGeneration(env);
     } catch (snapErr) {
       console.error(
         "[Archival] Snapshot generation failed (non-fatal, archival succeeded):",
@@ -668,5 +671,33 @@ export async function handleCron(env: Env): Promise<void> {
         );
       }
     }
+  }
+}
+
+async function triggerDetailSnapshotPreGeneration(env: Env): Promise<void> {
+  const token = env.INTERNAL_COMPACTION_TOKEN;
+  if (!token) {
+    console.log("[Archival] INTERNAL_COMPACTION_TOKEN not configured, skipping detail pre-generation call.");
+    return;
+  }
+  const baseUrl = (env.INTERNAL_WEB_URL || "https://fusou.dev").replace(/\/$/, "");
+  const targetUrl = `${baseUrl}/api/battle-data/internal/rebuild-detail-snapshots`;
+  try {
+    console.log(`[Archival] Triggering detail snapshot pre-generation at ${targetUrl}...`);
+    const resp = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!resp.ok) {
+      console.warn(`[Archival] Detail snapshot pre-generation HTTP ${resp.status}: ${await resp.text()}`);
+    } else {
+      const data = await resp.json();
+      console.log("[Archival] Detail snapshot pre-generation succeeded:", data);
+    }
+  } catch (err) {
+    console.warn("[Archival] Failed to trigger detail snapshot pre-generation:", err);
   }
 }
