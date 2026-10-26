@@ -1,9 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
-import { acquireReleaseTransport, assertAuthenticatedReleaseTransport, encodeReleaseTransport } from "./release-transport.mjs";
+import { acquireReleaseTransport, assertAuthenticatedReleaseTransport, encodeReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { parseReleaseRecord, producerWorkflow, requireRelease } from "./release-build-proof.mjs";
 import { collectReleaseEvidence, producerExecutionContext } from "./release-evidence-producer.mjs";
 import { createProducerExecutionOrigin, EXECUTION_ORIGIN_FILE } from "./release-execution-origin.mjs";
-import { jsonBytes } from "./release-checks.mjs";
+import { jsonBytes, parsePinnedCheckInputs } from "./release-checks.mjs";
+import { deriveArchiveGrant } from "./release-grant-provider.mjs";
 
 export async function produceArchiveJob({ github, run, eligibility, identity, checkPolicyBytes, checkPolicySha256,
   publicBuildInputsSha256, downloadArchive }, dependencies = {}) {
@@ -27,6 +28,24 @@ export async function produceArchiveJob({ github, run, eligibility, identity, ch
   requireRelease(publicBuildInputsSha256 && report.build.public_inputs_sha256 === publicBuildInputsSha256 &&
     isDeepStrictEqual(report.eligibility_run, { run_id: run.id, run_attempt: run.run_attempt, coordinator_sha: run.head_sha }),
   "archive job independent public build input pin");
+  const checkPolicy = checkPolicyBytes && checkPolicySha256 ?
+    parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1") : undefined;
+  if (checkPolicy?.grant_provider) {
+    let blocker = "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED";
+    try {
+      const candidate = await deriveArchiveGrant({ github, run, trustedSha: identity.workflow_sha, downloaded,
+        checkPolicyBytes, checkPolicySha256, publicBuildInputsSha256 }, { authority: dependencies.grantAuthority, now: dependencies.now });
+      files.set("archive-grant-candidate.json", jsonBytes(candidate));
+    } catch (error) {
+      if (!(error instanceof ReleaseBlocked)) throw error;
+      blocker = error.code;
+    }
+    const blocked = { schema_version: 1, status: "BLOCKED_IMPLEMENTATION", blocker, ...context,
+      publication_authorized: false, deployment_status: "NOT_CHECKED", production_acceptance: "BLOCKED",
+      offline_verification: "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED" };
+    files.set("archive-production.json", jsonBytes(blocked));
+    return { report: blocked, transport: encodeReleaseTransport(files) };
+  }
   const production = await collectReleaseEvidence({ report, identity, checkPolicyBytes, checkPolicySha256 }, dependencies);
   for (const execution of production.executions.values()) for (const [name, raw] of execution.files) files.set(name, raw);
   files.set("archive-production.json", jsonBytes(production.report));

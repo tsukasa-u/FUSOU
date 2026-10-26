@@ -3,8 +3,8 @@ import { evaluateReleaseRun, TAG_WORKFLOW_PATH } from "./release-eligibility.mjs
 import { assertProducerRun, verifyProducerBuild, parseReleaseRecord, requireRelease, producerWorkflow } from "./release-build-proof.mjs";
 import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { sha256, encodeReleaseManifest, validateReleaseManifest, assertReleaseRuntimeConfigBinding } from "./release-manifest.mjs";
-import { checkContext, parsePinnedCheckInputs, receiptFor, verifyArchiveReadback, verifyReleaseChecks } from "./release-checks.mjs";
-import { verifyArchiveHttpExecution } from "./release-archive-http.mjs";
+import { checkContext, parsePinnedCheckInputs, verifyReleaseChecks } from "./release-checks.mjs";
+import { authenticateArchiveSupplement } from "./release-archive-provenance.mjs";
 import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
 import { EVIDENCE_PRODUCTION_SCOPE, EVIDENCE_IMPLEMENTATION_BLOCKERS } from "./release-evidence-producer.mjs";
 
@@ -176,36 +176,16 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     const evidenceFiles = new Map(downloaded.files);
     const checkPolicy = checkPolicyBytes && checkPolicySha256 ?
       parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1") : undefined;
+    if (checkPolicy?.grant_provider) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
     if (checkPolicy?.archive_transport) {
       const supplemental = await acquireReleaseTransport({ github, run, downloadArchive, ...dependencies.transport, artifactKind: "archive" });
-      requireRelease(Buffer.from(supplemental.files.get("release-report.json") ?? []).equals(downloaded.files.get("release-report.json")),
-        "archive artifact/build release report mismatch");
-      if (!supplemental.files.has("check-archive_readback.json") || !supplemental.files.has("release-execution-origin.json")) {
-        throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_HTTP_EXECUTION_MISSING");
-      }
-      const seal = parseReleaseRecord(supplemental.files.get("release-execution-origin.json"));
-      requireRelease(Object.keys(seal.checks).every((check) => check === "archive_readback"), "archive artifact cannot replace build/native origin");
-      for (const [name, raw] of supplemental.files) {
-        if (name === "release-report.json" || name === "release-execution-origin.json" || name === "archive-production.json") continue;
-        requireRelease(name === "check-archive_readback.json" || /^evidence-[A-Za-z0-9_-]{43}\.bin$/.test(name),
-          "archive supplemental file inventory");
-        requireRelease(!evidenceFiles.has(name) || Buffer.from(evidenceFiles.get(name)).equals(raw), "conflicting archive supplemental evidence");
-        evidenceFiles.set(name, raw);
-      }
-      archiveIntake = createCrossRunExecutionIntake({ github, run, trustedSha, downloaded: supplemental, eligibility,
-        publicBuildInputsSha256, checkPolicySha256 });
+      const authenticated = await authenticateArchiveSupplement({ github, run, trustedSha, primary: downloaded, supplemental,
+        eligibility, build, publicBuildInputsSha256, checkPolicySha256, checkPolicyBytes, nowMs });
+      for (const [name, raw] of authenticated.files) evidenceFiles.set(name, raw);
+      archiveIntake = authenticated.intake;
       result.archive_transport = supplemental.origin;
-      const context = checkContext(run, eligibility.commit_sha), evidence = new Map();
-      for (const [name, raw] of supplemental.files) {
-        const match = /^evidence-([A-Za-z0-9_-]{43})\.bin$/.exec(name);
-        if (match) { requireRelease(sha256(raw) === match[1], "supplemental archive evidence hash"); evidence.set(match[1], raw); }
-      }
-      const record = parseReleaseRecord(supplemental.files.get("check-archive_readback.json"));
-      const execution = receiptFor("archive_readback", { archive_readback: record }, evidence, context);
-      verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, httpTransportSpec: checkPolicy.archive_transport, nowMs });
-      await verifyArchiveHttpExecution({ ...execution, expected: checkPolicy.archive, spec: checkPolicy.archive_transport, context, nowMs });
-      await archiveIntake.authenticate({ ...execution, check: "archive_readback", context, build });
       result.archive_acquisition_status = "AUTHENTICATED_PRODUCER_REPORT_VERIFIED";
+      result.archive_provenance = authenticated.provenance;
     }
     const authenticateExecution = (execution) => (execution.check === "archive_readback" && archiveIntake ?
       archiveIntake : executionIntake).authenticate(execution);

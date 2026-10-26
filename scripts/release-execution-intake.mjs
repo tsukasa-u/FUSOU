@@ -18,6 +18,7 @@ export const EXECUTION_IMPLEMENTATION_PATHS = Object.freeze([
   "scripts/release-evidence-producer.mjs",
   "scripts/release-archive-http.mjs",
   "scripts/release-archive-job.mjs",
+  "scripts/release-archive-provenance.mjs", "scripts/release-grant-provider.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs",
@@ -53,6 +54,20 @@ export function assertAuthenticatedCrossRunExecution(proof, execution) {
   requireRelease(proof && isDeepStrictEqual(proofs.get(proof), proofBinding(execution)),
     "unauthenticated/mismatched cross-run execution");
 }
+export async function assertTrustedExecutionImplementation({ github, run, trustedSha }) {
+  requireRelease(/^[0-9a-f]{40}$/.test(trustedSha), "independent execution verifier revision");
+  const main = (await github.rest.repos.getBranch({ ...repo, branch: "main" })).data.commit?.sha;
+  requireRelease(/^[0-9a-f]{40}$/.test(main), "execution producer main revision");
+  const ancestry = (await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${run.head_sha}...${main}` })).data;
+  requireRelease(["ahead", "identical"].includes(ancestry.status) && ancestry.merge_base_commit?.sha === run.head_sha,
+    "execution producer is not in main history");
+  for (const path of EXECUTION_IMPLEMENTATION_PATHS) {
+    const [producer, consumer] = await Promise.all([run.head_sha, trustedSha].map(async (ref) =>
+      (await github.rest.repos.getContent({ ...repo, ref, path })).data));
+    requireRelease(producer.type === "file" && consumer.type === "file" && /^[0-9a-f]{40}$/.test(producer.sha) &&
+      producer.sha === consumer.sha, `untrusted execution producer implementation: ${path}`);
+  }
+}
 export function createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256, checkPolicySha256 }) {
   let authenticated;
   const recheck = async () => {
@@ -72,11 +87,7 @@ export function createCrossRunExecutionIntake({ github, run, trustedSha, downloa
   const authenticate = async (execution) => {
     if (!authenticated) authenticated = (async () => {
       await recheck();
-      const main = (await github.rest.repos.getBranch({ ...repo, branch: "main" })).data.commit?.sha;
-      requireRelease(/^[0-9a-f]{40}$/.test(main), "execution producer main revision");
-      const ancestry = (await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${run.head_sha}...${main}` })).data;
-      requireRelease(["ahead", "identical"].includes(ancestry.status) && ancestry.merge_base_commit?.sha === run.head_sha,
-        "execution producer is not in main history");
+      await assertTrustedExecutionImplementation({ github, run, trustedSha });
       if (!publicBuildInputsSha256) throw new ReleaseBlocked("EXECUTION_INDEPENDENT_RELEASE_INPUT_PIN_MISSING");
       const raw = downloaded.files.get(EXECUTION_ORIGIN_FILE);
       if (!raw) throw new ReleaseBlocked("CROSS_RUN_EXECUTION_ORIGIN_MISSING", "BLOCKED_IMPLEMENTATION");
@@ -94,13 +105,6 @@ export function createCrossRunExecutionIntake({ github, run, trustedSha, downloa
         report.validation_run_id === eligibility.validation_run_id && report.validation_run_attempt === eligibility.validation_run_attempt &&
         report.build.public_inputs_sha256 === publicBuildInputsSha256 &&
         isDeepStrictEqual(seal.subject, executionSubject(report)), "cross-run execution release subject/input pin");
-      requireRelease(/^[0-9a-f]{40}$/.test(trustedSha), "independent execution verifier revision");
-      for (const path of EXECUTION_IMPLEMENTATION_PATHS) {
-        const [producer, consumer] = await Promise.all([run.head_sha, trustedSha].map(async (ref) =>
-          (await github.rest.repos.getContent({ ...repo, ref, path })).data));
-        requireRelease(producer.type === "file" && consumer.type === "file" && /^[0-9a-f]{40}$/.test(producer.sha) &&
-          producer.sha === consumer.sha, `untrusted execution producer implementation: ${path}`);
-      }
       return seal;
     })();
     const seal = await authenticated, { check, receipt, inputs, context, build } = execution;

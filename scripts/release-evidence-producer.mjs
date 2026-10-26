@@ -36,6 +36,7 @@ export async function collectReleaseEvidence({ report, identity, checkPolicyByte
   try {
     const policy = parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1");
     policyDigest = sha256(checkPolicyBytes);
+    if (policy.grant_provider) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
     requireRelease(policy.repository === context.repository && policy.source_sha === context.source_sha,
       "producer independent archive policy/release source");
     if (!policy.archive) throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_CONTEXT_MISSING");

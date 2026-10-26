@@ -2403,3 +2403,286 @@ git status --short -- "$@"
 
 Commit SHA, hook outcome and final branch/scoped-clean result are reported
 from the executed commands, not inferred from this record.
+
+## Follow-up: independent archive provenance and automatic grant derivation
+
+### Start and implemented scope
+
+Start branch: `tlsn-first-testplay-candidate`. Actual start HEAD:
+`8feb753a93d4803ab102d36f0fc57281ac554cbd`, matching the requested start.
+The explicitly inspected task scope was clean. A subsequent scoped status
+confirmed the same branch/HEAD and only the eight implementation/test changes
+below before this roadmap update. No repository-wide status/diff was used.
+
+| File | Purpose |
+| --- | --- |
+| [release-archive-provenance.mjs](../../scripts/release-archive-provenance.mjs) | Shared API-authenticated supplemental archive verification and explicit saved-byte online reacquisition |
+| [release-grant-provider.mjs](../../scripts/release-grant-provider.mjs) | Compile a non-authorized grant candidate from independent GitHub, pinned policy and authority inputs |
+| [release-execution-intake.mjs](../../scripts/release-execution-intake.mjs) | Reuse trusted implementation verification and include the new runtime modules in the source TCB |
+| [release-consumer.mjs](../../scripts/release-consumer.mjs) | Use the shared verifier, expose the precise provenance scope, and reject unregistered dynamic grant publication |
+| [release-archive-job.mjs](../../scripts/release-archive-job.mjs) | Wire opt-in candidate derivation, without issuing a successful archive check or execution origin |
+| [release-evidence-producer.mjs](../../scripts/release-evidence-producer.mjs) | Prevent dynamic-provider policy from falling back to a successful static-grant path |
+| [release-provenance-fixture.mjs](../../scripts/release-provenance-fixture.mjs) | Key-free local API/authority/HTTP doubles, not a real OIDC or service identity fixture |
+| [release-provenance-grant.test.mjs](../../scripts/release-provenance-grant.test.mjs) | Provenance, independent expectation, grant derivation, replay, no-fallback and fail-closed contracts |
+| This roadmap | Contracts, bounded guarantees, exact validation commands and unresolved inputs |
+
+No workflow permissions, Worker routes, authority writes, Production
+configuration, trust pins, dependencies or secrets were changed in this step.
+The existing archive-only OIDC job and release eligibility gates remain.
+
+### Report provenance: online authentication, not a detached signature
+
+The producer is the trusted release workflow, which produces the archive
+check/origin after its authenticated HTTPS acquisition. The consumer obtains
+both primary and supplemental artifacts through authenticated GitHub
+run/artifact metadata and HTTPS download, verifies the API archive digest, and
+requires the exact same `release-report.json` bytes in both artifacts. Existing
+input pins, live eligibility, source/run/attempt, execution subject/receipt,
+trusted-main ancestry and implementation blob parity remain required.
+
+`authenticateArchiveSupplement` is now the single shared implementation for
+this boundary. It eagerly authenticates the archive origin before a missing
+native check can stop the final release decision. The existing label
+`AUTHENTICATED_PRODUCER_REPORT_VERIFIED` is retained **only** for this online,
+trusted-workflow acquisition boundary. It is not evidence of a consumer-side
+JWT signature verification, job-specific cryptographic attestation,
+retention, or TLSN/native cryptographic verification.
+
+`reauthenticateSavedArchive` makes subsequent verification explicit:
+
+1. Its caller supplies independent repository ID, producer run/attempt,
+   workflow SHA, trusted implementation SHA, release source SHA and validation
+   run/attempt, plus the existing independently pinned public/check inputs.
+   These must not be sourced from the saved report's own claims.
+2. It reacquires live run, eligibility and both artifact identities/bytes
+   using the existing authenticated GitHub adapter.
+3. It applies the same producer/build/source/receipt/raw archive checks and
+   rechecks both artifact metadata records after verification.
+4. The saved six input files must match the reacquired input inventory and
+   exact bytes. Missing/changed saved inputs are rejected.
+
+The returned `archive_provenance` records
+`verification_mode: GITHUB_API_REACQUISITION`,
+`offline_signature_verification: NOT_IMPLEMENTED`,
+`archive_integrity: RAW_VERSION_SIZE_DIGEST_CHECKED` and
+`consumer_native_crypto_reexecution: NOT_CHECKED`, together with repository,
+workflow/run/source, artifact identities and report/receipt/input digests.
+This record is an observation of the verification invocation, **not** a
+signature or transferable capability. Serialized JSON or an
+`authenticated: true` field alone cannot authenticate it. The existing private
+transport proof is process-local and must be minted again on reacquisition.
+Authentication remains at the trusted workflow/run artifact boundary; GitHub
+artifact metadata is not represented as a job-specific signed assertion.
+
+### GitHub Artifact Attestations decision
+
+Not adopted in this change. The existing online trust boundary can verify the
+report's producer and exact content without adding a second signature scheme.
+It does not solve detached offline report authentication. Scoped inspection
+found no registered attestation action, verifier/root contract or dependency
+in this release path. Repository visibility is **UNKNOWN**; feature
+availability, attestation retrieval, verifier version/source and trust roots
+are **UNVERIFIED** because external access is prohibited.
+
+No `attestations: write`, action, key or custom signature protocol was added.
+A self-asserted attestation, even one claiming the right subject, is not a
+fallback: an unregistered attestation verification mode is rejected. The
+wrong-subject/wrong-signer tests exercise that refusal only, **not** Sigstore
+signature, certificate or transparency verification. Actual attestation
+cryptographic verification remains **NOT_IMPLEMENTED** in this path and was
+**NOT_RUN**.
+
+### Automatic grant compiler and the remaining provider boundary
+
+The existing independently pinned check public input can opt into
+`grant_provider` with:
+
+- `schema_version: 1`, `scope: fusou-release-grant-provider-v1`;
+- `template`: the existing dedicated endpoint/OIDC bootstrap policy, with
+  **no** `grants` field;
+- `grant_ttl_ms`: positive and at most 600000;
+- independently specified `capture_not_before_ms`, `capture_max_age_ms`;
+- `subject.canonical_user_id` and `subject.device_id` for the existing
+  authority lookup.
+
+This is an additional public-input **contract**, not an installed Production
+pin. Its outer trust root remains the existing independently configured
+`FUSOU_RELEASE_CHECK_INPUTS_SHA256`. Endpoint/audience, repository ID and
+workflow bootstrap identity cannot be learned from the request or report.
+No new real values were guessed or registered.
+
+The compiler requires the authenticated primary artifact capability, a fresh
+GitHub producer run/attempt and trusted workflow implementation, live
+release/validation eligibility, independent public/check pins, matching report
+input identity, and the independently pinned archive/capture policy. It then
+uses the existing direct, read-only consumed-authority interface to resolve
+the catalog using the pinned session/user/device/job lookup. It checks
+source/capture/session/job/attempt/binding, current expected object keys,
+versions/digests/optional sizes, Result envelope digest and catalog freshness.
+The existing consumed state/catalog transaction is not bypassed or rewritten.
+
+The coordinator derives a candidate scope and short lifetime from these
+inputs and its clock, rather than from producer `PASS` or request
+`authenticated` fields. Output is explicitly
+`DERIVED_NOT_AUTHORIZED`, `publication_authorized: false`, and
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED`. The candidate's hash
+does not make it a new trust root.
+
+**NOT_IMPLEMENTED / BLOCKED_IMPLEMENTATION:**
+
+- `ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`: the Actions job does not
+  have a registered, independently authenticated bridge to read the existing
+  authority state. A direct injected test authority is not that bridge.
+- `ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED`: there is no approved
+  authenticated path to publish a coordinator/authority-derived grant into
+  the endpoint's independently trusted authorization policy/provider.
+
+The job can package a local candidate when a trusted direct reader is
+injected; the real workflow does not inject one. Neither that candidate nor
+its artifact authorizes HTTP reads. With `grant_provider` selected, job,
+producer, consumer and saved-byte verifier fail closed; they do not fall
+back to static grants, mint a successful archive check or issue a positive
+execution origin. This does not introduce a per-release human approval
+requirement, and manually registering each candidate is not the implemented
+solution. A real provider requires a separately established authenticated
+authority-read and grant-publication contract plus one-time public bootstrap
+configuration.
+
+### End-to-end and replay guarantees
+
+Existing endpoint: `POST /internal/tlsn/archive-readback/v1`, read-only despite
+POST. GitHub OIDC authenticates that HTTP caller separately from coordinator
+and artifact authentication. Issuer remains exactly
+`https://token.actions.githubusercontent.com`, fixed GitHub JWKS, RS256, and
+audience exactly the independently configured dedicated HTTPS endpoint.
+Repository/workflow/run claims and independent grant policy are still
+required; `workflow_sha` is not the release source SHA. No OIDC token is
+stored in the report, fixture artifact or provenance record.
+
+The endpoint resolves permitted keys from authority catalog state, checks
+current object version/size/raw digest, and returns evidence for independent
+consumer checks. No arbitrary key, list, write or delete API was added.
+The online consumer connection is implemented. The **dynamic** chain stops
+before authorization at the two provider boundaries above; no real grant was
+issued, no endpoint was contacted and no real archive was accepted.
+
+Run/attempt/source/capture/lookup and lifetime mismatch is rejected. Expiry is
+exclusive at `expires_at_ms`; future grants are rejected. Same-scope
+idempotent re-verification is retained, not relabeled global one-use replay
+prevention. There is no new one-use consumption ledger.
+
+R2 `version` remains an opaque current-object metadata equality check plus
+raw size/digest. Compiler catalog observations are not real R2 readback.
+Historical generation retrieval remains **NOT_IMPLEMENTED**. Overwrite/delete
+prevention, immutability and retention remain **NOT_CHECKED**; version equality
+does not establish any of them.
+
+| Existing check | Local contract state | Real evidence in this step |
+| --- | --- | --- |
+| `locked_dependencies` | Existing assertions preserved; key-free regression PASS | **UNVERIFIED**, not acquired/executed |
+| `compiled_inputs` | Existing assertions preserved; formal native blocker retained | **UNVERIFIED**, native build identity contract **NOT_IMPLEMENTED** |
+| `archive_readback` | Mock raw/version/size/digest/HTTP/provenance contracts PASS | **UNVERIFIED**, no real OIDC/R2/provider configuration checked |
+| `offline_verification` | Existing receipt/check assertions preserved; no mock launcher | **UNVERIFIED**, formal native producer remains blocked |
+
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` is retained even when local
+archive provenance or candidate compilation succeeds. Synthetic reports do
+not establish real `RELEASE_ARTIFACTS_VALIDATED` or `DEPLOYMENT_VERIFIED`.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain unchanged.
+
+### Exact local validation commands and results
+
+All commands below run from `/home/ogu-h/Documents/GitHub/FUSOU`. Side effects
+were checked before execution: explicit Node test selectors use API, process,
+authority and HTTP doubles; they do not execute release artifacts, services,
+Worker/native code, Cargo/Rust/WASM/APP builds or key generation. Syntax
+checks parse without evaluation. The TypeScript command is no-emit only.
+Existing dependencies were reused; no install/package script was run.
+Read-only source investigation used scoped `view`/`rg` calls.
+
+1. Initial targeted run: **118 PASS, 0 FAIL, 0 cancelled, 0 skipped**.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-provenance-grant.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-consumer.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-targeted-initial.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-targeted-initial.log; exit "$result"
+```
+
+2. First expanded regression: **336 PASS, 0 FAIL, 0 cancelled, 0 skipped**.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs scripts/release-build.test.mjs scripts/release-consumer.test.mjs scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/release-provenance-grant.test.mjs scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-regression.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-regression.log; exit "$result"
+```
+
+3. Syntax-only check: **PASS, eight changed JavaScript modules**.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && for file in scripts/release-archive-provenance.mjs scripts/release-grant-provider.mjs scripts/release-provenance-fixture.mjs scripts/release-provenance-grant.test.mjs scripts/release-execution-intake.mjs scripts/release-archive-job.mjs scripts/release-evidence-producer.mjs scripts/release-consumer.mjs; do env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check "$file" || exit; done; printf 'PASS: 8 changed JavaScript modules syntax-checked without evaluation.\n'
+```
+
+4. Worker static type check: **PASS**, no emit/build/runtime execution.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/.bin/tsc --noEmit -p packages/FUSOU-TLSN-VERIFICATION-WORKER/tsconfig.json
+```
+
+5. After adding seven explicit replay/no-fallback/native-blocker assertions,
+   final syntax check and expanded regression: **343 PASS, 0 FAIL,
+   0 cancelled, 0 skipped**. This includes 40 new key-free tests and the
+   existing 303-test regression. There were **no failing runs** in this step.
+   Source/test additions strengthened coverage rather than weakening an
+   assertion or hiding a failure.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check scripts/release-provenance-grant.test.mjs && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs scripts/release-build.test.mjs scripts/release-consumer.test.mjs scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/release-provenance-grant.test.mjs scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-regression-final.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-regression-final.log; exit "$result"
+```
+
+The existing OIDC crypto suite
+[release-archive-http.test.mjs](../../scripts/release-archive-http.test.mjs)
+is **NOT_RUN** in this step: its top-level `generateKeyPair` violates the
+current prohibition on *all* key generation. Import/name-filtering it would
+still generate keys. It is not modified or skipped internally.
+The new tests use no key-generating fixture; the OIDC adapter double verifies
+only that a claimed successful authentication cannot replace a missing or
+wrong run grant. They do not test a real JWT signature. The key-generating
+APP reference fixture is also **NOT_RUN**.
+
+Real GitHub API/OIDC/Artifact Attestations, Cloudflare/R2/Notary/Session
+Authority calls, CI dispatch, build/native execution, Production signing/
+configuration/registration, deploy/publish, push/PR/tag are **NOT_RUN**.
+No protected file was read, searched, compared, hashed, edited or included in
+the commit scope. The previously audited byte-binding test is unchanged.
+
+### Scoped metadata checks and local commit procedure
+
+The actual pre-documentation metadata check was:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-archive-provenance.mjs scripts/release-grant-provider.mjs scripts/release-provenance-fixture.mjs scripts/release-provenance-grant.test.mjs scripts/release-execution-intake.mjs scripts/release-archive-job.mjs scripts/release-evidence-producer.mjs scripts/release-consumer.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && tail -n 110 docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+Result: **PASS**, expected branch/HEAD and four modified/four new Node files;
+the roadmap was then unmodified. The normal hook was inspected before use:
+it reads only commit-index allowlisted blobs, materializes an isolated
+temporary repository, and invokes local `code-review-graph update` and
+`detect-changes --brief`. It is not an independent security/Production audit.
+The explicit `commit --only` scope below prevents unrelated staged changes
+from entering that hook or commit. Hook bypass and signing are not used.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-archive-provenance.mjs scripts/release-grant-provider.mjs scripts/release-provenance-fixture.mjs scripts/release-provenance-grant.test.mjs scripts/release-execution-intake.mjs scripts/release-archive-job.mjs scripts/release-evidence-producer.mjs scripts/release-consumer.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git diff --check -- "$@" && git add -- "$@" && git diff --cached --check -- "$@" && git -c commit.gpgsign=false commit --only -m "feat(release): reauthenticate archive provenance and derive scoped grant candidates" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-local-commit.log 2>&1; result=$?; tail -n 30 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/grant-provenance-local-commit.log; exit "$result"
+```
+
+After the successful commit, reuse the exact nine-path `set --` list with:
+
+```sh
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- "$@"
+git diff --check HEAD^ HEAD -- "$@"
+```
+
+The actual hook/commit exit result, final commit SHA/parent and scoped-clean
+state are reported from these commands, not inferred or pre-authorized by
+this procedure. No real release/deployment acceptance is established by a
+local commit.
