@@ -3944,17 +3944,7 @@ app.get("/detail", async (c) => {
               const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
               safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
             }
-            // Asynchronously write through single battle snapshot to R2 directly (non-blocking)
-            if (typeof bucket.put === "function") {
-              safeWaitUntil(
-                c,
-                bucket.put(directKeyJson, payloadStr, {
-                  httpMetadata: { contentType: "application/json" },
-                }).catch((e) => {
-                  console.warn("[battle_data] write-through directKeyJson failed:", e);
-                }),
-              );
-            }
+
             timings.push(`total;dur=${(performance.now() - t0).toFixed(1)}`);
             const snapResp = new Response(payloadStr, {
               status: 200,
@@ -4028,17 +4018,7 @@ app.get("/detail", async (c) => {
                 const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
                 safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
               }
-              // Asynchronously write through single battle snapshot to R2 directly (non-blocking)
-              if (typeof bucket.put === "function") {
-                safeWaitUntil(
-                  c,
-                  bucket.put(directKeyJson, payloadStr, {
-                    httpMetadata: { contentType: "application/json" },
-                  }).catch((e) => {
-                    console.warn("[battle_data] write-through directKeyJson failed:", e);
-                  }),
-                );
-              }
+
 
               return new Response(payloadStr, {
                 status: 200,
