@@ -3238,6 +3238,182 @@ app.get("/global/records", async (c) => {
   }
 });
 
+async function getAggregatedOverviewPayload(
+  bucket: R2Bucket,
+  kv: KVNamespace | undefined,
+): Promise<string> {
+  const kvKey = "overview:snapshot:all:v2";
+  if (kv) {
+    try {
+      const cached = await kv.get(kvKey);
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // ignore KV error
+    }
+  }
+
+  const snapshots = await Promise.all(
+    KNOWN_PERIOD_TAGS.map(async (tag) => {
+      try {
+        const obj = await bucket.get(`snapshots/overview/${tag}.json.br`);
+        if (!obj) return null;
+        const buf = Buffer.from(await obj.arrayBuffer());
+        const decomp = await brotliDecompressAsync(buf);
+        return JSON.parse(decomp.toString("utf-8"));
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const battlesMap = new Map<string, BattleRecord>();
+  const cellsMap = new Map<string, Record<string, unknown>>();
+  const decksMap = new Map<string, Record<string, unknown>>();
+  const shipsMap = new Map<string, Record<string, unknown>>();
+
+  for (const snap of snapshots) {
+    if (!snap) continue;
+    if (Array.isArray(snap.battles)) {
+      for (const b of snap.battles) {
+        if (!b) continue;
+        const key = b.uuid ? String(b.uuid) : `${b.env_uuid}:${b.index}`;
+        if (!battlesMap.has(key)) {
+          battlesMap.set(key, b as BattleRecord);
+        }
+      }
+    }
+    if (Array.isArray(snap.cells)) {
+      for (const cell of snap.cells) {
+        if (!cell) continue;
+        const key = cell.uuid ? String(cell.uuid) : `${cell.env_uuid}:${cell.maparea_id}-${cell.mapinfo_no}`;
+        if (!cellsMap.has(key)) {
+          cellsMap.set(key, cell as Record<string, unknown>);
+        }
+      }
+    }
+    if (Array.isArray(snap.enemy_decks)) {
+      for (const deck of snap.enemy_decks) {
+        if (!deck) continue;
+        const key = deck.uuid ? String(deck.uuid) : `${deck.env_uuid}:${deck.ship_ids}`;
+        if (!decksMap.has(key)) {
+          decksMap.set(key, deck as Record<string, unknown>);
+        }
+      }
+    }
+    if (Array.isArray(snap.enemy_ships)) {
+      for (const ship of snap.enemy_ships) {
+        if (!ship) continue;
+        const key = `${ship.uuid ?? ship.env_uuid}:${ship.index}`;
+        if (!shipsMap.has(key)) {
+          shipsMap.set(key, ship as Record<string, unknown>);
+        }
+      }
+    }
+  }
+
+  const payload = {
+    success: true,
+    period_tag: "all",
+    table_version: 1,
+    snapshot_timestamp: Date.now(),
+    battles: Array.from(battlesMap.values()),
+    cells: Array.from(cellsMap.values()),
+    enemy_decks: Array.from(decksMap.values()),
+    enemy_ships: Array.from(shipsMap.values()),
+  };
+
+  const payloadText = JSON.stringify(payload);
+
+  if (kv) {
+    try {
+      await kv.put(kvKey, payloadText, { expirationTtl: 86400 });
+    } catch {
+      // ignore KV write error
+    }
+  }
+
+  return payloadText;
+}
+
+async function getAggregatedDropsPayload(
+  bucket: R2Bucket,
+  kv: KVNamespace | undefined,
+): Promise<string> {
+  const kvKey = "drops:snapshot:all:v2";
+  if (kv) {
+    try {
+      const cached = await kv.get(kvKey);
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // ignore KV error
+    }
+  }
+
+  const snapshots = await Promise.all(
+    KNOWN_PERIOD_TAGS.map(async (tag) => {
+      try {
+        const obj = await bucket.get(`snapshots/drops/${tag}.json.br`);
+        if (!obj) return null;
+        const buf = Buffer.from(await obj.arrayBuffer());
+        const decomp = await brotliDecompressAsync(buf);
+        return JSON.parse(decomp.toString("utf-8"));
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const battlesMap = new Map<string, BattleRecord>();
+  const mstShipsMap = new Map<string, Record<string, unknown>>();
+
+  for (const snap of snapshots) {
+    if (!snap) continue;
+    if (Array.isArray(snap.battles)) {
+      for (const b of snap.battles) {
+        if (!b) continue;
+        const key = b.uuid ? String(b.uuid) : `${b.env_uuid}:${b.index}`;
+        if (!battlesMap.has(key)) {
+          battlesMap.set(key, b as BattleRecord);
+        }
+      }
+    }
+    if (Array.isArray(snap.mst_ships)) {
+      for (const s of snap.mst_ships) {
+        if (!s) continue;
+        const key = String(s.id ?? s.mst_ship_id ?? JSON.stringify(s));
+        if (!mstShipsMap.has(key)) {
+          mstShipsMap.set(key, s as Record<string, unknown>);
+        }
+      }
+    }
+  }
+
+  const payload = {
+    success: true,
+    period_tag: "all",
+    table_version: 1,
+    snapshot_timestamp: Date.now(),
+    battles: Array.from(battlesMap.values()),
+    mst_ships: Array.from(mstShipsMap.values()),
+  };
+
+  const payloadText = JSON.stringify(payload);
+
+  if (kv) {
+    try {
+      await kv.put(kvKey, payloadText, { expirationTtl: 86400 });
+    } catch {
+      // ignore KV write error
+    }
+  }
+
+  return payloadText;
+}
+
 app.get("/global/overview", async (c) => {
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
@@ -3266,8 +3442,19 @@ app.get("/global/overview", async (c) => {
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
   if (!bucket) {
     return c.json({ error: "Failed to build overview payload", details: "Storage not configured" }, 500);
+  }
+
+  if (periodTag === "all") {
+    const payloadText = await getAggregatedOverviewPayload(bucket, kv);
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    headers.set("Cache-Control", cacheControl);
+    headers.set("X-FUSOU-Cache", "SNAPSHOT-AGGREGATED");
+    headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
+    return new Response(payloadText, { status: 200, headers });
   }
 
   const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
@@ -3315,8 +3502,19 @@ app.get("/global/drops", async (c) => {
   const env = createEnvContext(c);
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
   if (!bucket) {
     return c.json({ error: "Failed to build drops payload", details: "Storage not configured" }, 500);
+  }
+
+  if (periodTag === "all") {
+    const payloadText = await getAggregatedDropsPayload(bucket, kv);
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    headers.set("Cache-Control", cacheControl);
+    headers.set("X-FUSOU-Cache", "SNAPSHOT-AGGREGATED");
+    headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
+    return new Response(payloadText, { status: 200, headers });
   }
 
   const activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag);
@@ -3335,6 +3533,7 @@ app.get("/global/drops", async (c) => {
 
   return await buildSnapshotResponse(c, await snapshotObj.arrayBuffer(), cacheControl, snapshotObj.httpEtag);
 });
+
 
 app.get("/detail-env", async (c) => {
   const envUuid = (c.req.query("env_uuid") || "").trim();

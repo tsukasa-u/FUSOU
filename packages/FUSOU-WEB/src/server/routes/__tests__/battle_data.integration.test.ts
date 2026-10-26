@@ -839,4 +839,54 @@ describe("battle-data route integration", () => {
 		expect(results).toHaveLength(2);
 		expect(batchCalledCount).toBe(1);
 	});
+
+	it("aggregates overview snapshots across all periods when period_tag=all", async () => {
+		const snap1 = {
+			battles: [{ uuid: "b1", maparea_id: 1, mapinfo_no: 1 }],
+			cells: [{ uuid: "c1", maparea_id: 1, mapinfo_no: 1 }],
+			enemy_decks: [{ uuid: "d1" }],
+			enemy_ships: [{ uuid: "s1", index: 0 }],
+		};
+		const snap2 = {
+			battles: [{ uuid: "b2", maparea_id: 62, mapinfo_no: 1 }],
+			cells: [{ uuid: "c2", maparea_id: 62, mapinfo_no: 1 }],
+			enemy_decks: [{ uuid: "d2" }],
+			enemy_ships: [{ uuid: "s2", index: 0 }],
+		};
+
+		const zlib = await import("node:zlib");
+		const { promisify } = await import("node:util");
+		const compress = promisify(zlib.brotliCompress);
+		const snap1Buf = await compress(Buffer.from(JSON.stringify(snap1)));
+		const snap2Buf = await compress(Buffer.from(JSON.stringify(snap2)));
+
+		const bucket = {
+			get: async (key: string) => {
+				if (key.includes("2026-10-14")) {
+					return { arrayBuffer: async () => snap1Buf, httpEtag: "etag1" };
+				}
+				if (key.includes("2026-08-05")) {
+					return { arrayBuffer: async () => snap2Buf, httpEtag: "etag2" };
+				}
+				return null;
+			},
+		} as unknown as R2Bucket;
+
+		const response = await request("/global/overview?period_tag=all", {
+			env: { BATTLE_DATA_BUCKET: bucket },
+		});
+		const body = (await response.json()) as {
+			success: boolean;
+			period_tag: string;
+			battles: Array<{ uuid: string; maparea_id: number; mapinfo_no: number }>;
+		};
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("X-FUSOU-Cache")).toBe("SNAPSHOT-AGGREGATED");
+		expect(body.success).toBe(true);
+		expect(body.period_tag).toBe("all");
+		expect(body.battles).toHaveLength(2);
+		expect(body.battles.map((b) => `${b.maparea_id}-${b.mapinfo_no}`)).toEqual(["1-1", "62-1"]);
+	});
 });
+
