@@ -83,17 +83,8 @@ async function resolveSnapshotPeriodTag(
     return tag;
   }
 
-  if (!db) return "2026-10-14";
-  try {
-    const row = await db
-      .prepare(
-        "SELECT period_tag FROM block_indexes WHERE table_name = 'battle' ORDER BY period_tag DESC LIMIT 1",
-      )
-      .first<{ period_tag: string }>();
-    return row?.period_tag || "2026-10-14";
-  } catch {
-    return "2026-10-14";
-  }
+  // Pure deterministic R2 snapshot default: eliminate all D1 block_indexes queries
+  return KNOWN_PERIOD_TAGS[0] ?? "2026-10-14";
 }
 
 import { Hono, type Context } from "hono";
@@ -385,10 +376,10 @@ function parseJsonObjectText(text: string): Record<string, unknown> {
   return parsed;
 }
 
-const MASTER_DATA_MEM_CACHE_TTL_MS = 5 * 60 * 1000;
-const masterDataDbPayloadCache = new WeakMap<
-  object,
-  Map<string, { expiresAt: number; promise: Promise<MasterDataJsonPayload> }>
+const MASTER_DATA_MEM_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour memory TTL
+const masterDataGlobalPayloadCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<MasterDataJsonPayload> }
 >();
 const masterDataImmutableRecordsCache = new Map<
   string,
@@ -398,113 +389,82 @@ const masterDataImmutableRecordsCache = new Map<
 async function fetchMasterDataJsonDirect(
   c: Context<{ Bindings: Bindings }>,
   tableName: string,
+  periodTagParam?: string,
 ): Promise<MasterDataJsonPayload> {
   const env = createEnvContext(c);
-  const db = env.runtime["MASTER_DATA_INDEX_DB"];
   const bucket = env.runtime["MASTER_DATA_BUCKET"];
-  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
-  if (!db || !bucket) throw new Error("Master data storage not configured");
+  if (!bucket) throw new Error("Master data storage not configured");
 
-  let dbCache = masterDataDbPayloadCache.get(db);
-  if (!dbCache) {
-    dbCache = new Map();
-    masterDataDbPayloadCache.set(db, dbCache);
-  }
+  const targetTag = periodTagParam && periodTagParam !== "latest" && periodTagParam !== "all"
+    ? periodTagParam
+    : "2026-10-14";
+
+  const cacheKey = `${tableName}:${targetTag}`;
   const now = Date.now();
-  const cachedEntry = dbCache.get(tableName);
+  const cachedEntry = masterDataGlobalPayloadCache.get(cacheKey);
   if (cachedEntry && cachedEntry.expiresAt > now) {
     return cachedEntry.promise;
   }
 
   const loadPromise = (async (): Promise<MasterDataJsonPayload> => {
-    const latestMaster = await getLatestMasterPeriodTag(db, kv);
-    const latestPeriodTag = latestMaster?.period_tag;
-    if (!latestPeriodTag) {
-      return {
-        table_name: tableName,
-        table_version: null,
-        period_tag: null,
-        period_revision: null,
-        count: 0,
-        records: [],
-      };
-    }
+    const candidateR2Keys = [
+      `master_data/0.6.0/${targetTag}/rev1/${tableName}.avro`,
+      `master_data/1.0/${targetTag}/rev1/${tableName}.avro`,
+      `master_data/0.5.0/${targetTag}/rev1/${tableName}.avro`,
+      `master_data/0.6.0/2026-10-14/rev1/${tableName}.avro`,
+    ];
 
-    const rowResult = await db
-      .prepare(
-        `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
-         FROM master_data_tables t
-         JOIN master_data_index i ON i.id = t.master_data_id
-         WHERE i.upload_status = 'completed' AND t.table_name = ? AND i.period_tag = ?
-         ORDER BY i.completed_at DESC, i.period_revision DESC
-         LIMIT 1`,
-      )
-      .bind(tableName, latestPeriodTag)
-      .first();
-
-    if (rowResult === null) {
-      return {
-        table_name: tableName,
-        table_version: null,
-        period_tag: latestPeriodTag,
-        period_revision: null,
-        count: 0,
-        records: [],
-      };
-    }
-    const parsedRow = BattleMasterDataRowSchema.safeParse(rowResult);
-    if (!parsedRow.success) {
-      throw new Error("Invalid master data row");
-    }
-    const row = parsedRow.data;
-
-    const cacheKey = `master-data:json:${tableName}:${row.table_version}:${row.period_tag}:${row.period_revision}`;
-    const immutableHit = masterDataImmutableRecordsCache.get(cacheKey);
-    if (immutableHit) {
-      return {
-        table_name: tableName,
-        table_version: row.table_version,
-        period_tag: row.period_tag,
-        period_revision: row.period_revision,
-        count: immutableHit.length,
-        records: immutableHit,
-      };
-    }
-
-    if (kv) {
-      try {
-        const cachedStr = await kv.get(cacheKey);
-        if (cachedStr) {
-          const decodedRecords = parseBattleJsonRecords(JSON.parse(cachedStr));
-          if (decodedRecords) {
-            if (masterDataImmutableRecordsCache.size >= 16) {
-              const oldestKey = masterDataImmutableRecordsCache.keys().next().value;
-              if (oldestKey) masterDataImmutableRecordsCache.delete(oldestKey);
-            }
-            masterDataImmutableRecordsCache.set(cacheKey, decodedRecords);
-            return {
-              table_name: tableName,
-              table_version: row.table_version,
-              period_tag: row.period_tag,
-              period_revision: row.period_revision,
-              count: decodedRecords.length,
-              records: decodedRecords,
-            };
-          }
-          console.warn(`[battle-data] master-data KV cache has invalid records: ${cacheKey}`);
-        }
-      } catch (kvErr) {
-        console.warn(`[battle-data] master-data KV read failed for ${cacheKey}:`, kvErr);
+    let r2Object: Awaited<ReturnType<R2Bucket["get"]>> = null;
+    for (const key of candidateR2Keys) {
+      const obj = await bucket.get(key);
+      if (obj) {
+        r2Object = obj;
+        break;
       }
     }
 
-    const r2Object = await bucket.get(row.r2_key);
+    let rowVersion: string | null = "0.6.0";
+    let rowPeriodTag: string | null = targetTag;
+    let rowRevision: number | null = 1;
+
+    if (!r2Object) {
+      const db = env.runtime["MASTER_DATA_INDEX_DB"];
+      if (db) {
+        try {
+          const activePeriodTag = targetTag;
+          const rowResult = await db
+            .prepare(
+              `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
+               FROM master_data_tables t
+               JOIN master_data_index i ON i.id = t.master_data_id
+               WHERE i.upload_status = 'completed' AND t.table_name = ? AND i.period_tag = ?
+               ORDER BY i.completed_at DESC, i.period_revision DESC
+               LIMIT 1`,
+            )
+            .bind(tableName, activePeriodTag)
+            .first();
+
+          if (rowResult) {
+            const parsedRow = BattleMasterDataRowSchema.safeParse(rowResult);
+            if (parsedRow.success) {
+              rowVersion = parsedRow.data.table_version;
+              rowPeriodTag = parsedRow.data.period_tag;
+              rowRevision = parsedRow.data.period_revision;
+              r2Object = await bucket.get(parsedRow.data.r2_key);
+            }
+          }
+        } catch {
+          // Fall through
+        }
+      }
+    }
+
     if (!r2Object) {
       return {
         table_name: tableName,
-        table_version: row.table_version,
-        period_tag: row.period_tag,
-        period_revision: row.period_revision,
+        table_version: rowVersion,
+        period_tag: rowPeriodTag,
+        period_revision: rowRevision,
         count: 0,
         records: [],
       };
@@ -514,43 +474,39 @@ async function fetchMasterDataJsonDirect(
     if (r2Object.size > MAX_AVRO_BYTES) {
       throw new Error(`Master data object too large: ${r2Object.size} bytes`);
     }
+
     const avroBytes = new Uint8Array(await r2Object.arrayBuffer());
-    const decodedRecords = parseBattleJsonRecords(
-      decodeAvroOcfToJson(avroBytes),
-    );
+    let decodedRecords: BattleRecord[] | null = null;
+    if (isPlainJsonBuffer(avroBytes)) {
+      decodedRecords = parseBattleJsonRecords(JSON.parse(new TextDecoder("utf-8").decode(avroBytes)));
+    } else {
+      decodedRecords = parseBattleJsonRecords(
+        decodeAvroOcfToJson(avroBytes),
+      );
+    }
     if (!decodedRecords) {
       throw new Error("Decoded master data payload is not a record array");
     }
-    if (masterDataImmutableRecordsCache.size >= 16) {
-      const oldestKey = masterDataImmutableRecordsCache.keys().next().value;
-      if (oldestKey) masterDataImmutableRecordsCache.delete(oldestKey);
-    }
-    masterDataImmutableRecordsCache.set(cacheKey, decodedRecords);
-    if (kv) {
-      try {
-        await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 });
-      } catch (kvErr) {
-        console.warn(`[battle-data] master-data KV write failed for ${cacheKey}:`, kvErr);
-      }
-    }
+
     return {
       table_name: tableName,
-      table_version: row.table_version,
-      period_tag: row.period_tag,
-      period_revision: row.period_revision,
+      table_version: rowVersion,
+      period_tag: rowPeriodTag,
+      period_revision: rowRevision,
       count: decodedRecords.length,
       records: decodedRecords,
     };
   })();
 
-  dbCache.set(tableName, {
+  masterDataGlobalPayloadCache.set(cacheKey, {
     expiresAt: now + MASTER_DATA_MEM_CACHE_TTL_MS,
     promise: loadPromise,
   });
+
   try {
     return await loadPromise;
   } catch (err) {
-    dbCache.delete(tableName);
+    masterDataGlobalPayloadCache.delete(cacheKey);
     throw err;
   }
 }
@@ -3600,9 +3556,10 @@ app.get("/detail", async (c) => {
   if (bucket) {
     let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
     const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
-      // 1. Direct single-battle snapshot check in R2
-      const directKey = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
-      const detailObj = await bucket.get(directKey);
+      // 1. Direct single-battle snapshot check in R2 (checks plain .json and .json.br)
+      const directKeyJson = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json`;
+      const directKeyBr = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
+      const detailObj = (await bucket.get(directKeyJson)) ?? (await bucket.get(directKeyBr));
       if (detailObj) {
         const resp = await buildSnapshotResponse(c, await detailObj.arrayBuffer(), cacheControl, detailObj.httpEtag);
         // Populate KV cache for subsequent instant hits
@@ -3639,20 +3596,15 @@ app.get("/detail", async (c) => {
               const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
               safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
             }
-            // Asynchronously write through single battle snapshot to R2
-            safeWaitUntil(
-              c,
-              (async () => {
-                try {
-                  const compressed = await brotliCompressAsync(Buffer.from(payloadStr, "utf-8"));
-                  await bucket.put(directKey, compressed, {
-                    httpMetadata: { contentType: "application/json", contentEncoding: "br" },
-                  });
-                } catch {
-                  // ignore
-                }
-              })(),
-            );
+            // Asynchronously write through single battle snapshot to R2 directly (plain JSON, infallible and fast)
+            if (typeof bucket.put === "function") {
+              safeWaitUntil(
+                c,
+                bucket.put(directKeyJson, payloadStr, {
+                  httpMetadata: { contentType: "application/json" },
+                }).catch((e) => console.warn("[battle_data] write-through directKeyJson failed:", e))
+              );
+            }
             return new Response(payloadStr, {
               status: 200,
               headers: {
@@ -3720,20 +3672,15 @@ app.get("/detail", async (c) => {
                 const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
                 safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
               }
-              // Asynchronously write through single battle snapshot to R2
-              safeWaitUntil(
-                c,
-                (async () => {
-                  try {
-                    const compressed = await brotliCompressAsync(Buffer.from(payloadStr, "utf-8"));
-                    await bucket.put(directKey, compressed, {
-                      httpMetadata: { contentType: "application/json", contentEncoding: "br" },
-                    });
-                  } catch {
-                    // ignore
-                  }
-                })(),
-              );
+              // Asynchronously write through single battle snapshot to R2 directly (plain JSON, infallible and fast)
+              if (typeof bucket.put === "function") {
+                safeWaitUntil(
+                  c,
+                  bucket.put(directKeyJson, payloadStr, {
+                    httpMetadata: { contentType: "application/json" },
+                  }).catch((e) => console.warn("[battle_data] write-through directKeyJson failed:", e))
+                );
+              }
 
               return new Response(payloadStr, {
                 status: 200,
