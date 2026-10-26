@@ -3,7 +3,7 @@ import { acquireReleaseTransport, assertAuthenticatedReleaseTransport, encodeRel
 import { parseReleaseRecord, producerWorkflow, requireRelease } from "./release-build-proof.mjs";
 import { collectReleaseEvidence, producerExecutionContext } from "./release-evidence-producer.mjs";
 import { createProducerExecutionOrigin, EXECUTION_ORIGIN_FILE } from "./release-execution-origin.mjs";
-import { jsonBytes, parsePinnedCheckInputs } from "./release-checks.mjs";
+import { hasArchiveGrantProvider, jsonBytes, parsePinnedCheckInputs } from "./release-checks.mjs";
 import { deriveArchiveGrant } from "./release-grant-provider.mjs";
 
 export async function produceArchiveJob({ github, run, eligibility, identity, checkPolicyBytes, checkPolicySha256,
@@ -30,7 +30,7 @@ export async function produceArchiveJob({ github, run, eligibility, identity, ch
   "archive job independent public build input pin");
   const checkPolicy = checkPolicyBytes && checkPolicySha256 ?
     parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1") : undefined;
-  if (checkPolicy?.grant_provider) {
+  if (hasArchiveGrantProvider(checkPolicy)) {
     let blocker = "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED";
     try {
       const candidate = await deriveArchiveGrant({ github, run, trustedSha: identity.workflow_sha, downloaded,

@@ -3,7 +3,7 @@ import { evaluateReleaseRun, TAG_WORKFLOW_PATH } from "./release-eligibility.mjs
 import { assertProducerRun, verifyProducerBuild, parseReleaseRecord, requireRelease, producerWorkflow } from "./release-build-proof.mjs";
 import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { sha256, encodeReleaseManifest, validateReleaseManifest, assertReleaseRuntimeConfigBinding } from "./release-manifest.mjs";
-import { checkContext, parsePinnedCheckInputs, verifyReleaseChecks } from "./release-checks.mjs";
+import { checkContext, hasArchiveGrantProvider, parsePinnedCheckInputs, verifyReleaseChecks } from "./release-checks.mjs";
 import { authenticateArchiveSupplement } from "./release-archive-provenance.mjs";
 import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
 import { EVIDENCE_PRODUCTION_SCOPE, EVIDENCE_IMPLEMENTATION_BLOCKERS } from "./release-evidence-producer.mjs";
@@ -176,7 +176,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     const evidenceFiles = new Map(downloaded.files);
     const checkPolicy = checkPolicyBytes && checkPolicySha256 ?
       parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1") : undefined;
-    if (checkPolicy?.grant_provider) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
+    if (hasArchiveGrantProvider(checkPolicy)) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
     if (checkPolicy?.archive_transport) {
       const supplemental = await acquireReleaseTransport({ github, run, downloadArchive, ...dependencies.transport, artifactKind: "archive" });
       const authenticated = await authenticateArchiveSupplement({ github, run, trustedSha, primary: downloaded, supplemental,

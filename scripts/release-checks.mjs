@@ -83,6 +83,9 @@ export function parsePinnedCheckInputs(raw, pin, scope) {
   requireRelease(value.schema_version === 1 && value.scope === scope, "independent check policy scope");
   return value;
 }
+export function hasArchiveGrantProvider(policy) {
+  return policy !== undefined && policy !== null && Object.hasOwn(policy, "grant_provider");
+}
 export function recordCompiledInputsExecution({ context, publicBuildInputs, artifacts, buildRecords, observations, rawEvidence, artifactBytes }) {
   requireRelease(artifacts.some((a) => a.role === "app") && artifacts.filter((a) => a.role === "worker").length === 1,
     "complete APP and Worker outputs required before recording compiled check");
@@ -458,6 +461,9 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
       }
       if (check === "archive_readback") {
         const checkPolicy = pinnedPolicy();
+        if (hasArchiveGrantProvider(checkPolicy)) {
+          throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
+        }
         if (!checkPolicy.archive) throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_CONTEXT_MISSING");
         requireRelease(checkPolicy.archive.source_sha === context.source_sha, "archive policy/release source");
         verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, nowMs, httpTransportSpec: checkPolicy.archive_transport });

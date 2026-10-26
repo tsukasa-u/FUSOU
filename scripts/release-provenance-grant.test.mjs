@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { provenanceFixture } from "./release-provenance-fixture.mjs";
+import { checkFixture } from "./release-check-fixture.mjs";
 import { acquireReleaseTransport, decodeReleaseTransport } from "./release-transport.mjs";
 import { reauthenticateSavedArchive } from "./release-archive-provenance.mjs";
 import { deriveArchiveGrant } from "./release-grant-provider.mjs";
@@ -9,7 +10,7 @@ import { produceArchiveJob } from "./release-archive-job.mjs";
 import { collectReleaseEvidence } from "./release-evidence-producer.mjs";
 import { consumeReleaseRun } from "./release-consumer.mjs";
 import { executionSubject } from "./release-execution-origin.mjs";
-import { jsonBytes } from "./release-checks.mjs";
+import { jsonBytes, verifyReleaseChecks } from "./release-checks.mjs";
 import { archivePolicyBytes, archiveTransportGrant } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs";
 import { handleArchiveHttp } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs";
 import { sha256 } from "./release-bytes.mjs";
@@ -244,4 +245,95 @@ test("raw bytes with an authentic issuer still require the raw response/catalog 
   record.evidence_sha256 = sha256(receiptRaw); const recordRaw = jsonBytes(record); files.set("check-archive_readback.json", recordRaw);
   t.replaceArchive(files);
   await assert.rejects(reauthenticateSavedArchive(options, { transport: t.f.dependencies.transport }), /RAW_BYTES_MISMATCH/);
+});
+for (const provider of [null, false, 0, ""]) {
+  test(`a present grant_provider=${JSON.stringify(provider)} cannot authorize static transport in any release surface`, async () => {
+    const t = await provenanceFixture(), saved = savedOptions(t);
+    t.f.checkPolicy.grant_provider = provider; t.syncPolicy();
+    let externalCalls = 0;
+    const httpDependencies = { getToken: async () => { externalCalls++; throw new Error("unexpected token request"); },
+      fetchArchive: async () => { externalCalls++; throw new Error("unexpected archive request"); } };
+    const production = await collectReleaseEvidence({ report: t.f.report, identity: t.identity,
+      checkPolicyBytes: t.f.options.checkPolicyBytes, checkPolicySha256: t.f.options.checkPolicySha256 },
+    { httpDependencies, now: () => 1000 });
+    assert.equal(production.executions.size, 0);
+    assert.deepEqual(production.report.checks.archive_readback, {
+      status: "BLOCKED_IMPLEMENTATION", blocker: "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED" });
+    assert.equal(production.report.checks.offline_verification.blocker, "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED");
+    assert.equal(externalCalls, 0);
+    const job = await produceArchiveJob({ github: t.f.github, run: t.f.run, eligibility: t.f.eligibility, identity: t.identity,
+      checkPolicyBytes: t.f.options.checkPolicyBytes, checkPolicySha256: t.f.options.checkPolicySha256,
+      publicBuildInputsSha256: t.f.options.publicBuildInputsSha256, downloadArchive: t.f.options.downloadArchive },
+    { transport: t.f.dependencies.transport, httpDependencies, now: () => 1000 });
+    const files = decodeReleaseTransport(job.transport);
+    assert.equal(job.report.blocker, "ARCHIVE_GRANT_PROVIDER_POLICY_MISSING");
+    assert.equal(job.report.status, "BLOCKED_IMPLEMENTATION");
+    for (const name of ["archive-grant-candidate.json", "check-archive_readback.json", "release-execution-origin.json"]) {
+      assert.equal(files.has(name), false);
+    }
+    const consumer = await consumeReleaseRun(t.f.options, { transport: t.f.dependencies.transport,
+      verifyRuntimeEnvelope: t.f.dependencies.verifyRuntimeEnvelope });
+    assert.deepEqual(consumer.blockers, ["ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED"]);
+    assert.equal(consumer.archive_acquisition_status, undefined);
+    assert.equal(consumer.publication_authorized, false); assert.equal(consumer.production_acceptance, "BLOCKED");
+    await assert.rejects(reauthenticateSavedArchive({ ...saved, checkPolicyBytes: t.f.options.checkPolicyBytes,
+      checkPolicySha256: t.f.options.checkPolicySha256 }, { transport: t.f.dependencies.transport }),
+    /ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED/);
+    assert.equal(externalCalls, 0);
+  });
+}
+for (const provider of [null, { status: "PASS", authenticated: true }]) {
+  test(`the low-level independent check verifier refuses unregistered provider ${JSON.stringify(provider)}`, async () => {
+    const f = await checkFixture(), policy = { ...f.checkPolicy, grant_provider: provider }, raw = jsonBytes(policy);
+    let authenticatedArchive = 0, authenticatedNative = 0;
+    await assert.rejects(verifyReleaseChecks(f.args, { ...f.config, checkPolicyBytes: raw, checkPolicySha256: sha256(raw),
+      authenticateArchiveReadback: async (...args) => { authenticatedArchive++; return f.config.authenticateArchiveReadback(...args); },
+      authenticateOfflineExecution: async (...args) => { authenticatedNative++; return f.config.authenticateOfflineExecution(...args); },
+    }), (error) => {
+      assert.equal(error.check_results.archive_readback.blocker, "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED");
+      assert.equal(error.check_results.archive_readback.status, "BLOCKED_IMPLEMENTATION");
+      assert.equal(error.check_results.offline_verification.blocker, "VERIFIED_ARCHIVE_READBACK_REQUIRED");
+      assert.equal(error.check_results.locked_dependencies.status, "VERIFIED");
+      assert.equal(error.check_results.compiled_inputs.status, "VERIFIED");
+      return true;
+    });
+    assert.equal(authenticatedArchive, 0); assert.equal(authenticatedNative, 0);
+  });
+}
+test("candidate and self-asserted authorization fields are not a grant publication request", async () => {
+  const t = await provenanceFixture(); enableProvider(t);
+  const candidate = await deriveArchiveGrant(await grantOptions(t), { authority: t.authority, now: () => 1000 });
+  const policy = t.spec.policy;
+  let authorityReads = 0, objectReads = 0;
+  const grant = policy.grants[0], request = { source_sha: grant.source_sha, workflow_sha: grant.workflow_sha,
+    run_id: grant.run_id, run_attempt: grant.run_attempt, capture_id: grant.capture_id, binding_id: grant.binding_id,
+    session_id: grant.lookup.session_id, job_id: grant.lookup.verification_job_id,
+    verification_attempt_id: grant.verification_attempt_id, role: "result" };
+  for (const body of [candidate, { ...request, candidate, authenticated: true, status: "PASS" },
+    { ...request, role: "grant", authenticated: true }]) {
+    const response = await handleArchiveHttp(new Request(policy.endpoint, { method: "POST",
+      headers: { authorization: "Bearer synthetic.synthetic.synthetic", "content-type": "application/json" },
+      body: JSON.stringify(body) }), {
+      policyRaw: new TextDecoder().decode(archivePolicyBytes(policy)), policySha256: t.spec.policy_sha256,
+      authority: { getConsumedVerificationResult: async () => { authorityReads++; throw new Error("unexpected catalog read"); } },
+      bucket: { get: async () => { objectReads++; throw new Error("unexpected object read"); } },
+    }, { now: () => 1000, verifyToken: async () => ({ workflow_sha: grant.workflow_sha,
+      run_id: String(grant.run_id), run_attempt: String(grant.run_attempt) }) });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "ARCHIVE_HTTP_REQUEST_INVALID" });
+  }
+  assert.equal(authorityReads, 0); assert.equal(objectReads, 0);
+  assert.equal(candidate.status, "DERIVED_NOT_AUTHORIZED"); assert.equal(candidate.publication_authorized, false);
+});
+test("concurrent identical derivations remain candidates and do not persist an authorization", async () => {
+  const t = await provenanceFixture(); enableProvider(t);
+  const before = structuredClone(t.consumed), options = await grantOptions(t), dependencies = { authority: t.authority, now: () => 1000 };
+  const [first, second] = await Promise.all([deriveArchiveGrant(options, dependencies), deriveArchiveGrant(options, dependencies)]);
+  assert.deepEqual(first, second); assert.deepEqual(structuredClone(t.consumed), before);
+  for (const candidate of [first, second]) {
+    assert.equal(candidate.status, "DERIVED_NOT_AUTHORIZED");
+    assert.equal(candidate.authorization_status, "BLOCKED_IMPLEMENTATION");
+    assert.equal(candidate.blocker, "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED");
+    assert.equal(candidate.publication_authorized, false);
+  }
 });

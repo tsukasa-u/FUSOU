@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { acquireReleaseTransport, assertAuthenticatedReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { assertProducerRun, parseReleaseRecord, requireRelease, verifyProducerBuild } from "./release-build-proof.mjs";
 import { evaluateReleaseRun } from "./release-eligibility.mjs";
-import { checkContext, parsePinnedCheckInputs, receiptFor, verifyArchiveReadback } from "./release-checks.mjs";
+import { checkContext, hasArchiveGrantProvider, parsePinnedCheckInputs, receiptFor, verifyArchiveReadback } from "./release-checks.mjs";
 import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
 import { verifyArchiveHttpExecution } from "./release-archive-http.mjs";
 import { sha256 } from "./release-bytes.mjs";
@@ -12,7 +12,7 @@ export async function authenticateArchiveSupplement({ github, run, trustedSha, p
   assertAuthenticatedReleaseTransport(primary, run);
   assertAuthenticatedReleaseTransport(supplemental, run);
   const checkPolicy = parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1");
-  if (checkPolicy.grant_provider) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
+  if (hasArchiveGrantProvider(checkPolicy)) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
   requireRelease(Buffer.from(supplemental.files.get("release-report.json") ?? []).equals(primary.files.get("release-report.json")),
     "archive artifact/build release report mismatch");
   if (!supplemental.files.has("check-archive_readback.json") || !supplemental.files.has("release-execution-origin.json")) {

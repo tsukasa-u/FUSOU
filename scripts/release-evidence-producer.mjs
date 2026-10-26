@@ -4,7 +4,7 @@ import { producerWorkflow, requireRelease } from "./release-build-proof.mjs";
 import { ReleaseBlocked } from "./release-transport.mjs";
 import { readRegularFile } from "./release-files.mjs";
 import { sha256 } from "./release-bytes.mjs";
-import { assertArchiveReadbackPolicy, captureArchiveReadback, parsePinnedCheckInputs } from "./release-checks.mjs";
+import { assertArchiveReadbackPolicy, captureArchiveReadback, hasArchiveGrantProvider, parsePinnedCheckInputs } from "./release-checks.mjs";
 import { createR2ArchiveReadbackBackend } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs";
 import { acquireArchiveHttp } from "./release-archive-http.mjs";
 import { ArchiveTransportError } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs";
@@ -36,7 +36,7 @@ export async function collectReleaseEvidence({ report, identity, checkPolicyByte
   try {
     const policy = parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1");
     policyDigest = sha256(checkPolicyBytes);
-    if (policy.grant_provider) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
+    if (hasArchiveGrantProvider(policy)) throw new ReleaseBlocked("ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
     requireRelease(policy.repository === context.repository && policy.source_sha === context.source_sha,
       "producer independent archive policy/release source");
     if (!policy.archive) throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_CONTEXT_MISSING");
