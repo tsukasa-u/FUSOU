@@ -3663,7 +3663,7 @@ app.get("/detail-env", async (c) => {
 
   const env = createEnvContext(c);
   const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
-  const kvKey = `v8:battle_env_detail:${envUuid}`;
+  const kvKey = `v8:battle_env_detail:${periodTag}:${envUuid}`;
 
   if (cacheKV && c.req.header("cache-control") !== "no-cache") {
     try {
@@ -3744,10 +3744,11 @@ app.get("/detail-env", async (c) => {
         if (bundle.tables && typeof bundle.tables === "object" && (!bundle.battles || Object.keys(bundle.battles).length === 0)) {
           const battlesList = Array.isArray(bundle.tables["battle"]) ? bundle.tables["battle"] : [];
           if (battlesList.length > 0) {
+            const targetPeriodTag = bundle.period_tag || activeTag;
             const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] =
               await Promise.all([
-                fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
-                fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchMasterDataJsonDirect(c, "mst_ship", targetPeriodTag).catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchMasterDataJsonDirect(c, "mst_slotitem", targetPeriodTag).catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
                 fetchWeaponIconFramesDirect(c).catch(() => ({})),
               ]);
             const battlesMap: Record<string, unknown> = {};

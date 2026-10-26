@@ -563,6 +563,14 @@ export default function BattleDetailPanel(props: {
     return uniqueBattleIndexesInOrder(list);
   });
 
+  const activeBattleIndex = createMemo(() => {
+    const pIdx = props.battleIndex;
+    if (pIdx !== undefined && pIdx !== null && Number.isFinite(Number(pIdx)) && Number(pIdx) >= 0) {
+      return Number(pIdx);
+    }
+    return loadedEnvBundle?.battleIndexes?.[0] ?? selectableBattleIndexes()[0] ?? 0;
+  });
+
   const formations = createMemo(() => {
     const b = battle();
     if (!b) return { f: "-", e: "-" };
@@ -823,7 +831,7 @@ export default function BattleDetailPanel(props: {
               loadedEnvBundle = {
                 envUuid,
                 periodTag: requestedPeriod,
-                tableVersion,
+                tableVersion: envPayload.table_version || tableVersion,
                 datasetId,
                 battles: envPayload.battles,
                 battleIndexes: bIndexes,
@@ -873,11 +881,16 @@ export default function BattleDetailPanel(props: {
         throw error;
       }
 
+      const indexesFromBundle = loadedEnvBundle?.battleIndexes;
       const indexesFromPayload = Array.isArray(payload.battle_indexes)
         ? uniqueBattleIndexesInOrder(payload.battle_indexes)
-        : (loadedEnvBundle?.battleIndexes ?? []);
-      if (indexesFromPayload.length > 0) {
-        setBattleIndexes(indexesFromPayload);
+        : [];
+      const effectiveIndexes =
+        indexesFromBundle && indexesFromBundle.length > 0
+          ? indexesFromBundle
+          : indexesFromPayload;
+      if (effectiveIndexes.length > 0) {
+        setBattleIndexes(effectiveIndexes);
       } else {
         setBattleIndexes(await resolveBattleIndexesFallback());
       }
@@ -1163,9 +1176,9 @@ export default function BattleDetailPanel(props: {
               {(idx, order) => (
                 <button
                   type="button"
-                  class={`tab tab-sm ${idx === Number(props.battleIndex ?? Number.NaN) ? "tab-active" : ""}`}
+                  class={`tab tab-sm ${idx === activeBattleIndex() ? "tab-active" : ""}`}
                   onClick={() => {
-                    if (idx === Number(props.battleIndex ?? Number.NaN)) return;
+                    if (idx === activeBattleIndex()) return;
                     setSwitchingBattleIndex(idx);
                     props.onBattleIndexChange?.(idx);
                   }}
