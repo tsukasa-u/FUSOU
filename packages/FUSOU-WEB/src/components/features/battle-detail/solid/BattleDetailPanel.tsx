@@ -420,6 +420,8 @@ export default function BattleDetailPanel(props: {
     datasetId?: string;
     battles: Record<string, BattleDetailPayload>;
     battleIndexes: number[];
+    commonMstShip: Map<number, MstShipRecord>;
+    commonMstSlotItem: Map<number, MstSlotItemRecord>;
   } | null = null;
   let displaySettingsModalRef!: HTMLDialogElement;
 
@@ -691,6 +693,8 @@ export default function BattleDetailPanel(props: {
           };
           if (disposed || loadToken !== activeLoadToken) return;
           setBattle(preloaded);
+          setFleets({ friendlyShips: [], enemyShips: [] });
+          setDropShipInfo(null);
         }
       } catch (e) {
         console.error("Failed to parse session battle data:", e);
@@ -738,11 +742,9 @@ export default function BattleDetailPanel(props: {
         return;
       }
 
-      if (!Number.isFinite(requestedBattleIndex) || requestedBattleIndex < 0) {
-        setMasterDataStatus([]);
-        setError("battle_index が指定されていないか不正です");
-        return;
-      }
+      let effectiveBattleIndex = Number.isFinite(requestedBattleIndex) && requestedBattleIndex >= 0
+        ? requestedBattleIndex
+        : -1;
 
       if (loadedEnvBundle && loadedEnvBundle.envUuid !== envUuid) {
         loadedEnvBundle = null;
@@ -755,14 +757,14 @@ export default function BattleDetailPanel(props: {
         (loadedEnvBundle.tableVersion || "") === tableVersion &&
         (loadedEnvBundle.datasetId || "") === datasetId;
 
-      const fetchSingleDetail = async (): Promise<BattleDetailPayload> => {
+      const fetchSingleDetail = async (targetIdx: number): Promise<BattleDetailPayload> => {
         const localMasterData =
           repository.kind === "local-avro"
             ? await Promise.all([getMstShipById(signal), getMstSlotItemById(signal)])
             : null;
         return (await repository.getDetail({
           envUuid,
-          battleIndex: requestedBattleIndex,
+          battleIndex: targetIdx >= 0 ? targetIdx : 0,
           periodTag: requestedPeriod,
           ...(tableVersion ? { tableVersion } : {}),
           ...(datasetId ? { datasetId } : {}),
@@ -778,10 +780,19 @@ export default function BattleDetailPanel(props: {
 
       let payload: BattleDetailPayload;
       try {
-        const cachedBattle = loadedEnvBundle?.battles[String(requestedBattleIndex)];
+        const cachedBattle = effectiveBattleIndex >= 0
+          ? loadedEnvBundle?.battles[String(effectiveBattleIndex)]
+          : (loadedEnvBundle?.battleIndexes?.[0] !== undefined
+              ? loadedEnvBundle.battles[String(loadedEnvBundle.battleIndexes[0])]
+              : undefined);
+
         if (bundleMatches && cachedBattle) {
           // Instant local render from already-downloaded sortie bundle (0ms, zero network)
           payload = cachedBattle;
+          if (effectiveBattleIndex < 0 && loadedEnvBundle?.battleIndexes?.[0] !== undefined) {
+            effectiveBattleIndex = loadedEnvBundle.battleIndexes[0];
+            props.onBattleIndexChange?.(effectiveBattleIndex);
+          }
         } else if (typeof repository.getEnvDetail === "function") {
           try {
             const envPayload = await repository.getEnvDetail({
@@ -796,6 +807,17 @@ export default function BattleDetailPanel(props: {
                 .map(Number)
                 .filter((n) => Number.isFinite(n) && n >= 0)
                 .sort((a, b) => a - b);
+
+              // Build unified common master data from all battles in the sortie
+              const commonShip = new Map<number, MstShipRecord>();
+              const commonSlot = new Map<number, MstSlotItemRecord>();
+              for (const b of Object.values(envPayload.battles)) {
+                const sMap = parseMstShipMap(b.refs?.mst_ship);
+                for (const [id, row] of sMap.entries()) commonShip.set(id, row);
+                const iMap = parseMstSlotItemMap(b.refs?.mst_slotitem);
+                for (const [id, row] of iMap.entries()) commonSlot.set(id, row);
+              }
+
               loadedEnvBundle = {
                 envUuid,
                 periodTag: requestedPeriod,
@@ -803,21 +825,31 @@ export default function BattleDetailPanel(props: {
                 datasetId,
                 battles: envPayload.battles,
                 battleIndexes: bIndexes,
+                commonMstShip: commonShip,
+                commonMstSlotItem: commonSlot,
               };
-              const envBattle = envPayload.battles[String(requestedBattleIndex)];
+
+              let resolvedBattleIdx = effectiveBattleIndex;
+              if (resolvedBattleIdx < 0 || !envPayload.battles[String(resolvedBattleIdx)]) {
+                resolvedBattleIdx = bIndexes[0] ?? 0;
+                effectiveBattleIndex = resolvedBattleIdx;
+                props.onBattleIndexChange?.(resolvedBattleIdx);
+              }
+
+              const envBattle = envPayload.battles[String(resolvedBattleIdx)];
               if (envBattle) {
                 payload = envBattle;
               } else {
-                payload = await fetchSingleDetail();
+                payload = await fetchSingleDetail(resolvedBattleIdx);
               }
             } else {
-              payload = await fetchSingleDetail();
+              payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
             }
           } catch {
-            payload = await fetchSingleDetail();
+            payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
           }
         } else {
-          payload = await fetchSingleDetail();
+          payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
         }
       } catch (error) {
         const status =
@@ -854,10 +886,8 @@ export default function BattleDetailPanel(props: {
       );
       const detailBattle = payload.battle ?? null;
       if (detailBattle) {
-          const resolvedMstShip = parseMstShipMap(payload.refs?.mst_ship);
-          const resolvedMstSlotItem = parseMstSlotItemMap(
-            payload.refs?.mst_slotitem,
-          );
+          const resolvedMstShip = new Map(loadedEnvBundle?.commonMstShip ?? parseMstShipMap(payload.refs?.mst_ship));
+          const resolvedMstSlotItem = new Map(loadedEnvBundle?.commonMstSlotItem ?? parseMstSlotItemMap(payload.refs?.mst_slotitem));
 
           // Fast render: immediately apply pre-resolved refs without waiting for full 1MB master-data download
           let effectiveMstShip = new Map(resolvedMstShip);
@@ -1071,9 +1101,8 @@ export default function BattleDetailPanel(props: {
       props.datasetId !== undefined
         ? (props.datasetId ?? "").trim()
         : requestedDatasetId() || datasetIdFromSession(envUuid);
-    if (!envUuid || !Number.isFinite(idx) || idx < 0) {
+    if (!envUuid) {
       setBattle(null);
-      setError("battle_index または env_uuid が不正です");
       return;
     }
 

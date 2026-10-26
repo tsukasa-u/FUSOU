@@ -658,44 +658,56 @@ export default function BattlesDashboard(props: {
       window.removeEventListener("fusou:navigate-tab", handleNavigateTab);
     });
 
+    const applyUrlState = (urlStr: string) => {
+      const url = new URL(urlStr, window.location.origin);
+      const params = url.searchParams;
+      const tab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops" | null;
+      if (tab) {
+        setActiveTab(tab);
+      } else {
+        setActiveTab("list");
+      }
+      const detailId = params.get("detail_id")?.trim() ?? "";
+      setSelectedDetailId(detailId);
+      if (detailId && !tab) {
+        setActiveTab("detail");
+      }
+      const bIdx = params.get("battle_index");
+      if (bIdx !== null && bIdx !== "") {
+        const parsed = Number(bIdx);
+        if (Number.isFinite(parsed)) setSelectedBattleIndex(parsed);
+      } else {
+        setSelectedBattleIndex(null);
+      }
+      const datasetId = params.get("dataset_id")?.trim() ?? "";
+      setSelectedDatasetId(datasetId);
+      const q = params.get("q")?.trim() ?? "";
+      setSearchQuery(q);
+      const map = params.get("map_filter")?.trim() ?? "";
+      setMapFilter(map);
+      const res = params.get("result_filter")?.trim() ?? "";
+      setResultFilter(res);
+      const sDate = params.get("start_date")?.trim() ?? "";
+      setStartDate(sDate);
+      const eDate = params.get("end_date")?.trim() ?? "";
+      setEndDate(eDate);
+    };
+
+    const handlePopState = () => {
+      applyUrlState(window.location.href);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    onCleanup(() => {
+      window.removeEventListener("popstate", handlePopState);
+    });
+
     const params = new URLSearchParams(window.location.search);
     const initialPeriodTag = params.get("period_tag");
     const initialTableVersion = params.get("table_version");
-    const initialQuery = params.get("q")?.trim() ?? "";
-    if (initialQuery) {
-      setSearchQuery(initialQuery);
-    }
-    const initialMapFilter = params.get("map_filter")?.trim() ?? "";
-    const initialResultFilter = params.get("result_filter")?.trim() ?? "";
-    const initialStartDate = params.get("start_date")?.trim() ?? "";
-    const initialEndDate = params.get("end_date")?.trim() ?? "";
-    if (initialStartDate) {
-      setStartDate(initialStartDate);
-    }
-    if (initialEndDate) {
-      setEndDate(initialEndDate);
-    }
+    applyUrlState(window.location.href);
     const initialTab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops";
-    if (initialMapFilter) {
-      setMapFilter(initialMapFilter);
-    }
-    if (initialResultFilter) {
-      setResultFilter(initialResultFilter);
-    }
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
     const initialDetailId = params.get("detail_id");
-    const initialDatasetId = params.get("dataset_id")?.trim() ?? "";
-    setSelectedDatasetId(initialDatasetId);
-    if (initialDetailId) {
-      setSelectedDetailId(initialDetailId);
-      if (!initialTab) setActiveTab("detail");
-    }
-    const initialBattleIndex = params.get("battle_index");
-    if (initialBattleIndex !== null) {
-      setSelectedBattleIndex(Number(initialBattleIndex));
-    }
 
     void (async () => {
       const shouldLoadInitialDataset = initialTab !== "detail" || !initialDetailId;

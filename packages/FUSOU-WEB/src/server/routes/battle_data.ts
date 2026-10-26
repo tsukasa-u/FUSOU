@@ -3573,13 +3573,37 @@ function healBattlePayloads(bundle: any, envUuid: string): void {
   if (!bundle || !bundle.battles || typeof bundle.battles !== "object") return;
   const battles = Object.values(bundle.battles) as any[];
   let canonicalFriendlyFleet: any[] | null = null;
+  const aggregatedShips = new Map<number, any>();
+  const aggregatedSlotItems = new Map<number, any>();
+
   for (const b of battles) {
     if (Array.isArray(b?.derived?.friendly_fleet) && b.derived.friendly_fleet.length > 0) {
-      canonicalFriendlyFleet = b.derived.friendly_fleet;
-      break;
+      if (!canonicalFriendlyFleet) {
+        canonicalFriendlyFleet = b.derived.friendly_fleet;
+      }
+    }
+    if (Array.isArray(b?.refs?.mst_ship)) {
+      for (const ship of b.refs.mst_ship) {
+        const id = Number(ship?.id ?? ship?.api_id ?? 0);
+        if (id > 0 && !aggregatedShips.has(id)) {
+          aggregatedShips.set(id, ship);
+        }
+      }
+    }
+    if (Array.isArray(b?.refs?.mst_slotitem)) {
+      for (const item of b.refs.mst_slotitem) {
+        const id = Number(item?.id ?? item?.api_id ?? 0);
+        if (id > 0 && !aggregatedSlotItems.has(id)) {
+          aggregatedSlotItems.set(id, item);
+        }
+      }
     }
   }
+
   const v7Ts = extractTimestampFromUuidV7(envUuid);
+  const commonShips = aggregatedShips.size > 0 ? Array.from(aggregatedShips.values()) : null;
+  const commonSlotItems = aggregatedSlotItems.size > 0 ? Array.from(aggregatedSlotItems.values()) : null;
+
   for (const b of battles) {
     if (!b || typeof b !== "object") continue;
     if (b.battle && (b.battle.timestamp === null || b.battle.timestamp === undefined)) {
@@ -3587,6 +3611,15 @@ function healBattlePayloads(bundle: any, envUuid: string): void {
     }
     if (canonicalFriendlyFleet && b.derived && (!Array.isArray(b.derived.friendly_fleet) || b.derived.friendly_fleet.length === 0)) {
       b.derived.friendly_fleet = canonicalFriendlyFleet;
+    }
+    if (commonShips || commonSlotItems) {
+      b.refs = b.refs || {};
+      if (commonShips && (!Array.isArray(b.refs.mst_ship) || b.refs.mst_ship.length < commonShips.length)) {
+        b.refs.mst_ship = commonShips;
+      }
+      if (commonSlotItems && (!Array.isArray(b.refs.mst_slotitem) || b.refs.mst_slotitem.length < commonSlotItems.length)) {
+        b.refs.mst_slotitem = commonSlotItems;
+      }
     }
   }
 }
@@ -3680,12 +3713,20 @@ app.get("/detail-env", async (c) => {
         }
       }
     }
-    let envObj = await bucket.get(`snapshots/env_detail/${activeTag}/${envUuid}.json.br`);
+    const getEnvFromTag = async (tag: string) => {
+      const [brObj, jsonObj] = await Promise.all([
+        bucket.get(`snapshots/env_detail/${tag}/${envUuid}.json.br`),
+        bucket.get(`snapshots/env_detail/${tag}/${envUuid}.json`),
+      ]);
+      return brObj ?? jsonObj;
+    };
+
+    let envObj = await getEnvFromTag(activeTag);
     if (!envObj && (periodTag === "all" || periodTag === "latest")) {
       const fallbackTags = availableTags.filter((t) => t !== activeTag);
       const fallbackObjs = await Promise.all(
         fallbackTags.map(async (tag) => {
-          const obj = await bucket.get(`snapshots/env_detail/${tag}/${envUuid}.json.br`);
+          const obj = await getEnvFromTag(tag);
           return obj ? { tag, obj } : null;
         }),
       );
