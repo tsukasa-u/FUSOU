@@ -23,7 +23,7 @@ async function decompressSnapshotPayload(arrayBuf: ArrayBuffer): Promise<string>
 }
 
 async function buildSnapshotResponse(
-  c: Context,
+  _c: Context,
   arrayBuf: ArrayBuffer,
   cacheControl: string,
   etag?: string | null,
@@ -37,31 +37,18 @@ async function buildSnapshotResponse(
     headers.set("ETag", etag);
   }
 
-  const acceptEncoding = c.req.header("accept-encoding") || "";
   const buf = Buffer.from(arrayBuf);
-
-  // 1. Rigorously test if it is a genuine Brotli compressed binary
-  let decompressedText: string | null = null;
-  let decompError: string | null = null;
+  let payloadText: string;
   try {
     const decomp = await brotliDecompressAsync(buf);
-    decompressedText = decomp.toString("utf-8");
-  } catch (err) {
-    decompError = err instanceof Error ? err.message : String(err);
-    decompressedText = null;
+    payloadText = decomp.toString("utf-8");
+  } catch {
+    payloadText = buf.toString("utf-8");
   }
 
-  if (decompressedText !== null) {
-    // Valid Brotli binary
-    if (acceptEncoding.includes("br")) {
-      headers.set("Content-Encoding", "br");
-      return new Response(arrayBuf, { headers });
-    }
-    return new Response(decompressedText, { headers });
-  }
-
-  // 2. Uncompressed plain JSON stored in R2
-  return new Response(arrayBuf, { headers });
+  // Always return plain JSON text so Cloudflare Edge Proxy applies compression (br/gzip)
+  // transparently and once, preventing double-compression and binary corruptions.
+  return new Response(payloadText, { headers });
 }
 
 const KNOWN_PERIOD_TAGS = ["2026-10-14", "2026-09-10", "2026-08-05", "2026-07-08"];
@@ -2993,12 +2980,22 @@ app.get("/global/records", async (c) => {
     cacheUrl.searchParams.set("_cache_v", "2");
   }
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
-  if (cache) {
+  if (cache && c.req.header("cache-control") !== "no-cache") {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
+      try {
+        const text = await cached.clone().text();
+        JSON.parse(text);
+        const hit = new Response(text, cached);
+        hit.headers.set("X-FUSOU-Cache", "HIT");
+        return hit;
+      } catch {
+        try {
+          await cache.delete(cacheKey);
+        } catch {
+          // ignore cache delete errors
+        }
+      }
     }
   }
 
@@ -3356,12 +3353,22 @@ app.get("/global/drops", async (c) => {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
 
-  if (cache) {
+  if (cache && c.req.header("cache-control") !== "no-cache") {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
+      try {
+        const text = await cached.clone().text();
+        JSON.parse(text);
+        const hit = new Response(text, cached);
+        hit.headers.set("X-FUSOU-Cache", "HIT");
+        return hit;
+      } catch {
+        try {
+          await cache.delete(cacheKey);
+        } catch {
+          // ignore cache delete errors
+        }
+      }
     }
   }
 
@@ -3516,12 +3523,22 @@ app.get("/detail", async (c) => {
     return c.json({ error: "battle_index must be a non-negative integer" }, 400);
   }
 
-  if (cache) {
+  if (cache && c.req.header("cache-control") !== "no-cache") {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
+      try {
+        const text = await cached.clone().text();
+        JSON.parse(text);
+        const hit = new Response(text, cached);
+        hit.headers.set("X-FUSOU-Cache", "HIT");
+        return hit;
+      } catch {
+        try {
+          await cache.delete(cacheKey);
+        } catch {
+          // ignore cache delete errors
+        }
+      }
     }
   }
 
