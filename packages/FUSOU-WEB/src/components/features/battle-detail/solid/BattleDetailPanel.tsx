@@ -550,7 +550,13 @@ export default function BattleDetailPanel(props: {
   });
 
   const selectableBattleIndexes = createMemo(() => {
-    return uniqueBattleIndexesInOrder(battleIndexes());
+    const list = [...battleIndexes()];
+    const current = Number(props.battleIndex ?? Number.NaN);
+    if (Number.isFinite(current) && current >= 0 && !list.includes(current)) {
+      list.push(current);
+      list.sort((a, b) => a - b);
+    }
+    return uniqueBattleIndexesInOrder(list);
   });
 
   const formations = createMemo(() => {
@@ -665,10 +671,16 @@ export default function BattleDetailPanel(props: {
         // Only use the cached data if it matches the current battleId to avoid
         // showing a stale preview from a previously visited battle.
         const cachedUuid =
-          typeof parsedRecord?.["uuid"] === "string"
-            ? parsedRecord["uuid"]
-            : null;
-        const cachedMatchesCurrent = cachedUuid === envUuid;
+          typeof parsedRecord?.["env_uuid"] === "string"
+            ? parsedRecord["env_uuid"]
+            : (typeof parsedRecord?.["uuid"] === "string" ? parsedRecord["uuid"] : null);
+        const cachedIndex =
+          typeof parsedRecord?.["index"] === "number"
+            ? parsedRecord["index"]
+            : (typeof parsedRecord?.["battle_index"] === "number" ? parsedRecord["battle_index"] : null);
+        const cachedMatchesCurrent =
+          cachedUuid === envUuid &&
+          (cachedIndex === null || cachedIndex === requestedBattleIndex);
         if (parsedRecord && cachedMatchesCurrent) {
           const preloaded = {
             ...parsedRecord,
@@ -730,6 +742,10 @@ export default function BattleDetailPanel(props: {
         setMasterDataStatus([]);
         setError("battle_index が指定されていないか不正です");
         return;
+      }
+
+      if (loadedEnvBundle && loadedEnvBundle.envUuid !== envUuid) {
+        loadedEnvBundle = null;
       }
 
       const bundleMatches =
@@ -913,7 +929,9 @@ export default function BattleDetailPanel(props: {
           applyBattleState(effectiveMstShip, effectiveMstSlotItem);
 
           // Step 2: If payload.refs provided all needed data, avoid downloading 1MB of full master data
-          const hasCompleteRefs = resolvedMstShip.size > 0 && resolvedMstSlotItem.size > 0;
+          const hasCompleteRefs =
+            payload.refs !== undefined &&
+            (resolvedMstShip.size > 0 || (Array.isArray(payload.refs.mst_ship) && payload.refs.mst_ship.length === 0));
           if (hasCompleteRefs) {
             setMasterDataStatus([
               {
