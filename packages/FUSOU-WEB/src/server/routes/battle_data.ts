@@ -3569,6 +3569,28 @@ app.get("/global/drops", async (c) => {
 });
 
 
+function healBattlePayloads(bundle: any, envUuid: string): void {
+  if (!bundle || !bundle.battles || typeof bundle.battles !== "object") return;
+  const battles = Object.values(bundle.battles) as any[];
+  let canonicalFriendlyFleet: any[] | null = null;
+  for (const b of battles) {
+    if (Array.isArray(b?.derived?.friendly_fleet) && b.derived.friendly_fleet.length > 0) {
+      canonicalFriendlyFleet = b.derived.friendly_fleet;
+      break;
+    }
+  }
+  const v7Ts = extractTimestampFromUuidV7(envUuid);
+  for (const b of battles) {
+    if (!b || typeof b !== "object") continue;
+    if (b.battle && (b.battle.timestamp === null || b.battle.timestamp === undefined)) {
+      if (v7Ts !== null) b.battle.timestamp = v7Ts;
+    }
+    if (canonicalFriendlyFleet && b.derived && (!Array.isArray(b.derived.friendly_fleet) || b.derived.friendly_fleet.length === 0)) {
+      b.derived.friendly_fleet = canonicalFriendlyFleet;
+    }
+  }
+}
+
 app.get("/detail-env", async (c) => {
   const envUuid = (c.req.query("env_uuid") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
@@ -3581,7 +3603,7 @@ app.get("/detail-env", async (c) => {
 
   const env = createEnvContext(c);
   const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
-  const kvKey = `v7:battle_env_detail:${envUuid}`;
+  const kvKey = `v8:battle_env_detail:${envUuid}`;
 
   if (cacheKV && c.req.header("cache-control") !== "no-cache") {
     try {
@@ -3605,6 +3627,20 @@ app.get("/detail-env", async (c) => {
   if (bucket) {
     const availableTags = await getDynamicSnapshotPeriodTags(bucket, cacheKV);
     let activeTag = await resolveSnapshotPeriodTag(bucket, cacheKV, periodTag);
+    if ((periodTag === "all" || periodTag === "latest") && availableTags.length > 0) {
+      const ts = extractTimestampFromUuidV7(envUuid);
+      if (ts !== null) {
+        // availableTags are sorted newest to oldest dynamically.
+        // Match the period tag covering this timestamp (tag date <= ts).
+        const match = availableTags.find((tag) => {
+          const tagMs = Date.parse(`${tag}T00:00:00Z`);
+          return !Number.isNaN(tagMs) && ts >= tagMs;
+        });
+        if (match) {
+          activeTag = match;
+        }
+      }
+    }
     let envObj = await bucket.get(`snapshots/env_detail/${activeTag}/${envUuid}.json.br`);
     if (!envObj && (periodTag === "all" || periodTag === "latest")) {
       const fallbackTags = availableTags.filter((t) => t !== activeTag);
@@ -3686,6 +3722,7 @@ app.get("/detail-env", async (c) => {
             bundle.success = true;
           }
         }
+        healBattlePayloads(bundle, envUuid);
         const payloadText = JSON.stringify(bundle);
         if (cacheKV) {
           const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
@@ -3739,7 +3776,7 @@ app.get("/detail", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_cache_v", "7");
+  cacheUrl.searchParams.set("_cache_v", "8");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
   if (cache && c.req.header("cache-control") !== "no-cache") {
@@ -3763,7 +3800,7 @@ app.get("/detail", async (c) => {
 
   const env = createEnvContext(c);
   const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
-  const kvKey = `v7:battle_detail:${envUuid}:${battleIndexRaw}`;
+  const kvKey = `v8:battle_detail:${envUuid}:${battleIndexRaw}`;
 
   // 1. Fast KV cache lookup (10-30ms) across all Cloudflare edge locations
   if (cacheKV && c.req.header("cache-control") !== "no-cache") {
@@ -3788,30 +3825,52 @@ app.get("/detail", async (c) => {
   if (bucket) {
     const availableTags = await getDynamicSnapshotPeriodTags(bucket, cacheKV);
     let activeTag = await resolveSnapshotPeriodTag(bucket, cacheKV, periodTag);
+    if ((periodTag === "all" || periodTag === "latest") && availableTags.length > 0) {
+      const ts = extractTimestampFromUuidV7(envUuid);
+      if (ts !== null) {
+        // availableTags are sorted newest to oldest dynamically.
+        // Match the period tag covering this timestamp (tag date <= ts).
+        const match = availableTags.find((tag) => {
+          const tagMs = Date.parse(`${tag}T00:00:00Z`);
+          return !Number.isNaN(tagMs) && ts >= tagMs;
+        });
+        if (match) {
+          activeTag = match;
+        }
+      }
+    }
     const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
       // 1. Direct single-battle snapshot check in R2 (checks plain .json and .json.br)
       const directKeyJson = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json`;
       const directKeyBr = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
       const detailObj = (await bucket.get(directKeyJson)) ?? (await bucket.get(directKeyBr));
       if (detailObj) {
-        const resp = await buildSnapshotResponse(c, await detailObj.arrayBuffer(), cacheControl, detailObj.httpEtag);
-        // Populate KV cache for subsequent instant hits
-        if (cacheKV) {
-          const cloneResp = resp.clone();
-          safeWaitUntil(
-            c,
-            (async () => {
-              try {
-                const text = await cloneResp.text();
-                const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
-                await cacheKV.put(kvKey, text, { expirationTtl: ttl });
-              } catch {
-                // ignore
-              }
-            })(),
-          );
+        try {
+          const directBuf = await detailObj.arrayBuffer();
+          const directText = await decompressSnapshotPayload(directBuf);
+          const directParsed = JSON.parse(directText);
+          const hasFriendly = Array.isArray(directParsed?.derived?.friendly_fleet) && directParsed.derived.friendly_fleet.length > 0;
+          const hasTimestamp = Boolean(directParsed?.battle?.timestamp);
+          if (hasFriendly && hasTimestamp) {
+            const resp = await buildSnapshotResponse(c, directBuf, cacheControl, detailObj.httpEtag);
+            if (cacheKV) {
+              const cloneResp = resp.clone();
+              safeWaitUntil(
+                c,
+                (async () => {
+                  try {
+                    const text = await cloneResp.text();
+                    const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
+                    await cacheKV.put(kvKey, text, { expirationTtl: ttl });
+                  } catch {}
+                })(),
+              );
+            }
+            return resp;
+          }
+        } catch {
+          // ignore corrupted direct snapshot, fall through to bundled snapshot
         }
-        return resp;
       }
 
       // 2. Sortie-level bundled snapshot check in R2
@@ -3821,6 +3880,7 @@ app.get("/detail", async (c) => {
         try {
           const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
           const bundle = JSON.parse(text);
+          healBattlePayloads(bundle, envUuid);
           // Format A: pre-resolved battles bundle
           const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
           if (battlePayload) {

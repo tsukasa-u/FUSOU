@@ -243,6 +243,19 @@ function hpScore(rows: JsonRecord[], snapshot: unknown[]): number {
   return score;
 }
 
+
+function extractTimestampFromUuidV7(uuidStr: string): number | null {
+  const hex = uuidStr.replace(/-/g, "").trim();
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+  const version = Number.parseInt(hex[12] ?? "", 16);
+  if (version !== 7) return null;
+  const ts = Number(BigInt(`0x${hex.slice(0, 12)}`));
+  if (!Number.isFinite(ts) || ts < 1_577_836_800_000 || ts > 4_102_444_800_000) {
+    return null;
+  }
+  return ts;
+}
+
 function fleetRows(
   battle: JsonRecord,
   decks: JsonRecord[],
@@ -281,6 +294,18 @@ function fleetRows(
           bestScore = score;
           selectedGroups = [group];
         }
+      }
+    }
+    if (selectedGroups.length === 0) {
+      for (const deck of decks) {
+        const groups = groupIds(deck["ship_ids"]);
+        if (groups.length > 0 && groups.some((g) => candidateGroups.has(g))) {
+          selectedGroups = groups.filter((g) => candidateGroups.has(g));
+          break;
+        }
+      }
+      if (selectedGroups.length === 0 && candidateGroups.size > 0) {
+        selectedGroups = [candidateGroups.keys().next().value!];
       }
     }
   } else {
@@ -450,7 +475,10 @@ export function resolveBattleDetail(
 
   const mergedBattle: JsonRecord = {
     ...battle,
-    timestamp: normalizeTimestamp(battle["timestamp"]) ?? normalizeTimestamp(battle["midnight_timestamp"]),
+    timestamp:
+      normalizeTimestamp(battle["timestamp"]) ??
+      normalizeTimestamp(battle["midnight_timestamp"]) ??
+      normalizeTimestamp(extractTimestampFromUuidV7(options.envUuid)),
     maparea_id:
       normalizePositiveMapCoordinate(cell?.["maparea_id"]) ??
       normalizePositiveMapCoordinate(battle["maparea_id"]),

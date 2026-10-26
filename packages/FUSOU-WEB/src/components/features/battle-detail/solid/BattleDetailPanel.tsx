@@ -783,95 +783,119 @@ export default function BattleDetailPanel(props: {
           const resolvedMstSlotItem = parseMstSlotItemMap(
             payload.refs?.mst_slotitem,
           );
-          const [fullMstShip, fullMstSlotItem] = await Promise.all([
-            getMstShipById(signal),
-            getMstSlotItemById(signal),
-          ]);
-          const effectiveMstShip = new Map(fullMstShip);
-          for (const [id, row] of resolvedMstShip.entries()) {
-            effectiveMstShip.set(id, row);
-          }
-          const effectiveMstSlotItem = new Map(fullMstSlotItem);
-          for (const [id, row] of resolvedMstSlotItem.entries()) {
-            effectiveMstSlotItem.set(id, row);
-          }
-          setMasterDataStatus([
-            {
-              name: "mst_ship",
-              status: effectiveMstShip.size > 0 ? "success" : "failed",
-              detail:
-                effectiveMstShip.size > resolvedMstShip.size
-                  ? `${resolvedMstShip.size}件 + 補完${effectiveMstShip.size - resolvedMstShip.size}件`
-                  : `${resolvedMstShip.size}件`,
-            },
-            {
-              name: "mst_slotitem",
-              status: effectiveMstSlotItem.size > 0 ? "success" : "failed",
-              detail:
-                effectiveMstSlotItem.size > resolvedMstSlotItem.size
-                  ? `${resolvedMstSlotItem.size}件 + 補完${effectiveMstSlotItem.size - resolvedMstSlotItem.size}件`
-                  : `${resolvedMstSlotItem.size}件`,
-            },
-          ]);
 
-          await getWeaponIconFrames(signal);
+          // Fast render: immediately apply pre-resolved refs without waiting for full 1MB master-data download
+          let effectiveMstShip = new Map(resolvedMstShip);
+          let effectiveMstSlotItem = new Map(resolvedMstSlotItem);
 
-          const dropShipId =
-            Number(jsonRecordOf(detailBattle["battle_result"])?.["drop_ship_id"] ?? 0) || 0;
-          const dropShip = dropShipId > 0 ? effectiveMstShip.get(dropShipId) : null;
-          const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
-          const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
-          const linkedCell = Array.isArray(payload.linked?.cells)
-            ? payload.linked?.cells.find((row) => {
-                const area = Number(row["maparea_id"] ?? NaN);
-                const info = Number(row["mapinfo_no"] ?? NaN);
-                return (
-                  Number.isFinite(area) &&
-                  Number.isFinite(info) &&
-                  area > 0 &&
-                  info > 0
-                );
-              })
-            : undefined;
-          const fallbackMapAreaId = Number(linkedCell?.["maparea_id"] ?? NaN);
-          const fallbackMapInfoNo = Number(linkedCell?.["mapinfo_no"] ?? NaN);
-          const resolvedMapAreaId =
-            Number.isFinite(mapAreaId) && mapAreaId > 0
-              ? mapAreaId
-              : fallbackMapAreaId;
-          const resolvedMapInfoNo =
-            Number.isFinite(mapInfoNo) && mapInfoNo > 0
-              ? mapInfoNo
-              : fallbackMapInfoNo;
+          const applyBattleState = (
+            shipMap: Map<number, MstShipRecord>,
+            slotItemMap: Map<number, MstSlotItemRecord>,
+          ) => {
+            const dropShipId =
+              Number(jsonRecordOf(detailBattle["battle_result"])?.["drop_ship_id"] ?? 0) || 0;
+            const dropShip = dropShipId > 0 ? shipMap.get(dropShipId) : null;
+            const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
+            const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
+            const linkedCell = Array.isArray(payload.linked?.cells)
+              ? payload.linked?.cells.find((row) => {
+                  const area = Number(row["maparea_id"] ?? NaN);
+                  const info = Number(row["mapinfo_no"] ?? NaN);
+                  return (
+                    Number.isFinite(area) &&
+                    Number.isFinite(info) &&
+                    area > 0 &&
+                    info > 0
+                  );
+                })
+              : undefined;
+            const fallbackMapAreaId = Number(linkedCell?.["maparea_id"] ?? NaN);
+            const fallbackMapInfoNo = Number(linkedCell?.["mapinfo_no"] ?? NaN);
+            const resolvedMapAreaId =
+              Number.isFinite(mapAreaId) && mapAreaId > 0
+                ? mapAreaId
+                : fallbackMapAreaId;
+            const resolvedMapInfoNo =
+              Number.isFinite(mapInfoNo) && mapInfoNo > 0
+                ? mapInfoNo
+                : fallbackMapInfoNo;
 
-          if (disposed || loadToken !== activeLoadToken) return;
-          const currentMapKey =
-            Number.isFinite(resolvedMapAreaId) &&
-            Number.isFinite(resolvedMapInfoNo) &&
-            resolvedMapAreaId > 0 &&
-            resolvedMapInfoNo > 0
-              ? `${resolvedMapAreaId}-${resolvedMapInfoNo}`
-              : null;
-          if (currentMapKey) {
-            ensureMapLabels(currentMapKey);
-          }
-          setBattle(detailBattle);
-          setFleets({
-            friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet, effectiveMstShip, effectiveMstSlotItem),
-            enemyShips: parseFleetRecords(payload.derived?.enemy_fleet, effectiveMstShip, effectiveMstSlotItem),
-          });
-          setMstSlotItemById(effectiveMstSlotItem);
-          setMstShipById(effectiveMstShip);
-          setMapLabel(currentMapKey);
-          setDropShipInfo(
-            dropShipId > 0
-              ? {
-                  shipId: dropShipId,
-                  name: String(dropShip?.["name"] ?? `艦#${dropShipId}`),
-                  bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
-                }
-              : null,
-          );
+            if (disposed || loadToken !== activeLoadToken) return;
+            const currentMapKey =
+              Number.isFinite(resolvedMapAreaId) &&
+              Number.isFinite(resolvedMapInfoNo) &&
+              resolvedMapAreaId > 0 &&
+              resolvedMapInfoNo > 0
+                ? `${resolvedMapAreaId}-${resolvedMapInfoNo}`
+                : null;
+            if (currentMapKey) {
+              ensureMapLabels(currentMapKey);
+            }
+            setBattle(detailBattle);
+            setFleets({
+              friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet, shipMap, slotItemMap),
+              enemyShips: parseFleetRecords(payload.derived?.enemy_fleet, shipMap, slotItemMap),
+            });
+            setMstSlotItemById(slotItemMap);
+            setMstShipById(shipMap);
+            setMapLabel(currentMapKey);
+            setDropShipInfo(
+              dropShipId > 0
+                ? {
+                    shipId: dropShipId,
+                    name: String(dropShip?.["name"] ?? `艦#${dropShipId}`),
+                    bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
+                  }
+                : null,
+            );
+          };
+
+          // Step 1: Render immediately
+          applyBattleState(effectiveMstShip, effectiveMstSlotItem);
+
+          // Step 2: Background supplement full master data non-blocking
+          void (async () => {
+            try {
+              const [fullMstShip, fullMstSlotItem] = await Promise.all([
+                getMstShipById(signal),
+                getMstSlotItemById(signal),
+              ]);
+              if (disposed || loadToken !== activeLoadToken) return;
+              const mergedShip = new Map(fullMstShip);
+              for (const [id, row] of resolvedMstShip.entries()) {
+                mergedShip.set(id, row);
+              }
+              const mergedSlotItem = new Map(fullMstSlotItem);
+              for (const [id, row] of resolvedMstSlotItem.entries()) {
+                mergedSlotItem.set(id, row);
+              }
+              effectiveMstShip = mergedShip;
+              effectiveMstSlotItem = mergedSlotItem;
+              setMasterDataStatus([
+                {
+                  name: "mst_ship",
+                  status: mergedShip.size > 0 ? "success" : "failed",
+                  detail:
+                    mergedShip.size > resolvedMstShip.size
+                      ? `${resolvedMstShip.size}件 + 補完${mergedShip.size - resolvedMstShip.size}件`
+                      : `${resolvedMstShip.size}件`,
+                },
+                {
+                  name: "mst_slotitem",
+                  status: mergedSlotItem.size > 0 ? "success" : "failed",
+                  detail:
+                    mergedSlotItem.size > resolvedMstSlotItem.size
+                      ? `${resolvedMstSlotItem.size}件 + 補完${mergedSlotItem.size - resolvedMstSlotItem.size}件`
+                      : `${resolvedMstSlotItem.size}件`,
+                },
+              ]);
+              applyBattleState(mergedShip, mergedSlotItem);
+            } catch {
+              // Ignore background error if partial data already rendered
+            }
+          })();
+
+          void getWeaponIconFrames(signal).catch(() => undefined);
         return;
       }
       throw new Error("detail response did not contain a battle");
@@ -1177,7 +1201,15 @@ export default function BattleDetailPanel(props: {
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.enemyShips?.length}
-                      fallback={<FleetFallback emptyLabel="敵艦隊データなし" />}
+                      fallback={
+                        <FleetFallback
+                          emptyLabel={
+                            (!battle()?.["e_formation"] || !battle()?.["e_deck_id"])
+                              ? "敵艦隊なし（航空偵察・非戦闘マス）"
+                              : "敵艦隊データなし"
+                          }
+                        />
+                      }
                     >
                       <ShipRows ships={fleets()!.enemyShips} sideLabel="敵" />
                     </Show>

@@ -1222,13 +1222,33 @@ export default function BattlePhaseView(props: {
     extractPhaseEntries(props.battle);
   const destructionBattle = () =>
     (props.battle["destruction_battle"] as Record<string, unknown> | null) ?? null;
+  const isReconOrPeaceCell = () =>
+    phases().length === 0 &&
+    !destructionBattle() &&
+    (!props.fleets?.enemyShips || props.fleets.enemyShips.length === 0);
+
   return (
     <Show
       when={phases().length > 0 || !!destructionBattle()}
       fallback={
-        <div class="text-center text-base-content/40 py-8">
-          戦闘フェーズ情報がありません
-        </div>
+        <Show
+          when={isReconOrPeaceCell()}
+          fallback={
+            <div class="text-center text-base-content/40 py-8">
+              戦闘フェーズ情報がありません
+            </div>
+          }
+        >
+          <div class="rounded-lg border border-base-content/10 bg-base-200/40 p-6 text-center">
+            <div class="badge badge-outline badge-info mb-2 text-xs">航空偵察 / 非戦闘マス</div>
+            <p class="text-sm font-medium text-base-content/80">
+              このマスは航空偵察または非戦闘セルのため、砲撃戦・雷撃戦などの戦闘フェーズは発生していません。
+            </p>
+            <p class="mt-1 text-xs text-base-content/60">
+              味方艦隊の編成および装備状態は上記に表示されています。他の戦闘マスを確認する場合は、上部の戦目タブを切り替えてください。
+            </p>
+          </div>
+        </Show>
       }
     >
       <div class="space-y-4">
