@@ -1026,6 +1026,20 @@ app.get("/json", async (c) => {
     );
   }
 
+  const edgeCache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const edgeCacheUrl = new URL(c.req.url);
+  edgeCacheUrl.searchParams.set("_v", "2");
+  const edgeCacheKey = new Request(edgeCacheUrl.toString(), { method: "GET" });
+
+  if (edgeCache && c.req.header("cache-control") !== "no-cache") {
+    const edgeHit = await edgeCache.match(edgeCacheKey);
+    if (edgeHit) {
+      const resp = new Response(edgeHit.body, edgeHit);
+      resp.headers.set("X-FUSOU-Cache", "EDGE-HIT");
+      return resp;
+    }
+  }
+
   try {
     const baseSql = `
       SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
@@ -1102,9 +1116,7 @@ app.get("/json", async (c) => {
     } = lookupResult;
 
     const cacheKey = `master-data:json:${tableName}:${table_version}:${period_tag}:${period_revision}`;
-    const cacheControl = requestedVersion
-      ? "public, max-age=86400, stale-while-revalidate=604800"
-      : "public, max-age=60, stale-while-revalidate=300";
+    const cacheControl = "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400";
     const etag = `W/"${tableName}-${table_version}-${period_tag}-${period_revision}${requestedRecordId ? `-${requestedRecordId}` : ""}"`;
 
     const ifNoneMatch = c.req.header("If-None-Match");
@@ -1139,7 +1151,7 @@ app.get("/json", async (c) => {
                     return rowId === requestedRecordId;
                   });
 
-            return c.json(
+            const kvResponse = c.json(
               {
                 table_name: tableName,
                 table_version,
@@ -1152,9 +1164,14 @@ app.get("/json", async (c) => {
               {
                 "ETag": etag,
                 "Cache-Control": cacheControl,
+                "X-FUSOU-Cache": "KV-HIT",
                 ...CORS_HEADERS,
               },
             );
+            if (edgeCache) {
+              safeWaitUntil(c, edgeCache.put(edgeCacheKey, kvResponse.clone()));
+            }
+            return kvResponse;
           }
           console.warn(`[master-data] KV cache has invalid records: ${cacheKey}`);
         }
@@ -1222,7 +1239,7 @@ app.get("/json", async (c) => {
       }
     }
 
-    return c.json(
+    const decodeResponse = c.json(
       {
         table_name: tableName,
         table_version,
@@ -1235,9 +1252,14 @@ app.get("/json", async (c) => {
       {
         "ETag": etag,
         "Cache-Control": cacheControl,
+        "X-FUSOU-Cache": "MISS",
         ...CORS_HEADERS,
       },
     );
+    if (edgeCache) {
+      safeWaitUntil(c, edgeCache.put(edgeCacheKey, decodeResponse.clone()));
+    }
+    return decodeResponse;
   } catch (err) {
     console.error(`[master-data] Error decoding ${tableName}: ${String(err)}`);
     return c.json({ error: "Failed to decode master data" }, 500);

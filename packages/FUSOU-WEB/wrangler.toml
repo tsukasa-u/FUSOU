@@ -5,8 +5,8 @@ compatibility_flags = ["nodejs_compat"]
 main = "@astrojs/cloudflare/entrypoints/server"
 workers_dev = true
 
-[placement]
-mode = "smart"
+# [placement]
+# mode = "smart" (disabled to keep execution close to users in Tokyo/Osaka)
 
 [[routes]]
 pattern = "fusou.dev/*"

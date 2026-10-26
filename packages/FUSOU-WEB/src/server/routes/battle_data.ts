@@ -3592,6 +3592,11 @@ function healBattlePayloads(bundle: any, envUuid: string): void {
 }
 
 app.get("/detail-env", async (c) => {
+  const t0 = performance.now();
+  const timings: string[] = [];
+  const mark = (name: string, start: number) => {
+    timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
+  };
   const envUuid = (c.req.query("env_uuid") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const tableVersion = (c.req.query("table_version") || "").trim();
@@ -3601,22 +3606,52 @@ app.get("/detail-env", async (c) => {
     return c.json({ error: "env_uuid is required" }, 400);
   }
 
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheUrl = new URL(c.req.url);
+  cacheUrl.searchParams.set("_cache_v", "8");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+
+  if (cache && c.req.header("cache-control") !== "no-cache") {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      try {
+        const text = await cached.clone().text();
+        JSON.parse(text);
+        const hit = new Response(text, cached);
+        hit.headers.set("X-FUSOU-Cache", "HIT");
+        return hit;
+      } catch {
+        try {
+          await cache.delete(cacheKey);
+        } catch {}
+      }
+    }
+  }
+
   const env = createEnvContext(c);
   const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
   const kvKey = `v8:battle_env_detail:${envUuid}`;
 
   if (cacheKV && c.req.header("cache-control") !== "no-cache") {
     try {
+      const tKv = performance.now();
       const kvCached = await cacheKV.get(kvKey);
+      mark("kv_get", tKv);
       if (kvCached) {
-        return new Response(kvCached, {
+        timings.push(`total;dur=${(performance.now() - t0).toFixed(1)}`);
+        const resp = new Response(kvCached, {
           headers: {
             "Content-Type": "application/json",
             "Cache-Control": cacheControl,
             "X-FUSOU-Cache": "HIT",
             "X-FUSOU-Data-Source": "KV-CACHE",
+            "Server-Timing": timings.join(", "),
           },
         });
+        if (cache) {
+          safeWaitUntil(c, cache.put(cacheKey, resp.clone()));
+        }
+        return resp;
       }
     } catch {
       // ignore KV errors
@@ -3625,8 +3660,12 @@ app.get("/detail-env", async (c) => {
 
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   if (bucket) {
+    const tTags = performance.now();
     const availableTags = await getDynamicSnapshotPeriodTags(bucket, cacheKV);
+    mark("tags_list", tTags);
+    const tResolveTag = performance.now();
     let activeTag = await resolveSnapshotPeriodTag(bucket, cacheKV, periodTag);
+    mark("tag_resolve", tResolveTag);
     if ((periodTag === "all" || periodTag === "latest") && availableTags.length > 0) {
       const ts = extractTimestampFromUuidV7(envUuid);
       if (ts !== null) {
@@ -3750,6 +3789,11 @@ app.get("/detail-env", async (c) => {
 });
 
 app.get("/detail", async (c) => {
+  const t0 = performance.now();
+  const timings: string[] = [];
+  const mark = (name: string, start: number) => {
+    timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
+  };
   const envUuid = (c.req.query("env_uuid") || "").trim();
   const battleIndexRaw = (c.req.query("battle_index") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
@@ -3840,10 +3884,16 @@ app.get("/detail", async (c) => {
       }
     }
     const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
-      // 1. Direct single-battle snapshot check in R2 (checks plain .json and .json.br)
+      // 1. Direct single-battle snapshot check in R2 (checks plain .json and .json.br in parallel)
       const directKeyJson = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json`;
       const directKeyBr = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
-      const detailObj = (await bucket.get(directKeyJson)) ?? (await bucket.get(directKeyBr));
+      const tDirect = performance.now();
+      const [jsonObj, brObj] = await Promise.all([
+        bucket.get(directKeyJson),
+        bucket.get(directKeyBr),
+      ]);
+      const detailObj = jsonObj ?? brObj;
+      mark("r2_direct", tDirect);
       if (detailObj) {
         try {
           const directBuf = await detailObj.arrayBuffer();
@@ -3852,19 +3902,22 @@ app.get("/detail", async (c) => {
           const hasFriendly = Array.isArray(directParsed?.derived?.friendly_fleet) && directParsed.derived.friendly_fleet.length > 0;
           const hasTimestamp = Boolean(directParsed?.battle?.timestamp);
           if (hasFriendly && hasTimestamp) {
-            const resp = await buildSnapshotResponse(c, directBuf, cacheControl, detailObj.httpEtag);
+            const resp = new Response(directText, {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": cacheControl,
+                "X-FUSOU-Cache": "SNAPSHOT-HIT",
+                "X-FUSOU-Data-Source": "R2-SNAPSHOT",
+                ...(detailObj.httpEtag ? { ETag: detailObj.httpEtag } : {}),
+              },
+            });
             if (cacheKV) {
-              const cloneResp = resp.clone();
-              safeWaitUntil(
-                c,
-                (async () => {
-                  try {
-                    const text = await cloneResp.text();
-                    const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
-                    await cacheKV.put(kvKey, text, { expirationTtl: ttl });
-                  } catch {}
-                })(),
-              );
+              const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
+              safeWaitUntil(c, cacheKV.put(kvKey, directText, { expirationTtl: ttl }));
+            }
+            if (cache) {
+              safeWaitUntil(c, cache.put(cacheKey, resp.clone()));
             }
             return resp;
           }
@@ -3875,7 +3928,9 @@ app.get("/detail", async (c) => {
 
       // 2. Sortie-level bundled snapshot check in R2
       const envKey = `snapshots/env_detail/${targetTag}/${envUuid}.json.br`;
+      const tEnv = performance.now();
       const envObj = await bucket.get(envKey);
+      mark("r2_env_get", tEnv);
       if (envObj) {
         try {
           const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
@@ -3889,25 +3944,32 @@ app.get("/detail", async (c) => {
               const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
               safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
             }
-            // Asynchronously write through single battle snapshot to R2 directly (plain JSON, infallible and fast)
+            // Asynchronously write through single battle snapshot to R2 directly (non-blocking)
             if (typeof bucket.put === "function") {
-              try {
-                await bucket.put(directKeyJson, payloadStr, {
+              safeWaitUntil(
+                c,
+                bucket.put(directKeyJson, payloadStr, {
                   httpMetadata: { contentType: "application/json" },
-                });
-              } catch (e) {
-                console.warn("[battle_data] write-through directKeyJson failed:", e);
-              }
+                }).catch((e) => {
+                  console.warn("[battle_data] write-through directKeyJson failed:", e);
+                }),
+              );
             }
-            return new Response(payloadStr, {
+            timings.push(`total;dur=${(performance.now() - t0).toFixed(1)}`);
+            const snapResp = new Response(payloadStr, {
               status: 200,
               headers: {
                 "Content-Type": "application/json",
                 "Cache-Control": cacheControl,
                 "X-FUSOU-Cache": "SNAPSHOT-HIT",
                 "X-FUSOU-Data-Source": "R2-SNAPSHOT",
+                "Server-Timing": timings.join(", "),
               },
             });
+            if (cache) {
+              safeWaitUntil(c, cache.put(cacheKey, snapResp.clone()));
+            }
+            return snapResp;
           }
 
           // Format B: raw tables bundle (generated by workflow snapshot_generator)
@@ -3966,15 +4028,16 @@ app.get("/detail", async (c) => {
                 const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
                 safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
               }
-              // Asynchronously write through single battle snapshot to R2 directly (plain JSON, infallible and fast)
+              // Asynchronously write through single battle snapshot to R2 directly (non-blocking)
               if (typeof bucket.put === "function") {
-                try {
-                  await bucket.put(directKeyJson, payloadStr, {
+                safeWaitUntil(
+                  c,
+                  bucket.put(directKeyJson, payloadStr, {
                     httpMetadata: { contentType: "application/json" },
-                  });
-                } catch (e) {
-                  console.warn("[battle_data] write-through directKeyJson failed:", e);
-                }
+                  }).catch((e) => {
+                    console.warn("[battle_data] write-through directKeyJson failed:", e);
+                  }),
+                );
               }
 
               return new Response(payloadStr, {

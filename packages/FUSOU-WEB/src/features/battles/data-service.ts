@@ -239,10 +239,11 @@ export async function getMstShipById(signal?: AbortSignal): Promise<
 > {
   if (mstShipByIdCache) return mstShipByIdCache;
   try {
-    const payload = jsonRecordOf(await fetchJson(
+    const res = await cachedFetch(
       `/api/master-data/json?table_name=mst_ship`,
-      signal,
-    ));
+      signal ? { signal } : undefined,
+    );
+    const payload = jsonRecordOf(await res.json());
     const resolved = parseMstShipMap(payload?.["records"]);
     if (resolved.size > 0) {
       mstShipByIdCache = resolved;
@@ -258,10 +259,11 @@ export async function getMstSlotItemById(signal?: AbortSignal): Promise<
 > {
   if (mstSlotItemByIdCache) return mstSlotItemByIdCache;
   try {
-    const payload = jsonRecordOf(await fetchJson(
+    const res = await cachedFetch(
       `/api/master-data/json?table_name=mst_slotitem`,
-      signal,
-    ));
+      signal ? { signal } : undefined,
+    );
+    const payload = jsonRecordOf(await res.json());
     const resolved = parseMstSlotItemMap(payload?.["records"]);
     if (resolved.size > 0) {
       mstSlotItemByIdCache = resolved;

@@ -853,47 +853,64 @@ export default function BattleDetailPanel(props: {
           // Step 1: Render immediately
           applyBattleState(effectiveMstShip, effectiveMstSlotItem);
 
-          // Step 2: Background supplement full master data non-blocking
-          void (async () => {
-            try {
-              const [fullMstShip, fullMstSlotItem] = await Promise.all([
-                getMstShipById(signal),
-                getMstSlotItemById(signal),
-              ]);
-              if (disposed || loadToken !== activeLoadToken) return;
-              const mergedShip = new Map(fullMstShip);
-              for (const [id, row] of resolvedMstShip.entries()) {
-                mergedShip.set(id, row);
+          // Step 2: If payload.refs provided all needed data, avoid downloading 1MB of full master data
+          const hasCompleteRefs = resolvedMstShip.size > 0 && resolvedMstSlotItem.size > 0;
+          if (hasCompleteRefs) {
+            setMasterDataStatus([
+              {
+                name: "mst_ship",
+                status: "success",
+                detail: `${resolvedMstShip.size}件 (同梱)`,
+              },
+              {
+                name: "mst_slotitem",
+                status: "success",
+                detail: `${resolvedMstSlotItem.size}件 (同梱)`,
+              },
+            ]);
+          } else {
+            // Fallback: only fetch full master data if refs were missing
+            void (async () => {
+              try {
+                const [fullMstShip, fullMstSlotItem] = await Promise.all([
+                  getMstShipById(signal),
+                  getMstSlotItemById(signal),
+                ]);
+                if (disposed || loadToken !== activeLoadToken) return;
+                const mergedShip = new Map(fullMstShip);
+                for (const [id, row] of resolvedMstShip.entries()) {
+                  mergedShip.set(id, row);
+                }
+                const mergedSlotItem = new Map(fullMstSlotItem);
+                for (const [id, row] of resolvedMstSlotItem.entries()) {
+                  mergedSlotItem.set(id, row);
+                }
+                effectiveMstShip = mergedShip;
+                effectiveMstSlotItem = mergedSlotItem;
+                setMasterDataStatus([
+                  {
+                    name: "mst_ship",
+                    status: mergedShip.size > 0 ? "success" : "failed",
+                    detail:
+                      mergedShip.size > resolvedMstShip.size
+                        ? `${resolvedMstShip.size}件 + 補完${mergedShip.size - resolvedMstShip.size}件`
+                        : `${resolvedMstShip.size}件`,
+                  },
+                  {
+                    name: "mst_slotitem",
+                    status: mergedSlotItem.size > 0 ? "success" : "failed",
+                    detail:
+                      mergedSlotItem.size > resolvedMstSlotItem.size
+                        ? `${resolvedMstSlotItem.size}件 + 補完${mergedSlotItem.size - resolvedMstSlotItem.size}件`
+                        : `${resolvedMstSlotItem.size}件`,
+                  },
+                ]);
+                applyBattleState(mergedShip, mergedSlotItem);
+              } catch {
+                // Ignore background error if partial data already rendered
               }
-              const mergedSlotItem = new Map(fullMstSlotItem);
-              for (const [id, row] of resolvedMstSlotItem.entries()) {
-                mergedSlotItem.set(id, row);
-              }
-              effectiveMstShip = mergedShip;
-              effectiveMstSlotItem = mergedSlotItem;
-              setMasterDataStatus([
-                {
-                  name: "mst_ship",
-                  status: mergedShip.size > 0 ? "success" : "failed",
-                  detail:
-                    mergedShip.size > resolvedMstShip.size
-                      ? `${resolvedMstShip.size}件 + 補完${mergedShip.size - resolvedMstShip.size}件`
-                      : `${resolvedMstShip.size}件`,
-                },
-                {
-                  name: "mst_slotitem",
-                  status: mergedSlotItem.size > 0 ? "success" : "failed",
-                  detail:
-                    mergedSlotItem.size > resolvedMstSlotItem.size
-                      ? `${resolvedMstSlotItem.size}件 + 補完${mergedSlotItem.size - resolvedMstSlotItem.size}件`
-                      : `${resolvedMstSlotItem.size}件`,
-                },
-              ]);
-              applyBattleState(mergedShip, mergedSlotItem);
-            } catch {
-              // Ignore background error if partial data already rendered
-            }
-          })();
+            })();
+          }
 
           void getWeaponIconFrames(signal).catch(() => undefined);
         return;
