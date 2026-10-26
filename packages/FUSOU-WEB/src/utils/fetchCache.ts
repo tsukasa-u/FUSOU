@@ -39,6 +39,10 @@ const MAX_TOTAL_CACHE_BYTES = 20_000_000; // 20 MB total in-memory ceiling
 
 const CACHEABLE_PATHS = new Set([
   "/api/battle-data/global/records",
+  "/api/battle-data/global/overview",
+  "/api/battle-data/global/drops",
+  "/api/battle-data/detail",
+  "/api/battle-data/detail-env",
   "/api/master-data/json",
   "/api/asset-sync/weapon-icon-frames",
   // ship-growth read endpoints (1 h CF Cache on server, 10 min client cache)

@@ -53,6 +53,14 @@ async function buildSnapshotResponse(
 
 const KNOWN_PERIOD_TAGS = ["2026-10-14", "2026-09-10", "2026-08-05", "2026-07-08"];
 
+export function inferPeriodTagFromTimestamp(ts: number): string {
+  // Direct instant mapping based on official event / maintenance boundaries
+  if (ts >= 1791936000000) return "2026-10-14";
+  if (ts >= 1788998400000) return "2026-09-10";
+  if (ts >= 1785888000000) return "2026-08-05";
+  return "2026-07-08";
+}
+
 async function resolveSnapshotPeriodTag(
   db: D1Database | undefined,
   requestedTag: string,
@@ -63,36 +71,11 @@ async function resolveSnapshotPeriodTag(
     return tag;
   }
 
-  if (envUuid && db) {
+  if (envUuid) {
     const ts = extractTimestampFromUuidV7(envUuid);
     if (ts !== null) {
-      try {
-        const row = await db
-          .prepare(
-            "SELECT period_tag FROM block_indexes WHERE table_name = 'battle' AND start_timestamp <= ? AND end_timestamp >= ? ORDER BY period_tag DESC LIMIT 1",
-          )
-          .bind(ts, ts)
-          .first<{ period_tag: string }>();
-        if (row?.period_tag) {
-          return row.period_tag;
-        }
-      } catch {
-        // Fall through
-      }
-
-      try {
-        const row2 = await db
-          .prepare(
-            "SELECT period_tag FROM archived_files WHERE window_start_ms <= ? AND window_end_ms >= ? ORDER BY period_tag DESC LIMIT 1",
-          )
-          .bind(ts, ts)
-          .first<{ period_tag: string }>();
-        if (row2?.period_tag) {
-          return row2.period_tag;
-        }
-      } catch {
-        // Fall through
-      }
+      // Instant calculation from UUID v7 timestamp without slow D1 queries (0ms)
+      return inferPeriodTagFromTimestamp(ts);
     }
   }
 
@@ -116,7 +99,7 @@ async function resolveSnapshotPeriodTag(
 import { Hono, type Context } from "hono";
 import type { D1Database, KVNamespace, R2Bucket } from "@cloudflare/workers-types";
 import { promisify } from "node:util";
-import { brotliDecompress } from "node:zlib";
+import { brotliDecompress, brotliCompress } from "node:zlib";
 import type { Bindings } from "../types";
 import { CORS_HEADERS, MAX_UPLOAD_BYTES } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual, safeWaitUntil } from "../utils";
@@ -161,6 +144,7 @@ import { BattleDataTokenPayloadSchema } from "../schemas/tokens";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
+const brotliCompressAsync = promisify(brotliCompress);
 
 type BattleRecord = Record<string, unknown>;
 type ValidatedTableOffset = Omit<TableOffsetMetadata, "format"> & {
@@ -3407,12 +3391,47 @@ app.get("/detail-env", async (c) => {
   }
 
   const env = createEnvContext(c);
+  const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
+  const kvKey = `v7:battle_env_detail:${envUuid}`;
+
+  if (cacheKV && c.req.header("cache-control") !== "no-cache") {
+    try {
+      const kvCached = await cacheKV.get(kvKey);
+      if (kvCached) {
+        return new Response(kvCached, {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": cacheControl,
+            "X-FUSOU-Cache": "HIT",
+            "X-FUSOU-Data-Source": "KV-CACHE",
+          },
+        });
+      }
+    } catch {
+      // ignore KV errors
+    }
+  }
+
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
     let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
-    const envKey = `snapshots/env_detail/${activeTag}/${envUuid}.json.br`;
-    const envObj = await bucket.get(envKey);
+    let envObj = await bucket.get(`snapshots/env_detail/${activeTag}/${envUuid}.json.br`);
+    if (!envObj && (periodTag === "all" || periodTag === "latest")) {
+      const fallbackTags = KNOWN_PERIOD_TAGS.filter((t) => t !== activeTag);
+      const fallbackObjs = await Promise.all(
+        fallbackTags.map(async (tag) => {
+          const obj = await bucket.get(`snapshots/env_detail/${tag}/${envUuid}.json.br`);
+          return obj ? { tag, obj } : null;
+        }),
+      );
+      const found = fallbackObjs.find((item) => item !== null);
+      if (found) {
+        envObj = found.obj;
+        activeTag = found.tag;
+      }
+    }
+
     if (envObj) {
       try {
         const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
@@ -3478,12 +3497,22 @@ app.get("/detail-env", async (c) => {
             bundle.success = true;
           }
         }
-        const res = c.json(bundle, 200);
-        res.headers.set("Cache-Control", cacheControl);
-        res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-        if (envObj.httpEtag) {
-          res.headers.set("ETag", envObj.httpEtag);
+        const payloadText = JSON.stringify(bundle);
+        if (cacheKV) {
+          const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
+          safeWaitUntil(c, cacheKV.put(kvKey, payloadText, { expirationTtl: ttl }));
         }
+
+        const res = new Response(payloadText, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": cacheControl,
+            "X-FUSOU-Cache": "SNAPSHOT-HIT",
+            "X-FUSOU-Data-Source": "R2-SNAPSHOT",
+            ...(envObj.httpEtag ? { ETag: envObj.httpEtag } : {}),
+          },
+        });
         return res;
       } catch (err) {
         console.warn("[battle_data] failed to decompress detail-env snapshot:", err);
@@ -3501,10 +3530,6 @@ app.get("/detail", async (c) => {
   const tableVersion = (c.req.query("table_version") || "").trim();
   const datasetId = (c.req.query("dataset_id") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_cache_v", "7");
-  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
   if (!envUuid) {
     return c.json({ error: "env_uuid is required" }, 400);
@@ -3523,6 +3548,11 @@ app.get("/detail", async (c) => {
     return c.json({ error: "battle_index must be a non-negative integer" }, 400);
   }
 
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheUrl = new URL(c.req.url);
+  cacheUrl.searchParams.set("_cache_v", "7");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+
   if (cache && c.req.header("cache-control") !== "no-cache") {
     const cached = await cache.match(cacheKey);
     if (cached) {
@@ -3536,26 +3566,65 @@ app.get("/detail", async (c) => {
         try {
           await cache.delete(cacheKey);
         } catch {
-          // ignore cache delete errors
+          // ignore
         }
       }
     }
   }
 
   const env = createEnvContext(c);
+  const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
+  const kvKey = `v7:battle_detail:${envUuid}:${battleIndexRaw}`;
+
+  // 1. Fast KV cache lookup (10-30ms) across all Cloudflare edge locations
+  if (cacheKV && c.req.header("cache-control") !== "no-cache") {
+    try {
+      const kvCached = await cacheKV.get(kvKey);
+      if (kvCached) {
+        return new Response(kvCached, {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": cacheControl,
+            "X-FUSOU-Cache": "HIT",
+            "X-FUSOU-Data-Source": "KV-CACHE",
+          },
+        });
+      }
+    } catch {
+      // ignore KV errors
+    }
+  }
+
   const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   const indexDb = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (bucket) {
     let activeTag = await resolveSnapshotPeriodTag(indexDb, periodTag, envUuid);
     const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
-      // 1. Direct single-battle snapshot check
+      // 1. Direct single-battle snapshot check in R2
       const directKey = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
       const detailObj = await bucket.get(directKey);
       if (detailObj) {
-        return await buildSnapshotResponse(c, await detailObj.arrayBuffer(), cacheControl, detailObj.httpEtag);
+        const resp = await buildSnapshotResponse(c, await detailObj.arrayBuffer(), cacheControl, detailObj.httpEtag);
+        // Populate KV cache for subsequent instant hits
+        if (cacheKV) {
+          const cloneResp = resp.clone();
+          safeWaitUntil(
+            c,
+            (async () => {
+              try {
+                const text = await cloneResp.text();
+                const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
+                await cacheKV.put(kvKey, text, { expirationTtl: ttl });
+              } catch {
+                // ignore
+              }
+            })(),
+          );
+        }
+        return resp;
       }
 
-      // 2. Sortie-level bundled snapshot check
+      // 2. Sortie-level bundled snapshot check in R2
       const envKey = `snapshots/env_detail/${targetTag}/${envUuid}.json.br`;
       const envObj = await bucket.get(envKey);
       if (envObj) {
@@ -3565,11 +3634,34 @@ app.get("/detail", async (c) => {
           // Format A: pre-resolved battles bundle
           const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
           if (battlePayload) {
-            const res = c.json(battlePayload, 200);
-            res.headers.set("Cache-Control", cacheControl);
-            res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-            res.headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
-            return res;
+            const payloadStr = JSON.stringify(battlePayload);
+            if (cacheKV) {
+              const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
+              safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
+            }
+            // Asynchronously write through single battle snapshot to R2
+            safeWaitUntil(
+              c,
+              (async () => {
+                try {
+                  const compressed = await brotliCompressAsync(Buffer.from(payloadStr, "utf-8"));
+                  await bucket.put(directKey, compressed, {
+                    httpMetadata: { contentType: "application/json", contentEncoding: "br" },
+                  });
+                } catch {
+                  // ignore
+                }
+              })(),
+            );
+            return new Response(payloadStr, {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": cacheControl,
+                "X-FUSOU-Cache": "SNAPSHOT-HIT",
+                "X-FUSOU-Data-Source": "R2-SNAPSHOT",
+              },
+            });
           }
 
           // Format B: raw tables bundle (generated by workflow snapshot_generator)
@@ -3622,11 +3714,36 @@ app.get("/detail", async (c) => {
               },
             });
             if (resolvedDetail) {
-              const res = c.json(resolvedDetail.payload, 200);
-              res.headers.set("Cache-Control", cacheControl);
-              res.headers.set("X-FUSOU-Cache", "SNAPSHOT-HIT");
-              res.headers.set("X-FUSOU-Data-Source", "R2-SNAPSHOT");
-              return res;
+              const payloadStr = JSON.stringify(resolvedDetail.payload);
+              // Save to global KV cache immediately
+              if (cacheKV) {
+                const ttl = periodTag === "latest" ? 86400 : 7 * 86400;
+                safeWaitUntil(c, cacheKV.put(kvKey, payloadStr, { expirationTtl: ttl }));
+              }
+              // Asynchronously write through single battle snapshot to R2
+              safeWaitUntil(
+                c,
+                (async () => {
+                  try {
+                    const compressed = await brotliCompressAsync(Buffer.from(payloadStr, "utf-8"));
+                    await bucket.put(directKey, compressed, {
+                      httpMetadata: { contentType: "application/json", contentEncoding: "br" },
+                    });
+                  } catch {
+                    // ignore
+                  }
+                })(),
+              );
+
+              return new Response(payloadStr, {
+                status: 200,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Cache-Control": cacheControl,
+                  "X-FUSOU-Cache": "SNAPSHOT-HIT",
+                  "X-FUSOU-Data-Source": "R2-SNAPSHOT",
+                },
+              });
             }
           }
         } catch (err) {
@@ -3638,16 +3755,17 @@ app.get("/detail", async (c) => {
 
     let resolvedResp = await tryResolveDetail(activeTag);
     if (!resolvedResp && (periodTag === "all" || periodTag === "latest")) {
-      for (const fallbackTag of KNOWN_PERIOD_TAGS) {
-        if (fallbackTag === activeTag) continue;
-        resolvedResp = await tryResolveDetail(fallbackTag);
-        if (resolvedResp) {
-          activeTag = fallbackTag;
-          break;
-        }
+      const fallbackTags = KNOWN_PERIOD_TAGS.filter((t) => t !== activeTag);
+      const fallbackResults = await Promise.all(fallbackTags.map((tag) => tryResolveDetail(tag)));
+      const hit = fallbackResults.find((r) => r !== null);
+      if (hit) {
+        resolvedResp = hit;
       }
     }
     if (resolvedResp) {
+      if (cache) {
+        await putCacheSafely(c, cache, cacheKey, resolvedResp);
+      }
       return resolvedResp;
     }
 
@@ -3666,10 +3784,6 @@ app.get("/detail", async (c) => {
   return c.json({ error: "Storage not configured" }, 500);
 });
 
-/**
- * GET /global/latest - Latest fragment across all users for table/period
- * Query params: table, period_tag
- */
 app.get("/global/latest", async (c) => {
   const env = createEnvContext(c);
   const indexDb = env.runtime["BATTLE_INDEX_DB"];

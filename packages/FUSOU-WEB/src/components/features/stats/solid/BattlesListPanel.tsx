@@ -306,22 +306,17 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
             これまでの戦闘を時系列で表示します。
           </div>
         </div>
-        <div class="join">
+        <div>
           <button
             type="button"
-            class={`join-item btn btn-xs ${sortOrder() === "desc" ? "btn-primary" : "btn-ghost border border-base-300"}`}
-            onClick={() => { setSortOrder("desc"); setCurrentPage(0); }}
-            title="最新の戦闘を先頭に表示"
+            class="btn btn-xs btn-ghost border border-base-300 font-normal"
+            onClick={() => {
+              setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
+              setCurrentPage(0);
+            }}
+            title={sortOrder() === "desc" ? "クリックで古い順に切り替え" : "クリックで新しい順に切り替え"}
           >
-            新しい順 ↓
-          </button>
-          <button
-            type="button"
-            class={`join-item btn btn-xs ${sortOrder() === "asc" ? "btn-primary" : "btn-ghost border border-base-300"}`}
-            onClick={() => { setSortOrder("asc"); setCurrentPage(0); }}
-            title="古い戦闘を先頭に表示"
-          >
-            古い順 ↑
+            {sortOrder() === "desc" ? "新しい順 ↓" : "古い順 ↑"}
           </button>
         </div>
       </div>
