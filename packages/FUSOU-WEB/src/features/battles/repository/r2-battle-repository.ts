@@ -4,6 +4,8 @@ import {
   type BattleDataRepository,
   type BattleDetailPayload,
   type BattleDetailQuery,
+  type BattleEnvDetailPayload,
+  type BattleEnvDetailQuery,
   type BattleDropsPayload,
   type DropsQuery,
   type BattleOverviewPayload,
@@ -284,6 +286,40 @@ function buildDetailUrl(query: BattleDetailQuery): string {
   return `/api/battle-data/detail?${params.toString()}`;
 }
 
+function buildEnvDetailUrl(query: BattleEnvDetailQuery): string {
+  const params = new URLSearchParams();
+  params.set("env_uuid", query.envUuid);
+  params.set("period_tag", query.periodTag);
+  appendOptionalQuery(params, "table_version", query.tableVersion);
+  appendOptionalQuery(params, "dataset_id", query.datasetId);
+  return `/api/battle-data/detail-env?${params.toString()}`;
+}
+
+function parseBattleEnvDetailPayload(value: unknown): BattleEnvDetailPayload | null {
+  if (!isJsonRecord(value)) return null;
+  const payload: BattleEnvDetailPayload = {
+    success: typeof value["success"] === "boolean" ? value["success"] : false,
+    env_uuid: typeof value["env_uuid"] === "string" ? value["env_uuid"] : "",
+    period_tag: typeof value["period_tag"] === "string" ? value["period_tag"] : "",
+    battles: {},
+  };
+  if (typeof value["table_version"] === "string" || value["table_version"] === null) {
+    payload.table_version = value["table_version"];
+  }
+  if (typeof value["snapshot_timestamp"] === "number") {
+    payload.snapshot_timestamp = value["snapshot_timestamp"];
+  }
+  if (isJsonRecord(value["battles"])) {
+    for (const [k, v] of Object.entries(value["battles"])) {
+      const parsed = parseBattleDetailPayload(v);
+      if (parsed) {
+        payload.battles[k] = parsed;
+      }
+    }
+  }
+  return payload;
+}
+
 export class R2BattleRepository implements BattleDataRepository {
   readonly kind: BattleSourceKind = "r2";
 
@@ -333,6 +369,14 @@ export class R2BattleRepository implements BattleDataRepository {
     return this.requestJson(
       buildDetailUrl(query),
       parseBattleDetailPayload,
+      requestInit(query.signal, query.forceRefresh),
+    );
+  }
+
+  async getEnvDetail(query: BattleEnvDetailQuery): Promise<BattleEnvDetailPayload> {
+    return this.requestJson(
+      buildEnvDetailUrl(query),
+      parseBattleEnvDetailPayload,
       requestInit(query.signal, query.forceRefresh),
     );
   }

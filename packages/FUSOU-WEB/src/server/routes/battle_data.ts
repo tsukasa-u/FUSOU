@@ -3768,6 +3768,7 @@ app.get("/detail-env", async (c) => {
           safeWaitUntil(c, cacheKV.put(kvKey, payloadText, { expirationTtl: ttl }));
         }
 
+        timings.push(`total;dur=${(performance.now() - t0).toFixed(1)}`);
         const res = new Response(payloadText, {
           status: 200,
           headers: {
@@ -3775,9 +3776,13 @@ app.get("/detail-env", async (c) => {
             "Cache-Control": cacheControl,
             "X-FUSOU-Cache": "SNAPSHOT-HIT",
             "X-FUSOU-Data-Source": "R2-SNAPSHOT",
+            "Server-Timing": timings.join(", "),
             ...(envObj.httpEtag ? { ETag: envObj.httpEtag } : {}),
           },
         });
+        if (cache) {
+          safeWaitUntil(c, cache.put(cacheKey, res.clone()));
+        }
         return res;
       } catch (err) {
         console.warn("[battle_data] failed to decompress detail-env snapshot:", err);

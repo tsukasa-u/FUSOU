@@ -413,6 +413,14 @@ export default function BattleDetailPanel(props: {
   const [switchingBattleIndex, setSwitchingBattleIndex] = createSignal<
     number | null
   >(null);
+  let loadedEnvBundle: {
+    envUuid: string;
+    periodTag: string;
+    tableVersion?: string;
+    datasetId?: string;
+    battles: Record<string, BattleDetailPayload>;
+    battleIndexes: number[];
+  } | null = null;
   let displaySettingsModalRef!: HTMLDialogElement;
 
   function parseSemver(version: string): [number, number, number] | null {
@@ -724,13 +732,19 @@ export default function BattleDetailPanel(props: {
         return;
       }
 
-      let payload: BattleDetailPayload;
-      try {
+      const bundleMatches =
+        loadedEnvBundle !== null &&
+        loadedEnvBundle.envUuid === envUuid &&
+        loadedEnvBundle.periodTag === requestedPeriod &&
+        (loadedEnvBundle.tableVersion || "") === tableVersion &&
+        (loadedEnvBundle.datasetId || "") === datasetId;
+
+      const fetchSingleDetail = async (): Promise<BattleDetailPayload> => {
         const localMasterData =
           repository.kind === "local-avro"
             ? await Promise.all([getMstShipById(signal), getMstSlotItemById(signal)])
             : null;
-        payload = (await repository.getDetail({
+        return (await repository.getDetail({
           envUuid,
           battleIndex: requestedBattleIndex,
           periodTag: requestedPeriod,
@@ -744,6 +758,51 @@ export default function BattleDetailPanel(props: {
             : {}),
           signal,
         }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleDetailPayload;
+      };
+
+      let payload: BattleDetailPayload;
+      try {
+        const cachedBattle = loadedEnvBundle?.battles[String(requestedBattleIndex)];
+        if (bundleMatches && cachedBattle) {
+          // Instant local render from already-downloaded sortie bundle (0ms, zero network)
+          payload = cachedBattle;
+        } else if (typeof repository.getEnvDetail === "function") {
+          try {
+            const envPayload = await repository.getEnvDetail({
+              envUuid,
+              periodTag: requestedPeriod,
+              ...(tableVersion ? { tableVersion } : {}),
+              ...(datasetId ? { datasetId } : {}),
+              signal,
+            });
+            if (envPayload && envPayload.battles && Object.keys(envPayload.battles).length > 0) {
+              const bIndexes = Object.keys(envPayload.battles)
+                .map(Number)
+                .filter((n) => Number.isFinite(n) && n >= 0)
+                .sort((a, b) => a - b);
+              loadedEnvBundle = {
+                envUuid,
+                periodTag: requestedPeriod,
+                tableVersion,
+                datasetId,
+                battles: envPayload.battles,
+                battleIndexes: bIndexes,
+              };
+              const envBattle = envPayload.battles[String(requestedBattleIndex)];
+              if (envBattle) {
+                payload = envBattle;
+              } else {
+                payload = await fetchSingleDetail();
+              }
+            } else {
+              payload = await fetchSingleDetail();
+            }
+          } catch {
+            payload = await fetchSingleDetail();
+          }
+        } else {
+          payload = await fetchSingleDetail();
+        }
       } catch (error) {
         const status =
           error instanceof BattleRepositoryHttpError ? error.status : null;
@@ -766,7 +825,7 @@ export default function BattleDetailPanel(props: {
 
       const indexesFromPayload = Array.isArray(payload.battle_indexes)
         ? uniqueBattleIndexesInOrder(payload.battle_indexes)
-        : [];
+        : (loadedEnvBundle?.battleIndexes ?? []);
       if (indexesFromPayload.length > 0) {
         setBattleIndexes(indexesFromPayload);
       } else {

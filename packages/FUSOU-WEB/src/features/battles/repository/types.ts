@@ -66,6 +66,24 @@ export type BattleDetailQuery = {
   forceRefresh?: boolean;
 };
 
+export type BattleEnvDetailQuery = {
+  envUuid: string;
+  periodTag: string;
+  tableVersion?: string;
+  datasetId?: string;
+  signal?: AbortSignal;
+  forceRefresh?: boolean;
+};
+
+export type BattleEnvDetailPayload = {
+  success: boolean;
+  env_uuid: string;
+  period_tag: string;
+  table_version?: string | null;
+  snapshot_timestamp?: number;
+  battles: Record<string, BattleDetailPayload>;
+};
+
 export type JsonRecord = Record<string, unknown>;
 
 export type RecordResult = {
@@ -134,6 +152,7 @@ export interface BattleDataRepository {
   getOverview(query: OverviewQuery, options?: BattleRepositoryRequestOptions): Promise<BattleOverviewPayload>;
   getDrops(query: DropsQuery, options?: BattleRepositoryRequestOptions): Promise<BattleDropsPayload>;
   getDetail(query: BattleDetailQuery, options?: BattleRepositoryRequestOptions): Promise<BattleDetailPayload>;
+  getEnvDetail?(query: BattleEnvDetailQuery, options?: BattleRepositoryRequestOptions): Promise<BattleEnvDetailPayload>;
   dispose(): Promise<void>;
 }
 
