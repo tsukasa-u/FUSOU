@@ -136,8 +136,9 @@ export async function downloadGithubArtifact({ artifactId, token, fetchImpl = fe
   }
   return Buffer.concat(chunks, size);
 }
-function assertMetadata(a, run) {
-  requireRelease(Number.isSafeInteger(a?.id) && a.id > 0 && a.name === producerArtifactName(run.id, run.run_attempt) &&
+function assertMetadata(a, run, artifactKind = "release") {
+  requireRelease(Number.isSafeInteger(a?.id) && a.id > 0 &&
+    a.name === (artifactKind === "archive" ? `fusou-archive-${run.id}-${run.run_attempt}` : producerArtifactName(run.id, run.run_attempt)) &&
     a.expired === false && Number.isSafeInteger(a.size_in_bytes) && a.size_in_bytes > 0 &&
     a.size_in_bytes <= MAX_ARCHIVE_BYTES && a.workflow_run?.id === run.id &&
     a.workflow_run.head_sha === run.head_sha && a.workflow_run.head_branch === "main" &&
@@ -146,14 +147,18 @@ function assertMetadata(a, run) {
   if (a.digest === null || a.digest === undefined) throw new ReleaseBlocked("ARTIFACT_API_DIGEST_UNAVAILABLE");
   requireRelease(/^sha256:[0-9a-f]{64}$/.test(a.digest), "artifact API digest");
 }
-export async function acquireReleaseTransport({ github, run, downloadArchive, readArchive = readTransportZip }) {
+export async function acquireReleaseTransport({ github, run, downloadArchive, readArchive = readTransportZip, artifactKind = "release" }) {
+  requireRelease(["release", "archive"].includes(artifactKind), "unregistered artifact kind");
   const params = { owner: "tsukasa-u", repo: "FUSOU", run_id: run.id, per_page: 100,
-    name: producerArtifactName(run.id, run.run_attempt) };
+    name: artifactKind === "archive" ? `fusou-archive-${run.id}-${run.run_attempt}` : producerArtifactName(run.id, run.run_attempt) };
   const list = (await github.rest.actions.listWorkflowRunArtifacts(params)).data;
   requireRelease(Number.isSafeInteger(list.total_count) && list.total_count >= 0 && Array.isArray(list.artifacts), "artifact listing schema");
+  if (artifactKind === "archive" && list.total_count === 0 && list.artifacts.length === 0) {
+    throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_HTTP_ARTIFACT_MISSING");
+  }
   requireRelease(list.total_count === 1 && list.artifacts.length === 1, "missing/ambiguous producer artifact");
   const metadata = list.artifacts[0];
-  assertMetadata(metadata, run);
+  assertMetadata(metadata, run, artifactKind);
   const snapshot = canonicalJson(metadata);
   const archive = Buffer.from(await downloadArchive(metadata.id));
   requireRelease(archive.length > 0 && archive.length <= MAX_ARCHIVE_BYTES &&
@@ -161,7 +166,7 @@ export async function acquireReleaseTransport({ github, run, downloadArchive, re
   const files = await readArchive(archive);
   requireRelease(`sha256:${createHash("sha256").update(archive).digest("hex")}` === metadata.digest, "archive changed during readback");
   const fresh = (await github.rest.actions.getArtifact({ owner: "tsukasa-u", repo: "FUSOU", artifact_id: metadata.id })).data;
-  assertMetadata(fresh, run);
+  assertMetadata(fresh, run, artifactKind);
   requireRelease(canonicalJson(fresh) === snapshot, "artifact metadata changed during readback");
   const result = { files: new Map([...files].map(([name, raw]) => [name, Buffer.from(raw)])),
     origin: Object.freeze({ id: metadata.id, name: metadata.name, digest: metadata.digest,

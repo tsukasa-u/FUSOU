@@ -23,7 +23,17 @@ test("coordinator only uses trusted main code and API metadata, never tag code o
   assert.match(yaml, /contents: read/);
   assert.match(yaml, /core\.setFailed/);
   assert.match(yaml, /if: always\(\)/);
-  assert.doesNotMatch(yaml, /secrets\.|id-token:|: write|environment:|download-artifact|ref:.*head_sha/);
+  const buildJob = yaml.slice(yaml.indexOf("  eligibility:"), yaml.indexOf("  archive-evidence:"));
+  const archiveJob = yaml.slice(yaml.indexOf("  archive-evidence:"));
+  assert.doesNotMatch(buildJob, /id-token:|: write/);
+  assert.doesNotMatch(yaml, /secrets\.|environment:|download-artifact|ref:.*head_sha/);
+  assert.equal((yaml.match(/id-token: write/g) ?? []).length, 1);
+  assert.match(archiveJob, /needs: eligibility/);
+  assert.match(archiveJob, /if: github.ref == 'refs\/heads\/main'/);
+  assert.match(archiveJob, /produceArchiveJob/);
+  assert.match(archiveJob, /evaluateReleaseRun/);
+  assert.doesNotMatch(archiveJob, /generateReleaseBuild|pnpm |cargo |exec.*artifact/);
+  assert.match(buildJob, /httpEnabled: false/);
   assert.match(yaml, /report\.status === 'PRODUCTION_ELIGIBLE'/);
   assert.match(yaml, /recheckEligibility: \(\) => evaluateReleaseRun/);
   assert.match(yaml, /packProducerTransport/);
@@ -54,6 +64,10 @@ test("legacy publishing is explicitly blocked before any environment-qualified p
 test("unsigned generation does not introduce an unpinned new external Action dependency", () => {
   const yaml = read("tlsn-release-eligibility.yml");
   assert.deepEqual([...yaml.matchAll(/uses: (\S+)/g)].map((m) => m[1]), [
+    "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
     "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
     "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
     "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",

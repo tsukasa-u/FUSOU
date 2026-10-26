@@ -6,6 +6,8 @@ import { readRegularFile } from "./release-files.mjs";
 import { sha256 } from "./release-bytes.mjs";
 import { assertArchiveReadbackPolicy, captureArchiveReadback, parsePinnedCheckInputs } from "./release-checks.mjs";
 import { createR2ArchiveReadbackBackend } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs";
+import { acquireArchiveHttp } from "./release-archive-http.mjs";
+import { ArchiveTransportError } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs";
 
 export const EVIDENCE_PRODUCTION_SCOPE = "fusou-release-evidence-production-v1";
 export const EVIDENCE_IMPLEMENTATION_BLOCKERS = Object.freeze({
@@ -28,7 +30,7 @@ export function producerExecutionContext(report, identity) {
 }
 
 export async function collectReleaseEvidence({ report, identity, checkPolicyBytes, checkPolicySha256, evidenceDirectory },
-  { archiveBinding, readSourceBytes, now = () => Date.now() } = {}) {
+  { archiveBinding, readSourceBytes, httpDependencies, httpEnabled = true, now = () => Date.now() } = {}) {
   const context = producerExecutionContext(report, identity), executions = new Map(), checks = {};
   let policyDigest;
   try {
@@ -48,6 +50,16 @@ export async function collectReleaseEvidence({ report, identity, checkPolicyByte
         /^[A-Za-z0-9_-]{43}$/.test(expected.objects[role].sha256) &&
         typeof expected.objects[role].version_id === "string" && expected.objects[role].version_id.length > 0),
     "producer pinned archive identity/generation/digest");
+    if (policy.archive_transport) {
+      requireRelease(!archiveBinding, "HTTP archive policy cannot fall back to local binding");
+      if (!httpEnabled) throw new ReleaseBlocked("ARCHIVE_HTTP_ISOLATED_JOB_REQUIRED", "BLOCKED_IMPLEMENTATION");
+      const acquired = await acquireArchiveHttp({ spec: policy.archive_transport, context, expected },
+        { ...httpDependencies, now });
+      const captured = await captureArchiveReadback({ context, expected, ...acquired, now });
+      executions.set("archive_readback", captured);
+      checks.archive_readback = { status: "LOCAL_CAPTURE_ONLY", evidence_sha256: sha256(captured.receipt),
+        acquisition: "TRUSTED_PRODUCER_HTTPS_FETCH", retention_status: "NOT_CHECKED" };
+    } else {
     if (!archiveBinding) throw new ReleaseBlocked(EVIDENCE_IMPLEMENTATION_BLOCKERS.archive_readback, "BLOCKED_IMPLEMENTATION");
     requireRelease(typeof archiveBinding.bucket?.get === "function" &&
       typeof archiveBinding.backendId === "string" && archiveBinding.backendId.length > 0 &&
@@ -79,9 +91,14 @@ export async function collectReleaseEvidence({ report, identity, checkPolicyByte
     executions.set("archive_readback", captured);
     checks.archive_readback = { status: "LOCAL_CAPTURE_ONLY", evidence_sha256: sha256(captured.receipt),
       retention_status: "NOT_CHECKED" };
+    }
   } catch (error) {
+    if (error instanceof ArchiveTransportError) {
+      checks.archive_readback = { status: "BLOCKED_EXTERNAL_INPUTS", blocker: error.code };
+    } else {
     if (!(error instanceof ReleaseBlocked)) throw error;
     checks.archive_readback = { status: error.status, blocker: error.code };
+    }
   }
   // A semantic version is not a substitute for an authenticated builder artifact.
   checks.offline_verification = { status: "BLOCKED_IMPLEMENTATION", blocker: EVIDENCE_IMPLEMENTATION_BLOCKERS.offline_verification,

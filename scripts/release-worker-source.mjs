@@ -19,6 +19,7 @@ export const WORKER_SOURCE_PATHS = Object.freeze([
     "src/production-result-contract.mjs", "src/production-result-contract.d.mts", "src/text-module.d.ts",
     "src/archive-readback.mjs", "src/archive-readback.d.mts",
     "src/archive-catalog.mjs", "src/archive-catalog.d.mts",
+    "src/archive-http-contract.mjs", "src/archive-http.mjs", "src/archive-http.d.mts", "src/archive-oidc.mjs",
     "scripts/build-wasm.mjs", "scripts/verify-wasm-provenance.mjs", "scripts/wasm-provenance.mjs", "scripts/app-build-tool-environment.mjs",
   ].map((path) => `${WORKER_ROOT}/${path}`),
 ]);

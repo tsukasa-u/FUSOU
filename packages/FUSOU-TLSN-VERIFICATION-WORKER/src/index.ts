@@ -30,6 +30,7 @@ import {
 import { canaryVerifierExecutionReceiptCapabilityAvailable } from "./execution_boundary.js";
 import { persistAndVerifyPresentationArchive, persistAndVerifyResultArchive } from "./result_archive.js";
 import type { ArchiveObjectSnapshot } from "./archive-catalog.mjs";
+import { handleArchiveHttp } from "./archive-http.mjs";
 import {
   verificationCallbackSchema,
   verificationFinalResponseSchema,
@@ -73,6 +74,8 @@ import {
 
 const originInventory = parseOriginInventory(originInventoryRaw);
 export type Bindings = {
+  TLSN_ARCHIVE_TRANSPORT_POLICY?: string;
+  TLSN_ARCHIVE_TRANSPORT_POLICY_SHA256?: string;
   TLSN_PRODUCTION_ORIGIN_INVENTORY_SHA256?: string;
   TLSN_PRODUCTION_TARGET_APPROVAL_ARTIFACT_SHA256?: string;
   TLSN_ENVIRONMENT: string;
@@ -525,6 +528,19 @@ type VerifierConfig = z.infer<typeof configSchema> & {
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+app.all("/internal/tlsn/archive-readback/v1", async (c) => {
+  try {
+    return await handleArchiveHttp(c.req.raw, {
+      policyRaw: c.env.TLSN_ARCHIVE_TRANSPORT_POLICY,
+      policySha256: c.env.TLSN_ARCHIVE_TRANSPORT_POLICY_SHA256,
+      authority: new DurableObjectBindingAuthority(c.env.TLSN_BINDINGS),
+      bucket: c.env.TLSN_PRESENTATIONS,
+    });
+  } catch (error) {
+    if (!(error instanceof BindingAuthorityError)) throw error;
+    return c.json({ error: "ARCHIVE_HTTP_AUTHORITY_UNAVAILABLE" }, 503, { "cache-control": "no-store" });
+  }
+});
 let wasmInitialization: Promise<void> | undefined;
 let testCompletionDelayUsed = false;
 let testPostResultDelayUsed = false;

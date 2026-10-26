@@ -1,4 +1,5 @@
 export type ArchiveContext = { source_sha: string; session_id: string; job_id: string; verification_attempt_id: string; binding_id: string };
+export class ArchiveReadbackError extends Error {}
 export function archiveCustomMetadata(role: "presentation" | "result", context: ArchiveContext): Record<string, string>;
 export function assertArchiveGeneration(written: Pick<R2Object, "version"> | null, observed: Pick<R2Object, "version" | "customMetadata">,
   role: "presentation" | "result", context: ArchiveContext): void;

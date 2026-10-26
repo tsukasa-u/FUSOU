@@ -2073,3 +2073,333 @@ git branch --show-current
 git rev-parse HEAD HEAD^
 git status --short -- scripts/release-archive-catalog.test.mjs scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-worker-integration.test.mjs scripts/release-worker-source.mjs scripts/release-execution-intake.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 ```
+
+## GitHub OIDC authenticated archive HTTP source implementation
+
+Entry branch: `tlsn-first-testplay-candidate`; actual entry HEAD:
+`b8672a6f234589593b891951b3359cf15f469066`, matching the requested baseline.
+Initial explicit task-path worktree/index status was clean. The final commit
+and scoped status are recorded from Git in the completion report.
+
+### API and authentication contract
+
+`POST /internal/tlsn/archive-readback/v1` is a **read operation**, not an archive
+write. The Worker mounts the handler without exposing internal authority writes
+or storage keys. Other methods return 405 after authentication; no query,
+alternate endpoint, arbitrary object key, list or delete request is accepted.
+Requests and responses use versioned contracts in
+`src/archive-http-contract.mjs`.
+
+The Worker requires two **public, independently provisioned configuration
+inputs**, neither of which was registered or assigned Production values here:
+
+- `TLSN_ARCHIVE_TRANSPORT_POLICY`: canonical JSON of the policy below.
+- `TLSN_ARCHIVE_TRANSPORT_POLICY_SHA256`: base64url SHA-256 of those exact
+  canonical UTF-8 bytes, supplied by trusted configuration management, not by
+  the caller. A request cannot provide or override either value.
+
+The Actions producer and independent consumer obtain the identical policy
+object and digest through `archive_transport: {policy, policy_sha256}` in the
+existing independently pinned `scripts/release-check-public-inputs.json`.
+The outer file remains pinned by the existing
+`FUSOU_RELEASE_CHECK_INPUTS_SHA256` public repository variable. A policy embedded
+only in an evidence artifact is not an independent expectation.
+
+Policy schema (field meanings, **not a Production configuration**):
+
+| Field | Required independent meaning |
+| --- | --- |
+| `schema_version`, `scope` | `1`, `fusou-github-oidc-archive-read-v1` |
+| `endpoint`, `audience` | Identical, dedicated canonical HTTPS URL ending in the exact API path above; no credentials/query/fragment. Must be owner-approved for the intended authority deployment. |
+| `repository`, `repository_id` | Exact `tsukasa-u/FUSOU` and independently provisioned numeric-string GitHub repository ID. No real ID is selected by this change. |
+| `workflow_ref` | Exact `tsukasa-u/FUSOU/.github/workflows/tlsn-release-eligibility.yml@refs/heads/main`. |
+| `event_name`, `ref` | Exact `workflow_run`, `refs/heads/main`. |
+| `clock_skew_seconds` | Explicit tolerance, integer 0..60; no implicit tolerance. |
+| `max_token_age_seconds` | Explicit maximum token age, integer 1..600. |
+| `max_object_bytes` | Explicit bound, at most 8 MiB per raw object; oversized captures fail, not truncate. This is a buffering admission limit, not a measured RSS guarantee. |
+| `job_workflow_ref`, `job_workflow_sha` | Optional paired exact reusable-workflow expectations. If configured, both corresponding signed claims are mandatory. They are not assumed to exist otherwise. |
+| `grants` | Nonempty bounded list of independently authorized execution/capture tuples; duplicate run/attempt/capture entries rejected. |
+
+Each grant requires exact `workflow_sha`, numeric `run_id`/`run_attempt`,
+`source_sha`, `capture_id`, `binding_id`, `verification_attempt_id`,
+`lookup: {session_id, canonical_user_id, device_id, verification_job_id}`,
+`not_before_ms`, `expires_at_ms`, `capture_not_before_ms` and
+`capture_max_age_ms`. The source SHA and target lookup cannot be derived from
+the request or OIDC `sha` claim. Capture ID must equal binding ID. Authorization
+expiry and capture age are separate from token expiry and archive retention.
+
+These grants are a fail-closed input interface, **not a recommendation to ask a
+human to approve each release manually**. The source does not implement an
+automated grant publisher. An owner-approved trusted coordinator/provider must
+supply them from independently authenticated release eligibility, GitHub
+run/attempt/revision and authority target metadata. Its registration and update
+mechanism remain an external/provider blocker. Guessing such tuples or copying
+them from intake records is not permitted.
+
+JWT verification reuses already locked `jose@6.1.2` (now a direct exact Worker
+dependency), rather than hand-written signature cryptography:
+
+- Exact issuer `https://token.actions.githubusercontent.com`; fixed JWKS URL
+  `https://token.actions.githubusercontent.com/.well-known/jwks`.
+- RS256 only; bounded nonempty `kid`; JWT header key URLs/embedded keys and
+  unsupported headers rejected. `jku`, `jwk` and `x5u` cannot select key sources.
+- JOSE signature verification, mandatory `exp`/`iat`, maximum token age,
+  optional `nbf`, finite ordered timestamps and bounded explicit clock skew.
+  Audience must be the **single exact string**, not a broader audience array.
+- Signed repository/name-ID, workflow ref/revision, event/ref and canonical
+  run/attempt strings must match policy and the independent grant. No legacy
+  `sub` format is treated as authority. Optional reusable-workflow expectations
+  are enforced only when independently configured.
+- Fixed-source JWKS retrieval has timeout/size bounds, no redirects, ten-minute
+  cache age and a thirty-second unknown-key refresh cooldown. Unknown keys
+  during cooldown fail closed; later refresh uses only the fixed source.
+  Failed refresh does not accept a token with an unrecognized key.
+
+No real GitHub token, live claims, issuer keys or endpoint availability were
+observed. Required signed claims are enforced by source; if an actual token
+lacks them, it is rejected. Local installed JOSE APIs and existing Workers
+types were used; no external documentation/API retrieval was performed.
+
+Request JSON has exactly ten fields:
+`source_sha`, `workflow_sha`, `run_id`, `run_attempt`, `capture_id`,
+`session_id`, `job_id`, `verification_attempt_id`, `binding_id`, `role`.
+Only role `presentation` or `result` is allowed. User/device lookup and object
+keys come from the independent grant and existing authority catalog, never the
+request. Requests are bounded to 4096 bytes.
+
+The handler calls the existing consumed-result RPC/transaction read through
+`DurableObjectBindingAuthority`. It checks authority catalog identity/freshness,
+then reads the catalog-resolved object using `TLSN_PRESENTATIONS`. R2-reported
+size must fit the configured bound before body buffering. Current version,
+custom metadata, exact raw size and digest must all match. Known storage,
+authentication and validation failures produce explicit non-success responses;
+there is no success-shaped fallback.
+
+Success JSON is canonical `fusou-archive-http-response-v1` with:
+`schema_version`, `scope`, `authorization`, `observed_at_ms`, `catalog`, and
+base64url raw `bytes`. Schema/duplicate/extra-field checks prevent unexpected
+fields from being persisted. Responses have `Cache-Control: no-store`.
+No JWT, bearer credential or private key is emitted in JSON/logs/artifacts.
+
+R2 semantics are unchanged: current opaque version equality and raw
+length/digest checks, **not** historical generation selection, overwrite
+prevention, deletion prevention or retention. Catalog values remain
+`CURRENT_OBJECT_VERSION_EQUALITY`, `previous_generation_retrieval:
+NOT_IMPLEMENTED`, `retention_status: NOT_CHECKED`.
+
+### Actions and independent consumer connection
+
+The build job remains without `id-token: write`; it explicitly disables HTTP
+acquisition with `httpEnabled: false`. New job `archive-evidence`, on a
+separate runner after `eligibility`, is the **only** OIDC-enabled job. It checks
+out immutable trusted main, reevaluates live eligibility and authenticates the
+primary artifact through GitHub API metadata/digest/readback. It does not build
+or execute release/tag artifacts. Development tags produce NOT_APPLICABLE
+without requesting an OIDC token. Existing pinned external Actions are reused;
+no new Action implementation or long-lived secret was introduced.
+
+The client requests a short-lived token from the runner-supplied Actions token
+URL (HTTPS Actions host only), with the policy audience, then POSTs only to the
+independently pinned HTTPS endpoint. Redirects are forbidden and responses are
+bounded. Tokens remain in memory and are not included in execution evidence.
+`workflow_sha` is the coordinator workflow revision, **not** the release SHA.
+
+The producer stores both exact raw HTTP responses and Presentation/Result
+bytes in the existing captured execution format (six explicitly validated
+inputs rather than four for this opt-in transport). Downloaded raw bytes
+populate `saved_*` after independent catalog/digest validation; they do not
+represent a second remote source read. The authority writer snapshot supplies
+the independent digest expectation. The original internal-binding path and
+its four-input contract remain unchanged.
+
+The isolated job emits a separate `fusou-archive-<run>-<attempt>` data-only
+artifact. It retains the **exact original release report**, adds only archive
+check/evidence/origin and negative production diagnostics, and cannot replace
+build/native proofs. The consumer authenticates both artifacts independently
+using the existing coordinator/GitHub model: immutable trusted workflow
+implementation parity, completed successful main run, repository IDs,
+run/attempt/source, unique artifact name/ID and API archive digest/readback.
+All jobs in that authenticated workflow remain within that existing workflow
+trust boundary; this is not a new cryptographic per-job attestation claim.
+
+The consumer requires identical primary/supplemental release report bytes,
+validates raw-response schema/catalog/version/size/digest and all target/run
+correlations against the **independently pinned** policy, then authenticates the
+archive execution origin before it can be skipped by a later missing check.
+JWT expiry gates HTTP request admission; later report observation freshness
+uses the existing independent archive `max_age_ms`, not token lifetime. Active
+grant/capture validity is still required; an expired token cannot make a new
+request, and a stale report is rejected.
+The successful acquisition label is
+`AUTHENTICATED_PRODUCER_REPORT_VERIFIED`.
+
+That label means trusted producer HTTPS acquisition/report authentication,
+**not a transferable signature on the HTTP JSON, an independently reverified
+OIDC JWT at the consumer, or TLSN/native cryptographic verification**. The
+Worker verifies the JWT; the consumer relies on the trusted HTTPS acquisition
+implementation executed by the API-authenticated workflow. An
+`authenticated: true` record alone is rejected. Missing supplemental artifacts,
+origin, inputs, pins or remote success keep the check blocked.
+
+### Source and real-evidence state
+
+| Check | Source/contract state | Real evidence in this phase |
+| --- | --- | --- |
+| `locked_dependencies` | Preserved; no relaxation of frozen/locked execution proofs. | NOT_RUN |
+| `compiled_inputs` | Preserved; HTTP modules/dependency included in Worker source closure. No new build or fresh WASM ABI claim. | NOT_RUN |
+| `archive_readback` | OIDC handler, internal authority resolver, Actions client, isolated producer and independent supplemental intake implemented; synthetic tests PASS. | No real token, configured policy, HTTP/R2 readback or authenticated external artifact observed. BLOCKED_EXTERNAL_INPUTS until registration and authorized validation. |
+| `offline_verification` | `FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` maintained, no launcher/version success path added. | NOT_RUN / BLOCKED_IMPLEMENTATION |
+
+The legacy `ACTIONS_R2_BINDING_TRANSPORT_NOT_REGISTERED` diagnostic remains for
+the unconfigured legacy direct-binding path. The new HTTP path instead reports
+specific policy/pin/grant/credential/HTTP failures. Source implementation is not
+evidence that the endpoint is deployed or externally registered.
+
+Remaining inputs/decisions:
+
+1. Independently approved endpoint/deployment-to-authority mapping, repository
+   ID, dedicated audience and trusted workflow/revision expectations.
+2. Matching Worker public policy/digest and existing Actions/consumer public
+   check-policy pin registration. No such setting is assumed present.
+3. Approved automated independent grant provider, authorization lifetime,
+   capture age/scope and update procedure; missing provider data means denial.
+4. Explicit permission for runtime JWKS/Actions-token/HTTP/GitHub/R2 operations,
+   followed by observation of actual claims, key rotation, expiration, scoped
+   real catalog readback and independent consumer acceptance.
+5. Any required retention/immutability provider guarantees remain separate.
+   Native builder/provenance remains a different future phase.
+
+These require repository/environment/provider ownership and authorized
+external validation; local source changes cannot establish them.
+
+### Exact commands and validation outcomes
+
+All commands below run from `/home/ogu-h/Documents/GitHub/FUSOU`. Source
+inspection used explicit allowed paths only. Initial/final branch and HEAD
+queries used `git branch --show-current` and `git rev-parse HEAD`; scoped status
+uses the exact path list recorded in the commit block below (the entry probe
+used the existing subset before new paths were created).
+
+Local dependency availability probe and offline restore:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+node --version
+pnpm --version
+test -d packages/FUSOU-WEB/node_modules/jose && printf 'Web jose installed\n'
+test -d packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/jose && printf 'Worker jose installed\n'
+test -d node_modules/.pnpm/jose@6.1.2/node_modules/jose && printf 'Locked jose 6.1.2 store present\n'
+CI=true pnpm install --offline --ignore-scripts --frozen-lockfile --filter fusou-tlsn-verification-worker
+```
+
+Node `v22.21.1`, pnpm `10.14.0`; locked local JOSE store present. The Worker
+dependency was initially absent; after the explicit manifest/importer change,
+offline restore passed without resolution/download or lifecycle scripts.
+
+Targeted two-file run: initially **70 PASS / 2 FAIL**, then **72 PASS / 0 FAIL**,
+cancelled/skipped zero. One failure exposed lazy supplemental-origin
+authentication being bypassed by an earlier missing-native blocker; fixed by
+eager independent archive validation/authentication, **not by relaxing the
+test**. The other was a static deny-regex matching the job description's words
+"execute ... artifacts"; the step description was renamed and the deny
+assertion retained. Additional boundary cases are included in the final run.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-archive-http.test.mjs scripts/release-workflow.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-targeted-initial.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-targeted-initial.log; exit "$result"
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-archive-http.test.mjs scripts/release-workflow.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-targeted-next.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-targeted-next.log; exit "$result"
+```
+
+Existing 16-file regression **303 PASS / 0 FAIL**; combined 17-file regression
+**375 PASS / 0 FAIL**, followed by **376 PASS / 0 FAIL** with separate
+token-admission/evidence-freshness regression coverage, cancelled/skipped zero.
+The final combined command below was run twice (the named log holds the latest
+376-test result):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs scripts/release-build.test.mjs scripts/release-consumer.test.mjs scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-regression-initial.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-regression-initial.log; exit "$result"
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs scripts/release-build.test.mjs scripts/release-consumer.test.mjs scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-archive-catalog.test.mjs scripts/release-archive-http.test.mjs scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-regression-final.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-regression-final.log; exit "$result"
+```
+
+The following exact no-emit command passed **three times**, zero diagnostics.
+It performs no Rust/WASM/Worker build or runtime execution:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/.bin/tsc --noEmit -p packages/FUSOU-TLSN-VERIFICATION-WORKER/tsconfig.json
+```
+
+Static checks: **14 JavaScript files PASS**, **4 YAML files PASS**,
+**6 embedded JavaScript bodies compile-only PASS**:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+for file in packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs scripts/release-archive-http.mjs scripts/release-archive-job.mjs scripts/release-archive-http.test.mjs scripts/release-checks.mjs scripts/release-evidence-producer.mjs scripts/release-execution-intake.mjs scripts/release-consumer.mjs scripts/release-transport.mjs scripts/release-worker-source.mjs scripts/release-workflow.test.mjs; do env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check "$file" || exit; done; printf 'PASS: 14 changed JavaScript files parsed without execution.\n'
+
+cd /home/ogu-h/Documents/GitHub/FUSOU
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE python3 - <<'PY'
+from pathlib import Path
+import subprocess
+import yaml
+paths = ('.github/workflows/tlsn-tag-validation.yml', '.github/workflows/tlsn-release-eligibility.yml', '.github/workflows/tlsn-release-consumer.yml', '.github/workflows/publish_and_create_version_tag.yml')
+count = 0
+for path in paths:
+    document = yaml.safe_load(Path(path).read_text())
+    for job in document.get('jobs', {}).values():
+        for step in job.get('steps', []):
+            body = step.get('with', {}).get('script')
+            if body is not None:
+                subprocess.run(['node', '-e', 'const fs=require("node:fs");const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;new AsyncFunction(fs.readFileSync(0,"utf8"));'], input=body, text=True, check=True)
+                count += 1
+print(f'PASS: {len(paths)} workflow YAML files; {count} embedded JavaScript bodies compiled without execution.')
+PY
+```
+
+All positive OIDC/JWKS/HTTP/API/R2 cases are synthetic. RSA test keys are
+ephemeral in-memory test keys generated by JOSE, never persisted or registered;
+no Production key/secret was generated. Real GitHub JWT/keys, repository
+settings, hosted isolation/permissions, real HTTPS endpoint/authority/R2,
+retention and authenticated **real** consumer intake are **NOT_RUN** because
+external access is prohibited. Cargo/Rust/WASM/APP/Worker/native build or
+execution, official-document network access, deploy/publish/Production
+signing, push/PR/tag are **NOT_RUN**. No Hudsucker/default dependency change.
+Protected files were not accessed, including by test selectors. The audited
+Result byte-binding test remains unmodified.
+
+No real `RELEASE_ARTIFACTS_VALIDATED` or `DEPLOYMENT_VERIFIED` is established.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain in force.
+
+### Scoped local commit and final Git verification
+
+The explicit list is the changed-file inventory. New handler/contract/OIDC
+modules and declaration implement the Worker path; the exact JOSE dependency
+and lockfile importer support it; readback errors are typed for safe HTTP error
+responses. Client/job/check/consumer/transport changes connect the trusted
+acquisition and independent intake. Workflow/source/TCB inventories and tests
+cover the new boundary. This roadmap is the verification record.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- .github/workflows/tlsn-release-eligibility.yml pnpm-lock.yaml packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.d.mts scripts/release-archive-http.mjs scripts/release-archive-job.mjs scripts/release-archive-http.test.mjs scripts/release-checks.mjs scripts/release-evidence-producer.mjs scripts/release-execution-intake.mjs scripts/release-consumer.mjs scripts/release-transport.mjs scripts/release-worker-source.mjs scripts/release-workflow.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git diff --check -- "$@" && git add -- "$@" && git diff --cached --check -- "$@" && git -c commit.gpgsign=false commit --only -m "feat(tlsn): authenticate read-only archive transport with GitHub OIDC" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-local-commit.log 2>&1; result=$?; tail -n 32 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-local-commit.log; exit "$result"
+```
+
+The normal scoped pre-commit hook is retained, not bypassed; it analyzes the
+explicit commit-only staged blobs in a temporary repository. It is not an
+external security/Production verification. After a successful commit the same
+explicit `set --` path list is used with:
+
+```sh
+git branch --show-current
+git rev-parse HEAD HEAD^
+git status --short -- "$@"
+```
+
+Commit SHA, hook outcome and final branch/scoped-clean result are reported
+from the executed commands, not inferred from this record.

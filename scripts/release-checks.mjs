@@ -10,6 +10,7 @@ import { readReleaseSource, inspectWorkerSourceAt, encodeUnsignedWorkerPackage, 
 import { assertCanonicalServerIdentity } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs";
 import { assertReleaseWasmProof } from "./release-wasm-proof.mjs";
 import { assertAuthenticatedCrossRunExecution } from "./release-execution-intake.mjs";
+import { verifyArchiveHttpExecution } from "./release-archive-http.mjs";
 
 export const CHECKS = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
 // Data-only artifacts cannot carry these in-process execution capabilities.
@@ -51,7 +52,7 @@ export function recordCheckExecution(check, context, inputs, output, { status = 
   for (const raw of inputs.values()) files.set(`evidence-${sha256(raw)}.bin`, Buffer.from(raw));
   return { record, receipt, files };
 }
-function receiptFor(check, records, evidence, context) {
+export function receiptFor(check, records, evidence, context) {
   const record = records[check];
   if (!record) throw new ReleaseBlocked(`MISSING_${check.toUpperCase()}_EXECUTION`);
   const raw = evidence.get(record.evidence_sha256), receipt = parseReleaseRecord(raw);
@@ -233,7 +234,7 @@ export async function verifyCompiledInputs({ inputs, receipt, build, payload, pu
   sameInputs(inputs, expected);
   requireRelease(receipt.output.projection_sha256 === entryInputSha256(payload.compile_inputs), "compiled projection digest");
 }
-export async function captureArchiveReadback({ context, expected, sourceBytes, backend, now = () => Date.now() }) {
+export async function captureArchiveReadback({ context, expected, sourceBytes, backend, httpTransport, now = () => Date.now() }) {
   if (!backend?.get) throw new ReleaseBlocked("ARCHIVE_BACKEND_NOT_CONFIGURED");
   assertArchiveReadbackPolicy(expected);
   const expectedSnapshot = jsonBytes(expected), contextSnapshot = jsonBytes(context);
@@ -255,7 +256,17 @@ export async function captureArchiveReadback({ context, expected, sourceBytes, b
   sameInputs(sourceBytes, saved);
   requireRelease(expectedSnapshot.equals(jsonBytes(expected)) && contextSnapshot.equals(jsonBytes(context)), "archive capture inputs changed");
   const output = { session_id: expected.session_id, capture_id: expected.capture_id, objects };
-  verifyArchiveReadback({ inputs, receipt: { output }, policy: expected, nowMs: now() });
+  if (httpTransport) {
+    const summaries = {};
+    for (const role of ["presentation", "result"]) {
+      const raw = httpTransport.responses.get(role);
+      requireRelease(raw instanceof Uint8Array, "HTTP archive captured raw response missing");
+      inputs.set(`http_${role}`, Buffer.from(raw)); summaries[role] = sha256(raw);
+    }
+    output.transport = { kind: "TRUSTED_PRODUCER_HTTPS_FETCH", policy_sha256: httpTransport.spec.policy_sha256, responses_sha256: summaries };
+    await verifyArchiveHttpExecution({ inputs, receipt: { output }, expected, spec: httpTransport.spec, context, nowMs: now() });
+  }
+  verifyArchiveReadback({ inputs, receipt: { output }, policy: expected, nowMs: now(), httpTransportSpec: httpTransport?.spec });
   const execution = recordCheckExecution("archive_readback", context, inputs, output);
   execution.executionProof = Object.freeze({});
   archiveReadbackProofs.set(execution.executionProof, { receipt_sha256: sha256(execution.receipt), inputs: descriptors(inputs) });
@@ -281,7 +292,7 @@ export function assertArchiveReadbackPolicy(policy) {
     "archive origin/version/freshness policy");
   }
 }
-export function verifyArchiveReadback({ inputs, receipt, policy, nowMs }) {
+export function verifyArchiveReadback({ inputs, receipt, policy, nowMs, httpTransportSpec }) {
   assertArchiveReadbackPolicy(policy);
   requireRelease(Number.isSafeInteger(nowMs) && Number.isSafeInteger(policy.not_before_ms) &&
     Number.isSafeInteger(policy.max_age_ms) && policy.max_age_ms > 0 &&
@@ -296,7 +307,9 @@ export function verifyArchiveReadback({ inputs, receipt, policy, nowMs }) {
       Buffer.from(saved).equals(Buffer.from(readback)) && object.sha256 === sha256(readback) &&
       object.byte_length === readback.byteLength && sha256(readback) === identity.sha256, "archive exact bytes/hash/length");
   }
-  requireRelease(inputs.size === 4, "archive raw input inventory");
+  requireRelease(httpTransportSpec ? receipt.output.transport?.kind === "TRUSTED_PRODUCER_HTTPS_FETCH" &&
+    receipt.output.transport.policy_sha256 === httpTransportSpec.policy_sha256 && inputs.size === 6 :
+    receipt.output.transport === undefined && inputs.size === 4, "archive raw input inventory");
 }
 const fileFlags = {
   bundle: "--bundle", trusted_notary_registry: "--trusted-notary-registry", session_authority_registry: "--session-authority-registry",
@@ -447,7 +460,9 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
         const checkPolicy = pinnedPolicy();
         if (!checkPolicy.archive) throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_CONTEXT_MISSING");
         requireRelease(checkPolicy.archive.source_sha === context.source_sha, "archive policy/release source");
-        verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, nowMs });
+        verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, nowMs, httpTransportSpec: checkPolicy.archive_transport });
+        if (checkPolicy.archive_transport) await verifyArchiveHttpExecution({ ...execution, expected: checkPolicy.archive,
+          spec: checkPolicy.archive_transport, context, nowMs });
         if (typeof authenticateArchiveReadback !== "function" && typeof authenticateCheckExecution !== "function") {
           throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_READBACK_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
         }

@@ -3,7 +3,8 @@ import { evaluateReleaseRun, TAG_WORKFLOW_PATH } from "./release-eligibility.mjs
 import { assertProducerRun, verifyProducerBuild, parseReleaseRecord, requireRelease, producerWorkflow } from "./release-build-proof.mjs";
 import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { sha256, encodeReleaseManifest, validateReleaseManifest, assertReleaseRuntimeConfigBinding } from "./release-manifest.mjs";
-import { checkContext, verifyReleaseChecks } from "./release-checks.mjs";
+import { checkContext, parsePinnedCheckInputs, receiptFor, verifyArchiveReadback, verifyReleaseChecks } from "./release-checks.mjs";
+import { verifyArchiveHttpExecution } from "./release-archive-http.mjs";
 import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
 import { EVIDENCE_PRODUCTION_SCOPE, EVIDENCE_IMPLEMENTATION_BLOCKERS } from "./release-evidence-producer.mjs";
 
@@ -140,7 +141,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
   const result = { schema_version: 1, status: "BLOCKED_EXTERNAL_INPUTS", tag_status: "NOT_CHECKED",
     build_status: "NOT_CHECKED", artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED",
     deployment_status: "NOT_CHECKED", publication_authorized: false, production_acceptance: "BLOCKED", blockers: [] };
-  let finalRecheck, executionIntake;
+  let finalRecheck, executionIntake, archiveIntake;
   try {
     const downloaded = await acquireReleaseTransport({ github, run, downloadArchive, ...dependencies.transport });
     result.transport = downloaded.origin;
@@ -161,6 +162,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       requireRelease(["tag", "commit_sha", "validation_run_attempt", "validation_workflow_blob_sha"].every(
         (key) => fresh[key] === eligibility[key]), "release changed during consumption");
       if (executionIntake) await executionIntake.recheck();
+      if (archiveIntake) await archiveIntake.recheck();
     };
     finalRecheck = recheck;
     if (report.build?.status === "BLOCKED_EXTERNAL_INPUTS") {
@@ -171,6 +173,42 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     }
     const build = verifyProducerBuild({ run, ...downloaded, eligibility });
     executionIntake = createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256, checkPolicySha256 });
+    const evidenceFiles = new Map(downloaded.files);
+    const checkPolicy = checkPolicyBytes && checkPolicySha256 ?
+      parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1") : undefined;
+    if (checkPolicy?.archive_transport) {
+      const supplemental = await acquireReleaseTransport({ github, run, downloadArchive, ...dependencies.transport, artifactKind: "archive" });
+      requireRelease(Buffer.from(supplemental.files.get("release-report.json") ?? []).equals(downloaded.files.get("release-report.json")),
+        "archive artifact/build release report mismatch");
+      if (!supplemental.files.has("check-archive_readback.json") || !supplemental.files.has("release-execution-origin.json")) {
+        throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_HTTP_EXECUTION_MISSING");
+      }
+      const seal = parseReleaseRecord(supplemental.files.get("release-execution-origin.json"));
+      requireRelease(Object.keys(seal.checks).every((check) => check === "archive_readback"), "archive artifact cannot replace build/native origin");
+      for (const [name, raw] of supplemental.files) {
+        if (name === "release-report.json" || name === "release-execution-origin.json" || name === "archive-production.json") continue;
+        requireRelease(name === "check-archive_readback.json" || /^evidence-[A-Za-z0-9_-]{43}\.bin$/.test(name),
+          "archive supplemental file inventory");
+        requireRelease(!evidenceFiles.has(name) || Buffer.from(evidenceFiles.get(name)).equals(raw), "conflicting archive supplemental evidence");
+        evidenceFiles.set(name, raw);
+      }
+      archiveIntake = createCrossRunExecutionIntake({ github, run, trustedSha, downloaded: supplemental, eligibility,
+        publicBuildInputsSha256, checkPolicySha256 });
+      result.archive_transport = supplemental.origin;
+      const context = checkContext(run, eligibility.commit_sha), evidence = new Map();
+      for (const [name, raw] of supplemental.files) {
+        const match = /^evidence-([A-Za-z0-9_-]{43})\.bin$/.exec(name);
+        if (match) { requireRelease(sha256(raw) === match[1], "supplemental archive evidence hash"); evidence.set(match[1], raw); }
+      }
+      const record = parseReleaseRecord(supplemental.files.get("check-archive_readback.json"));
+      const execution = receiptFor("archive_readback", { archive_readback: record }, evidence, context);
+      verifyArchiveReadback({ ...execution, policy: checkPolicy.archive, httpTransportSpec: checkPolicy.archive_transport, nowMs });
+      await verifyArchiveHttpExecution({ ...execution, expected: checkPolicy.archive, spec: checkPolicy.archive_transport, context, nowMs });
+      await archiveIntake.authenticate({ ...execution, check: "archive_readback", context, build });
+      result.archive_acquisition_status = "AUTHENTICATED_PRODUCER_REPORT_VERIFIED";
+    }
+    const authenticateExecution = (execution) => (execution.check === "archive_readback" && archiveIntake ?
+      archiveIntake : executionIntake).authenticate(execution);
     result.build_status = "BUILD_OUTPUTS_VERIFIED";
     if (!build.artifacts.some((a) => a.role === "worker")) {
       const blocked = build.report.build.worker_build;
@@ -181,12 +219,12 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     if (!publicInputsBytes || !publicInputsSha256) result.blockers.push("PINNED_INDEPENDENT_CONSUMER_INPUTS_MISSING");
     else inputs = parseConsumerInputs(publicInputsBytes, publicInputsSha256, nowMs);
     if (result.blockers.length) {
-      const checkData = collectCheckEvidence({ eligibility, run, build, files: downloaded.files }, { allowMissing: true });
+      const checkData = collectCheckEvidence({ eligibility, run, build, files: evidenceFiles }, { allowMissing: true });
       const verify = dependencies.verifyCheckEvidence ?? ((args) => verifyReleaseChecks(args,
         { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
           authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
           authenticateArchiveReadback: dependencies.authenticateArchiveReadback,
-          authenticateCheckExecution: dependencies.authenticateCheckExecution ?? executionIntake.authenticate, nowMs }));
+          authenticateCheckExecution: dependencies.authenticateCheckExecution ?? authenticateExecution, nowMs }));
       try {
         const partial = await verify({ ...checkData, build, eligibility, run });
         result.check_results = partial?.checks;
@@ -197,11 +235,11 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       }
       await recheck(); return result;
     }
-    const assembled = await assembleReleaseManifest({ eligibility, run, build, files: downloaded.files, inputs },
+    const assembled = await assembleReleaseManifest({ eligibility, run, build, files: evidenceFiles, inputs },
       { ...dependencies, checkVerification: { github, publicBuildInputsBytes, publicBuildInputsSha256,
         checkPolicyBytes, checkPolicySha256, authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
         authenticateArchiveReadback: dependencies.authenticateArchiveReadback,
-        authenticateCheckExecution: dependencies.authenticateCheckExecution ?? executionIntake.authenticate, nowMs } });
+        authenticateCheckExecution: dependencies.authenticateCheckExecution ?? authenticateExecution, nowMs } });
     const validated = validateReleaseManifest(assembled.manifestBytes, assembled.observations);
     await recheck();
     return { ...result, ...validated, artifact_status: "RELEASE_ARTIFACTS_VALIDATED",

@@ -104,7 +104,7 @@ jobs:
                   event_name: context.eventName, ref: context.ref, workflow_sha: trustedSha,
                   run_id: context.runId, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
                 },
-              });
+              }, { httpEnabled: false });
               report.evidence_production = production.report;
               capturedChecks = production.executions;
             }
@@ -121,5 +121,63 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fusou-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-transport.json
+          if-no-files-found: error
+  archive-evidence:
+    needs: eligibility
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+      - name: Read authorized archives with trusted code only
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          CHECK_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_CHECK_INPUTS_SHA256 }}
+          PUBLIC_BUILD_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_PUBLIC_INPUTS_SHA256 }}
+          ARTIFACT_READ_TOKEN: ${{ github.token }}
+        with:
+          script: |
+            const { execFileSync } = require('node:child_process');
+            const { readFileSync, writeFileSync } = require('node:fs');
+            const { pathToFileURL } = require('node:url');
+            const load = (name) => import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/${name}`).href);
+            const trustedSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            if (context.ref !== 'refs/heads/main' || trustedSha !== context.sha) throw new Error('archive job requires immutable main code');
+            const { evaluateReleaseRun } = await load('release-eligibility.mjs');
+            const eligibility = await evaluateReleaseRun({ github, repository: context.repo, runId: context.payload.workflow_run.id, trustedSha });
+            let checkPolicyBytes;
+            if (process.env.CHECK_INPUT_SHA256) {
+              try { checkPolicyBytes = readFileSync('scripts/release-check-public-inputs.json'); }
+              catch (error) { if (error.code !== 'ENOENT') throw error; }
+            }
+            const { produceArchiveJob } = await load('release-archive-job.mjs');
+            const { downloadGithubArtifact } = await load('release-transport.mjs');
+            const run = (await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: context.runId })).data;
+            const result = await produceArchiveJob({
+              github, run, eligibility, identity: {
+                repository: `${context.repo.owner}/${context.repo.repo}`, workflow_ref: process.env.GITHUB_WORKFLOW_REF,
+                workflow_sha: trustedSha, event_name: context.eventName, ref: context.ref,
+                run_id: context.runId, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              },
+              checkPolicyBytes, checkPolicySha256: process.env.CHECK_INPUT_SHA256,
+              publicBuildInputsSha256: process.env.PUBLIC_BUILD_INPUT_SHA256,
+              downloadArchive: (artifactId) => downloadGithubArtifact({ artifactId, token: process.env.ARTIFACT_READ_TOKEN }),
+            });
+            writeFileSync('release-transport.json', result.transport);
+            await core.summary.addCodeBlock(JSON.stringify(result.report, null, 2), 'json').write();
+      - name: Preserve data-only archive evidence or explicit blockers
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fusou-archive-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-transport.json
           if-no-files-found: error
