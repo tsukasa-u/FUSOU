@@ -3242,7 +3242,7 @@ async function getAggregatedOverviewPayload(
   bucket: R2Bucket,
   kv: KVNamespace | undefined,
 ): Promise<string> {
-  const kvKey = "overview:snapshot:all:v2";
+  const kvKey = "overview:snapshot:all:v3";
   if (kv) {
     try {
       const cached = await kv.get(kvKey);
@@ -3278,7 +3278,7 @@ async function getAggregatedOverviewPayload(
     if (Array.isArray(snap.battles)) {
       for (const b of snap.battles) {
         if (!b) continue;
-        const key = b.uuid ? String(b.uuid) : `${b.env_uuid}:${b.index}`;
+        const key = `${b.env_uuid}:${b.index}`;
         if (!battlesMap.has(key)) {
           battlesMap.set(key, b as BattleRecord);
         }
@@ -3287,7 +3287,7 @@ async function getAggregatedOverviewPayload(
     if (Array.isArray(snap.cells)) {
       for (const cell of snap.cells) {
         if (!cell) continue;
-        const key = cell.uuid ? String(cell.uuid) : `${cell.env_uuid}:${cell.maparea_id}-${cell.mapinfo_no}`;
+        const key = `${cell.env_uuid}:${cell.uuid}`;
         if (!cellsMap.has(key)) {
           cellsMap.set(key, cell as Record<string, unknown>);
         }
@@ -3296,7 +3296,7 @@ async function getAggregatedOverviewPayload(
     if (Array.isArray(snap.enemy_decks)) {
       for (const deck of snap.enemy_decks) {
         if (!deck) continue;
-        const key = deck.uuid ? String(deck.uuid) : `${deck.env_uuid}:${deck.ship_ids}`;
+        const key = `${deck.env_uuid}:${deck.uuid}`;
         if (!decksMap.has(key)) {
           decksMap.set(key, deck as Record<string, unknown>);
         }
@@ -3305,7 +3305,7 @@ async function getAggregatedOverviewPayload(
     if (Array.isArray(snap.enemy_ships)) {
       for (const ship of snap.enemy_ships) {
         if (!ship) continue;
-        const key = `${ship.uuid ?? ship.env_uuid}:${ship.index}`;
+        const key = `${ship.env_uuid}:${ship.uuid}:${ship.index}`;
         if (!shipsMap.has(key)) {
           shipsMap.set(key, ship as Record<string, unknown>);
         }
@@ -3341,7 +3341,7 @@ async function getAggregatedDropsPayload(
   bucket: R2Bucket,
   kv: KVNamespace | undefined,
 ): Promise<string> {
-  const kvKey = "drops:snapshot:all:v2";
+  const kvKey = "drops:snapshot:all:v3";
   if (kv) {
     try {
       const cached = await kv.get(kvKey);
@@ -3375,7 +3375,7 @@ async function getAggregatedDropsPayload(
     if (Array.isArray(snap.battles)) {
       for (const b of snap.battles) {
         if (!b) continue;
-        const key = b.uuid ? String(b.uuid) : `${b.env_uuid}:${b.index}`;
+        const key = `${b.env_uuid}:${b.index}`;
         if (!battlesMap.has(key)) {
           battlesMap.set(key, b as BattleRecord);
         }

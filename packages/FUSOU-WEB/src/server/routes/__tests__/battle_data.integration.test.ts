@@ -842,16 +842,16 @@ describe("battle-data route integration", () => {
 
 	it("aggregates overview snapshots across all periods when period_tag=all", async () => {
 		const snap1 = {
-			battles: [{ uuid: "b1", maparea_id: 1, mapinfo_no: 1 }],
-			cells: [{ uuid: "c1", maparea_id: 1, mapinfo_no: 1 }],
-			enemy_decks: [{ uuid: "d1" }],
-			enemy_ships: [{ uuid: "s1", index: 0 }],
+			battles: [{ env_uuid: "e1", index: 0, uuid: "b1", maparea_id: 1, mapinfo_no: 1 }],
+			cells: [{ env_uuid: "e1", uuid: "c1", maparea_id: 1, mapinfo_no: 1 }],
+			enemy_decks: [{ env_uuid: "e1", uuid: "d1" }],
+			enemy_ships: [{ env_uuid: "e1", uuid: "s1", index: 0 }],
 		};
 		const snap2 = {
-			battles: [{ uuid: "b2", maparea_id: 62, mapinfo_no: 1 }],
-			cells: [{ uuid: "c2", maparea_id: 62, mapinfo_no: 1 }],
-			enemy_decks: [{ uuid: "d2" }],
-			enemy_ships: [{ uuid: "s2", index: 0 }],
+			battles: [{ env_uuid: "e2", index: 0, uuid: "b2", maparea_id: 62, mapinfo_no: 1 }],
+			cells: [{ env_uuid: "e2", uuid: "c2", maparea_id: 62, mapinfo_no: 1 }],
+			enemy_decks: [{ env_uuid: "e2", uuid: "d2" }],
+			enemy_ships: [{ env_uuid: "e2", uuid: "s2", index: 0 }],
 		};
 
 		const zlib = await import("node:zlib");
