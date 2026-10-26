@@ -3006,3 +3006,287 @@ Actual hook/commit result, final branch/commit/parent and scoped-clean status
 are reported from the executed commands, not inferred from this procedure.
 No authorized grant, real release or deployment acceptance is established by
 the commit.
+
+## Follow-up: grant authority delegation ADR
+
+Start branch: `tlsn-first-testplay-candidate`. Actual start HEAD:
+`b917fd2cdf3b56b644ade1271d01e8bf4c807d69`, matching the requested HEAD.
+The explicit source/workflow/test/roadmap start scope and the subsequent
+two-document scope were clean.
+
+Added [ADR: TLSN Grant Authority Delegation](../architecture/adr-tlsn-grant-authority-delegation.md).
+Scoped filename inspection found no existing ADR/decision document; the
+existing architecture directory is used alongside its earlier TLSN contract.
+Only the new ADR and this roadmap are changed. There are no runtime,
+workflow, policy, inventory, provider, dependency or trust-pin edits.
+
+### Decision, independent inputs and unresolved protocol
+
+**Recommendation: Option A**, conditional on explicit one-time delegation
+approval and closure of the ADR's `UNDEFINED_CONTRACT` rows. A dedicated
+immutable-revision reusable workflow is the sole delegated eligibility
+principal; the existing authority is the final authorizer/durable issuer.
+This is a proposed trust delegation, **not approved or registered policy**.
+OIDC job identity is not evidence of arbitrary successful steps.
+
+The ADR compares A/B/C on authorization roots, independent verification,
+reuse/new requirements and risks. A can reuse Actions-side authenticated
+GitHub eligibility checks without introducing authority-side GitHub
+credentials. B remains conditional on genuine independent authority
+reverification, not serialized process-local proof. C adds a new actor/root
+without solving the missing contract and is not selected.
+
+Eight assurance boundaries remain distinct: caller identity, eligibility,
+catalog read, grant decision, durable grant state, consumer reacquisition,
+raw archive verification and native/TLSN cryptography. The source audit
+identifies actual exports/paths and current static-policy restrictions.
+
+The ADR contains:
+
+- 14 bootstrap rows separating source-known issuer/algorithms/caller paths
+  and input/inventory mechanisms from unverified real endpoint/deployment,
+  repository/owner IDs, delegated workflow revision, public policy roots,
+  grant roles/lifetime/revocation and read-path registration.
+- 13 semantic grant requirements, a candidate-to-durable-to-reader state
+  model, immutable bytes versus mutable revocation revision, idempotent retry
+  without lifetime extension, conflict rejection and local transaction/CAS
+  requirements. Exact wire schema/IDs/endpoints/digest domains are not invented.
+- 12 explicit `UNDEFINED_CONTRACT` rows covering claim semantics/job
+  isolation, delegation policy, automatic per-release input derivation,
+  capture selection, deployment/state epoch, issue/read protocol, scope/
+  encoding, revisions/revocation, freshness, cross-run readers, acquisition
+  proof and migration/real acceptance.
+- Separation of external GitHub/OIDC I/O from authority transactions and
+  revalidation at commit/read/final consumer acceptance. No claim of an
+  atomic transaction across GitHub and Durable Object state.
+
+Current check/public input hashes include release-specific values; manually
+repinning them each release is not the proposed automation. A stable approved
+derivation policy and independently authorized capture-selection predicate
+are prerequisites. One-time registration alone cannot close those missing
+contracts. After approval **and** later implementation, per-release
+run/source/input/capture derivation and bounded issuance/readback can be
+automatic without per-release human approval.
+
+The reader's own consumer run and the intended producer run are distinct.
+Its proposed permission cannot depend on impersonating the producer or on
+presenting the grant being fetched. No list/arbitrary-key/write/delete API
+or candidate fallback is proposed as a shortcut.
+
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` remain in force.
+The current `DERIVED_NOT_AUTHORIZED` state and own-field provider gate are
+unchanged. `AUTHENTICATED_PRODUCER_REPORT_VERIFIED` retains only its existing
+online acquisition meaning; no detached-signature/native claim is added.
+
+All four checks retain their meanings and their real evidence is
+**UNVERIFIED** in this step. R2 remains current version/size/raw digest
+equality, not historical generation retrieval or retention. Real bootstrap/
+deployment/identity/provider verification was **NOT_CHECKED**.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain unchanged. No real
+`RELEASE_ARTIFACTS_VALIDATED` or `DEPLOYMENT_VERIFIED` is established.
+
+### Exact commands and documentation-only validation
+
+All shell commands for this step are recorded below. Source/document
+investigation otherwise used scoped `view`/`rg`/`glob` reads. No external
+documentation or service was contacted. This is a documentation design task,
+not a runtime test or an external claim verification.
+
+**1. Initial metadata: PASS**, expected branch/HEAD; explicit status empty.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-grant-provider.mjs scripts/release-archive-provenance.mjs scripts/release-execution-intake.mjs scripts/release-consumer.mjs scripts/release-archive-http.mjs scripts/release-archive-job.mjs scripts/release-checks.mjs scripts/release-evidence-producer.mjs scripts/release-provenance-grant.test.mjs scripts/release-worker-source.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts .github/workflows/tlsn-release-eligibility.yml docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+**2. New document scope/append anchor: PASS**, status empty, only the last
+six roadmap lines inspected.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && tail -n 6 docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+**3. First documentation check: FAIL (checker heading-count bug).**
+The command is inspected before execution: built-in Node modules only;
+content reads are exactly these two documents. Link targets are checked
+against a literal allowlist **before** `lstat`; no linked source content,
+symlink target, external URL, import, executable, recursive directory or
+protected path is followed. It checks section/table coverage, proposal/state
+markers, source basis and the roadmap cross-reference. Those are structural
+consistency checks, not proof of the ADR's security or external feasibility.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { readFile, lstat } from "node:fs/promises";
+import { resolve, dirname, relative } from "node:path";
+const root = process.cwd();
+const adrPath = resolve(root, "docs/architecture/adr-tlsn-grant-authority-delegation.md");
+const roadmapPath = resolve(root, "docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md");
+const adr = await readFile(adrPath, "utf8");
+const roadmap = await readFile(roadmapPath, "utf8");
+const heading = "## Follow-up: grant authority delegation ADR";
+assert.equal(roadmap.split(heading).length, 2);
+const entry = roadmap.slice(roadmap.indexOf(heading));
+assert(adr.includes("Status: **Proposed recommendation; delegation approval not granted.**"));
+assert(adr.includes("Recommend **Option A**"));
+assert(adr.includes("There is no runtime success path in this change."));
+assert.deepEqual([...adr.matchAll(/^## (\d+)\. /gm)].map((m) => Number(m[1])), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+const rows = (pattern) => [...adr.matchAll(pattern)].map((m) => m[1]);
+assert.deepEqual(rows(/^\| (B\d+) \|/gm), Array.from({ length: 8 }, (_, i) => `B${i + 1}`));
+assert.deepEqual(rows(/^\| ([ABC]) \|/gm), ["A", "B", "C"]);
+for (const [prefix, count] of [["P", 14], ["G", 13], ["U", 12]]) {
+  assert.deepEqual(rows(new RegExp(`^\\| (${prefix}\\d{2}) \\|`, "gm")),
+    Array.from({ length: count }, (_, i) => `${prefix}${String(i + 1).padStart(2, "0")}`));
+}
+for (const text of [adr, entry]) {
+  for (const marker of ["b917fd2cdf3b56b644ade1271d01e8bf4c807d69", "UNDEFINED_CONTRACT",
+    "DERIVED_NOT_AUTHORIZED", "ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED",
+    "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED",
+    "AUTHENTICATED_PRODUCER_REPORT_VERIFIED", "publication_authorized: false", "NOT_CHECKED", "BLOCKED", "UNVERIFIED"]) {
+    assert(text.includes(marker), marker);
+  }
+  assert(!/\bpublication_authorized\s*:\s*true\b/.test(text));
+}
+for (const field of ["job_workflow_ref", "job_workflow_sha", "workflow_sha", "repository_owner_id",
+  "locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"]) assert(adr.includes(field), field);
+const allowed = new Set([
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs",
+  "scripts/release-eligibility.mjs", "scripts/release-grant-provider.mjs",
+  "scripts/release-archive-provenance.mjs", "scripts/release-consumer.mjs",
+  "scripts/release-archive-http.mjs", "scripts/release-archive-job.mjs",
+  "scripts/release-execution-intake.mjs", "scripts/release-worker-source.mjs",
+  ".github/workflows/tlsn-release-eligibility.yml",
+  "docs/architecture/tlsn-data-authenticity-contract.md",
+  "docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md",
+]);
+const seen = new Set();
+for (const [, href] of adr.matchAll(/\[[^\]\n]+\]\(([^)\s]+)\)/g)) {
+  assert(!href.includes("://") && !href.startsWith("/"), "local relative link required");
+  const target = resolve(dirname(adrPath), href);
+  const name = relative(root, target);
+  assert(allowed.has(name), `link outside explicit scope: ${name}`);
+  assert((await lstat(target)).isFile(), `missing/nonregular link: ${name}`);
+  seen.add(name);
+}
+assert.deepEqual([...seen].sort(), [...allowed].sort());
+assert(entry.includes("[ADR: TLSN Grant Authority Delegation](../architecture/adr-tlsn-grant-authority-delegation.md)"));
+console.log("PASS: 2 documents; 8 boundaries; 3 options; 14 bootstrap, 13 grant and 12 unresolved rows; 17 allowlisted links; proposal/status consistency.");
+NODE
+```
+
+The first command above failed before link inspection: literal substring
+counting also counted the heading string embedded in this recorded command
+itself (3 split parts rather than 2). The retry preserves the exactly-one-
+section assertion but matches a complete Markdown heading line, not quoted
+JavaScript text. No document security invariant or scope check is relaxed.
+**Corrected documentation check: PASS.** Two documents, eight boundaries,
+three options, 14 bootstrap rows, 13 semantic grant rows, 12 unresolved
+contracts and 17 allowlisted local links passed proposal/status consistency.
+No runtime identity, cryptography or grant implementation was tested.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { readFile, lstat } from "node:fs/promises";
+import { resolve, dirname, relative } from "node:path";
+const root = process.cwd();
+const adrPath = resolve(root, "docs/architecture/adr-tlsn-grant-authority-delegation.md");
+const roadmapPath = resolve(root, "docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md");
+const adr = await readFile(adrPath, "utf8");
+const roadmap = await readFile(roadmapPath, "utf8");
+const headings = [...roadmap.matchAll(/^## Follow-up: grant authority delegation ADR$/gm)];
+assert.equal(headings.length, 1);
+const entry = roadmap.slice(headings[0].index);
+assert(adr.includes("Status: **Proposed recommendation; delegation approval not granted.**"));
+assert(adr.includes("Recommend **Option A**"));
+assert(adr.includes("There is no runtime success path in this change."));
+assert.deepEqual([...adr.matchAll(/^## (\d+)\. /gm)].map((m) => Number(m[1])), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+const rows = (pattern) => [...adr.matchAll(pattern)].map((m) => m[1]);
+assert.deepEqual(rows(/^\| (B\d+) \|/gm), Array.from({ length: 8 }, (_, i) => `B${i + 1}`));
+assert.deepEqual(rows(/^\| ([ABC]) \|/gm), ["A", "B", "C"]);
+for (const [prefix, count] of [["P", 14], ["G", 13], ["U", 12]]) {
+  assert.deepEqual(rows(new RegExp(`^\\| (${prefix}\\d{2}) \\|`, "gm")),
+    Array.from({ length: count }, (_, i) => `${prefix}${String(i + 1).padStart(2, "0")}`));
+}
+for (const text of [adr, entry]) {
+  for (const marker of ["b917fd2cdf3b56b644ade1271d01e8bf4c807d69", "UNDEFINED_CONTRACT",
+    "DERIVED_NOT_AUTHORIZED", "ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED",
+    "ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED", "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED",
+    "AUTHENTICATED_PRODUCER_REPORT_VERIFIED", "publication_authorized: false", "NOT_CHECKED", "BLOCKED", "UNVERIFIED"]) {
+    assert(text.includes(marker), marker);
+  }
+  assert(!/\bpublication_authorized\s*:\s*true\b/.test(text));
+}
+for (const field of ["job_workflow_ref", "job_workflow_sha", "workflow_sha", "repository_owner_id",
+  "locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"]) assert(adr.includes(field), field);
+const allowed = new Set([
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs",
+  "scripts/release-eligibility.mjs", "scripts/release-grant-provider.mjs",
+  "scripts/release-archive-provenance.mjs", "scripts/release-consumer.mjs",
+  "scripts/release-archive-http.mjs", "scripts/release-archive-job.mjs",
+  "scripts/release-execution-intake.mjs", "scripts/release-worker-source.mjs",
+  ".github/workflows/tlsn-release-eligibility.yml",
+  "docs/architecture/tlsn-data-authenticity-contract.md",
+  "docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md",
+]);
+const seen = new Set();
+for (const [, href] of adr.matchAll(/\[[^\]\n]+\]\(([^)\s]+)\)/g)) {
+  assert(!href.includes("://") && !href.startsWith("/"), "local relative link required");
+  const target = resolve(dirname(adrPath), href);
+  const name = relative(root, target);
+  assert(allowed.has(name), `link outside explicit scope: ${name}`);
+  assert((await lstat(target)).isFile(), `missing/nonregular link: ${name}`);
+  seen.add(name);
+}
+assert.deepEqual([...seen].sort(), [...allowed].sort());
+assert(entry.includes("[ADR: TLSN Grant Authority Delegation](../architecture/adr-tlsn-grant-authority-delegation.md)"));
+console.log("PASS: 2 documents; 8 boundaries; 3 options; 14 bootstrap, 13 grant and 12 unresolved rows; 17 allowlisted links; proposal/status consistency.");
+NODE
+```
+
+Runtime Node regression, OIDC crypto/key-generating fixtures, Worker
+type/build/runtime, native/Cargo/Rust/WASM/APP, real GitHub/OIDC/attestation/
+Cloudflare/R2/Notary/Session Authority, Production bootstrap/signing/
+registration/deploy/publish, and push/PR/tag are **NOT_RUN**. No runtime file
+changed; previous 351-test results are historical, not a current test run.
+New delegated identity, issued-grant/CAS/revocation protocol and real
+acceptance are **NOT_IMPLEMENTED / NOT_RUN**.
+
+### Two-document local commit procedure
+
+The normal scoped hook is retained. Only these two Markdown blobs enter its
+isolated temporary analysis repository; code-review-graph output is not
+approval of a trust policy or evidence of a running authority. Signing is
+disabled and no hook bypass is used.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git diff --check -- "$@" && git add -- "$@" && git diff --cached --check -- "$@" && git -c commit.gpgsign=false commit --only -m "docs(tlsn): propose grant authority delegation contract" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-adr-local-commit.log 2>&1; result=$?; tail -n 24 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-adr-local-commit.log; exit "$result"
+```
+
+With that same exact two-path list:
+
+```sh
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- "$@"
+git diff --check HEAD^ HEAD -- "$@"
+```
+
+Actual hook/commit exit result, final branch/commit/parent and scoped-clean
+state are reported from the executed commands. This documentation commit
+does not approve delegation or authorize publication.
