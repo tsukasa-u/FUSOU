@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { sha256 } from "./release-bytes.mjs";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
 import { producerArtifactName, requireRelease } from "./release-build-proof.mjs";
 import { createProducerExecutionOrigin, EXECUTION_ORIGIN_FILE } from "./release-execution-origin.mjs";
@@ -21,7 +22,7 @@ export const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 export const MAX_TRANSPORT_BYTES = 512 * 1024 * 1024;
 const fileName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const exec = promisify(execFile);
-export async function packProducerTransport(report, readOutput, { executionProofs } = {}) {
+export async function packProducerTransport(report, readOutput, { executionProofs, capturedChecks = new Map() } = {}) {
   const files = new Map([["release-report.json", Buffer.from(canonicalJson(report))]]);
   if (report.build?.status === "BUILD_OUTPUTS_GENERATED") {
     for (const claim of report.build.artifacts) {
@@ -37,7 +38,29 @@ export async function packProducerTransport(report, readOutput, { executionProof
           !files.has(name), "producer check output filename");
         files.set(name, await readOutput(name));
     }
-    files.set(EXECUTION_ORIGIN_FILE, createProducerExecutionOrigin({ report, files, executionProofs,
+    requireRelease(capturedChecks instanceof Map, "producer captured check inventory");
+    const proofs = { ...executionProofs };
+    for (const [check, execution] of capturedChecks) {
+      requireRelease(["archive_readback", "offline_verification"].includes(check) &&
+        execution?.files instanceof Map && execution.executionProof &&
+        (!proofs[check] || proofs[check] === execution.executionProof) &&
+        execution.record instanceof Uint8Array && execution.receipt instanceof Uint8Array &&
+        execution.files.get(`check-${check}.json`) instanceof Uint8Array &&
+        execution.files.get(`evidence-${sha256(execution.receipt)}.bin`) instanceof Uint8Array &&
+        Buffer.from(execution.record).equals(execution.files.get(`check-${check}.json`)) &&
+        Buffer.from(execution.receipt).equals(execution.files.get(`evidence-${sha256(execution.receipt)}.bin`)),
+      "producer captured execution record/proof");
+      for (const [name, raw] of execution.files) {
+        const match = /^evidence-([A-Za-z0-9_-]{43})\.bin$/.exec(name);
+        requireRelease(raw instanceof Uint8Array && (name === `check-${check}.json` ||
+          match && sha256(raw) === match[1]),
+        "producer captured raw evidence filename/hash");
+        requireRelease(!files.has(name) || Buffer.from(files.get(name)).equals(raw), "conflicting captured producer evidence");
+        files.set(name, Buffer.from(raw));
+      }
+      proofs[check] = execution.executionProof;
+    }
+    files.set(EXECUTION_ORIGIN_FILE, createProducerExecutionOrigin({ report, files, executionProofs: proofs,
       context: { repository: "tsukasa-u/FUSOU", source_sha: report.commit_sha,
         run_id: report.eligibility_run.run_id, run_attempt: report.eligibility_run.run_attempt, workflow_sha: report.coordinator_sha } }));
   }

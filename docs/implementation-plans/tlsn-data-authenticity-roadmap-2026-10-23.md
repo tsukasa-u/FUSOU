@@ -1614,3 +1614,223 @@ Hudsucker and its dependencies/default were unchanged.
 acceptance **BLOCKED** remain mandatory, including the fully synthetic
 consumer success test. No real `RELEASE_ARTIFACTS_VALIDATED` or
 `DEPLOYMENT_VERIFIED` was established.
+
+## Archive/native producer registration follow-up (2026-10-26)
+
+Starting branch: `tlsn-first-testplay-candidate`; starting HEAD:
+`832491c8d65b26a58ff11ebc856da9295236d45f`. The explicitly selected task
+worktree/index paths were clean. No branch switch, reset, merge or cherry-pick
+was used.
+
+### Located contracts and deliberately unresolved interfaces
+
+- The actual Worker writer
+  [`result_archive.ts`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts)
+  performs `put` then `get`, compares the returned opaque R2 `version` and
+  authority custom metadata, and checks exact bytes before authority commit.
+  [`archive-readback.mjs`](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs)
+  already provides the concrete R2 binding reader. The resource binding is
+  `TLSN_PRESENTATIONS` in the existing Worker configuration.
+- This contract identifies a particular observed object generation; it is
+  **not** an S3 ETag, S3 version ID, permanent immutable storage or verified
+  retention. Reading the current key rejects an overwritten generation; it
+  does not retrieve an old generation. Retention remains `NOT_CHECKED`.
+- No approved Actions-to-R2-binding transport or independent live capture
+  catalog is defined. The Worker routes have no archive export/readback
+  endpoint. The writer does not export its generation into an authenticated
+  capture catalog. A new HTTP protocol, S3-to-R2-version conversion, guessed
+  credential or collector issuer was not invented.
+- The formal executable is
+  [`verify_fusou_tlsn_evidence`](../../packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs).
+  Its existing CLI/README define bundle and independent trust inputs, JSON
+  success/rejection reports and nonzero rejection exit. The source supports
+  `--help`, but no executable version/build-identity observation. The package
+  version in Cargo metadata does not prove which binary was executed. The
+  documented acquisition route requires a separately authorized Cargo build;
+  no authenticated standalone native binary distribution/build-identity
+  provenance contract was located in the inspected paths.
+- Consequently the formal native launcher implementation stops at
+  `FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED`. No guessed `--version`
+  call, manifest-version substitution or mock launcher was registered.
+
+### Source wiring implemented
+
+[`release-evidence-producer.mjs`](../../scripts/release-evidence-producer.mjs)
+is the explicit trusted coordinator entrypoint. It verifies the runtime
+repository, exact main workflow ref, event, run/attempt and workflow SHA
+against the API-derived eligibility report before any storage access.
+Only Production-eligible, generated builds invoke it in the coordinator.
+
+The archive path parses the independently pinned check policy, validates its
+source/capture/session/job/attempt/binding/object-key/generation metadata
+before I/O, reads exact digest-named saved source bytes, and invokes the
+existing real R2 binding adapter. The independently pinned policy resolves
+the observed capture; the object cannot nominate its own expected identity.
+Readback bytes are recorded through the existing private capture capability.
+The consumed check-policy digest is included in the producer report and
+compared with the consumer's independently supplied pin during intake.
+
+The host contract accepts an actual `bucket.get` binding plus its independently
+configured backend identity. A boolean `authenticated` marker, backend name
+alone, missing generation, wrong metadata or substituted bytes cannot produce
+capture evidence. Missing saved inputs/settings are explicit blockers; actual
+permission/storage errors surface as errors, not successful fallbacks.
+
+`capturedChecks` connects the entrypoint to transport and origin packaging.
+Only supported check names, matching record/receipt/raw evidence, private
+capture capabilities and digest-named files are accepted. Extra module-like
+files, forged proofs, conflicting bytes or attempts to replace locked/compiled
+builder checks are rejected. New archive files are **not** appended to
+`report.build.check_files`: doing so would mutate the captured build subject.
+A combined APP/Worker build test preserves the real in-process builder
+capability while independently attaching archive capture evidence.
+
+The existing trusted-main coordinator calls this entrypoint and hands its
+captures to packaging. It adds only the existing public check-policy pin;
+no secrets, OIDC, write permission, external Action or deployment operation
+was added. **There is still no Actions R2 binding provider**, so a configured
+policy without that provider yields
+`ACTIONS_R2_BINDING_TRANSPORT_NOT_REGISTERED`, not a real R2 observation.
+
+The consumer can propagate the two known missing-implementation diagnostics
+only as negative blockers, after matching their execution context. A declared
+`PASS` cannot authorize a missing check. Actual acceptance still uses the
+existing API-authenticated transport, trusted-main implementation parity,
+independent policy and exact receipt/raw input checks. The capture TCB now
+contains 37 JavaScript modules plus the coordinator workflow. No issuer or
+Production pin was added.
+
+### Check and evidence states
+
+| Check | Source state | Real evidence in this follow-up |
+|---|---|---|
+| `locked_dependencies` | Existing capture/consumer meaning preserved; builder proof remains intact after archive attachment. | `NOT_CHECKED`; only mock frozen commands were exercised. |
+| `compiled_inputs` | Existing APP/Worker/WASM/public-input checks preserved. | `NOT_CHECKED`; no actual build, launch or fresh ABI verification. |
+| `archive_readback` | Concrete R2-binding collector core, coordinator registration, packaging and consumer intake connected. Host binding transport and live capture catalog remain `BLOCKED_IMPLEMENTATION`. | Mock bucket/API only; real R2 `NOT_CHECKED`. |
+| `offline_verification` | Existing raw binary/version/input/argument/result validation retained; missing digest inventory and empty binaries now fail explicitly. Formal native launcher remains `BLOCKED_IMPLEMENTATION` pending its build-identity contract. | Mock executor only; real native cryptographic execution `NOT_CHECKED`. |
+
+The collector reports `LOCAL_CAPTURE_ONLY`, not authenticated cross-run
+execution. Only the independent intake authenticates the GitHub issuer/run
+and subject. `AUTHENTICATED_NATIVE_EXECUTION_REPORT` remains an authenticated
+producer report, never consumer native cryptographic reexecution.
+
+### Settings and concrete restart conditions
+
+Existing settings used: `FUSOU_RELEASE_CHECK_INPUTS_SHA256` with the trusted
+check-policy file, existing build/consumer public pins, the standard GitHub
+runtime workflow/ref/run/attempt metadata, and the Worker's
+`TLSN_PRESENTATIONS` binding. The coordinator only has its existing read-only
+GitHub token. Credential existence or repository settings were not observed.
+No Actions R2 credential name is defined by the inspected contract, so none
+was guessed or added.
+
+To remove the remaining implementation blockers:
+
+1. Approve a concrete authenticated, read-only Actions-to-binding transport
+   and independent catalog that supplies the writer's actual generation and
+   capture/session/job/attempt/binding/source mapping. Define backend identity,
+   required existing credential configuration and catalog authenticity without
+   treating S3 ETag as R2 `version`. Register this provider in trusted code.
+2. Define the formal native executable acquisition/provenance and observed
+   version/build identity contract. Then implement its measured launcher
+   using the already defined CLI inputs/outputs. Actual command, binary
+   before/after measurements, exit/output and all target input digests must
+   remain bound to the approved producer implementation/run.
+3. Supply current independently authenticated public pins and raw capture
+   inputs. After separate permission for services/builds/native execution,
+   observe real evidence and independent consumer acceptance. This follow-up
+   supplies no authenticated real archive or native evidence.
+
+One-time authority/provider registration must enable automated per-release
+observations; it must not become repeated manual hostname approval or a human
+`PASS` substitute.
+
+### Exact validation commands and results
+
+All commands were run from the repository root. The reviewed targeted command
+was run three times: **123 PASS / 0 FAIL**, **122 PASS / 1 FAIL**, then
+**123 PASS / 0 FAIL**, with zero cancelled/skipped each time. The intermediate
+failure was a new test expecting singular `blocker`; the existing consumer
+returns a `blockers` array. The test now asserts the exact one-element array;
+the consumer API/assertions were not weakened.
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-evidence-producer.test.mjs \
+  scripts/release-execution-intake.test.mjs \
+  scripts/release-checks.test.mjs \
+  scripts/release-transport.test.mjs \
+  scripts/release-workflow.test.mjs
+```
+
+The following full scoped command was run with independent capture attachment
+and input/receipt substitution regressions, then again with the additional
+self-declared success assertion. Both runs were
+**262 PASS / 0 FAIL / 0 cancelled / 0 skipped**:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-eligibility.test.mjs scripts/release-manifest.test.mjs \
+  scripts/release-build.test.mjs scripts/release-consumer.test.mjs \
+  scripts/release-transport.test.mjs scripts/release-worker-source.test.mjs \
+  scripts/release-worker-integration.test.mjs scripts/release-checks.test.mjs \
+  scripts/release-execution-intake.test.mjs scripts/release-evidence-producer.test.mjs \
+  scripts/evidence-delivery-policy.test.mjs scripts/release-workflow.test.mjs \
+  scripts/production-target-contract.test.mjs scripts/rama-migration-boundary.test.mjs \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs
+```
+
+After explicitly checking the producer report schema/scope in intake, the
+smallest affected two-file command passed **73 / 73**, with zero failures,
+cancelled or skipped:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test \
+  scripts/release-evidence-producer.test.mjs scripts/release-execution-intake.test.mjs
+```
+
+Static validation: four explicit YAML workflows parsed and five embedded
+JavaScript bodies compiled without execution, all PASS:
+
+```sh
+env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE python - <<'PY'
+from pathlib import Path
+import subprocess
+import yaml
+paths = ('.github/workflows/tlsn-tag-validation.yml', '.github/workflows/tlsn-release-eligibility.yml', '.github/workflows/tlsn-release-consumer.yml', '.github/workflows/publish_and_create_version_tag.yml')
+count = 0
+for path in paths:
+    document = yaml.safe_load(Path(path).read_text())
+    for job in document.get('jobs', {}).values():
+        for step in job.get('steps', []):
+            body = step.get('with', {}).get('script')
+            if body is not None:
+                subprocess.run(['node', '-e', 'const fs=require("node:fs");const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;new AsyncFunction(fs.readFileSync(0,"utf8"));'], input=body, text=True, check=True)
+                count += 1
+print(f'PASS: {len(paths)} workflow YAML files; {count} embedded JavaScript bodies compiled without execution.')
+PY
+```
+
+Changed JavaScript syntax checks, all eight PASS:
+
+```sh
+for file in scripts/release-evidence-producer.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.mjs scripts/release-consumer.mjs scripts/release-transport.mjs scripts/release-execution-intake.mjs scripts/release-build.test.mjs scripts/release-workflow.test.mjs
+do
+  env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check "$file"
+done
+```
+
+All positive archive/native execution tests use explicit storage/API/process
+doubles. Safe static reads include the formal CLI source, not its execution
+or any protected source. Cargo/Rust/WASM/APP/Worker builds or execution,
+formal native execution, external GitHub/R2/Cloudflare/authority/Notary calls,
+real artifact verification, hosted events/credential isolation, gameplay and
+Production observation are **NOT_RUN** under this task's authorization.
+No new key/secret, deploy/publish/signing, push, PR or tag operation occurred.
+Protected files, the audited Result byte-binding test and Hudsucker/default
+dependencies were not operated on.
+
+Source wiring and synthetic contract tests are verified, but actual producer
+connectivity is not complete. No real `RELEASE_ARTIFACTS_VALIDATED` or
+`DEPLOYMENT_VERIFIED` is established. `publication_authorized: false`,
+deployment `NOT_CHECKED` and Production acceptance **BLOCKED** remain enforced.

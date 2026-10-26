@@ -4,6 +4,7 @@ import { sha256 } from "./release-bytes.mjs";
 import { assertProducerRun, producerWorkflow, parseReleaseRecord, requireRelease } from "./release-build-proof.mjs";
 import { assertAuthenticatedReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { EXECUTION_ORIGIN_FILE, executionSubject, executionDescriptor } from "./release-execution-origin.mjs";
+import { EVIDENCE_PRODUCTION_SCOPE } from "./release-evidence-producer.mjs";
 
 const proofs = new WeakMap();
 const repo = { owner: "tsukasa-u", repo: "FUSOU" };
@@ -14,6 +15,8 @@ export const EXECUTION_IMPLEMENTATION_PATHS = Object.freeze([
   "scripts/release-files.mjs", "scripts/release-worker-build.mjs", "scripts/release-worker-source.mjs",
   "scripts/release-worker-imports.mjs", "scripts/release-wasm-proof.mjs",
   "scripts/release-manifest.mjs", "scripts/release-eligibility.mjs",
+  "scripts/release-evidence-producer.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-tool-environment.mjs",
@@ -46,7 +49,7 @@ export function assertAuthenticatedCrossRunExecution(proof, execution) {
   requireRelease(proof && isDeepStrictEqual(proofs.get(proof), proofBinding(execution)),
     "unauthenticated/mismatched cross-run execution");
 }
-export function createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256 }) {
+export function createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256, checkPolicySha256 }) {
   let authenticated;
   const recheck = async () => {
     assertAuthenticatedReleaseTransport(downloaded, run);
@@ -102,6 +105,14 @@ export function createCrossRunExecutionIntake({ github, run, trustedSha, downloa
       run_id: run.id, run_attempt: run.run_attempt, workflow_sha: run.head_sha }) &&
       Object.entries(context).every(([key, value]) => receipt[key] === value) &&
       isDeepStrictEqual(executionSubject(build.report), seal.subject), "cross-run execution target context");
+    const production = build.report.evidence_production;
+    if (production && ["archive_readback", "offline_verification"].includes(check)) {
+      if (!checkPolicySha256) throw new ReleaseBlocked("EXECUTION_INDEPENDENT_CHECK_POLICY_PIN_MISSING");
+      requireRelease(production.schema_version === 1 && production.scope === EVIDENCE_PRODUCTION_SCOPE &&
+        production.check_policy_sha256 === checkPolicySha256 &&
+        Object.entries(context).every(([key, value]) => production[key] === value),
+      "cross-run collector independent policy/context binding");
+    }
     const recordRaw = downloaded.files.get(`check-${check}.json`);
     if (!seal.checks?.[check]) throw new ReleaseBlocked(`UNATTESTED_${check.toUpperCase()}_EXECUTION`, "BLOCKED_IMPLEMENTATION");
     requireRelease(recordRaw instanceof Uint8Array && isDeepStrictEqual(seal.checks[check],

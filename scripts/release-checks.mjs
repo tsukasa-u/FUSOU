@@ -235,6 +235,7 @@ export async function verifyCompiledInputs({ inputs, receipt, build, payload, pu
 }
 export async function captureArchiveReadback({ context, expected, sourceBytes, backend, now = () => Date.now() }) {
   if (!backend?.get) throw new ReleaseBlocked("ARCHIVE_BACKEND_NOT_CONFIGURED");
+  assertArchiveReadbackPolicy(expected);
   const expectedSnapshot = jsonBytes(expected), contextSnapshot = jsonBytes(context);
   const saved = new Map([...sourceBytes].map(([role, raw]) => [role, Buffer.from(raw)])), inputs = new Map(), objects = [];
   for (const role of ["presentation", "result"]) {
@@ -266,21 +267,29 @@ export function resolvePinnedArchiveObject(policy, role, observed) {
     "archive independent capture resolver mismatch");
   return expected;
 }
+export function assertArchiveReadbackPolicy(policy) {
+  requireRelease(Number.isSafeInteger(policy.not_before_ms) && Number.isSafeInteger(policy.max_age_ms) &&
+    policy.max_age_ms > 0, "archive origin/version/freshness policy");
+  for (const role of ["presentation", "result"]) {
+    const identity = policy.objects?.[role], result = policy.objects?.result;
+    requireRelease(identity?.role === role && identity.session_id === policy.session_id && identity.capture_id === policy.capture_id &&
+      ["backend_id", "object_key", "version_id", "session_id", "capture_id", "job_id", "verification_attempt_id", "binding_id", "source_sha", "sha256"]
+        .every((key) => typeof identity[key] === "string" && identity[key].length > 0) &&
+      identity.verification_attempt_id === result?.verification_attempt_id && identity.job_id === result?.job_id &&
+      identity.binding_id === result?.binding_id && identity.source_sha === policy.source_sha &&
+      identity.object_key === `tlsn-verification/${identity.verification_attempt_id}/${role}.${role === "presentation" ? "bin" : "json"}`,
+    "archive origin/version/freshness policy");
+  }
+}
 export function verifyArchiveReadback({ inputs, receipt, policy, nowMs }) {
+  assertArchiveReadbackPolicy(policy);
   requireRelease(Number.isSafeInteger(nowMs) && Number.isSafeInteger(policy.not_before_ms) &&
     Number.isSafeInteger(policy.max_age_ms) && policy.max_age_ms > 0 &&
     receipt.output.session_id === policy.session_id && receipt.output.capture_id === policy.capture_id &&
     Array.isArray(receipt.output.objects) && receipt.output.objects.length === 2, "archive session/capture correlation");
   for (const role of ["presentation", "result"]) {
     const object = receipt.output.objects.find((o) => o.role === role), identity = resolvePinnedArchiveObject(policy, role, object);
-    requireRelease(identity.role === role && identity.session_id === policy.session_id && identity.capture_id === policy.capture_id &&
-      ["backend_id", "object_key", "version_id", "session_id", "capture_id", "job_id", "verification_attempt_id", "binding_id", "source_sha", "sha256"]
-        .every((key) => typeof identity[key] === "string" && identity[key].length > 0) &&
-      identity.verification_attempt_id === policy.objects.result.verification_attempt_id &&
-      identity.job_id === policy.objects.result.job_id &&
-      identity.binding_id === policy.objects.result.binding_id && identity.source_sha === policy.source_sha &&
-      identity.object_key === `tlsn-verification/${identity.verification_attempt_id}/${role}.${role === "presentation" ? "bin" : "json"}` &&
-      Number.isSafeInteger(object.read_at_ms) && object.read_at_ms >= policy.not_before_ms &&
+    requireRelease(Number.isSafeInteger(object.read_at_ms) && object.read_at_ms >= policy.not_before_ms &&
       object.read_at_ms <= nowMs && nowMs - object.read_at_ms <= policy.max_age_ms, "archive origin/version/freshness");
     const saved = inputs.get(`saved_${role}`), readback = inputs.get(`readback_${role}`);
     requireRelease(saved instanceof Uint8Array && readback instanceof Uint8Array &&
@@ -316,6 +325,7 @@ export function offlineLayout(policy, inputs) {
   const files = new Map(), required = [...Object.keys(fileFlags)], bundle = JSON.parse(Buffer.from(inputs.get("bundle")));
   requireRelease(typeof policy.executable_version === "string" && policy.executable_version.length > 0 &&
     inputs.get("verifier_executable") instanceof Uint8Array &&
+    inputs.get("verifier_executable").byteLength > 0 &&
     sha256(inputs.get("verifier_executable")) === policy.executable_sha256, "pinned native executable bytes/version");
   required.push("verifier_executable");
   requireRelease(bundle.artifacts && OFFLINE_BUNDLE_ARTIFACTS.every((role) => bundle.artifacts[role]), "native bundle required artifacts");
@@ -329,7 +339,8 @@ export function offlineLayout(policy, inputs) {
     "native bundle raw artifact/path binding");
     files.set(path, raw); required.push(name);
   }
-  requireRelease(Object.keys(policy.input_sha256).sort().join() === required.sort().join(), "offline required input digest inventory");
+  requireRelease(policy.input_sha256 && typeof policy.input_sha256 === "object" && !Array.isArray(policy.input_sha256) &&
+    Object.keys(policy.input_sha256).sort().join() === required.sort().join(), "offline required input digest inventory");
   for (const role of required) requireRelease(inputs.get(role) instanceof Uint8Array &&
     sha256(inputs.get(role)) === policy.input_sha256[role], "offline independently pinned raw input");
   for (const [cli, artifact] of [["trusted_notary_registry", "notary_registry"],

@@ -26,6 +26,7 @@ jobs:
           PUBLIC_BUILD_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_PUBLIC_INPUTS_SHA256 }}
           WORKER_BUILD_ENABLED: ${{ vars.FUSOU_RELEASE_WORKER_BUILD_ENABLED }}
           SOURCE_READ_TOKEN: ${{ github.token }}
+          CHECK_INPUT_SHA256: ${{ vars.FUSOU_RELEASE_CHECK_INPUTS_SHA256 }}
         with:
           script: |
             const { pathToFileURL } = require('node:url');
@@ -86,10 +87,30 @@ jobs:
               const { inspectWorkerSourceAt } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-worker-source.mjs`).href);
               report.worker_source = await inspectWorkerSourceAt(github, report.commit_sha);
             }
-            const { packProducerTransport: packCapturedProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
             const { readRegularFile } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-build.mjs`).href);
+            let capturedChecks = new Map();
+            if (report.status === 'PRODUCTION_ELIGIBLE' && report.build?.status === 'BUILD_OUTPUTS_GENERATED') {
+              const { collectReleaseEvidence } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-evidence-producer.mjs`).href);
+              let checkPolicyBytes;
+              if (process.env.CHECK_INPUT_SHA256) {
+                try { checkPolicyBytes = await readRegularFile('scripts/release-check-public-inputs.json'); }
+                catch (error) { if (error.code !== 'ENOENT') throw error; }
+              }
+              const production = await collectReleaseEvidence({
+                report, checkPolicyBytes, checkPolicySha256: process.env.CHECK_INPUT_SHA256,
+                evidenceDirectory: join(process.env.GITHUB_WORKSPACE, 'release-evidence'),
+                identity: {
+                  repository: `${context.repo.owner}/${context.repo.repo}`, workflow_ref: process.env.GITHUB_WORKFLOW_REF,
+                  event_name: context.eventName, ref: context.ref, workflow_sha: trustedSha,
+                  run_id: context.runId, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+                },
+              });
+              report.evidence_production = production.report;
+              capturedChecks = production.executions;
+            }
+            const { packProducerTransport: packCapturedProducerTransport } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-transport.mjs`).href);
             const transport = await packCapturedProducerTransport(report,
-              (name) => readRegularFile(join(process.env.GITHUB_WORKSPACE, 'release-output', name)));
+              (name) => readRegularFile(join(process.env.GITHUB_WORKSPACE, 'release-output', name)), { capturedChecks });
             writeFileSync('release-transport.json', transport);
             await core.summary.addCodeBlock(JSON.stringify(report, null, 2), 'json').write();
             if (report.status === 'TAG_INVALID' || report.build?.status === 'FAIL') {

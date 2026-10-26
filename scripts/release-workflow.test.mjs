@@ -32,6 +32,14 @@ test("coordinator only uses trusted main code and API metadata, never tag code o
   assert.match(yaml, /WORKER_BUILD_ENABLED: \$\{\{ vars.FUSOU_RELEASE_WORKER_BUILD_ENABLED \}\}/);
   assert.match(yaml, /workerBuildAuthorized: process.env.WORKER_BUILD_ENABLED === 'true'/);
   assert.match(yaml, /report.worker_source = await inspectWorkerSourceAt/);
+  assert.match(yaml, /CHECK_INPUT_SHA256: \$\{\{ vars.FUSOU_RELEASE_CHECK_INPUTS_SHA256 \}\}/);
+  assert.match(yaml, /report.status === 'PRODUCTION_ELIGIBLE' && report.build\?\.status === 'BUILD_OUTPUTS_GENERATED'/);
+  assert.match(yaml, /collectReleaseEvidence/);
+  assert.match(yaml, /workflow_ref: process.env.GITHUB_WORKFLOW_REF/);
+  assert.match(yaml, /report.evidence_production = production.report/);
+  assert.match(yaml, /capturedChecks = production.executions/);
+  assert.match(yaml, /readRegularFile\(join\(process.env.GITHUB_WORKSPACE, 'release-output', name\)\), \{ capturedChecks \}/);
+  assert.doesNotMatch(yaml, /R2_ACCESS_KEY|CLOUDFLARE_API_TOKEN|wrangler.*deploy/);
 });
 test("legacy publishing is explicitly blocked before any environment-qualified privileged job", () => {
   const yaml = read("publish_and_create_version_tag.yml");

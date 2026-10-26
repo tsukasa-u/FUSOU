@@ -85,6 +85,11 @@ test("combined APP/Worker producer binds both raw records and WASM sidecars with
     assert.deepEqual(Object.keys(origin.checks).sort(), ["compiled_inputs", "locked_dependencies"]);
     assert.deepEqual(origin.unattested_checks, []);
     assert.equal(origin.subject.public_build_inputs_sha256, sha256(bytes));
+    const captured = decodeReleaseTransport(await packProducerTransport(report, (name) => readFile(join(root, "outputs", name)),
+      { capturedChecks: new Map([["archive_readback", f.archiveExecution]]) }));
+    assert.deepEqual(Object.keys(JSON.parse(captured.get("release-execution-origin.json")).checks).sort(),
+      ["archive_readback", "compiled_inputs", "locked_dependencies"]);
+    assert.equal(result.check_files.includes("check-archive_readback.json"), false);
   } finally { await rm(root, { recursive: true }); }
 });
 test("synthetic build writes exact observed bytes and provenance, never declares release/deployment complete", async () => {

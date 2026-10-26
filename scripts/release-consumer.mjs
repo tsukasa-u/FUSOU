@@ -3,8 +3,9 @@ import { evaluateReleaseRun, TAG_WORKFLOW_PATH } from "./release-eligibility.mjs
 import { assertProducerRun, verifyProducerBuild, parseReleaseRecord, requireRelease, producerWorkflow } from "./release-build-proof.mjs";
 import { acquireReleaseTransport, ReleaseBlocked } from "./release-transport.mjs";
 import { sha256, encodeReleaseManifest, validateReleaseManifest, assertReleaseRuntimeConfigBinding } from "./release-manifest.mjs";
-import { verifyReleaseChecks } from "./release-checks.mjs";
+import { checkContext, verifyReleaseChecks } from "./release-checks.mjs";
 import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
+import { EVIDENCE_PRODUCTION_SCOPE, EVIDENCE_IMPLEMENTATION_BLOCKERS } from "./release-evidence-producer.mjs";
 
 const repository = { owner: "tsukasa-u", repo: "FUSOU" };
 const checks = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
@@ -52,6 +53,14 @@ function collectCheckEvidence({ eligibility, run, build, files }, { allowMissing
     const raw = files.get(`check-${key}.json`);
     if (!raw) {
       if (allowMissing) continue;
+      // Producer diagnostics can explain a missing check, never authorize a successful one.
+      const production = build.report.evidence_production, blocked = production?.checks?.[key];
+      if (production?.schema_version === 1 && production.scope === EVIDENCE_PRODUCTION_SCOPE &&
+        Object.entries(checkContext(run, eligibility.commit_sha)).every(([name, value]) => production[name] === value) &&
+        blocked?.status === "BLOCKED_IMPLEMENTATION" && blocked.blocker === EVIDENCE_IMPLEMENTATION_BLOCKERS[key] &&
+        typeof blocked.blocker === "string") {
+        throw new ReleaseBlocked(blocked.blocker, "BLOCKED_IMPLEMENTATION");
+      }
       throw new ReleaseBlocked("REQUIRED_RELEASE_CHECK_RECORDS_MISSING");
     }
     const record = parseReleaseRecord(raw);
@@ -161,7 +170,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       return result;
     }
     const build = verifyProducerBuild({ run, ...downloaded, eligibility });
-    executionIntake = createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256 });
+    executionIntake = createCrossRunExecutionIntake({ github, run, trustedSha, downloaded, eligibility, publicBuildInputsSha256, checkPolicySha256 });
     result.build_status = "BUILD_OUTPUTS_VERIFIED";
     if (!build.artifacts.some((a) => a.role === "worker")) {
       const blocked = build.report.build.worker_build;
