@@ -691,6 +691,17 @@ export default function BattlesDashboard(props: {
       setStartDate(sDate);
       const eDate = params.get("end_date")?.trim() ?? "";
       setEndDate(eDate);
+      const pTag = params.get("period_tag");
+      const tVer = params.get("table_version");
+      if (pTag !== null) {
+        const rows = periods();
+        if (rows.length > 0) {
+          const idx = resolveInitialPeriodIndex(rows, pTag, tVer);
+          if (idx !== selectedPeriodIdx()) {
+            setSelectedPeriodIdx(idx);
+          }
+        }
+      }
     };
 
     const handlePopState = () => {

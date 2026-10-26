@@ -213,9 +213,10 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
 
   function moveToDetail(battle: BattleRecord) {
     const envUuid = String(battle.env_uuid ?? "").trim();
-    const battleIndex = Number(battle.index ?? (battle as Record<string, unknown>)["battle_index"] ?? Number.NaN);
-    if (!envUuid || !Number.isFinite(battleIndex) || battleIndex < 0) {
-      window.alert("戦闘詳細を開くために必要な env_uuid または battle_index が不足しています。");
+    const rawIndex = Number(battle.index ?? (battle as Record<string, unknown>)["battle_index"] ?? Number.NaN);
+    const battleIndex = Number.isFinite(rawIndex) && rawIndex >= 0 ? rawIndex : 0;
+    if (!envUuid) {
+      window.alert("戦闘詳細を開くために必要な env_uuid が不足しています。");
       return;
     }
     try {

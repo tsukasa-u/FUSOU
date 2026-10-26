@@ -448,11 +448,13 @@ export default function BattleDetailPanel(props: {
       props.datasetId !== undefined
         ? (props.datasetId ?? "").trim()
         : requestedDatasetId() || datasetIdFromSession(props.battleId.trim());
+    const currentBattleIdx =
+      props.battleIndex !== undefined && props.battleIndex !== null && Number.isFinite(Number(props.battleIndex))
+        ? Number(props.battleIndex)
+        : (loadedEnvBundle?.battleIndexes?.[0] ?? 0);
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
-      ...(props.battleIndex === undefined
-        ? {}
-        : { battleIndex: props.battleIndex }),
+      battleIndex: currentBattleIdx,
       periodTag: requestedPeriodTag(),
       ...(tableVersion ? { tableVersion } : {}),
       ...(datasetId ? { datasetId } : {}),
@@ -1114,7 +1116,12 @@ export default function BattleDetailPanel(props: {
     detailAbortController?.abort();
     const abortController = new AbortController();
     detailAbortController = abortController;
-    if (!untrack(() => battle())) {
+    const currentFleets = untrack(() => fleets());
+    const hasCachedBattle =
+      loadedEnvBundle !== null &&
+      loadedEnvBundle.envUuid === envUuid &&
+      Boolean(loadedEnvBundle.battles[String(idx >= 0 ? idx : (loadedEnvBundle.battleIndexes[0] ?? 0))]);
+    if (!hasCachedBattle || !currentFleets?.friendlyShips?.length) {
       setLoading(true);
     }
     setError(null);
