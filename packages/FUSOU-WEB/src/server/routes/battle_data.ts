@@ -1,24 +1,11 @@
 
-function isPlainJsonBuffer(bytes: Uint8Array): boolean {
-  for (let i = 0; i < bytes.length && i < 100; i++) {
-    const b = bytes[i];
-    if (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) continue;
-    return b === 0x7b || b === 0x5b; // '{' or '['
-  }
-  return false;
-}
-
 async function decompressSnapshotPayload(arrayBuf: ArrayBuffer): Promise<string> {
-  const bytes = new Uint8Array(arrayBuf);
-  if (isPlainJsonBuffer(bytes)) {
-    return new TextDecoder("utf-8").decode(bytes);
-  }
   const buf = Buffer.from(arrayBuf);
   try {
     const decompressed = await brotliDecompressAsync(buf);
     return decompressed.toString("utf-8");
   } catch {
-    return new TextDecoder("utf-8").decode(bytes);
+    return buf.toString("utf-8");
   }
 }
 
@@ -37,17 +24,7 @@ async function buildSnapshotResponse(
     headers.set("ETag", etag);
   }
 
-  const buf = Buffer.from(arrayBuf);
-  let payloadText: string;
-  try {
-    const decomp = await brotliDecompressAsync(buf);
-    payloadText = decomp.toString("utf-8");
-  } catch {
-    payloadText = buf.toString("utf-8");
-  }
-
-  // Always return plain JSON text so Cloudflare Edge Proxy applies compression (br/gzip)
-  // transparently and once, preventing double-compression and binary corruptions.
+  const payloadText = await decompressSnapshotPayload(arrayBuf);
   return new Response(payloadText, { headers });
 }
 
@@ -529,7 +506,8 @@ async function fetchMasterDataJsonDirect(
 
     const avroBytes = new Uint8Array(await r2Object.arrayBuffer());
     let decodedRecords: BattleRecord[] | null = null;
-    if (isPlainJsonBuffer(avroBytes)) {
+    const isAvroOcf = avroBytes.length >= 4 && avroBytes[0] === 0x4f && avroBytes[1] === 0x62 && avroBytes[2] === 0x6a && avroBytes[3] === 0x01;
+    if (!isAvroOcf) {
       decodedRecords = parseBattleJsonRecords(JSON.parse(new TextDecoder("utf-8").decode(avroBytes)));
     } else {
       decodedRecords = parseBattleJsonRecords(
@@ -3853,12 +3831,13 @@ app.get("/detail", async (c) => {
             }
             // Asynchronously write through single battle snapshot to R2 directly (plain JSON, infallible and fast)
             if (typeof bucket.put === "function") {
-              safeWaitUntil(
-                c,
-                bucket.put(directKeyJson, payloadStr, {
+              try {
+                await bucket.put(directKeyJson, payloadStr, {
                   httpMetadata: { contentType: "application/json" },
-                }).catch((e) => console.warn("[battle_data] write-through directKeyJson failed:", e))
-              );
+                });
+              } catch (e) {
+                console.warn("[battle_data] write-through directKeyJson failed:", e);
+              }
             }
             return new Response(payloadStr, {
               status: 200,
@@ -3929,12 +3908,13 @@ app.get("/detail", async (c) => {
               }
               // Asynchronously write through single battle snapshot to R2 directly (plain JSON, infallible and fast)
               if (typeof bucket.put === "function") {
-                safeWaitUntil(
-                  c,
-                  bucket.put(directKeyJson, payloadStr, {
+                try {
+                  await bucket.put(directKeyJson, payloadStr, {
                     httpMetadata: { contentType: "application/json" },
-                  }).catch((e) => console.warn("[battle_data] write-through directKeyJson failed:", e))
-                );
+                  });
+                } catch (e) {
+                  console.warn("[battle_data] write-through directKeyJson failed:", e);
+                }
               }
 
               return new Response(payloadStr, {
@@ -4256,7 +4236,7 @@ app.post("/internal/rebuild-detail-snapshots", async (c) => {
   const authHeader = c.req.header("authorization") || "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
   const adminToken = getEnv(env, "ADMIN_TOKEN") || getEnv(env, "INTERNAL_COMPACTION_TOKEN");
-  if (!adminToken || token !== adminToken) {
+  if ((!adminToken || token !== adminToken)) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
