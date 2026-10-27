@@ -1,0 +1,82 @@
+name: FUSOU grant delegation source-only diagnostic
+
+on:
+  workflow_call:
+    inputs:
+      candidate_implementation_sha:
+        description: Untrusted diagnostic code locator; never an approved delegate revision
+        required: true
+        type: string
+      validation_run_id:
+        required: true
+        type: number
+      validation_run_attempt:
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnostic:
+    # Source-only until independent delegation approval and all runtime contracts exist.
+    # Removing this gate cannot make the caller-selected diagnostic checkout a trusted issuer.
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate diagnostic locator before checkout
+        id: candidate
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          CANDIDATE_IMPLEMENTATION_SHA: ${{ inputs.candidate_implementation_sha }}
+        with:
+          script: |
+            const sha = process.env.CANDIDATE_IMPLEMENTATION_SHA;
+            if (!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('full diagnostic revision required');
+            core.setOutput('sha', sha);
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: tsukasa-u/FUSOU
+          ref: ${{ steps.candidate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+      - name: Produce candidate diagnostic, never an authorized grant
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          CANDIDATE_IMPLEMENTATION_SHA: ${{ inputs.candidate_implementation_sha }}
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+          VALIDATION_RUN_ATTEMPT: ${{ inputs.validation_run_attempt }}
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { execFileSync } = require('node:child_process');
+            const { writeFileSync } = require('node:fs');
+            const implementationSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            if (implementationSha !== process.env.CANDIDATE_IMPLEMENTATION_SHA) throw new Error('diagnostic checkout mismatch');
+            const { evaluateDelegationDiagnostic, getDelegationBootstrapPreflight } =
+              await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-grant-delegation.mjs`).href);
+            const report = await evaluateDelegationDiagnostic({
+              github,
+              caller: {
+                repository: `${context.repo.owner}/${context.repo.repo}`,
+                run_id: context.runId,
+                run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+                workflow_sha: process.env.GITHUB_WORKFLOW_SHA,
+                workflow_ref: process.env.GITHUB_WORKFLOW_REF,
+                event: context.eventName,
+                ref: context.ref,
+              },
+              implementationSha,
+              validationRunId: Number(process.env.VALIDATION_RUN_ID),
+              validationRunAttempt: Number(process.env.VALIDATION_RUN_ATTEMPT),
+            });
+            report.bootstrap = await getDelegationBootstrapPreflight();
+            writeFileSync('grant-delegation-diagnostic.json', `${JSON.stringify(report, null, 2)}\n`);
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fusou-grant-delegation-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: grant-delegation-diagnostic.json
+          if-no-files-found: error

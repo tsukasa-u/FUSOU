@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fusou:tlsn-grant-delegation:bootstrap:v1",
+  "title": "Nonoperational TLSN delegation bootstrap policy",
+  "description": "Flat offline planning contract, not an issued-grant wire format or evidence of approval. SOURCE_CONFIRMED describes source constants, DESIGN_PROPOSAL requires approval, EXTERNAL_INPUT requires independent registration or protocol definition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "scope", "lifecycle", "operational_enabled", "publication_authorized",
+    "issuer", "jwks_uri", "issue_audience", "read_audience", "repository", "repository_id",
+    "repository_owner_id", "caller_workflow", "caller_revision_policy", "delegate_workflow",
+    "delegate_revision", "delegate_claims_contract", "event", "ref", "eligibility_contract",
+    "workflow_source_rule", "authority_endpoint", "authority_deployment_identity",
+    "authority_state_epoch", "policy_pin_source_contract", "policy_digest_contract", "active_policy_registry_identity",
+    "public_input_derivation_contract", "capture_selection_contract", "capture_state_contract",
+    "grant_issuer_identity", "grant_scope_contract", "grant_wire_contract", "grant_ttl_ms",
+    "freshness_and_clock_contract", "revocation_contract", "state_revision_cas_contract",
+    "external_io_contract", "idempotence_contract", "consumer_read_endpoint",
+    "consumer_identity_contract", "consumer_recheck_contract", "source_inventory_contract"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "scope": { "type": "string", "const": "fusou-grant-delegation-bootstrap-policy-v1" },
+    "lifecycle": {
+      "type": "string", "enum": ["PROPOSED", "ACTIVE", "REVOKED"],
+      "description": "A local lifecycle claim never authenticates an active policy."
+    },
+    "operational_enabled": { "type": "boolean", "const": false },
+    "publication_authorized": { "type": "boolean", "const": false },
+    "issuer": {
+      "type": "string", "const": "https://token.actions.githubusercontent.com",
+      "x-input-origin": "SOURCE_CONFIRMED"
+    },
+    "jwks_uri": {
+      "type": "string", "const": "https://token.actions.githubusercontent.com/.well-known/jwks",
+      "x-input-origin": "SOURCE_CONFIRMED"
+    },
+    "issue_audience": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "read_audience": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "repository": { "type": "string", "const": "tsukasa-u/FUSOU", "x-input-origin": "SOURCE_CONFIRMED" },
+    "repository_id": {
+      "type": ["string", "null"], "pattern": "^[1-9][0-9]*$",
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "repository_owner_id": {
+      "type": ["string", "null"], "pattern": "^[1-9][0-9]*$",
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "caller_workflow": {
+      "type": "string", "const": ".github/workflows/tlsn-release-eligibility.yml",
+      "x-input-origin": "SOURCE_CONFIRMED"
+    },
+    "caller_revision_policy": {
+      "type": "string", "const": "MAIN_HISTORY_AND_LIVE_RUN_WORKFLOW_SHA",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "delegate_workflow": {
+      "type": "string", "const": ".github/workflows/tlsn-grant-delegation.yml",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "delegate_revision": {
+      "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$",
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "delegate_claims_contract": {
+      "type": "string", "const": "SIGNED_JOB_WORKFLOW_REF_AND_SHA_REQUIRED_NO_FALLBACK",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "event": { "type": "string", "const": "workflow_run", "x-input-origin": "SOURCE_CONFIRMED" },
+    "ref": { "type": "string", "const": "refs/heads/main", "x-input-origin": "SOURCE_CONFIRMED" },
+    "eligibility_contract": {
+      "type": "string", "const": "evaluateReleaseRun:production-only:v1",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "workflow_source_rule": {
+      "type": "string", "const": "LIVE_TAG_SOURCE_DISTINCT_FROM_CALLER_AND_DELEGATE_SHA",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "authority_endpoint": {
+      "type": ["string", "null"], "pattern": "^https://[^\\s]+$",
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "authority_deployment_identity": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "authority_state_epoch": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "policy_pin_source_contract": {
+      "type": "string", "const": "INDEPENDENT_AUTHORITY_AND_CONSUMER_BOOTSTRAP_NOT_CANDIDATE",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "policy_digest_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true,
+      "description": "UNDEFINED_CONTRACT: policy byte encoding, digest domain and independently authenticated expected digest."
+    },
+    "active_policy_registry_identity": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "public_input_derivation_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true,
+      "description": "Stable, independently approved per-release input derivation; not a per-release digest."
+    },
+    "capture_selection_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true,
+      "description": "Independent release-to-capture/subject selection, not source equality alone."
+    },
+    "capture_state_contract": {
+      "type": "string", "const": "EXACT_CONSUMED_AUTHORITY_RESULT_RECEIPT_BINDING_CATALOG",
+      "x-input-origin": "DESIGN_PROPOSAL",
+      "description": "Independent capture/session/job/verification attempt/binding, subject lookup, object version/raw size/digest, Result envelope digest and existing optional receipt bytes; not candidate expectations."
+    },
+    "grant_issuer_identity": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "grant_scope_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "grant_wire_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true,
+      "description": "UNDEFINED_CONTRACT: issued-grant ID/version/bytes/digest domain and receipt presence."
+    },
+    "grant_ttl_ms": {
+      "type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true,
+      "description": "Actual issued-grant lifetime remains unapproved; candidate TTL is not this policy."
+    },
+    "freshness_and_clock_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "revocation_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "state_revision_cas_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "external_io_contract": {
+      "type": "string", "const": "IO_OUTSIDE_TRANSACTION_REVALIDATE_POLICY_CATALOG_EPOCH_BEFORE_CAS",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "idempotence_contract": {
+      "type": "string", "const": "SAME_SCOPE_SAME_BYTES_SAME_ID_EXPIRY_NO_RENEWAL_CONFLICT_ON_CHANGE",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "consumer_read_endpoint": {
+      "type": ["string", "null"], "pattern": "^https://[^\\s]+$",
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "consumer_identity_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    },
+    "consumer_recheck_contract": {
+      "type": "string", "const": "INDEPENDENT_EXPECTATIONS_LIVE_GRANT_STATE_EXACT_ARCHIVE_BYTES_NATIVE_SEPARATE",
+      "x-input-origin": "DESIGN_PROPOSAL"
+    },
+    "source_inventory_contract": {
+      "type": ["string", "null"], "minLength": 1,
+      "x-input-origin": "EXTERNAL_INPUT", "x-bootstrap-input": true
+    }
+  }
+}

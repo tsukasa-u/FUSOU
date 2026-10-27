@@ -8,7 +8,7 @@ Runtime authorization/publication/read implementation: **NOT_IMPLEMENTED**.
 
 This ADR fixes the recommended allocation of responsibilities and required
 invariants. It does not register a policy, select real Production values,
-define an executable wire schema, or enable acceptance. Every
+define an issued-grant wire schema, or enable acceptance. Every
 `UNDEFINED_CONTRACT` below is a blocking protocol decision, not an optional
 TODO. The existing source and real deployment are separate evidence classes.
 
@@ -98,7 +98,7 @@ Numeric repository/owner IDs, endpoint hosts and deployment IDs are
 | P02 | Issuer is exactly `https://token.actions.githubusercontent.com`; fixed JWKS source exists | Reuse signature/algorithm/kid refresh/time validation from trusted issuer. Never use token-header `jku`/`jwk` as a key source |
 | P03 | Dedicated issue and read audiences; current archive audience equals its exact endpoint | Independently register purpose-separated issue/read identities. Endpoint paths and new audience strings are `UNDEFINED_CONTRACT`; archive-read token must not authorize issuance |
 | P04 | Repository name is `tsukasa-u/FUSOU`; numeric `repository_id` is required today; `repository_owner_id` is not enforced by the current verifier | Obtain/approve actual repository and owner IDs independently, then compare signed claims and trusted metadata. Ownership transfer requires policy review, not name matching |
-| P05 | Existing caller workflow path is known; a dedicated reusable issuer workflow does not exist | Approve exact allowed caller and reusable identities plus full trusted dependency closure. Caller inputs/artifacts are not identity roots |
+| P05 | Existing caller workflow path is known; the follow-up adds a fixed-disabled reusable diagnostic, not a registered issuer | Approve exact allowed caller and reusable identities plus full trusted dependency closure. Caller inputs/artifacts are not identity roots |
 | P06 | Current caller is main-history checked; no immutable reusable issuer revision is registered | Pin reusable revision and transitive implementation/actions. Explicit caller revision/ref policy must be verified independently. A mutable ref alone is insufficient |
 | P07 | Existing Production caller uses `workflow_run` on `refs/heads/main`; eligibility requires successful same-repository tag-validation push/main ancestry | Approve these predicates and development-tag exclusion. Verify actual reusable OIDC event/ref semantics before implementing them; do not assume `workflow_call` is the signed caller event |
 | P08 | Release source SHA, caller `workflow_sha` and reusable `job_workflow_sha` have different roles | Resolve source from authenticated live tag/validation metadata. Match the caller and delegated revisions independently; never require or infer equality with release source |
@@ -360,3 +360,133 @@ Production acceptance **BLOCKED**.
 
 See the [roadmap verification record](../implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md)
 for the documentation-only commands and their actual outcomes.
+
+## 10. Nonoperational Option A source preparation
+
+Follow-up source basis:
+`4505b8fcd6a5c145ba56fb9a8e56b2a690adecda` on
+`tlsn-first-testplay-candidate`. This section adds planning tools, not
+delegation approval, an issuer protocol or new runtime trust roots.
+
+### Machine-readable bootstrap, not an issued-grant schema
+
+The [v1 bootstrap schema](../../scripts/tlsn-grant-delegation.v1.schema.json)
+and [draft policy](../../scripts/tlsn-grant-delegation.draft.json) express the
+P01-P14 requirements. They are distinct from the existing static archive
+readback policy, candidate policy and still-undefined issued-grant format.
+The scope is `fusou-grant-delegation-bootstrap-policy-v1`; version is 1.
+Lifecycle permits local claims `PROPOSED`, `ACTIVE`, `REVOKED`, but
+`operational_enabled` and `publication_authorized` are always false. The
+committed draft is `PROPOSED`; no actual numeric ID, endpoint, audience,
+trusted revision, state epoch or lifetime is invented.
+
+Property annotations distinguish `SOURCE_CONFIRMED` constants,
+`DESIGN_PROPOSAL` rules requiring approval and `EXTERNAL_INPUT` values or
+protocol identities requiring independent definition/registration. Null is
+an explicit missing bootstrap input, not a permissive runtime default.
+`policy_digest_contract` remains null: source inventory hashes/current
+public/check input pins are not a delegation-policy approval registry.
+The digest encoding/domain/distribution and actual authenticated active
+digest remain U02. A populated local registry name is not that evidence.
+
+The [offline preflight](../../scripts/release-grant-delegation.mjs) uses a
+bounded flat JSON Schema profile: required scalar properties, no extra
+properties, scalar types, const/enum, string pattern/minimum length and
+JSON-safe integer bounds. Unknown schema keywords, missing fields and unsupported
+versions fail closed. It does not implement a general JSON Schema engine,
+resolve references or fetch schemas. Endpoint syntax and purpose-separated
+audiences are checked without connecting. Shape validation is neither
+issuer authentication nor policy approval.
+
+| Report layer | Meaning and current result |
+| --- | --- |
+| `source_contract` | `SOURCE_CONTRACT_READY` means only that the bundled bootstrap schema/draft shape passes; invalid source is `BLOCKED_IMPLEMENTATION`. It does not mean U01-U12 are resolved |
+| `policy_approval` | Always `BLOCKED_POLICY_NOT_APPROVED`; independent active pin is `NOT_VERIFIED`, because no independent registry adapter exists in this offline tool |
+| `external_inputs` | Always `BLOCKED_EXTERNAL_INPUTS`; enumerates missing fields. Even a fully populated local policy has registration `NOT_VERIFIED`, not proven registered or proven absent |
+| `implementation` | Always `BLOCKED_IMPLEMENTATION`; grant authorization, publication provider, authority/grant reader, policy root/digest distribution, input/capture derivation and issued-grant state protocol remain absent/undefined |
+
+The overall status stays blocked, including self-claimed `ACTIVE` policy or
+`PASS`/`authenticated` report fields. There is no activation option, registry
+writer, token/credential lookup or arbitrary input-path CLI. The CLI reads
+only the two fixed bootstrap JSON files through the existing regular-file,
+no-follow helper, prints diagnostic JSON and exits 1 because operational
+readiness is blocked. Parse/read errors propagate; they are not replaced
+with success-shaped reports. Pure in-memory inspection accepts test data
+but never grants authorization.
+
+### Fixed-disabled reusable workflow
+
+The [reusable diagnostic source](../../.github/workflows/tlsn-grant-delegation.yml)
+has exactly one job, unconditionally `if: ${{ false }}`. This fixed-disabled
+choice was explicitly confirmed for the follow-up. There is no existing
+caller wiring, workflow output capability, OIDC permission/request, authority
+endpoint call, grant issue/publish/read or policy registration. Only
+contents/actions read permissions and already-used immutable Action SHAs
+appear. No job was executed.
+
+Its source calls `evaluateDelegationDiagnostic`, which reuses
+`evaluateReleaseRun` and keeps development validation distinct from Production
+main-history eligibility. It compares caller selectors to live API run/
+attempt/workflow metadata and reports the separately observed release source.
+The selected implementation SHA is **not** a trusted delegate pin: it is
+explicitly `CALLER_SELECTED_DIAGNOSTIC_LOCATOR` / `NOT_VERIFIED`.
+`GITHUB_WORKFLOW_SHA` describes caller context, never assumed callee identity.
+Signed `job_workflow_ref` / `job_workflow_sha` are not obtained; delegated
+identity remains `NOT_VERIFIED`, `job_workflow_sha` is null, and
+`production_grant_eligible` is false even with `PRODUCTION_ELIGIBLE`.
+The diagnostic is `DERIVED_NOT_AUTHORIZED`, not an authority grant.
+
+In particular, the disabled candidate checkout is not the isolated trusted
+closure needed by section 5. Removing `if: false` or filling the draft does
+not implement that boundary. Before a future issuer job, approve and implement
+independently verified immutable delegate loading, exact signed claim
+comparison, source inventories, release-input/capture derivation and every
+U01-U12 runtime contract. Do not execute caller-selected code with issuance
+permissions.
+
+### Bootstrap and fixed-revision sequence
+
+1. Commit and independently inspect the diagnostic/schema/implementation
+   closure. Source readiness alone authorizes nothing.
+2. Resolve remaining protocol decisions, implement the separately authorized
+   isolated issuer/reader path and add all relevant files to its versioned
+   trusted source inventory. The current runtime inventories are unchanged.
+3. Determine the actual final full commit SHA from source, verify the reusable
+   revision and Action/module closure independently, and explicitly approve/
+   register that delegation policy, issuer/deployment/epoch and purpose-
+   separated roots/audiences for authority and consumer.
+4. Only in a later authorized change, wire callers using
+   `tsukasa-u/FUSOU/.github/workflows/tlsn-grant-delegation.yml@<full-40-hex-SHA>`.
+   No future SHA is guessed or registered here. A new approved revision must
+   be pinned again; the skeleton commit is not automatically an issuer pin.
+5. After separately permitted external observation of actual OIDC claims,
+   live eligibility, durable issue/revoke/CAS/read and consumer reacquisition,
+   evaluate operational acceptance. Registration alone cannot provide it.
+
+Stable bootstrap inputs are repository/owner identities, delegate/caller
+revision policy, endpoint/deployment/epoch, roots/digest derivation,
+eligibility/capture/subject rules, grant wire/scope/TTL/revocation/CAS and
+consumer read identity. Run/attempt, release source SHA, per-release input/
+capture-policy digests, capture/session/job/verification attempt/binding,
+object version/raw size/digest and Result/optional receipt observations must
+then be derived automatically from authenticated metadata and independent
+authority state. They are not hardcoded recurring bootstrap fields.
+
+No authorized-grant persistence, ID, canonical bytes, expiry, revocation,
+CAS or grant-read protocol is implemented by these tools. Section 6's
+same-scope idempotence, nonrenewing retries, changed-content conflicts,
+external I/O outside transactions and post-await state/epoch revalidation
+remain proposed requirements, not locally tested issued-grant transitions.
+There is no global one-time consumption ledger.
+
+The [key-free contracts](../../scripts/release-grant-delegation.test.mjs)
+verify local shape/blocker/diagnostic behavior and refusal to consume a
+preflight as a registered provider. Existing candidate/consumer/runtime
+contracts remain unchanged. Four real checks remain **UNVERIFIED**;
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED` and
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` remain blockers.
+`AUTHENTICATED_PRODUCER_REPORT_VERIFIED` retains its existing online
+GitHub metadata/archive/trusted workflow scope, not grant/native authority.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain invariant.
