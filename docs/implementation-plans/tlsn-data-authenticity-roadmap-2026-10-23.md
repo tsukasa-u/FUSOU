@@ -4298,3 +4298,207 @@ git rev-parse HEAD HEAD^
 git -c core.fsmonitor=false status --short --untracked-files=all -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md 'scripts/release-*.mjs' 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
 git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 ```
+
+## 2026-10-28: public RS256 reference assessed without external access
+
+### Actual starting state and distinct prerequisite
+
+Start/end branch: `tlsn-first-testplay-candidate`.
+Start HEAD: `c5aaad95a01b75632fc2b438b848e946c229284b`, matching request.
+Initial explicit scope, lockfile scope and scoped-hook scope were clean.
+
+The requested generic-vector goal does **not** require a GitHub OIDC
+positive fixture. A public generic RS256 vector could establish its own
+signature and separately demonstrate unchanged GitHub rejection.
+The blocker here is earlier: the referenced document's actual fixed
+JWT/public-key bytes and immutable local source cannot be established.
+No vector was adopted, and no crypto/rejection integration was run.
+This is not rejection of a generic fixture for lacking GitHub claims.
+
+The supplied reference is
+`https://github.com/panva/jose/blob/main/src/jwt/verify.ts`.
+It was **not fetched**. `main` is mutable; no release/commit content or
+token/key bytes can be inferred from that URL. No offline copy of that
+source/example was found in the bounded locations checked below.
+No claim of global absence in uninspected locations is made.
+
+### Local source/provenance findings
+
+- The Worker's manifest and committed root lockfile both pin
+  `jose@6.1.2`; the installed Worker link resolves to that package.
+  The committed lock includes its package integrity, but that integrity
+  is **not** a digest/provenance proof for an absent example vector.
+- The installed 6.1.2 `dist/types/jwt/verify.d.ts` contains declarations
+  and API descriptions, not the fixed token/public-key example. Its
+  runtime counterpart is compiled verification code, not the source
+  document. README links to `docs/jwt/verify/functions/jwtVerify.md`;
+  that document and `src/jwt/verify.ts` are not shipped locally.
+- Metadata enumeration also found installed directories named
+  `jose@5.10.0` and `jose@6.2.12`. Searching these explicit package
+  roots for compact JWT/example markers found no candidate. The
+  inspected 5.10.0 verifier declaration also lacks the example.
+  No runtime dependency was switched to either version.
+- A bounded source/example filename search over all three package
+  roots returned no matching source/example documents. A scoped
+  repository source/doc search found no copy of the supplied reference,
+  example issuer/audience markers or fixed compact JWT.
+- The legacy `release-archive-http.test.mjs` still generates RSA keys
+  during initialization and signs case tokens. It was inspected only,
+  not imported/run, reused as a public fixed vector or modified.
+
+| Fixture attribute | Evidence in this task |
+| --- | --- |
+| Adopted token/public SPKI/JWK | None |
+| Immutable published source/version for the referenced example | **NOT_VERIFIED**, no locally available example bytes |
+| Fixture SHA-256 | **NOT_RUN**, no adopted bytes; do not hash a URL, type declaration or package integrity and call it a vector digest |
+| Exact `iss`, `aud`, `iat`, header, signature and required time claims | **NOT_CHECKED**, no local token to parse |
+| Actual repository/owner claim absence in that token | **NOT_CHECKED**; the user describes a generic example, but its unavailable bytes were not independently inspected |
+| Public-key/token signature correspondence | **NOT_RUN**, no known pair |
+
+No example was reconstructed from memory, private key read, key generated,
+token signed/re-signed, package installed, upstream source downloaded or
+external API/provider contacted. A safe continuation needs an offline
+copy containing the published original token and public key with source
+identification/version/commit evidence; a mutable URL alone is insufficient.
+
+### Source boundary and outcome classification
+
+The unchanged production factory `createArchiveOidcVerifier` validates
+policy and header before calling the locked `jwtVerify`; fixed RS256,
+issuer, audience, required claims, maximum token age and fixed-time
+mechanism remain intact. Only successful JOSE verification reaches
+`assertVerifiedArchiveOidcClaims`. HTTP processing validates the independent
+policy pin before authentication, and generates `archiveAuthorization`
+only after authentication, independent context/catalog and raw readback
+checks. Consumer exact metadata comparison still binds the pinned owner.
+
+No new signature verifier, test-only authorization path or policy
+exception was introduced. Fixed time cannot supply absent mandatory
+claims/header fields; adding them would change signed bytes. Any future
+test must record the actual first refusal stage, not relabel a header or
+signature failure as post-signature owner-policy evidence.
+
+These are diagnostic result categories, **not Production readiness**:
+
+| Requested category/boundary | Actual result |
+| --- | --- |
+| `STATIC_VECTOR_VERIFIED` | **NOT_RUN / BLOCKED**, vector provenance/bytes unavailable locally |
+| `OIDC_CLAIM_POLICY_REJECTED` for the public fixed vector | **NOT_RUN**, no adopted token; source refusal conditions are unchanged, not runtime rejection evidence |
+| `GITHUB_OIDC_POSITIVE_INTEGRATION_BLOCKED` | **BLOCKED**, still no signed GitHub repository/owner positive integration; not this task's generic-vector objective |
+| `PRODUCTION_TRUST_NOT_VERIFIED` | **NOT_VERIFIED**, real repository settings/subject/reusable claims/active pins and actual GitHub identity unobserved |
+| Signature corruption and different-public-key rejection | **NOT_RUN**, no valid fixed baseline or second public vector/key adopted |
+| HTTP binding generation/refusal/consumer test for that fixed JWT | **NOT_RUN**, no assertion of an exercised fixed-token HTTP path |
+
+Only this roadmap is changed. Existing key-free assertions and all
+production source, inventory, dependency, schema, policy and workflow
+files are unchanged. The earlier **13 PASS** claim-policy result belongs
+to the previous task; it is **not rerun or counted as new evidence here**.
+No Node test or `node --check` was run in this documentation-only outcome.
+There were no failed tests, skipped assertions or code/test fixes.
+The two `rg` exit-1 results below are ordinary no-match discovery outcomes,
+not test failures.
+
+### Exact local commands and results
+
+All commands use explicit safe paths. The source/doc inspections were
+read-only and did not evaluate package modules. No protected files were
+read, searched, compared, hashed, edited, staged or committed.
+
+Initial metadata/scope: **PASS**, requested branch/HEAD, clean scope:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json scripts/release-archive-oidc-claims.test.mjs scripts/release-archive-http.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+Installed-version metadata/resolution: **PASS**, three named directories,
+Worker resolves to 6.1.2:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && find node_modules/.pnpm -mindepth 1 -maxdepth 1 -type d -name 'jose@*' -print && readlink -f packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/jose
+```
+
+Pinned package source/docs/example search: file enumeration exit 0,
+`rg` exit **1 (no matches)**; only package metadata, verifier declaration
+and compiled verifier were listed, not the referenced source/document:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && find node_modules/.pnpm/jose@6.1.2/node_modules/jose -maxdepth 5 -type f \( -path '*/src/jwt/verify.ts' -o -path '*/docs/jwt/verify/*' -o -path '*/jwt/verify.*' -o -name package.json \) -print; rg --no-ignore --hidden -l -g '*.{js,ts,md,json}' 'urn:example:(issuer|audience)|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A' node_modules/.pnpm/jose@6.1.2/node_modules/jose
+```
+
+Other named installed packages: `rg` exit **1 (no matches)**:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && rg --no-ignore --hidden -l -g '*.{js,ts,md,json}' 'urn:example:(issuer|audience)|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A' node_modules/.pnpm/jose@5.10.0/node_modules/jose node_modules/.pnpm/jose@6.2.12/node_modules/jose
+```
+
+Lockfile scope and committed pins: **PASS**, scope clean, committed
+5.10.0/6.1.2 entries observed; no manifest/lock edits or install:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- pnpm-lock.yaml && git --no-pager show HEAD:pnpm-lock.yaml | rg -n -A 3 'jose@5\.10\.0:|jose@6\.1\.2:'
+```
+
+Three-package source/example filenames: exit 0, **no matches**:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && find node_modules/.pnpm/jose@5.10.0/node_modules/jose node_modules/.pnpm/jose@6.1.2/node_modules/jose node_modules/.pnpm/jose@6.2.12/node_modules/jose -maxdepth 5 -type f \( -path '*/src/jwt/verify.ts' -o -path '*/docs/jwt/verify/*' -o -iname '*example*' \) -print
+```
+
+Additional bounded `view`/`rg` inspections covered the listed archive
+modules, legacy RSA test initialization, 5.10.0/6.1.2 declarations,
+6.1.2 README, Worker manifest and previous roadmap entry. Repository
+`rg` used pattern
+`panva/jose/blob/main/src/jwt/verify\.ts|urn:example:(issuer|audience)|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`,
+glob `*.{mjs,ts,md,json}`, and only `scripts`, Worker `src`/`scripts`,
+`docs/architecture`, `docs/implementation-plans`: **no matches** before
+this new record was added.
+
+Normal hook implementation scope: **PASS**, unchanged:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- .githooks/pre-commit scripts/scoped_code_review_graph.py
+```
+
+### Preserved state and one-path local commit procedure
+
+Delegation stays `PROPOSED`/unapproved, reusable workflow fixed-disabled.
+`DERIVED_NOT_AUTHORIZED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` are maintained.
+All four real checks remain **UNVERIFIED**; `publication_authorized: false`,
+deployment **NOT_CHECKED**, Production acceptance **BLOCKED**.
+No real `RELEASE_ARTIFACTS_VALIDATED` or `DEPLOYMENT_VERIFIED` is established.
+No `sub` format, actual reusable claim availability or active pin
+registration is assumed.
+
+All vector signature/claim/HTTP tests, key-generating suites, changed-module
+syntax checks (no module changed), external fetch/API/provider/service
+access, package installation, keys/signatures, Cargo/Rust/WASM/APP/Worker/
+native build/runtime, deploy/publish/push/PR/tag are **NOT_RUN**.
+No Result-byte-binding test or Hudsucker/default/dependency was changed.
+
+The working/staged whitespace check below targets only this roadmap:
+**PASS**, exit 0. The commit repeats it after this result update,
+retains the normal scoped hook, disables signing
+and isolates only this one documentation file. Actual hook/commit/final
+committed-whitespace completion is reported from execution, not assumed
+from this procedure text.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git -c core.fsmonitor=false add -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git -c core.fsmonitor=false add -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "docs(tlsn): record unavailable offline public RS256 vector" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/public-rs256-vector-local-commit.log 2>&1; result=$?; tail -n 20 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/public-rs256-vector-local-commit.log; exit "$result"
+```
+
+Final branch/HEAD/parent, explicit scope cleanliness and committed whitespace:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md pnpm-lock.yaml packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
