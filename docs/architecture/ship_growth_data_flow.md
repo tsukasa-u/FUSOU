@@ -597,3 +597,45 @@ npx wrangler d1 execute SHIP_GROWTH_DB --remote --command "SELECT name, tbl_name
 期待:
 
 - `ship_growth_bounds` / `ship_growth_caps` / `ship_level_exp_pairs` の index が表示される
+
+## 13. R2 スナップショット事前生成・Zero-D1 高速配信アーキテクチャ（2026-10 実装）
+
+### 13.1 背景と課題
+従来のパラメータ推移（ship-growth）API は、リクエストごとに D1（`SHIP_GROWTH_DB`）に対して bounds / caps / exp を動的クエリ（またはオンデマンド集約）していたため、以下の問題が発生していた。
+1. **レイテンシの増大**: D1 のクエリと集約により 500ms〜2000ms の遅延が発生し、初期表示がもたつく。
+2. **D1 のリソース消費**: 公開ダッシュボードで複数ユーザーがアクセスすると D1 の読み取り行数が急増する。
+3. **過去期間のアーカイブ分断**: 過去期間のデータは `SHIP_GROWTH_ARCHIVE_BUCKET`（R2）の個別アーカイブ JSON に退避されていたため、過去全期間の横断集約（all-periods / cumulative）を行うには多数の R2 オブジェクトを走査する必要があった。
+4. **テーブルバージョンの不統一**: 過去アーカイブ内で `"0.5"` と `"0.5.0"` が混在し、期間リストで重複表示される不整合が存在した。
+
+### 13.2 R2 スナップショットの設計（Zero-D1 配信）
+戦闘データと同様に、**「事前に計算・集約した JSON を R2 に配置し、Worker は R2 から直接高速配信する（Zero-D1）」** アーキテクチャへと刷新。
+
+#### スナップショットのキー体系
+- プレフィックス: `snapshots/ship_growth/`
+- 期間サマリ: `snapshots/ship_growth/summary.json.br`
+- 累積パラメータ: `snapshots/ship_growth/cumulative.json.br`
+- 全期間比較: `snapshots/ship_growth/all_periods.json.br`
+- 期間別 bounds: `snapshots/ship_growth/bounds/{period_tag}_{table_version}.json.br`
+- 期間別 exp: `snapshots/ship_growth/exp/{period_tag}_{table_version}.json.br`
+
+#### テーブルバージョンの完全正規化（`0.5` → `0.5.0`）
+- `normalizeTableVersion(version: string)` を導入し、`"0.5"` の表記をすべてセマンティックバージョニング標準の `"0.5.0"` に一本化。
+- アーカイブ集約時に `0.5` と `0.5.0` を同一期間（例: `2026-07-08/0.5.0`）としてマージ。
+- R2 上の旧形式キー `*_0.5.json.br` は自動削除クリーンアップ。
+- API エンドポイント（`/bounds`, `/exp`）に `table_version=0.5` が渡された場合も、サーバー側で自動的に `0.5.0` のスナップショットキーへ解決して即座に応答（後方互換ガード）。
+
+### 13.3 ブラウザ透過伸長と平文 JSON 返却の原則
+Worker からブラウザへスナップショットを配信する際、以下の重大な落とし穴を解消した。
+- **問題**: Worker 内で R2 の Brotli バイナリに手動で `Content-Encoding: br` ヘッダーを付けてストリーム返却すると、ブラウザ Fetch API / `cachedFetch`（内部で `res.clone().text()` を実行）で透過解凍が行われず、生バイナリ（`~ D5n...`）が渡って `Failed to execute 'json' on 'Response': Unexpected token ... is not valid JSON` のクラッシュが発生する。
+- **対策**: Worker レベルでは `Content-Encoding: br` を一切付与しない。Worker 内で native zlib（`brotliDecompressAsync`）を用いて平文 JSON 文字列へと解凍し、`Content-Type: application/json; charset=utf-8` で返却する。
+- クライアントとエッジ間の gzip/br 圧縮は Cloudflare CDN のネイティブ透過的圧縮に任せることで、ブラウザの HTTP スタックが確実に自動解凍を行い、100% 安定した JSON パースを保証する。
+
+### 13.4 再構築・バックフィル用内部 API
+- エンドポイント: `POST /api/ship-growth/internal/rebuild-snapshots`
+- 認証: `Authorization: Bearer <ADMIN_TOKEN>`（タイミングセーフ検証）
+- 動作:
+  1. `SHIP_GROWTH_ARCHIVE_BUCKET` 内の全 `ship-growth/archive/` オブジェクトを走査。
+  2. バージョンを `0.5.0` に正規化しながら、bounds（最小値 MIN）および caps（最大値 MAX）を集約。
+  3. D1 に最新期間が存在する場合は最新期間のスナップショットも生成。
+  4. `summary`, `cumulative`, `all_periods` および各期間の bounds/exp スナップショットを一括保存。
+  5. 残存する旧 `_0.5.json.br` をクリーンアップ。

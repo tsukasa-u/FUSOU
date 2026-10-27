@@ -148,3 +148,20 @@ Recovery must use the original D1 metadata, a verified D1 backup, or a local reb
 
 - **Transition**: Migrated from Supabase/Parquet/WASM approach to TiDB/D1/Avro approach.
 - **Reason**: Better write buffering performance with TiDB, simpler merging logic with Avro, and reduced cold-start times (removing WASM).
+
+---
+
+## R2 Snapshot High-Speed Serving (Zero-D1 Architecture)
+
+To eliminate D1 read contention and ensure 20–80ms latency across all public dashboard pages, FUSOU utilizes pre-generated R2 snapshots:
+
+### 1. Battle Data Snapshots (`snapshots/battle_data/`)
+- **Sortie-Bundle Aggregation**: Data is bundled at the sortie level rather than individual battles, drastically reducing file count and enabling 0ms tab switching in the client.
+- **Pre-generated Tab Views**: Overview, drops, and detail-env bundles are pre-joined during compaction and served directly from R2.
+- **Edge KV Cache Isolation**: Detail environment cache keys are isolated by period tag (`v8:battle_env_detail:${periodTag}:${envUuid}`).
+
+### 2. Ship Growth Snapshots (`snapshots/ship_growth/`)
+- **Zero-D1 Endpoints**: `/summary`, `/bounds`, `/exp`, `/cumulative`, and `/all-periods` serve directly from pre-aggregated Brotli-compressed R2 objects.
+- **Version Normalization**: Legacy `0.5` table versions are unified to semantic version `0.5.0`.
+- **Transparent Decompression**: Worker decompresses Brotli in-memory and serves plain JSON (`Content-Type: application/json`), avoiding browser `res.json()` parse failures while leveraging Cloudflare edge auto-compression.
+- **Snapshot Rebuild Endpoint**: `POST /api/ship-growth/internal/rebuild-snapshots` walks past archives in R2, aggregates bounds (MIN) and caps (MAX), and generates the complete snapshot suite.
