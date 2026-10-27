@@ -621,7 +621,7 @@ npx wrangler d1 execute SHIP_GROWTH_DB --remote --command "SELECT name, tbl_name
 #### テーブルバージョンの完全正規化（`0.5` → `0.5.0`）
 - `normalizeTableVersion(version: string)` を導入し、`"0.5"` の表記をすべてセマンティックバージョニング標準の `"0.5.0"` に一本化。
 - アーカイブ集約時に `0.5` と `0.5.0` を同一期間（例: `2026-07-08/0.5.0`）としてマージ。
-- R2 上の旧形式キー `*_0.5.json.br` は自動削除クリーンアップ。
+- R2 上の旧形式キー `*_0.5.json.br` は自動削除しない。manifest 移行後は参照されず、必要な旧オブジェクトを誤削除しない。
 - API エンドポイント（`/bounds`, `/exp`）に `table_version=0.5` が渡された場合も、サーバー側で自動的に `0.5.0` のスナップショットキーへ解決して即座に応答（後方互換ガード）。
 
 ### 13.3 ブラウザ透過伸長と平文 JSON 返却の原則
@@ -631,11 +631,32 @@ Worker からブラウザへスナップショットを配信する際、以下�
 - クライアントとエッジ間の gzip/br 圧縮は Cloudflare CDN のネイティブ透過的圧縮に任せることで、ブラウザの HTTP スタックが確実に自動解凍を行い、100% 安定した JSON パースを保証する。
 
 ### 13.4 再構築・バックフィル用内部 API
+- 設定済みの `ADMIN_TOKEN` と `INTERNAL_COMPACTION_TOKEN` のいずれかを既存の timing-safe helper で照合する。無認証ではストレージにアクセスしない。
 - エンドポイント: `POST /api/ship-growth/internal/rebuild-snapshots`
 - 認証: `Authorization: Bearer <ADMIN_TOKEN>`（タイミングセーフ検証）
 - 動作:
   1. `SHIP_GROWTH_ARCHIVE_BUCKET` 内の全 `ship-growth/archive/` オブジェクトを走査。
   2. バージョンを `0.5.0` に正規化しながら、bounds（最小値 MIN）および caps（最大値 MAX）を集約。
   3. D1 に最新期間が存在する場合は最新期間のスナップショットも生成。
-  4. `summary`, `cumulative`, `all_periods` および各期間の bounds/exp スナップショットを一括保存。
-  5. 残存する旧 `_0.5.json.br` をクリーンアップ。
+  4. `generations/{generation}/` に `summary`, `cumulative`, `all_periods` および各期間の bounds/exp を保存する。
+  5. 全入力・全保存が成功した場合だけ `manifest.json` を ETag 条件付きで切り替える。欠落・不正な入力、D1/R2 例外、競合があれば旧世代を維持して失敗を返す。
+
+### 13.5 クライアントの鮮度とエラー表示（2026-10-27 監査）
+
+- `cachedFetch` のメモリ鮮度は最大10分とし、HTTP `max-age` / `Age` が示す残存時間を超えて延長しない。IndexedDB の7日は保存・オフライン利用の上限であり、未検証で配信し続ける期間ではない。
+- 「更新」は `cache: "reload"` で現在表示中の exp / bounds / cumulative / all-periods を再取得する。これはサーバー側の再構築や CDN キャッシュ削除を実行する操作ではない。
+- AbortSignal を持つ呼び出しは通信を共有せず、一方のキャンセルを別の画面へ伝播させない。同じ URL の古い通信は、新しい更新結果や明示的なキャッシュ消去を上書きしない。
+- JSON として不正なレスポンスは保存しない。中断をオフライン成功に置き換えず、保存上限を超えた IndexedDB データも復活させない。
+- 累積・期間比較で最新期間の bounds 取得が失敗した場合、成功扱いで欠落させずエラーを表示する。読込失敗後は、前の期間のグラフを新しい期間の結果として表示しない。
+- 最新期間はサマリ配列の先頭ではなく期間タグとテーブルバージョンで選択する。caps の短縮キーは共通正規化処理を通し、明示的な `0` を保持する。
+
+### 13.6 世代公開・更新・リソース上限
+
+- 論理キーは13.2のままとし、`snapshots/ship_growth/manifest.json` が各論理キーから世代別の実体キーを参照する。manifest がない環境では従来の固定キーを読み、段階移行を可能にする。
+- 完成済み世代の実体が欠落・破損している場合は503とし、別世代やD1への暗黙の切替で成功に見せない。manifest がない、または対象の論理キーが存在しない場合の既存フォールバックは維持する。
+- 読取は manifest と実体を R2 から解決し、古い HTTP キャッシュより優先する。スナップショット応答は `max-age=0, must-revalidate` とし、固定 URL の CDN / メモリ鮮度で更新を隠さない。ヒット時は D1 binding 自体を必要としない。
+- ingest のD1コミット成功後、バックグラウンドで対象期間の bounds/exp と summary/cumulative/all-periods を更新する。既存の集計をマージし、全アーカイブを再走査しない。並行更新は manifest の ETag 条件で検出し、最大3回まで最新入力から再計算する。初回の manifest 作成だけは全再構築になる。
+- バックグラウンド公開の失敗はログへ明示する。ingest の保存成功と公開完了は別であり、waitUntil の中断や失敗後は内部APIによる再構築が必要になる場合がある。
+- `0.5` と `0.5.0` のD1行は両方を読み、正規化した同一期間として一度だけ保存する。過去の EXP は bounds とは独立して検出する。bounds の `0` は従来仕様どおり未観測であり、正の観測の最小値を消さない。
+- JSONは1件16 MiB以下、圧縮入力も16 MiB以下とする。Brotli解凍には `maxOutputLength` を指定する。超過時は切捨てず失敗する。これは isolate 全体のメモリやCPU時間の保証ではなく、全再構築で保持するMapや並行要求の負荷測定・将来の分割生成は引き続き必要。
+- [Cloudflare公式制限](https://developers.cloudflare.com/workers/platform/limits/#memory)（2026-10-27確認）では通常のWorkersはFree/Paidとも isolate あたり128 MB、JSヒープとWasmを含み並行要求と共有する。CPUはFree HTTPで10 ms、Paid HTTPは既定30秒・設定で最大5分であり、50 msをFreeの前提にしない。

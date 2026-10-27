@@ -20,6 +20,7 @@ import {
   type ChartOptions,
 } from "chart.js";
 import { cachedFetch } from "@/utils/fetchCache";
+import { compareTableVersions } from "@/features/battles/helpers";
 import {
   ENEMY_ID_THRESHOLD,
 } from "@/features/simulator/constants";
@@ -28,6 +29,9 @@ import {
   ShipGrowthBoundsResponseSchema,
   ShipGrowthExpResponseSchema,
   ShipGrowthSummaryResponseSchema,
+  normalizeShipGrowthCaps,
+  selectLatestShipGrowthPeriod,
+  type ShipGrowthCaps,
 } from "@/features/simulator/ship-growth-utils";
 import {
   MasterShipListResponseSchema,
@@ -190,21 +194,10 @@ function normalizeBoundRows(rows: unknown): BoundRow[] {
     );
 }
 
-function normalizeCapRows(rows: unknown): CapRow[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const r = row as AnyRecord;
-      return {
-        master_id: toFiniteNumber(r["master_id"]),
-        kaihi_max: toFiniteNumber(r["kaihi_max"] ?? r["kaihi_cap"]),
-        taisen_max: toFiniteNumber(r["taisen_max"] ?? r["taisen_cap"]),
-        sakuteki_max: toFiniteNumber(
-          r["sakuteki_max"] ?? r["sakuteki_cap"],
-        ),
-      };
-    })
-    .filter((row) => Number.isFinite(row.master_id) && row.master_id > 0);
+function normalizeCapRows(rows: ShipGrowthCaps[] | undefined): CapRow[] {
+  return (rows ?? [])
+    .map(normalizeShipGrowthCaps)
+    .filter((row): row is CapRow => row !== null && row.master_id > 0);
 }
 
 function parsePositiveInt(raw: string | null): number | null {
@@ -849,7 +842,7 @@ export default function ShipGrowthPanel() {
 
   let fetchGrowthDataVersion = 0;
 
-  async function fetchGrowthData() {
+  async function fetchGrowthData(forceReload = false) {
     const period = selectedPeriod();
     if (!period) return;
 
@@ -857,6 +850,8 @@ export default function ShipGrowthPanel() {
     // period can detect it is stale and discard its results.
     const currentVersion = ++fetchGrowthDataVersion;
     const isCurrentFetch = () => fetchGrowthDataVersion === currentVersion;
+    const fetchData = (url: string) =>
+      cachedFetch(url, forceReload ? { cache: "reload" } : undefined);
 
     setLoadingData(true);
     setError(null);
@@ -864,7 +859,9 @@ export default function ShipGrowthPanel() {
       const latest = isLatestPeriod(period);
       const cumulative = isCumulativePeriod(period);
       const allPeriods = isAllPeriodsPeriod(period);
-      const firstLivePeriod = periods().find((p) => p.source === "live") ?? null;
+      const firstLivePeriod = selectLatestShipGrowthPeriod(
+        periods().filter((p) => p.source === "live"),
+      );
       const resolvedLivePeriod = latest ? firstLivePeriod : period;
 
       if (latest && !resolvedLivePeriod) {
@@ -881,7 +878,7 @@ export default function ShipGrowthPanel() {
       }
       if (expPeriod) {
         const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(expPeriod.period_tag)}&table_version=${encodeURIComponent(expPeriod.table_version)}`;
-        const expRes = await cachedFetch(expUrl);
+        const expRes = await fetchData(expUrl);
         if (!expRes.ok) throw new Error(`exp HTTP ${expRes.status}`);
         const parsedExp = ShipGrowthExpResponseSchema.safeParse(
           await expRes.json(),
@@ -904,9 +901,9 @@ export default function ShipGrowthPanel() {
         // Exp, all-periods, and live bounds are all fetched in parallel.
         const livePeriodForBounds = firstLivePeriod;
         const [apRes, liveRes] = await Promise.all([
-          cachedFetch("/api/ship-growth/all-periods"),
+          fetchData("/api/ship-growth/all-periods"),
           livePeriodForBounds
-            ? cachedFetch(
+            ? fetchData(
                 `/api/ship-growth/bounds?period_tag=${encodeURIComponent(livePeriodForBounds.period_tag)}&table_version=${encodeURIComponent(livePeriodForBounds.table_version)}`,
               )
             : Promise.resolve(null),
@@ -927,17 +924,21 @@ export default function ShipGrowthPanel() {
           }),
         );
 
-        const combined: AllPeriodsEntry[] = [...archivedEntries];
-        if (liveRes && liveRes.ok) {
+        const combined = new Map(archivedEntries.map((entry) => [
+          `${entry.period_tag}/${entry.table_version}`, entry,
+        ]));
+        if (liveRes && !liveRes.ok) throw new Error(`bounds HTTP ${liveRes.status}`);
+        if (liveRes) {
           const parsedLive = ShipGrowthBoundsResponseSchema.safeParse(
             await liveRes.json(),
           );
-          if (!parsedLive.success) throw new Error("Unexpected bounds response");
+          if (!parsedLive.success || !parsedLive.data.ok)
+            throw new Error("Unexpected bounds response");
           const liveJson = parsedLive.data;
           // Use the pre-computed livePeriodForBounds (same reference, no
           // re-read of periods() after the await point).
           if (liveJson.ok && livePeriodForBounds) {
-            combined.push({
+            combined.set(`${livePeriodForBounds.period_tag}/${livePeriodForBounds.table_version}`, {
               period_tag: livePeriodForBounds.period_tag,
               table_version: livePeriodForBounds.table_version,
               bounds: normalizeBoundRows(liveJson.bounds),
@@ -948,7 +949,8 @@ export default function ShipGrowthPanel() {
         // Guard: discard if period changed while awaiting archive data.
         if (!isCurrentFetch()) return;
         batch(() => {
-          setAllPeriodsEntries(combined);
+          setAllPeriodsEntries([...combined.values()].sort((a, b) =>
+            a.period_tag.localeCompare(b.period_tag) || compareTableVersions(a.table_version, b.table_version)));
           // Clear single-period signals so stale data doesn't show.
           setAllBoundRows([]);
           setAllCapRows([]);
@@ -960,9 +962,9 @@ export default function ShipGrowthPanel() {
 
       if (cumulative) {
         const [cumulativeRes, liveRes] = await Promise.all([
-          cachedFetch("/api/ship-growth/cumulative"),
+          fetchData("/api/ship-growth/cumulative"),
           firstLivePeriod
-            ? cachedFetch(
+            ? fetchData(
                 `/api/ship-growth/bounds?period_tag=${encodeURIComponent(firstLivePeriod.period_tag)}&table_version=${encodeURIComponent(firstLivePeriod.table_version)}`,
               )
             : Promise.resolve(null),
@@ -980,7 +982,8 @@ export default function ShipGrowthPanel() {
         let mergedBounds = normalizeBoundRows(cumulativeJson.bounds);
         let mergedCaps = normalizeCapRows(cumulativeJson.caps);
 
-        if (liveRes?.ok && firstLivePeriod) {
+        if (liveRes && !liveRes.ok) throw new Error(`bounds HTTP ${liveRes.status}`);
+        if (liveRes && firstLivePeriod) {
           const parsedLive = ShipGrowthBoundsResponseSchema.safeParse(
             await liveRes.json(),
           );
@@ -1014,7 +1017,7 @@ export default function ShipGrowthPanel() {
         throw new Error("期間データの解決に失敗しました。");
       }
       const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(resolvedLivePeriod.period_tag)}&table_version=${encodeURIComponent(resolvedLivePeriod.table_version)}`;
-      const boundsRes = await cachedFetch(boundsUrl);
+      const boundsRes = await fetchData(boundsUrl);
       if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
       const parsedBounds = ShipGrowthBoundsResponseSchema.safeParse(
         await boundsRes.json(),
@@ -1033,6 +1036,15 @@ export default function ShipGrowthPanel() {
     } catch (e) {
       // Only surface error if this fetch is still the current one.
       if (isCurrentFetch()) {
+        batch(() => {
+          setExpRows([]);
+          setExpSourcePeriod(null);
+          setAllBoundRows([]);
+          setAllCapRows([]);
+          setAllPeriodsEntries([]);
+          setBoundRows([]);
+          setSelectedCap(null);
+        });
         setError(
           `成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
         );
@@ -1176,7 +1188,7 @@ export default function ShipGrowthPanel() {
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
     const sharePeriod = isLatestPeriod(period)
-      ? periods().find((p) => p.source === "live") ?? null
+      ? selectLatestShipGrowthPeriod(periods().filter((p) => p.source === "live"))
       : period;
     if (!sharePeriod) return null;
     // Cumulative and all-periods are synthetic local-only selections; share
@@ -1282,6 +1294,7 @@ export default function ShipGrowthPanel() {
   });
 
   onCleanup(() => {
+    ++fetchGrowthDataVersion;
     expChart?.destroy();
     boundsChart?.destroy();
   });
@@ -1320,7 +1333,7 @@ export default function ShipGrowthPanel() {
               periods().length === 0 ||
               selectedMasterId() == null
             }
-            onClick={() => fetchGrowthData()}
+            onClick={() => fetchGrowthData(true)}
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

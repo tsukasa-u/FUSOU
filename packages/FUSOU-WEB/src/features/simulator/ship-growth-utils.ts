@@ -103,10 +103,15 @@ export const ShipGrowthExpResponseSchema = z
   .object({
     ok: z.boolean(),
     exp: z.array(ShipGrowthExpRowSchema).optional(),
+    rows: z.array(ShipGrowthExpRowSchema).optional(),
     updated_at: z.number().finite().optional(),
     updated_at_iso: z.string().nullable().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .refine((value) => !value.ok || value.exp !== undefined || value.rows !== undefined, {
+    message: "Successful EXP response must include exp or rows",
+  })
+  .transform((value) => ({ ...value, exp: value.exp ?? value.rows ?? [] }));
 
 export const ShipGrowthBoundsResponseSchema = z
   .object({
@@ -116,25 +121,29 @@ export const ShipGrowthBoundsResponseSchema = z
     updated_at: z.number().finite().optional(),
     updated_at_iso: z.string().nullable().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .refine((value) => !value.ok || (value.bounds !== undefined && value.caps !== undefined), {
+    message: "Successful bounds response must include bounds and caps",
+  });
+
+const ShipGrowthAllPeriodsEntrySchema = z.object({
+  period_tag: z.string().min(1),
+  table_version: z.string().min(1),
+  bounds: z.array(ShipGrowthBoundSchema),
+  caps: z.array(ShipGrowthCapSchema),
+}).passthrough();
 
 export const ShipGrowthAllPeriodsResponseSchema = z
   .object({
     ok: z.boolean(),
-    entries: z
-      .array(
-        z
-          .object({
-            period_tag: z.string().min(1),
-            table_version: z.string().min(1),
-            bounds: z.array(ShipGrowthBoundSchema),
-            caps: z.array(ShipGrowthCapSchema),
-          })
-          .passthrough(),
-      )
-      .optional(),
+    entries: z.array(ShipGrowthAllPeriodsEntrySchema).optional(),
+    periods: z.array(ShipGrowthAllPeriodsEntrySchema).optional(),
   })
-  .passthrough();
+  .passthrough()
+  .refine((value) => !value.ok || value.entries !== undefined || value.periods !== undefined, {
+    message: "Successful all-periods response must include entries or periods",
+  })
+  .transform((value) => ({ ...value, entries: value.entries ?? value.periods ?? [] }));
 
 export function normalizeShipGrowthCaps(
   raw: ShipGrowthCaps | null,

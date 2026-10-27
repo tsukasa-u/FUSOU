@@ -2,11 +2,15 @@ import type { Context } from "hono";
 import type { R2Bucket, R2ObjectBody } from "@cloudflare/workers-types";
 import { brotliCompress, brotliDecompress, constants } from "node:zlib";
 import { promisify } from "node:util";
+import { z } from "zod";
+import { compareTableVersions } from "../../features/battles/helpers";
 import type { Bindings, D1Database } from "../types";
 import {
   ShipGrowthArchiveBoundsRowSchema,
   ShipGrowthArchiveCapsRowSchema,
   ShipGrowthBoundsUpdatedRowSchema,
+  ShipGrowthBoundsRowSchema,
+  ShipGrowthCapsRowSchema,
   ShipGrowthCapsUpdatedRowSchema,
   ShipGrowthCountRowSchema,
   ShipGrowthExpUpdatedRowSchema,
@@ -21,6 +25,55 @@ export const SHIP_GROWTH_SNAPSHOT_PREFIX = "snapshots/ship_growth/";
 export const SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY = "snapshots/ship_growth/summary.json.br";
 export const SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY = "snapshots/ship_growth/cumulative.json.br";
 export const SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY = "snapshots/ship_growth/all_periods.json.br";
+export const SHIP_GROWTH_MANIFEST_KEY = `${SHIP_GROWTH_SNAPSHOT_PREFIX}manifest.json`;
+export const MAX_SHIP_GROWTH_JSON_BYTES = 16 * 1024 * 1024;
+
+const ManifestSchema = z.object({
+  schema_version: z.literal(1),
+  generation: z.string().min(1),
+  objects: z.record(z.string().startsWith(`${SHIP_GROWTH_SNAPSHOT_PREFIX}generations/`)),
+});
+type SnapshotManifest = z.infer<typeof ManifestSchema>;
+class SnapshotPublicationConflict extends Error {}
+
+async function loadManifest(bucket: R2Bucket) {
+  const object = await bucket.get(SHIP_GROWTH_MANIFEST_KEY);
+  return object
+    ? { manifest: ManifestSchema.parse(await object.json()), etag: object.etag }
+    : null;
+}
+
+export async function getShipGrowthSnapshot(
+  bucket: R2Bucket,
+  key: string,
+): Promise<R2ObjectBody | null> {
+  const current = await loadManifest(bucket);
+  if (!current) return bucket.get(key);
+  const physicalKey = current.manifest.objects[key];
+  if (!physicalKey) return null;
+  const object = await bucket.get(physicalKey);
+  if (!object) throw new Error(`Published ship-growth snapshot is missing: ${physicalKey}`);
+  return object;
+}
+
+async function publishManifest(
+  bucket: R2Bucket,
+  manifest: SnapshotManifest,
+  previousEtag: string | undefined,
+): Promise<void> {
+  const json = JSON.stringify(manifest);
+  const history = await bucket.put(
+    `${SHIP_GROWTH_SNAPSHOT_PREFIX}generations/${manifest.generation}/manifest.json`,
+    json,
+    { httpMetadata: { contentType: "application/json" } },
+  );
+  if (!history) throw new Error("Failed to save ship-growth manifest history");
+  const result = await bucket.put(SHIP_GROWTH_MANIFEST_KEY, json, {
+    httpMetadata: { contentType: "application/json" },
+    onlyIf: previousEtag ? { etagMatches: previousEtag } : { etagDoesNotMatch: "*" },
+  });
+  if (!result) throw new SnapshotPublicationConflict("Ship-growth publication conflict; retry with fresh inputs");
+}
 
 /**
  * Normalizes table version string to standard semantic version format (e.g. "0.5" -> "0.5.0").
@@ -49,12 +102,18 @@ export function getShipGrowthExpSnapshotKey(periodTag: string, tableVersion: str
 export async function compressJsonToBrotli(data: unknown): Promise<Uint8Array> {
   const jsonStr = typeof data === "string" ? data : JSON.stringify(data);
   const buf = Buffer.from(jsonStr, "utf-8");
+  if (buf.byteLength > MAX_SHIP_GROWTH_JSON_BYTES) {
+    throw new Error("Ship-growth JSON exceeds the 16 MiB snapshot limit");
+  }
   const compressed = await brotliCompressAsync(buf, {
     params: {
       [constants.BROTLI_PARAM_QUALITY]: 6,
       [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT,
     },
   });
+  if (compressed.byteLength > MAX_SHIP_GROWTH_JSON_BYTES) {
+    throw new Error("Compressed ship-growth snapshot exceeds the 16 MiB input limit");
+  }
   return new Uint8Array(compressed.buffer, compressed.byteOffset, compressed.byteLength);
 }
 
@@ -62,9 +121,18 @@ export async function compressJsonToBrotli(data: unknown): Promise<Uint8Array> {
  * Decompresses Brotli binary buffer into parsed JSON object.
  */
 export async function decompressBrotliToJson<T>(data: ArrayBuffer | Uint8Array): Promise<T> {
-  const buf = Buffer.from(data as ArrayBuffer);
-  const decompressed = await brotliDecompressAsync(buf);
-  return JSON.parse(decompressed.toString("utf-8")) as T;
+  const buf = data instanceof Uint8Array ? Buffer.from(data) : Buffer.from(data);
+  if (buf.byteLength > MAX_SHIP_GROWTH_JSON_BYTES) {
+    throw new Error("Ship-growth snapshot exceeds the 16 MiB input limit");
+  }
+  // Legacy snapshots can contain plain JSON under a .br key.
+  try {
+    return JSON.parse(buf.toString("utf-8")) as T;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+  const decoded = await brotliDecompressAsync(buf, { maxOutputLength: MAX_SHIP_GROWTH_JSON_BYTES });
+  return JSON.parse(decoded.toString("utf-8")) as T;
 }
 
 /**
@@ -88,16 +156,12 @@ export async function serveShipGrowthSnapshot(
     headers.set("ETag", r2Obj.httpEtag);
   }
 
-  const buf = await r2Obj.arrayBuffer();
-  let jsonText: string;
-  try {
-    const decompressed = await brotliDecompressAsync(Buffer.from(buf));
-    jsonText = decompressed.toString("utf-8");
-  } catch {
-    jsonText = Buffer.from(buf).toString("utf-8");
+  if (r2Obj.size > MAX_SHIP_GROWTH_JSON_BYTES) {
+    throw new Error("Ship-growth snapshot exceeds the 16 MiB input limit");
   }
-
-  return new Response(jsonText, { status: 200, headers });
+  const value = z.object({ ok: z.literal(true) }).passthrough()
+    .parse(await decompressBrotliToJson<unknown>(await r2Obj.arrayBuffer()));
+  return new Response(JSON.stringify(value), { status: 200, headers });
 }
 
 /**
@@ -110,7 +174,7 @@ export async function putShipGrowthSnapshot(
   customMetadata?: Record<string, string>,
 ): Promise<void> {
   const compressed = await compressJsonToBrotli(data);
-  await bucket.put(key, compressed, {
+  const result = await bucket.put(key, compressed, {
     httpMetadata: {
       contentType: "application/json; charset=utf-8",
       contentEncoding: "br",
@@ -120,6 +184,7 @@ export async function putShipGrowthSnapshot(
       ...customMetadata,
     },
   });
+  if (!result) throw new Error(`Failed to write ship-growth snapshot: ${key}`);
 }
 
 export interface ShipGrowthBoundsPayload {
@@ -167,6 +232,49 @@ export interface ShipGrowthSummaryPayload {
   archive_object_count: number;
 }
 
+type Bound = ShipGrowthBoundsPayload["bounds"][number];
+type Cap = ShipGrowthBoundsPayload["caps"][number];
+
+function emptyPeriod() {
+  return { bounds: new Map<string, Bound>(), caps: new Map<number, Cap>() };
+}
+
+function observedMinimum(a: number, b: number): number {
+  return a > 0 && b > 0 ? Math.min(a, b) : Math.max(0, a, b);
+}
+
+function mergeBound(rows: Map<string, Bound>, row: Bound): void {
+  const key = `${row.master_id}:${row.lv}`;
+  const current = rows.get(key);
+  rows.set(key, {
+    master_id: row.master_id,
+    lv: row.lv,
+    kaihi_naked: observedMinimum(current?.kaihi_naked ?? 0, row.kaihi_naked),
+    taisen_naked: observedMinimum(current?.taisen_naked ?? 0, row.taisen_naked),
+    sakuteki_naked: observedMinimum(current?.sakuteki_naked ?? 0, row.sakuteki_naked),
+    lucky_naked: observedMinimum(current?.lucky_naked ?? 0, row.lucky_naked),
+  });
+}
+
+function mergeCap(rows: Map<number, Cap>, row: Cap): void {
+  const current = rows.get(row.master_id);
+  rows.set(row.master_id, {
+    master_id: row.master_id,
+    kaihi_max: Math.max(current?.kaihi_max ?? 0, row.kaihi_max),
+    taisen_max: Math.max(current?.taisen_max ?? 0, row.taisen_max),
+    sakuteki_max: Math.max(current?.sakuteki_max ?? 0, row.sakuteki_max),
+  });
+}
+
+async function listDatabasePeriods(db: D1Database) {
+  const result = await db.prepare(
+    "SELECT period_tag, table_version FROM ship_growth_bounds " +
+    "UNION SELECT period_tag, table_version FROM ship_growth_caps " +
+    "UNION SELECT period_tag, table_version FROM ship_level_exp_pairs",
+  ).all();
+  return ShipGrowthPeriodRowSchema.array().parse(result.results ?? []);
+}
+
 /**
  * Builds bounds snapshot for a period from D1.
  */
@@ -175,9 +283,11 @@ export async function buildShipGrowthBoundsSnapshotFromD1(
   periodTag: string,
   tableVersion: string,
 ): Promise<ShipGrowthBoundsPayload> {
+  const version = normalizeTableVersion(tableVersion);
+  const legacyVersion = version === "0.5.0" ? "0.5" : version;
   const countRes = await db
-    .prepare("SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?")
-    .bind(periodTag, tableVersion)
+    .prepare("SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version IN (?, ?)")
+    .bind(periodTag, version, legacyVersion)
     .first();
   const parsedCount = ShipGrowthCountRowSchema.safeParse(countRes);
   if (!parsedCount.success) {
@@ -202,9 +312,9 @@ export async function buildShipGrowthBoundsSnapshotFromD1(
         db.prepare(
           "SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at " +
           "FROM ship_growth_bounds " +
-          "WHERE period_tag = ? AND table_version = ? " +
+          "WHERE period_tag = ? AND table_version IN (?, ?) " +
           "ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?"
-        ).bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
+        ).bind(periodTag, version, legacyVersion, BOUNDS_PAGE, offset)
       );
     }
     const BATCH_LIMIT = 100;
@@ -226,9 +336,9 @@ export async function buildShipGrowthBoundsSnapshotFromD1(
     .prepare(
       "SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at " +
       "FROM ship_growth_caps " +
-      "WHERE period_tag = ? AND table_version = ?",
+      "WHERE period_tag = ? AND table_version IN (?, ?)",
     )
-    .bind(periodTag, tableVersion)
+    .bind(periodTag, version, legacyVersion)
     .all();
   const parsedCaps = ShipGrowthCapsUpdatedRowSchema.array().safeParse(
     capsResult.results ?? [],
@@ -238,12 +348,15 @@ export async function buildShipGrowthBoundsSnapshotFromD1(
   }
   const capsRows = parsedCaps.data;
 
+  const merged = emptyPeriod();
+  for (const row of boundsRows) mergeBound(merged.bounds, row);
+  for (const row of capsRows) mergeCap(merged.caps, row);
   return {
     ok: true,
     period_tag: periodTag,
-    table_version: tableVersion,
+    table_version: version,
     schema_version: 3,
-    bounds: boundsRows.map((r) => ({
+    bounds: [...merged.bounds.values()].map((r) => ({
       master_id: r.master_id,
       lv: r.lv,
       kaihi_naked: r.kaihi_naked,
@@ -251,7 +364,7 @@ export async function buildShipGrowthBoundsSnapshotFromD1(
       sakuteki_naked: r.sakuteki_naked,
       lucky_naked: r.lucky_naked,
     })),
-    caps: capsRows.map((r) => ({
+    caps: [...merged.caps.values()].map((r) => ({
       master_id: r.master_id,
       kaihi_max: r.kaihi_max,
       taisen_max: r.taisen_max,
@@ -268,13 +381,15 @@ export async function buildShipGrowthExpSnapshotFromD1(
   periodTag: string,
   tableVersion: string,
 ): Promise<ShipGrowthExpPayload> {
+  const version = normalizeTableVersion(tableVersion);
+  const legacyVersion = version === "0.5.0" ? "0.5" : version;
   const rowsResult = await db
     .prepare(
       "SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs " +
-      "WHERE period_tag = ? AND table_version = ? " +
+      "WHERE period_tag = ? AND table_version IN (?, ?) " +
       "ORDER BY lv ASC",
     )
-    .bind(periodTag, tableVersion)
+    .bind(periodTag, version, legacyVersion)
     .all();
   const parsedRows = ShipGrowthExpUpdatedRowSchema.array().safeParse(
     rowsResult.results ?? [],
@@ -282,14 +397,22 @@ export async function buildShipGrowthExpSnapshotFromD1(
   if (!parsedRows.success) {
     throw new Error("Invalid ship-growth exp rows");
   }
-  const mappedRows = parsedRows.data.map((r) => ({
-    lv: r.lv,
-    exp_current: r.exp_current,
+  const byLevel = new Map<number, number>();
+  for (const row of parsedRows.data) {
+    const previous = byLevel.get(row.lv);
+    if (previous !== undefined && previous !== row.exp_current) {
+      throw new Error(`Conflicting ship-growth EXP observations at level ${row.lv}`);
+    }
+    byLevel.set(row.lv, row.exp_current);
+  }
+  const mappedRows = [...byLevel].map(([lv, exp_current]) => ({
+    lv,
+    exp_current,
   }));
   return {
     ok: true,
     period_tag: periodTag,
-    table_version: tableVersion,
+    table_version: version,
     exp: mappedRows,
     rows: mappedRows,
   };
@@ -299,7 +422,7 @@ export async function buildShipGrowthExpSnapshotFromD1(
  * Rebuilds all snapshots from D1 and R2 archives.
  */
 export async function rebuildAllShipGrowthSnapshots(
-  env: Bindings,
+  env: Pick<Bindings, "SHIP_GROWTH_ARCHIVE_BUCKET">,
   db?: D1Database,
 ): Promise<{
   generated: string[];
@@ -312,11 +435,21 @@ export async function rebuildAllShipGrowthSnapshots(
   }
 
   const generated: string[] = [];
+  const previous = await loadManifest(archiveBucket);
+  const generation = crypto.randomUUID();
+  const objects: Record<string, string> = {};
+  const save = async (key: string, value: unknown) => {
+    const physicalKey = `${SHIP_GROWTH_SNAPSHOT_PREFIX}generations/${generation}/${key.slice(SHIP_GROWTH_SNAPSHOT_PREFIX.length)}`;
+    await putShipGrowthSnapshot(archiveBucket, physicalKey, value);
+    objects[key] = physicalKey;
+    generated.push(physicalKey);
+  };
 
   // 1. List all archive objects in R2
   const archiveObjects: string[] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < 50; page += 1) {
+  const seenCursors = new Set<string>();
+  while (true) {
     const listed = await archiveBucket.list({
       prefix: "ship-growth/archive/",
       ...(cursor !== undefined ? { cursor } : {}),
@@ -327,7 +460,10 @@ export async function rebuildAllShipGrowthSnapshots(
     }
     if (!listed.truncated) break;
     cursor = listed.cursor;
-    if (!cursor) break;
+    if (!cursor || seenCursors.has(cursor)) {
+      throw new Error("Incomplete ship-growth archive listing");
+    }
+    seenCursors.add(cursor);
   }
 
   // 2. Aggregate data from all archive objects
@@ -342,15 +478,18 @@ export async function rebuildAllShipGrowthSnapshots(
 
   for (const key of archiveObjects) {
     const obj = await archiveBucket.get(key);
-    if (!obj) continue;
-    const text = await obj.text();
-    let parsed: any;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      continue;
+    if (!obj) throw new Error(`Missing ship-growth archive: ${key}`);
+    if (obj.size > MAX_SHIP_GROWTH_JSON_BYTES) {
+      throw new Error(`Ship-growth archive exceeds the 16 MiB limit: ${key}`);
     }
-    if (!parsed || !parsed.rows) continue;
+    const text = await obj.text();
+    const parsed = z.object({
+      archived_at: z.number().finite(),
+      rows: z.object({
+        bounds: z.array(ShipGrowthArchiveBoundsRowSchema),
+        caps: z.array(ShipGrowthArchiveCapsRowSchema),
+      }),
+    }).passthrough().parse(JSON.parse(text));
 
     const archivedAt = Number(parsed.archived_at) || 0;
     if (archivedAt > lastArchivedAtSec) lastArchivedAtSec = archivedAt;
@@ -360,7 +499,7 @@ export async function rebuildAllShipGrowthSnapshots(
 
     for (const raw of boundsList) {
       const p = ShipGrowthArchiveBoundsRowSchema.safeParse(raw);
-      if (!p.success) continue;
+      if (!p.success) throw new Error(`Invalid ship-growth bounds in ${key}`);
       const r = p.data;
       const normalizedVersion = normalizeTableVersion(r.table_version);
       const periodKey = `${r.period_tag}/${normalizedVersion}`;
@@ -382,10 +521,7 @@ export async function rebuildAllShipGrowthSnapshots(
           lucky_naked: Math.max(0, r.lucky_naked),
         });
       } else {
-        existing.kaihi_naked = Math.min(existing.kaihi_naked, Math.max(0, r.kaihi_naked));
-        existing.taisen_naked = Math.min(existing.taisen_naked, Math.max(0, r.taisen_naked));
-        existing.sakuteki_naked = Math.min(existing.sakuteki_naked, Math.max(0, r.sakuteki_naked));
-        existing.lucky_naked = Math.min(existing.lucky_naked, Math.max(0, r.lucky_naked));
+        mergeBound(pEntry.bounds, r);
       }
 
       // Cumulative min merge
@@ -400,16 +536,13 @@ export async function rebuildAllShipGrowthSnapshots(
           lucky_naked: Math.max(0, r.lucky_naked),
         });
       } else {
-        cExisting.kaihi_naked = Math.min(cExisting.kaihi_naked, Math.max(0, r.kaihi_naked));
-        cExisting.taisen_naked = Math.min(cExisting.taisen_naked, Math.max(0, r.taisen_naked));
-        cExisting.sakuteki_naked = Math.min(cExisting.sakuteki_naked, Math.max(0, r.sakuteki_naked));
-        cExisting.lucky_naked = Math.min(cExisting.lucky_naked, Math.max(0, r.lucky_naked));
+        mergeBound(cumulativeBoundsMap, r);
       }
     }
 
     for (const raw of capsList) {
       const p = ShipGrowthArchiveCapsRowSchema.safeParse(raw);
-      if (!p.success) continue;
+      if (!p.success) throw new Error(`Invalid ship-growth caps in ${key}`);
       const r = p.data;
       const normalizedVersion = normalizeTableVersion(r.table_version);
       const periodKey = `${r.period_tag}/${normalizedVersion}`;
@@ -452,41 +585,9 @@ export async function rebuildAllShipGrowthSnapshots(
   const allPeriodsEntries: Array<{
     period_tag: string;
     table_version: string;
-    bounds: any[];
-    caps: any[];
+    bounds: Bound[];
+    caps: Cap[];
   }> = [];
-
-  for (const [periodKey, data] of pastPeriodsMap.entries()) {
-    const parts = periodKey.split("/");
-    const periodTag = parts[0] || "";
-    const tableVersion = normalizeTableVersion(parts[1] || "");
-    if (!periodTag || !tableVersion) continue;
-    const boundsArr = Array.from(data.bounds.values()).sort(
-      (a, b) => a.master_id - b.master_id || a.lv - b.lv,
-    );
-    const capsArr = Array.from(data.caps.values()).sort(
-      (a, b) => a.master_id - b.master_id,
-    );
-
-    const payload: ShipGrowthBoundsPayload = {
-      ok: true,
-      period_tag: periodTag,
-      table_version: tableVersion,
-      schema_version: 3,
-      bounds: boundsArr,
-      caps: capsArr,
-    };
-    const key = getShipGrowthBoundsSnapshotKey(periodTag, tableVersion);
-    await putShipGrowthSnapshot(archiveBucket, key, payload);
-    generated.push(key);
-
-    allPeriodsEntries.push({
-      period_tag: periodTag,
-      table_version: tableVersion,
-      bounds: boundsArr,
-      caps: capsArr,
-    });
-  }
 
   // 4. Query D1 for latest periods if db is provided
   const periodTagSet = new Map<string, { period_tag: string; table_version: string }>();
@@ -501,65 +602,44 @@ export async function rebuildAllShipGrowthSnapshots(
   }
 
   if (db) {
-    try {
-      const d1PeriodsRes = await db
-        .prepare("SELECT DISTINCT period_tag, table_version FROM ship_growth_bounds ORDER BY period_tag DESC, table_version DESC LIMIT 20")
-        .all();
-      const parsedD1Periods = ShipGrowthPeriodRowSchema.array().safeParse(d1PeriodsRes.results ?? []);
-      if (parsedD1Periods.success) {
-        for (const p of parsedD1Periods.data) {
-          const normalizedVersion = normalizeTableVersion(p.table_version);
-          const normalizedP = { period_tag: p.period_tag, table_version: normalizedVersion };
-          periodTagSet.set(`${normalizedP.period_tag}_${normalizedP.table_version}`, normalizedP);
-
-          // Build & save bounds snapshot from D1
-          const boundsPayload = await buildShipGrowthBoundsSnapshotFromD1(db, normalizedP.period_tag, normalizedP.table_version);
-          const boundsKey = getShipGrowthBoundsSnapshotKey(normalizedP.period_tag, normalizedP.table_version);
-          await putShipGrowthSnapshot(archiveBucket, boundsKey, boundsPayload);
-          generated.push(boundsKey);
-
-          // Also include in cumulative
-          for (const b of boundsPayload.bounds) {
-            const bKey = `${b.master_id}:${b.lv}`;
-            const cExisting = cumulativeBoundsMap.get(bKey);
-            if (!cExisting) {
-              cumulativeBoundsMap.set(bKey, { ...b });
-            } else {
-              cExisting.kaihi_naked = Math.min(cExisting.kaihi_naked, b.kaihi_naked);
-              cExisting.taisen_naked = Math.min(cExisting.taisen_naked, b.taisen_naked);
-              cExisting.sakuteki_naked = Math.min(cExisting.sakuteki_naked, b.sakuteki_naked);
-              cExisting.lucky_naked = Math.min(cExisting.lucky_naked, b.lucky_naked);
-            }
-          }
-          for (const cap of boundsPayload.caps) {
-            const cCap = cumulativeCapsMap.get(cap.master_id);
-            if (!cCap) {
-              cumulativeCapsMap.set(cap.master_id, { ...cap });
-            } else {
-              cCap.kaihi_max = Math.max(cCap.kaihi_max, cap.kaihi_max);
-              cCap.taisen_max = Math.max(cCap.taisen_max, cap.taisen_max);
-              cCap.sakuteki_max = Math.max(cCap.sakuteki_max, cap.sakuteki_max);
-            }
-          }
-
-          // Also include in allPeriodsEntries
-          allPeriodsEntries.push({
-            period_tag: normalizedP.period_tag,
-            table_version: normalizedP.table_version,
-            bounds: boundsPayload.bounds,
-            caps: boundsPayload.caps,
-          });
-
-          // Build & save exp snapshot from D1
-          const expPayload = await buildShipGrowthExpSnapshotFromD1(db, normalizedP.period_tag, normalizedP.table_version);
-          const expKey = getShipGrowthExpSnapshotKey(normalizedP.period_tag, normalizedP.table_version);
-          await putShipGrowthSnapshot(archiveBucket, expKey, expPayload);
-          generated.push(expKey);
-        }
+    const processed = new Set<string>();
+    for (const p of await listDatabasePeriods(db)) {
+      const version = normalizeTableVersion(p.table_version);
+      const periodKey = `${p.period_tag}/${version}`;
+      if (processed.has(periodKey)) continue;
+      processed.add(periodKey);
+      periodTagSet.set(`${p.period_tag}_${version}`, { period_tag: p.period_tag, table_version: version });
+      const payload = await buildShipGrowthBoundsSnapshotFromD1(db, p.period_tag, version);
+      const data = pastPeriodsMap.get(periodKey) ?? emptyPeriod();
+      for (const row of payload.bounds) {
+        mergeBound(data.bounds, row);
+        mergeBound(cumulativeBoundsMap, row);
       }
-    } catch (d1Err) {
-      console.warn("[ship-growth] Failed to query D1 periods during snapshot rebuild:", d1Err);
+      for (const row of payload.caps) {
+        mergeCap(data.caps, row);
+        mergeCap(cumulativeCapsMap, row);
+      }
+      pastPeriodsMap.set(periodKey, data);
+      await save(
+        getShipGrowthExpSnapshotKey(p.period_tag, version),
+        await buildShipGrowthExpSnapshotFromD1(db, p.period_tag, version),
+      );
     }
+  }
+
+  for (const [periodKey, data] of pastPeriodsMap) {
+    const [periodTag, tableVersion] = periodKey.split("/");
+    if (!periodTag || !tableVersion) throw new Error(`Invalid ship-growth period: ${periodKey}`);
+    const bounds = [...data.bounds.values()].sort((a, b) => a.master_id - b.master_id || a.lv - b.lv);
+    const caps = [...data.caps.values()].sort((a, b) => a.master_id - b.master_id);
+    await save(getShipGrowthBoundsSnapshotKey(periodTag, tableVersion), {
+      ok: true, period_tag: periodTag, table_version: tableVersion, schema_version: 3, bounds, caps,
+    });
+    const expKey = getShipGrowthExpSnapshotKey(periodTag, tableVersion);
+    if (!objects[expKey]) {
+      await save(expKey, { ok: true, period_tag: periodTag, table_version: tableVersion, exp: [], rows: [] });
+    }
+    allPeriodsEntries.push({ period_tag: periodTag, table_version: tableVersion, bounds, caps });
   }
 
   // 5. Save cumulative snapshot
@@ -574,23 +654,21 @@ export async function rebuildAllShipGrowthSnapshots(
     archive_object_count: archiveObjects.length,
     last_archived_at_sec: lastArchivedAtSec,
   };
-  await putShipGrowthSnapshot(archiveBucket, SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY, cumulativePayload);
-  generated.push(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY);
+  await save(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY, cumulativePayload);
 
   // 6. Save all_periods snapshot (include both entries and periods for universal schema compatibility)
-  allPeriodsEntries.sort((a, b) => b.period_tag.localeCompare(a.period_tag) || b.table_version.localeCompare(a.table_version));
+  allPeriodsEntries.sort((a, b) => a.period_tag.localeCompare(b.period_tag) || compareTableVersions(a.table_version, b.table_version));
   const allPeriodsPayload = {
     ok: true,
     entries: allPeriodsEntries,
     periods: allPeriodsEntries,
     archive_object_count: archiveObjects.length,
   };
-  await putShipGrowthSnapshot(archiveBucket, SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY, allPeriodsPayload);
-  generated.push(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY);
+  await save(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY, allPeriodsPayload);
 
   // 7. Save summary snapshot
   const sortedPeriods = Array.from(periodTagSet.values()).sort(
-    (a, b) => b.period_tag.localeCompare(a.period_tag) || b.table_version.localeCompare(a.table_version),
+    (a, b) => b.period_tag.localeCompare(a.period_tag) || compareTableVersions(b.table_version, a.table_version),
   );
   const summaryPayload: ShipGrowthSummaryPayload = {
     ok: true,
@@ -598,24 +676,117 @@ export async function rebuildAllShipGrowthSnapshots(
     cumulative_available: cumulativePayload.bounds.length > 0 || archiveObjects.length > 0,
     archive_object_count: archiveObjects.length,
   };
-  await putShipGrowthSnapshot(archiveBucket, SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY, summaryPayload);
-  generated.push(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY);
+  await save(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY, summaryPayload);
 
-  // 8. Clean up legacy unnormalized snapshot keys if any exist (e.g. *_0.5.json.br)
-  try {
-    const legacySnapshots = await archiveBucket.list({ prefix: SHIP_GROWTH_SNAPSHOT_PREFIX });
-    for (const obj of legacySnapshots.objects) {
-      if (obj.key.endsWith("_0.5.json.br")) {
-        await archiveBucket.delete(obj.key);
-      }
-    }
-  } catch (cleanErr) {
-    console.warn("[ship-growth] Failed to clean up legacy snapshots:", cleanErr);
-  }
+  await publishManifest(archiveBucket, { schema_version: 1, generation, objects }, previous?.etag);
 
   return {
     generated,
     periods: sortedPeriods,
     archive_object_count: archiveObjects.length,
   };
+}
+
+export async function refreshShipGrowthPeriodSnapshots(
+  env: Pick<Bindings, "SHIP_GROWTH_ARCHIVE_BUCKET">,
+  db: D1Database,
+  periodTag: string,
+  tableVersion: string,
+): Promise<void> {
+  const bucket = env.SHIP_GROWTH_ARCHIVE_BUCKET;
+  if (!bucket) throw new Error("SHIP_GROWTH_ARCHIVE_BUCKET is not configured");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const current = await loadManifest(bucket);
+      if (!current) {
+        await rebuildAllShipGrowthSnapshots(env, db);
+        return;
+      }
+      const version = normalizeTableVersion(tableVersion);
+      const bounds = await buildShipGrowthBoundsSnapshotFromD1(db, periodTag, version);
+      const boundsKey = getShipGrowthBoundsSnapshotKey(periodTag, version);
+      const previousBoundsKey = current.manifest.objects[boundsKey];
+      if (previousBoundsKey) {
+        const object = await bucket.get(previousBoundsKey);
+        if (!object) throw new Error("Published ship-growth bounds object is missing");
+        const previousBounds = z.object({
+          bounds: z.array(ShipGrowthBoundsRowSchema),
+          caps: z.array(ShipGrowthCapsRowSchema),
+        }).parse(await decompressBrotliToJson<unknown>(await object.arrayBuffer()));
+        const merged = emptyPeriod();
+        for (const row of [...previousBounds.bounds, ...bounds.bounds]) mergeBound(merged.bounds, row);
+        for (const row of [...previousBounds.caps, ...bounds.caps]) mergeCap(merged.caps, row);
+        bounds.bounds = [...merged.bounds.values()].sort((a, b) => a.master_id - b.master_id || a.lv - b.lv);
+        bounds.caps = [...merged.caps.values()].sort((a, b) => a.master_id - b.master_id);
+      }
+      const exp = await buildShipGrowthExpSnapshotFromD1(db, periodTag, version);
+      const summaryKey = current.manifest.objects[SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY];
+      if (!summaryKey) throw new Error("Published ship-growth summary is missing");
+      const summaryObject = await bucket.get(summaryKey);
+      if (!summaryObject) throw new Error("Published ship-growth summary object is missing");
+      const summary = z.object({
+        ok: z.literal(true),
+        periods: z.array(ShipGrowthPeriodRowSchema),
+        cumulative_available: z.boolean(),
+        archive_object_count: z.number().int().nonnegative(),
+      }).parse(await decompressBrotliToJson<unknown>(await summaryObject.arrayBuffer()));
+      const periods = new Map(summary.periods.map((row) => [`${row.period_tag}/${row.table_version}`, row]));
+      periods.set(`${periodTag}/${version}`, { period_tag: periodTag, table_version: version });
+      summary.periods = [...periods.values()].sort((a, b) =>
+        b.period_tag.localeCompare(a.period_tag) || compareTableVersions(b.table_version, a.table_version));
+      summary.cumulative_available ||= bounds.bounds.length > 0;
+      const readAggregate = async (key: string) => {
+        const physicalKey = current.manifest.objects[key];
+        if (!physicalKey) throw new Error(`Published ship-growth aggregate is missing: ${key}`);
+        const object = await bucket.get(physicalKey);
+        if (!object) throw new Error(`Published ship-growth aggregate object is missing: ${key}`);
+        return decompressBrotliToJson<unknown>(await object.arrayBuffer());
+      };
+      const cumulative = z.object({
+        ok: z.literal(true),
+        bounds: z.array(ShipGrowthBoundsRowSchema),
+        caps: z.array(ShipGrowthCapsRowSchema),
+      }).passthrough().parse(await readAggregate(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY));
+      const mergedCumulative = emptyPeriod();
+      for (const row of [...cumulative.bounds, ...bounds.bounds]) mergeBound(mergedCumulative.bounds, row);
+      for (const row of [...cumulative.caps, ...bounds.caps]) mergeCap(mergedCumulative.caps, row);
+      cumulative.bounds = [...mergedCumulative.bounds.values()].sort((a, b) => a.master_id - b.master_id || a.lv - b.lv);
+      cumulative.caps = [...mergedCumulative.caps.values()].sort((a, b) => a.master_id - b.master_id);
+      const allPeriods = z.object({
+        ok: z.literal(true),
+        entries: z.array(z.object({
+          period_tag: z.string(),
+          table_version: z.string(),
+          bounds: z.array(ShipGrowthBoundsRowSchema),
+          caps: z.array(ShipGrowthCapsRowSchema),
+        })),
+      }).passthrough().parse(await readAggregate(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY));
+      const entries = new Map(allPeriods.entries.map((entry) => [
+        `${entry.period_tag}/${entry.table_version}`, entry,
+      ]));
+      entries.set(`${periodTag}/${version}`, {
+        period_tag: periodTag, table_version: version, bounds: bounds.bounds, caps: bounds.caps,
+      });
+      allPeriods.entries = [...entries.values()].sort((a, b) =>
+        a.period_tag.localeCompare(b.period_tag) || compareTableVersions(a.table_version, b.table_version));
+      allPeriods["periods"] = allPeriods.entries;
+      const generation = crypto.randomUUID();
+      const objects = { ...current.manifest.objects };
+      for (const [key, payload] of [
+        [getShipGrowthBoundsSnapshotKey(periodTag, version), bounds],
+        [getShipGrowthExpSnapshotKey(periodTag, version), exp],
+        [SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY, summary],
+        [SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY, cumulative],
+        [SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY, allPeriods],
+      ] as const) {
+        const physicalKey = `${SHIP_GROWTH_SNAPSHOT_PREFIX}generations/${generation}/${key.slice(SHIP_GROWTH_SNAPSHOT_PREFIX.length)}`;
+        await putShipGrowthSnapshot(bucket, physicalKey, payload);
+        objects[key] = physicalKey;
+      }
+      await publishManifest(bucket, { schema_version: 1, generation, objects }, current.etag);
+      return;
+    } catch (error) {
+      if (!(error instanceof SnapshotPublicationConflict) || attempt === 2) throw error;
+    }
+  }
 }

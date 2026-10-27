@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PublicIdSchema } from "./public-id";
 
-const IntegerSchema = z.number().int();
+const IntegerSchema = z.number().int().safe();
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/i);
 
 const ShipGrowthSlotSchema = z
@@ -15,8 +15,8 @@ const ShipGrowthSlotSchema = z
 
 const ShipGrowthEntrySchema = z
   .object({
-    master_id: IntegerSchema,
-    lv: IntegerSchema,
+    master_id: IntegerSchema.positive(),
+    lv: IntegerSchema.positive(),
     exp_current: IntegerSchema,
     exp_to_next: IntegerSchema.nullable(),
     kyouka: z.array(IntegerSchema),

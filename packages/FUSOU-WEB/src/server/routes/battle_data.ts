@@ -2,11 +2,21 @@
 async function decompressSnapshotPayload(arrayBuf: ArrayBuffer): Promise<string> {
   const buf = Buffer.from(arrayBuf);
   try {
-    const decompressed = await brotliDecompressAsync(buf);
-    return decompressed.toString("utf-8");
-  } catch {
-    return buf.toString("utf-8");
+    const text = buf.toString("utf-8");
+    JSON.parse(text);
+    return text;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
   }
+  const decompressed = await brotliDecompressAsync(buf);
+  const text = decompressed.toString("utf-8");
+  JSON.parse(text);
+  return text;
+}
+
+async function getSnapshotObject(bucket: R2Bucket, compressedKey: string) {
+  return await bucket.get(compressedKey) ??
+    await bucket.get(compressedKey.replace(/\.br$/, ""));
 }
 
 async function buildSnapshotResponse(
@@ -34,7 +44,7 @@ async function buildSnapshotResponse(
  * Fully dynamic: zero hardcoded maintenance dates.
  */
 export async function getDynamicSnapshotPeriodTags(
-  bucket: R2Bucket | undefined,
+  bucket: Pick<R2Bucket, "list"> | undefined,
   kv: KVNamespace | undefined,
   db?: D1Database | undefined,
 ): Promise<string[]> {
@@ -57,7 +67,13 @@ export async function getDynamicSnapshotPeriodTags(
 
   if (bucket && typeof bucket.list === "function") {
     try {
-      const listed = await bucket.list({ prefix: "snapshots/overview/" });
+      let cursor: string | undefined;
+      const seenCursors = new Set<string>();
+      do {
+      const listed = await bucket.list({
+        prefix: "snapshots/overview/",
+        ...(cursor ? { cursor } : {}),
+      });
       if (listed && Array.isArray(listed.objects)) {
         for (const obj of listed.objects) {
           const m = obj.key.match(/^snapshots\/overview\/(\d{4}-\d{2}-\d{2})\.json(\.br)?$/);
@@ -66,8 +82,14 @@ export async function getDynamicSnapshotPeriodTags(
           }
         }
       }
+      if (!listed.truncated) break;
+      cursor = listed.cursor;
+      if (!cursor || seenCursors.has(cursor)) throw new Error("Incomplete battle snapshot listing");
+      seenCursors.add(cursor);
+      } while (true);
     } catch (err) {
       console.warn("[battle-data] Failed to list dynamic period tags from R2:", err);
+      throw err;
     }
   }
 
@@ -3287,15 +3309,9 @@ async function getAggregatedOverviewPayload(
 
   const snapshots = await Promise.all(
     periodTags.map(async (tag) => {
-      try {
-        const obj = await bucket.get(`snapshots/overview/${tag}.json.br`);
-        if (!obj) return null;
-        const buf = Buffer.from(await obj.arrayBuffer());
-        const decomp = await brotliDecompressAsync(buf);
-        return JSON.parse(decomp.toString("utf-8"));
-      } catch {
-        return null;
-      }
+        const obj = await getSnapshotObject(bucket, `snapshots/overview/${tag}.json.br`);
+        if (!obj) throw new Error(`Missing overview snapshot: ${tag}`);
+        return JSON.parse(await decompressSnapshotPayload(await obj.arrayBuffer()));
     }),
   );
 
@@ -3387,15 +3403,9 @@ async function getAggregatedDropsPayload(
 
   const snapshots = await Promise.all(
     periodTags.map(async (tag) => {
-      try {
-        const obj = await bucket.get(`snapshots/drops/${tag}.json.br`);
-        if (!obj) return null;
-        const buf = Buffer.from(await obj.arrayBuffer());
-        const decomp = await brotliDecompressAsync(buf);
-        return JSON.parse(decomp.toString("utf-8"));
-      } catch {
-        return null;
-      }
+        const obj = await getSnapshotObject(bucket, `snapshots/drops/${tag}.json.br`);
+        if (!obj) throw new Error(`Missing drops snapshot: ${tag}`);
+        return JSON.parse(await decompressSnapshotPayload(await obj.arrayBuffer()));
     }),
   );
 
@@ -3492,7 +3502,7 @@ app.get("/global/overview", async (c) => {
 
   const activeTag = await resolveSnapshotPeriodTag(bucket, kv, periodTag);
   const snapshotKey = `snapshots/overview/${activeTag}.json.br`;
-  const snapshotObj = await bucket.get(snapshotKey);
+  const snapshotObj = await getSnapshotObject(bucket, snapshotKey);
   if (!snapshotObj) {
     return c.json(
       {
@@ -3553,7 +3563,7 @@ app.get("/global/drops", async (c) => {
 
   const activeTag = await resolveSnapshotPeriodTag(bucket, kv, periodTag);
   const snapshotKey = `snapshots/drops/${activeTag}.json.br`;
-  const snapshotObj = await bucket.get(snapshotKey);
+  const snapshotObj = await getSnapshotObject(bucket, snapshotKey);
   if (!snapshotObj) {
     return c.json(
       {
@@ -3641,7 +3651,7 @@ app.get("/detail-env", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_cache_v", "8");
+  cacheUrl.searchParams.set("_cache_v", "9");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
   if (cache && c.req.header("cache-control") !== "no-cache") {
@@ -3663,7 +3673,7 @@ app.get("/detail-env", async (c) => {
 
   const env = createEnvContext(c);
   const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
-  const kvKey = `v8:battle_env_detail:${periodTag}:${envUuid}`;
+  const kvKey = `v9:battle_env_detail:${periodTag}:${envUuid}`;
 
   if (cacheKV && c.req.header("cache-control") !== "no-cache") {
     try {
@@ -3867,7 +3877,7 @@ app.get("/detail", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_cache_v", "8");
+  cacheUrl.searchParams.set("_cache_v", "9");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
   if (cache && c.req.header("cache-control") !== "no-cache") {
@@ -3891,7 +3901,7 @@ app.get("/detail", async (c) => {
 
   const env = createEnvContext(c);
   const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as KVNamespace | undefined;
-  const kvKey = `v8:battle_detail:${envUuid}:${battleIndexRaw}`;
+  const kvKey = `v9:battle_detail:${periodTag}:${envUuid}:${battleIndex}`;
 
   // 1. Fast KV cache lookup (10-30ms) across all Cloudflare edge locations
   if (cacheKV && c.req.header("cache-control") !== "no-cache") {
@@ -3932,8 +3942,8 @@ app.get("/detail", async (c) => {
     }
     const tryResolveDetail = async (targetTag: string): Promise<Response | null> => {
       // 1. Direct single-battle snapshot check in R2 (checks plain .json and .json.br in parallel)
-      const directKeyJson = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json`;
-      const directKeyBr = `snapshots/detail/${targetTag}/${envUuid}_${battleIndexRaw}.json.br`;
+      const directKeyJson = `snapshots/detail/${targetTag}/${envUuid}_${battleIndex}.json`;
+      const directKeyBr = `snapshots/detail/${targetTag}/${envUuid}_${battleIndex}.json.br`;
       const tDirect = performance.now();
       const [jsonObj, brObj] = await Promise.all([
         bucket.get(directKeyJson),
@@ -4013,8 +4023,8 @@ app.get("/detail", async (c) => {
           if (bundle.tables && typeof bundle.tables === "object") {
             const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] =
               await Promise.all([
-                fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
-                fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
+                fetchMasterDataJsonDirect(c, "mst_ship", bundle.period_tag || targetTag),
+                fetchMasterDataJsonDirect(c, "mst_slotitem", bundle.period_tag || targetTag),
                 fetchWeaponIconFramesDirect(c).catch(() => ({})),
               ]);
             const resolvedDetail = resolveBattleDetail({
@@ -4385,8 +4395,8 @@ app.post("/internal/rebuild-detail-snapshots", async (c) => {
   const env = createEnvContext(c);
   const authHeader = c.req.header("authorization") || "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  const adminToken = getEnv(env, "ADMIN_TOKEN") || getEnv(env, "INTERNAL_COMPACTION_TOKEN");
-  if ((!adminToken || token !== adminToken)) {
+  const tokens = [getEnv(env, "ADMIN_TOKEN"), getEnv(env, "INTERNAL_COMPACTION_TOKEN")];
+  if (!token || !tokens.some((expected) => expected && timingSafeEqual(token, expected))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -4397,18 +4407,14 @@ app.post("/internal/rebuild-detail-snapshots", async (c) => {
   }
 
   const tags = await getDynamicSnapshotPeriodTags(bucket, kv);
-  const [mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload] = await Promise.all([
-    fetchMasterDataJsonDirect(c, "mst_ship").catch(() => ({ table_name: "mst_ship", table_version: null, period_tag: null, period_revision: null, records: [] })),
-    fetchMasterDataJsonDirect(c, "mst_slotitem").catch(() => ({ table_name: "mst_slotitem", table_version: null, period_tag: null, period_revision: null, records: [] })),
-    fetchWeaponIconFramesDirect(c).catch(() => ({})),
-  ]);
+  const weaponIconFramesPayload = await fetchWeaponIconFramesDirect(c);
 
   let totalSortiesProcessed = 0;
   let totalBattlesGenerated = 0;
 
   for (const tag of tags) {
-    const overviewObj = await bucket.get(`snapshots/overview/${tag}.json.br`);
-    if (!overviewObj) continue;
+    const overviewObj = await getSnapshotObject(bucket, `snapshots/overview/${tag}.json.br`);
+    if (!overviewObj) return c.json({ error: `Missing overview snapshot: ${tag}` }, 503);
     const overviewText = await decompressSnapshotPayload(await overviewObj.arrayBuffer());
     const overviewData = JSON.parse(overviewText);
     const battlesList = Array.isArray(overviewData.battles) ? overviewData.battles : [];
@@ -4421,12 +4427,19 @@ app.post("/internal/rebuild-detail-snapshots", async (c) => {
       totalSortiesProcessed++;
       const envKey = `snapshots/env_detail/${tag}/${envUuid}.json.br`;
       const envObj = await bucket.get(envKey);
-      if (!envObj) continue;
+      if (!envObj) return c.json({ error: `Missing sortie snapshot: ${envUuid}` }, 503);
 
       try {
         const text = await decompressSnapshotPayload(await envObj.arrayBuffer());
         const bundle = JSON.parse(text);
-        if (!bundle.tables || typeof bundle.tables !== "object") continue;
+        if (!bundle.tables || typeof bundle.tables !== "object") {
+          throw new Error("Sortie snapshot has no raw tables");
+        }
+        const effectivePeriod = bundle.period_tag || tag;
+        const [mstShipPayload, mstSlotItemPayload] = await Promise.all([
+          fetchMasterDataJsonDirect(c, "mst_ship", effectivePeriod),
+          fetchMasterDataJsonDirect(c, "mst_slotitem", effectivePeriod),
+        ]);
 
         const battles = Array.isArray(bundle.tables["battle"]) ? bundle.tables["battle"] : [];
         const resolvedBattlesMap: Record<string, unknown> = {};
@@ -4495,8 +4508,17 @@ app.post("/internal/rebuild-detail-snapshots", async (c) => {
             contentEncoding: "br",
           },
         });
+        if (kv) {
+          for (const period of new Set([tag, "latest", "all"])) {
+            await kv.delete(`v9:battle_env_detail:${period}:${envUuid}`);
+            for (const index of Object.keys(resolvedBattlesMap)) {
+              await kv.delete(`v9:battle_detail:${period}:${envUuid}:${index}`);
+            }
+          }
+        }
       } catch (err) {
         console.warn(`[rebuild-detail-snapshots] Failed for env_uuid ${envUuid}:`, err);
+        return c.json({ error: "Detail snapshot rebuild failed", env_uuid: envUuid }, 503);
       }
     }
   }

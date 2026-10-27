@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { R2Bucket } from "@cloudflare/workers-types";
 import { parseOcfHeader } from "../../../features/avro/ocf-header";
 import { battleFixtureBytes } from "../../../features/avro/test-fixtures";
@@ -19,7 +19,7 @@ vi.mock("@fusou/avro-wasm", () => ({
 }));
 
 import { mergeAvroOCF, mergeAvroOCFWithBoundaries, decodeAvroOcfToJson } from "@fusou/compaction-core";
-import battleDataApp, { attachSortieIds, extractTimestampFromUuidV7, pruneSubsumedTierBlocks, queryGlobalRecordsDirectBatch } from "../battle_data";
+import battleDataApp, { attachSortieIds, extractTimestampFromUuidV7, getDynamicSnapshotPeriodTags, pruneSubsumedTierBlocks, queryGlobalRecordsDirectBatch } from "../battle_data";
 
 type QueryResult = { results?: Array<Record<string, unknown>> };
 type D1QueryCall = { sql: string; params: unknown[] };
@@ -118,6 +118,86 @@ describe("battle-data route integration", () => {
 			"2026-06-26",
 				TEST_DATASET_ID,
 		]);
+	});
+
+	describe("battle snapshot audit regressions", () => {
+		beforeEach(() => vi.stubGlobal("caches", undefined));
+		afterEach(() => vi.unstubAllGlobals());
+
+		it("isolates single-battle KV entries by period and canonical numeric index", async () => {
+			const values = new Map<string, string>();
+			const kv = {
+				get: async (key: string) => values.get(key) ?? null,
+				put: async (key: string, value: string) => { values.set(key, value); },
+			};
+			const get = vi.fn(async (key: string) => {
+				const match = key.match(/^snapshots\/detail\/([^/]+)\/same-sortie_2\.json$/);
+				return match
+					? { arrayBuffer: async () => Buffer.from(JSON.stringify({
+						success: true, period_tag: match[1],
+						battle: { index: 2, timestamp: 1792000000000 },
+						derived: { friendly_fleet: [{ shipId: 1 }] },
+					})) }
+					: null;
+			});
+			const bucket = {
+				list: async () => ({ objects: [
+					{ key: "snapshots/overview/2026-10-14.json.br" },
+					{ key: "snapshots/overview/2026-08-05.json.br" },
+				] }),
+				get,
+			};
+			for (const period of ["2026-10-14", "2026-08-05"]) {
+				const response = await request(`/detail?env_uuid=same-sortie&battle_index=02&period_tag=${period}`, {
+					BATTLE_DATA_BUCKET: bucket, DATA_LOADER_CACHE_KV: kv,
+				});
+				expect(response.status).toBe(200);
+				expect(await response.json()).toMatchObject({ period_tag: period });
+			}
+			expect(values.has("v9:battle_detail:2026-10-14:same-sortie:2")).toBe(true);
+			expect(values.has("v9:battle_detail:2026-08-05:same-sortie:2")).toBe(true);
+			const count = get.mock.calls.length;
+			const cached = await request("/detail?env_uuid=same-sortie&battle_index=2&period_tag=2026-08-05", {
+				BATTLE_DATA_BUCKET: bucket, DATA_LOADER_CACHE_KV: kv,
+			});
+			expect(cached.status).toBe(200);
+			expect(get).toHaveBeenCalledTimes(count);
+		});
+
+		it.each(["overview", "drops"])("serves plain %s objects identically in individual and all-period modes", async (kind) => {
+			const bucket = {
+				list: async () => ({ objects: [{ key: "snapshots/overview/2026-10-14.json" }] }),
+				get: async (key: string) => key === `snapshots/${kind}/2026-10-14.json`
+					? { arrayBuffer: async () => Buffer.from(JSON.stringify({
+						battles: [{ env_uuid: "one", index: 0 }], cells: [], mst_ships: [],
+					})) } : null,
+			};
+			for (const period of ["2026-10-14", "all"]) {
+				const response = await request(`/global/${kind}?period_tag=${period}`, { BATTLE_DATA_BUCKET: bucket });
+				expect(response.status).toBe(200);
+				expect(await response.json()).toMatchObject({ battles: [{ env_uuid: "one" }] });
+			}
+		});
+
+		it("paginates discovery instead of silently omitting later periods", async () => {
+			const list = vi.fn()
+				.mockResolvedValueOnce({ objects: [{ key: "snapshots/overview/2026-08-05.json" }], truncated: true, cursor: "next" })
+				.mockResolvedValueOnce({ objects: [{ key: "snapshots/overview/2026-10-14.json.br" }], truncated: false });
+			const bucket = { list };
+			expect(await getDynamicSnapshotPeriodTags(bucket, undefined)).toEqual(["2026-10-14", "2026-08-05"]);
+			expect(list.mock.calls[1]![0]).toMatchObject({ cursor: "next" });
+		});
+
+		it("does not return successful empty aggregates after a required snapshot is missing", async () => {
+			vi.spyOn(console, "error").mockImplementation(() => undefined);
+			const response = await request("/global/overview?period_tag=all", {
+				BATTLE_DATA_BUCKET: {
+					list: async () => ({ objects: [{ key: "snapshots/overview/2026-10-14.json.br" }] }),
+					get: async () => null,
+				},
+			});
+			expect(response.status).toBeGreaterThanOrEqual(500);
+		});
 	});
 
 	it("scopes global chunks to the requested period and dataset", async () => {
@@ -904,4 +984,3 @@ describe("battle-data route integration", () => {
 		expect(body.battles.map((b) => `${b.maparea_id}-${b.mapinfo_no}`)).toEqual(["1-1", "62-1"]);
 	});
 });
-

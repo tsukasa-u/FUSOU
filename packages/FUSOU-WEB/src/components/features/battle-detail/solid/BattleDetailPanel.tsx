@@ -416,7 +416,7 @@ export default function BattleDetailPanel(props: {
   let loadedEnvBundle: {
     envUuid: string;
     periodTag: string;
-    tableVersion?: string;
+    requestedTableVersion: string;
     datasetId?: string;
     battles: Record<string, BattleDetailPayload>;
     battleIndexes: number[];
@@ -448,10 +448,7 @@ export default function BattleDetailPanel(props: {
       props.datasetId !== undefined
         ? (props.datasetId ?? "").trim()
         : requestedDatasetId() || datasetIdFromSession(props.battleId.trim());
-    const currentBattleIdx =
-      props.battleIndex !== undefined && props.battleIndex !== null && Number.isFinite(Number(props.battleIndex))
-        ? Number(props.battleIndex)
-        : (loadedEnvBundle?.battleIndexes?.[0] ?? 0);
+    const currentBattleIdx = activeBattleIndex();
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
       battleIndex: currentBattleIdx,
@@ -568,7 +565,7 @@ export default function BattleDetailPanel(props: {
     if (pIdx !== undefined && pIdx !== null && Number.isFinite(Number(pIdx)) && Number(pIdx) >= 0) {
       return Number(pIdx);
     }
-    return loadedEnvBundle?.battleIndexes?.[0] ?? selectableBattleIndexes()[0] ?? 0;
+    return selectableBattleIndexes()[0] ?? 0;
   });
 
   const formations = createMemo(() => {
@@ -663,6 +660,11 @@ export default function BattleDetailPanel(props: {
       loadToken,
       signal,
     } = params;
+    const isCurrentLoad = () =>
+      !disposed && loadToken === activeLoadToken && !signal.aborted;
+    const reportProgress = (progress: BattleDataProgress) => {
+      if (isCurrentLoad()) setLocalProgress(progress);
+    };
     if (!battle()) {
       setResolvedTableVersion(null);
     }
@@ -723,7 +725,7 @@ export default function BattleDetailPanel(props: {
             limitBlocks: 120,
             limitRecords: 20000,
             signal,
-          }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleOverviewPayload;
+          }, repository.kind === "local-avro" ? { onProgress: reportProgress } : {})) as BattleOverviewPayload;
           const orderedRows = (overview.battles || [])
             .filter((row) => String(row["env_uuid"] ?? "") === envUuid)
             .map((row) => ({
@@ -764,7 +766,7 @@ export default function BattleDetailPanel(props: {
         loadedEnvBundle !== null &&
         loadedEnvBundle.envUuid === envUuid &&
         loadedEnvBundle.periodTag === requestedPeriod &&
-        (loadedEnvBundle.tableVersion || "") === tableVersion &&
+        loadedEnvBundle.requestedTableVersion === tableVersion &&
         (loadedEnvBundle.datasetId || "") === datasetId;
 
       const fetchSingleDetail = async (targetIdx: number): Promise<BattleDetailPayload> => {
@@ -785,7 +787,7 @@ export default function BattleDetailPanel(props: {
               }
             : {}),
           signal,
-        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleDetailPayload;
+        }, repository.kind === "local-avro" ? { onProgress: reportProgress } : {})) as BattleDetailPayload;
       };
 
       let payload: BattleDetailPayload;
@@ -812,6 +814,7 @@ export default function BattleDetailPanel(props: {
               ...(datasetId ? { datasetId } : {}),
               signal,
             });
+            if (!isCurrentLoad()) return;
             if (envPayload && envPayload.battles && Object.keys(envPayload.battles).length > 0) {
               const bIndexes = Object.keys(envPayload.battles)
                 .map(Number)
@@ -831,7 +834,7 @@ export default function BattleDetailPanel(props: {
               loadedEnvBundle = {
                 envUuid,
                 periodTag: requestedPeriod,
-                tableVersion: envPayload.table_version || tableVersion,
+                requestedTableVersion: tableVersion,
                 datasetId,
                 battles: envPayload.battles,
                 battleIndexes: bIndexes,
@@ -855,13 +858,16 @@ export default function BattleDetailPanel(props: {
             } else {
               payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
             }
-          } catch {
+          } catch (error) {
+            if (!isCurrentLoad()) return;
+            console.warn("Failed to load sortie bundle; trying battle detail:", error);
             payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
           }
         } else {
           payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
         }
       } catch (error) {
+        if (!isCurrentLoad()) return;
         const status =
           error instanceof BattleRepositoryHttpError ? error.status : null;
         if (status === 400) {
@@ -881,7 +887,14 @@ export default function BattleDetailPanel(props: {
         throw error;
       }
 
-      const indexesFromBundle = loadedEnvBundle?.battleIndexes;
+      if (!isCurrentLoad()) return;
+      const currentBundle = loadedEnvBundle?.envUuid === envUuid &&
+        loadedEnvBundle.periodTag === requestedPeriod &&
+        loadedEnvBundle.requestedTableVersion === tableVersion &&
+        (loadedEnvBundle.datasetId || "") === datasetId
+        ? loadedEnvBundle
+        : null;
+      const indexesFromBundle = currentBundle?.battleIndexes;
       const indexesFromPayload = Array.isArray(payload.battle_indexes)
         ? uniqueBattleIndexesInOrder(payload.battle_indexes)
         : [];
@@ -892,7 +905,9 @@ export default function BattleDetailPanel(props: {
       if (effectiveIndexes.length > 0) {
         setBattleIndexes(effectiveIndexes);
       } else {
-        setBattleIndexes(await resolveBattleIndexesFallback());
+        const fallbackIndexes = await resolveBattleIndexesFallback();
+        if (!isCurrentLoad()) return;
+        setBattleIndexes(fallbackIndexes);
       }
       setResolvedTableVersion(
         typeof payload.table_version === "string" && payload.table_version.trim()
@@ -901,8 +916,8 @@ export default function BattleDetailPanel(props: {
       );
       const detailBattle = payload.battle ?? null;
       if (detailBattle) {
-          const resolvedMstShip = new Map(loadedEnvBundle?.commonMstShip ?? parseMstShipMap(payload.refs?.mst_ship));
-          const resolvedMstSlotItem = new Map(loadedEnvBundle?.commonMstSlotItem ?? parseMstSlotItemMap(payload.refs?.mst_slotitem));
+          const resolvedMstShip = new Map(currentBundle?.commonMstShip ?? parseMstShipMap(payload.refs?.mst_ship));
+          const resolvedMstSlotItem = new Map(currentBundle?.commonMstSlotItem ?? parseMstSlotItemMap(payload.refs?.mst_slotitem));
 
           // Fast render: immediately apply pre-resolved refs without waiting for full 1MB master-data download
           let effectiveMstShip = new Map(resolvedMstShip);
@@ -1039,6 +1054,7 @@ export default function BattleDetailPanel(props: {
       }
       throw new Error("detail response did not contain a battle");
     } catch (e) {
+      if (!isCurrentLoad()) return;
       console.error("Failed to load battle detail:", e);
       const diagnostic = formatDetailLoadError(
         e,
@@ -1117,7 +1133,14 @@ export default function BattleDetailPanel(props: {
         ? (props.datasetId ?? "").trim()
         : requestedDatasetId() || datasetIdFromSession(envUuid);
     if (!envUuid) {
+      ++activeLoadToken;
+      detailAbortController?.abort();
+      loadedEnvBundle = null;
+      lastLoadKey = null;
       setBattle(null);
+      setFleets(null);
+      setBattleIndexes([]);
+      setLoading(false);
       return;
     }
 
@@ -1133,6 +1156,9 @@ export default function BattleDetailPanel(props: {
     const hasCachedBattle =
       loadedEnvBundle !== null &&
       loadedEnvBundle.envUuid === envUuid &&
+      loadedEnvBundle.periodTag === requestedPeriod &&
+      loadedEnvBundle.requestedTableVersion === tableVersion &&
+      (loadedEnvBundle.datasetId || "") === datasetId &&
       Boolean(loadedEnvBundle.battles[String(idx >= 0 ? idx : (loadedEnvBundle.battleIndexes[0] ?? 0))]);
     if (!hasCachedBattle || !currentFleets?.friendlyShips?.length) {
       setLoading(true);

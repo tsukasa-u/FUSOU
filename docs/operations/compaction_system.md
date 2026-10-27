@@ -158,10 +158,23 @@ To eliminate D1 read contention and ensure 20–80ms latency across all public d
 ### 1. Battle Data Snapshots (`snapshots/battle_data/`)
 - **Sortie-Bundle Aggregation**: Data is bundled at the sortie level rather than individual battles, drastically reducing file count and enabling 0ms tab switching in the client.
 - **Pre-generated Tab Views**: Overview, drops, and detail-env bundles are pre-joined during compaction and served directly from R2.
-- **Edge KV Cache Isolation**: Detail environment cache keys are isolated by period tag (`v8:battle_env_detail:${periodTag}:${envUuid}`).
+- **Edge KV Cache Isolation**: Detail environment and individual detail keys use the `v9` namespace and include the requested period. Individual indices are canonicalized numerically.
 
 ### 2. Ship Growth Snapshots (`snapshots/ship_growth/`)
 - **Zero-D1 Endpoints**: `/summary`, `/bounds`, `/exp`, `/cumulative`, and `/all-periods` serve directly from pre-aggregated Brotli-compressed R2 objects.
 - **Version Normalization**: Legacy `0.5` table versions are unified to semantic version `0.5.0`.
 - **Transparent Decompression**: Worker decompresses Brotli in-memory and serves plain JSON (`Content-Type: application/json`), avoiding browser `res.json()` parse failures while leveraging Cloudflare edge auto-compression.
 - **Snapshot Rebuild Endpoint**: `POST /api/ship-growth/internal/rebuild-snapshots` walks past archives in R2, aggregates bounds (MIN) and caps (MAX), and generates the complete snapshot suite.
+
+### Ship-growth publication and recovery (2026-10-27)
+
+- Deploy the manifest-aware reader before relying on generation objects. With no `snapshots/ship_growth/manifest.json`, fixed-key snapshots remain readable.
+- Run the authenticated rebuild endpoint to bootstrap a complete generation. It writes immutable objects under `snapshots/ship_growth/generations/{generation}/`, saves that generation's manifest, then conditionally publishes the current manifest using the previous ETag.
+- Check the returned generated keys and read all five public endpoints, including filtered bounds and both version aliases. A successful snapshot hit must not require D1.
+- Missing/corrupt archives, incomplete listings, configured D1 failures, failed writes, and publication conflicts must not replace the current manifest. Retrying is safe; failed attempts can leave unreferenced generation objects.
+- Successful ingest schedules a bounded-retry publication of the affected period and refreshed aggregates after D1 commit. Monitor `[ship-growth] Failed to publish post-ingest snapshots`; background execution is not a durable queue. Rebuild explicitly after a failed or interrupted update.
+- Retain old objects and generation manifests for recovery. To roll back, first verify every object referenced by the chosen historical manifest, then restore that manifest as the current one. Do not blanket-delete old generations: a later incremental manifest can still reference their per-period objects.
+- No automatic generation or legacy-object garbage collection is introduced. Use reachability from retained manifests when designing a separate retention job.
+- Expanded JSON and compressed input are limited to 16 MiB per object. This guard does not prove that a full rebuild stays within the 128 MB per-isolate Worker memory ceiling. Profile large rebuilds and concurrent read/write requests before production rollout; split generation into durable jobs if necessary.
+- Fixed-key read responses now require revalidation (`max-age=0, must-revalidate`) so old CDN/client TTLs do not mask publication. Previously cached responses can retain their old freshness until expiration or an explicit purge during rollout.
+- See [Cloudflare memory limits](https://developers.cloudflare.com/workers/platform/limits/#memory) and [CPU limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time). Increasing Paid CPU time does not raise the normal Workers memory ceiling.
