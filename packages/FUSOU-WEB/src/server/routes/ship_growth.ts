@@ -1,3 +1,14 @@
+import {
+  SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY,
+  SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY,
+  SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY,
+  getShipGrowthBoundsSnapshotKey,
+  getShipGrowthExpSnapshotKey,
+  serveShipGrowthSnapshot,
+    decompressBrotliToJson,
+  rebuildAllShipGrowthSnapshots,
+  type ShipGrowthBoundsPayload,
+} from "../utils/ship-growth-snapshots";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import type { KVNamespace } from "@cloudflare/workers-types";
@@ -2435,11 +2446,7 @@ function scheduleShipGrowthTask(
  * Cache: 1 h CF Cache, 1 h max-age, 24 h stale-while-revalidate.
  */
 app.get("/summary", async (c) => {
-  const db = c.env.SHIP_GROWTH_DB;
-  if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
-
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -2449,6 +2456,22 @@ app.get("/summary", async (c) => {
       return hit;
     }
   }
+
+  // 1. Check R2 snapshot first (Zero-D1 streaming)
+  const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
+  if (archiveBucket && c.req.header("cache-control") !== "no-cache") {
+    try {
+      const snapObj = await archiveBucket.get(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY);
+      if (snapObj) {
+        return await serveShipGrowthSnapshot(c, snapObj, "public, max-age=3600, stale-while-revalidate=86400");
+      }
+    } catch (err) {
+      console.warn("[ship-growth] Failed to fetch summary snapshot from R2:", err);
+    }
+  }
+
+  const db = c.env.SHIP_GROWTH_DB;
+  if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
   try {
     const periodsResult = await db
@@ -2511,6 +2534,11 @@ app.get("/summary", async (c) => {
         );
       }
     }
+    if (archiveBucket) {
+      safeWaitUntil(c, rebuildAllShipGrowthSnapshots(c.env, db).catch((err) => {
+        console.warn("[ship-growth] Auto-rebuild snapshots in background failed:", err);
+      }));
+    }
     return response;
   } catch (err) {
     console.error("[ship-growth] Failed to query summary:", err);
@@ -2547,6 +2575,20 @@ app.get("/exp", async (c) => {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(periodTag)) {
     return c.json({ error: "Invalid period_tag (expected YYYY-MM-DD)" }, 400);
+  }
+
+  // 1. Check R2 snapshot first (Zero-D1 streaming)
+  const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
+  const expSnapKey = getShipGrowthExpSnapshotKey(periodTag, tableVersion);
+  if (archiveBucket && c.req.header("cache-control") !== "no-cache") {
+    try {
+      const snapObj = await archiveBucket.get(expSnapKey);
+      if (snapObj) {
+        return await serveShipGrowthSnapshot(c, snapObj, "public, max-age=3600, stale-while-revalidate=86400");
+      }
+    } catch (err) {
+      console.warn("[ship-growth] Failed to fetch exp snapshot from R2:", err);
+    }
   }
 
   const kv = c.env.DATA_LOADER_CACHE_KV;
@@ -2732,6 +2774,36 @@ app.get("/bounds", async (c) => {
   }
   if (masterId !== null && (!Number.isFinite(masterId) || masterId <= 0)) {
     return c.json({ error: "master_id must be a positive integer" }, 400);
+  }
+
+  // 1. Check R2 snapshot first (Zero-D1 direct streaming!)
+  const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
+  const boundsSnapKey = getShipGrowthBoundsSnapshotKey(periodTag, tableVersion);
+  if (archiveBucket && c.req.header("cache-control") !== "no-cache") {
+    try {
+      const snapObj = await archiveBucket.get(boundsSnapKey);
+      if (snapObj) {
+        if (masterId === null) {
+          // Streaming without decompression! (10-30ms)
+          return await serveShipGrowthSnapshot(c, snapObj, "public, max-age=86400, stale-while-revalidate=604800");
+        } else {
+          // Filter by requested master_id
+          const full = await decompressBrotliToJson<ShipGrowthBoundsPayload>(await snapObj.arrayBuffer());
+          const filteredBounds = full.bounds.filter((b) => b.master_id === masterId);
+          const filteredCaps = full.caps.filter((cap) => cap.master_id === masterId);
+          return c.json({
+            ok: true,
+            period_tag: periodTag,
+            table_version: tableVersion,
+            schema_version: 3,
+            bounds: filteredBounds,
+            caps: filteredCaps,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[ship-growth] Failed to fetch bounds snapshot from R2:", err);
+    }
   }
 
   type BoundsRow = {
@@ -3101,6 +3173,18 @@ app.get("/cumulative", async (c) => {
     }
   }
 
+  // 1. Check R2 snapshot first (Zero-LIST direct streaming)
+  if (c.req.header("cache-control") !== "no-cache") {
+    try {
+      const snapObj = await env.SHIP_GROWTH_ARCHIVE_BUCKET.get(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY);
+      if (snapObj) {
+        return await serveShipGrowthSnapshot(c, snapObj, "public, max-age=3600, stale-while-revalidate=86400");
+      }
+    } catch (err) {
+      console.warn("[ship-growth] Failed to fetch cumulative snapshot from R2:", err);
+    }
+  }
+
   try {
     const { snapshot, cacheStatus } =
       await loadCumulativeShipGrowthSnapshot(env);
@@ -3437,6 +3521,18 @@ app.get("/all-periods", async (c) => {
       const hit = new Response(cached.body, cached);
       hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
+    }
+  }
+
+  // 1. Check R2 snapshot first (Zero-LIST direct streaming)
+  if (c.req.header("cache-control") !== "no-cache") {
+    try {
+      const snapObj = await env.SHIP_GROWTH_ARCHIVE_BUCKET.get(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY);
+      if (snapObj) {
+        return await serveShipGrowthSnapshot(c, snapObj, "public, max-age=3600, stale-while-revalidate=86400");
+      }
+    } catch (err) {
+      console.warn("[ship-growth] Failed to fetch all-periods snapshot from R2:", err);
     }
   }
 
@@ -3779,6 +3875,24 @@ app.post("/ingest", async (c) => {
   }
 
   return c.json(result.body, result.status as 200 | 400 | 409 | 500 | 503);
+});
+
+app.post("/internal/rebuild-snapshots", async (c) => {
+  const token =
+    c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") ||
+    c.req.header("X-Compaction-Token") ||
+    "";
+  const envObj = c.env as Record<string, unknown>;
+  const expectedToken =
+    (typeof envObj["INTERNAL_COMPACTION_TOKEN"] === "string" ? envObj["INTERNAL_COMPACTION_TOKEN"] : "") ||
+    c.env.ADMIN_TOKEN || "";
+  if (!expectedToken || !token || !timingSafeEqual(token, expectedToken)) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const db = c.env.SHIP_GROWTH_DB;
+  const result = await rebuildAllShipGrowthSnapshots(c.env, db);
+  return c.json({ ok: true, ...result });
 });
 
 export default app;
