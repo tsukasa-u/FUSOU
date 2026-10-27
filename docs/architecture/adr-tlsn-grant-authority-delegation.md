@@ -490,3 +490,127 @@ contracts remain unchanged. Four real checks remain **UNVERIFIED**;
 GitHub metadata/archive/trusted workflow scope, not grant/native authority.
 `publication_authorized: false`, deployment **NOT_CHECKED**, Production
 acceptance **BLOCKED** remain invariant.
+
+## 11. Bootstrap classification and minimal draft projection
+
+Source basis: `1ef6af67de90db90cb4202a52df960445f804f2b`.
+The [classification module](../../scripts/release-grant-delegation-classification.mjs)
+adds a machine-readable inventory to the existing preflight JSON:
+`classification.fields` lists all 43 schema paths, current public value/state,
+one exclusive primary class, normal supplier, independent verification,
+blocker, bootstrap/runtime/source derivability, approval/registration
+requirements, actor/target and exact source/ADR anchors.
+`classification.legacy_missing_fields` classifies all 22 old gaps.
+No field or validation requirement is removed from the v1 schema.
+
+| Primary class | Fields | Meaning |
+| --- | --- | --- |
+| `SOURCE_DERIVED` (18) | `schema_version`, `scope`, `issuer`, `jwks_uri`, `repository`, `caller_workflow`, `caller_revision_policy`, `delegate_workflow`, `delegate_claims_contract`, `event`, `ref`, `eligibility_contract`, `workflow_source_rule`, `policy_pin_source_contract`, `capture_state_contract`, `external_io_contract`, `idempotence_contract`, `consumer_recheck_contract` | Reproduce fixed source constants or requirement labels. Proposed rules still require policy-bundle approval and implementation; source text is not authority evidence |
+| `DIAGNOSTIC_ONLY` (3) | `lifecycle`, `operational_enabled`, `publication_authorized` | Local planning claims/false flags, never roots or capabilities |
+| `ONE_TIME_BOOTSTRAP_INPUT` (3) | `repository_id`, `repository_owner_id`, `delegate_revision` | Independently pin actual numeric identities and an explicitly approved immutable issuer closure. Current values remain null / `NOT_VERIFIED` |
+| `UNDEFINED_CONTRACT` (19) | `issue_audience`, `read_audience`, `authority_endpoint`, `authority_deployment_identity`, `authority_state_epoch`, `policy_digest_contract`, `active_policy_registry_identity`, `public_input_derivation_contract`, `capture_selection_contract`, `grant_issuer_identity`, `grant_scope_contract`, `grant_wire_contract`, `grant_ttl_ms`, `freshness_and_clock_contract`, `revocation_contract`, `state_revision_cas_contract`, `consumer_read_endpoint`, `consumer_identity_contract`, `source_inventory_contract` | Missing semantics/acquisition/authorization or protocol decisions, not 19 text boxes solved by registration |
+
+Thus the 22 old gaps split into **3 static trust selections plus 19 undefined
+contracts**, not 22 manually supplied settings. The three selections are
+the currently well-defined subset, **not a complete minimal activation
+bootstrap**. The complete minimum remains `UNDEFINED_CONTRACT` until U01-U12
+are resolved. Exact lifetime, issuer/deployment/epoch, roots/endpoints/roles
+and other stable parameters may become necessary bootstrap inputs after
+their protocols are defined; their security conditions are not deleted.
+The eventual approval actor/root-distribution procedure itself remains U02,
+not a newly invented provider or producer self-approval.
+
+No current schema field is purely `EXTERNAL_REGISTRATION_REQUIRED`:
+endpoint/audience/reader/root meaning must first be defined. Actual
+registration is a separate, still-required operation under the approved
+protocol. Likewise, no current schema field is a concrete `RUNTIME_DERIVED`
+or `AUTHORITY_STATE_DERIVED` value. These categories are explicitly
+represented by separate derivation records, not falsely attached to
+source rule labels.
+
+### Draft manifest and derivation obligations
+
+`classification.minimal_manifest` is a `PROPOSED`, false-flagged diagnostic
+projection of the same v1 policy, **not a duplicate acceptance schema**.
+It separates static selections, source rule labels, diagnostic fields,
+runtime/authority derivations, 19 unresolved fields, ten protocol
+requirements, implementation blockers and post-registration observations.
+Each field includes its approval/registration actor and destination;
+where those are undefined the manifest says so, rather than inventing an
+approved registrar. Public JSON outputs are recorded with exact generation
+commands in the roadmap.
+
+- Runtime: producer/validation run and attempt, actual caller workflow SHA,
+  live tag/release source/main context come from authenticated GitHub
+  metadata and existing `evaluateReleaseRun`/candidate/intake checks.
+  These are not fixed bootstrap inputs. SHA roles are separate; their
+  values may legitimately coincide.
+- Runtime input digests: exact public/check/capture-policy bytes can be
+  hashed and compared against existing independent pins. U03/U04 still
+  block automatic *expected-input* and authorized-capture selection.
+  Computing a digest does not authenticate its expectation, and current
+  assertions/pins remain mandatory.
+- Authority state: exact capture/session/subject/job/attempt/binding and
+  current object version/raw size/digest, Result envelope and optional
+  receipt digest come from the consumed Result/receipt/binding/catalog
+  and exact lookup. U04 still blocks release-to-subject/capture permission.
+  A catalog is neither a grant nor permission to enumerate sessions.
+- Grant scope, issued time/expiry, state revision/epoch and revocation
+  cannot yet be derived by existing grant code: there is no such code.
+  These remain U05-U09 protocol/implementation blockers, not values to
+  generate or register speculatively. Candidate TTL is not issued-grant TTL.
+
+Existing candidate/report/catalog verification is source-established and
+locally contract-tested; no real runtime values were observed in this
+offline step. Every derivation records `NOT_OBSERVED` and grant binding
+`NOT_IMPLEMENTED`. External registration alone does not implement these
+paths. Section 6's CAS/revalidation/idempotence requirements are unchanged.
+
+### OIDC identity audit without external observation
+
+The current source fixes issuer/JWKS and checks exact configured audience,
+repository ID, caller workflow/event/ref, run/attempt and token time/
+signature. Current archive policy is not the new issue/read delegation
+policy; optional `job_workflow_ref` / `job_workflow_sha` are constrained to
+the existing caller, not Option A's new delegate. Current archive OIDC
+verification does not enforce `repository_owner_id`. The proposed immutable
+delegate and mandatory signed reusable claims still need independent
+policy approval, implementation and real observation.
+
+No `sub` template is required or inferred. The verifier does not compare
+`sub`; repository subject settings, any immutable-subject configuration,
+actual reusable signed-claim availability and current official GitHub
+subject specification were not externally inspected. They remain
+`NOT_VERIFIED` / `NOT_CHECKED_OFFLINE`; the repository name or an assumed
+legacy/custom `sub` shape cannot replace numeric identity checks. No
+repository setting or trust policy is changed.
+
+An authenticated reusable job is not successful-step attestation.
+Eligibility-to-issuance still requires an explicitly approved immutable
+principal performing its own checks and an authenticated observation path
+to the final authority; JSON/private process capability cannot supply it.
+The existing reusable workflow remains fixed-disabled, with no OIDC.
+
+### Preflight compatibility and stopping conditions
+
+The legacy `external_inputs.missing` list remains for compatibility and
+audit continuity. Its meaning is now explicitly unpopulated planning fields,
+**not a manual bootstrap checklist**. New `bootstrap_inputs` separates the
+three static selections, `external_registration` remains `NOT_VERIFIED`,
+and `readiness.complete` is always false while those independent adapters
+and protocols are absent. Coverage errors block source status; filled
+local values never discharge protocol, implementation or approval blockers.
+The CLI still exits 1 and never activates policy, grants or publication.
+For the valid bundled draft, source shape is `SOURCE_CONTRACT_READY`,
+policy is `BLOCKED_POLICY_NOT_APPROVED`, bootstrap is
+`BLOCKED_EXTERNAL_INPUTS` and implementation is `BLOCKED_IMPLEMENTATION`.
+These are separate layers, not a complete-readiness success state.
+
+The [classification tests](../../scripts/release-grant-delegation-classification.test.mjs)
+verify exhaustive unique coverage, source anchors, no guessed values,
+runtime/authority separation, preserved protocol blockers, OIDC uncertainty
+and output mutation isolation. Prior candidate/provider assertions remain
+unchanged. All four real checks remain **UNVERIFIED**;
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` is unchanged.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain invariant.

@@ -3582,3 +3582,299 @@ git diff --check HEAD^ HEAD -- "$@"
 
 Actual final commit/parent, hook outcome and scoped-clean state are reported
 from the executed command; this procedure does not claim policy approval.
+
+## Delegation bootstrap classification and minimal draft follow-up
+
+Start branch: `tlsn-first-testplay-candidate`.
+Start HEAD: `1ef6af67de90db90cb4202a52df960445f804f2b`, as requested.
+The explicit initial scope was clean.
+See [ADR section 11](../architecture/adr-tlsn-grant-authority-delegation.md)
+and the [machine classification source](../../scripts/release-grant-delegation-classification.mjs).
+
+### Classification, not deletion of security requirements
+
+The existing 43-required-field schema and PROPOSED draft are preserved;
+only the schema description clarifies the legacy annotation. No runtime
+value or validation requirement was removed. The existing preflight now
+adds exhaustive `classification.fields`, `legacy_missing_fields`, a
+`minimal_manifest` projection, distinct bootstrap/registration diagnostics
+and `readiness.complete: false`. Existing provider/candidate assertions,
+policy, workflow gate, authority and consumer code are unchanged.
+
+| Class | All 43 planning fields | Old 22 gaps |
+| --- | --- | --- |
+| `SOURCE_DERIVED` | 18 source constants or requirement labels | 0 |
+| `DIAGNOSTIC_ONLY` | 3 local lifecycle/false flags | 0 |
+| `ONE_TIME_BOOTSTRAP_INPUT` | 3 independently pinned selections | 3 |
+| `UNDEFINED_CONTRACT` | 19 protocol/identity/derivation decisions | 19 |
+| `RUNTIME_DERIVED` | 0 concrete runtime values in the schema | 0 |
+| `AUTHORITY_STATE_DERIVED` | 0 concrete state observations in the schema | 0 |
+| `EXTERNAL_REGISTRATION_REQUIRED` | 0 registration-only fields: endpoint/root/reader semantics must first be defined | 0 |
+
+The three currently well-defined stable selections are `repository_id`,
+`repository_owner_id` and `delegate_revision`. All remain null and
+`NOT_VERIFIED`. They are **not a complete minimal activation bootstrap**;
+`complete_minimum_established: false`, completeness `UNDEFINED_CONTRACT`.
+The delegate pin selects an independently approved final issuer closure,
+not the current diagnostic HEAD and not each release source SHA. Numeric
+IDs can later be independently acquired automatically; they are not an
+instruction for manual copying from producer output.
+
+The 19 unresolved fields include issue/read audience and endpoint semantics,
+issuer/deployment/epoch and root distribution, policy digest encoding,
+automatic expected-input/capture selection, grant scope/wire/TTL/freshness,
+revocation/CAS, independent reader identity and final trusted closure.
+Once defined, some stable parameters may require one-time registration.
+They are not falsely classified as settings that can be solved by entering
+nonempty strings. U01-U12 remain blocking.
+
+The generated draft manifest is a diagnostic projection using the existing
+v1 schema, **not an additional acceptance schema**. It records actor/
+destination/verification requirements; undefined U02 approval governance
+and unimplemented authority/consumer registration are explicit. It does
+not invent a registrar, endpoint, secret, key, active pin or authority
+epoch. Every field has one primary category, public value/state, source/
+ADR anchors, independent verification, blocker and derivation/approval/
+registration flags. Invalid proposed values are marked and not echoed as
+valid observations. Coverage errors remain fail-closed.
+
+The five separate derivation records are:
+
+1. Authenticated producer/validation run/attempt/caller context.
+2. Live Production tag/source/main eligibility, separate from development.
+3. Exact per-release public/check/capture-policy digests, preserving
+   independent existing pins; automatic expected-input/selection still U03/U04.
+4. Exact consumed capture/session/subject/job/attempt/binding authority lookup.
+5. Catalog/current object version/raw size/digest, Result envelope and
+   optional receipt observations.
+
+The first three are runtime-derived; the last two are authority-state
+derived. None is observed here; grant binding remains NOT_IMPLEMENTED.
+The catalog's available facts do not authorize a release-to-subject lookup.
+Grant scope/issued expiry/revocation/revision/epoch are not derivable from
+an implemented issuer, because no issuer exists. CAS, post-await state
+revalidation, external I/O outside transactions and nonrenewing same-scope
+idempotence remain ADR requirements, not implemented guarantees. There is
+no global one-time ledger.
+
+### OIDC and actual readiness
+
+Source facts: fixed GitHub issuer/JWKS, exact archive audience and configured
+repository/caller/event/ref/run/attempt validation, optional reusable fields
+constrained to the existing caller. Current archive OIDC does not enforce
+owner ID and does not compare `sub`. Proposed Option A still requires
+separately approved mandatory signed reusable identity and isolated
+immutable implementation. Source/ref/caller/delegate SHA roles must not
+be conflated, but their values need not differ.
+
+Actual repository subject settings, immutable-subject configuration,
+reusable signed-claim availability and current official GitHub subject
+specification were not externally inspected. No `sub` string template is
+assumed. Settings/claim configuration remain `NOT_VERIFIED`; current
+official specification is `NOT_CHECKED_OFFLINE`. No repository setting
+changed. Reusable identity alone is not successful-step attestation;
+eligibility-to-issuance still lacks an authenticated authority observation
+contract.
+
+The reusable workflow remains fixed-disabled. Source shape is
+`SOURCE_CONTRACT_READY`; bootstrap inputs are `BLOCKED_EXTERNAL_INPUTS` /
+`NOT_VERIFIED`; policy remains `BLOCKED_POLICY_NOT_APPROVED`; external
+registration is `NOT_VERIFIED`; implementation is `BLOCKED_IMPLEMENTATION`.
+Full readiness remains false. Local ACTIVE/PASS/authenticated claims,
+even with all planning strings populated, cannot change those facts.
+Legacy `external_inputs.missing` remains for audit compatibility, explicitly
+not a 22-value manual checklist.
+
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` remain unchanged.
+
+### Exact commands, side effects and results
+
+Scoped source reads/searches used `view`/`rg` only on the named source,
+ADR and directly related files. No broad repository scan was performed.
+Before tests, the new imports were inspected: the classification module
+is pure data/projection code; Node source-evidence tests validate an
+explicit eleven-path allowlist before reading. Existing key-free fixtures
+and four previous selectors were unchanged except the preflight under test.
+They use API/storage/HTTP/executor doubles, never real services, a Worker
+runtime or native executables. No dependency/package script was run.
+
+**1. Initial metadata: PASS**, expected branch/HEAD, explicit scope empty.
+The planned classification JSON path was only a status selector and was
+not created; classification is versioned source with generated JSON output.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-grant-delegation.mjs scripts/release-grant-delegation.test.mjs scripts/tlsn-grant-delegation.v1.schema.json scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.classification.json scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md .github/workflows/tlsn-grant-delegation.yml
+```
+
+**2. Key-free contracts: PASS**, 91 PASS / 0 FAIL / 0 cancelled / 0 skipped:
+11 new classification tests plus the previous 80 tests. All 48 existing
+provenance/candidate tests and their assertions remain intact. No
+intermediate failure, assertion weakening or skip occurred.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --test scripts/release-grant-delegation-classification.test.mjs scripts/release-grant-delegation.test.mjs scripts/release-eligibility.test.mjs scripts/release-provenance-grant.test.mjs scripts/release-workflow.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-classification-tests.log 2>&1; result=$?; grep -E '^(not ok|# tests|# pass|# fail|# cancelled|# skipped|# duration)' /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-classification-tests.log; exit "$result"
+```
+
+**3. Parse-only source/test validation: PASS**, three files, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check scripts/release-grant-delegation-classification.mjs && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check scripts/release-grant-delegation-classification.test.mjs && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --check scripts/release-grant-delegation.mjs
+```
+
+**4. Actual CLI/report: PASS fail-closed behavior; expected exit 1**, printed
+`preflight_exit=1`. This is not operational success. The sole write is the
+named public diagnostic report in the session output directory; no
+Production input, credential or token is read/written.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node scripts/release-grant-delegation.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-minimal-bootstrap-preflight.json; result=$?; printf 'preflight_exit=%s\n' "$result"; exit "$result"
+```
+
+**5. Persisted JSON shape and standalone draft: PASS**, exit 0, exact
+43/22/3/19 counts and blocked flags. The only generated file is the named
+public manifest, with exclusive creation (`wx`), not a new trust registration.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+import { readRegularFile } from "./scripts/release-files.mjs";
+const report = JSON.parse(await readRegularFile(new URL("file:///home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-minimal-bootstrap-preflight.json")));
+assert.equal(report.classification.fields.length, 43);
+assert.equal(report.classification.legacy_missing_fields.length, 22);
+assert.equal(report.classification.counts.ONE_TIME_BOOTSTRAP_INPUT, 3);
+assert.equal(report.classification.counts.UNDEFINED_CONTRACT, 19);
+assert.equal(report.readiness.complete, false);
+assert.equal(report.external_registration.status, "NOT_VERIFIED");
+assert.equal(report.publication_authorized, false);
+const manifest = report.classification.minimal_manifest;
+assert.equal(manifest.lifecycle, "PROPOSED");
+assert.equal(manifest.complete_minimum_established, false);
+await writeFile(new URL("file:///home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-minimal-bootstrap-manifest.draft.json"), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
+console.log(JSON.stringify({ fields: 43, legacy_gaps: 22, counts: report.classification.counts,
+  static_trust_selections: report.bootstrap_inputs.fields, protocol_gaps: manifest.undefined_contracts.length,
+  readiness: report.readiness, policy: report.policy_approval.status,
+  external_registration: report.external_registration.status, publication_authorized: report.publication_authorized }, null, 2));
+NODE
+```
+
+**6. Documentation/artifact consistency: PASS**, exit 0: all 43 ADR field
+names match the schema without duplication, all 24 allowlisted links
+exist, saved report/manifest equal the current source projection, and
+blocked states are consistent.
+Only the two documents, existing fixed bootstrap sources, the two named
+generated JSON deliverables and allowlisted link metadata are read.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { lstat } from "node:fs/promises";
+import { resolve, dirname, relative } from "node:path";
+import { readRegularFile } from "./scripts/release-files.mjs";
+import { readDelegationBootstrapSources, inspectDelegationBootstrap } from "./scripts/release-grant-delegation.mjs";
+const root = process.cwd(), adrPath = resolve(root, "docs/architecture/adr-tlsn-grant-authority-delegation.md");
+const roadmapPath = resolve(root, "docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md");
+const files = "/home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/";
+const [adrRaw, roadmapRaw, reportRaw, manifestRaw, sources] = await Promise.all([
+  readRegularFile(adrPath), readRegularFile(roadmapPath),
+  readRegularFile(`${files}delegation-minimal-bootstrap-preflight.json`),
+  readRegularFile(`${files}delegation-minimal-bootstrap-manifest.draft.json`), readDelegationBootstrapSources(),
+]);
+const adr = adrRaw.toString("utf8"), roadmap = roadmapRaw.toString("utf8");
+const heading = "## Delegation bootstrap classification and minimal draft follow-up";
+assert.equal(roadmap.split("\n").filter((line) => line === heading).length, 1);
+const entry = roadmap.slice(roadmap.indexOf(`\n${heading}\n`));
+const adrHeading = "## 11. Bootstrap classification and minimal draft projection";
+assert.equal(adr.split("\n").filter((line) => line === adrHeading).length, 1);
+const section = adr.slice(adr.indexOf(`\n${adrHeading}\n`));
+const tableRows = section.split("\n").filter((line) => /^\| `[A-Z_]+` \(\d+\) \|/.test(line));
+const names = tableRows.flatMap((line) => [...line.split("|")[2].matchAll(/`([^`]+)`/g)].map((match) => match[1]));
+assert.deepEqual(names.sort(), [...sources.schema.required].sort());
+const current = inspectDelegationBootstrap(sources), saved = JSON.parse(reportRaw);
+assert.deepEqual(saved, current);
+assert.deepEqual(JSON.parse(manifestRaw), current.classification.minimal_manifest);
+for (const text of [section, entry]) for (const marker of [
+  "1ef6af67de90db90cb4202a52df960445f804f2b", "UNDEFINED_CONTRACT", "NOT_VERIFIED",
+  "SOURCE_CONTRACT_READY", "BLOCKED_POLICY_NOT_APPROVED", "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED",
+  "publication_authorized: false", "NOT_CHECKED", "BLOCKED", "UNVERIFIED",
+]) assert(text.includes(marker), marker);
+assert.equal(current.readiness.complete, false);
+const allowed = new Set([
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/result_archive.ts",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs",
+  "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs",
+  "scripts/release-eligibility.mjs", "scripts/release-grant-provider.mjs", "scripts/release-archive-provenance.mjs",
+  "scripts/release-consumer.mjs", "scripts/release-archive-http.mjs", "scripts/release-archive-job.mjs",
+  "scripts/release-execution-intake.mjs", "scripts/release-worker-source.mjs",
+  ".github/workflows/tlsn-release-eligibility.yml", "docs/architecture/tlsn-data-authenticity-contract.md",
+  "docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md",
+  "scripts/tlsn-grant-delegation.v1.schema.json", "scripts/tlsn-grant-delegation.draft.json",
+  "scripts/release-grant-delegation.mjs", "scripts/release-grant-delegation.test.mjs",
+  ".github/workflows/tlsn-grant-delegation.yml", "scripts/release-grant-delegation-classification.mjs",
+  "scripts/release-grant-delegation-classification.test.mjs",
+]);
+const seen = new Set();
+for (const [, href] of adr.matchAll(/\[[^\]\n]+\]\(([^)\s]+)\)/g)) {
+  assert(!href.includes("://") && !href.startsWith("/"));
+  const target = resolve(dirname(adrPath), href), name = relative(root, target);
+  assert(allowed.has(name), name);
+  assert((await lstat(target)).isFile(), name); seen.add(name);
+}
+assert.deepEqual([...seen].sort(), [...allowed].sort());
+console.log("PASS: 43 unique ADR fields; 24 allowlisted links; source/report/manifest equality; blocked state consistency.");
+NODE
+```
+
+### Real check state and unexecuted work
+
+| Check | Local contract result | Real evidence |
+| --- | --- | --- |
+| `locked_dependencies` | Existing assertions preserved | **UNVERIFIED** |
+| `compiled_inputs` | Existing assertions preserved, no build | **UNVERIFIED** |
+| `archive_readback` | Existing candidate/provider refusal preserved | **UNVERIFIED**, dynamic grant path **BLOCKED** |
+| `offline_verification` | Existing archive prerequisite/native blocker preserved | **UNVERIFIED**, formal native identity **BLOCKED** |
+
+Grant authentication is not native/TLSN cryptographic verification.
+`AUTHENTICATED_PRODUCER_REPORT_VERIFIED` retains its existing online
+GitHub metadata/archive/trusted workflow scope. Classification/source shape
+does not establish real `RELEASE_ARTIFACTS_VALIDATED` or
+`DEPLOYMENT_VERIFIED`.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED** remain invariant.
+
+Full/unreviewed suites, key-generating OIDC fixtures, Cargo/Rust/WASM/APP/
+Worker/native build/runtime, external GitHub/docs/OIDC/Cloudflare/R2/
+Notary/Session Authority, repository settings, policy registration/keys/
+signing/deploy/publish, actual reusable workflow, native acceptance and
+push/PR/tag are **NOT_RUN**, prohibited or unimplemented. Protected files
+were not accessed; the completed Result-byte-binding test was not changed.
+No new dependency, secret, root, endpoint or native identity was introduced.
+
+### Six-path local commit procedure
+
+This is the scoped local commit procedure; actual hook/commit outcome is
+reported from its execution, not assumed in advance. The normal hook is
+retained, signing disabled, and only these six blobs enter its local
+analysis repository.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs scripts/release-grant-delegation.mjs scripts/tlsn-grant-delegation.v1.schema.json docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git diff --check -- "$@" && git add -- "$@" && git diff --cached --check -- "$@" && git -c commit.gpgsign=false commit --only -m "feat(tlsn): classify delegation bootstrap requirements" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-classification-local-commit.log 2>&1; result=$?; tail -n 24 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/delegation-classification-local-commit.log; exit "$result"
+```
+
+Final branch/commit/parent, scoped cleanliness and committed whitespace:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs scripts/release-grant-delegation.mjs scripts/tlsn-grant-delegation.v1.schema.json docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" scripts/tlsn-grant-delegation.draft.json .github/workflows/tlsn-grant-delegation.yml
+git diff --check HEAD^ HEAD -- "$@"
+```

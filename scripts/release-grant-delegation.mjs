@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { readRegularFile } from "./release-files.mjs";
 import { evaluateReleaseRun } from "./release-eligibility.mjs";
+import { classifyDelegationBootstrap } from "./release-grant-delegation-classification.mjs";
 
 const POLICY_SCOPE = "fusou-grant-delegation-bootstrap-policy-v1";
 const policyFields = [
@@ -109,17 +110,29 @@ export function inspectDelegationBootstrap({ policy, schema }) {
     .filter(([key, rule]) => rule["x-bootstrap-input"] &&
       (!record(policy) || policy[key] === null || !Object.hasOwn(policy, key) || errors.some((error) => error.path === key)))
     .map(([key]) => key) : [];
+  const classification = classifyDelegationBootstrap({ policy, schema, errors, missing });
+  const sourceErrors = [...errors, ...classification.errors];
+  const status = sourceErrors.length ? "BLOCKED_IMPLEMENTATION" : "BLOCKED_POLICY_NOT_APPROVED";
   return {
     schema_version: 1, scope: "fusou-grant-delegation-bootstrap-preflight-v1",
-    status: errors.length ? "BLOCKED_IMPLEMENTATION" : "BLOCKED_POLICY_NOT_APPROVED",
-    source_contract: { status: errors.length ? "BLOCKED_IMPLEMENTATION" : "SOURCE_CONTRACT_READY", errors,
+    status,
+    source_contract: { status: sourceErrors.length ? "BLOCKED_IMPLEMENTATION" : "SOURCE_CONTRACT_READY", errors: sourceErrors,
       meaning: "BOOTSTRAP_SCHEMA_AND_POLICY_SHAPE_ONLY_NOT_AUTHORIZATION_PROTOCOL_READINESS" },
     policy_approval: { status: "BLOCKED_POLICY_NOT_APPROVED",
       claimed_lifecycle: record(policy) && ["PROPOSED", "ACTIVE", "REVOKED"].includes(policy.lifecycle) ? policy.lifecycle : "UNKNOWN",
       independent_active_pin: "NOT_VERIFIED",
       reason: "OFFLINE_PREFLIGHT_HAS_NO_INDEPENDENT_POLICY_REGISTRY_ADAPTER" },
     external_inputs: { status: "BLOCKED_EXTERNAL_INPUTS", missing,
+      meaning: "LEGACY_UNPOPULATED_PLANNING_FIELDS_NOT_A_MANUAL_BOOTSTRAP_CHECKLIST",
       registration: "NOT_VERIFIED", reason: "LOCAL_VALUES_DO_NOT_PROVE_APPROVAL_OR_SERVICE_REGISTRATION" },
+    bootstrap_inputs: { status: "BLOCKED_EXTERNAL_INPUTS", verification: "NOT_VERIFIED",
+      fields: classification.minimal_manifest.static_trust_inputs.map((field) => field.field),
+      complete_minimum_established: false },
+    external_registration: { status: "NOT_VERIFIED",
+      reason: "NO_INDEPENDENT_REGISTRATION_READER_AND_PROTOCOLS_UNDEFINED" },
+    readiness: { status, complete: false,
+      reason: "SHAPE_OR_FILLED_LOCAL_VALUES_CANNOT_PROVE_BOOTSTRAP_POLICY_REGISTRATION_OR_IMPLEMENTATION" },
+    classification,
     implementation: { status: "BLOCKED_IMPLEMENTATION", blockers: [
       "GRANT_AUTHORIZATION_API_NOT_REGISTERED",
       "ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED",

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:fusou:tlsn-grant-delegation:bootstrap:v1",
   "title": "Nonoperational TLSN delegation bootstrap policy",
-  "description": "Flat offline planning contract, not an issued-grant wire format or evidence of approval. SOURCE_CONFIRMED describes source constants, DESIGN_PROPOSAL requires approval, EXTERNAL_INPUT requires independent registration or protocol definition.",
+  "description": "Flat offline planning contract, not an issued-grant wire format or evidence of approval. SOURCE_CONFIRMED describes source constants, DESIGN_PROPOSAL requires approval, EXTERNAL_INPUT requires independent registration or protocol definition. The legacy x-bootstrap-input annotation marks unresolved planning fields, not 22 manual bootstrap inputs; use the preflight classification and minimal draft projection.",
   "type": "object",
   "additionalProperties": false,
   "required": [
