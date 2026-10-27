@@ -4074,3 +4074,227 @@ git rev-parse HEAD HEAD^
 git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
 git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- "$@"
 ```
+
+## 2026-10-27: offline OIDC signature/claim integration fixture assessment
+
+### Actual state and outcome
+
+Start branch: `tlsn-first-testplay-candidate`.
+Start HEAD: `365a1d078856c692eda2dd12ec3c961557b96acb`, matching the request.
+Initial explicit scope and expanded helper/hook scope were clean.
+
+**BLOCKED**: no provenance-known, test-only fixed signed JWT and matching
+public JWK/JWKS usable by the current archive OIDC contract was found in
+the checked source/test roots or shipped direct JOSE dependency.
+**Signature/claim integration is NOT_RUN, not PASS.**
+The integration implementation stops at this fixture prerequisite.
+This is a diagnostic assessment, not a new runtime/public blocker enum.
+It is not a repository-wide assertion about unchecked/private locations.
+
+Only this roadmap is changed. Production verifier, fixtures, test
+assertions, source inventory, schema, policy, workflow and dependencies
+are unchanged. No token, key, credential, trust pin or signature was
+generated, imported from an external service or registered.
+
+### Fixed fixture search and provenance
+
+The bounded search covered `scripts`, the verification Worker's `src`
+and `scripts`, and the eight explicitly named test/fixture roots in the
+commands below. Package/test directories were discovered with depth-two
+metadata enumeration; it did not enumerate protected deeper source files.
+No protected file was read, searched, compared, hashed, edited or staged.
+
+| Candidate/source | Observation and disposition |
+| --- | --- |
+| `scripts/release-archive-http.test.mjs` | Synthetic local fixture, but module initialization calls `generateKeyPair("RS256")` twice, then exports public JWKs from those fresh keys. Each case uses `SignJWT.sign`; no persisted signed JWT/public JWKS pair is provided. **NOT_RUN and not imported** |
+| `scripts/release-archive-oidc-claims.test.mjs` | Synthetic payload objects and `verifyToken` doubles, not signed JWT fixtures. Suitable for claim/HTTP/consumer contracts only |
+| `scripts/release-provenance-fixture.mjs`, `release-check-fixture.mjs`, `release-consumer-fixture.mjs` | Synthetic token strings, public-input references and API/storage/executor doubles. No matching fixed signed RS256 OIDC JWT/JWKS |
+| Other checked Worker fixture hits | Runtime/config fixtures generate Ed25519 keys; these are neither static OIDC JWT pairs nor permitted executions. Source inspection only |
+| Installed direct `jose@6.1.2` | Worker manifest pins 6.1.2 and installed package metadata agrees. Resolved path is `node_modules/.pnpm/jose@6.1.2/node_modules/jose`. Its shipped files are runtime JS, type declarations, README/license/package metadata; no test/fixture files or fixed signed JWT/RSA JWK pair found |
+| JOSE PEM search hit | Only PEM type-prefix checks in `dist/webapi/key/import.js`, not actual key material or a token fixture |
+| Other eight test/fixture roots | No usable JWT/JWKS candidate found. A broad lexical search first matched three existing native `target/debug/.fingerprint` metadata paths; they were not used as fixtures. Repeating with target/dependency caches excluded returned no matches |
+
+Dependency searches explicitly included ignored files with
+`rg --no-ignore --hidden` and filesystem enumeration. Initial tool glob
+results that omit ignored dependencies were not treated as absence proof.
+No upstream checkout, package download/install, history-wide search,
+session-log token recovery or external documentation/API request was used.
+
+Making key generation lazy would still generate keys when a test runs;
+it would not satisfy this task. There is no safe fixed-pair replacement
+with which to remove the legacy test's side effects while preserving its
+signature assertions. That test remains unchanged and unexecuted.
+No substitute verifier, signature mock presented as crypto proof,
+test-only authorization success path or permissive policy was added.
+
+### Production verification trace: source evidence, not executed crypto
+
+| Stage | Actual source path and order |
+| --- | --- |
+| Policy root | `handleArchiveHttp` requires server-configured canonical policy bytes and an independent matching digest before token processing. Body/producer labels cannot supply that pin |
+| Token/header | `createArchiveOidcVerifier` validates policy, token type/size, then decodes only the protected header. RS256, bounded nonempty `kid`, optional `typ: JWT` and the existing header-key allowlist are required. JOSE's compact verifier also checks the three-part structure |
+| Issuer/key source | Fixed GitHub issuer and its fixed JWKS URL. Existing `fetchKeys` injection is wrapped by the exact-URL check, redirect refusal, 200/non-redirect response requirement and 64 KiB body bound. Token `jku`/`jwk`/`x5u` cannot select another trust source |
+| Algorithm/key selection | `jwtVerify` receives `algorithms: ["RS256"]`. JOSE `jwks/local.js` selects RSA keys by `kid` and optional algorithm/use/key-ops constraints and imports only public keys |
+| Actual cryptographic path | `jwtVerify` -> `compactVerify` -> `flattenedVerify` -> JOSE `lib/verify.js` -> `crypto.subtle.verify`. JOSE rejects failed signatures before returning a verified payload |
+| Registered claims/time | After compact signature verification, JOSE `validateClaimsSet` parses/validates the JWT claims, issuer, audience, required claims, `nbf`/`exp`/`iat`, maximum age and bounded clock tolerance. Existing `currentDate: new Date(nowMs)` allows fixed-time validation without changing token bytes |
+| Repository/owner | Only after `await jwtVerify` does `assertVerifiedArchiveOidcClaims` compare exact repository, canonical string repository/owner IDs and owner-name consistency against independent policy. Names, body and `sub` do not supply IDs |
+| Caller/reusable/run | Caller workflow/event/ref, workflow SHA and run/attempt checks remain; configured reusable identity requires both exact signed job workflow claims. `handleArchiveHttp` separately compares workflow/run context against its independent archive transport grant |
+| HTTP binding/consumer | After authority catalog and exact archive readback checks, `archiveAuthorization` includes pinned owner ID and policy digest. `verifyArchiveHttpResponse` independently compares exact metadata, catalog identity and raw bytes; owner omission/tampering rejects |
+
+The unverified payload is not used as an identity decision. Constructing
+the JOSE remote key set at import does not fetch keys; lookup/reload does.
+The existing factory already supports local JWKS response injection
+without changing signature verification, and the HTTP handler already
+supports a test verifier/time dependency. No new injection seam is needed.
+The fixture absence, not missing clock/transport injection, is the blocker.
+
+### What was and was not verified
+
+| Boundary/cases | This task's evidence |
+| --- | --- |
+| Strict repository/owner IDs, missing/mismatched/wrong-type IDs, owner-name mismatch, configured job claims | Existing synthetic claim-policy assertions: **PASS**, not cryptographically authenticated payloads |
+| Request-body self-assertion, missing/mismatched policy pin, `PROPOSED` policy, owner response binding mutation | Existing local helper/HTTP/consumer assertions: **PASS**, test verifier/API/storage doubles |
+| Real valid RS256 fixed JWT -> current verifier -> owner policy -> HTTP response -> consumer | **NOT_RUN / BLOCKED**, no compatible fixed signed pair |
+| Invalid signature/different public key, unknown kid, malformed JWKS, unsupported algorithm through the real verifier | **NOT_RUN**, no authenticated fixed baseline/pair; no synthetic rejection is represented as signature coverage |
+| Signed issuer/audience/expiry/nbf/iat mismatch and signed identity/reusable negative variants | **NOT_RUN** in crypto integration; synthetic policy checks do not replace these cases |
+| Actual GitHub issuer keys/identity, repository subject settings, real reusable claims and active policy pin | **NOT_VERIFIED**, external observation prohibited |
+| Changed-module syntax checks | **NOT_RUN / not applicable**, no Node module changed; prior `node --check` evidence is not signature proof |
+
+Existing claim-policy test: **13 PASS / 0 FAIL / 0 skipped**, unchanged
+assertions, no new test count. Its verified-payload assertion is invoked
+on synthetic objects; its HTTP tests inject `verifyToken` doubles.
+The default signature verifier is not exercised by those tests.
+There were no failed tests, no skipped assertions and no code fixes.
+Search exit 1 below means normal "no matches", not a test failure.
+
+To resume under the same restrictions, an independently provenance-known,
+explicitly test-only **pre-existing** compact RS256 JWT plus its matching
+public JWKS is required, with acceptable header/kid, fixed-time validity,
+the exact current issuer/audience and repository/owner/caller/run claims.
+Configured job workflow tests also need compatible signed job claims.
+Keep fixture keys out of Production registration. A generic RSA vector
+with incompatible claims cannot prove this Production verifier chain.
+Changing signed payload/header bytes invalidates the signature:
+post-signature negative-claim coverage needs corresponding pre-signed
+variants, not re-signing or relabeling signature failure as policy failure.
+No such pair or variants were obtained or fabricated here.
+
+### Exact local commands and outcomes
+
+All commands ran from the explicit repository root; reads were bounded
+to the source/dependency/test paths described above. No package script,
+build, Worker host or native verifier was run. The selected Node test
+uses synthetic data/in-memory doubles; its source and helper imports
+were checked before execution. Only local hashes/parse-only fixture
+inspection are used, not key generation/signing or real service calls.
+
+Initial branch/HEAD/scope: **PASS**, expected branch/HEAD, no scope changes:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json scripts/release-archive-http.mjs scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-worker-source.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+Dependency resolution: **PASS**, Worker link resolves to installed 6.1.2;
+the root-level leaf resolution alone is not package/fixture evidence:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && readlink -f packages/FUSOU-TLSN-VERIFICATION-WORKER/node_modules/jose && readlink -f node_modules/jose
+```
+
+Safe-depth metadata discovery: **PASS**, eight test/fixture roots listed:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && find packages -mindepth 2 -maxdepth 2 -type f -name package.json -print && find packages -mindepth 2 -maxdepth 2 -type d \( -name test -o -name tests -o -name fixtures -o -name __tests__ \) -print
+```
+
+Installed dependency fixture/example discovery: exit 0; only package
+metadata and the PEM syntax-check source matched, **no usable fixture**:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && find node_modules/.pnpm/jose@6.1.2/node_modules/jose -type f \( -iname '*test*' -o -iname '*fixture*' -o -iname '*.json' -o -iname '*.pem' -o -iname '*.jwt' -o -iname '*.jwk' -o -iname '*.jwks' \) -print; rg --no-ignore --hidden -l -g '*.{js,ts,md,json}' 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|BEGIN (RSA |EC )?(PUBLIC|PRIVATE) KEY|"kty"\s*:\s*"RSA"' node_modules/.pnpm/jose@6.1.2/node_modules/jose
+```
+
+Explicit repository roots: exit 0; three source/test identifier hits,
+**no fixed signed pair**:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && rg --no-ignore --hidden -l -g '*.{mjs,cjs,js,ts,tsx,json,jwt,jwk,jwks,txt,pem,rs,md,yaml,yml}' 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|"kty"\s*:\s*"RSA"|BEGIN (RSA |EC )?(PUBLIC|PRIVATE) KEY|JWKS|RS256|SignJWT' scripts packages/FUSOU-TLSN-VERIFICATION-WORKER/src packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts packages/avro-wasm/test packages/FUSOU-WORKFLOW/test packages/FUSOU-WEB/test packages/FUSOU-URL-SHORTER/test packages/FUSOU-TLSN-VERIFIER/tests packages/FUSOU-TLSN-VERIFIER/fixtures packages/kc_api/tests packages/fusou-compaction-trigger/test
+```
+
+Dependency hit classification: **PASS**, only PEM format-prefix checks:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && rg --no-ignore --hidden -n -C 2 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|BEGIN (RSA |EC )?(PUBLIC|PRIVATE) KEY|"kty"\s*:\s*"RSA"' node_modules/.pnpm/jose@6.1.2/node_modules/jose/dist/webapi/key/import.js
+```
+
+Broader/split-fixture lexical search: exit 0, only three existing
+`target/debug/.fingerprint` metadata hits, not test token/key material:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && rg --no-ignore --hidden -l -g '*.{mjs,cjs,js,ts,tsx,json,jwt,jwk,jwks,txt,pem,rs,md,yaml,yml}' 'RSA|[Jj][Ww][Tt]|[Jj][Ww][Kk]|jsonwebtoken|compactVerify|\bkty\b|token\.actions\.githubusercontent\.com' packages/avro-wasm/test packages/FUSOU-WORKFLOW/test packages/FUSOU-WEB/test packages/FUSOU-URL-SHORTER/test packages/FUSOU-TLSN-VERIFIER/tests packages/FUSOU-TLSN-VERIFIER/fixtures packages/kc_api/tests packages/fusou-compaction-trigger/test
+```
+
+Expanded helper/hook status before running the unchanged key-free test:
+**PASS**, no changes:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- 'scripts/release-*.mjs' 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/wasm-provenance.mjs .githooks/pre-commit scripts/scoped_code_review_graph.py
+```
+
+Final test-source search with native/dependency caches excluded:
+exit **1 (no matches)**, not a test failure:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && rg --no-ignore --hidden -l -g '*.{mjs,cjs,js,ts,tsx,json,jwt,jwk,jwks,txt,pem,rs,md,yaml,yml}' -g '!**/target/**' -g '!**/node_modules/**' 'RSA|[Jj][Ww][Tt]|[Jj][Ww][Kk]|jsonwebtoken|compactVerify|\bkty\b|token\.actions\.githubusercontent\.com' packages/avro-wasm/test packages/FUSOU-WORKFLOW/test packages/FUSOU-WEB/test packages/FUSOU-URL-SHORTER/test packages/FUSOU-TLSN-VERIFIER/tests packages/FUSOU-TLSN-VERIFIER/fixtures packages/kc_api/tests packages/fusou-compaction-trigger/test
+```
+
+Unchanged claim-policy regression, **PASS 13 / FAIL 0 / skipped 0**, exit 0:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-archive-oidc-claims.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-fixed-fixture-claims.log 2>&1; result=$?; tail -n 18 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-fixed-fixture-claims.log; exit "$result"
+```
+
+### Unchanged authority/readiness and local commit procedure
+
+Delegation remains `PROPOSED`/unapproved, the reusable workflow
+fixed-disabled and the active trust pin **NOT_VERIFIED**.
+`DERIVED_NOT_AUTHORIZED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` are unchanged.
+All four real checks (`locked_dependencies`, `compiled_inputs`,
+`archive_readback`, `offline_verification`) remain **UNVERIFIED**.
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED**. No real `RELEASE_ARTIFACTS_VALIDATED` or
+`DEPLOYMENT_VERIFIED` is established.
+
+All signature/JWKS integration, real GitHub/OIDC/settings/active pins,
+Cloudflare/R2/Notary/Session Authority, key generation/signing, package
+installation, Cargo/Rust/WASM/APP/Worker/native build/runtime,
+deploy/publish/push/PR/tag and broader suites are **NOT_RUN**.
+The completed authoritative Result-byte-binding test is unchanged.
+
+Working/staged whitespace check is restricted to this roadmap:
+**PASS**, exit 0; repeated by the commit gate after this record update.
+The normal hook must analyze only this one documentation path in its local
+isolated repository; no hook bypass or signing is used. Actual
+hook/commit/committed-whitespace completion is reported from execution,
+not inferred from this procedure.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git -c core.fsmonitor=false add -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git -c core.fsmonitor=false add -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "docs(tlsn): record blocked offline OIDC signature integration" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-fixed-fixture-local-commit.log 2>&1; result=$?; tail -n 20 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-fixed-fixture-local-commit.log; exit "$result"
+```
+
+Post-commit metadata, explicit scope cleanliness and committed whitespace:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md 'scripts/release-*.mjs' 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
