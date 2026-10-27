@@ -97,7 +97,7 @@ Numeric repository/owner IDs, endpoint hosts and deployment IDs are
 | P01 | Canonical HTTPS Worker endpoint and logical authority deployment/state identity. Existing route is archive readback only; real deployment mapping is not verified | Independently approved endpoint-to-authority/deployment mapping and state epoch. TLS authenticates the configured endpoint, not arbitrary response-reported deployment IDs. No process/image attestation |
 | P02 | Issuer is exactly `https://token.actions.githubusercontent.com`; fixed JWKS source exists | Reuse signature/algorithm/kid refresh/time validation from trusted issuer. Never use token-header `jku`/`jwk` as a key source |
 | P03 | Dedicated issue and read audiences; current archive audience equals its exact endpoint | Independently register purpose-separated issue/read identities. Endpoint paths and new audience strings are `UNDEFINED_CONTRACT`; archive-read token must not authorize issuance |
-| P04 | Repository name is `tsukasa-u/FUSOU`; numeric `repository_id` is required today; `repository_owner_id` is not enforced by the current verifier | Obtain/approve actual repository and owner IDs independently, then compare signed claims and trusted metadata. Ownership transfer requires policy review, not name matching |
+| P04 | Repository name is `tsukasa-u/FUSOU`; archive policy and signed claims require both `repository_id` and `repository_owner_id` as canonical positive decimal strings | Obtain/approve actual repository and owner IDs independently, then compare signed claims and trusted metadata. Source enforcement does not prove real ID registration or OIDC acceptance. Ownership transfer requires policy review, not name matching |
 | P05 | Existing caller workflow path is known; the follow-up adds a fixed-disabled reusable diagnostic, not a registered issuer | Approve exact allowed caller and reusable identities plus full trusted dependency closure. Caller inputs/artifacts are not identity roots |
 | P06 | Current caller is main-history checked; no immutable reusable issuer revision is registered | Pin reusable revision and transitive implementation/actions. Explicit caller revision/ref policy must be verified independently. A mutable ref alone is insufficient |
 | P07 | Existing Production caller uses `workflow_run` on `refs/heads/main`; eligibility requires successful same-repository tag-validation push/main ancestry | Approve these predicates and development-tag exclusion. Verify actual reusable OIDC event/ref semantics before implementing them; do not assume `workflow_call` is the signed caller event |
@@ -569,12 +569,13 @@ paths. Section 6's CAS/revalidation/idempotence requirements are unchanged.
 ### OIDC identity audit without external observation
 
 The current source fixes issuer/JWKS and checks exact configured audience,
-repository ID, caller workflow/event/ref, run/attempt and token time/
+repository/owner IDs, caller workflow/event/ref, run/attempt and token time/
 signature. Current archive policy is not the new issue/read delegation
 policy; optional `job_workflow_ref` / `job_workflow_sha` are constrained to
 the existing caller, not Option A's new delegate. Current archive OIDC
-verification does not enforce `repository_owner_id`. The proposed immutable
-delegate and mandatory signed reusable claims still need independent
+verification now enforces `repository_owner_id` as detailed in section 12;
+that check was absent at the classification audit's starting revision.
+The proposed immutable delegate and mandatory signed reusable claims still need independent
 policy approval, implementation and real observation.
 
 No `sub` template is required or inferred. The verifier does not compare
@@ -614,3 +615,74 @@ unchanged. All four real checks remain **UNVERIFIED**;
 `FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` is unchanged.
 `publication_authorized: false`, deployment **NOT_CHECKED**, Production
 acceptance **BLOCKED** remain invariant.
+
+## 12. Archive OIDC repository owner identity enforcement
+
+The archive transport's existing trust boundary is unchanged: Worker
+configuration supplies `TLSN_ARCHIVE_TRANSPORT_POLICY` and an independent
+`TLSN_ARCHIVE_TRANSPORT_POLICY_SHA256`; canonical policy bytes must match
+that pin before JWT or request-body processing. Producer/consumer inputs
+independently pin the same archive contract. A local policy file, matching
+self-reported digest, bootstrap report or approval label is not a new
+registration/approval mechanism.
+
+The existing archive policy validator now requires **both**
+`repository_id` and `repository_owner_id` to be strings matching
+`^[1-9][0-9]*$`. Policy or claims containing numbers, missing/null values,
+leading zeroes, signs or whitespace are rejected without coercion.
+Comparison does not convert IDs to JavaScript numbers. The bootstrap
+schema already uses that string pattern; its nullable `PROPOSED` planning
+values remain nonoperational, not permitted active archive policy values.
+No new policy lifecycle, issuer, grant scope, root or Production value is
+introduced.
+
+After JOSE signature/issuer/audience/time verification, the
+[verified-claims assertion](../../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs)
+strictly compares the two signed numeric ID strings with the pinned
+policy. JOSE also requires signed `repository_owner` and
+`repository_owner_id` claims. The owner name must exactly match the owner
+component of the independently pinned repository name. This is a separate
+name-consistency check, **not** derivation of an ID from a name, `sub`,
+request body, producer record or release source. Missing/bad policy is a
+503 policy error; missing/bad identity is a 401 authentication error.
+Responses expose fixed error codes, never the JWT or claim values.
+
+The assertion is deliberately key-free and assumes a verified payload;
+calling it alone authenticates neither a JWT nor policy registration.
+The actual verifier calls it only after `jwtVerify`. Archive response
+authorization now includes the pinned owner ID, and the independent
+consumer's existing exact metadata comparison rejects an absent,
+mistyped or altered owner binding.
+
+This is a fail-closed tightening of the existing v1 archive policy, not
+automatic migration: an older policy without the owner ID is rejected
+before token acquisition or archive reads. Any future rollout requires
+independently observed IDs, approved policy/pin distribution and real
+OIDC acceptance testing. No installed policy/pin or setting was read,
+generated, registered or modified in this work.
+
+Caller `workflow_ref`/`workflow_sha` remain distinct from delegated
+`job_workflow_ref`/`job_workflow_sha` and release source SHA. The optional
+job policy remains constrained to the existing archive caller identity;
+when configured, both signed claims are required and compared exactly.
+It does not accept Option A's new delegate or prove a successful
+eligibility step. Real reusable claim availability and repository `sub`
+settings remain **NOT_VERIFIED**; no legacy/immutable subject format is
+assumed and no external specification/settings were consulted.
+
+[Key-free owner contract tests](../../scripts/release-archive-oidc-claims.test.mjs)
+cover strict ID/name checks, caller/reusable refusal conditions, policy
+pin/body/client boundaries, consumer owner binding and continued grant
+blockers. The existing RSA/JWKS fixture was updated for the tightened
+contract but **NOT_RUN**: it generates RSA keys at module load even with
+test filters. Parse-only validation is not signature/JWKS integration
+evidence. Exact commands/results are in the roadmap.
+
+The 43-field classification and three static trust selections are
+unchanged. Only `owner_claim_enforcement` advances to
+`SOURCE_IMPLEMENTED_NOT_EXTERNALLY_OBSERVED`. Real policy/pin registration,
+IDs and signed acceptance remain unverified. Delegation stays unapproved,
+the reusable workflow fixed-disabled, grant authorization/publication/
+reader unimplemented, and the formal native identity blocker unchanged.
+`DERIVED_NOT_AUTHORIZED`, `publication_authorized: false`, deployment
+**NOT_CHECKED** and Production acceptance **BLOCKED** are preserved.

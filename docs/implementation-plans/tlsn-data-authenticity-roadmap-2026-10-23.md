@@ -3878,3 +3878,199 @@ git rev-parse HEAD HEAD^
 git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" scripts/tlsn-grant-delegation.draft.json .github/workflows/tlsn-grant-delegation.yml
 git diff --check HEAD^ HEAD -- "$@"
 ```
+
+## Follow-up: enforce archive OIDC repository owner identity
+
+### Actual starting state and scope
+
+Branch: `tlsn-first-testplay-candidate`.
+Start HEAD: `a1e08295994c0f1a429135422a5ecbba4c4f8f2d` (matches request).
+Both initial explicit-path status checks below returned no changes.
+Protected files were not accessed or included in operations.
+No external connection, package install, key generation/signing,
+Production setting change, build/runtime, deployment, publication,
+push/PR/tag or completed Result-byte-binding test change was performed.
+
+The existing Worker trust path reads only its configured archive policy
+and independent SHA-256 pin, not request-body identity expectations.
+The producer validates that same pinned contract before acquiring a
+token; the consumer independently checks policy and exact response
+authorization. Actual installed policy, repository/owner IDs, settings,
+active pins and real signed tokens were not inspected.
+
+### Eleven changed/new files
+
+Paths are relative to the repository root.
+
+| File | Purpose |
+| --- | --- |
+| `packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs` | Shared strict canonical GitHub ID and identity policy assertion; require owner ID; include it in exact response authorization |
+| `packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs` | Assert policy before JWT/key access; require owner claims; call identity assertion only after JOSE verification; retain configured reusable checks |
+| `packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs` (new) | Key-free verified-payload assertion; strict repository/owner IDs and owner name consistency; preserve caller/job/run/time predicates |
+| `scripts/release-worker-source.mjs` | Include the new module in the shipped Worker source/import closure |
+| `scripts/release-provenance-fixture.mjs` | Add synthetic owner ID to the key-free policy fixture |
+| `scripts/release-archive-http.test.mjs` | Align the existing RSA fixture and missing-claim assertions; parse only, never executed/imported |
+| `scripts/release-archive-oidc-claims.test.mjs` (new) | 13 key-free tests for identities, independent pins, body/client boundaries, consumer metadata and maintained blockers |
+| `scripts/release-grant-delegation-classification.mjs` | Update source enforcement fact without claiming external registration/acceptance |
+| `scripts/release-grant-delegation-classification.test.mjs` | Replace the obsolete missing-enforcement observation with positive source enforcement assertions; preserve subject uncertainty |
+| `docs/architecture/adr-tlsn-grant-authority-delegation.md` | Correct P04/current audit fact and document the tightened archive boundary, rollout prerequisites and evidence limitations |
+| `docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md` | This execution record |
+
+### Identity contract, approval boundary and unresolved identity work
+
+Both `repository_id` and `repository_owner_id` must be **strings** matching
+`^[1-9][0-9]*$` in policy and verified payload and must strictly equal their
+independent expectations. No numeric conversion, owner-name/repository/
+`sub` inference or request-body/producer fallback is used. IDs beyond
+JavaScript's safe-number range remain exact strings. Missing/null, numeric
+types, mismatch, leading zeroes, whitespace and unsupported forms reject.
+Signed `repository_owner` must separately equal the owner component of the
+pinned exact repository name; it never supplies the owner ID.
+
+The preexisting server configuration/policy digest is the trust root,
+not the new assertion or a local report. A bad/missing policy rejects
+before JWT/JWKS or archive access; a bad verified identity rejects before
+request-body processing. Errors expose fixed codes only. An old archive
+policy lacking owner ID now fails closed: any future policy/pin rollout
+must obtain independent IDs and approval, not add an automatic fallback.
+No separate new OIDC policy schema or approval wire was invented.
+
+JOSE signature/issuer/audience/time validation still precedes payload
+identity use. The key-free assertion does not verify signatures or grant
+approval. Policy-configured reusable identity still requires both exact
+`job_workflow_ref` and `job_workflow_sha`, separate from caller workflow
+and release source SHA. The existing policy only admits the old caller,
+not Option A's new workflow. OIDC identity never attests eligibility-step
+success. Actual repository subject/reusable settings, signed claim
+availability and current official GitHub subject specification were not
+externally inspected; **NOT_VERIFIED / NOT_CHECKED_OFFLINE**, with no
+legacy/immutable `sub` assumption.
+
+The bootstrap schema/draft are unchanged: 43 fields; source-derived 18,
+diagnostic 3, static trust inputs 3, undefined contracts 19; legacy missing
+list 22 (not a manual-input checklist). The owner string pattern already
+matched this runtime contract; the draft remains null/`PROPOSED`.
+The source diagnostic now says
+`SOURCE_IMPLEMENTED_NOT_EXTERNALLY_OBSERVED`, not registered/approved.
+The active policy pin remains **NOT_VERIFIED**. Preflight still reports
+`SOURCE_CONTRACT_READY`, `BLOCKED_EXTERNAL_INPUTS`,
+`BLOCKED_POLICY_NOT_APPROVED`, `BLOCKED_IMPLEMENTATION`,
+`external_registration: NOT_VERIFIED`, `readiness.complete: false`.
+
+### Commands, targets, side effects and results
+
+All commands below run locally from the explicit repository root.
+Before execution, each selected Node file and its direct imports was
+checked for effects: unit helpers use synthetic payloads and in-memory
+HTTP/authority/object/API/executor doubles. No real JWT signing, keys,
+network, Worker host or build is used. The existing Worker-source tests
+parse source fixtures and inject all build/I/O effects; they do not
+compile Rust/WASM or start a Worker. The normal hook creates a local
+temporary repository containing only the eleven commit paths and runs
+local static graph analysis there.
+
+| Validation | Result |
+| --- | --- |
+| Initial branch/HEAD and two explicit scope checks | **PASS**, expected branch/HEAD, no scoped changes |
+| Seven key-free selectors, first run | **PASS 115 / FAIL 0 / skipped 0** (13 new + existing 91 + Worker-source 11) |
+| Nine changed Node files, `node --check` | **PASS 9**, parse only |
+| ADR-dependent classification/bootstrap selectors after documentation update | **PASS 28 / FAIL 0 / skipped 0**, exit 0 |
+| Explicit working/staged whitespace, eleven paths including new files | **PASS**, exit 0; rechecked by the commit gate after this record update |
+| Normal scoped hook and final committed whitespace | Required by the commit procedure below; actual result reported only after execution |
+| RSA/JWKS integration in `scripts/release-archive-http.test.mjs` | **NOT_RUN**: module-load RSA key generation violates this task's constraints; no name filter bypass |
+| Actual GitHub token/repository setting/active-pin acceptance, external services | **NOT_RUN**, prohibited; registration and acceptance **NOT_VERIFIED** |
+| Cargo/Rust/WASM/APP/Worker/native builds/runtime and broader unreviewed suites | **NOT_RUN**, prohibited/outside scope |
+
+There were **no failed test or syntax runs and no skipped assertions**.
+No assertion was deleted/relaxed to avoid the new owner requirement.
+The existing key-generating test was strengthened/aligned but not run.
+The execution record's initial insertion point was corrected to preserve
+historical ordering; no code/test fix was required after validation.
+
+Initial metadata/scope command (PASS, exit 0):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.d.mts packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.d.ts scripts/release-archive-http.mjs scripts/release-execution-intake.mjs scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-provenance-fixture.mjs scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```
+
+Additional inventory target, before editing (PASS, no scoped changes):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-worker-source.mjs
+```
+
+Key-free regression (PASS 115/0/0, exit 0):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-archive-oidc-claims.test.mjs scripts/release-grant-delegation-classification.test.mjs scripts/release-grant-delegation.test.mjs scripts/release-eligibility.test.mjs scripts/release-provenance-grant.test.mjs scripts/release-workflow.test.mjs scripts/release-worker-source.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-owner-keyfree-tests.log 2>&1; result=$?; tail -n 30 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-owner-keyfree-tests.log; exit "$result"
+```
+
+Parse-only validation (all nine PASS, exit 0; even the RSA fixture is not
+executed by `--check`):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && for file in packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs scripts/release-worker-source.mjs scripts/release-provenance-fixture.mjs scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs; do env -u NODE_OPTIONS -u NODE_PATH node --check "$file" || exit; printf 'PASS node --check %s\n' "$file"; done
+```
+
+ADR-dependent revalidation after the documentation update
+(PASS 28/0/0, exit 0):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-grant-delegation-classification.test.mjs scripts/release-grant-delegation.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-owner-doc-contract-tests.log 2>&1; result=$?; tail -n 18 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-owner-doc-contract-tests.log; exit "$result"
+```
+
+Pre-commit working/staged whitespace, including both new files
+(PASS, exit 0; explicitly scoped staging only, no hook bypass):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs scripts/release-worker-source.mjs scripts/release-provenance-fixture.mjs scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@"
+```
+
+### Preserved release/grant/native state
+
+No grant API, issuance/authorization/persistence, CAS/revocation reader,
+publication provider or eligibility-to-authority protocol was added or
+enabled. The delegation draft is unapproved and the reusable workflow
+remains fixed-disabled. Candidate/provider/consumer source contracts stay
+fail closed, with only the documented owner requirement tightening
+archive authentication/correlation. Existing `DERIVED_NOT_AUTHORIZED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED` and
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` are unchanged.
+
+| Check | Local contract | Actual production evidence |
+| --- | --- | --- |
+| `locked_dependencies` | Existing assertions maintained | **UNVERIFIED** |
+| `compiled_inputs` | Existing assertions maintained, no build | **UNVERIFIED** |
+| `archive_readback` | Owner/pin/consumer correlation tested; grant path **BLOCKED** | **UNVERIFIED** |
+| `offline_verification` | `FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` maintained | **UNVERIFIED**, formal native identity **BLOCKED** |
+
+`publication_authorized: false`, deployment **NOT_CHECKED**, Production
+acceptance **BLOCKED**. No real `RELEASE_ARTIFACTS_VALIDATED` or
+`DEPLOYMENT_VERIFIED` is established by these unit/static checks.
+
+### Eleven-path local commit procedure
+
+The following exact procedure retains the normal scoped hook, disables
+signing, checks whitespace and commits only these eleven paths. This is
+not a push or trust registration. Hook/commit completion is reported from
+the actual command outcome, not assumed by this procedure text.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs scripts/release-worker-source.mjs scripts/release-provenance-fixture.mjs scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@" && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "fix(tlsn): enforce archive OIDC repository owner identity" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-owner-local-commit.log 2>&1; result=$?; tail -n 24 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/oidc-owner-local-commit.log; exit "$result"
+```
+
+Final branch/commit/parent, explicit scope cleanliness (including unchanged
+draft/workflow) and committed whitespace:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs scripts/release-worker-source.mjs scripts/release-provenance-fixture.mjs scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-grant-delegation-classification.mjs scripts/release-grant-delegation-classification.test.mjs docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- "$@"
+```

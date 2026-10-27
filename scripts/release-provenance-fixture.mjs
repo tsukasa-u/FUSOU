@@ -22,7 +22,7 @@ export async function provenanceFixture() {
     capture_id: expected.capture_id, binding_id: expected.capture_id, verification_attempt_id: expected.objects.result.verification_attempt_id,
     lookup, not_before_ms: 0, expires_at_ms: 100_000, capture_not_before_ms: 0, capture_max_age_ms: 50_000 };
   const policy = { schema_version: 1, scope: "fusou-github-oidc-archive-read-v1", endpoint, audience: endpoint, repository: identity.repository,
-    repository_id: "7", workflow_ref: identity.workflow_ref, event_name: identity.event_name, ref: identity.ref,
+    repository_id: "7", repository_owner_id: "11", workflow_ref: identity.workflow_ref, event_name: identity.event_name, ref: identity.ref,
     clock_skew_seconds: 0, max_token_age_seconds: 60, max_object_bytes: 4096, grants: [grant] };
   const spec = { policy, policy_sha256: sha256(archivePolicyBytes(policy)) };
   const record = { ...lookup, status: "consumed", binding_id: grant.binding_id, verification_job_id: lookup.verification_job_id,

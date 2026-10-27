@@ -175,9 +175,12 @@ test("OIDC subject configuration and actual reusable claim availability remain e
   assert.equal(oidc.immutable_subject_configuration, "NOT_VERIFIED");
   assert.equal(oidc.job_workflow_claim_semantics_and_availability, "NOT_VERIFIED");
   assert.equal(oidc.eligibility_observation_to_authority, "UNDEFINED_CONTRACT");
+  assert.equal(oidc.owner_claim_enforcement, "SOURCE_IMPLEMENTED_NOT_EXTERNALLY_OBSERVED");
   const verifier = (await readRegularFile(new URL(
     "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs", import.meta.url))).toString("utf8");
-  assert.doesNotMatch(verifier, /payload\.sub|subject:|payload\.repository_owner_id/);
+  assert.doesNotMatch(verifier, /payload\.sub|subject:/);
+  assert.match(verifier, /"repository_owner_id"/);
+  assert.match(verifier, /assertVerifiedArchiveOidcClaims\(payload, policy, nowMs\)/);
   assert.match(verifier, /policy\.job_workflow_ref === undefined/);
 });
 test("caller mutation of a diagnostic projection cannot mutate future classification or protocol facts", () => {

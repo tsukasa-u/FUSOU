@@ -18,11 +18,22 @@ const timestamp = (value) => Number.isSafeInteger(value) && value >= 0;
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 export const archivePolicyBytes = (policy) => new TextEncoder().encode(canonicalJson(policy));
+export const isCanonicalGitHubId = (value) => typeof value === "string" && /^[1-9][0-9]*$/.test(value);
+
+export function assertArchiveIdentityPolicy(policy) {
+  transportRequire(policy?.repository === "tsukasa-u/FUSOU" &&
+    isCanonicalGitHubId(policy.repository_id) && isCanonicalGitHubId(policy.repository_owner_id) &&
+    policy.workflow_ref === ARCHIVE_WORKFLOW_REF && policy.event_name === "workflow_run" && policy.ref === "refs/heads/main" &&
+    (policy.job_workflow_ref === undefined && policy.job_workflow_sha === undefined ||
+      policy.job_workflow_ref === ARCHIVE_WORKFLOW_REF && sha(policy.job_workflow_sha)),
+  "ARCHIVE_HTTP_POLICY_INVALID", 503);
+}
 
 export async function validateArchiveTransportSpec(spec) {
   transportRequire(spec?.policy && digest(spec.policy_sha256) &&
     await sha256Base64Url(archivePolicyBytes(spec.policy)) === spec.policy_sha256, "ARCHIVE_HTTP_POLICY_PIN_MISSING_OR_MISMATCH", 503);
   const p = spec.policy;
+  assertArchiveIdentityPolicy(p);
   let endpoint;
   try { endpoint = new URL(p.endpoint); } catch (error) {
     if (!(error instanceof TypeError)) throw error;
@@ -31,14 +42,10 @@ export async function validateArchiveTransportSpec(spec) {
   transportRequire(p.schema_version === 1 && p.scope === "fusou-github-oidc-archive-read-v1" &&
     endpoint.protocol === "https:" && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash &&
     endpoint.pathname === ARCHIVE_HTTP_PATH && endpoint.href === p.endpoint && p.audience === p.endpoint &&
-    p.repository === "tsukasa-u/FUSOU" && typeof p.repository_id === "string" && /^[1-9][0-9]*$/.test(p.repository_id) &&
-    p.workflow_ref === ARCHIVE_WORKFLOW_REF && p.event_name === "workflow_run" && p.ref === "refs/heads/main" &&
     Number.isInteger(p.clock_skew_seconds) && p.clock_skew_seconds >= 0 && p.clock_skew_seconds <= 60 &&
     positive(p.max_token_age_seconds) && p.max_token_age_seconds <= 600 &&
     positive(p.max_object_bytes) && p.max_object_bytes <= MAX_ARCHIVE_OBJECT_BYTES &&
-    Array.isArray(p.grants) && p.grants.length > 0 && p.grants.length <= 128 &&
-    (p.job_workflow_ref === undefined && p.job_workflow_sha === undefined ||
-      p.job_workflow_ref === ARCHIVE_WORKFLOW_REF && sha(p.job_workflow_sha)), "ARCHIVE_HTTP_POLICY_INVALID", 503);
+    Array.isArray(p.grants) && p.grants.length > 0 && p.grants.length <= 128, "ARCHIVE_HTTP_POLICY_INVALID", 503);
   const ids = new Set();
   for (const g of p.grants) {
     transportRequire(sha(g.workflow_sha) && sha(g.source_sha) && positive(g.run_id) && positive(g.run_attempt) &&
@@ -121,7 +128,8 @@ export function parseArchiveJson(bytes) {
 }
 export function archiveAuthorization(policy, policySha256, request) {
   return { kind: "TRUSTED_PRODUCER_HTTPS_FETCH", issuer: GITHUB_OIDC_ISSUER, audience: policy.audience,
-    repository: policy.repository, repository_id: policy.repository_id, workflow_ref: policy.workflow_ref,
+    repository: policy.repository, repository_id: policy.repository_id, repository_owner_id: policy.repository_owner_id,
+    workflow_ref: policy.workflow_ref,
     workflow_sha: request.workflow_sha, run_id: request.run_id, run_attempt: request.run_attempt,
     source_sha: request.source_sha, capture_id: request.capture_id, policy_sha256: policySha256 };
 }

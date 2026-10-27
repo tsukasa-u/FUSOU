@@ -37,11 +37,12 @@ async function fixture() {
       verification_job_id: expected.objects.result.job_id },
     not_before_ms: 0, expires_at_ms: 100_000, capture_not_before_ms: 0, capture_max_age_ms: 50_000 };
   const policy = { schema_version: 1, scope: "fusou-github-oidc-archive-read-v1", endpoint, audience: endpoint,
-    repository: "tsukasa-u/FUSOU", repository_id: "7", workflow_ref: ARCHIVE_WORKFLOW_REF, event_name: "workflow_run",
+    repository: "tsukasa-u/FUSOU", repository_id: "7", repository_owner_id: "11", workflow_ref: ARCHIVE_WORKFLOW_REF, event_name: "workflow_run",
     ref: "refs/heads/main", clock_skew_seconds: 0, max_token_age_seconds: 60, max_object_bytes: 4096, grants: [grant] };
   const spec = { policy, policy_sha256: sha256(archivePolicyBytes(policy)) };
   const claims = { iss: GITHUB_OIDC_ISSUER, aud: endpoint, iat: 1, exp: 61, nbf: 0, sub: "not-a-legacy-sub-format",
-    repository: policy.repository, repository_id: policy.repository_id, workflow_ref: policy.workflow_ref,
+    repository: policy.repository, repository_id: policy.repository_id,
+    repository_owner: "tsukasa-u", repository_owner_id: policy.repository_owner_id, workflow_ref: policy.workflow_ref,
     workflow_sha: f.context.workflow_sha, event_name: policy.event_name, ref: policy.ref,
     run_id: String(f.context.run_id), run_attempt: String(f.context.run_attempt), sha: f.context.workflow_sha };
   const sign = (payload = claims, header = {}, privateKey = key.privateKey) =>
@@ -105,7 +106,7 @@ for (const [field, value] of Object.entries({ iss: "https://attacker.example.tes
     assert.ok([401, 403].includes(response.status)); assert.deepEqual(t.reads, []);
   });
 }
-for (const field of ["exp", "iat", "repository_id", "workflow_sha", "run_id", "run_attempt"]) {
+for (const field of ["exp", "iat", "repository_id", "repository_owner", "repository_owner_id", "workflow_sha", "run_id", "run_attempt"]) {
   test(`missing signed ${field} fails before any authority-backed R2 read`, async () => {
     const t = await fixture(), claims = { ...t.claims }; delete claims[field];
     assert.equal((await t.call({ payload: claims })).status, 401); assert.deepEqual(t.reads, []);
