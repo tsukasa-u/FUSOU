@@ -2459,7 +2459,7 @@ app.get("/summary", async (c) => {
 
   // 1. Check R2 snapshot first (Zero-D1 streaming)
   const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
-  if (archiveBucket && c.req.header("cache-control") !== "no-cache") {
+  if (archiveBucket) {
     try {
       const snapObj = await archiveBucket.get(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY);
       if (snapObj) {
@@ -2580,7 +2580,7 @@ app.get("/exp", async (c) => {
   // 1. Check R2 snapshot first (Zero-D1 streaming)
   const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
   const expSnapKey = getShipGrowthExpSnapshotKey(periodTag, tableVersion);
-  if (archiveBucket && c.req.header("cache-control") !== "no-cache") {
+  if (archiveBucket) {
     try {
       const snapObj = await archiveBucket.get(expSnapKey);
       if (snapObj) {
@@ -2779,7 +2779,7 @@ app.get("/bounds", async (c) => {
   // 1. Check R2 snapshot first (Zero-D1 direct streaming!)
   const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
   const boundsSnapKey = getShipGrowthBoundsSnapshotKey(periodTag, tableVersion);
-  if (archiveBucket && c.req.header("cache-control") !== "no-cache") {
+  if (archiveBucket) {
     try {
       const snapObj = await archiveBucket.get(boundsSnapKey);
       if (snapObj) {
@@ -3174,7 +3174,7 @@ app.get("/cumulative", async (c) => {
   }
 
   // 1. Check R2 snapshot first (Zero-LIST direct streaming)
-  if (c.req.header("cache-control") !== "no-cache") {
+  if (env.SHIP_GROWTH_ARCHIVE_BUCKET) {
     try {
       const snapObj = await env.SHIP_GROWTH_ARCHIVE_BUCKET.get(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY);
       if (snapObj) {
@@ -3525,7 +3525,7 @@ app.get("/all-periods", async (c) => {
   }
 
   // 1. Check R2 snapshot first (Zero-LIST direct streaming)
-  if (c.req.header("cache-control") !== "no-cache") {
+  if (env.SHIP_GROWTH_ARCHIVE_BUCKET) {
     try {
       const snapObj = await env.SHIP_GROWTH_ARCHIVE_BUCKET.get(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY);
       if (snapObj) {
@@ -3878,15 +3878,11 @@ app.post("/ingest", async (c) => {
 });
 
 app.post("/internal/rebuild-snapshots", async (c) => {
-  const token =
-    c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") ||
-    c.req.header("X-Compaction-Token") ||
-    "";
-  const envObj = c.env as Record<string, unknown>;
-  const expectedToken =
-    (typeof envObj["INTERNAL_COMPACTION_TOKEN"] === "string" ? envObj["INTERNAL_COMPACTION_TOKEN"] : "") ||
-    c.env.ADMIN_TOKEN || "";
-  if (!expectedToken || !token || !timingSafeEqual(token, expectedToken)) {
+  const env = createEnvContext(c);
+  const authHeader = c.req.header("authorization") || c.req.header("x-compaction-token") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const adminToken = getEnv(env, "ADMIN_TOKEN") || getEnv(env, "INTERNAL_COMPACTION_TOKEN");
+  if (!adminToken || token !== adminToken) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
