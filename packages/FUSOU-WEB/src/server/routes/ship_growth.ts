@@ -3916,7 +3916,9 @@ app.post("/internal/rebuild-snapshots", async (c) => {
     return c.json({ ok: true, ...result });
   } catch (error) {
     console.error("[ship-growth] Snapshot rebuild failed; keeping published generation:", error);
-    return c.json({ error: "Snapshot rebuild failed" }, 503);
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    return c.json({ error: "Snapshot rebuild failed", details: msg, stack }, 503);
   }
 });
 
