@@ -2,16 +2,24 @@ import { describe, it, expect, vi } from "vitest";
 import {
   compressJsonToBrotli,
   decompressBrotliToJson,
+  normalizeTableVersion,
   getShipGrowthBoundsSnapshotKey,
   getShipGrowthExpSnapshotKey,
   serveShipGrowthSnapshot,
-    rebuildAllShipGrowthSnapshots,
+  rebuildAllShipGrowthSnapshots,
   SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY,
   SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY,
   SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY,
 } from "../ship-growth-snapshots";
 
 describe("ship-growth-snapshots utility", () => {
+  it("normalizes table versions to 0.5.0", () => {
+    expect(normalizeTableVersion("0.5")).toBe("0.5.0");
+    expect(normalizeTableVersion(" 0.5 ")).toBe("0.5.0");
+    expect(normalizeTableVersion("0.5.0")).toBe("0.5.0");
+    expect(normalizeTableVersion("0.6.0")).toBe("0.6.0");
+  });
+
   it("compresses JSON to Brotli and decompresses back accurately", async () => {
     const original = {
       ok: true,
@@ -34,17 +42,24 @@ describe("ship-growth-snapshots utility", () => {
     expect(recovered).toEqual(original);
   });
 
-  it("generates correct snapshot key names", () => {
+  it("generates correct snapshot key names with version normalization", () => {
     expect(getShipGrowthBoundsSnapshotKey("2026-10-14", "0.6.0")).toBe(
       "snapshots/ship_growth/bounds/2026-10-14_0.6.0.json.br"
     );
     expect(getShipGrowthExpSnapshotKey("2026-10-14", "0.6.0")).toBe(
       "snapshots/ship_growth/exp/2026-10-14_0.6.0.json.br"
     );
+    // 0.5 normalized to 0.5.0
+    expect(getShipGrowthBoundsSnapshotKey("2026-07-08", "0.5")).toBe(
+      "snapshots/ship_growth/bounds/2026-07-08_0.5.0.json.br"
+    );
+    expect(getShipGrowthExpSnapshotKey("2026-07-08", "0.5")).toBe(
+      "snapshots/ship_growth/exp/2026-07-08_0.5.0.json.br"
+    );
   });
 
-  it("streams snapshot with br Content-Encoding when client supports br", async () => {
-    const data = { ok: true, test: 123 };
+  it("serves decompressed plain JSON so browser fetch does not crash on .json()", async () => {
+    const data = { ok: true, periods: [{ period_tag: "2026-10-14", table_version: "0.6.0" }] };
     const compressed = await compressJsonToBrotli(data);
 
     const mockR2Obj = {
@@ -62,37 +77,17 @@ describe("ship-growth-snapshots utility", () => {
     const res = await serveShipGrowthSnapshot(mockContext, mockR2Obj);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
-    expect(res.headers.get("Content-Encoding")).toBe("br");
+    // Crucial: No Content-Encoding: br so browser res.json() receives valid JSON, not raw Brotli binary!
+    expect(res.headers.get("Content-Encoding")).toBeNull();
     expect(res.headers.get("X-FUSOU-Cache")).toBe("SNAPSHOT-HIT");
     expect(res.headers.get("X-FUSOU-Data-Source")).toBe("R2-SNAPSHOT");
     expect(res.headers.get("ETag")).toBe('"mock-etag"');
+
+    const json = await res.json();
+    expect(json).toEqual(data);
   });
 
-  it("decompresses snapshot to plain JSON when client does not support br", async () => {
-    const data = { ok: true, message: "decompressed" };
-    const compressed = await compressJsonToBrotli(data);
-
-    const mockR2Obj = {
-      body: new ReadableStream(),
-      httpEtag: '"mock-etag-2"',
-      arrayBuffer: async () => compressed.buffer,
-    } as any;
-
-    const mockContext = {
-      req: {
-        header: (name: string) => (name === "accept-encoding" ? "gzip, deflate" : ""),
-      },
-    } as any;
-
-    const res = await serveShipGrowthSnapshot(mockContext, mockR2Obj);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
-    expect(res.headers.get("Content-Encoding")).toBeNull();
-    const text = await res.text();
-    expect(JSON.parse(text)).toEqual(data);
-  });
-
-  it("rebuilds all snapshots from mock R2 archives and D1", async () => {
+  it("rebuilds all snapshots and unifies 0.5 to 0.5.0", async () => {
     const storage = new Map<string, Uint8Array>();
 
     const mockArchivePayload = {
@@ -109,8 +104,8 @@ describe("ship-growth-snapshots utility", () => {
             taisen_naked: 20,
             sakuteki_naked: 10,
             lucky_naked: 12,
-            period_tag: "2026-08-05",
-            table_version: "0.5.1",
+            period_tag: "2026-07-08",
+            table_version: "0.5", // Legacy unnormalized version
           },
         ],
         caps: [
@@ -120,8 +115,8 @@ describe("ship-growth-snapshots utility", () => {
             kaihi_max: 79,
             taisen_max: 59,
             sakuteki_max: 39,
-            period_tag: "2026-08-05",
-            table_version: "0.5.1",
+            period_tag: "2026-07-08",
+            table_version: "0.5", // Legacy unnormalized version
           },
         ],
       },
@@ -148,6 +143,7 @@ describe("ship-growth-snapshots utility", () => {
       put: vi.fn().mockImplementation(async (key: string, data: Uint8Array) => {
         storage.set(key, data);
       }),
+      delete: vi.fn().mockResolvedValue(undefined),
     };
 
     const mockEnv = {
@@ -157,13 +153,16 @@ describe("ship-growth-snapshots utility", () => {
     const res = await rebuildAllShipGrowthSnapshots(mockEnv);
     expect(res.archive_object_count).toBe(1);
     expect(res.periods.length).toBeGreaterThan(0);
-    expect(res.periods[0]?.period_tag).toBe("2026-08-05");
-    expect(res.periods[0]?.table_version).toBe("0.5.1");
+    // Verified: table_version is normalized from 0.5 to 0.5.0!
+    expect(res.periods[0]?.period_tag).toBe("2026-07-08");
+    expect(res.periods[0]?.table_version).toBe("0.5.0");
 
     // Check generated snapshots
     expect(storage.has(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY)).toBe(true);
     expect(storage.has(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY)).toBe(true);
     expect(storage.has(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY)).toBe(true);
-    expect(storage.has("snapshots/ship_growth/bounds/2026-08-05_0.5.1.json.br")).toBe(true);
+    // Key has 0.5.0, not 0.5
+    expect(storage.has("snapshots/ship_growth/bounds/2026-07-08_0.5.0.json.br")).toBe(true);
+    expect(storage.has("snapshots/ship_growth/bounds/2026-07-08_0.5.json.br")).toBe(false);
   });
 });

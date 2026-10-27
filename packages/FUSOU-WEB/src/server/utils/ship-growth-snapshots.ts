@@ -22,12 +22,25 @@ export const SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY = "snapshots/ship_growth/summary.j
 export const SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY = "snapshots/ship_growth/cumulative.json.br";
 export const SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY = "snapshots/ship_growth/all_periods.json.br";
 
+/**
+ * Normalizes table version string to standard semantic version format (e.g. "0.5" -> "0.5.0").
+ */
+export function normalizeTableVersion(version: string): string {
+  const trimmed = (version || "").trim();
+  if (trimmed === "0.5") {
+    return "0.5.0";
+  }
+  return trimmed;
+}
+
 export function getShipGrowthBoundsSnapshotKey(periodTag: string, tableVersion: string): string {
-  return `snapshots/ship_growth/bounds/${periodTag}_${tableVersion}.json.br`;
+  const effectiveVersion = normalizeTableVersion(tableVersion);
+  return `snapshots/ship_growth/bounds/${periodTag}_${effectiveVersion}.json.br`;
 }
 
 export function getShipGrowthExpSnapshotKey(periodTag: string, tableVersion: string): string {
-  return `snapshots/ship_growth/exp/${periodTag}_${tableVersion}.json.br`;
+  const effectiveVersion = normalizeTableVersion(tableVersion);
+  return `snapshots/ship_growth/exp/${periodTag}_${effectiveVersion}.json.br`;
 }
 
 /**
@@ -55,17 +68,17 @@ export async function decompressBrotliToJson<T>(data: ArrayBuffer | Uint8Array):
 }
 
 /**
- * Streams an R2 snapshot object directly to client with Brotli encoding (10-30ms, zero-decompression).
- * Falls back to decompression only if client does not support Brotli encoding.
+ * Serves an R2 snapshot object as decompressed plain JSON text.
+ * NOTE: We deliberately do NOT return Content-Encoding: br directly from Worker,
+ * because browser fetch() does not transparently decompress Brotli from Worker responses,
+ * causing JSON parse failures in cachedFetch ("Unexpected token ... is not valid JSON").
+ * Cloudflare CDN handles edge gzip/br compression automatically for plain JSON responses.
  */
 export async function serveShipGrowthSnapshot(
-  c: Context,
+  _c: Context,
   r2Obj: R2ObjectBody,
   cacheControl = "public, max-age=3600, stale-while-revalidate=86400",
 ): Promise<Response> {
-  const acceptEncoding = c.req.header("accept-encoding") || "";
-  const supportsBrotli = acceptEncoding.includes("br");
-
   const headers = new Headers();
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.set("Cache-Control", cacheControl);
@@ -75,15 +88,16 @@ export async function serveShipGrowthSnapshot(
     headers.set("ETag", r2Obj.httpEtag);
   }
 
-  if (supportsBrotli) {
-    headers.set("Content-Encoding", "br");
-    return new Response(r2Obj.body as unknown as ReadableStream, { status: 200, headers });
+  const buf = await r2Obj.arrayBuffer();
+  let jsonText: string;
+  try {
+    const decompressed = await brotliDecompressAsync(Buffer.from(buf));
+    jsonText = decompressed.toString("utf-8");
+  } catch {
+    jsonText = Buffer.from(buf).toString("utf-8");
   }
 
-  // Fallback for rare HTTP clients that don't declare accept-encoding: br
-  const buf = await r2Obj.arrayBuffer();
-  const decompressed = await brotliDecompressAsync(Buffer.from(buf));
-  return new Response(decompressed.toString("utf-8"), { status: 200, headers });
+  return new Response(jsonText, { status: 200, headers });
 }
 
 /**
@@ -342,7 +356,8 @@ export async function rebuildAllShipGrowthSnapshots(
       const p = ShipGrowthArchiveBoundsRowSchema.safeParse(raw);
       if (!p.success) continue;
       const r = p.data;
-      const periodKey = `${r.period_tag}/${r.table_version}`;
+      const normalizedVersion = normalizeTableVersion(r.table_version);
+      const periodKey = `${r.period_tag}/${normalizedVersion}`;
       if (!pastPeriodsMap.has(periodKey)) {
         pastPeriodsMap.set(periodKey, { bounds: new Map(), caps: new Map() });
       }
@@ -390,7 +405,8 @@ export async function rebuildAllShipGrowthSnapshots(
       const p = ShipGrowthArchiveCapsRowSchema.safeParse(raw);
       if (!p.success) continue;
       const r = p.data;
-      const periodKey = `${r.period_tag}/${r.table_version}`;
+      const normalizedVersion = normalizeTableVersion(r.table_version);
+      const periodKey = `${r.period_tag}/${normalizedVersion}`;
       if (!pastPeriodsMap.has(periodKey)) {
         pastPeriodsMap.set(periodKey, { bounds: new Map(), caps: new Map() });
       }
@@ -437,7 +453,7 @@ export async function rebuildAllShipGrowthSnapshots(
   for (const [periodKey, data] of pastPeriodsMap.entries()) {
     const parts = periodKey.split("/");
     const periodTag = parts[0] || "";
-    const tableVersion = parts[1] || "";
+    const tableVersion = normalizeTableVersion(parts[1] || "");
     if (!periodTag || !tableVersion) continue;
     const boundsArr = Array.from(data.bounds.values()).sort(
       (a, b) => a.master_id - b.master_id || a.lv - b.lv,
@@ -473,7 +489,7 @@ export async function rebuildAllShipGrowthSnapshots(
   for (const periodKey of pastPeriodsMap.keys()) {
     const parts = periodKey.split("/");
     const periodTag = parts[0] || "";
-    const tableVersion = parts[1] || "";
+    const tableVersion = normalizeTableVersion(parts[1] || "");
     if (!periodTag || !tableVersion) continue;
     periodTagSet.set(`${periodTag}_${tableVersion}`, { period_tag: periodTag, table_version: tableVersion });
   }
@@ -486,11 +502,13 @@ export async function rebuildAllShipGrowthSnapshots(
       const parsedD1Periods = ShipGrowthPeriodRowSchema.array().safeParse(d1PeriodsRes.results ?? []);
       if (parsedD1Periods.success) {
         for (const p of parsedD1Periods.data) {
-          periodTagSet.set(`${p.period_tag}_${p.table_version}`, p);
+          const normalizedVersion = normalizeTableVersion(p.table_version);
+          const normalizedP = { period_tag: p.period_tag, table_version: normalizedVersion };
+          periodTagSet.set(`${normalizedP.period_tag}_${normalizedP.table_version}`, normalizedP);
 
           // Build & save bounds snapshot from D1
-          const boundsPayload = await buildShipGrowthBoundsSnapshotFromD1(db, p.period_tag, p.table_version);
-          const boundsKey = getShipGrowthBoundsSnapshotKey(p.period_tag, p.table_version);
+          const boundsPayload = await buildShipGrowthBoundsSnapshotFromD1(db, normalizedP.period_tag, normalizedP.table_version);
+          const boundsKey = getShipGrowthBoundsSnapshotKey(normalizedP.period_tag, normalizedP.table_version);
           await putShipGrowthSnapshot(archiveBucket, boundsKey, boundsPayload);
           generated.push(boundsKey);
 
@@ -520,15 +538,15 @@ export async function rebuildAllShipGrowthSnapshots(
 
           // Also include in allPeriodsEntries
           allPeriodsEntries.push({
-            period_tag: p.period_tag,
-            table_version: p.table_version,
+            period_tag: normalizedP.period_tag,
+            table_version: normalizedP.table_version,
             bounds: boundsPayload.bounds,
             caps: boundsPayload.caps,
           });
 
           // Build & save exp snapshot from D1
-          const expPayload = await buildShipGrowthExpSnapshotFromD1(db, p.period_tag, p.table_version);
-          const expKey = getShipGrowthExpSnapshotKey(p.period_tag, p.table_version);
+          const expPayload = await buildShipGrowthExpSnapshotFromD1(db, normalizedP.period_tag, normalizedP.table_version);
+          const expKey = getShipGrowthExpSnapshotKey(normalizedP.period_tag, normalizedP.table_version);
           await putShipGrowthSnapshot(archiveBucket, expKey, expPayload);
           generated.push(expKey);
         }
@@ -575,6 +593,18 @@ export async function rebuildAllShipGrowthSnapshots(
   };
   await putShipGrowthSnapshot(archiveBucket, SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY, summaryPayload);
   generated.push(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY);
+
+  // 8. Clean up legacy unnormalized snapshot keys if any exist (e.g. *_0.5.json.br)
+  try {
+    const legacySnapshots = await archiveBucket.list({ prefix: SHIP_GROWTH_SNAPSHOT_PREFIX });
+    for (const obj of legacySnapshots.objects) {
+      if (obj.key.endsWith("_0.5.json.br")) {
+        await archiveBucket.delete(obj.key);
+      }
+    }
+  } catch (cleanErr) {
+    console.warn("[ship-growth] Failed to clean up legacy snapshots:", cleanErr);
+  }
 
   return {
     generated,

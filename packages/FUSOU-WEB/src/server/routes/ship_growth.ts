@@ -5,8 +5,9 @@ import {
   getShipGrowthBoundsSnapshotKey,
   getShipGrowthExpSnapshotKey,
   serveShipGrowthSnapshot,
-    decompressBrotliToJson,
+  decompressBrotliToJson,
   rebuildAllShipGrowthSnapshots,
+  normalizeTableVersion,
   type ShipGrowthBoundsPayload,
 } from "../utils/ship-growth-snapshots";
 import { Hono, type Context } from "hono";
@@ -2488,7 +2489,14 @@ app.get("/summary", async (c) => {
     if (!parsedPeriods.success) {
       throw new Error("Invalid ship-growth period rows");
     }
-    const periods = parsedPeriods.data;
+    const periods = Array.from(
+      new Map(
+        parsedPeriods.data.map((p) => {
+          const effectiveVersion = normalizeTableVersion(p.table_version);
+          return [`${p.period_tag}_${effectiveVersion}`, { period_tag: p.period_tag, table_version: effectiveVersion }];
+        }),
+      ).values(),
+    );
 
     // Archive presence check: prefer KV snapshot (cheap), but fall back to
     // a tiny R2 LIST(limit=1) so first-ever archive data is visible in the UI
@@ -2578,8 +2586,9 @@ app.get("/exp", async (c) => {
   }
 
   // 1. Check R2 snapshot first (Zero-D1 streaming)
+  const effectiveTableVersion = normalizeTableVersion(tableVersion);
   const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
-  const expSnapKey = getShipGrowthExpSnapshotKey(periodTag, tableVersion);
+  const expSnapKey = getShipGrowthExpSnapshotKey(periodTag, effectiveTableVersion);
   if (archiveBucket) {
     try {
       const snapObj = await archiveBucket.get(expSnapKey);
@@ -2592,7 +2601,7 @@ app.get("/exp", async (c) => {
   }
 
   const kv = c.env.DATA_LOADER_CACHE_KV;
-  const kvKey = `sg:exp:${periodTag}:${tableVersion}`;
+  const kvKey = `sg:exp:${periodTag}:${effectiveTableVersion}`;
 
   try {
     const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
@@ -2777,14 +2786,14 @@ app.get("/bounds", async (c) => {
   }
 
   // 1. Check R2 snapshot first (Zero-D1 direct streaming!)
+  const effectiveTableVersion = normalizeTableVersion(tableVersion);
   const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
-  const boundsSnapKey = getShipGrowthBoundsSnapshotKey(periodTag, tableVersion);
+  const boundsSnapKey = getShipGrowthBoundsSnapshotKey(periodTag, effectiveTableVersion);
   if (archiveBucket) {
     try {
       const snapObj = await archiveBucket.get(boundsSnapKey);
       if (snapObj) {
         if (masterId === null) {
-          // Streaming without decompression! (10-30ms)
           return await serveShipGrowthSnapshot(c, snapObj, "public, max-age=86400, stale-while-revalidate=604800");
         } else {
           // Filter by requested master_id
@@ -2794,7 +2803,7 @@ app.get("/bounds", async (c) => {
           return c.json({
             ok: true,
             period_tag: periodTag,
-            table_version: tableVersion,
+            table_version: effectiveTableVersion,
             schema_version: 3,
             bounds: filteredBounds,
             caps: filteredCaps,
@@ -2816,7 +2825,7 @@ app.get("/bounds", async (c) => {
   };
   try {
     const kv = c.env.DATA_LOADER_CACHE_KV;
-    const kvKey = `sg:bounds:${periodTag}:${tableVersion}`;
+    const kvKey = `sg:bounds:${periodTag}:${effectiveTableVersion}`;
 
     const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
       kv,
