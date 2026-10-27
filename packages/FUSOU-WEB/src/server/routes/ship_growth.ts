@@ -2685,6 +2685,7 @@ app.get("/exp", async (c) => {
       period_tag: periodTag,
       table_version: tableVersion,
       exp: snapshot.rows,
+      rows: snapshot.rows,
       updated_at: snapshot.db_synced_at,
       updated_at_iso:
         snapshot.db_synced_at > 0
@@ -3552,6 +3553,7 @@ app.get("/all-periods", async (c) => {
     const response = c.json({
       ok: true,
       entries: snapshot.entries,
+      periods: snapshot.entries,
       archive_object_count: snapshot.archive_object_count,
     });
     response.headers.set(

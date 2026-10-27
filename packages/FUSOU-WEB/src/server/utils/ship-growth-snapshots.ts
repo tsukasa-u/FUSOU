@@ -147,6 +147,10 @@ export interface ShipGrowthExpPayload {
   ok: true;
   period_tag: string;
   table_version: string;
+  exp: Array<{
+    lv: number;
+    exp_current: number;
+  }>;
   rows: Array<{
     lv: number;
     exp_current: number;
@@ -278,14 +282,16 @@ export async function buildShipGrowthExpSnapshotFromD1(
   if (!parsedRows.success) {
     throw new Error("Invalid ship-growth exp rows");
   }
+  const mappedRows = parsedRows.data.map((r) => ({
+    lv: r.lv,
+    exp_current: r.exp_current,
+  }));
   return {
     ok: true,
     period_tag: periodTag,
     table_version: tableVersion,
-    rows: parsedRows.data.map((r) => ({
-      lv: r.lv,
-      exp_current: r.exp_current,
-    })),
+    exp: mappedRows,
+    rows: mappedRows,
   };
 }
 
@@ -571,10 +577,11 @@ export async function rebuildAllShipGrowthSnapshots(
   await putShipGrowthSnapshot(archiveBucket, SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY, cumulativePayload);
   generated.push(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY);
 
-  // 6. Save all_periods snapshot
+  // 6. Save all_periods snapshot (include both entries and periods for universal schema compatibility)
   allPeriodsEntries.sort((a, b) => b.period_tag.localeCompare(a.period_tag) || b.table_version.localeCompare(a.table_version));
   const allPeriodsPayload = {
     ok: true,
+    entries: allPeriodsEntries,
     periods: allPeriodsEntries,
     archive_object_count: archiveObjects.length,
   };

@@ -161,6 +161,13 @@ describe("ship-growth-snapshots utility", () => {
     expect(storage.has(SHIP_GROWTH_SUMMARY_SNAPSHOT_KEY)).toBe(true);
     expect(storage.has(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY)).toBe(true);
     expect(storage.has(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY)).toBe(true);
+
+    // Verify all-periods snapshot contains both 'entries' and 'periods' for client compatibility
+    const allPeriodsData = await decompressBrotliToJson<any>(storage.get(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY)!);
+    expect(allPeriodsData.ok).toBe(true);
+    expect(Array.isArray(allPeriodsData.entries)).toBe(true);
+    expect(Array.isArray(allPeriodsData.periods)).toBe(true);
+    expect(allPeriodsData.entries.length).toBeGreaterThan(0);
     // Key has 0.5.0, not 0.5
     expect(storage.has("snapshots/ship_growth/bounds/2026-07-08_0.5.0.json.br")).toBe(true);
     expect(storage.has("snapshots/ship_growth/bounds/2026-07-08_0.5.json.br")).toBe(false);
