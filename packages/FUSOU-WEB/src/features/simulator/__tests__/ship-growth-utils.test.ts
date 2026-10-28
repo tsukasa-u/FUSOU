@@ -5,6 +5,12 @@ import {
   ShipGrowthAllPeriodsResponseSchema,
   ShipGrowthBoundsResponseSchema,
   ShipGrowthExpResponseSchema,
+  normalizeBoundRows,
+  mergeBoundsByMax,
+  buildBoundsChartData,
+  buildAllPeriodsBoundsChartData,
+  type BoundRow,
+  type AllPeriodsEntry,
 } from "../ship-growth-utils";
 
 describe("ship-growth-utils", () => {
@@ -72,6 +78,127 @@ describe("ship-growth-utils", () => {
       ];
       const result = selectLatestShipGrowthPeriod(periods);
       expect(result).toEqual({ period_tag: "2026-09-01", table_version: "0.6.0" });
+    });
+  });
+
+  describe("normalizeBoundRows and mergeBoundsByMax", () => {
+    it("normalizes lucky_naked and source period properties", () => {
+      const rows = normalizeBoundRows([
+        {
+          master_id: 10,
+          lv: 1,
+          kaihi_naked: 40,
+          taisen_naked: 20,
+          sakuteki_naked: 5,
+          lucky_naked: 10,
+          lucky_source_period: "2026-10-14/0.6.0",
+        },
+      ]);
+      expect(rows).toEqual([
+        {
+          master_id: 10,
+          lv: 1,
+          kaihi_naked: 40,
+          taisen_naked: 20,
+          sakuteki_naked: 5,
+          lucky_naked: 10,
+          lucky_source_period: "2026-10-14/0.6.0",
+        },
+      ]);
+    });
+
+    it("merges bounds preserving the minimum positive naked observation across all stats including lucky", () => {
+      const archiveRows: BoundRow[] = [
+        {
+          master_id: 10,
+          lv: 1,
+          kaihi_naked: 42,
+          taisen_naked: 0,
+          sakuteki_naked: 6,
+          lucky_naked: 0,
+          kaihi_source_period: "archive",
+          sakuteki_source_period: "archive",
+        },
+      ];
+      const liveRows: BoundRow[] = [
+        {
+          master_id: 10,
+          lv: 1,
+          kaihi_naked: 40,
+          taisen_naked: 20,
+          sakuteki_naked: 7,
+          lucky_naked: 10,
+        },
+      ];
+      const merged = mergeBoundsByMax(archiveRows, liveRows, "live");
+      expect(merged[0]).toEqual({
+        master_id: 10,
+        lv: 1,
+        kaihi_naked: 40,
+        kaihi_source_period: "live",
+        taisen_naked: 20,
+        taisen_source_period: "live",
+        sakuteki_naked: 6,
+        sakuteki_source_period: "archive",
+        lucky_naked: 10,
+        lucky_source_period: "live",
+      });
+    });
+  });
+
+  describe("buildBoundsChartData and buildAllPeriodsBoundsChartData (unobserved 0 filtering)", () => {
+    it("filters out 0 values and does not generate empty lines for unobserved stats", () => {
+      const rows: BoundRow[] = [
+        { master_id: 1, lv: 1, kaihi_naked: 30, taisen_naked: 0, sakuteki_naked: 10, lucky_naked: 0 },
+        { master_id: 1, lv: 2, kaihi_naked: 31, taisen_naked: 0, sakuteki_naked: 11, lucky_naked: 0 },
+      ];
+      const chartData = buildBoundsChartData(rows, null);
+      const labels = chartData.datasets.map((d) => d.label);
+      expect(labels).toContain("回避(naked)");
+      expect(labels).toContain("索敵(naked)");
+      expect(labels).not.toContain("対潜(naked)");
+      expect(labels).not.toContain("運(naked)");
+    });
+
+    it("skips only unobserved levels for sparse data points", () => {
+      const rows: BoundRow[] = [
+        { master_id: 1, lv: 1, kaihi_naked: 10, taisen_naked: 10, sakuteki_naked: 5, lucky_naked: 12 },
+        { master_id: 1, lv: 2, kaihi_naked: 11, taisen_naked: 11, sakuteki_naked: 5, lucky_naked: 0 },
+        { master_id: 1, lv: 3, kaihi_naked: 12, taisen_naked: 12, sakuteki_naked: 6, lucky_naked: 12 },
+      ];
+      const chartData = buildBoundsChartData(rows, null);
+      const luckyDs = chartData.datasets.find((d) => d.label === "運(naked)");
+      expect(luckyDs).toBeDefined();
+      expect(luckyDs?.data).toEqual([
+        { x: 1, y: 12 },
+        { x: 3, y: 12 },
+      ]);
+    });
+
+    it("omits zero-stat datasets in all-periods mode for legacy periods lacking lucky", () => {
+      const entries: AllPeriodsEntry[] = [
+        {
+          period_tag: "2026-04-07",
+          table_version: "0.5.0",
+          bounds: [
+            { master_id: 10, lv: 1, kaihi_naked: 40, taisen_naked: 20, sakuteki_naked: 5, lucky_naked: 0 },
+          ],
+          caps: [],
+        },
+        {
+          period_tag: "2026-10-14",
+          table_version: "0.6.0",
+          bounds: [
+            { master_id: 10, lv: 1, kaihi_naked: 40, taisen_naked: 20, sakuteki_naked: 5, lucky_naked: 10 },
+          ],
+          caps: [],
+        },
+      ];
+      const chartData = buildAllPeriodsBoundsChartData(entries, 10);
+      const labels = chartData.datasets.map((d) => d.label);
+      expect(labels).toContain("回避(naked) - 2026-04-07(v0.5.0)");
+      expect(labels).not.toContain("運(naked) - 2026-04-07(v0.5.0)");
+      expect(labels).toContain("運(naked) - 2026-10-14(v0.6.0)");
     });
   });
 });
