@@ -30,6 +30,10 @@ export function nativeGhFixture(binary = Buffer.from("synthetic native bytes, ne
     verifiedTimestamps: [{ type: "tlog", uri: "https://rekor.sigstore.dev", timestamp: "2026-10-28T11:00:00Z" }] } };
   const executable = Buffer.from("synthetic gh executable bytes, never executed");
   const verifier = { path: "/mock/gh", sha256: nativeFixtureHex(executable) };
+  const execution = { host: "github.com", config_root: "/mock/isolated", config_source: "EMPTY_ISOLATED",
+    credential_source: "NONE" };
+  // Test admission budgets, not approved limits for real release artifacts.
+  const fileLimits = { verifier_executable: 4096, native_artifact: 4096, build_metadata: 16 * 1024 };
   const artifactPath = "/mock/native", files = new Map([[verifier.path, executable], [artifactPath, binary]]);
   const calls = [], encode = () => Buffer.from(JSON.stringify([entry], null, 2));
   const options = { mockReadFile: async (path) => {
@@ -40,5 +44,5 @@ export function nativeGhFixture(binary = Buffer.from("synthetic native bytes, ne
     return { code: 0, stdout: argv[0] === "--version" ? Buffer.from("gh version 2.102.0 (synthetic)\n") : encode(),
       stderr: Buffer.from("synthetic credential canary; never expose this text") };
   } };
-  return { binary, expected, entry, verifier, artifactPath, files, options, calls, encode };
+  return { binary, expected, entry, verifier, execution, fileLimits, artifactPath, files, options, calls, encode };
 }

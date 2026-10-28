@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { isAbsolute } from "node:path";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { isAbsolute, join, normalize, parse as parsePath } from "node:path";
 import { assertUniqueResultJsonKeys } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs";
 import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
-import { readRegularFile } from "./release-files.mjs";
+import { assertReleaseFileLimits, readBoundedRegularFile } from "./release-files.mjs";
 import { ReleaseBlocked } from "./release-transport.mjs";
+import { MAX_RELEASE_RECORD_BYTES } from "./release-bytes.mjs";
 
 export const NATIVE_GH_MEDIA_TYPE = "application/vnd.dev.sigstore.verificationresult+json;version=0.1";
 export const NATIVE_SLSA_PREDICATE = "https://slsa.dev/provenance/v1";
@@ -16,11 +15,8 @@ export const NATIVE_CERTIFICATE_FIELDS = Object.freeze([
 ]);
 const optionalCertificateFields = ["certificateIssuer", "sourceRepositoryVisibilityAtSigning",
   "githubWorkflowTrigger", "githubWorkflowSHA", "githubWorkflowName", "githubWorkflowRepository", "githubWorkflowRef"];
-const exec = promisify(execFile), limit = 1024 * 1024;
-async function execute(...args) {
-  const { stdout, stderr } = await exec(...args);
-  return { code: 0, signal: null, stdout, stderr };
-}
+const limit = 1024 * 1024;
+export const NATIVE_GH_IDENTITY_BLOCKER = "NATIVE_GH_EXECUTION_IDENTITY_UNSUPPORTED";
 const hex = (raw) => createHash("sha256").update(raw).digest("hex");
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonempty = (value) => typeof value === "string" && value.trim().length > 0;
@@ -150,11 +146,53 @@ export function parseNativeGhVerification(stdout, { expected, artifactSha256 }) 
     signature_verification: "UNVERIFIED", authenticated: false };
 }
 
-async function capturedRun(runner, executable, argv) {
+// No fd-bound/immutable execution provider is registered for Linux, macOS or Windows.
+// Real execution is disabled on every OS; injected runners only exercise a mock contract.
+export function prepareNativeGhInspection({ execution, fileLimits }, { mockRunner, mockReadFile } = {}) {
+  check(typeof mockRunner === "function", NATIVE_GH_IDENTITY_BLOCKER);
+  check(mockReadFile === undefined || typeof mockReadFile === "function", "NATIVE_GH_MOCK_BOUNDARY_INVALID");
+  check(keys(execution, ["host", "config_root", "config_source", "credential_source"]),
+    "NATIVE_GH_ENVIRONMENT_CONTRACT_MISSING");
+  check(execution.host === "github.com", "NATIVE_GH_HOST_UNSUPPORTED");
+  check(execution.config_source === "EMPTY_ISOLATED" &&
+    typeof execution.config_root === "string" && isAbsolute(execution.config_root) &&
+    !/[\0\r\n]/.test(execution.config_root) && normalize(execution.config_root) === execution.config_root &&
+    execution.config_root !== parsePath(execution.config_root).root, "NATIVE_GH_CONFIG_CONTRACT_INVALID");
+  check(execution.credential_source === "NONE", "NATIVE_GH_CREDENTIAL_PROVIDER_NOT_REGISTERED");
+  check(keys(fileLimits, ["verifier_executable", "native_artifact", "build_metadata"]),
+    "NATIVE_GH_FILE_LIMITS_MISSING");
+  for (const maxBytes of Object.values(fileLimits)) assertReleaseFileLimits({ maxBytes });
+  check(fileLimits.build_metadata <= MAX_RELEASE_RECORD_BYTES, "NATIVE_GH_METADATA_LIMIT_INVALID");
+  const snapshot = canonicalJson({ execution, fileLimits }), limits = Object.freeze({ ...fileLimits });
+  const settings = Object.freeze({ encoding: "buffer", shell: false, timeout: 15_000, maxBuffer: limit,
+    windowsHide: true, cwd: execution.config_root, env: Object.freeze({
+      GH_HOST: execution.host, GH_CONFIG_DIR: join(execution.config_root, "gh"),
+      HOME: join(execution.config_root, "home"), XDG_CONFIG_HOME: join(execution.config_root, "xdg"),
+      GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_NO_EXTENSION_UPDATE_NOTIFIER: "1",
+      LANG: "C", LC_ALL: "C",
+    }) });
+  const assertUnchanged = () => check(canonicalJson({ execution, fileLimits }) === snapshot, "NATIVE_GH_INPUT_CHANGED");
+  const checkBytes = (raw, role) => {
+    check(Object.hasOwn(limits, role), "NATIVE_GH_FILE_ROLE_INVALID");
+    check(bytes(raw), "NATIVE_GH_FILE_EMPTY_OR_INVALID");
+    check(raw.byteLength <= limits[role], "NATIVE_GH_FILE_TOO_LARGE");
+  };
+  const read = async (path, role) => {
+    assertUnchanged();
+    check(Object.hasOwn(limits, role), "NATIVE_GH_FILE_ROLE_INVALID");
+    const bounds = Object.freeze({ maxBytes: limits[role], minBytes: 1 });
+    const raw = await (mockReadFile ? mockReadFile(path, bounds) : readBoundedRegularFile(path, bounds));
+    assertUnchanged();
+    checkBytes(raw, role);
+    return mockReadFile ? Buffer.from(raw) : raw;
+  };
+  return { settings, assertUnchanged, checkBytes, read };
+}
+
+async function capturedRun(runner, executable, argv, settings) {
   let result;
   try {
-    result = await runner(executable, argv, { encoding: "buffer", shell: false, timeout: 15_000,
-      maxBuffer: limit, windowsHide: true });
+    result = await runner(executable, argv, settings);
   } catch (error) {
     if (error?.code === "ENOENT") block("NATIVE_GH_NOT_FOUND");
     if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") block("NATIVE_GH_OUTPUT_MISSING_OR_OVERSIZED");
@@ -167,29 +205,39 @@ async function capturedRun(runner, executable, argv) {
   return result;
 }
 
-export async function inspectNativeGhArtifact({ artifactPath, expected, verifier },
-  { mockRunner, mockReadFile } = {}) {
+export async function inspectNativeGhArtifact({ artifactPath, expected, verifier, execution, fileLimits,
+  artifactRole = "native_artifact" }, options = {}) {
   const argv = nativeGhVerifyCommand(artifactPath, expected);
   check(object(verifier) && typeof verifier.path === "string" && isAbsolute(verifier.path) && digest(verifier.sha256),
     "NATIVE_GH_EXECUTABLE_PIN_MISSING");
-  check(!mockReadFile || typeof mockRunner === "function", "NATIVE_GH_MOCK_BOUNDARY_INVALID");
-  const read = mockReadFile ?? readRegularFile, runner = mockRunner ?? execute;
+  const io = prepareNativeGhInspection({ execution, fileLimits }, options), { read, settings } = io;
+  check(["native_artifact", "build_metadata"].includes(artifactRole), "NATIVE_GH_FILE_ROLE_INVALID");
   const expectedSnapshot = canonicalJson(expected), verifierSnapshot = canonicalJson(verifier);
+  const executablePath = verifier.path;
+  const assertUnchanged = () => {
+    io.assertUnchanged();
+    check(canonicalJson(expected) === expectedSnapshot && canonicalJson(verifier) === verifierSnapshot, "NATIVE_GH_INPUT_CHANGED");
+  };
   let executable;
-  try { executable = await read(verifier.path); }
+  try { executable = await read(executablePath, "verifier_executable"); }
   catch (error) { if (error.code !== "ENOENT") throw error; block("NATIVE_GH_NOT_FOUND"); }
   check(bytes(executable) && hex(executable) === verifier.sha256, "NATIVE_GH_EXECUTABLE_MISMATCH");
   const executableSha256 = hex(executable);
-  const raw = await read(artifactPath);
+  const raw = await read(artifactPath, artifactRole);
   check(bytes(raw), "NATIVE_GH_ARTIFACT_MISSING");
   const artifactSha256 = hex(raw);
-  const version = assertNativeGhVersion((await capturedRun(runner, verifier.path, ["--version"])).stdout);
-  const capture = await capturedRun(runner, verifier.path, argv);
-  check(canonicalJson(expected) === expectedSnapshot && canonicalJson(verifier) === verifierSnapshot &&
-    hex(await read(verifier.path)) === executableSha256 && hex(await read(artifactPath)) === artifactSha256,
+  assertUnchanged();
+  const version = assertNativeGhVersion((await capturedRun(options.mockRunner, executablePath, ["--version"], settings)).stdout);
+  assertUnchanged();
+  const capture = await capturedRun(options.mockRunner, executablePath, argv, settings);
+  assertUnchanged();
+  check(hex(await read(executablePath, "verifier_executable")) === executableSha256 &&
+    hex(await read(artifactPath, artifactRole)) === artifactSha256,
   "NATIVE_GH_INPUT_CHANGED");
+  assertUnchanged();
   const parsed = parseNativeGhVerification(capture.stdout, { expected, artifactSha256 });
-  return { ...parsed, status: "BLOCKED_IMPLEMENTATION", verification_mode: mockRunner ? "MOCK_PROCESS" : "UNREGISTERED_PROCESS",
+  return { ...parsed, status: "BLOCKED_IMPLEMENTATION", verification_mode: "MOCK_PROCESS",
+    executable_identity: "UNVERIFIED", execution_identity_blocker: NATIVE_GH_IDENTITY_BLOCKER,
     gh_version: version, gh_executable_sha256: executableSha256, argv,
     stdout_sha256: hex(capture.stdout), stderr_sha256: hex(capture.stderr),
     blocker: "FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED",

@@ -196,12 +196,65 @@ test("independent consumer candidate checks both files, never issues an offline 
     return capture;
   };
   const request = { candidate: t.request, binaryPath: gh.artifactPath, metadataPath,
-    policy: gh.expected, verifier: gh.verifier };
+    policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits };
   const result = await inspectNativeConsumerProvenance(request, gh.options);
   assert.equal(result.authenticated, false); assert.equal(result.offline_verification, NATIVE_BLOCKER);
   assert.equal(result.binary.verification_mode, "MOCK_PROCESS"); assert.equal(result.metadata.authenticated, false);
   gh.files.set(metadataPath, Buffer.from("substituted"));
   await assert.rejects(inspectNativeConsumerProvenance(request, gh.options), /file\/metadata bytes/);
+});
+test("consumer refuses unbound real execution before reading either artifact", async () => {
+  const t = await fixture(), gh = nativeGhFixture(t.request.binary);
+  let reads = 0;
+  await assert.rejects(inspectNativeConsumerProvenance({ candidate: t.request, binaryPath: gh.artifactPath,
+    metadataPath: "/mock/metadata", policy: gh.expected, verifier: gh.verifier,
+    execution: gh.execution, fileLimits: gh.fileLimits },
+  { mockReadFile: async () => { reads++; return t.request.binary; } }),
+  (error) => error.code === "NATIVE_GH_EXECUTION_IDENTITY_UNSUPPORTED");
+  assert.equal(reads, 0);
+});
+test("consumer applies independent binary and metadata limits before parsing or running any verifier", async () => {
+  for (const role of ["native_artifact", "build_metadata"]) {
+    const t = await fixture(), gh = nativeGhFixture(t.request.binary);
+    gh.fileLimits[role] = (role === "native_artifact" ? t.request.binary : t.request.metadataBytes).length - 1;
+    gh.options.mockReadFile = async () => { assert.fail("oversized candidate must be refused first"); };
+    await assert.rejects(inspectNativeConsumerProvenance({ candidate: t.request, binaryPath: gh.artifactPath,
+      metadataPath: "/mock/metadata", policy: gh.expected, verifier: gh.verifier,
+      execution: gh.execution, fileLimits: gh.fileLimits }, gh.options),
+    (error) => error.code === "NATIVE_GH_FILE_TOO_LARGE");
+    assert.equal(gh.calls.length, 0);
+  }
+});
+test("consumer checks final metadata reads before accepting candidate snapshots or byte budgets", async () => {
+  for (const change of ["oversized metadata", "candidate bytes", "policy"]) {
+    const t = await fixture(), gh = nativeGhFixture(t.request.binary), metadataPath = "/mock/metadata";
+    let completedMetadataReads = 0;
+    gh.files.set(metadataPath, t.request.metadataBytes);
+    const runner = gh.options.mockRunner, read = gh.options.mockReadFile;
+    gh.options.mockRunner = async (...args) => {
+      const capture = await runner(...args);
+      if (args[1][0] !== "--version") {
+        const entry = structuredClone(gh.entry);
+        entry.verificationResult.statement.subject[0].digest.sha256 = nativeFixtureHex(gh.files.get(args[1][2]));
+        capture.stdout = Buffer.from(JSON.stringify([entry]));
+      }
+      return capture;
+    };
+    gh.options.mockReadFile = async (path, bounds) => {
+      const raw = await read(path, bounds);
+      if (gh.calls.length === 4 && path === metadataPath && ++completedMetadataReads === 2) {
+        if (change === "oversized metadata") t.request.metadataBytes = Buffer.alloc(gh.fileLimits.build_metadata + 1);
+        if (change === "candidate bytes") t.request.binary = Buffer.from("changed during final read");
+        if (change === "policy") gh.expected.certificate.sourceRepositoryRef = "refs/heads/changed";
+      }
+      return raw;
+    };
+    await assert.rejects(inspectNativeConsumerProvenance({ candidate: t.request, binaryPath: gh.artifactPath,
+      metadataPath, policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits }, gh.options),
+    (error) => change === "oversized metadata" ? error.code === "NATIVE_GH_FILE_TOO_LARGE" :
+      error.message === "release consumer: native consumer inputs changed");
+    assert.equal(completedMetadataReads, 2);
+  }
 });
 test("workflow is fixed-disabled, write permissions job-scoped and action pins immutable", async () => {
   const workflow = await readFile(new URL(`../${NATIVE_WORKFLOW}`, import.meta.url), "utf8");

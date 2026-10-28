@@ -193,27 +193,38 @@ export async function inspectNativeArtifactCandidate({ binary, metadataBytes, ex
     publication_authorized: false, deployment: "NOT_CHECKED", production_acceptance: "BLOCKED" };
 }
 
-export async function inspectNativeConsumerProvenance({ candidate, binaryPath, metadataPath, policy, verifier }, options = {}) {
-  const { inspectNativeGhArtifact } = await import("./release-native-attestation.mjs");
+export async function inspectNativeConsumerProvenance({ candidate, binaryPath, metadataPath, policy, verifier,
+  execution, fileLimits }, options = {}) {
+  const { inspectNativeGhArtifact, prepareNativeGhInspection } = await import("./release-native-attestation.mjs");
+  const io = prepareNativeGhInspection({ execution, fileLimits }, options), { read } = io;
   // Existing byte/recipe/origin checks remain mandatory; this cannot issue a production execution proof.
+  io.checkBytes(candidate.binary, "native_artifact");
+  io.checkBytes(candidate.metadataBytes, "build_metadata");
   assertNativeCandidateInputs(candidate);
-  const read = options.mockReadFile ?? readRegularFile;
   const snapshot = { binary: hex(candidate.binary), metadata: hex(candidate.metadataBytes),
-    expected: canonicalJson(candidate.expected), origin: canonicalJson(candidate.artifactOrigin) };
+    expected: canonicalJson(candidate.expected), origin: canonicalJson(candidate.artifactOrigin),
+    policy: canonicalJson(policy), verifier: canonicalJson(verifier) };
   const context = structuredClone(candidate.expected.context);
-  requireRelease(hex(await read(binaryPath)) === snapshot.binary && hex(await read(metadataPath)) === snapshot.metadata,
+  requireRelease(hex(await read(binaryPath, "native_artifact")) === snapshot.binary &&
+    hex(await read(metadataPath, "build_metadata")) === snapshot.metadata,
     "native consumer artifact file/metadata bytes");
   const c = policy?.certificate;
   requireRelease(c?.buildSignerDigest === context.workflow_sha && c.sourceRepositoryDigest === context.source_sha &&
     c.sourceRepositoryIdentifier === context.repository_id && c.sourceRepositoryOwnerIdentifier === context.repository_owner_id &&
     c.runInvocationURI === `https://github.com/${context.repository}/actions/runs/${context.run_id}/attempts/${context.run_attempt}`,
   "native independent certificate/build context");
-  const binary = await inspectNativeGhArtifact({ artifactPath: binaryPath, expected: policy, verifier }, options);
-  const metadata = await inspectNativeGhArtifact({ artifactPath: metadataPath, expected: policy, verifier }, options);
+  const inspection = { expected: policy, verifier, execution, fileLimits };
+  const binary = await inspectNativeGhArtifact({ ...inspection, artifactPath: binaryPath }, options);
+  const metadata = await inspectNativeGhArtifact({ ...inspection, artifactPath: metadataPath, artifactRole: "build_metadata" }, options);
+  const finalBinary = await read(binaryPath, "native_artifact"), finalMetadata = await read(metadataPath, "build_metadata");
+  io.checkBytes(candidate.binary, "native_artifact");
+  io.checkBytes(candidate.metadataBytes, "build_metadata");
   requireRelease(hex(candidate.binary) === snapshot.binary && hex(candidate.metadataBytes) === snapshot.metadata &&
     canonicalJson(candidate.expected) === snapshot.expected && canonicalJson(candidate.artifactOrigin) === snapshot.origin &&
-    hex(await read(binaryPath)) === snapshot.binary && hex(await read(metadataPath)) === snapshot.metadata,
+    canonicalJson(policy) === snapshot.policy && canonicalJson(verifier) === snapshot.verifier &&
+    hex(finalBinary) === snapshot.binary && hex(finalMetadata) === snapshot.metadata,
   "native consumer inputs changed");
+  io.assertUnchanged();
   return { binary, metadata, authenticated: false, artifact_origin_authentication: "UNVERIFIED",
     offline_verification: NATIVE_BLOCKER, publication_authorized: false,
     deployment: "NOT_CHECKED", production_acceptance: "BLOCKED" };
