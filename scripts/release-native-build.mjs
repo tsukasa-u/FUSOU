@@ -7,6 +7,7 @@ import { sha256 } from "./release-bytes.mjs";
 import { parseReleaseRecord, requireRelease } from "./release-build-proof.mjs";
 import { readRegularFile } from "./release-files.mjs";
 import { ReleaseBlocked } from "./release-transport.mjs";
+import { cloneNativeInspectionInputs, inspectNativeGhArtifact, prepareNativeGhInspection } from "./release-native-attestation.mjs";
 
 export const NATIVE_ROOT = "packages/FUSOU-TLSN-VERIFIER";
 export const NATIVE_BINARY = "verify_fusou_tlsn_evidence";
@@ -195,27 +196,33 @@ export async function inspectNativeArtifactCandidate({ binary, metadataBytes, ex
 
 export async function inspectNativeConsumerProvenance({ candidate, binaryPath, metadataPath, policy, verifier,
   execution, fileLimits }, options = {}) {
-  const { inspectNativeGhArtifact, prepareNativeGhInspection } = await import("./release-native-attestation.mjs");
-  const io = prepareNativeGhInspection({ execution, fileLimits }, options), { read } = io;
+  const dependencies = Object.freeze({ mockRunner: options.mockRunner, mockReadFile: options.mockReadFile });
+  const io = prepareNativeGhInspection({ execution, fileLimits }, dependencies), { read } = io;
   // Existing byte/recipe/origin checks remain mandatory; this cannot issue a production execution proof.
   io.checkBytes(candidate.binary, "native_artifact");
   io.checkBytes(candidate.metadataBytes, "build_metadata");
-  assertNativeCandidateInputs(candidate);
-  const snapshot = { binary: hex(candidate.binary), metadata: hex(candidate.metadataBytes),
-    expected: canonicalJson(candidate.expected), origin: canonicalJson(candidate.artifactOrigin),
-    policy: canonicalJson(policy), verifier: canonicalJson(verifier) };
-  const context = structuredClone(candidate.expected.context);
+  const owned = cloneNativeInspectionInputs({ policy, verifier, execution, fileLimits,
+    candidate: { expected: candidate.expected, artifactOrigin: candidate.artifactOrigin } });
+  owned.candidate.binary = Buffer.from(candidate.binary);
+  owned.candidate.metadataBytes = Buffer.from(candidate.metadataBytes);
+  assertNativeCandidateInputs(owned.candidate);
+  const snapshot = { binary: hex(owned.candidate.binary), metadata: hex(owned.candidate.metadataBytes),
+    expected: canonicalJson(owned.candidate.expected), origin: canonicalJson(owned.candidate.artifactOrigin),
+    policy: canonicalJson(owned.policy), verifier: canonicalJson(owned.verifier) };
+  const context = owned.candidate.expected.context;
   requireRelease(hex(await read(binaryPath, "native_artifact")) === snapshot.binary &&
     hex(await read(metadataPath, "build_metadata")) === snapshot.metadata,
     "native consumer artifact file/metadata bytes");
-  const c = policy?.certificate;
+  const c = owned.policy?.certificate;
   requireRelease(c?.buildSignerDigest === context.workflow_sha && c.sourceRepositoryDigest === context.source_sha &&
     c.sourceRepositoryIdentifier === context.repository_id && c.sourceRepositoryOwnerIdentifier === context.repository_owner_id &&
     c.runInvocationURI === `https://github.com/${context.repository}/actions/runs/${context.run_id}/attempts/${context.run_attempt}`,
   "native independent certificate/build context");
-  const inspection = { expected: policy, verifier, execution, fileLimits };
-  const binary = await inspectNativeGhArtifact({ ...inspection, artifactPath: binaryPath }, options);
-  const metadata = await inspectNativeGhArtifact({ ...inspection, artifactPath: metadataPath, artifactRole: "build_metadata" }, options);
+  const inspection = { expected: owned.policy, verifier: owned.verifier, execution: owned.execution, fileLimits: owned.fileLimits };
+  const binary = await inspectNativeGhArtifact({ ...inspection, artifactPath: binaryPath }, dependencies);
+  requireRelease(binary.subject_sha256 === snapshot.binary, "native consumer attestation subject/candidate mismatch");
+  const metadata = await inspectNativeGhArtifact({ ...inspection, artifactPath: metadataPath, artifactRole: "build_metadata" }, dependencies);
+  requireRelease(metadata.subject_sha256 === snapshot.metadata, "native consumer attestation subject/candidate mismatch");
   const finalBinary = await read(binaryPath, "native_artifact"), finalMetadata = await read(metadataPath, "build_metadata");
   io.checkBytes(candidate.binary, "native_artifact");
   io.checkBytes(candidate.metadataBytes, "build_metadata");

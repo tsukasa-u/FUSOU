@@ -519,8 +519,11 @@ signer identity inferred from a caller or checkout.
 
 The [official-schema gh adapter](../../scripts/release-native-attestation.mjs)
 constructs argv with independent repository/signer/source pins, hashes the
-consumer-selected gh executable and artifact before/after capture, and
-requires stable gh 2.x >= 2.102.0. It accepts a matching optional release URL
+consumer-selected gh executable and artifact before/after mock capture, and
+requires stable gh 2.x >= 2.102.0. The built-in real-process path is disabled
+on every OS: without an injected mock runner it refuses before reading the
+executable or artifacts. Matching before/after hashes do not prove execution
+identity. It accepts a matching optional release URL
 in version output and compares source refs case-sensitively. It parses stdout
 only, reuses the existing duplicate-key guard, checks the Sigstore media type,
 subject SHA-256, predicate type, mandatory certificate identity/IDs/digests and
@@ -531,11 +534,84 @@ predicate metadata is never an identity root.
 The independent consumer exports `inspectNativeConsumerProvenance` for both
 binary and metadata comparisons. There is still no registered native artifact
 acquisition proof, authorized gh provider or formal native launcher. Pure
-parser results, mock captures and even an unregistered real-process capture
+parser results and mock captures
 remain `authenticated: false`; they cannot create an offline execution proof.
 The synthetic fixtures are not real gh output or signed attestations.
 Actual gh verification, build, attestation issuance and native execution were
 not run. No Production acceptance state is advanced.
+
+#### Mock inspection consistency and admission
+
+The consumer copies candidate bytes and independent expectations before its
+first asynchronous read. Nested inspections use owned policy/verifier settings
+and captured mock callbacks, not caller objects that can be changed and restored
+between reads. Each returned subject digest must match the consumer's original
+binary or metadata digest. Final caller snapshots and file reads must still
+match; restoring a file cannot make an inspection of different bytes consistent.
+These checks do not prove what a real OS process launched.
+
+The candidate environment is a new allowlist with an explicit `github.com` host,
+HOME/XDG/config root and credential source `NONE`. `EMPTY_ISOLATED` is only a
+mock contract label, not evidence that a real directory is isolated. Parent
+tokens, debug, proxy and PATH values are not copied. No credential provider is
+registered. Settings cannot be made operational by caller approval labels.
+
+Native inspection requires independent positive byte budgets for the verifier,
+binary and metadata; metadata is also bounded by the existing 1 MiB release
+record ceiling. Fixture budgets are not approved release limits. The bounded
+reader checks type/size before allocation, reads through the same handle,
+probes for growth and checks final metadata. This is not a process-RSS limit,
+an atomic immutable snapshot, authenticated acquisition or execution identity.
+Legacy readers in source preflight and the fixed-disabled builder are outside
+this consumer boundary; they must not be inherited by a formal provider.
+
+#### Native execution provider migration contract (draft, not registered)
+
+This contract is a design prerequisite, not an implemented provider or an
+approved trust input. `NATIVE_GH_EXECUTION_IDENTITY_UNSUPPORTED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` remain blocking.
+
+The common interface must own an opaque execution lease, not merely a pathname:
+`prepare -> seal -> compare independent pins -> launch -> capture -> dispose`.
+The lease must keep the approved executable image and input snapshots bound to
+one invocation through exit and output capture. A fresh path lookup or a
+post-execution hash cannot substitute for that binding. Unsupported platforms,
+missing guarantees or failed isolation must refuse without a path-based fallback.
+
+| Contract surface | Required evidence before registration |
+|---|---|
+| Provider bootstrap | Independently approved consumer deployment/package digest, complete implementation/runtime closure, ABI version and platform backend. The consumer's authorized installation/admission process must verify this identity independently of the unregistered gh being launched; self-reported digests, JSON approval labels and arbitrary callbacks are not registration. |
+| Registration handle | A process-local capability tied to that admitted implementation and policy pin. Serialized producer reports or copied capability fields cannot mint it. Cross-run origin authentication remains a separate intake contract. |
+| Request | Expected executable digest/length, approved provenance/source/build context, exact argv, role/path/input-byte manifest, evidence context and unique invocation identity. Paths identify acquisition locations, not execution authority. |
+| Admission | Independently approved per-role and aggregate resource budgets; regular-file checks, owned inputs and an immutable-image or OS-binding guarantee covering the entire lease. No limits are learned from producer metadata. |
+| Environment | Provider-created and checked private config/HOME/XDG/cwd, explicit host/network policy, allowlisted environment and an independently registered credential capability if required. Neither existing directory paths nor `NONE` prove authentication. Credentials and raw diagnostic exceptions must not enter reports. |
+| Capture | Actual image/lease identity, executable and input digests/lengths, argv and nonsecret environment manifest, evidence context, invocation/exit/signal/timeout/output-limit status, owned stdout and privately retained stderr with report-safe digests. A report JSON boolean is not a capture proof. |
+| Result | Distinct executable-identity, signature-verification, signer/build-authorization, producer-report-authentication and consumer-native-reexecution claims. Only the matching registered operation may issue its local proof; publication and deployment are separate gates. |
+| Lifetime/failure | Retain executable/input binding until the child and capture are complete; dispose every resource on failure. Reject replay, missing measurements, output truncation and changed context. Do not retry through the legacy reader or another process backend. |
+
+Backend choices are deliberately not interchangeable:
+
+| Candidate | Assumptions and outstanding validation |
+|---|---|
+| Controlled immutable installation, any OS | The trusted consumer deployment must control file ownership/ACLs, every parent directory, update/replacement rules and loader/runtime dependencies for the lease lifetime. A read-only mode bit alone is insufficient. Root/kernel or trusted-deployment compromise is outside this proposed boundary; this does not add APP process/image authority. |
+| Linux descriptor/sealed-image backend | Candidate for first investigation because the build recipe targets Linux. Exact execution-by-handle and sealing semantics, kernel/libc/filesystem prerequisites, interpreter/loader closure and failure behavior require official API review and authorized integration tests. An open descriptor alone does not establish immutable contents. No Linux backend is currently registered. |
+| macOS backend | No admitted handle/image-binding backend. Official API guarantees, supported versions and deployment isolation are NOT_CHECKED; do not infer Linux-equivalent semantics. |
+| Windows backend | No admitted handle/image-binding backend. File sharing, replacement/reparse-point handling, image creation and supported API guarantees are NOT_CHECKED; a caller-supplied OS name is not admission. |
+
+A small unprivileged provider with a Linux-first backend is a research candidate,
+not an approved solution. No platform API guarantee was verified or backend
+executed by the mock-only tests. A formal selection requires official API review,
+an explicit writer/privilege threat model, deployment ownership and independent
+registration approval. No TPM, privileged helper, APP process attestation or
+browser integrity requirement is introduced.
+
+Even a successfully bound executable still needs independently approved gh
+distribution pins, actual attestation verification, signer/builder approval,
+authenticated artifact acquisition and native evidence verification. An
+`AUTHENTICATED_NATIVE_EXECUTION_REPORT` authenticates a producer report; it is
+not consumer cryptographic reexecution. Until those separate contracts and real
+evidence exist, publication stays false, deployment NOT_CHECKED and Production
+acceptance BLOCKED.
 
 Example offline invocation (not run by the native identity audit):
 

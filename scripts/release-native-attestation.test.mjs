@@ -223,6 +223,43 @@ test("a verifier path change after version inspection stops before attestation l
   await assert.rejects(inspect(t), (error) => error.code === "NATIVE_GH_INPUT_CHANGED");
   assert.equal(t.calls.length, 1);
 });
+test("gh pin uses entry bytes even when a caller digest is changed and restored between reads", async () => {
+  const t = nativeGhFixture(), read = t.options.mockReadFile, pinned = t.verifier.sha256;
+  const original = t.files.get(t.verifier.path), substitute = Buffer.from("alternate synthetic gh bytes");
+  let executableReads = 0;
+  t.options.mockReadFile = async (...args) => {
+    if (args[0] === t.verifier.path && ++executableReads === 1) {
+      t.files.set(t.verifier.path, substitute); t.verifier.sha256 = hex(substitute);
+    }
+    const raw = await read(...args);
+    if (args[0] === t.artifactPath) t.verifier.sha256 = pinned;
+    if (args[0] === t.verifier.path && executableReads === 2) t.files.set(t.verifier.path, original);
+    return raw;
+  };
+  await assert.rejects(inspect(t), (error) => error.code === "NATIVE_GH_EXECUTABLE_MISMATCH");
+  assert.equal(t.calls.length, 0);
+});
+test("gh inspection keeps one captured mock runner rather than following mutable options", async () => {
+  const t = nativeGhFixture(), runner = t.options.mockRunner;
+  let substitutedCalls = 0;
+  t.options.mockRunner = async (...args) => {
+    const capture = await runner(...args);
+    t.options.mockRunner = async () => { substitutedCalls++; throw new Error("synthetic secret canary"); };
+    return capture;
+  };
+  const result = await inspect(t);
+  assert.equal(t.calls.length, 2); assert.equal(substitutedCalls, 0);
+  assert.equal(result.authenticated, false); assert.equal(result.executable_identity, "UNVERIFIED");
+  assert.equal(result.execution_identity_blocker, NATIVE_GH_IDENTITY_BLOCKER);
+});
+test("uncloneable inspection settings refuse without exposing function source or reading files", async () => {
+  const t = nativeGhFixture();
+  t.expected.extra = () => "synthetic credential marker";
+  t.options.mockReadFile = async () => { assert.fail("invalid inputs must not be read"); };
+  await assert.rejects(inspect(t), (error) => error.code === "NATIVE_GH_INPUT_UNCLONEABLE" &&
+    !error.message.includes("synthetic credential marker"));
+  assert.equal(t.calls.length, 0);
+});
 test("mock process settings use an explicit credentialless allowlist, not the parent environment", async () => {
   const parent = process.env;
   process.env = { GH_HOST: "attacker.invalid", GH_CONFIG_DIR: "/hostile/gh", XDG_CONFIG_HOME: "/hostile/xdg",

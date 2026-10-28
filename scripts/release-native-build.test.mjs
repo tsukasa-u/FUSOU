@@ -47,6 +47,23 @@ async function fixture() {
 }
 const normalizedMock = async ({ expected }) => expected;
 
+async function consumerProvenanceFixture() {
+  const t = await fixture(), gh = nativeGhFixture(t.request.binary), metadataPath = "/mock/metadata";
+  gh.files.set(metadataPath, t.request.metadataBytes);
+  const runner = gh.options.mockRunner;
+  gh.options.mockRunner = async (...args) => {
+    const capture = await runner(...args);
+    if (args[1][0] !== "--version") {
+      const entry = structuredClone(gh.entry);
+      entry.verificationResult.statement.subject[0].digest.sha256 = nativeFixtureHex(gh.files.get(args[1][2]));
+      capture.stdout = Buffer.from(JSON.stringify([entry]));
+    }
+    return capture;
+  };
+  return { t, gh, request: { candidate: t.request, binaryPath: gh.artifactPath, metadataPath,
+    policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits } };
+}
+
 test("candidate inputs/recipe/metadata are byte-bound but never build or binary authentication", async () => {
   const t = await fixture(), preflight = nativeBuildPreflight(t);
   assert.equal(preflight.source_contract, "SOURCE_CONTRACT_READY");
@@ -255,6 +272,69 @@ test("consumer checks final metadata reads before accepting candidate snapshots 
       error.message === "release consumer: native consumer inputs changed");
     assert.equal(completedMetadataReads, 2);
   }
+});
+test("consumer binds nested binary and metadata subjects despite temporary file substitutions", async () => {
+  for (const role of ["binaryPath", "metadataPath"]) {
+    const { gh, request } = await consumerProvenanceFixture(), read = gh.options.mockReadFile;
+    const path = request[role], original = gh.files.get(path);
+    let reads = 0;
+    gh.options.mockReadFile = async (...args) => {
+      if (args[0] === path && ++reads === 2) gh.files.set(path, Buffer.from("temporary alternate subject"));
+      const raw = await read(...args);
+      if (args[0] === path && reads === 3) gh.files.set(path, original);
+      return raw;
+    };
+    await assert.rejects(inspectNativeConsumerProvenance(request, gh.options),
+      /native consumer attestation subject\/candidate mismatch/);
+    assert.equal(reads, 3); assert.deepEqual(gh.files.get(path), original);
+  }
+});
+test("consumer keeps entry policy when caller changes then restores timestamp authorities", async () => {
+  const { gh, request } = await consumerProvenanceFixture(), read = gh.options.mockReadFile;
+  const timestamps = structuredClone(gh.expected.timestamps);
+  let finalReads = 0;
+  gh.options.mockReadFile = async (...args) => {
+    const raw = await read(...args);
+    if (args[0] === request.binaryPath && gh.calls.length === 0) {
+      gh.expected.timestamps.authorities[0].uri = "https://synthetic.invalid/alternate-log";
+      gh.entry.verificationResult.verifiedTimestamps[0].uri = gh.expected.timestamps.authorities[0].uri;
+    }
+    if (args[0] === request.metadataPath && gh.calls.length === 4 && ++finalReads === 2) {
+      gh.expected.timestamps = timestamps;
+    }
+    return raw;
+  };
+  await assert.rejects(inspectNativeConsumerProvenance(request, gh.options),
+    (error) => error.code === "NATIVE_GH_TIMESTAMP_INVALID");
+  assert.equal(gh.calls.length, 2);
+});
+test("consumer tolerates restored caller policy only when results satisfy the owned entry policy", async () => {
+  const { gh, request } = await consumerProvenanceFixture(), read = gh.options.mockReadFile;
+  const timestamps = structuredClone(gh.expected.timestamps);
+  let finalReads = 0;
+  gh.options.mockReadFile = async (...args) => {
+    const raw = await read(...args);
+    if (args[0] === request.binaryPath && gh.calls.length === 0) {
+      gh.expected.timestamps.authorities[0].uri = "https://synthetic.invalid/unused-policy";
+    }
+    if (args[0] === request.metadataPath && gh.calls.length === 4 && ++finalReads === 2) {
+      gh.expected.timestamps = timestamps;
+    }
+    return raw;
+  };
+  const result = await inspectNativeConsumerProvenance(request, gh.options);
+  assert.equal(finalReads, 2);
+  assert.equal(result.binary.verified_timestamps[0].uri, timestamps.authorities[0].uri);
+  assert.equal(result.authenticated, false); assert.equal(result.offline_verification, NATIVE_BLOCKER);
+  assert.equal(result.publication_authorized, false); assert.equal(result.production_acceptance, "BLOCKED");
+});
+test("consumer snapshot clone errors do not expose source text or start file inspection", async () => {
+  const { request, gh } = await consumerProvenanceFixture();
+  request.candidate.expected.extra = () => "synthetic credential marker";
+  gh.options.mockReadFile = async () => { assert.fail("invalid candidate must not be read"); };
+  await assert.rejects(inspectNativeConsumerProvenance(request, gh.options),
+    (error) => error.code === "NATIVE_GH_INPUT_UNCLONEABLE" && !error.message.includes("synthetic credential marker"));
+  assert.equal(gh.calls.length, 0);
 });
 test("workflow is fixed-disabled, write permissions job-scoped and action pins immutable", async () => {
   const workflow = await readFile(new URL(`../${NATIVE_WORKFLOW}`, import.meta.url), "utf8");

@@ -146,6 +146,14 @@ export function parseNativeGhVerification(stdout, { expected, artifactSha256 }) 
     signature_verification: "UNVERIFIED", authenticated: false };
 }
 
+export function cloneNativeInspectionInputs(value) {
+  try { return structuredClone(value); }
+  catch (error) {
+    if (!(error instanceof DOMException) || error.name !== "DataCloneError") throw error;
+    block("NATIVE_GH_INPUT_UNCLONEABLE");
+  }
+}
+
 // No fd-bound/immutable execution provider is registered for Linux, macOS or Windows.
 // Real execution is disabled on every OS; injected runners only exercise a mock contract.
 export function prepareNativeGhInspection({ execution, fileLimits }, { mockRunner, mockReadFile } = {}) {
@@ -186,7 +194,8 @@ export function prepareNativeGhInspection({ execution, fileLimits }, { mockRunne
     checkBytes(raw, role);
     return mockReadFile ? Buffer.from(raw) : raw;
   };
-  return { settings, assertUnchanged, checkBytes, read };
+  const capture = (executable, argv) => capturedRun(mockRunner, executable, Object.freeze([...argv]), settings);
+  return { settings, assertUnchanged, checkBytes, read, capture };
 }
 
 async function capturedRun(runner, executable, argv, settings) {
@@ -210,10 +219,10 @@ export async function inspectNativeGhArtifact({ artifactPath, expected, verifier
   const argv = nativeGhVerifyCommand(artifactPath, expected);
   check(object(verifier) && typeof verifier.path === "string" && isAbsolute(verifier.path) && digest(verifier.sha256),
     "NATIVE_GH_EXECUTABLE_PIN_MISSING");
-  const io = prepareNativeGhInspection({ execution, fileLimits }, options), { read, settings } = io;
+  const io = prepareNativeGhInspection({ execution, fileLimits }, options), { read } = io;
   check(["native_artifact", "build_metadata"].includes(artifactRole), "NATIVE_GH_FILE_ROLE_INVALID");
   const expectedSnapshot = canonicalJson(expected), verifierSnapshot = canonicalJson(verifier);
-  const executablePath = verifier.path;
+  const owned = cloneNativeInspectionInputs({ expected, verifier }), executablePath = owned.verifier.path;
   const assertUnchanged = () => {
     io.assertUnchanged();
     check(canonicalJson(expected) === expectedSnapshot && canonicalJson(verifier) === verifierSnapshot, "NATIVE_GH_INPUT_CHANGED");
@@ -221,21 +230,21 @@ export async function inspectNativeGhArtifact({ artifactPath, expected, verifier
   let executable;
   try { executable = await read(executablePath, "verifier_executable"); }
   catch (error) { if (error.code !== "ENOENT") throw error; block("NATIVE_GH_NOT_FOUND"); }
-  check(bytes(executable) && hex(executable) === verifier.sha256, "NATIVE_GH_EXECUTABLE_MISMATCH");
+  check(bytes(executable) && hex(executable) === owned.verifier.sha256, "NATIVE_GH_EXECUTABLE_MISMATCH");
   const executableSha256 = hex(executable);
   const raw = await read(artifactPath, artifactRole);
   check(bytes(raw), "NATIVE_GH_ARTIFACT_MISSING");
   const artifactSha256 = hex(raw);
   assertUnchanged();
-  const version = assertNativeGhVersion((await capturedRun(options.mockRunner, executablePath, ["--version"], settings)).stdout);
+  const version = assertNativeGhVersion((await io.capture(executablePath, ["--version"])).stdout);
   assertUnchanged();
-  const capture = await capturedRun(options.mockRunner, executablePath, argv, settings);
+  const capture = await io.capture(executablePath, argv);
   assertUnchanged();
   check(hex(await read(executablePath, "verifier_executable")) === executableSha256 &&
     hex(await read(artifactPath, artifactRole)) === artifactSha256,
   "NATIVE_GH_INPUT_CHANGED");
   assertUnchanged();
-  const parsed = parseNativeGhVerification(capture.stdout, { expected, artifactSha256 });
+  const parsed = parseNativeGhVerification(capture.stdout, { expected: owned.expected, artifactSha256 });
   return { ...parsed, status: "BLOCKED_IMPLEMENTATION", verification_mode: "MOCK_PROCESS",
     executable_identity: "UNVERIFIED", execution_identity_blocker: NATIVE_GH_IDENTITY_BLOCKER,
     gh_version: version, gh_executable_sha256: executableSha256, argv,
