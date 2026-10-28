@@ -163,8 +163,8 @@ test("producer can carry actual in-process capture proofs across packaging, but 
 for (const mutation of ["missing measurement", "before bytes", "after bytes", "version"]) {
   test(`native capture rejects ${mutation} against independent executable bytes/hash/version`, async () => {
     const f = await checkFixture();
-    await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline },
-      { execute: async (request) => {
+    await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline, resourceBudget: f.offlineResourceBudget },
+      { mockExecutor: async (request) => {
         const result = await f.executor(request);
         if (mutation === "missing measurement") delete result.executable_before;
         if (mutation === "before bytes") result.executable_before = Buffer.from("foreign binary");

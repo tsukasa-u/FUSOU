@@ -5,6 +5,9 @@ import { WORKER_SOURCE_PATHS, WORKER_ROOT, inspectWorkerSource, encodeUnsignedWo
 import { ENTRY_INPUT_CONTRACT, entryInputSha256, runtimeConfigBootstrapReport } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
 import { publicAppConfigurationSha256 } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs";
 import { sha256 } from "./release-bytes.mjs";
+import { nativeResourceFixtureBudget } from "./release-native-attestation-fixture.mjs";
+export const offlineResourceFixtureBudget = (changes = {}) =>
+  nativeResourceFixtureBudget({ max_reads: 256, timeout_ms: 5000, ...changes });
 import { jsonBytes, checkContext, recordCheckExecution, recordCompiledInputsExecution, captureArchiveReadback,
   captureOfflineExecution, OFFLINE_BUNDLE_ARTIFACTS, LOCK_PATHS } from "./release-checks.mjs";
 import { verifyProducerBuild } from "./release-build-proof.mjs";
@@ -154,9 +157,12 @@ export async function checkFixture() {
   const nativeReport = { status: "VERIFIED", verification: "FUSOU_TLSN_EVIDENCE_BUNDLE",
     trust: Object.fromEntries(["evidence_root", "result_registry", "result_signature", "result_evidence_binding",
       "tlsn_presentation", "notary", "artifact_manifest"].map((key) => [key, "VERIFIED"])), derived: offline.expected_derived };
-  const executor = async ({ argv }) => ({ argv, stdout: jsonBytes(nativeReport), exit_code: 0, executable_sha256: offline.executable_sha256,
+  const executor = async ({ argv }) => ({ argv, stdout: jsonBytes(nativeReport), stderr: Buffer.alloc(0), exit_code: 0, executable_sha256: offline.executable_sha256,
     executable_before: executable, executable_after: executable, executable_version: offline.executable_version });
-  const offlineExecution = await captureOfflineExecution({ context, inputs: nativeInputs, policy: offline }, { execute: executor }); add(offlineExecution);
+  const offlineResourceBudget = offlineResourceFixtureBudget();
+  const offlineExecution = await captureOfflineExecution({ context, inputs: nativeInputs, policy: offline, resourceBudget: offlineResourceBudget },
+    { mockExecutor: executor }); add(offlineExecution);
+  f.dependencies.offlineResourceBudget = offlineResourceBudget;
   f.dependencies.authenticateOfflineExecution = async () => offlineExecution.executionProof;
   const checkPolicy = { schema_version: 1, scope: "fusou-release-check-inputs-v1", repository: context.repository, source_sha: sourceSha,
     worker_toolchain: fixtureToolchain, worker_wasm_toolchain: wasm.toolchain,
@@ -201,11 +207,11 @@ export async function checkFixture() {
   const archiveInputs = new Map(["presentation", "result"].flatMap((role) =>
     [[`saved_${role}`, saved.get(role)], [`readback_${role}`, saved.get(role)]]));
   return { ...f, context, sourceFiles, build, records, evidenceBytes, publicBuildInputs, checkPolicy,
-    archiveExecution, archiveInputs, offlineExecution, compiled, nativeInputs, nativeReport, executor, saved,
+    archiveExecution, archiveInputs, offlineExecution, compiled, nativeInputs, nativeReport, executor, saved, offlineResourceBudget,
     args: { records, evidenceBytes, build, eligibility: f.eligibility, payload: f.payload, run: f.run,
       inputs: { verification: { ...f.publicInput.verification, independentInputs: Object.fromEntries(
         Object.entries(f.publicInput.verification.independentInputs).map(([key, value]) => [key, typeof value === "string" ? Buffer.from(value, "base64url") : value])) } } },
-    config: { github: f.github, publicBuildInputsBytes: f.options.publicBuildInputsBytes, publicBuildInputsSha256: f.options.publicBuildInputsSha256,
+    config: { github: f.github, offlineResourceBudget, publicBuildInputsBytes: f.options.publicBuildInputsBytes, publicBuildInputsSha256: f.options.publicBuildInputsSha256,
       checkPolicyBytes: f.options.checkPolicyBytes, checkPolicySha256: f.options.checkPolicySha256,
       authenticateOfflineExecution: f.dependencies.authenticateOfflineExecution,
       authenticateArchiveReadback: f.dependencies.authenticateArchiveReadback,

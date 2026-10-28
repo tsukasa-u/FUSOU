@@ -5,6 +5,8 @@ import { setTimeout as nodeSetTimeout, clearTimeout as nodeClearTimeout } from "
 import { addAbortListener } from "node:events";
 
 const now = performance.now.bind(performance), schedule = nodeSetTimeout, cancelTimer = nodeClearTimeout;
+const allocateOwnedBytes = Buffer.allocUnsafeSlow, setBytes = Uint8Array.prototype.set;
+const typedArrayAccessors = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(Uint8Array.prototype));
 const budgets = new WeakMap(), scopes = new WeakMap(), errors = new WeakSet();
 const fields = ["max_bytes", "max_reads", "max_captures", "max_json_bytes", "max_json_nodes",
   "max_json_depth", "max_string_length", "max_concurrent_operations", "timeout_ms"];
@@ -36,6 +38,43 @@ export function createNativeInspectionBudget(limits) {
 export function assertNativeResourceScope(scope) {
   if (!scopes.has(scope)) fail("NATIVE_RESOURCE_SCOPE_MISSING");
   scope.check();
+}
+
+export function parseNativeInspectionJson(raw, scope) {
+  assertNativeResourceScope(scope);
+  let text;
+  try { text = scope.jsonText(raw); }
+  catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    fail("NATIVE_RESOURCE_JSON_INVALID_UTF8");
+  }
+  let value;
+  try { value = JSON.parse(text); }
+  catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    fail("NATIVE_RESOURCE_JSON_INVALID");
+  }
+  const containers = [];
+  for (let index = 0; index < text.length; index++) {
+    scope.check();
+    const character = text[index];
+    if (character === "{") containers.push(new Set());
+    else if (character === "[") containers.push(null);
+    else if (character === "}" || character === "]") containers.pop();
+    else if (character === '"') {
+      const start = index++;
+      for (; text[index] !== '"'; index++) if (text[index] === "\\") index++;
+      let next = index + 1;
+      while (" \t\r\n".includes(text[next]) && next < text.length) next++;
+      if (text[next] === ":") {
+        const key = JSON.parse(text.slice(start, index + 1)), keys = containers.at(-1);
+        if (keys.has(key)) fail("NATIVE_RESOURCE_JSON_DUPLICATE_KEY");
+        keys.add(key);
+      }
+    }
+  }
+  scope.object(value);
+  return value;
 }
 
 function enter(budget, signal) {
@@ -163,9 +202,40 @@ function enter(budget, signal) {
   };
   const scope = {
     check, object, jsonText, charge, wait: (action) => wait(action), signal: controller.signal,
+    collection(count) {
+      check();
+      if (!Number.isSafeInteger(count) || count < 0 || count > limits.max_json_nodes) fail("NATIVE_RESOURCE_NODES_EXCEEDED");
+      charge(32 * count);
+    },
+    recordEntries(value) {
+      check();
+      if (!value || typeof value !== "object" ||
+        (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+        fail("NATIVE_GH_INPUT_UNCLONEABLE");
+      }
+      const entries = [];
+      for (const key in value) {
+        if (!Object.hasOwn(value, key)) continue;
+        if (entries.length >= limits.max_json_nodes) fail("NATIVE_RESOURCE_NODES_EXCEEDED");
+        const property = Object.getOwnPropertyDescriptor(value, key);
+        if (!property || !Object.hasOwn(property, "value")) fail("NATIVE_GH_INPUT_UNCLONEABLE");
+        charge(32 + 2 * string(key));
+        entries.push([key, property.value]);
+      }
+      return entries;
+    },
     read() { check(); if (++reads > limits.max_reads) fail("NATIVE_RESOURCE_READS_EXCEEDED"); },
     capture() { check(); if (++captures > limits.max_captures) fail("NATIVE_RESOURCE_CAPTURES_EXCEEDED"); },
-    copy(raw) { charge(raw.byteLength); return Buffer.from(raw); },
+    copy(raw) {
+      if (!(raw instanceof Uint8Array) || typedArrayAccessors.buffer.get.call(raw) instanceof SharedArrayBuffer) {
+        fail("NATIVE_GH_INPUT_UNCLONEABLE");
+      }
+      const length = typedArrayAccessors.byteLength.get.call(raw);
+      charge(length);
+      const owned = allocateOwnedBytes(length);
+      setBytes.call(owned, raw);
+      return owned;
+    },
   };
   scopes.set(scope, {
     run: (action) => wait(action, true),

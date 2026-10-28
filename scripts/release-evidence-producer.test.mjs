@@ -210,22 +210,22 @@ test("an empty binary cannot become a native executable identity merely by pinni
   const { f } = await fixture(), inputs = new Map(f.nativeInputs), policy = structuredClone(f.checkPolicy.offline);
   const empty = Buffer.alloc(0); inputs.set("verifier_executable", empty);
   policy.executable_sha256 = sha256(empty); policy.input_sha256.verifier_executable = sha256(empty);
-  await assert.rejects(captureOfflineExecution({ context: f.context, inputs, policy },
-    { execute: async () => assert.fail("must not execute") }), /pinned native executable bytes\/version/);
+  await assert.rejects(captureOfflineExecution({ context: f.context, inputs, policy, resourceBudget: f.offlineResourceBudget },
+    { mockExecutor: async () => assert.fail("must not execute") }), /pinned native executable bytes\/version/);
 });
 for (const missing of ["executable_sha256", "executable_version", "input_sha256"]) {
   test(`native capture rejects missing independent ${missing} before invoking even a mock executor`, async () => {
     const { f } = await fixture(), policy = structuredClone(f.checkPolicy.offline);
     delete policy[missing];
-    await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy },
-      { execute: async () => assert.fail("must not execute") }), /pinned native executable|input digest inventory/);
+    await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy, resourceBudget: f.offlineResourceBudget },
+      { mockExecutor: async () => assert.fail("must not execute") }), /pinned native executable|input digest inventory/);
   });
 }
 for (const mutation of ["result", "target", "arguments", "failed exit"]) {
   test(`native capture rejects ${mutation} as an authenticated successful report`, async () => {
     const { f } = await fixture();
-    const operation = captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline }, {
-      execute: async (request) => {
+    const operation = captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline, resourceBudget: f.offlineResourceBudget }, {
+      mockExecutor: async (request) => {
         const result = await f.executor(request), report = JSON.parse(result.stdout);
         if (mutation === "result") report.status = "REJECTED";
         if (mutation === "target") report.derived.server_identity = "other.example.test";

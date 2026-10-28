@@ -786,18 +786,91 @@ loader/library/config namespace for the lease lifetime; removing `LD_*` alone
 does not remove RPATH/RUNPATH, loader cache/default directories or system preload.
 Neither format currently has an enabled backend.
 
-The normalized offline callback and Rust loader are separate, **not yet connected
-to the native managed reader/capture scope**:
+The Node offline inspection/capture boundary uses the native resource scope.
+The Rust loader and a real native provider remain separate and unconnected:
 
 | Input | Acquisition, ownership and integrity path | Remaining read/layout boundary |
 |---|---|---|
-| Bundle manifest | [`offlineLayout`](../../scripts/release-checks.mjs) parses caller bytes, requires the 19 mandatory artifact roles and an exact independently expected input-digest inventory. | No offline acquisition byte/JSON/aggregate admission. Ordinary JSON parsing is not duplicate-key rejection or a whole-operation atomic snapshot. |
+| Bundle manifest | [`offlineLayout`](../../scripts/release-checks.mjs) takes owned bytes under explicit admission, strictly parses JSON, requires the 19 mandatory artifact roles and an exact independently expected input-digest inventory. | This is a synchronous Node snapshot, not an atomic filesystem acquisition or an immutable Rust input namespace. |
 | Presentation, signed Result, Result registry/envelope, Notary registry | Per-role raw bytes in the manifest; both Node layout and Rust loader require `artifact_sha256` plus `byte_length`. Receipt/input-inventory descriptors still use their separate `sha256` field; there is no legacy hash-field fallback. | Hash equality is not signature/identity authority. Rust verification checks registry-envelope trust, Result signature, Presentation binding and authenticated semantics; mock stdout is not evidence that these ran. |
 | Session, authenticated user, device identity/authentication, possession proof, consume receipt, replay | Same manifest-byte binding, then Rust session/authority/signature/identifier relationships. | Mixed inputs are rejected only through the relationships actually checked; byte digests alone do not prove a common generation. |
 | Authority registries, capture metadata, semantic verification, health, trust root, subject | Same raw-artifact binding and subsequent Rust trust-graph checks. | Rust owns the bytes after loading, but acquisition is sequential, not an atomic filesystem snapshot. |
 | Seven CLI files | Bundle plus Notary/session/binding registries, Origin Inventory, Target Approval and DER trust anchor. Node maps them to `<role>.input`; the three registries must equal their bundle copies. Rust also compares the anchor to bundled trust-root bytes and validates the Production target-digest pair. | CLI reads six files with unbounded `fs::read`; bundle loading separately reads manifest/artifact paths. `canonicalize` then `fs::read` is path reopening, not immutable-handle acquisition. Limits/digest checks do not precede those allocations. |
-| Scalar pins/context and executable | Exact argv from policy; caller-provided root/key IDs and SPKI, user/device/target/profile IDs, verifier key ID, optional sparse profile, executable digest/version. | No independent acquisition/registration root for those inputs. The CLI has no implemented native version-observation contract. Before/after callback measurements cannot prove the executed image. |
-| Capture and publication bytes | [`captureOfflineExecution`](../../scripts/release-checks.mjs) copies buffers into its execution map, shares those copies with its file map, checks post-callback mutations and records stdout/receipt/input digests. [`verifyOfflineExecution`](../../scripts/release-checks.mjs) checks the report/inventory and archive Result/Presentation readback plus source/capture/session/binding context. | Callback maps/argv remain mutable; A-to-B-to-A use is not excluded. No managed offline timeout/cancellation, stdout/stderr acquisition budget or child supervision. Local/cross-run report proofs do not establish native reexecution. Packaging/archive is not publication authorization. |
+| Scalar pins/context and executable | Owned plain-JSON policy/context and owned executable bytes precede the first async turn; exact primitive argv is frozen. Caller-provided root/key IDs, SPKI, user/device/target/profile IDs and executable digest/version remain independently required inputs. | No independent acquisition/registration root for those inputs. The CLI has no implemented native version-observation contract. Before/after mock measurements cannot prove the executed image. |
+| Capture and publication bytes | [`captureOfflineExecution`](../../scripts/release-checks.mjs) accepts only an explicit `mockExecutor`, with separate owned input/file maps, bounded owned stdout/stderr, exit status, receipt and digests. [`verifyOfflineExecution`](../../scripts/release-checks.mjs) checks both capture digests and the exact inventory, archive Result/Presentation readback and source/capture/session/binding context. | Mock output is not native execution. Mutable callback copies cannot alter the private snapshot, but a callback's transient writes or actual choice of processed bytes are not proven by a post-hash. No real stream/child supervision. Packaging/archive is not publication authorization. |
+
+###### Node offline admission and snapshot contract
+
+`captureOfflineExecution`, `offlineLayout` and `verifyOfflineExecution` require an
+explicit `resourceBudget`; `verifyReleaseChecks` and its consumer wiring require
+`offlineResourceBudget`. There is no default controller or official limit.
+Missing/forged admission is rejected before parsing/copying/calling the mock.
+The old `execute` callback cannot enable a formal execution path, even if a
+`mockExecutor` is also supplied. A controller's `UNAPPROVED` label is not an
+authorization decision; caller labels cannot issue registered provider, signer,
+builder or resource-policy approval. Default formal consumption has no issuer
+for this admission and stays blocked. Explicit local structural admission never
+upgrades a report to native reexecution or authorizes publication.
+
+One owner-bound operation covers input copies, layout, JSON validation, map
+materialization, callback waits, stdout/stderr capture, receipt/output
+materialization and proof checks. Copy/read counts, cumulative modeled byte-work,
+JSON byte/depth/node/string limits, monotonic deadline, cancellation and
+controller concurrency use the existing private scope, including failure paths.
+Map entry counts use the JSON-node ceiling before materialization/sorting.
+Byte-valued inventory objects use bounded own-data-property enumeration, without
+invoking getters through `Object.entries`.
+Both capture slots are admitted before invoking the mock. Partial work is not
+retried or refunded as unperformed work. Subsequent operations start fresh
+per-operation counters only after all retained work settles.
+Stdout-only captures/receipts are rejected; empty stderr must still be captured
+and bound by its digest. The owned check policy is parsed once per operation,
+not reacquired after asynchronous callbacks.
+Separate controllers remain separate admission domains, not process-global
+limits. The larger fixture read count and timeout in
+[`release-check-fixture.mjs`](../../scripts/release-check-fixture.mjs) are
+explicit test-only values, not approved limits.
+
+Private bytes, callback input bytes and callback file bytes have separate,
+non-pooled backing ArrayBuffers, not merely non-overlapping Buffer views into a
+shared Node allocation pool. SharedArrayBuffer-backed inputs and accessor-bearing
+plain-JSON policies/output fields are rejected. The callback never receives the
+private maps, policy, context or receipt. Result bytes/metadata are copied and
+validated after settlement; retained callback references cannot mutate emitted
+records. The consumer snapshots its offline/archive receipt inputs, policy bytes,
+Runtime Config authority bytes and payload before its first async turn, and
+provides separate copies to report-authentication callbacks.
+
+Caller A-to-B-to-A changes cannot replace those private expected bytes. Frozen
+argv prevents in-place argument substitution. Callback map mutations remaining
+at settlement are rejected; transient changes to a callback's own mutable byte
+copies are **not detected as execution events**. No comparison of start/end
+digests proves what an arbitrary callback or a future native process consumed.
+That requires the still-missing provider/input ABI.
+
+[`parseNativeInspectionJson`](../../scripts/release-native-resources.mjs)
+performs bounded fatal UTF-8 decoding and structural prechecks before
+`JSON.parse` validates the complete grammar, then a character/token scan rejects
+duplicate decoded keys per object, including escaped equivalents. String
+contents are not mistaken for keys. The parsed tree is also structurally bounded.
+This is not regex-only JSON parsing. Manifests, stdout, session JSON, Notary and
+security-registry JSON use this inspection. Check-policy and receipt JSON must
+additionally round-trip to the existing canonical record encoding; manifest
+whitespace is not rejected merely for being noncanonical. Artifact descriptors
+require `artifact_sha256`/`byte_length`/`path`; receipt inventories use
+`sha256`/`byte_length`, with no substitution between these contracts. Presentation,
+Result, signatures and other opaque artifacts retain their exact pinned bytes;
+this Node layer does not independently perform their cryptography or certify
+all Rust JSON loaders.
+
+Timeout/cancel rejects the operation without producing successful capture
+evidence. A noncooperative managed callback retains its execution slot until
+settlement, including late rejection. A callback that never settles can therefore
+consume that slot indefinitely. These are cooperative Node work limits, not
+forced synchronous-JS termination, limits on callback-internal allocations,
+RSS/GC guarantees, real stream backpressure, kernel isolation or child cleanup.
+Upstream transport/evidence collection and legacy source/builder preflights are
+not retroactively covered by the offline operation.
 
 The layout rejects traversal, exact duplicate destinations and file/directory
 prefix conflicts (including CLI input names), independent of descriptor order.
@@ -818,9 +891,9 @@ Provider readiness, classified independently of mock success:
 | Immutable execution input | PARTIAL | Native owned snapshots/bounded reads and offline digest/layout checks exist; no sealed executable/runtime/input namespace or admitted launcher. |
 | Execution isolation | MISSING | Mock environment contract exists; no registered OS backend, private filesystem/network/credential enforcement or descendant containment. |
 | Capture | PARTIAL | Owned bounded native mock capture and offline receipts exist, but no actual child/image/exit-bound provider proof. |
-| Cancellation and disposal | PARTIAL | [`release-native-resources.mjs`](../../scripts/release-native-resources.mjs) retains managed noncooperative work until settlement; offline callbacks and real process-tree cleanup are not connected. |
+| Cancellation and disposal | PARTIAL | [`release-native-resources.mjs`](../../scripts/release-native-resources.mjs) retains managed native/offline mock work until settlement; no real process-tree cleanup. |
 | Evidence binding | PARTIAL | Exact role/input/report/archive digests and context checks exist; no registered image/runtime/input/capture evidence chain. |
-| Aggregate budgets | PARTIAL | One owner-bound native controller shares work reservations across its operations. Independent controllers are independent domains; offline/Rust inputs have no shared admission, and no approved global issuer exists. |
+| Aggregate budgets | PARTIAL | Node native/offline operations share work within each owner-bound scope and concurrency within the supplied controller. Independent controllers are independent domains; Rust input acquisition and an approved global issuer remain missing. |
 
 Source/documentation references (not artifact authentication):
 
@@ -846,9 +919,10 @@ Source/documentation references (not artifact authentication):
   infer static linkage from the GNU target or Cargo lockfile.
 
 Linux remains an unregistered implementation candidate; macOS/Windows remain
-NOT_CHECKED and disabled. Next code work is an admitted offline input/JSON/capture
-resource contract, followed by a chosen immutable input ABI and unregistered
-Linux backend tests in an explicitly authorized environment. Registration still
+NOT_CHECKED and disabled. Node offline input/JSON/mock-capture admission is
+implemented locally, not approved for real execution. Next work is a chosen
+immutable input ABI/runtime profile, followed by unregistered Linux backend tests
+in an explicitly authorized environment. Registration still
 requires independent provider/runtime/role pins, signer/builder authorization,
 approved resource/isolation/network policies and bootstrap lifecycle. No secret
 is required for this source audit; whether online gh needs a credential

@@ -48,7 +48,7 @@ test("valid-looking native stdout alone is not authenticated execution", async (
   await assert.rejects(verifyReleaseChecks(f.args, { ...f.config, authenticateOfflineExecution: async () => ({ status: "AUTHENTICATED" }) }),
     /unauthenticated/);
   const other = await captureOfflineExecution({ context: { ...f.context, run_attempt: 2 }, inputs: f.nativeInputs,
-    policy: f.checkPolicy.offline }, { execute: f.executor });
+    policy: f.checkPolicy.offline, resourceBudget: f.offlineResourceBudget }, { mockExecutor: f.executor });
   await assert.rejects(verifyReleaseChecks(f.args, { ...f.config, authenticateOfflineExecution: async () => other.executionProof }),
     /mismatched native/);
 });
@@ -208,16 +208,16 @@ for (const mutation of ["bytes", "role", "session", "object", "version", "stale"
   });
 }
 test("native executor is opt-in, receives all formal CLI files, and rejected output cannot emit PASS", async () => {
-  const f = await checkFixture(), args = { context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline };
+  const f = await checkFixture(), args = { context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline, resourceBudget: f.offlineResourceBudget };
   await assert.rejects(captureOfflineExecution(args), /OFFLINE_EXECUTOR/);
   let filesSeen;
-  await captureOfflineExecution(args, { execute: async (request) => { filesSeen = request.files; return f.executor(request); } });
+  await captureOfflineExecution(args, { mockExecutor: async (request) => { filesSeen = request.files; return f.executor(request); } });
   assert.equal(filesSeen.size, f.nativeInputs.size - 1);
   assert.equal(filesSeen.has("verifier_executable.input"), false);
-  await assert.rejects(captureOfflineExecution(args, { execute: async (request) => ({
+  await assert.rejects(captureOfflineExecution(args, { mockExecutor: async (request) => ({
     ...await f.executor(request), stdout: jsonBytes({ status: "REJECTED" }),
   }) }), /result\/trust/);
-  const failure = await captureOfflineExecution(args, { execute: async (request) => ({
+  const failure = await captureOfflineExecution(args, { mockExecutor: async (request) => ({
     ...await f.executor(request), stdout: jsonBytes({ status: "REJECTED" }), exit_code: 1,
   }) });
   assert.equal(JSON.parse(failure.receipt).status, "FAIL");
@@ -225,21 +225,21 @@ test("native executor is opt-in, receives all formal CLI files, and rejected out
 for (const mutation of ["argv", "files", "inputs", "executable"]) {
   test(`native process capture rejects ${mutation} mutation`, async () => {
     const f = await checkFixture();
-    await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline },
-      { execute: async (request) => {
+    await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, policy: f.checkPolicy.offline, resourceBudget: f.offlineResourceBudget },
+      { mockExecutor: async (request) => {
         if (mutation === "argv") request.argv[0] = "--foreign";
         if (mutation === "files") request.files.set("bundle.input", Buffer.from("foreign"));
         if (mutation === "inputs") request.inputs.set("bundle", Buffer.from("foreign"));
         const result = await f.executor(request);
         if (mutation === "executable") result.executable_sha256 = "0".repeat(64);
         return result;
-      } }), /execution source/);
+      } }), mutation === "argv" ? TypeError : /execution source/);
   });
 }
 test("offline verifier needs matching archived bytes, signed source/session and trusted derived identity", async () => {
   const f = await checkFixture(), receipt = JSON.parse(f.offlineExecution.receipt);
-  const args = { inputs: new Map([...f.nativeInputs, ["stdout", jsonBytes(f.nativeReport)]]), receipt,
-    policy: f.checkPolicy.offline, archiveInputs: f.archiveInputs, archivePolicy: f.checkPolicy.archive, context: f.context };
+  const args = { inputs: new Map([...f.nativeInputs, ["stdout", jsonBytes(f.nativeReport)], ["stderr", Buffer.alloc(0)]]), receipt,
+    policy: f.checkPolicy.offline, archiveInputs: f.archiveInputs, archivePolicy: f.checkPolicy.archive, context: f.context, resourceBudget: f.offlineResourceBudget };
   verifyOfflineExecution(args);
   assert.throws(() => verifyOfflineExecution({ ...args, context: { ...f.context, source_sha: "f".repeat(40) } }), /source/);
   assert.throws(() => verifyOfflineExecution({ ...args, archivePolicy: { ...f.checkPolicy.archive, session_id: "other" } }), /session/);
@@ -249,12 +249,12 @@ test("offline verifier needs matching archived bytes, signed source/session and 
 });
 test("missing executable pin, repinned path traversal and Notary identity mismatch never pass", async () => {
   const f = await checkFixture();
-  await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs,
-    policy: { ...f.checkPolicy.offline, executable_sha256: null } }, { execute: f.executor }), /pinned native executable/);
+  await assert.rejects(captureOfflineExecution({ context: f.context, inputs: f.nativeInputs, resourceBudget: f.offlineResourceBudget,
+    policy: { ...f.checkPolicy.offline, executable_sha256: null } }, { mockExecutor: f.executor }), /pinned native executable/);
   const raw = JSON.parse(f.nativeInputs.get("bundle")); raw.artifacts.presentation.path = "../escape";
   const inputs = new Map(f.nativeInputs); inputs.set("bundle", jsonBytes(raw));
   const policy = { ...f.checkPolicy.offline, input_sha256: { ...f.checkPolicy.offline.input_sha256, bundle: sha256(inputs.get("bundle")) } };
-  await assert.rejects(captureOfflineExecution({ context: f.context, inputs, policy }, { execute: f.executor }), /artifact\/path/);
+  await assert.rejects(captureOfflineExecution({ context: f.context, inputs, policy, resourceBudget: f.offlineResourceBudget }, { mockExecutor: f.executor }), /artifact\/path/);
   const other = await checkFixture(), checkPolicy = structuredClone(other.checkPolicy);
   checkPolicy.offline.expected_derived.notary_key_id = "other";
   const bytes = jsonBytes(checkPolicy);
@@ -274,9 +274,9 @@ function repinnedBundle(f, change) {
 }
 test("offline layout uses the Rust manifest artifact_sha256 contract, not receipt sha256 descriptors", async () => {
   const f = await checkFixture(), args = repinnedBundle(f, () => {});
-  const layout = offlineLayout(args.policy, args.inputs);
+  const layout = offlineLayout(args.policy, args.inputs, { resourceBudget: f.offlineResourceBudget });
   assert.deepEqual(layout.files.get("presentation.artifact"), f.nativeInputs.get("bundle_artifact_presentation"));
-  const capture = await captureOfflineExecution({ context: f.context, ...args }, { execute: f.executor });
+  const capture = await captureOfflineExecution({ context: f.context, ...args, resourceBudget: f.offlineResourceBudget }, { mockExecutor: f.executor });
   assert.equal(JSON.parse(capture.receipt).status, "PASS");
 });
 test("a legacy sha256 alias cannot substitute for or override the Rust manifest hash", async () => {
@@ -288,7 +288,7 @@ test("a legacy sha256 alias cannot substitute for or override the Rust manifest 
       if (kind === "missing") delete artifact.artifact_sha256;
       else artifact.artifact_sha256 = "0".repeat(43);
     });
-    assert.throws(() => offlineLayout(args.policy, args.inputs), /artifact\/path binding/);
+    assert.throws(() => offlineLayout(args.policy, args.inputs, { resourceBudget: f.offlineResourceBudget }), /artifact\/path binding/);
   }
 });
 test("offline paths cannot be both an input file and another input's parent directory", async () => {
@@ -297,7 +297,7 @@ test("offline paths cannot be both an input file and another input's parent dire
     for (const artifact of Object.values(bundle.artifacts)) artifact.sha256 = artifact.artifact_sha256;
   };
   const control = repinnedBundle(f, withLegacyAliases);
-  assert.doesNotThrow(() => offlineLayout(control.policy, control.inputs));
+  assert.doesNotThrow(() => offlineLayout(control.policy, control.inputs, { resourceBudget: f.offlineResourceBudget }));
   for (const path of ["bundle.input", "result.artifact", "bundle.input/child", "session.artifact/child", "nested", "nested/child"]) {
     const args = repinnedBundle(f, (bundle) => {
       withLegacyAliases(bundle);
@@ -305,7 +305,7 @@ test("offline paths cannot be both an input file and another input's parent dire
       if (path === "nested") bundle.artifacts.result.path = "nested/child";
       if (path === "nested/child") bundle.artifacts.result.path = "nested";
     });
-    assert.throws(() => offlineLayout(args.policy, args.inputs), /artifact\/path binding/);
+    assert.throws(() => offlineLayout(args.policy, args.inputs, { resourceBudget: f.offlineResourceBudget }), /artifact\/path binding/);
   }
 });
 test("offline layout preserves raw inputs across shared directories and descriptor reordering", async () => {
@@ -314,7 +314,7 @@ test("offline layout preserves raw inputs across shared directories and descript
     bundle.artifacts.result.path = "shared/nested/result";
     bundle.artifacts = Object.fromEntries(Object.entries(bundle.artifacts).reverse());
   });
-  const layout = offlineLayout(args.policy, args.inputs);
+  const layout = offlineLayout(args.policy, args.inputs, { resourceBudget: f.offlineResourceBudget });
   assert.deepEqual(layout.files.get("shared/nested/presentation"), f.nativeInputs.get("bundle_artifact_presentation"));
   assert.deepEqual(layout.files.get("shared/nested/result"), f.nativeInputs.get("bundle_artifact_result"));
 });

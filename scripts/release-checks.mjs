@@ -11,10 +11,14 @@ import { assertCanonicalServerIdentity } from "../packages/FUSOU-TLSN-VERIFICATI
 import { assertReleaseWasmProof } from "./release-wasm-proof.mjs";
 import { assertAuthenticatedCrossRunExecution } from "./release-execution-intake.mjs";
 import { verifyArchiveHttpExecution } from "./release-archive-http.mjs";
+import { assertNativeResourceScope, isNativeResourceError, parseNativeInspectionJson,
+  withNativeInspectionBudget, withNativeInspectionBudgetSync } from "./release-native-resources.mjs";
 
 export const CHECKS = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
 // Data-only artifacts cannot carry these in-process execution capabilities.
 const offlineExecutionProofs = new WeakMap();
+const typedArrayAccessors = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(Uint8Array.prototype));
+const mapSize = Object.getOwnPropertyDescriptor(Map.prototype, "size").get;
 const archiveReadbackProofs = new WeakMap();
 export function assertLocalCapturedExecution(proof, { check, receipt, inputs }) {
   const expected = { receipt_sha256: sha256(jsonBytes(receipt)), inputs: descriptors(inputs) };
@@ -29,33 +33,49 @@ export function checkContext(run, sourceSha) {
   return { repository: "tsukasa-u/FUSOU", source_sha: sourceSha, run_id: run.id,
     run_attempt: run.run_attempt, workflow_sha: run.head_sha };
 }
-const descriptors = (blobs) => Object.fromEntries([...blobs].sort(([a], [b]) => a.localeCompare(b, "en")).map(
+const descriptors = (blobs, resources) => {
+  if (resources) {
+    resources.collection(mapSize.call(blobs));
+    for (const [name, raw] of Map.prototype.entries.call(blobs)) {
+      resources.object(name);
+      requireRelease(raw instanceof Uint8Array, "check raw input");
+      resources.charge(typedArrayAccessors.byteLength.get.call(raw));
+    }
+  }
+  return Object.fromEntries([...blobs].sort(([a], [b]) => a.localeCompare(b, "en")).map(
   ([name, raw]) => {
     requireRelease(raw instanceof Uint8Array, "check raw input");
     return [name, { sha256: sha256(raw), byte_length: raw.byteLength }];
   }));
-export function recordCheckExecution(check, context, inputs, output, { status = "PASS", exitCode = 0, error = null } = {}) {
+};
+export function recordCheckExecution(check, context, inputs, output, { status = "PASS", exitCode = 0, error = null } = {}, resources) {
   requireRelease(CHECKS.includes(check) && context.repository === "tsukasa-u/FUSOU" &&
     /^[0-9a-f]{40}$/.test(context.source_sha) && /^[0-9a-f]{40}$/.test(context.workflow_sha) &&
     Number.isSafeInteger(context.run_id) && context.run_id > 0 && Number.isSafeInteger(context.run_attempt) &&
     context.run_attempt > 0 && (status === "PASS" ? exitCode === 0 && error === null :
       status === "FAIL" && Number.isInteger(exitCode) && typeof error === "string" && error.length > 0),
   "check execution context/result");
-  const input = descriptors(inputs);
-  const receipt = jsonBytes({ schema_version: 1, scope: "fusou-release-check-execution-v1",
+  const input = descriptors(inputs, resources);
+  const receiptValue = { schema_version: 1, scope: "fusou-release-check-execution-v1",
     check, ...context, inputs: input, input_sha256: sha256(jsonBytes(input)), status,
-    exit_code: exitCode, error, output });
-  const record = jsonBytes({ schema_version: 1, scope: "fusou-release-check-v1", check, status,
+    exit_code: exitCode, error, output };
+  resources?.object(receiptValue);
+  const receiptBytes = jsonBytes(receiptValue), receipt = resources ? resources.copy(receiptBytes) : receiptBytes;
+  const recordBytes = jsonBytes({ schema_version: 1, scope: "fusou-release-check-v1", check, status,
     source_sha: context.source_sha, run_id: context.run_id, run_attempt: context.run_attempt,
     workflow_sha: context.workflow_sha, evidence_sha256: sha256(receipt) });
+  const record = resources ? resources.copy(recordBytes) : recordBytes;
   const files = new Map([[`check-${check}.json`, record], [`evidence-${sha256(receipt)}.bin`, receipt]]);
-  for (const raw of inputs.values()) files.set(`evidence-${sha256(raw)}.bin`, Buffer.from(raw));
+  resources?.charge(receipt.byteLength + record.byteLength);
+  for (const raw of inputs.values()) files.set(`evidence-${sha256(raw)}.bin`,
+    resources ? copyOfflineBytes(raw, resources) : Buffer.from(raw));
   return { record, receipt, files };
 }
-export function receiptFor(check, records, evidence, context) {
+export function receiptFor(check, records, evidence, context, resources) {
   const record = records[check];
   if (!record) throw new ReleaseBlocked(`MISSING_${check.toUpperCase()}_EXECUTION`);
-  const raw = evidence.get(record.evidence_sha256), receipt = parseReleaseRecord(raw);
+  const raw = evidence.get(record.evidence_sha256), receipt = resources ?
+    parseOfflineRecord(raw, resources) : parseReleaseRecord(raw);
   requireRelease(sha256(raw) === record.evidence_sha256 && record.check === check && record.status === "PASS" &&
     record.schema_version === 1 && record.scope === "fusou-release-check-v1" &&
     receipt.schema_version === 1 && receipt.scope === "fusou-release-check-execution-v1" &&
@@ -66,20 +86,55 @@ export function receiptFor(check, records, evidence, context) {
     receipt.input_sha256 === sha256(jsonBytes(receipt.inputs)), "check execution identity/result/input digest");
   const inputs = new Map();
   for (const [name, descriptor] of Object.entries(receipt.inputs)) {
-    const bytes = evidence.get(descriptor.sha256);
+    requireRelease(descriptor && Object.keys(descriptor).sort().join() === "byte_length,sha256" &&
+      /^[A-Za-z0-9_-]{43}$/.test(descriptor.sha256) && Number.isSafeInteger(descriptor.byte_length) &&
+      descriptor.byte_length >= 0, "check input descriptor contract");
+    const received = evidence.get(descriptor.sha256);
+    requireRelease(received instanceof Uint8Array, "required raw check input missing/corrupt");
+    const bytes = resources ? copyOfflineBytes(received, resources) : received;
     requireRelease(bytes instanceof Uint8Array && bytes.byteLength === descriptor.byte_length &&
       sha256(bytes) === descriptor.sha256, "required raw check input missing/corrupt");
     inputs.set(name, bytes);
   }
   return { receipt, inputs };
 }
+function parseOfflineRecord(raw, resources) {
+  const value = parseNativeInspectionJson(raw, resources);
+  requireRelease(jsonBytes(value).equals(raw), "noncanonical/duplicate record");
+  return value;
+}
+function cloneOfflineValue(value, resources) {
+  resources.object(value);
+  return structuredClone(value);
+}
+function copyOfflineBytes(raw, resources) {
+  const buffer = raw instanceof Uint8Array && typedArrayAccessors.buffer.get.call(raw);
+  requireRelease(raw instanceof Uint8Array &&
+    (Object.getPrototypeOf(raw) === Uint8Array.prototype || Object.getPrototypeOf(raw) === Buffer.prototype) &&
+    !(buffer instanceof SharedArrayBuffer), "native execution source: nonshared raw bytes");
+  const length = typedArrayAccessors.byteLength.get.call(raw), offset = typedArrayAccessors.byteOffset.get.call(raw);
+  resources.read();
+  resources.charge(length);
+  return resources.copy(new Uint8Array(buffer, offset, length));
+}
+function copyOfflineMap(inputs, resources) {
+  requireRelease(inputs instanceof Map, "offline input map");
+  resources.collection(mapSize.call(inputs));
+  const owned = new Map();
+  for (const [name, raw] of Map.prototype.entries.call(inputs)) {
+    resources.object(name);
+    requireRelease(typeof name === "string" && name.length > 0, "offline input role");
+    owned.set(name, copyOfflineBytes(raw, resources));
+  }
+  return owned;
+}
 function sameInputs(actual, expected) {
   requireRelease(isDeepStrictEqual(descriptors(actual), descriptors(expected)), "check independent input inventory/digest");
 }
-export function parsePinnedCheckInputs(raw, pin, scope) {
+export function parsePinnedCheckInputs(raw, pin, scope, resources) {
   if (raw === undefined || !pin) throw new ReleaseBlocked(`PINNED_${scope.toUpperCase().replaceAll("-", "_")}_MISSING`);
   requireRelease(sha256(raw) === pin, "independent check policy digest");
-  const value = parseReleaseRecord(raw);
+  const value = resources ? parseOfflineRecord(raw, resources) : parseReleaseRecord(raw);
   requireRelease(value.schema_version === 1 && value.scope === scope, "independent check policy scope");
   return value;
 }
@@ -337,8 +392,14 @@ export const OFFLINE_BUNDLE_ARTIFACTS = ["presentation", "result", "result_regis
   "notary_registry", "health", "session", "authenticated_user", "device_identity", "device_authentication",
   "possession_proof", "consume_receipt", "replay", "session_authority_registry", "binding_authority_registry",
   "capture_metadata", "semantic_verification", "trust_root", "subject"];
-export function offlineLayout(policy, inputs) {
-  const files = new Map(), pathTree = new Map(), required = [...Object.keys(fileFlags)], bundle = JSON.parse(Buffer.from(inputs.get("bundle")));
+export function offlineLayout(policy, inputs, { resourceBudget } = {}) {
+  return withNativeInspectionBudgetSync(resourceBudget, (scope) =>
+    offlineLayoutInScope(cloneOfflineValue(policy, scope), copyOfflineMap(inputs, scope), scope));
+}
+function offlineLayoutInScope(policy, inputs, resources) {
+  assertNativeResourceScope(resources);
+  const files = new Map(), pathTree = new Map(), required = [...Object.keys(fileFlags)];
+  const bundle = parseNativeInspectionJson(inputs.get("bundle"), resources);
   requireRelease(typeof policy.executable_version === "string" && policy.executable_version.length > 0 &&
     inputs.get("verifier_executable") instanceof Uint8Array &&
     inputs.get("verifier_executable").byteLength > 0 &&
@@ -349,6 +410,8 @@ export function offlineLayout(policy, inputs) {
     files.set(`${role}.input`, inputs.get(role)); pathTree.set(`${role}.input`, null);
   }
   for (const [role, descriptor] of Object.entries(bundle.artifacts)) {
+    requireRelease(descriptor && typeof descriptor === "object" && !Array.isArray(descriptor),
+      "native bundle artifact/path binding");
     const name = `bundle_artifact_${role}`, raw = inputs.get(name), path = descriptor.path;
     requireRelease(/^[a-z][a-z0-9_]*$/.test(role) && typeof path === "string" && path.length > 0 &&
       !path.startsWith("/") && !/[\\:\0]/.test(path) &&
@@ -375,36 +438,55 @@ export function offlineLayout(policy, inputs) {
   }
   return { argv: offlineInvocation(policy), files, required };
 }
-export async function captureOfflineExecution({ context, inputs, policy }, { execute } = {}) {
-  if (typeof execute !== "function") throw new ReleaseBlocked("TRUSTED_NATIVE_OFFLINE_EXECUTOR_NOT_CONFIGURED");
-  const policySnapshot = jsonBytes(policy), contextSnapshot = jsonBytes(context);
-  const snapshot = descriptors(inputs), layout = offlineLayout(policy, inputs), argv = layout.argv;
-  const executionInputs = new Map([...inputs].map(([k, v]) => [k, Buffer.from(v)]));
-  const executionFiles = offlineLayout(policy, executionInputs).files;
-  const fileSnapshot = descriptors(executionFiles);
-  const result = await execute({ argv: [...argv], inputs: executionInputs, files: executionFiles,
-    executable_sha256: policy.executable_sha256 });
-  requireRelease(isDeepStrictEqual(snapshot, descriptors(inputs)) && isDeepStrictEqual(snapshot, descriptors(executionInputs)) &&
-    policySnapshot.equals(jsonBytes(policy)) && contextSnapshot.equals(jsonBytes(context)) &&
-    isDeepStrictEqual(fileSnapshot, descriptors(executionFiles)) &&
-    result.stdout instanceof Uint8Array &&
-    result.executable_before instanceof Uint8Array && result.executable_after instanceof Uint8Array &&
-    Buffer.from(result.executable_before).equals(inputs.get("verifier_executable")) &&
-    Buffer.from(result.executable_after).equals(result.executable_before) &&
-    result.executable_version === policy.executable_version &&
-    result.executable_sha256 === policy.executable_sha256 && isDeepStrictEqual(result.argv, argv) &&
-    Number.isInteger(result.exit_code), "native execution source/executable/command");
-  const rawInputs = new Map(inputs); rawInputs.set("stdout", result.stdout);
-  if (result.exit_code === 0) assertOfflineReport(result.stdout, policy);
-  const execution = recordCheckExecution("offline_verification", context, rawInputs,
-    { executable_sha256: result.executable_sha256, executable_version: result.executable_version, argv, stdout_sha256: sha256(result.stdout) },
-    result.exit_code === 0 ? {} : { status: "FAIL", exitCode: result.exit_code, error: "native verifier rejected evidence" });
-  if (result.exit_code === 0) {
-    execution.executionProof = Object.freeze({});
-    offlineExecutionProofs.set(execution.executionProof, { receipt_sha256: sha256(execution.receipt),
-      inputs: descriptors(rawInputs), executable_sha256: policy.executable_sha256 });
+export async function captureOfflineExecution({ context, inputs, policy, resourceBudget, signal }, { mockExecutor, execute } = {}) {
+  if (execute !== undefined || typeof mockExecutor !== "function") {
+    throw new ReleaseBlocked("TRUSTED_NATIVE_OFFLINE_EXECUTOR_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
   }
-  return execution;
+  return withNativeInspectionBudget(resourceBudget, signal, async (resources) => {
+    const ownedPolicy = cloneOfflineValue(policy, resources), ownedContext = cloneOfflineValue(context, resources);
+    const ownedInputs = copyOfflineMap(inputs, resources);
+    const layout = offlineLayoutInScope(ownedPolicy, ownedInputs, resources), argv = Object.freeze(layout.argv);
+    requireRelease(ownedInputs.size === layout.required.length, "offline required raw input inventory");
+    const snapshot = descriptors(ownedInputs, resources), executionInputs = copyOfflineMap(ownedInputs, resources);
+    const executionFiles = copyOfflineMap(layout.files, resources), fileSnapshot = descriptors(executionFiles, resources);
+    const request = Object.freeze({ argv, inputs: executionInputs, files: executionFiles,
+      executable_sha256: ownedPolicy.executable_sha256, signal: resources.signal });
+    resources.capture();
+    resources.capture();
+    const returned = await resources.wait(() => mockExecutor(request));
+    resources.check();
+    requireRelease(returned && Object.getPrototypeOf(returned) === Object.prototype, "native execution result");
+    const result = {};
+    for (const key of ["stdout", "stderr", "executable_before", "executable_after", "executable_sha256",
+      "executable_version", "argv", "exit_code"]) {
+      const property = Object.getOwnPropertyDescriptor(returned, key);
+      requireRelease(property && Object.hasOwn(property, "value"), "native execution source/result property");
+      result[key] = property.value;
+    }
+    const stdout = copyOfflineBytes(result.stdout, resources);
+    const stderr = copyOfflineBytes(result.stderr, resources);
+    const before = copyOfflineBytes(result.executable_before, resources), after = copyOfflineBytes(result.executable_after, resources);
+    const observed = cloneOfflineValue({ executable_sha256: result.executable_sha256, executable_version: result.executable_version,
+      argv: result.argv, exit_code: result.exit_code }, resources);
+    requireRelease(isDeepStrictEqual(snapshot, descriptors(copyOfflineMap(executionInputs, resources), resources)) &&
+      isDeepStrictEqual(fileSnapshot, descriptors(copyOfflineMap(executionFiles, resources), resources)) &&
+      before.equals(ownedInputs.get("verifier_executable")) && after.equals(before) &&
+      observed.executable_version === ownedPolicy.executable_version &&
+      observed.executable_sha256 === ownedPolicy.executable_sha256 && isDeepStrictEqual(observed.argv, argv) &&
+      Number.isInteger(observed.exit_code), "native execution source/executable/command");
+    const rawInputs = new Map(ownedInputs); rawInputs.set("stdout", stdout); rawInputs.set("stderr", stderr);
+    if (observed.exit_code === 0) assertOfflineReport(stdout, ownedPolicy, resources);
+    const execution = recordCheckExecution("offline_verification", ownedContext, rawInputs,
+      { executable_sha256: observed.executable_sha256, executable_version: observed.executable_version, argv,
+        stdout_sha256: sha256(stdout), stderr_sha256: sha256(stderr) },
+      observed.exit_code === 0 ? {} : { status: "FAIL", exitCode: observed.exit_code, error: "native verifier rejected evidence" }, resources);
+    if (observed.exit_code === 0) {
+      execution.executionProof = Object.freeze({});
+      offlineExecutionProofs.set(execution.executionProof, { receipt_sha256: sha256(execution.receipt),
+        inputs: descriptors(rawInputs, resources), executable_sha256: ownedPolicy.executable_sha256 });
+    }
+    return execution;
+  });
 }
 function assertAuthenticatedOfflineExecution(proof, execution, policy) {
   requireRelease(proof && isDeepStrictEqual(offlineExecutionProofs.get(proof), {
@@ -412,8 +494,8 @@ function assertAuthenticatedOfflineExecution(proof, execution, policy) {
     executable_sha256: policy.executable_sha256,
   }), "unauthenticated/mismatched native execution proof");
 }
-function assertOfflineReport(stdout, policy) {
-  const report = JSON.parse(Buffer.from(stdout));
+function assertOfflineReport(stdout, policy, resources) {
+  const report = parseNativeInspectionJson(stdout, resources);
   assertCanonicalServerIdentity(policy.options["server-identity"]);
   requireRelease(report.status === "VERIFIED" && report.verification === "FUSOU_TLSN_EVIDENCE_BUNDLE" &&
     ["evidence_root", "result_registry", "result_signature", "result_evidence_binding", "tlsn_presentation", "notary", "artifact_manifest"]
@@ -422,41 +504,81 @@ function assertOfflineReport(stdout, policy) {
     policy.expected_derived.server_identity === policy.options["server-identity"] &&
     Object.entries(policy.expected_derived).every(([key, value]) => report.derived?.[key] === value), "native verification result/trust/identity");
 }
-export function verifyOfflineExecution({ inputs, receipt, policy, archiveInputs, archivePolicy, context }) {
+export function verifyOfflineExecution({ inputs, receipt, policy, archiveInputs, archivePolicy, context, resourceBudget }) {
+  return withNativeInspectionBudgetSync(resourceBudget, (scope) => verifyOfflineExecutionInScope({
+    inputs: copyOfflineMap(inputs, scope), receipt: cloneOfflineValue(receipt, scope), policy: cloneOfflineValue(policy, scope),
+    archiveInputs: copyOfflineMap(archiveInputs, scope), archivePolicy: cloneOfflineValue(archivePolicy, scope),
+    context: cloneOfflineValue(context, scope),
+  }, scope));
+}
+function verifyOfflineExecutionInScope({ inputs, receipt, policy, archiveInputs, archivePolicy, context }, resources) {
+  assertNativeResourceScope(resources);
   requireRelease(receipt.output.executable_sha256 === policy.executable_sha256 &&
     receipt.output.executable_version === policy.executable_version &&
     isDeepStrictEqual(receipt.output.argv, offlineInvocation(policy)), "offline executable/independent arguments");
   const stdout = inputs.get("stdout");
   requireRelease(stdout instanceof Uint8Array && sha256(stdout) === receipt.output.stdout_sha256, "offline actual stdout");
-  assertOfflineReport(stdout, policy);
-  const layout = offlineLayout(policy, inputs);
-  requireRelease(inputs.size === layout.required.length + 1, "offline required raw input inventory");
+  const stderr = inputs.get("stderr");
+  requireRelease(stderr instanceof Uint8Array && sha256(stderr) === receipt.output.stderr_sha256, "offline actual stderr");
+  assertOfflineReport(stdout, policy, resources);
+  const layout = offlineLayoutInScope(policy, inputs, resources);
+  requireRelease(inputs.size === layout.required.length + 2, "offline required raw input inventory");
   for (const role of ["presentation", "result"]) {
     requireRelease(Buffer.from(inputs.get(`bundle_artifact_${role}`)).equals(Buffer.from(archiveInputs.get(`readback_${role}`))),
       "offline verifier did not receive the same archive readback");
   }
-  const manifest = JSON.parse(Buffer.from(inputs.get("bundle")));
-  const session = JSON.parse(Buffer.from(inputs.get("bundle_artifact_session")));
+  const manifest = parseNativeInspectionJson(inputs.get("bundle"), resources);
+  const session = parseNativeInspectionJson(inputs.get("bundle_artifact_session"), resources);
   requireRelease(manifest.security_identity?.git_commit_sha === context.source_sha &&
     manifest.capture_id === archivePolicy.capture_id && session.session_id === archivePolicy.session_id &&
     typeof session.binding === "string" && sha256(Buffer.from(session.binding)) === archivePolicy.objects.result.binding_id,
   "signed bundle source/capture/session correlation");
 }
-export async function verifyReleaseChecks({ records, evidenceBytes, build, eligibility, inputs, payload, run },
-  { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
-    authenticateOfflineExecution, authenticateArchiveReadback, authenticateCheckExecution, nowMs = Date.now() } = {}) {
+export async function verifyReleaseChecks(args, config = {}) {
+  return withNativeInspectionBudget(config.offlineResourceBudget, config.signal, (resources) => {
+    const records = cloneOfflineValue(args.records, resources), context = checkContext(args.run, args.eligibility.commit_sha);
+    const prepared = {};
+    for (const check of ["archive_readback", "offline_verification"]) {
+      try { prepared[check] = receiptFor(check, records, args.evidenceBytes, context, resources); }
+      catch (error) {
+        if (!(error instanceof ReleaseBlocked) || isNativeResourceError(error)) throw error;
+        prepared[check] = { error };
+      }
+    }
+    let inputs = args.inputs;
+    if (inputs?.verification?.independentInputs) {
+      const independentInputs = Object.fromEntries(resources.recordEntries(inputs.verification.independentInputs).map(([name, value]) =>
+        [name, value instanceof Uint8Array ? copyOfflineBytes(value, resources) : cloneOfflineValue(value, resources)]));
+      inputs = { ...inputs, verification: { ...inputs.verification, independentInputs } };
+    }
+    return verifyReleaseChecksInScope({ ...args, records, inputs, payload: args.payload && cloneOfflineValue(args.payload, resources) },
+      { ...config, checkPolicyBytes: config.checkPolicyBytes && copyOfflineBytes(config.checkPolicyBytes, resources) },
+      { resources, prepared });
+  });
+}
+async function verifyReleaseChecksInScope(args, config, inspection) {
+  const { records, evidenceBytes, build, eligibility, inputs, payload, run } = args;
+  const { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
+    authenticateOfflineExecution, authenticateArchiveReadback, authenticateCheckExecution, nowMs = Date.now() } = config;
+  const { resources, prepared } = inspection;
+  assertNativeResourceScope(resources);
   requireRelease(build.artifacts.length > 0, "check producer build origin required");
   for (const artifact of build.artifacts) assertArtifactBuildProof(build.buildProofs.get(artifact.name), artifact);
   const context = checkContext(run, eligibility.commit_sha), results = {}, verified = {}, locallyAuthenticated = new Set();
+  let ownedCheckPolicy;
   const pinnedPolicy = () => {
-    const policy = parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1");
+    if (ownedCheckPolicy) return ownedCheckPolicy;
+    const policy = parsePinnedCheckInputs(checkPolicyBytes, checkPolicySha256, "fusou-release-check-inputs-v1", resources);
     requireRelease(policy.repository === context.repository && policy.source_sha === context.source_sha,
       "independent check policy repository/source");
-    return policy;
+    ownedCheckPolicy = policy;
+    return ownedCheckPolicy;
   };
   for (const check of CHECKS) {
     try {
-      const execution = receiptFor(check, records, evidenceBytes, context);
+      resources.check();
+      if (prepared[check]?.error) throw prepared[check].error;
+      const execution = prepared[check] ?? receiptFor(check, records, evidenceBytes, context);
       if (check === "locked_dependencies") await verifyLockedDependencies({ ...execution, github, context, build });
       if (check === "compiled_inputs") {
         if (!publicBuildInputsBytes || !publicBuildInputsSha256) throw new ReleaseBlocked("PINNED_PUBLIC_BUILD_INPUTS_MISSING");
@@ -482,7 +604,11 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
           throw new ReleaseBlocked("AUTHENTICATED_ARCHIVE_READBACK_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
         }
         if (typeof authenticateArchiveReadback === "function") {
-          const proof = await authenticateArchiveReadback({ ...execution, policy: checkPolicy.archive, context });
+          const callbackInputs = copyOfflineMap(execution.inputs, resources), callbackReceipt = cloneOfflineValue(execution.receipt, resources);
+          const callbackPolicy = cloneOfflineValue(checkPolicy.archive, resources), callbackContext = cloneOfflineValue(context, resources);
+          const proof = await resources.wait(() => authenticateArchiveReadback({
+            inputs: callbackInputs, receipt: callbackReceipt, policy: callbackPolicy, context: callbackContext,
+          }));
           requireRelease(proof && isDeepStrictEqual(archiveReadbackProofs.get(proof), {
           receipt_sha256: sha256(jsonBytes(execution.receipt)), inputs: descriptors(execution.inputs),
           }), "unauthenticated/mismatched archive readback proof");
@@ -504,25 +630,30 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
           checkPolicy.offline.expected_derived.result_signer_key_id === payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID &&
           checkPolicy.offline.expected_derived.result_key_registry_sha256 === payload.result_registry_pins.result_registry_sha256,
         "offline Runtime Config authority/signer pins");
-        const security = JSON.parse(Buffer.from(inputs.verification.independentInputs.security_registry_set_raw));
+        const security = parseNativeInspectionJson(inputs.verification.independentInputs.security_registry_set_raw, resources);
         requireRelease(checkPolicy.offline.expected_derived.notary_key_id === security.notary_key_id &&
           security.notary_registry[security.notary_key_id] === payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY &&
-          isDeepStrictEqual(JSON.parse(Buffer.from(execution.inputs.get("trusted_notary_registry"))), security.notary_registry),
+          isDeepStrictEqual(parseNativeInspectionJson(execution.inputs.get("trusted_notary_registry"), resources), security.notary_registry),
         "offline signed Runtime Config Notary registry/identity");
-        verifyOfflineExecution({ ...execution, policy: checkPolicy.offline, archiveInputs: verified.archive_readback.inputs,
-          archivePolicy: checkPolicy.archive, context });
+        verifyOfflineExecutionInScope({ ...execution, policy: checkPolicy.offline, archiveInputs: verified.archive_readback.inputs,
+          archivePolicy: checkPolicy.archive, context }, resources);
         if (typeof authenticateOfflineExecution !== "function" && typeof authenticateCheckExecution !== "function") {
           throw new ReleaseBlocked("AUTHENTICATED_OFFLINE_EXECUTION_INTAKE_NOT_CONFIGURED", "BLOCKED_IMPLEMENTATION");
         }
         if (typeof authenticateOfflineExecution === "function") {
-          const proof = await authenticateOfflineExecution({ ...execution, policy: checkPolicy.offline, context });
+          const callbackInputs = copyOfflineMap(execution.inputs, resources);
+          const callbackReceipt = cloneOfflineValue(execution.receipt, resources);
+          const callbackPolicy = cloneOfflineValue(checkPolicy.offline, resources), callbackContext = cloneOfflineValue(context, resources);
+          const proof = await resources.wait(() => authenticateOfflineExecution({
+            inputs: callbackInputs, receipt: callbackReceipt, policy: callbackPolicy, context: callbackContext,
+          }));
           assertAuthenticatedOfflineExecution(proof, execution, checkPolicy.offline);
           locallyAuthenticated.add(check);
         }
       }
       verified[check] = execution; results[check] = { status: "VERIFIED", evidence_sha256: records[check].evidence_sha256 };
     } catch (error) {
-      if (!(error instanceof ReleaseBlocked)) throw error;
+      if (!(error instanceof ReleaseBlocked) || isNativeResourceError(error)) throw error;
       results[check] = { status: error.status, blocker: error.code };
     }
   }
@@ -540,12 +671,15 @@ export async function verifyReleaseChecks({ records, evidenceBytes, build, eligi
         throw new ReleaseBlocked(`AUTHENTICATED_${check.toUpperCase()}_INTAKE_NOT_CONFIGURED`, "BLOCKED_IMPLEMENTATION");
       }
       const execution = { check, ...verified[check], context, build };
-      const proof = await authenticateCheckExecution(execution);
+      const callbackExecution = ["archive_readback", "offline_verification"].includes(check) ? { ...execution,
+        inputs: copyOfflineMap(execution.inputs, resources), receipt: cloneOfflineValue(execution.receipt, resources),
+        context: cloneOfflineValue(context, resources) } : execution;
+      const proof = await resources.wait(() => authenticateCheckExecution(callbackExecution));
       assertAuthenticatedCrossRunExecution(proof, execution);
       results[check].authentication = "GITHUB_ACTIONS_ARTIFACT";
       results[check].verification = checkVerificationLayers(check, "GITHUB_ACTIONS_ARTIFACT");
     } catch (error) {
-      if (!(error instanceof ReleaseBlocked)) throw error;
+      if (!(error instanceof ReleaseBlocked) || isNativeResourceError(error)) throw error;
       results[check] = { status: error.status, blocker: error.code };
     }
   }

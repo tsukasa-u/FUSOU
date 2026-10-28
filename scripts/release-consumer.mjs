@@ -203,6 +203,7 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
       const checkData = collectCheckEvidence({ eligibility, run, build, files: evidenceFiles }, { allowMissing: true });
       const verify = dependencies.verifyCheckEvidence ?? ((args) => verifyReleaseChecks(args,
         { github, publicBuildInputsBytes, publicBuildInputsSha256, checkPolicyBytes, checkPolicySha256,
+          offlineResourceBudget: dependencies.offlineResourceBudget,
           authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
           authenticateArchiveReadback: dependencies.authenticateArchiveReadback,
           authenticateCheckExecution: dependencies.authenticateCheckExecution ?? authenticateExecution, nowMs }));
@@ -218,7 +219,8 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     }
     const assembled = await assembleReleaseManifest({ eligibility, run, build, files: evidenceFiles, inputs },
       { ...dependencies, checkVerification: { github, publicBuildInputsBytes, publicBuildInputsSha256,
-        checkPolicyBytes, checkPolicySha256, authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
+        checkPolicyBytes, checkPolicySha256, offlineResourceBudget: dependencies.offlineResourceBudget,
+        authenticateOfflineExecution: dependencies.authenticateOfflineExecution,
         authenticateArchiveReadback: dependencies.authenticateArchiveReadback,
         authenticateCheckExecution: dependencies.authenticateCheckExecution ?? authenticateExecution, nowMs } });
     const validated = validateReleaseManifest(assembled.manifestBytes, assembled.observations);
