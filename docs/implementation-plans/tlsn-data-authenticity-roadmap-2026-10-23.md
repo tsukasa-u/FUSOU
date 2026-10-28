@@ -4710,3 +4710,192 @@ git rev-parse HEAD HEAD^
 git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-archive-rs256-fixture.mjs scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md pnpm-lock.yaml packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
 git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- scripts/release-archive-rs256-fixture.mjs scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 ```
+
+## 2026-10-28: verified payload reaches the first repository identity refusal
+
+### Actual start and bounded change
+
+Branch: `tlsn-first-testplay-candidate`.
+Start HEAD: `883ba0698a7eb0ef58e5184324d42f2a4044fa2c`, matching request.
+The initial explicit scope was clean. Before execution, expanded safe
+helper status showed only `scripts/release-archive-rs256.test.mjs` modified.
+
+Only that test module and this roadmap change. The new eighth
+fixed-vector test adds **one** case; all previous seven fixed-vector and
+thirteen key-free assertions remain intact. Public fixture, JOSE
+dependency/lock, Production verifier/policy/defaults, active pins,
+draft/schema and workflows are unchanged.
+
+The existing fixture still pins the user-supplied offline public vector
+from `panva/jose` commit
+`bafcb74f5fc070f4f5fd48b12c8bb90af832385e`, `src/jwt/verify.ts`.
+No upstream metadata was fetched or independently authenticated here.
+The reused digest gates still require JWT ASCII SHA-256
+`16a7986eb30312746c1b11f7559c30aa491b3d00209423ab16e3a6440567853c`
+and LF/no-final-newline SPKI UTF-8 SHA-256
+`5b21737c49135c0e17dfd44fe8b99842086718b3a9963552c95fed9d938166ed`.
+Both assertions and real signature verification pass in this run.
+
+### Same verified payload, matching test expectation, measured refusal
+
+The new test calls the existing test-local `verifyGeneric`, which checks
+both pins, uses real `jose@6.1.2` `importSPKI` and `jwtVerify`, and retains
+the published generic issuer/audience, fixed iat + one-second clock,
+RS256 allowlist, required generic claims and age limit. It separately
+asserts the successful verified header and exact four-field payload
+before invoking identity policy.
+
+`assertVerifiedArchiveOidcClaims` receives that **same returned payload
+object** directly: no copy, decoded substitute, Proxy, added claim or
+resigning. Exact payload equality is checked again after refusal.
+
+The identity helper takes a policy and clock, not an issuer override;
+issuer is already verified by real JOSE and explicitly matched in the
+test. Its minimal test-only expected identity uses the existing
+key-free contract: canonical repository, independent string repository/
+owner IDs, workflow/event/ref and skew. Only its audience is the
+published `urn:example:audience`, matching the verified payload.
+`assertArchiveIdentityPolicy` explicitly accepts this input.
+This is **not** an HTTP transport specification, registered policy or
+active pin: full `validateArchiveTransportSpec` continues to require
+audience equal to its HTTPS archive endpoint. Nothing is registered,
+re-pinned or published for this test.
+
+A transparent read-recording Proxy wraps **only the frozen test policy**,
+returning every value unchanged. After explicit issuer/audience and
+missing-claim assertions, its read trace is reset. During the actual
+existing claim assertion, the trace suffix from `audience` is required
+to equal exactly `["audience", "repository"]`. Thus the test verifies the
+audience comparison was traversed and the first missing repository
+identity comparison was reached; it does not merely infer the cause
+from a generic error code.
+
+The observed exception is the existing `ArchiveTransportError`, status
+**401**, with both code and message **`ARCHIVE_OIDC_CLAIMS_INVALID`**.
+There is no more specific repository error in the current API, and none
+was invented. The first failing expression is
+`payload.repository === policy.repository`: verified payload has no
+repository and the expected repository is canonical/nonempty.
+Repository-ID, owner-ID, workflow and expiration predicates are later
+and are **not reached by this signed-payload case**.
+
+The previous mismatched-audience test is retained as a separate case.
+This new case closes that specific audience-first limitation only.
+Its `OIDC_REPOSITORY_IDENTITY_REJECTED` test name is a diagnostic label,
+not a new runtime error or Production readiness state.
+
+### HTTP/consumer, owner and Production boundaries
+
+The new pure identity assertion throws before returning; it invokes no
+HTTP binding/report/grant creation. It is not a new successful HTTP or
+authorization path. The unchanged fixed-vector HTTP/client test still
+uses the original token and Production verifier: missing kid causes
+401, no authorization response/acquisition output, and zero JWKS,
+authority and object reads. That remains an **earlier header refusal**,
+not the new repository refusal transported through Production HTTP.
+No HTTP audience/pin rule or signature verifier is relaxed to combine
+those distinct paths.
+
+All thirteen existing key-free tests pass, including owner absence,
+type/format errors, independent policy mismatch with matching repository
+ID, body self-claims, HTTP refusal, consumer owner-binding mutation and
+nonoperational grant/bootstrap blockers. These use synthetic payloads,
+not signed GitHub owner claims. The legacy RSA/JWKS HTTP test has
+top-level key generation and per-case signing, so it remains
+**NOT_RUN / not imported**, including filtered execution.
+
+No positive signed GitHub repository/owner token is tested:
+**GITHUB_OIDC_POSITIVE_INTEGRATION_BLOCKED**.
+Actual GitHub identity, repository OIDC/subject settings, actual reusable
+workflow claims and active trust pin remain unverified:
+**PRODUCTION_TRUST_NOT_VERIFIED**.
+
+### Exact commands and measured results
+
+Selected modules/direct helpers and ordinary scoped hook were inspected
+before execution. Existing fixture APIs/storage/executors are local
+doubles; global fetch and WebCrypto generate/sign tripwires are retained,
+and their no-call assertion passes. Public-key import and mathematical
+verification are not mocked. No private key, generated key, new JWT
+signature, external connection, package install, build, Worker host or
+native verifier was used. Protected paths were not accessed.
+
+| Validation | Actual result |
+| --- | --- |
+| Initial explicit Git metadata/status | **PASS**, expected branch/HEAD, scoped files clean |
+| Expanded helper status before Node execution | **PASS**, only expected test modification |
+| Modified test module syntax | **PASS**, exit 0, parse only |
+| Fixed-vector and key-free selected Node suites | **PASS 21 / FAIL 0 / skipped 0**, exit 0: eight fixed-vector plus thirteen key-free |
+| Working/staged two-path whitespace gate | **PASS**, exit 0; repeated at commit after this result is recorded |
+| Legacy key-generating RSA/JWKS suite | **NOT_RUN**, prohibited side effects |
+| Positive GitHub OIDC / real trust / native / deployment | **NOT_RUN / BLOCKED**, not established by this test |
+
+No test or syntax run failed; no assertion was weakened or skipped, and
+there were no code corrections after successful validation.
+
+Initial branch/HEAD and explicit scope:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-archive-rs256-fixture.mjs scripts/release-archive-rs256.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/release-archive-http.test.mjs scripts/release-archive-http.mjs scripts/release-provenance-fixture.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json pnpm-lock.yaml docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md .githooks/pre-commit scripts/scoped_code_review_graph.py
+```
+
+Expanded safe helper status:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- 'scripts/release-*.mjs' 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/wasm-provenance.mjs
+```
+
+Parse-only check (PASS):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-archive-rs256.test.mjs
+```
+
+Selected real-signature and key-free regression (21/0/0, PASS):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-archive-rs256.test.mjs scripts/release-archive-oidc-claims.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/signed-payload-identity-tests.log 2>&1; result=$?; tail -n 34 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/signed-payload-identity-tests.log; exit "$result"
+```
+
+### Preserved state and two-path local commit procedure
+
+Delegation stays **PROPOSED / unapproved**, reusable workflow fixed-disabled.
+`DERIVED_NOT_AUTHORIZED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` are unchanged.
+Four real evidence checks stay **UNVERIFIED**;
+`publication_authorized: false`, deployment **NOT_CHECKED** and
+Production acceptance **BLOCKED**. No Result-byte-binding test or
+Hudsucker/default/dependency is modified. No push, PR, tag, deploy,
+publish, Production signing or configuration change is performed.
+
+Two-path working/staged whitespace check, followed by a repeated gate at
+commit after recording its result:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@"
+```
+
+Local-only, unsigned commit with the normal scoped hook retained and
+only these two files selected. Hook completion is observed from execution,
+not assumed from the tests:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@" && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "test(tlsn): connect verified payload to repository identity refusal" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/signed-payload-identity-commit.log 2>&1; result=$?; tail -n 22 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/signed-payload-identity-commit.log; exit "$result"
+```
+
+Final branch/HEAD/parent and explicit-scope status, unchanged input paths,
+then committed two-path whitespace (final SHA reported from metadata):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-archive-rs256-fixture.mjs scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md pnpm-lock.yaml packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```

@@ -10,7 +10,8 @@ import { sha256 } from "./release-bytes.mjs";
 import { assertVerifiedArchiveOidcClaims } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc-claims.mjs";
 import { createArchiveOidcVerifier } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-oidc.mjs";
 import { handleArchiveHttp } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs";
-import { GITHUB_OIDC_ISSUER, archivePolicyBytes, archiveReadRequest, validateArchiveTransportSpec } from
+import { ARCHIVE_WORKFLOW_REF, ArchiveTransportError, GITHUB_OIDC_ISSUER, archivePolicyBytes, archiveReadRequest,
+  assertArchiveIdentityPolicy, validateArchiveTransportSpec } from
   "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs";
 
 const JWT_SHA256 = "16a7986eb30312746c1b11f7559c30aa491b3d00209423ab16e3a6440567853c";
@@ -102,6 +103,40 @@ test("OIDC_CLAIM_POLICY_REJECTED: a real verified generic payload does not satis
   assert.equal(Object.hasOwn(payload, "repository_owner_id"), false);
   assert.throws(() => assertVerifiedArchiveOidcClaims(payload, policy, NOW), (error) =>
     error.code === "ARCHIVE_OIDC_CLAIMS_INVALID" && error.status === 401);
+  assert.deepEqual(payload, EXPECTED_PAYLOAD);
+});
+test("OIDC_REPOSITORY_IDENTITY_REJECTED: the unchanged verified payload passes audience comparison then lacks repository", async () => {
+  const { payload, protectedHeader } = await verifyGeneric();
+  assert.deepEqual(protectedHeader, { alg: "RS256" });
+  assert.deepEqual(payload, EXPECTED_PAYLOAD);
+  const policyReads = [];
+  // Observe only test-policy reads, never replace or modify the verified payload.
+  const policy = new Proxy(Object.freeze({
+    repository: "tsukasa-u/FUSOU", repository_id: "7", repository_owner_id: "11",
+    workflow_ref: ARCHIVE_WORKFLOW_REF, event_name: "workflow_run", ref: "refs/heads/main",
+    audience: EXPECTED_PAYLOAD.aud, clock_skew_seconds: 0,
+  }), { get(target, key, receiver) {
+    policyReads.push(key); return Reflect.get(target, key, receiver);
+  } });
+  assertArchiveIdentityPolicy(policy);
+  assert.equal(payload.iss, EXPECTED_PAYLOAD.iss);
+  assert.equal(payload.aud, policy.audience);
+  for (const name of ["repository", "repository_id", "repository_owner", "repository_owner_id"]) {
+    assert.equal(Object.hasOwn(payload, name), false);
+  }
+  assert.equal(payload.repository, undefined);
+  assert.notEqual(payload.repository, policy.repository);
+  policyReads.length = 0;
+  assert.throws(() => assertVerifiedArchiveOidcClaims(payload, policy, NOW), (error) => {
+    assert(error instanceof ArchiveTransportError);
+    assert.equal(error.code, "ARCHIVE_OIDC_CLAIMS_INVALID");
+    assert.equal(error.status, 401);
+    assert.equal(error.message, "ARCHIVE_OIDC_CLAIMS_INVALID");
+    return true;
+  });
+  const audienceComparison = policyReads.indexOf("audience");
+  assert(audienceComparison >= 0);
+  assert.deepEqual(policyReads.slice(audienceComparison), ["audience", "repository"]);
   assert.deepEqual(payload, EXPECTED_PAYLOAD);
 });
 test("the original token fails the production kid gate; body self-claims cannot create HTTP binding or acquisition output", async () => {
