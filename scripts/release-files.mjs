@@ -9,19 +9,27 @@ export function assertReleaseFileLimits({ maxBytes, minBytes = 1 } = {}) {
     !Number.isSafeInteger(minBytes) || minBytes < 0 || minBytes > maxBytes) fail("RELEASE_FILE_LIMIT_INVALID");
 }
 
+const checkSignal = (signal) => { if (signal?.aborted) fail("RELEASE_FILE_ABORTED"); };
+
 // The same open handle bounds reads; this is not a guarantee about a later path-based execution.
-export async function readBoundedFileHandle(file, limits) {
+export async function readBoundedFileHandle(file, limits, { signal, reserveBytes } = {}) {
   assertReleaseFileLimits(limits);
+  checkSignal(signal);
   const { maxBytes, minBytes = 1 } = limits;
   const before = await file.stat({ bigint: true });
+  checkSignal(signal);
   if (!before.isFile()) fail("RELEASE_FILE_NOT_REGULAR");
   if (before.size > BigInt(maxBytes)) fail("RELEASE_FILE_TOO_LARGE");
   if (before.size < BigInt(minBytes)) fail("RELEASE_FILE_EMPTY_OR_SHORT");
-  const initialSize = Number(before.size), raw = Buffer.alloc(initialSize), extra = Buffer.alloc(1);
+  const initialSize = Number(before.size);
+  reserveBytes?.(initialSize + 1);
+  const raw = Buffer.alloc(initialSize), extra = Buffer.alloc(1);
   let total = 0;
   while (true) {
+    checkSignal(signal);
     const chunk = total === initialSize ? extra : raw.subarray(total, Math.min(total + 64 * 1024, initialSize));
     const { bytesRead } = await file.read(chunk, 0, chunk.length, total);
+    checkSignal(signal);
     if (!Number.isInteger(bytesRead) || bytesRead < 0 || bytesRead > chunk.length) fail("RELEASE_FILE_READ_INVALID");
     total += bytesRead;
     if (total > maxBytes) fail("RELEASE_FILE_TOO_LARGE");
@@ -29,6 +37,7 @@ export async function readBoundedFileHandle(file, limits) {
     if (!bytesRead) break;
   }
   const after = await file.stat({ bigint: true });
+  checkSignal(signal);
   if (!after.isFile() || total !== initialSize ||
     ["dev", "ino", "mode", "nlink", "size", "mtimeNs", "ctimeNs"].some((key) => before[key] !== after[key])) {
     fail("RELEASE_FILE_CHANGED");
@@ -36,14 +45,15 @@ export async function readBoundedFileHandle(file, limits) {
   return raw;
 }
 
-export async function readBoundedRegularFile(path, limits) {
+export async function readBoundedRegularFile(path, limits, options = {}) {
   assertReleaseFileLimits(limits);
+  checkSignal(options.signal);
   if (!Number.isInteger(constants.O_NOFOLLOW) || !Number.isInteger(constants.O_NONBLOCK)) {
     fail("RELEASE_FILE_OPEN_UNSUPPORTED");
   }
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    return await readBoundedFileHandle(file, limits);
+    return await readBoundedFileHandle(file, limits, options);
   } finally {
     await file.close();
   }

@@ -1,6 +1,13 @@
 // Synthetic official-schema JSON and process doubles, not gh output or a signed bundle.
 import { createHash } from "node:crypto";
 import { NATIVE_GH_MEDIA_TYPE, NATIVE_SLSA_PREDICATE } from "./release-native-attestation.mjs";
+import { createNativeInspectionBudget } from "./release-native-resources.mjs";
+
+export const nativeResourceFixtureLimits = Object.freeze({ max_bytes: 8 * 1024 * 1024, max_reads: 32,
+  max_captures: 8, max_json_bytes: 1024 * 1024, max_json_nodes: 10000, max_json_depth: 32,
+  max_string_length: 16384, max_concurrent_operations: 2, timeout_ms: 1000 });
+export const nativeResourceFixtureBudget = (changes = {}) =>
+  createNativeInspectionBudget({ ...nativeResourceFixtureLimits, ...changes });
 
 export const nativeFixtureHex = (raw) => createHash("sha256").update(raw).digest("hex");
 export function nativeGhFixture(binary = Buffer.from("synthetic native bytes, never executed")) {
@@ -44,5 +51,6 @@ export function nativeGhFixture(binary = Buffer.from("synthetic native bytes, ne
     return { code: 0, stdout: argv[0] === "--version" ? Buffer.from("gh version 2.102.0 (synthetic)\n") : encode(),
       stderr: Buffer.from("synthetic credential canary; never expose this text") };
   } };
-  return { binary, expected, entry, verifier, execution, fileLimits, artifactPath, files, options, calls, encode };
+  return { binary, expected, entry, verifier, execution, fileLimits, resourceBudget: nativeResourceFixtureBudget(),
+    artifactPath, files, options, calls, encode };
 }

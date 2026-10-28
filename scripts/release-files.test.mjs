@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readBoundedFileHandle, readBoundedRegularFile, readRegularFile } from "./release-files.mjs";
+import { nativeResourceFixtureBudget } from "./release-native-attestation-fixture.mjs";
+import { withNativeInspectionBudget } from "./release-native-resources.mjs";
 
 function handle(raw, { size = raw.length, after = {}, regular = true } = {}) {
   let stats = 0, reads = 0;
@@ -84,5 +86,34 @@ test("stat/read failures and impossible read counts surface explicitly", async (
   for (const bytesRead of [-1, 1.5, 6, undefined]) {
     const file = handle(Buffer.from("abcd")); file.read = async () => ({ bytesRead });
     await assert.rejects(readBoundedFileHandle(file, { maxBytes: 4 }), code("RELEASE_FILE_READ_INVALID"));
+  }
+});
+test("bounded reads reserve bytes before allocation and honor cancellation after stat or read", async () => {
+  const file = handle(Buffer.from("abcd"));
+  await assert.rejects(readBoundedFileHandle(file, { maxBytes: 4 }, { reserveBytes: (amount) => {
+    assert.equal(amount, 5);
+    throw Object.assign(new Error("budget"), { code: "BUDGET" });
+  } }), code("BUDGET"));
+  assert.equal(file.reads, 0);
+  for (const method of ["stat", "read"]) {
+    const controller = new AbortController(), input = handle(Buffer.from("abcd")), original = input[method].bind(input);
+    input[method] = async (...args) => { const result = await original(...args); controller.abort(); return result; };
+    await assert.rejects(readBoundedFileHandle(input, { maxBytes: 4 }, { signal: controller.signal }), code("RELEASE_FILE_ABORTED"));
+  }
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(readBoundedRegularFile("/not-opened", { maxBytes: 4 }, { signal: controller.signal }),
+    code("RELEASE_FILE_ABORTED"));
+});
+test("multiple individually bounded files charge their combined allocation and probe bytes", async () => {
+  for (const max_bytes of [8, 9, 10]) {
+    const first = handle(Buffer.from("abcd")), second = handle(Buffer.from("efg"));
+    const operation = withNativeInspectionBudget(nativeResourceFixtureBudget({ max_bytes }), undefined, async (scope) => {
+      const options = { signal: scope.signal, reserveBytes: scope.charge };
+      await readBoundedFileHandle(first, { maxBytes: 4 }, options);
+      return readBoundedFileHandle(second, { maxBytes: 4 }, options);
+    });
+    if (max_bytes === 8) {
+      await assert.rejects(operation, code("NATIVE_RESOURCE_BYTES_EXCEEDED")); assert.equal(second.reads, 0);
+    } else assert.deepEqual(await operation, Buffer.from("efg"));
   }
 });

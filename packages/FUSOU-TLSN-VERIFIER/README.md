@@ -565,6 +565,53 @@ an atomic immutable snapshot, authenticated acquisition or execution identity.
 Legacy readers in source preflight and the fixed-disabled builder are outside
 this consumer boundary; they must not be inherited by a formal provider.
 
+All mock native entry points (including the standalone parser and normalized
+candidate inspector) additionally require an explicit process-local
+`resourceBudget` from `createNativeInspectionBudget`. There is no default.
+This frozen controller is labelled `approval: UNAPPROVED`; it is implementation
+admission, not registered policy, execution authority or a credential.
+Consumer binary/metadata inspections share one operation and budget.
+
+| Required limit | Candidate enforcement |
+|---|---|
+| `max_bytes` | Cumulative managed byte-work per operation: candidate input/owned buffers, file buffers and growth probes, mock read/capture input and owned output, conservative JSON serialization/copy work and UTF-16 decoding work. Reservations precede managed copies/allocation; accounting is conservative and not credited back. The metadata structural preflight and existing canonical-record parser both decode; both decodes are charged. |
+| `max_reads`, `max_captures` | Total read/capture attempts, including nested and final checks; no retry or queue. A successful two-subject consumer currently requires twelve reads and four captures. |
+| `max_json_bytes`, `max_json_nodes`, `max_json_depth`, `max_string_length` | Iterative guards before cloning, JSON parsing and recursive canonical/duplicate-key checks. Keys count as nodes. Object size is conservatively estimated; raw text uses its actual byte length. String bounds count UTF-16 units for configuration values/keys and raw JSON string tokens (including escapes), so escaped tokens may be rejected more conservatively. Only bounded JSON configuration trees are accepted; accessors, cycles, sparse arrays, Map/Set and typed/shared-memory containers are rejected. Raw binary/capture buffers use the separate byte path. |
+| `max_concurrent_operations` | Active operations sharing this controller; excess admission is rejected immediately. Multiplication by `max_bytes` must remain a safe integer. |
+| `timeout_ms` | Monotonic cooperative deadline plus asynchronous cancellation. An optional caller `AbortSignal` is propagated without exposing its reason. Timeout/cancellation returns a fixed blocker; outstanding non-cooperative work retains its slot until settlement. |
+
+JSON bytes remain subject to the existing 1 MiB record ceiling. Depth 64 is an
+implementation ceiling protecting existing recursive helpers, not an approved
+release policy or a default. Timer values must fit Node's timer range. Every
+limit must otherwise be an explicitly supplied positive safe integer. Fixture
+values have no release approval; production values and their registration are
+still BLOCKED.
+
+Captured stdout/stderr are copied before later asynchronous work. File data
+needed only for hashes is not retained across subsequent reads; candidate owned
+byte snapshots are released once their validated digests are established.
+Normalized mock-verifier exceptions, like process-runner exceptions, become
+fixed nonsecret failure codes; their original messages/stacks are not reports.
+These measures reduce simultaneous references but do not certify a peak RSS.
+JSON object/engine overhead, garbage collection and caller-retained results are
+not measured by byte-work accounting. Nor can an in-process mock callback be
+prevented from allocating arbitrary memory or blocking the event loop: deadline
+checks do not preempt synchronous JavaScript or `JSON.parse`. Distinct controllers
+do not impose a process-global limit. Formal admission must use an independently
+registered shared controller and provider-enforced OS/process limits and cleanup;
+a permanently unresponsive callback intentionally leaves its controller slot
+unavailable. No provider is enabled by these guards.
+
+The audited consumer acquisition paths are verifier executable, binary and
+metadata via `prepareNativeGhInspection` and the bounded reader. Policy/verifier/
+manifest expectations are in-memory JSON snapshots, not fallback file reads.
+Attestation input is bounded captured stdout; there is no bundle-file fallback.
+`readNativeBuildPreflight` still uses the legacy reader for its fixed source,
+lock, workflow and draft-policy inputs; the fixed-disabled builder also remains
+outside this admission scope. These source/build paths and other unreviewed
+repository readers are not certified by the consumer audit. A future provider
+must admit every additional policy, manifest or attestation file explicitly.
+
 #### Native execution provider migration contract (draft, not registered)
 
 This contract is a design prerequisite, not an implemented provider or an

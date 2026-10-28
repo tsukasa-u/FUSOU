@@ -7,7 +7,7 @@ import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/script
 import { sha256 } from "./release-bytes.mjs";
 import { collectReleaseEvidence } from "./release-evidence-producer.mjs";
 import { checkFixture } from "./release-check-fixture.mjs";
-import { nativeGhFixture, nativeFixtureHex } from "./release-native-attestation-fixture.mjs";
+import { nativeGhFixture, nativeFixtureHex, nativeResourceFixtureBudget } from "./release-native-attestation-fixture.mjs";
 import { inspectNativeConsumerProvenance } from "./release-consumer.mjs";
 import {
   NATIVE_ROOT, NATIVE_BINARY, NATIVE_INPUT_PATHS, NATIVE_WORKFLOW, NATIVE_POLICY,
@@ -42,7 +42,7 @@ async function fixture() {
   const metadata = createNativeBuildMetadata({ files, trackedPaths, recipe: policy.recipe,
     context, compilerIdentity: expected.compiler_identity, binary });
   const request = { binary, metadataBytes: encode(metadata), expected, provenance: Buffer.from("unsigned mock transport"),
-    artifactOrigin: structuredClone(expected.artifact_origin) };
+    artifactOrigin: structuredClone(expected.artifact_origin), resourceBudget: nativeResourceFixtureBudget() };
   return { files, trackedPaths, policy, context, expected, metadata, request };
 }
 const normalizedMock = async ({ expected }) => expected;
@@ -61,7 +61,7 @@ async function consumerProvenanceFixture() {
     return capture;
   };
   return { t, gh, request: { candidate: t.request, binaryPath: gh.artifactPath, metadataPath,
-    policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits } };
+    policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits, resourceBudget: gh.resourceBudget } };
 }
 
 test("candidate inputs/recipe/metadata are byte-bound but never build or binary authentication", async () => {
@@ -172,7 +172,8 @@ for (const field of ["predicate_type", "repository", "repository_owner_id", "wor
 test("mock verifier failure is surfaced, and its success remains MOCK_ONLY and unauthenticated", async () => {
   const t = await fixture(), failure = new Error("mock verifier rejected unsigned provenance");
   await assert.rejects(inspectNativeArtifactCandidate(t.request, { mockVerifier: async () => { throw failure; } }),
-    (error) => error === failure);
+    (error) => error.code === "NATIVE_MOCK_VERIFICATION_FAILED" && error !== failure &&
+      !error.message.includes(failure.message) && !error.stack.includes(failure.message));
   const result = await inspectNativeArtifactCandidate(t.request, { mockVerifier: normalizedMock });
   assert.equal(result.verification_mode, "MOCK_ONLY"); assert.equal(result.authenticated, false);
   assert.equal(result.signature_verification, "UNVERIFIED"); assert.equal(result.signer_authentication, "UNVERIFIED");
@@ -213,7 +214,7 @@ test("independent consumer candidate checks both files, never issues an offline 
     return capture;
   };
   const request = { candidate: t.request, binaryPath: gh.artifactPath, metadataPath,
-    policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits };
+    policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits, resourceBudget: gh.resourceBudget };
   const result = await inspectNativeConsumerProvenance(request, gh.options);
   assert.equal(result.authenticated, false); assert.equal(result.offline_verification, NATIVE_BLOCKER);
   assert.equal(result.binary.verification_mode, "MOCK_PROCESS"); assert.equal(result.metadata.authenticated, false);
@@ -225,7 +226,7 @@ test("consumer refuses unbound real execution before reading either artifact", a
   let reads = 0;
   await assert.rejects(inspectNativeConsumerProvenance({ candidate: t.request, binaryPath: gh.artifactPath,
     metadataPath: "/mock/metadata", policy: gh.expected, verifier: gh.verifier,
-    execution: gh.execution, fileLimits: gh.fileLimits },
+    execution: gh.execution, fileLimits: gh.fileLimits, resourceBudget: gh.resourceBudget },
   { mockReadFile: async () => { reads++; return t.request.binary; } }),
   (error) => error.code === "NATIVE_GH_EXECUTION_IDENTITY_UNSUPPORTED");
   assert.equal(reads, 0);
@@ -237,7 +238,7 @@ test("consumer applies independent binary and metadata limits before parsing or 
     gh.options.mockReadFile = async () => { assert.fail("oversized candidate must be refused first"); };
     await assert.rejects(inspectNativeConsumerProvenance({ candidate: t.request, binaryPath: gh.artifactPath,
       metadataPath: "/mock/metadata", policy: gh.expected, verifier: gh.verifier,
-      execution: gh.execution, fileLimits: gh.fileLimits }, gh.options),
+      execution: gh.execution, fileLimits: gh.fileLimits, resourceBudget: gh.resourceBudget }, gh.options),
     (error) => error.code === "NATIVE_GH_FILE_TOO_LARGE");
     assert.equal(gh.calls.length, 0);
   }
@@ -267,7 +268,8 @@ test("consumer checks final metadata reads before accepting candidate snapshots 
       return raw;
     };
     await assert.rejects(inspectNativeConsumerProvenance({ candidate: t.request, binaryPath: gh.artifactPath,
-      metadataPath, policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits }, gh.options),
+      metadataPath, policy: gh.expected, verifier: gh.verifier, execution: gh.execution, fileLimits: gh.fileLimits,
+      resourceBudget: gh.resourceBudget }, gh.options),
     (error) => change === "oversized metadata" ? error.code === "NATIVE_GH_FILE_TOO_LARGE" :
       error.message === "release consumer: native consumer inputs changed");
     assert.equal(completedMetadataReads, 2);
@@ -335,6 +337,27 @@ test("consumer snapshot clone errors do not expose source text or start file ins
   await assert.rejects(inspectNativeConsumerProvenance(request, gh.options),
     (error) => error.code === "NATIVE_GH_INPUT_UNCLONEABLE" && !error.message.includes("synthetic credential marker"));
   assert.equal(gh.calls.length, 0);
+});
+test("consumer nested inspections share one admission slot and the twelve-read aggregate budget", async () => {
+  for (const max_reads of [11, 12, 13]) {
+    const { request, gh } = await consumerProvenanceFixture();
+    request.resourceBudget = nativeResourceFixtureBudget({ max_concurrent_operations: 1, max_reads, max_captures: 4 });
+    const operation = inspectNativeConsumerProvenance(request, gh.options);
+    if (max_reads === 11) await assert.rejects(operation, (error) => error.code === "NATIVE_RESOURCE_READS_EXCEEDED");
+    else {
+      const result = await operation;
+      assert.equal(result.authenticated, false); assert.equal(result.offline_verification, NATIVE_BLOCKER);
+      assert.equal(result.publication_authorized, false); assert.equal(result.deployment, "NOT_CHECKED");
+    }
+  }
+});
+test("the normalized mock entry cannot bypass admission or oversized metadata structure checks", async () => {
+  const t = await fixture(), spy = async () => assert.fail("admission must precede callback");
+  await assert.rejects(inspectNativeArtifactCandidate({ ...t.request, resourceBudget: undefined }, { mockVerifier: spy }),
+    (error) => error.code === "NATIVE_RESOURCE_BUDGET_MISSING");
+  t.metadata.compiler_identity = "x".repeat(16385);
+  await assert.rejects(inspectNativeArtifactCandidate({ ...t.request, metadataBytes: encode(t.metadata) }, { mockVerifier: spy }),
+    (error) => error.code === "NATIVE_RESOURCE_STRING_EXCEEDED");
 });
 test("workflow is fixed-disabled, write permissions job-scoped and action pins immutable", async () => {
   const workflow = await readFile(new URL(`../${NATIVE_WORKFLOW}`, import.meta.url), "utf8");

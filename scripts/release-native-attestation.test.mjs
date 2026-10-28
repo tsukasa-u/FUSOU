@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, mock, test } from "node:test";
 import { NATIVE_CERTIFICATE_FIELDS, assertNativeGhVersion, nativeGhVerifyCommand,
   NATIVE_GH_IDENTITY_BLOCKER, parseNativeGhVerification, inspectNativeGhArtifact } from "./release-native-attestation.mjs";
-import { nativeGhFixture, nativeFixtureHex as hex } from "./release-native-attestation-fixture.mjs";
+import { nativeGhFixture, nativeFixtureHex as hex, nativeResourceFixtureBudget } from "./release-native-attestation-fixture.mjs";
 
 const prohibited = [];
 for (const name of ["generateKey", "sign"]) mock.method(crypto.subtle, name, () => {
@@ -14,7 +14,7 @@ for (const name of ["generateKey", "sign"]) mock.method(crypto.subtle, name, () 
 mock.method(globalThis, "fetch", () => { prohibited.push("fetch"); throw new Error("Forbidden network"); });
 after(() => { try { assert.deepEqual(prohibited, []); } finally { mock.restoreAll(); } });
 const parse = (t, raw = t.encode()) =>
-  parseNativeGhVerification(raw, { expected: t.expected, artifactSha256: hex(t.binary) });
+  parseNativeGhVerification(raw, { expected: t.expected, artifactSha256: hex(t.binary), resourceBudget: t.resourceBudget });
 const inspect = (t) => inspectNativeGhArtifact(t, t.options);
 
 test("official-schema synthetic JSON is structure-checked, never cryptographically authenticated", () => {
@@ -378,4 +378,62 @@ test("mock process integration bounds actual data-file reads without ever execut
     await assert.rejects(inspect(t), (error) => error.code === "RELEASE_FILE_TOO_LARGE");
     assert.equal(t.calls.length, 0);
   } finally { await rm(directory, { recursive: true }); }
+});
+test("captured stdout and stderr are owned before subsequent reads can mutate the runner buffers", async () => {
+  const t = nativeGhFixture(), runner = t.options.mockRunner, read = t.options.mockReadFile;
+  let returned, stdout, stderr;
+  t.options.mockRunner = async (...args) => {
+    const result = await runner(...args);
+    if (args[1][0] !== "--version") {
+      returned = result; stdout = hex(result.stdout); stderr = hex(result.stderr);
+    }
+    return result;
+  };
+  t.options.mockReadFile = async (...args) => {
+    if (returned) { returned.stdout[1] = 32; returned.stderr[0] = 88; }
+    return read(...args);
+  };
+  const result = await inspect(t);
+  assert.equal(result.stdout_sha256, stdout); assert.equal(result.stderr_sha256, stderr);
+  assert.equal(result.authenticated, false); assert.equal(result.publication_authorized, false);
+});
+test("missing resource admission refuses before any read and aggregate failures do not leave partial success", async () => {
+  for (const resourceBudget of [undefined, {}, nativeResourceFixtureBudget({ max_bytes: 1 })]) {
+    const t = nativeGhFixture(); t.resourceBudget = resourceBudget;
+    t.options.mockReadFile = async () => { assert.fail("resource admission must precede reading"); };
+    await assert.rejects(inspect(t), (error) => ["NATIVE_RESOURCE_BUDGET_MISSING", "NATIVE_RESOURCE_BYTES_EXCEEDED"].includes(error.code));
+    assert.equal(t.calls.length, 0);
+  }
+});
+test("opaque predicate metadata is structurally bounded before JSON.parse and duplicate-key recursion", () => {
+  for (const kind of ["depth", "nodes", "string"]) {
+    const t = nativeGhFixture();
+    if (kind === "depth") {
+      let value = {}; for (let i = 0; i < 33; i++) value = { nested: value };
+      t.entry.verificationResult.statement.predicate = value;
+    }
+    if (kind === "nodes") {
+      t.resourceBudget = nativeResourceFixtureBudget({ max_json_nodes: 256 });
+      t.entry.verificationResult.statement.predicate.items = Array(300).fill(null);
+    }
+    if (kind === "string") {
+      t.resourceBudget = nativeResourceFixtureBudget({ max_string_length: 256 });
+      t.entry.verificationResult.statement.predicate.text = "x".repeat(257);
+    }
+    assert.throws(() => parse(t), (error) => error.code === ({
+      depth: "NATIVE_RESOURCE_DEPTH_EXCEEDED", nodes: "NATIVE_RESOURCE_NODES_EXCEEDED", string: "NATIVE_RESOURCE_STRING_EXCEEDED",
+    })[kind]);
+  }
+});
+test("inspection cancellation reaches the runner signal without exposing the caller's reason", async () => {
+  const t = nativeGhFixture(), controller = new AbortController();
+  t.options.signal = controller.signal;
+  t.options.mockRunner = async (_path, _argv, settings) => {
+    assert.notEqual(settings.signal, controller.signal);
+    controller.abort(new Error("synthetic private abort reason"));
+    assert.equal(settings.signal.aborted, true);
+    return { code: 0, stdout: Buffer.from("irrelevant cancelled output"), stderr: Buffer.alloc(0) };
+  };
+  await assert.rejects(inspect(t), (error) => error.code === "NATIVE_RESOURCE_ABORTED" &&
+    !error.message.includes("synthetic private abort reason"));
 });

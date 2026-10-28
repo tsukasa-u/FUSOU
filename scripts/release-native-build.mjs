@@ -8,6 +8,7 @@ import { parseReleaseRecord, requireRelease } from "./release-build-proof.mjs";
 import { readRegularFile } from "./release-files.mjs";
 import { ReleaseBlocked } from "./release-transport.mjs";
 import { cloneNativeInspectionInputs, inspectNativeGhArtifact, prepareNativeGhInspection } from "./release-native-attestation.mjs";
+import { assertNativeResourceScope, isNativeResourceError, withNativeInspectionBudget } from "./release-native-resources.mjs";
 
 export const NATIVE_ROOT = "packages/FUSOU-TLSN-VERIFIER";
 export const NATIVE_BINARY = "verify_fusou_tlsn_evidence";
@@ -157,7 +158,10 @@ function assertNativeExpectations(expected) {
   nativeBuildRecipe(expected.recipe);
 }
 
-function assertNativeCandidateInputs({ binary, metadataBytes, expected, artifactOrigin }) {
+function assertNativeCandidateInputs({ binary, metadataBytes, expected, artifactOrigin }, resources) {
+  resources.object({ expected, artifactOrigin });
+  resources.jsonText(metadataBytes);
+  resources.charge(2 * metadataBytes.byteLength);
   assertNativeExpectations(expected);
   requireRelease(isDeepStrictEqual(artifactOrigin, expected.artifact_origin), "native candidate artifact origin mismatch");
   requireRelease(bytes(binary), "native raw executable required");
@@ -173,15 +177,32 @@ function assertNativeCandidateInputs({ binary, metadataBytes, expected, artifact
   "native candidate binary/metadata/independent identity mismatch");
 }
 
-export async function inspectNativeArtifactCandidate({ binary, metadataBytes, expected, provenance, artifactOrigin }, { mockVerifier } = {}) {
-  assertNativeCandidateInputs({ binary, metadataBytes, expected, artifactOrigin });
+export async function inspectNativeArtifactCandidate({ binary, metadataBytes, expected, provenance, artifactOrigin, resourceBudget },
+  { mockVerifier, signal } = {}, resources) {
+  if (!resources) {
+    if (typeof mockVerifier !== "function") throw new ReleaseBlocked("NATIVE_ATTESTATION_VERIFIER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
+    return withNativeInspectionBudget(resourceBudget, signal, (scope) =>
+      inspectNativeArtifactCandidate({ binary, metadataBytes, expected, provenance, artifactOrigin }, { mockVerifier }, scope));
+  }
+  assertNativeResourceScope(resources);
+  if (bytes(binary)) resources.charge(binary.byteLength);
+  assertNativeCandidateInputs({ binary, metadataBytes, expected, artifactOrigin }, resources);
   if (!bytes(provenance)) throw new ReleaseBlocked("NATIVE_ATTESTATION_MISSING", "BLOCKED_IMPLEMENTATION");
   if (typeof mockVerifier !== "function") throw new ReleaseBlocked("NATIVE_ATTESTATION_VERIFIER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
   const snapshot = { binary: hex(binary), metadata: hex(metadataBytes), provenance: hex(provenance),
     expected: canonicalJson(expected), origin: canonicalJson(artifactOrigin) };
   const statement = { predicate_type: "https://slsa.dev/provenance/v1", ...structuredClone(expected.context),
     subjects: { executable_sha256: snapshot.binary, metadata_sha256: snapshot.metadata } };
-  const result = await mockVerifier({ provenance: Buffer.from(provenance), expected: structuredClone(statement) });
+  resources.charge(provenance.byteLength);
+  const ownedProvenance = resources.copy(provenance);
+  let result;
+  try { result = await resources.wait(() => mockVerifier({ provenance: ownedProvenance, expected: structuredClone(statement) })); }
+  catch (error) {
+    if (isNativeResourceError(error)) throw error;
+    throw new ReleaseBlocked("NATIVE_MOCK_VERIFICATION_FAILED", "BLOCKED_IMPLEMENTATION");
+  }
+  resources.object(result);
+  resources.object({ expected, artifactOrigin });
   requireRelease(hex(binary) === snapshot.binary && hex(metadataBytes) === snapshot.metadata &&
     hex(provenance) === snapshot.provenance && canonicalJson(expected) === snapshot.expected &&
     canonicalJson(artifactOrigin) === snapshot.origin,
@@ -195,20 +216,28 @@ export async function inspectNativeArtifactCandidate({ binary, metadataBytes, ex
 }
 
 export async function inspectNativeConsumerProvenance({ candidate, binaryPath, metadataPath, policy, verifier,
-  execution, fileLimits }, options = {}) {
+  execution, fileLimits, resourceBudget }, options = {}, resources) {
+  if (typeof options.mockRunner !== "function") throw new ReleaseBlocked("NATIVE_GH_EXECUTION_IDENTITY_UNSUPPORTED", "BLOCKED_IMPLEMENTATION");
+  if (!resources) return withNativeInspectionBudget(resourceBudget, options.signal, (scope) =>
+    inspectNativeConsumerProvenance({ candidate, binaryPath, metadataPath, policy, verifier, execution, fileLimits }, options, scope));
+  assertNativeResourceScope(resources);
   const dependencies = Object.freeze({ mockRunner: options.mockRunner, mockReadFile: options.mockReadFile });
-  const io = prepareNativeGhInspection({ execution, fileLimits }, dependencies), { read } = io;
+  const io = prepareNativeGhInspection({ execution, fileLimits }, dependencies, resources), { read } = io;
+  resources.object({ binaryPath, metadataPath });
   // Existing byte/recipe/origin checks remain mandatory; this cannot issue a production execution proof.
   io.checkBytes(candidate.binary, "native_artifact");
   io.checkBytes(candidate.metadataBytes, "build_metadata");
   const owned = cloneNativeInspectionInputs({ policy, verifier, execution, fileLimits,
-    candidate: { expected: candidate.expected, artifactOrigin: candidate.artifactOrigin } });
-  owned.candidate.binary = Buffer.from(candidate.binary);
-  owned.candidate.metadataBytes = Buffer.from(candidate.metadataBytes);
-  assertNativeCandidateInputs(owned.candidate);
+    candidate: { expected: candidate.expected, artifactOrigin: candidate.artifactOrigin } }, resources);
+  resources.charge(candidate.binary.byteLength + candidate.metadataBytes.byteLength);
+  owned.candidate.binary = resources.copy(candidate.binary);
+  owned.candidate.metadataBytes = resources.copy(candidate.metadataBytes);
+  assertNativeCandidateInputs(owned.candidate, resources);
   const snapshot = { binary: hex(owned.candidate.binary), metadata: hex(owned.candidate.metadataBytes),
     expected: canonicalJson(owned.candidate.expected), origin: canonicalJson(owned.candidate.artifactOrigin),
     policy: canonicalJson(owned.policy), verifier: canonicalJson(owned.verifier) };
+  delete owned.candidate.binary;
+  delete owned.candidate.metadataBytes;
   const context = owned.candidate.expected.context;
   requireRelease(hex(await read(binaryPath, "native_artifact")) === snapshot.binary &&
     hex(await read(metadataPath, "build_metadata")) === snapshot.metadata,
@@ -219,17 +248,18 @@ export async function inspectNativeConsumerProvenance({ candidate, binaryPath, m
     c.runInvocationURI === `https://github.com/${context.repository}/actions/runs/${context.run_id}/attempts/${context.run_attempt}`,
   "native independent certificate/build context");
   const inspection = { expected: owned.policy, verifier: owned.verifier, execution: owned.execution, fileLimits: owned.fileLimits };
-  const binary = await inspectNativeGhArtifact({ ...inspection, artifactPath: binaryPath }, dependencies);
+  const binary = await inspectNativeGhArtifact({ ...inspection, artifactPath: binaryPath }, dependencies, resources);
   requireRelease(binary.subject_sha256 === snapshot.binary, "native consumer attestation subject/candidate mismatch");
-  const metadata = await inspectNativeGhArtifact({ ...inspection, artifactPath: metadataPath, artifactRole: "build_metadata" }, dependencies);
+  const metadata = await inspectNativeGhArtifact({ ...inspection, artifactPath: metadataPath, artifactRole: "build_metadata" }, dependencies, resources);
   requireRelease(metadata.subject_sha256 === snapshot.metadata, "native consumer attestation subject/candidate mismatch");
-  const finalBinary = await read(binaryPath, "native_artifact"), finalMetadata = await read(metadataPath, "build_metadata");
+  const finalBinary = hex(await read(binaryPath, "native_artifact")), finalMetadata = hex(await read(metadataPath, "build_metadata"));
   io.checkBytes(candidate.binary, "native_artifact");
   io.checkBytes(candidate.metadataBytes, "build_metadata");
+  resources.object({ expected: candidate.expected, origin: candidate.artifactOrigin, policy, verifier });
   requireRelease(hex(candidate.binary) === snapshot.binary && hex(candidate.metadataBytes) === snapshot.metadata &&
     canonicalJson(candidate.expected) === snapshot.expected && canonicalJson(candidate.artifactOrigin) === snapshot.origin &&
     canonicalJson(policy) === snapshot.policy && canonicalJson(verifier) === snapshot.verifier &&
-    hex(finalBinary) === snapshot.binary && hex(finalMetadata) === snapshot.metadata,
+    finalBinary === snapshot.binary && finalMetadata === snapshot.metadata,
   "native consumer inputs changed");
   io.assertUnchanged();
   return { binary, metadata, authenticated: false, artifact_origin_authentication: "UNVERIFIED",
