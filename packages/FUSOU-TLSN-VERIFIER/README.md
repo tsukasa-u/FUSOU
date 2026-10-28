@@ -461,7 +461,35 @@ identities. The signed Result remains compatible with the existing APP-side
 signature verification; APP verification is runtime tamper detection, not the
 final independent evidence proof.
 
-Example offline invocation:
+### Native executable identity and distribution boundary
+
+The CLI's evidence-verification contract does not authenticate the executable
+that a caller launches. A package version, a claimed build record, a matching
+digest supplied by that same record, or valid-looking JSON stdout is not
+authenticated native build provenance.
+
+The release path still blocks on
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED`. Its existing byte/argument/
+report validators and process-local mock execution capabilities are not a
+registered native builder, distributor or launcher. The documented invocation
+below is a local usage example, not an approved locked build recipe, target
+triple, toolchain identity, authenticated binary artifact or distribution pin.
+
+Before native acceptance, independently approved expectations must bind the
+executable's exact raw bytes/digest to source repository/SHA, complete build
+inputs and lock bytes, compiler/toolchain, target, recipe/flags, trusted builder
+workflow/revision, run/attempt and authenticated artifact acquisition.
+Execution capture must additionally bind the actual launched executable,
+arguments, input bytes, exit status and raw output to the expected evidence
+context. Format validation, producer authentication and native cryptographic
+verification remain separate results.
+
+The [native provenance stopping boundary](../../docs/architecture/adr-tlsn-grant-authority-delegation.md#2026-10-28-native-executable-provenance-stopping-boundary)
+and [dated audit/validation record](../../docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md)
+record the missing contracts. No new key, attestation trust root, `--version`
+option or native success path is implied.
+
+Example offline invocation (not run by the native identity audit):
 
 ```text
 cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin verify_fusou_tlsn_evidence -- \

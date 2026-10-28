@@ -4899,3 +4899,185 @@ git rev-parse HEAD HEAD^
 git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-archive-rs256-fixture.mjs scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md pnpm-lock.yaml packages/FUSOU-TLSN-VERIFICATION-WORKER/package.json 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' scripts/release-archive-http.test.mjs scripts/release-archive-oidc-claims.test.mjs scripts/tlsn-grant-delegation.draft.json scripts/tlsn-grant-delegation.v1.schema.json .github/workflows/tlsn-grant-delegation.yml
 git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- scripts/release-archive-rs256.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 ```
+
+## 2026-10-28: formal native identity audit blocked on authenticated build/distribution
+
+### Actual start, scope and implementation decision
+
+Branch: `tlsn-first-testplay-candidate`.
+Start HEAD: `225c9c6752b54163407731ef85bdb91caf53b50b`, matching request.
+Initial explicit scope and expanded helper/document scope were clean.
+
+**Required provenance contracts cannot be safely defined from the existing
+sources. Stop the new native implementation as requested, rather than create
+a shape-only authenticated binary/report format or a mock success path.**
+The lower-level CLI/raw-byte/report validators already exist and are reused
+without change. No new schema, validator, native artifact role, launcher,
+trust root, workflow, secret or dependency is added. No test cases are added
+to pretend those missing contracts have been implemented.
+
+Three existing documents change: verifier README (separate CLI usage from
+binary authenticity), delegation ADR (source-backed identity/provenance
+requirements and stopping boundary), and this roadmap (measured results,
+exact commands and remaining work).
+
+### Source audit: eight required links
+
+| Link | Source-observed evidence / limitation |
+| --- | --- |
+| Formal CLI source identity | `packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs`, package `fusou-tlsn-verifier`, auto-discovered binary. `main` emits one JSON object, exit 0 on success and exit 1 with REJECTED JSON on argument/verification errors. No binary/build/producer identity is emitted |
+| Native recipe/target | README has `cargo +1.95.0 run --offline ... --bin verify_fusou_tlsn_evidence`; no `--locked`, release profile or explicit target. It is a usage example, not an authenticated build recipe. Existing release drivers build APP/Worker only; no native builder command was found in the reviewed scripts/workflows |
+| Toolchain/lock/input expectations | Package manifest pins TLSN revision plus local sparse patches. A local v4 Cargo.lock exists but `git ls-files` excludes it and `git check-ignore --no-index` confirms it is ignored. No tracked root/package Cargo target config/toolchain file was listed. The APP preflight's 1.98.1 and README's 1.95.0 must not be silently selected as a native pin |
+| Output raw bytes/digest | Generic native capture compares independent executable/input pins against callback-provided bytes. APP/Worker drivers have real output-read paths, but none is a native build/distribution path; none was executed |
+| Trusted native builder | No approved native workflow/principal/revision/source closure is identified. Existing producer workflow parity is not a native builder registration. Build verification accepts only APP/Worker roles |
+| Builder artifact/run/attempt | Existing GitHub API transport checks unique artifact ID/name, current run/attempt, repository/branch/SHA, ZIP digest/size and metadata freshness. It supports release/archive transports; it does not issue a formal native artifact provenance proof |
+| Actual launched binary | No native launcher is configured. Generic callback-provided before/after buffers and synthetic version do not prove which executable was launched. CLI has no required version observation. No stderr or start/end process capture is defined there |
+| Report/input/raw output correlation | Existing checks validate argv/layout/input/stdout pins, status/exit/trust/derived fields and exact archive/bundle source/capture/session/binding relation. Authentication is a separate private capability or trusted cross-run intake. None proves a formal native build identity or consumer-side crypto rerun |
+
+The full source/requirements mapping and one-time versus derived future
+inputs are in the ADR's dated native provenance stopping section. The
+native minimum is a joint binding of executable raw SHA-256 bytes/length,
+target, source repository/SHA/closure, compiler/toolchain, lock/recipe/flags,
+trusted builder workflow/revision/run/attempt, artifact origin and an
+independent provenance verification basis. No field value is chosen from a
+self-declared build report to authenticate that same report.
+
+The online provenance mode is **GITHUB_API_REACQUISITION**, not a detached
+signature. Its saved-archive implementation explicitly reports offline
+signature verification NOT_IMPLEMENTED and consumer native reexecution
+NOT_CHECKED. Archive supplements cannot replace native/build origin.
+New Artifact Attestations are not adopted by default: native builder,
+repository/service eligibility, verifier and trust-policy integration have
+not been established.
+
+Complete native source-closure verification is not claimed. In particular,
+the library declares a protected module; that file was not read, searched,
+hashed, compared, staged or committed. No recipe collecting that closure
+or build source was executed.
+
+### Key-free regression and unimplemented refusal matrix
+
+Two existing suites and their direct fixture helpers were reviewed before
+execution. Fixtures use in-memory maps, GitHub/storage/process doubles,
+synthetic executable bytes/JSON and mock capture capabilities. The only
+formal CLI source read in those suites is the allowed binary source.
+They do not build, launch a native process, generate keys, sign or contact
+services. No legacy RSA/JWKS key-generating suite is imported.
+
+The selected run is **80 PASS / 0 FAIL / 0 skipped**, exit 0.
+This confirms the existing boundaries, **not native provenance or TLSN
+cryptography**. Synthetic successful native reports/capabilities are
+explicit mocks. All four real checks remain UNVERIFIED.
+
+| Requested refusal boundary | Actual status in this phase |
+| --- | --- |
+| Executable pin missing/empty/changed; declared capture digest/argv/input mutation | Existing key-free cases PASS; callback/byte contract only, not a launched-binary observation |
+| Args/raw input inventory, exit/stdout structured result, derived target, archive bytes/source/session/binding | Existing key-free cases PASS within their present checks; no new formal report fields or real evidence |
+| Unauthenticated native report/capability or self-declared PASS/authenticated marker | Existing tests PASS: intake rejects fake/serialized/mismatched private proofs; producer consumer remains BLOCKED without native evidence |
+| Correct synthetic executable pin without formal builder provenance | Collector still emits `FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED`, no native execution/check. This does not validate a real binary |
+| Native build source/toolchain/target/lock/recipe mismatch | NOT_IMPLEMENTED / NOT_RUN as formal native identity checks. APP/Worker mismatch tests must not be relabeled as native build tests |
+| Native trusted builder/revision/run/attempt/artifact provenance mismatch | NOT_IMPLEMENTED / NOT_RUN as native build authentication. Existing generic GitHub metadata tests/mocks do not establish this contract |
+| Missing/unverified-signature/unknown-issuer native provenance | Native provenance verifier/distribution contract absent: BLOCKED / NOT_RUN, no signed provenance acceptance or rejection manufactured |
+| Actual launched executable, stderr/start/end and execution-producer authentication | NOT_IMPLEMENTED / NOT_RUN for formal native launch |
+| Real build, native/TLSN execution, external artifact/attestation verification | NOT_RUN, prohibited in this phase |
+
+No test failed or was weakened/skipped, and no code fix was made. A guessed
+ADR folder did not exist; its actual `docs/architecture` path was located
+and read. This was a source-location lookup, not a failed test or evidence
+of absent ADR. The discovered ignored native lock corrects any assumption
+that an existing local Cargo.lock is committed release provenance.
+
+### Exact commands and outcomes
+
+Initial branch/HEAD and explicit scope: PASS / exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock Cargo.toml Cargo.lock rust-toolchain.toml scripts/release-worker-build.mjs scripts/release-build.mjs scripts/release-build-proof.mjs scripts/release-checks.mjs scripts/release-execution-intake.mjs scripts/release-execution-origin.mjs scripts/release-archive-provenance.mjs scripts/release-consumer.mjs scripts/release-native-identity.mjs scripts/release-native-identity.test.mjs docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md .github/workflows/tlsn-release-eligibility.yml .github/workflows/tlsn-grant-delegation.yml .githooks/pre-commit scripts/scoped_code_review_graph.py
+```
+
+Tracked root/package manifest, lock, target/toolchain configuration inventory:
+PASS / exit 0; only the verifier Cargo.toml is listed.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git ls-files -- Cargo.toml Cargo.lock rust-toolchain rust-toolchain.toml .cargo/config .cargo/config.toml packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock packages/FUSOU-TLSN-VERIFIER/rust-toolchain packages/FUSOU-TLSN-VERIFIER/rust-toolchain.toml packages/FUSOU-TLSN-VERIFIER/.cargo/config packages/FUSOU-TLSN-VERIFIER/.cargo/config.toml
+```
+
+Target-only ignore metadata: PASS / exit 0; prints the native Cargo.lock.
+This reads ignore metadata, not dependency installation/resolution.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git check-ignore --no-index -- packages/FUSOU-TLSN-VERIFIER/Cargo.lock
+```
+
+Reviewed helper/document scope before execution/edits: PASS / exit 0, clean.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false status --short --untracked-files=all -- 'scripts/release-*.mjs' packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md 'packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-*.mjs' packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-public-configuration.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/wasm-provenance.mjs
+```
+
+Explicit selected key-free suites: PASS 80/0/0 / exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-identity-existing-boundaries.log 2>&1; result=$?; tail -n 34 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-identity-existing-boundaries.log; exit "$result"
+```
+
+Changed-module syntax: NOT_RUN / not applicable, documentation-only change.
+Three-path working/staged whitespace: PASS / exit 0; repeated at commit
+after this result is recorded.
+No comprehensive package/test/build script was used.
+
+### Remaining decision/registration and measurement work
+
+Before code can authenticate a formal native artifact, approve the builder
+principal/workflow immutable implementation and source/input closure;
+native target/compiler/locked recipe/flags; native artifact distribution
+role/member and independent online acquisition/verification expectations;
+and permitted launcher/measurement/producer report contract. A local
+lock must become a reviewed committed native input, not a transient hash.
+No actual repository/owner ID, builder revision, artifact endpoint or
+active pin is fabricated here.
+
+After those contracts exist, separately authorized builds must observe
+real native bytes, toolchain/recipe/lock digests and trusted run/attempt/
+artifact origin; execution must capture real arguments, input bytes,
+stdout/stderr, exit and evidence context. Consumer must independently
+authenticate producer/build/artifact before accepting these measurements,
+and still distinguish an authenticated native report from consumer-side
+cryptographic reexecution. No TPM/process-image authority is a substitute.
+
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` stays **maintained**,
+not renamed to solved. Delegation remains PROPOSED/unapproved, reusable
+workflow fixed-disabled, `DERIVED_NOT_AUTHORIZED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED`, four real checks
+UNVERIFIED, `publication_authorized: false`, deployment NOT_CHECKED and
+Production acceptance BLOCKED. GitHub OIDC positive integration and real
+trust/settings/pins remain unverified.
+
+Three-path whitespace/stage command (repeated as commit gate after its
+observed result is recorded):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@"
+```
+
+Unsigned local-only three-path commit, normal scoped hook retained.
+Actual hook success is observed on execution, not assumed by this record:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@" && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "docs(tlsn): record formal native provenance stopping boundary" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-identity-stopping-commit.log 2>&1; result=$?; tail -n 22 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-identity-stopping-commit.log; exit "$result"
+```
+
+Final branch/HEAD/parent, explicit scope and committed whitespace:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+git branch --show-current
+git rev-parse HEAD HEAD^
+git -c core.fsmonitor=false status --short --untracked-files=all -- packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock 'scripts/release-*.mjs' .github/workflows/tlsn-release-eligibility.yml .github/workflows/tlsn-release-consumer.yml .github/workflows/tlsn-grant-delegation.yml
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+```

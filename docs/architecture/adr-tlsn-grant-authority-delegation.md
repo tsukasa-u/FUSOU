@@ -686,3 +686,100 @@ the reusable workflow fixed-disabled, grant authorization/publication/
 reader unimplemented, and the formal native identity blocker unchanged.
 `DERIVED_NOT_AUTHORIZED`, `publication_authorized: false`, deployment
 **NOT_CHECKED** and Production acceptance **BLOCKED** are preserved.
+
+## 2026-10-28 native executable provenance stopping boundary
+
+Source basis: `tlsn-first-testplay-candidate` at
+`225c9c6752b54163407731ef85bdb91caf53b50b`. This is a source audit and
+stopping decision, **not an approved native identity schema or registration**.
+
+The formal CLI is
+[`verify_fusou_tlsn_evidence.rs`](../../packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs),
+in the `fusou-tlsn-verifier` package. Existing argument handling, successful
+Evidence Bundle JSON and rejected JSON/nonzero exit are implemented.
+The [README invocation](../../packages/FUSOU-TLSN-VERIFIER/README.md)
+uses `cargo +1.95.0 run --offline`; it does not select a target triple,
+use `--locked`, distribute an executable or authenticate a builder.
+The APP preflight workflow's Rust 1.98.1 is not a native verifier pin.
+At this source basis the verifier's local Cargo.lock exists, but is
+untracked and ignored. Its local contents cannot be authenticated by
+the release source SHA. No lock or toolchain change is made here.
+
+### Reusable mechanisms, not a completed native provenance contract
+
+The [existing transport](../../scripts/release-transport.mjs) can authenticate
+release/archive acquisition using online GitHub API reacquisition, fresh run/
+attempt context, unique artifact name/ID, ZIP size/digest and metadata recheck.
+The [execution intake](../../scripts/release-execution-intake.mjs) also checks
+trusted implementation blob parity/main ancestry and exact report/receipt/raw
+input binding. Its proof is process-local, not a detached signed attestation.
+The [build verifier](../../scripts/release-build-proof.mjs) accepts only
+`app` and `worker` artifact roles, not a formal native verifier artifact.
+The [archive supplement](../../scripts/release-archive-provenance.mjs)
+explicitly cannot replace build/native origin.
+
+These are suitable mechanisms to evaluate for a future approved native
+distribution contract; they do not supply its absent builder, recipe,
+artifact role/derivation or independent native expectations. Do not assign
+an arbitrary current workflow SHA as the native builder, turn the README
+command into an approved recipe, reuse an APP/Worker proof for a native
+binary, or treat a correct candidate digest as its own trust pin.
+No new GitHub Artifact Attestations verifier, key, root or signature format
+is introduced; offline signature verification is not implemented by the
+existing online reacquisition mechanism.
+
+### Required identity bindings and unresolved decisions
+
+The following is a requirements checklist, **not an issued record schema**.
+Every row must be independently supported before native acceptance:
+
+| Binding | Current boundary / required resolution |
+| --- | --- |
+| Executable raw bytes, algorithm, digest and length | Existing checks use SHA-256/base64url raw byte pins. The GitHub ZIP digest is separately `sha256:` plus hex. A ZIP digest is not the executable digest; neither authenticates its own issuer |
+| Source repository/SHA and input closure | Formal CLI/package are located, but no approved native source/TCB inventory or builder-source binding exists; protected source is not read to fabricate a complete closure |
+| Target/platform, compiler/toolchain, dependency lock and flags | No formal native expected values/recipe are registered. Commit/review the correct native lock and define reproducible source/toolchain/recipe expectations before build observation |
+| Builder workflow and immutable implementation identity | Approve the native builder principal, workflow path/revision, implementation closure, allowed source and isolation rules; a coordinator or reusable eligibility identity is not automatically a native builder |
+| Builder run/attempt and artifact acquisition | Define native artifact role/name/ID/member and source-to-output/run relation, then extend the existing independent API reacquisition checks under explicit approval |
+| Distribution/provenance verification | Define how consumer-approved expectations authenticate that native artifact and producer. JSON `authenticated: true`, self-declared digests or unverified signatures never substitute |
+| Actual executable at launch | Define a permitted launcher and capture of the actual bytes launched, not merely callback-supplied before/after buffers or version strings |
+| Execution identity and exact output/evidence binding | Bind producer workflow/run/attempt/source, expected binary and arguments, every input byte digest, stdout/stderr, start/end/termination state, exit and parsed JSON to release/capture/session/job/binding/archive context |
+
+One-time decisions/registrations are the approved native builder/distribution/
+launcher contracts and independent policy acquisition/verification rules,
+not per-release human approval or a new secret. Per-build source/input
+digests, compiler observations, output bytes, artifact/run/attempt and
+per-execution evidence/output measurements must then be derived and
+independently checked through those approved rules. No bootstrap values
+or formal wire encodings are invented here.
+
+### Existing report validators and explicit non-implementation
+
+[`release-checks.mjs`](../../scripts/release-checks.mjs) already validates
+independently pinned executable/input bytes, exact formal CLI argv/layout,
+callback-supplied executable-before/after equality, stdout digest, exit/
+structured result/trust/derived identity, archive byte equality and bundle
+source/capture/session/binding correlation. That lower-level contract is
+reused as-is, not duplicated into a new unverifiable record format.
+
+There is no Production native launcher: the generic callback supplies its
+measurements, and its mock-only `executable_version` requirement is not
+an actual observation supported by this CLI. No stderr, process start/end
+or authenticated formal builder/artifact relation is captured by that
+generic contract. The formal JSON itself has no executable, builder,
+session/job or process-identity fields; evidence correlation is separately
+derived from the pinned input bundle, registries and archive.
+
+Accordingly no new native schema/validator, artifact role, capability issuer,
+authenticated launcher or successful consumer connection is added. A
+shape-only schema could not discharge these trust requirements. The
+[collector](../../scripts/release-evidence-producer.mjs) remains unconditionally
+blocked for native production, and the independent consumer still rejects
+missing native evidence and self-asserted success. Existing key-free tests
+exercise only synthetic data/API/process doubles; their successful private
+proofs are not real build provenance or TLSN execution.
+
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` is **maintained**. Existing
+delegation/grant blockers, four real checks **UNVERIFIED**,
+`publication_authorized: false`, deployment **NOT_CHECKED** and Production
+acceptance **BLOCKED** are unchanged. APP process/image authority, TPM,
+measured boot, privileged helpers and browser integrity remain out of scope.
