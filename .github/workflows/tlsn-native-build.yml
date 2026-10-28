@@ -50,6 +50,8 @@ jobs:
     if: ${{ false }}
     needs: preflight
     runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.native-artifact.outputs.artifact-id }}
     steps:
       - name: Validate source locator separately from workflow identity
         env:
@@ -61,6 +63,22 @@ jobs:
           repository: tsukasa-u/FUSOU
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: tsukasa-u/FUSOU
+          ref: ${{ inputs.candidate_implementation_sha }}
+          path: candidate-code
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+      - name: Require approved recipe before installing or executing tools
+        run: |
+          node --input-type=module <<'JS'
+          import { readNativeBuildPreflight } from "./candidate-code/scripts/release-native-build.mjs";
+          const result = await readNativeBuildPreflight();
+          if (!result.build_authorized) throw new Error("NATIVE_BUILD_NOT_AUTHORIZED");
+          JS
       - name: Candidate toolchain and recipe, not approved for execution
         env:
           CARGO_TARGET_DIR: packages/FUSOU-TLSN-VERIFIER/target
@@ -69,17 +87,96 @@ jobs:
           RUSTDOCFLAGS: ""
         run: |
           rustup toolchain install 1.98.1 --profile minimal
+          rustc +1.98.1 -Vv > native-rustc.txt
+          cargo +1.98.1 --version > native-cargo.txt
           cargo +1.98.1 build --locked --release --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin verify_fusou_tlsn_evidence --target x86_64-unknown-linux-gnu
+      - name: Observe raw output and produce unverified candidate metadata
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from "node:child_process";
+          import { mkdir, writeFile } from "node:fs/promises";
+          import { canonicalJson } from "./candidate-code/packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-trust-contract.mjs";
+          import { readRegularFile } from "./candidate-code/scripts/release-files.mjs";
+          import { NATIVE_INPUT_PATHS, NATIVE_WORKFLOW, NATIVE_BINARY, nativeBuildRecipe, createNativeBuildMetadata } from "./candidate-code/scripts/release-native-build.mjs";
+          const policy = JSON.parse((await readRegularFile("candidate-code/scripts/release-native-policy.draft.json")).toString("utf8"));
+          if (policy.recipe_approval !== "APPROVED" || !/^[0-9a-f]{40}$/.test(policy.trusted_workflow_sha ?? "")) throw new Error("NATIVE_BUILD_PINS_UNAPPROVED");
+          const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+          if (sourceSha !== process.env.SOURCE_SHA || sourceSha !== process.env.GITHUB_SHA) throw new Error("NATIVE_SOURCE_CERTIFICATE_CONTEXT_UNRESOLVED");
+          if (policy.repository_id !== process.env.GITHUB_REPOSITORY_ID || policy.repository_owner_id !== process.env.GITHUB_REPOSITORY_OWNER_ID) throw new Error("NATIVE_REPOSITORY_IDENTITY_MISMATCH");
+          const files = new Map(), trackedPaths = [];
+          for (const path of NATIVE_INPUT_PATHS) {
+            const directory = path === NATIVE_WORKFLOW ? "candidate-code" : ".";
+            execFileSync("git", ["-C", directory, "ls-files", "--error-unmatch", "--", path]);
+            files.set(path, await readRegularFile(`${directory}/${path}`));
+            trackedPaths.push(path);
+          }
+          const recipe = nativeBuildRecipe(policy.recipe);
+          const compilerIdentity = canonicalJson({
+            rustc_vv: (await readRegularFile("native-rustc.txt")).toString("utf8"),
+            cargo_version: (await readRegularFile("native-cargo.txt")).toString("utf8")
+          });
+          const binary = await readRegularFile(recipe.output);
+          const metadata = createNativeBuildMetadata({ files, trackedPaths, recipe: policy.recipe, binary, compilerIdentity,
+            context: { repository: process.env.GITHUB_REPOSITORY, repository_id: process.env.GITHUB_REPOSITORY_ID,
+              repository_owner_id: process.env.GITHUB_REPOSITORY_OWNER_ID, source_sha: sourceSha,
+              workflow_path: NATIVE_WORKFLOW, workflow_sha: policy.trusted_workflow_sha,
+              run_id: Number(process.env.GITHUB_RUN_ID), run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT) } });
+          await mkdir("native-output", { recursive: false });
+          await writeFile(`native-output/${NATIVE_BINARY}`, binary, { flag: "wx" });
+          await writeFile("native-output/native-build-metadata.json", canonicalJson(metadata), { flag: "wx" });
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: native-artifact
+        with:
+          name: fusou-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: native-output/
+          if-no-files-found: error
 
   attestation:
     if: ${{ false }}
     needs: candidate-build
     runs-on: ubuntu-24.04
-    # No write/OIDC permissions or action invocation until its API and requirements are verified.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - name: Attestation action contract and independent verifier are unresolved
-        env:
-          CANDIDATE_ACTION: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        run: |
-          echo "NATIVE_ATTEST_ACTION_CONTRACT_NOT_VERIFIED"
-          exit 1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.candidate-build.outputs.artifact_id }}
+          merge-multiple: true
+          path: native-output
+      - name: Check downloaded binary and metadata bytes without executing producer code
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const { open } = require("node:fs/promises");
+            const { constants } = require("node:fs");
+            const { createHash } = require("node:crypto");
+            const read = async (path) => {
+              const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+              try {
+                if (!(await file.stat()).isFile()) throw new Error("native artifact must be a regular file");
+                return await file.readFile();
+              } finally { await file.close(); }
+            };
+            const binary = await read("native-output/verify_fusou_tlsn_evidence");
+            const metadata = JSON.parse((await read("native-output/native-build-metadata.json")).toString("utf8"));
+            if (!binary.length || metadata.authentication !== "UNVERIFIED" ||
+              metadata.artifact?.sha256 !== createHash("sha256").update(binary).digest("hex") ||
+              metadata.artifact?.byte_length !== binary.length) throw new Error("native binary/metadata mismatch");
+      - name: Candidate standard SLSA provenance for binary and separate metadata subject
+        id: native-attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            native-output/verify_fusou_tlsn_evidence
+            native-output/native-build-metadata.json
+          create-storage-record: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fusou-native-attestation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.native-attestation.outputs.bundle-path }}
+          if-no-files-found: error

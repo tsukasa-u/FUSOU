@@ -5396,3 +5396,275 @@ cd /home/ogu-h/Documents/GitHub/FUSOU
 set -- .gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock .github/workflows/tlsn-native-build.yml scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 git branch --show-current && git rev-parse HEAD HEAD^ && git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- "$@" && git ls-files --error-unmatch -- packages/FUSOU-TLSN-VERIFIER/Cargo.lock && sha256sum packages/FUSOU-TLSN-VERIFIER/Cargo.lock
 ```
+
+## 2026-10-28 official gh native provenance adapter and disabled issuance wiring
+
+Start branch `tlsn-first-testplay-candidate`, actual HEAD
+`ab2f35ba4781e8b544165ead911f927b3de9ee30`; explicit scope clean on both
+initial inspection and the clarified attachment. No protected file was read,
+searched, compared, hashed, modified, staged or committed. No broad repository
+search/status/diff or unreviewed package/build script was used.
+
+### Official contract and source implementation
+
+Read-only public source retrieval was explicitly permitted. No GitHub REST,
+attestation API, R2 or other operational service was contacted. The following
+official URLs were fetched with `web_fetch`, not gh/API execution:
+
+- CLI command (read in two bounded pages):
+  `https://raw.githubusercontent.com/cli/cli/94c5a6fa2781cb8d6391e032c1943aa98c5d64f7/pkg/cmd/attestation/verify/verify.go`
+- CLI output struct:
+  `https://raw.githubusercontent.com/cli/cli/94c5a6fa2781cb8d6391e032c1943aa98c5d64f7/pkg/cmd/attestation/verification/sigstore.go`
+- CLI version routing/format:
+  `https://raw.githubusercontent.com/cli/cli/94c5a6fa2781cb8d6391e032c1943aa98c5d64f7/pkg/cmd/root/root.go`
+  and `https://raw.githubusercontent.com/cli/cli/94c5a6fa2781cb8d6391e032c1943aa98c5d64f7/pkg/cmd/version/version.go`
+- Sigstore result and certificate extensions:
+  `https://raw.githubusercontent.com/sigstore/sigstore-go/ba85fa81ff9e14614e10d99eae43e8e59fc46531/pkg/verify/signed_entity.go`
+  and `https://raw.githubusercontent.com/sigstore/sigstore-go/ba85fa81ff9e14614e10d99eae43e8e59fc46531/pkg/fulcio/certificate/extensions.go`
+- Fixed action:
+  `https://raw.githubusercontent.com/actions/attest/1e69f48acb82d1966a394da916b4c1698aa569d6/action.yml`
+  and `https://raw.githubusercontent.com/actions/attest/1e69f48acb82d1966a394da916b4c1698aa569d6/README.md`
+- Additional immutable candidate download action definition:
+  `https://raw.githubusercontent.com/actions/download-artifact/d3f86a106a0bac45b974a628896c90dbdf5c8093/action.yml`
+- Source-ref advisory:
+  `https://github.com/cli/cli/security/advisories/GHSA-4mq3-hpgx-9cx8`
+
+These reads succeeded. One bounded lookup for
+`https://raw.githubusercontent.com/sigstore/sigstore-go/ba85fa81ff9e14614e10d99eae43e8e59fc46531/pkg/fulcio/certificate/certificate.go`
+returned **404**; the supplied Summary contract and retrieved extension/result
+definitions were sufficient, so no alternate schema was invented.
+
+`release-native-attestation.mjs` now implements shell-free argv and a separate
+stdout/stderr process boundary with timeout/output bounds, pinned
+consumer-selected gh bytes, before/after artifact/executable hashing and
+sanitized failure blockers. There is no producer-stdout input or offline
+bundle fallback. Stable gh 2.x >= 2.102.0 is required; unknown/prerelease/future
+major versions fail closed. Ref comparison is case-sensitive even after CLI
+success. Captures record version, argv and raw-output digests, never tokens,
+credential-bearing stderr or thrown process text.
+
+The parser consumes the official array/result/media type, in-toto statement,
+SHA-256 subjects, exact SLSA predicate, mandatory certificate identity/IDs/
+digests/source/run fields and verified timestamp authorities/window. It
+reuses the existing duplicate-key scanner via a named export (no change to
+that scanner's implementation or its Result consumer). Unknown schemas,
+empty results, malformed dates and duplicate/ambiguous results are blocked.
+This candidate deliberately requires one result per lookup; it does not
+silently pick the first of multiple attestations. `certificateIssuer` is
+not the OIDC `issuer`. Opaque bundle/optional verifiedIdentity/predicate
+contents are never an independent identity root.
+
+`release-native-build.mjs` retains byte/recipe/compiler/origin validation and
+adds `inspectNativeConsumerProvenance`, exported by `release-consumer.mjs`.
+It correlates independent certificate source/signer/repository/run context,
+captures verification for binary and metadata, and rechecks file/input
+snapshots. Existing checks/execution intake, execution capabilities,
+app/worker transport roles and native collector refusal are unchanged.
+Parser success, mock process success and unregistered process captures all
+remain `authenticated: false`; no offline execution proof is issued.
+The draft policy remains byte-for-byte unchanged and unapproved.
+
+The disabled workflow connects future tool observations/output hashing,
+existing metadata v1 generation, immutable artifact packaging/download,
+data-only readback, standard two-subject SLSA issuance and bundle packaging.
+Actual rustc/Cargo observations are encoded together as canonical JSON in
+the existing opaque `compiler_identity` string; no observation was fabricated
+or executed here. A metadata workflow revision is a policy expectation,
+not observed signer identity; later certificate matching is mandatory.
+Source/GITHUB_SHA mismatch stops metadata generation.
+
+All three literal false gates and the unconditional preflight refusal are
+preserved. Only the signing job declares contents read/OIDC write/attestations
+write. `create-storage-record: false` avoids artifact-metadata write.
+Standard SLSA uses `subject-path` for binary and metadata with no custom
+predicate inputs. New download pin is an inspected **UNAPPROVED candidate**;
+existing other pins are reused. It is not independent consumer acquisition
+authentication. Recipe Rust 1.98.1/Linux target/flags remain UNAPPROVED, not
+"latest"; the reported Rust 1.99.1 release is not compatibility evidence
+or authorization to update that pin.
+
+### Exact commands and observed results
+
+Initial branch/HEAD and explicit scope: **PASS**, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json scripts/release-native-attestation.mjs scripts/release-native-attestation.test.mjs scripts/release-native-metadata.mjs scripts/release-native-metadata.test.mjs scripts/release-checks.mjs scripts/release-consumer.mjs scripts/release-execution-intake.mjs .github/workflows/tlsn-native-build.yml packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md .githooks/pre-commit scripts/scoped_code_review_graph.py
+```
+
+Reconfirmed state and conditional permitted gh inspection: **PASS**, exit 0,
+`GH_NOT_INSTALLED`. Both gh version/help were **NOT_RUN** because it was
+absent. No install or real verification was attempted.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json scripts/release-native-attestation.mjs scripts/release-native-attestation.test.mjs .github/workflows/tlsn-native-build.yml packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md && if command -v gh; then gh --version && gh attestation verify --help; else printf 'GH_NOT_INSTALLED; no installation or artifact verification\n'; fi
+```
+
+Initial seven-module syntax plus selected contracts: **PASS**, 193/193,
+fail/skip/cancel 0, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation-fixture.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.test.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.test.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-consumer.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-native-attestation.test.mjs scripts/release-native-build.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-adapter-tests.log 2>&1; result=$?; tail -n 35 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-adapter-tests.log; exit "$result"
+```
+
+Additional boundary regressions: **FAIL**, 0 PASS / 2 FAIL, exit 1, no skips.
+They exposed single-line-only version parsing (official stable output also
+contains the matching release URL) and `Date.parse` normalizing February 30.
+Fixed by accepting only a matching optional release URL and explicitly
+validating RFC3339 calendar/time fields before timestamp range checks.
+Assertions were retained, not weakened or skipped.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test --test-name-pattern='official-style gh version|timestamp calendar' scripts/release-native-attestation.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-boundary-regressions-red.log 2>&1; result=$?; tail -n 55 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-boundary-regressions-red.log; exit "$result"
+```
+
+Post-fix syntax/contracts: **PASS**, 195/195, fail/skip/cancel 0, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.test.mjs && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-native-attestation.test.mjs scripts/release-native-build.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-adapter-final-tests.log 2>&1; result=$?; tail -n 25 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-adapter-final-tests.log; exit "$result"
+```
+
+Full YAML parse and syntax-only embedded scripts: **PASS**, exit 0.
+Checks 5 shell blocks, 4 embedded Node bodies, 2 github-script bodies,
+all fixed gates/pins and exact permission/subject scope. `bash -n`,
+`node --check` and VM compilation do not execute script bodies. Local YAML
+parser was already installed; no dependencies were installed.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { Script } from 'node:vm';
+const require = createRequire(import.meta.url);
+const yaml = require('./node_modules/.pnpm/yaml@2.8.3/node_modules/yaml');
+const parsed = yaml.parseDocument(readFileSync('.github/workflows/tlsn-native-build.yml', 'utf8'), { uniqueKeys: true });
+assert.deepEqual(parsed.errors, []);
+const workflow = parsed.toJS();
+assert.deepEqual(Object.keys(workflow.on), ['workflow_call']);
+assert.deepEqual(workflow.permissions, { contents: 'read' });
+assert.deepEqual(Object.keys(workflow.jobs), ['preflight', 'candidate-build', 'attestation']);
+let shellBlocks = 0, nodeBlocks = 0, githubBlocks = 0;
+for (const [name, job] of Object.entries(workflow.jobs)) {
+  assert.equal(job.if, '${{ false }}');
+  assert.deepEqual(job.permissions, name === 'attestation' ? { contents: 'read', 'id-token': 'write', attestations: 'write' } : undefined);
+  for (const step of job.steps) {
+    if (step.uses) assert.match(step.uses, /^actions\/[a-z-]+@[0-9a-f]{40}$/);
+    if (step.run) {
+      const shell = spawnSync('/bin/bash', ['--noprofile', '--norc', '-n'], { input: step.run, encoding: 'utf8', env: { PATH: process.env.PATH } });
+      assert.equal(shell.status, 0, shell.stderr); shellBlocks++;
+      const bodies = [...step.run.matchAll(/node --input-type=module <<'JS'\n([\s\S]*?)\nJS/g)].map((match) => match[1]);
+      bodies.push(...[...step.run.matchAll(/node --input-type=module -e '([^']*)'/g)].map((match) => match[1]));
+      for (const body of bodies) {
+        const syntax = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: body, encoding: 'utf8', env: { PATH: process.env.PATH } });
+        assert.equal(syntax.status, 0, syntax.stderr); nodeBlocks++;
+      }
+    }
+    if (step.with?.script) { new Script('(async () => {\n' + step.with.script + '\n})'); githubBlocks++; }
+    if (step.uses?.startsWith('actions/attest@')) {
+      assert.equal(step.uses, 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6');
+      assert.equal(step.with['predicate-type'], undefined); assert.equal(step.with['predicate-path'], undefined);
+      assert.equal(step.with['create-storage-record'], false);
+      assert.deepEqual(step.with['subject-path'].trim().split('\n'), ['native-output/verify_fusou_tlsn_evidence', 'native-output/native-build-metadata.json']);
+    }
+  }
+}
+assert.equal(shellBlocks, 5); assert.equal(nodeBlocks, 4); assert.equal(githubBlocks, 2);
+assert(workflow.jobs.preflight.steps.at(-1).run.includes('process.exitCode = 1'));
+assert(workflow.jobs['candidate-build'].steps.some((step) => step.run?.includes('if (!result.build_authorized)')));
+console.log(`PASS: fixed gates, scoped permissions, immutable pins, standard SLSA subjects; syntax-only ${shellBlocks} shell / ${nodeBlocks} Node / ${githubBlocks} github-script blocks. No scripts executed.`);
+JS
+```
+
+After adding further missing-pin/capture/mandatory-timestamp cases and
+reviewing existing consumer fixtures as synthetic/API/process doubles,
+final selected syntax/tests: **PASS**, 211/211, fail/skip/cancel 0, exit 0.
+Fixtures are schema examples, not real gh output/signed bundles.
+Crypto generate/sign and external fetch tripwires remain intact.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.test.mjs && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-native-attestation.test.mjs scripts/release-native-build.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs scripts/release-consumer.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-consumer-final-tests.log 2>&1; result=$?; tail -n 25 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-consumer-final-tests.log; exit "$result"
+```
+
+Final version blocker classification was tightened to distinguish unparseable/
+missing versions (`NATIVE_GH_VERSION_UNKNOWN`) from recognized unsupported
+versions (`NATIVE_GH_VERSION_UNSUPPORTED`), with exact code assertions.
+Repeated syntax plus the complete selected suite: **PASS**, 211/211,
+fail/skip/cancel 0, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-attestation.test.mjs && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-native-attestation.test.mjs scripts/release-native-build.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs scripts/release-consumer.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-consumer-final-tests.log 2>&1; result=$?; tail -n 25 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-consumer-final-tests.log; exit "$result"
+```
+
+Unchanged draft/native manifest/lock and actual preflight: **PASS**, exit 0.
+The observed refusal is `BLOCKED_IMPLEMENTATION`; source adapter/wiring
+readiness is diagnostic, not native build or provenance authorization.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --exit-code HEAD -- scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { readNativeBuildPreflight, NATIVE_BLOCKER } from './scripts/release-native-build.mjs';
+const result = await readNativeBuildPreflight();
+assert.equal(result.source_contract, 'SOURCE_CONTRACT_READY');
+assert.equal(result.gh_verifier_adapter, 'SOURCE_IMPLEMENTED_NOT_RUN');
+assert.equal(result.attestation_source_wiring, 'CANDIDATE_CONNECTED_UNAPPROVED');
+assert.equal(result.build_authorized, false); assert.equal(result.authenticated, false);
+assert.equal(result.cargo_locked_consistency, 'NOT_CHECKED');
+assert.equal(result.offline_verification, NATIVE_BLOCKER);
+assert.equal(result.publication_authorized, false);
+assert.equal(result.deployment, 'NOT_CHECKED'); assert.equal(result.production_acceptance, 'BLOCKED');
+console.log(JSON.stringify({ status: result.status, source: result.source_contract, adapter: result.gh_verifier_adapter, blockers: result.blockers }, null, 2));
+JS
+```
+
+### Non-executed work, state and local persistence
+
+**NOT_RUN**: Cargo/Rust/WASM/APP/Worker/native build or execution; real
+`gh attestation verify` (online or offline); workflow execution; attestation
+issuance; operational API calls; signing/key generation; deploy/publish.
+No push, PR or tag was created. Hudsucker defaults/dependencies were unchanged.
+Lock consistency/complete source closure, trusted builder/immutable revision,
+repository/owner/bootstrap policy, executable verifier distribution/registration,
+native acquisition proof and formal launcher/report authentication remain
+unresolved. Source implementation does not discharge these conditions.
+
+Delegation remains PROPOSED/unapproved, reusable workflow fixed-disabled,
+`DERIVED_NOT_AUTHORIZED`, both archive-grant registration blockers and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` maintained. Four real checks
+remain UNVERIFIED, `publication_authorized: false`, deployment NOT_CHECKED,
+Production acceptance BLOCKED.
+
+Eleven-path working/staged whitespace: **PASS**, exit 0. Repeat as the commit
+gate after recording the observed result.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-attestation.mjs scripts/release-native-attestation-fixture.mjs scripts/release-native-attestation.test.mjs scripts/release-consumer.mjs .github/workflows/tlsn-native-build.yml packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@"
+```
+
+Cleanup only the three tool-generated public-source temporary captures:
+**PASS**, exit 0.
+
+```sh
+rm -- /tmp/1793190698005-copilot-tool-output-0c5d9f33ba754f37b3c1a5bad4c43d11.txt /tmp/1793190698027-copilot-tool-output-392dcbbca41243eab19af289783c1a72.txt /tmp/1793190719107-copilot-tool-output-e2874c4e3c4441999ff61e4208110f7e.txt
+```
+
+Unsigned local-only commit through the unchanged normal scoped hook.
+Outcome is observed on execution, not assumed in this pre-commit record:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-attestation.mjs scripts/release-native-attestation-fixture.mjs scripts/release-native-attestation.test.mjs scripts/release-consumer.mjs .github/workflows/tlsn-native-build.yml packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+test "$(git branch --show-current)" = tlsn-first-testplay-candidate && test "$(git rev-parse HEAD)" = ab2f35ba4781e8b544165ead911f927b3de9ee30 && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@" && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "feat(tlsn): wire blocked native attestation and official gh adapter" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-adapter-commit.log 2>&1; result=$?; tail -n 28 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-gh-adapter-commit.log; exit "$result"
+```
+
+Final branch/HEAD/parent, eleven-path scope/committed whitespace and unchanged
+draft/native inputs are observed after commit (the commit's own SHA cannot
+be embedded in itself):
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-attestation.mjs scripts/release-native-attestation-fixture.mjs scripts/release-native-attestation.test.mjs scripts/release-consumer.mjs .github/workflows/tlsn-native-build.yml packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git branch --show-current && git rev-parse HEAD HEAD^ && git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --exit-code HEAD^ HEAD -- scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock
+```

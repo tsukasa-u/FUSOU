@@ -7,6 +7,7 @@ import { checkContext, hasArchiveGrantProvider, parsePinnedCheckInputs, verifyRe
 import { authenticateArchiveSupplement } from "./release-archive-provenance.mjs";
 import { createCrossRunExecutionIntake } from "./release-execution-intake.mjs";
 import { EVIDENCE_PRODUCTION_SCOPE, EVIDENCE_IMPLEMENTATION_BLOCKERS } from "./release-evidence-producer.mjs";
+export { inspectNativeConsumerProvenance } from "./release-native-build.mjs";
 
 const repository = { owner: "tsukasa-u", repo: "FUSOU" };
 const checks = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];

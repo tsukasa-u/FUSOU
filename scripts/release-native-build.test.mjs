@@ -7,6 +7,8 @@ import { canonicalJson } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/script
 import { sha256 } from "./release-bytes.mjs";
 import { collectReleaseEvidence } from "./release-evidence-producer.mjs";
 import { checkFixture } from "./release-check-fixture.mjs";
+import { nativeGhFixture, nativeFixtureHex } from "./release-native-attestation-fixture.mjs";
+import { inspectNativeConsumerProvenance } from "./release-consumer.mjs";
 import {
   NATIVE_ROOT, NATIVE_BINARY, NATIVE_INPUT_PATHS, NATIVE_WORKFLOW, NATIVE_POLICY,
   NATIVE_ATTEST_ACTION, NATIVE_BLOCKER, nativeBuildRecipe, inspectNativeBuildInputs,
@@ -180,12 +182,36 @@ test("candidate metadata/mock results cannot promote the existing offline check"
   assert.equal(result.report.publication_authorized, false);
   assert.equal(result.report.production_acceptance, "BLOCKED");
 });
-test("workflow is fixed-disabled, read-only and uses immutable existing action pins", async () => {
+test("independent consumer candidate checks both files, never issues an offline proof", async () => {
+  const t = await fixture(), gh = nativeGhFixture(t.request.binary), metadataPath = "/mock/metadata";
+  gh.files.set(metadataPath, t.request.metadataBytes);
+  const runner = gh.options.mockRunner;
+  gh.options.mockRunner = async (...args) => {
+    const capture = await runner(...args);
+    if (args[1][0] !== "--version") {
+      const entry = structuredClone(gh.entry);
+      entry.verificationResult.statement.subject[0].digest.sha256 = nativeFixtureHex(gh.files.get(args[1][2]));
+      capture.stdout = Buffer.from(JSON.stringify([entry]));
+    }
+    return capture;
+  };
+  const request = { candidate: t.request, binaryPath: gh.artifactPath, metadataPath,
+    policy: gh.expected, verifier: gh.verifier };
+  const result = await inspectNativeConsumerProvenance(request, gh.options);
+  assert.equal(result.authenticated, false); assert.equal(result.offline_verification, NATIVE_BLOCKER);
+  assert.equal(result.binary.verification_mode, "MOCK_PROCESS"); assert.equal(result.metadata.authenticated, false);
+  gh.files.set(metadataPath, Buffer.from("substituted"));
+  await assert.rejects(inspectNativeConsumerProvenance(request, gh.options), /file\/metadata bytes/);
+});
+test("workflow is fixed-disabled, write permissions job-scoped and action pins immutable", async () => {
   const workflow = await readFile(new URL(`../${NATIVE_WORKFLOW}`, import.meta.url), "utf8");
   assert.equal(workflow.match(/if: \$\{\{ false \}\}/g)?.length, 3);
   assert.match(workflow, /candidate_implementation_sha:/); assert.match(workflow, /source_sha:/);
   assert.match(workflow, /cargo \+1\.98\.1 build --locked --release/);
   assert(workflow.includes(NATIVE_ATTEST_ACTION));
-  assert.doesNotMatch(workflow, /id-token: write|attestations: write|pull_request_target|workflow_dispatch/);
+  assert.doesNotMatch(workflow, /pull_request_target|workflow_dispatch|predicate-type:|predicate-path:|artifact-metadata: write/);
+  assert.equal(workflow.match(/id-token: write/g)?.length, 1);
+  assert.equal(workflow.match(/attestations: write/g)?.length, 1);
+  assert.match(workflow, /create-storage-record: false/);
   for (const match of workflow.matchAll(/uses: ([^\s]+)/g)) assert.match(match[1], /@[0-9a-f]{40}$/);
 });

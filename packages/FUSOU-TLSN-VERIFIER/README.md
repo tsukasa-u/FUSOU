@@ -499,19 +499,43 @@ Tracking the lock does not prove manifest consistency: Cargo resolution and
 `cargo build --locked` were not run. The four-file source-shape check is not a
 complete dependency/source closure.
 
-The [builder candidate](../../.github/workflows/tlsn-native-build.yml) has all
-three jobs fixed-disabled and read-only permissions. Its
+The [builder candidate](../../.github/workflows/tlsn-native-build.yml) keeps all
+three jobs fixed-disabled. Only the attestation job declares OIDC/attestation
+write permissions; other jobs inherit read-only contents access. Its
 [draft policy](../../scripts/release-native-policy.draft.json) does not register
 repository IDs, an approved signer revision or a provenance verifier.
-`actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` is only a candidate
-reference: its local API/permission contract and repository eligibility have
-not been established, so no attestation action or write/OIDC permissions were
-added. Metadata production/upload/attestation is not wired into the workflow.
-There is no real `gh attestation verify` adapter, native artifact acquisition
-role or launcher. The mock-only normalized provenance interface checks two
-subjects (binary and metadata) and candidate origin/run context but always
-returns unauthenticated, blocked results. It neither parses real GitHub
-attestations nor promotes `offline_verification` or Production acceptance.
+The fixed `actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` source
+now supplies a standard SLSA candidate step, with binary and metadata as
+separate subjects and no custom predicate inputs. `create-storage-record`
+is false, so no artifact-metadata write permission is requested. The source
+captures future `rustc -Vv`/Cargo output in the existing opaque
+`compiler_identity` string as canonical JSON, hashes actual output bytes,
+packages metadata and transfers the exact same-run artifact ID to a separate
+signing job. That job reads data only, not producer executables/scripts.
+The input/recipe guard still refuses before any tool installation/build.
+The metadata's workflow revision is an unverified policy expectation until
+independently matched to the actual attestation certificate, not an observed
+signer identity inferred from a caller or checkout.
+
+The [official-schema gh adapter](../../scripts/release-native-attestation.mjs)
+constructs argv with independent repository/signer/source pins, hashes the
+consumer-selected gh executable and artifact before/after capture, and
+requires stable gh 2.x >= 2.102.0. It accepts a matching optional release URL
+in version output and compares source refs case-sensitively. It parses stdout
+only, reuses the existing duplicate-key guard, checks the Sigstore media type,
+subject SHA-256, predicate type, mandatory certificate identity/IDs/digests and
+timestamp authority/window. This candidate conservatively rejects empty or
+multiple results rather than choosing an ambiguous entry. Producer-controlled
+predicate metadata is never an identity root.
+
+The independent consumer exports `inspectNativeConsumerProvenance` for both
+binary and metadata comparisons. There is still no registered native artifact
+acquisition proof, authorized gh provider or formal native launcher. Pure
+parser results, mock captures and even an unregistered real-process capture
+remain `authenticated: false`; they cannot create an offline execution proof.
+The synthetic fixtures are not real gh output or signed attestations.
+Actual gh verification, build, attestation issuance and native execution were
+not run. No Production acceptance state is advanced.
 
 Example offline invocation (not run by the native identity audit):
 

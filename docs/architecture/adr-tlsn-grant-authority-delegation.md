@@ -870,3 +870,94 @@ checks **UNVERIFIED**, `publication_authorized: false`, deployment
 **NOT_CHECKED**, Production acceptance **BLOCKED**. No keys, new trust root,
 issuer, grant, `--version`, APP process/image authority or browser integrity
 guarantee is introduced.
+
+## 2026-10-28 official gh native provenance adapter (source only)
+
+Source basis: `ab2f35ba4781e8b544165ead911f927b3de9ee30`. This supersedes
+the preceding source-availability findings only; the draft approval and
+all native/grant/Production authority blockers remain unchanged.
+
+Official JSON contracts are grounded in CLI commit
+`94c5a6fa2781cb8d6391e032c1943aa98c5d64f7`
+([command](https://github.com/cli/cli/blob/94c5a6fa2781cb8d6391e032c1943aa98c5d64f7/pkg/cmd/attestation/verify/verify.go),
+[result](https://github.com/cli/cli/blob/94c5a6fa2781cb8d6391e032c1943aa98c5d64f7/pkg/cmd/attestation/verification/sigstore.go))
+and Sigstore commit `ba85fa81ff9e14614e10d99eae43e8e59fc46531`
+([result schema](https://github.com/sigstore/sigstore-go/blob/ba85fa81ff9e14614e10d99eae43e8e59fc46531/pkg/verify/signed_entity.go),
+[extensions](https://github.com/sigstore/sigstore-go/blob/ba85fa81ff9e14614e10d99eae43e8e59fc46531/pkg/fulcio/certificate/extensions.go)).
+Public source reads were permitted; no GitHub/attestation API was called.
+
+The [adapter](../../scripts/release-native-attestation.mjs) accepts the
+documented array of `attestation`/`verificationResult`, not invented
+`verified`/`signatureVerified` flags. It uses the official media type and
+requires an in-toto v1 statement, raw artifact SHA-256 subject, independent
+SLSA predicate expectation, certificate and nonempty verified timestamps.
+Certificate SAN, OIDC issuer, reusable signer URI/digest, separate build
+config URI/digest, repository/owner URI/approved numeric IDs, source SHA/ref,
+runner and run/attempt URI must match independent policy exactly.
+`certificateIssuer` is an optional X.509 display value, not the OIDC issuer.
+Optional `verifiedIdentity`/attestation bundle contents are not substituted
+for these certificate checks. Unknown result fields/media types are rejected.
+Multiple returned entries are conservatively blocked as ambiguous in this
+candidate; it never silently chooses the first. Timestamps require exact
+policy authorities, valid RFC3339 calendar dates and an independent time
+window. The existing Result duplicate-key scanner is exported unchanged and
+reused so pretty-printed JSON is allowed without accepting duplicate keys.
+
+The consumer process boundary builds shell-free argv from independent policy,
+not producer stdout or a bundle path. It captures stdout/stderr separately,
+uses a bounded timeout/output size, blocks missing/unknown/unsupported gh,
+nonzero/signal/failed/timeout execution and malformed/missing JSON, and
+records only output digests rather than secret-bearing process text.
+The consumer must select a trusted absolute gh path/raw-byte pin; an artifact
+cannot supply the verifier. Both executable/artifact bytes are rechecked
+after capture. A path/hash check alone is not a registered verifier delivery
+or process-integrity contract. All capture results remain unauthenticated
+until that separate authority boundary is implemented.
+
+Following
+[GHSA-4mq3-hpgx-9cx8](https://github.com/cli/cli/security/advisories/GHSA-4mq3-hpgx-9cx8),
+stable gh 2.x >= 2.102.0 is required and source refs use case-sensitive exact
+comparison independently of CLI exit success. Unknown future major/prerelease
+versions require contract review; no version or offline-bundle fallback is
+guessed. Official version formatting includes an optional matching release
+URL; it is not incorrectly constrained to one output line.
+
+The [consumer](../../scripts/release-consumer.mjs) now exports the native
+candidate inspector from the existing build module. That inspector retains
+byte/metadata/recipe/compiler/origin checks, requires certificate source/
+signer/repository/run correspondence, independently captures verification
+for binary and metadata, and rechecks input snapshots. It does not mint a
+local or cross-run execution capability. Existing checks, execution intake,
+app/worker transport roles and unconditional native collector blocker remain.
+
+The fixed [action](https://github.com/actions/attest/tree/1e69f48acb82d1966a394da916b4c1698aa569d6)
+documents standard SLSA generation without custom predicate inputs. The
+disabled workflow now connects future tool observations, the existing v1
+metadata (raw rustc/Cargo observations encoded in `compiler_identity`),
+binary/metadata packaging, same-run artifact-ID download, data-only
+readback, standard two-subject attestation and bundle packaging. Download
+action `d3f86a106a0bac45b974a628896c90dbdf5c8093` is an additionally inspected,
+immutable **UNAPPROVED candidate**; existing upload/checkout/Node/script pins
+are reused. Only the signing job has `contents: read`, `id-token: write`,
+`attestations: write`; storage records are disabled, with no artifact-metadata
+write, Production publish or deploy permission.
+
+All three literal false gates and the unconditional preflight refusal
+remain. Source/certificate SHA disagreement stops metadata emission rather
+than treating a checkout as certificate identity. The workflow revision in
+metadata remains a declared policy expectation pending certificate matching.
+Rust 1.98.1/Linux target/flags remain UNAPPROVED, not described as latest;
+the reported newer Rust release does not justify an untested pin update.
+
+Key-free fixtures model the official schema only; they are not actual gh
+output, real signed bundles or successful TLSN verification. Pure parsing,
+mock process success and unregistered process captures always return
+`authenticated: false`; native cryptographic verification stays UNVERIFIED.
+No actual build, gh artifact verification, attestation issuance/API,
+native execution or Production operation occurred. Lock consistency, complete
+input closure, registered repository/builder/verifier/acquisition policy and
+formal launcher/report authentication remain unresolved.
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED`, delegation PROPOSED,
+fixed-disabled reusable workflow, existing grant blockers, four real checks
+UNVERIFIED, `publication_authorized: false`, deployment NOT_CHECKED and
+Production acceptance BLOCKED are maintained.

@@ -615,7 +615,7 @@ export function assertProductionPresentationCaptureMetadata(metadata, presentati
   return metadata;
 }
 
-function assertUniqueResultJsonKeys(text) {
+export function assertUniqueResultJsonKeys(text) {
   // JSON.parse has already validated syntax; scan only strings and container boundaries.
   const scopes = [];
   for (const match of text.matchAll(/"(?:[^"\\]|\\[\s\S])*"|[{}\[\]]/g)) {

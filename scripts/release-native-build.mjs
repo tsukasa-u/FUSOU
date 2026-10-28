@@ -104,6 +104,7 @@ export function nativeBuildPreflight({ files, trackedPaths, policy }) {
   blockers.push("NATIVE_ATTESTATION_VERIFIER_NOT_REGISTERED", "NATIVE_ARTIFACT_ACQUISITION_NOT_REGISTERED",
     "NATIVE_LAUNCHER_NOT_IMPLEMENTED", NATIVE_BLOCKER);
   return { schema_version: 1, scope: "fusou-native-build-preflight-v1", status: "BLOCKED_IMPLEMENTATION",
+    gh_verifier_adapter: "SOURCE_IMPLEMENTED_NOT_RUN", attestation_source_wiring: "CANDIDATE_CONNECTED_UNAPPROVED",
     source_contract: source.errors.length ? "BLOCKED_IMPLEMENTATION" : "SOURCE_CONTRACT_READY",
     ...source, recipe, blockers: [...new Set(blockers)], build_authorized: false, authenticated: false,
     offline_verification: NATIVE_BLOCKER, publication_authorized: false,
@@ -155,7 +156,7 @@ function assertNativeExpectations(expected) {
   nativeBuildRecipe(expected.recipe);
 }
 
-export async function inspectNativeArtifactCandidate({ binary, metadataBytes, expected, provenance, artifactOrigin }, { mockVerifier } = {}) {
+function assertNativeCandidateInputs({ binary, metadataBytes, expected, artifactOrigin }) {
   assertNativeExpectations(expected);
   requireRelease(isDeepStrictEqual(artifactOrigin, expected.artifact_origin), "native candidate artifact origin mismatch");
   requireRelease(bytes(binary), "native raw executable required");
@@ -169,6 +170,10 @@ export async function inspectNativeArtifactCandidate({ binary, metadataBytes, ex
     metadata.compiler_identity === expected.compiler_identity &&
     isDeepStrictEqual(metadata.artifact, { path: recipe.output, sha256: hex(binary), byte_length: binary.byteLength }),
   "native candidate binary/metadata/independent identity mismatch");
+}
+
+export async function inspectNativeArtifactCandidate({ binary, metadataBytes, expected, provenance, artifactOrigin }, { mockVerifier } = {}) {
+  assertNativeCandidateInputs({ binary, metadataBytes, expected, artifactOrigin });
   if (!bytes(provenance)) throw new ReleaseBlocked("NATIVE_ATTESTATION_MISSING", "BLOCKED_IMPLEMENTATION");
   if (typeof mockVerifier !== "function") throw new ReleaseBlocked("NATIVE_ATTESTATION_VERIFIER_NOT_REGISTERED", "BLOCKED_IMPLEMENTATION");
   const snapshot = { binary: hex(binary), metadata: hex(metadataBytes), provenance: hex(provenance),
@@ -186,4 +191,30 @@ export async function inspectNativeArtifactCandidate({ binary, metadataBytes, ex
     artifact_origin_authentication: "UNVERIFIED",
     native_cryptographic_verification: "UNVERIFIED", blocker: NATIVE_BLOCKER,
     publication_authorized: false, deployment: "NOT_CHECKED", production_acceptance: "BLOCKED" };
+}
+
+export async function inspectNativeConsumerProvenance({ candidate, binaryPath, metadataPath, policy, verifier }, options = {}) {
+  const { inspectNativeGhArtifact } = await import("./release-native-attestation.mjs");
+  // Existing byte/recipe/origin checks remain mandatory; this cannot issue a production execution proof.
+  assertNativeCandidateInputs(candidate);
+  const read = options.mockReadFile ?? readRegularFile;
+  const snapshot = { binary: hex(candidate.binary), metadata: hex(candidate.metadataBytes),
+    expected: canonicalJson(candidate.expected), origin: canonicalJson(candidate.artifactOrigin) };
+  const context = structuredClone(candidate.expected.context);
+  requireRelease(hex(await read(binaryPath)) === snapshot.binary && hex(await read(metadataPath)) === snapshot.metadata,
+    "native consumer artifact file/metadata bytes");
+  const c = policy?.certificate;
+  requireRelease(c?.buildSignerDigest === context.workflow_sha && c.sourceRepositoryDigest === context.source_sha &&
+    c.sourceRepositoryIdentifier === context.repository_id && c.sourceRepositoryOwnerIdentifier === context.repository_owner_id &&
+    c.runInvocationURI === `https://github.com/${context.repository}/actions/runs/${context.run_id}/attempts/${context.run_attempt}`,
+  "native independent certificate/build context");
+  const binary = await inspectNativeGhArtifact({ artifactPath: binaryPath, expected: policy, verifier }, options);
+  const metadata = await inspectNativeGhArtifact({ artifactPath: metadataPath, expected: policy, verifier }, options);
+  requireRelease(hex(candidate.binary) === snapshot.binary && hex(candidate.metadataBytes) === snapshot.metadata &&
+    canonicalJson(candidate.expected) === snapshot.expected && canonicalJson(candidate.artifactOrigin) === snapshot.origin &&
+    hex(await read(binaryPath)) === snapshot.binary && hex(await read(metadataPath)) === snapshot.metadata,
+  "native consumer inputs changed");
+  return { binary, metadata, authenticated: false, artifact_origin_authentication: "UNVERIFIED",
+    offline_verification: NATIVE_BLOCKER, publication_authorized: false,
+    deployment: "NOT_CHECKED", production_acceptance: "BLOCKED" };
 }
