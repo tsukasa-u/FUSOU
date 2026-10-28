@@ -639,14 +639,11 @@ function decodeNullBody(
   return records;
 }
 
-async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
+async function inflateRawAsync(compressed: Uint8Array, maxBytes?: number): Promise<Uint8Array> {
   const stream = new DecompressionStream("deflate-raw");
-  const writer = stream.writable.getWriter();
-  const reader = stream.readable.getReader();
   const input = new ArrayBuffer(compressed.byteLength);
   new Uint8Array(input).set(compressed);
-  await writer.write(new Uint8Array(input));
-  await writer.close();
+  const reader = new Blob([input]).stream().pipeThrough(stream).getReader();
 
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
@@ -655,6 +652,10 @@ async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
     if (result.done) break;
     chunks.push(result.value);
     totalLength += result.value.length;
+    if (maxBytes !== undefined && totalLength > maxBytes) {
+      await reader.cancel();
+      throw new AvroOcfError("OUT_OF_MEMORY_GUARD", "Avro expanded bytes exceed the configured limit");
+    }
   }
 
   const output = new Uint8Array(totalLength);
@@ -671,6 +672,7 @@ async function decodeDeflateBody(
   body: Uint8Array,
   options: {
     maxRecords?: number;
+    maxDecodedBytes?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): Promise<AvroJsonRecord[]> {
@@ -678,6 +680,7 @@ async function decodeDeflateBody(
   const records: AvroJsonRecord[] = [];
   const decodedRecords = { count: 0 };
   let offset = 0;
+  let decodedBytes = 0;
 
   while (offset < body.length) {
     const blockCursor: Cursor = { offset };
@@ -695,7 +698,9 @@ async function decodeDeflateBody(
     const compressedEnd = compressedStart + compressedSize;
     const compressed = body.slice(compressedStart, compressedEnd);
     assertSyncMarker(body, compressedEnd, header.syncMarker);
-    const inflated = await inflateRawAsync(compressed);
+    const inflated = await inflateRawAsync(compressed,
+      options.maxDecodedBytes === undefined ? undefined : options.maxDecodedBytes - decodedBytes);
+    decodedBytes += inflated.byteLength;
 
     const payloadCursor: Cursor = { offset: 0 };
     for (let index = 0; index < recordCount; index += 1) {
@@ -1022,6 +1027,7 @@ export async function decodeAvroOcfToJsonAsync(
   avroBytes: Uint8Array,
   options: {
     maxRecords?: number;
+    maxDecodedBytes?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): Promise<AvroJsonRecord[]> {
