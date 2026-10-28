@@ -338,21 +338,30 @@ export const OFFLINE_BUNDLE_ARTIFACTS = ["presentation", "result", "result_regis
   "possession_proof", "consume_receipt", "replay", "session_authority_registry", "binding_authority_registry",
   "capture_metadata", "semantic_verification", "trust_root", "subject"];
 export function offlineLayout(policy, inputs) {
-  const files = new Map(), required = [...Object.keys(fileFlags)], bundle = JSON.parse(Buffer.from(inputs.get("bundle")));
+  const files = new Map(), pathTree = new Map(), required = [...Object.keys(fileFlags)], bundle = JSON.parse(Buffer.from(inputs.get("bundle")));
   requireRelease(typeof policy.executable_version === "string" && policy.executable_version.length > 0 &&
     inputs.get("verifier_executable") instanceof Uint8Array &&
     inputs.get("verifier_executable").byteLength > 0 &&
     sha256(inputs.get("verifier_executable")) === policy.executable_sha256, "pinned native executable bytes/version");
   required.push("verifier_executable");
   requireRelease(bundle.artifacts && OFFLINE_BUNDLE_ARTIFACTS.every((role) => bundle.artifacts[role]), "native bundle required artifacts");
-  for (const role of Object.keys(fileFlags)) files.set(`${role}.input`, inputs.get(role));
+  for (const role of Object.keys(fileFlags)) {
+    files.set(`${role}.input`, inputs.get(role)); pathTree.set(`${role}.input`, null);
+  }
   for (const [role, descriptor] of Object.entries(bundle.artifacts)) {
     const name = `bundle_artifact_${role}`, raw = inputs.get(name), path = descriptor.path;
     requireRelease(/^[a-z][a-z0-9_]*$/.test(role) && typeof path === "string" && path.length > 0 &&
       !path.startsWith("/") && !/[\\:\0]/.test(path) &&
-      path.split("/").every((part) => part && part !== "." && part !== "..") && !files.has(path) &&
-      raw instanceof Uint8Array && sha256(raw) === descriptor.sha256 && raw.byteLength === descriptor.byte_length,
+      path.split("/").every((part) => part && part !== "." && part !== "..") &&
+      raw instanceof Uint8Array && sha256(raw) === descriptor.artifact_sha256 && raw.byteLength === descriptor.byte_length,
     "native bundle raw artifact/path binding");
+    const parts = path.split("/"); let directory = pathTree;
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index], last = index === parts.length - 1, entry = directory.get(part);
+      requireRelease(last ? !directory.has(part) : entry !== null, "native bundle raw artifact/path binding");
+      if (last) directory.set(part, null);
+      else { if (entry === undefined) directory.set(part, new Map()); directory = directory.get(part); }
+    }
     files.set(path, raw); required.push(name);
   }
   requireRelease(policy.input_sha256 && typeof policy.input_sha256 === "object" && !Array.isArray(policy.input_sha256) &&

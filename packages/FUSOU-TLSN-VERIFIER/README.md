@@ -763,6 +763,98 @@ not consumer cryptographic reexecution. Until those separate contracts and real
 evidence exist, publication stays false, deployment NOT_CHECKED and Production
 acceptance BLOCKED.
 
+##### Runtime closure and offline input boundary (source audit)
+
+This is a source/documentation audit, not an inspection of a built ELF or an
+authenticated distribution. No executable, launcher or real attestation was run.
+There is no independently registered real gh/verifier pin or provider root.
+
+| Execution dependency | Observed declaration/path | Unresolved admission requirement |
+|---|---|---|
+| Rust verifier | [`nativeBuildRecipe`](../../scripts/release-native-build.mjs) declares Rust 1.98.1, GNU x86-64, release/default features, empty Rust flags and a locked build. [`Cargo.toml`](Cargo.toml) and [`Cargo.lock`](Cargo.lock) include local authenticity/TLSN patches and cryptographic dependencies. | No static-runtime requirement, actual `PT_INTERP`/`DT_NEEDED`, linker/sysroot closure or admitted output digest. The four-entry preflight inventory explicitly says `complete_dependency_closure: NOT_CHECKED`; it is not the full crate/build/runtime closure. |
+| TLSN trust anchor | [`verify_bundle`](src/evidence_bundle.rs) supplies the CLI DER bytes to [`verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor`](src/tlsn_alpha15.rs), replacing that verification's certificate-root provider. | This visible entry uses the supplied anchor, not an ambient OS CA selection. It does not certify every compiled dependency or admit that anchor independently. |
+| gh image/runtime | [`prepareNativeGhInspection`](../../scripts/release-native-attestation.mjs) requires caller-supplied exact hex SHA-256; its version gate accepts stable 2.x starting at 2.102, not one exact version. Upstream v2.102.0's Linux release recipe sets `CGO_ENABLED=0`. | That upstream recipe is reference source, not a FUSOU-approved or inspected binary. It does not establish the closure of an arbitrary executable passing the version gate. No real distribution/pin is registered. |
+| gh attestation acquisition | Current argv has a local artifact operand and no `--bundle`/custom-root option. Reference source opens that artifact, obtains attestations through the GitHub API and may fetch bundle URLs, with retries/concurrent downloads. Sigstore verifiers use TUF roots/targets/cache. | Approved acquisition mode, network endpoints/redirects, DNS, HTTP limits, root refresh/cache policy and source-to-capture binding are absent. A sealed gh image alone cannot make this an offline operation. |
+| gh ambient dependencies | Reference source resolves config/authentication, including env/config/keyring; HTTP uses the Go transport. Linux CA files, resolver files and TUF cache are runtime dependencies even for a non-cgo build. | The mock allowlist excludes inherited tokens, PATH/proxy/loader variables and fixes HOME/XDG/host, but labels do not create private directories or prove isolation. No helper/subprocess/plugin-free closure has been established; package dependency on git is not proof this subcommand invokes git. |
+
+`memfd` seals plus `execveat(AT_EMPTY_PATH)` can bind the top-level image, not its
+interpreter, shared objects, configuration or later file/network reads.
+The first candidate must reject scripts and any ELF interpreter/dynamic
+dependency closure not independently admitted. Static ELF is not automatically
+dependency-free. A dynamic backend would additionally need a pinned immutable
+loader/library/config namespace for the lease lifetime; removing `LD_*` alone
+does not remove RPATH/RUNPATH, loader cache/default directories or system preload.
+Neither format currently has an enabled backend.
+
+The normalized offline callback and Rust loader are separate, **not yet connected
+to the native managed reader/capture scope**:
+
+| Input | Acquisition, ownership and integrity path | Remaining read/layout boundary |
+|---|---|---|
+| Bundle manifest | [`offlineLayout`](../../scripts/release-checks.mjs) parses caller bytes, requires the 19 mandatory artifact roles and an exact independently expected input-digest inventory. | No offline acquisition byte/JSON/aggregate admission. Ordinary JSON parsing is not duplicate-key rejection or a whole-operation atomic snapshot. |
+| Presentation, signed Result, Result registry/envelope, Notary registry | Per-role raw bytes in the manifest; both Node layout and Rust loader require `artifact_sha256` plus `byte_length`. Receipt/input-inventory descriptors still use their separate `sha256` field; there is no legacy hash-field fallback. | Hash equality is not signature/identity authority. Rust verification checks registry-envelope trust, Result signature, Presentation binding and authenticated semantics; mock stdout is not evidence that these ran. |
+| Session, authenticated user, device identity/authentication, possession proof, consume receipt, replay | Same manifest-byte binding, then Rust session/authority/signature/identifier relationships. | Mixed inputs are rejected only through the relationships actually checked; byte digests alone do not prove a common generation. |
+| Authority registries, capture metadata, semantic verification, health, trust root, subject | Same raw-artifact binding and subsequent Rust trust-graph checks. | Rust owns the bytes after loading, but acquisition is sequential, not an atomic filesystem snapshot. |
+| Seven CLI files | Bundle plus Notary/session/binding registries, Origin Inventory, Target Approval and DER trust anchor. Node maps them to `<role>.input`; the three registries must equal their bundle copies. Rust also compares the anchor to bundled trust-root bytes and validates the Production target-digest pair. | CLI reads six files with unbounded `fs::read`; bundle loading separately reads manifest/artifact paths. `canonicalize` then `fs::read` is path reopening, not immutable-handle acquisition. Limits/digest checks do not precede those allocations. |
+| Scalar pins/context and executable | Exact argv from policy; caller-provided root/key IDs and SPKI, user/device/target/profile IDs, verifier key ID, optional sparse profile, executable digest/version. | No independent acquisition/registration root for those inputs. The CLI has no implemented native version-observation contract. Before/after callback measurements cannot prove the executed image. |
+| Capture and publication bytes | [`captureOfflineExecution`](../../scripts/release-checks.mjs) copies buffers into its execution map, shares those copies with its file map, checks post-callback mutations and records stdout/receipt/input digests. [`verifyOfflineExecution`](../../scripts/release-checks.mjs) checks the report/inventory and archive Result/Presentation readback plus source/capture/session/binding context. | Callback maps/argv remain mutable; A-to-B-to-A use is not excluded. No managed offline timeout/cancellation, stdout/stderr acquisition budget or child supervision. Local/cross-run report proofs do not establish native reexecution. Packaging/archive is not publication authorization. |
+
+The layout rejects traversal, exact duplicate destinations and file/directory
+prefix conflicts (including CLI input names), independent of descriptor order.
+Shared directories are valid. Segment-tree collision checking avoids pairwise
+path comparisons and repeated full-prefix storage. These are layout invariants,
+not an OS materialization mechanism: the Rust manifest uses relative sibling
+paths, so seven isolated `/proc/self/fd/N` arguments alone cannot supply its
+artifact directory. A provider must deliver a sealed/read-only complete
+namespace or an explicitly revised fd-native input ABI without mutable fallback.
+No such namespace/ABI is implemented here.
+
+Provider readiness, classified independently of mock success:
+
+| Contract | Status | Source basis / missing condition |
+|---|---|---|
+| Bootstrap root | MISSING | Draft policy and migration contract only; no independent install/update/revocation or registration issuer. |
+| Authorization | MISSING | Caller pins and `UNAPPROVED` controllers are not approved signer/builder/image/resource policies. |
+| Immutable execution input | PARTIAL | Native owned snapshots/bounded reads and offline digest/layout checks exist; no sealed executable/runtime/input namespace or admitted launcher. |
+| Execution isolation | MISSING | Mock environment contract exists; no registered OS backend, private filesystem/network/credential enforcement or descendant containment. |
+| Capture | PARTIAL | Owned bounded native mock capture and offline receipts exist, but no actual child/image/exit-bound provider proof. |
+| Cancellation and disposal | PARTIAL | [`release-native-resources.mjs`](../../scripts/release-native-resources.mjs) retains managed noncooperative work until settlement; offline callbacks and real process-tree cleanup are not connected. |
+| Evidence binding | PARTIAL | Exact role/input/report/archive digests and context checks exist; no registered image/runtime/input/capture evidence chain. |
+| Aggregate budgets | PARTIAL | One owner-bound native controller shares work reservations across its operations. Independent controllers are independent domains; offline/Rust inputs have no shared admission, and no approved global issuer exists. |
+
+Source/documentation references (not artifact authentication):
+
+- [gh v2.102.0 release recipe](https://github.com/cli/cli/blob/v2.102.0/.goreleaser.yml)
+  and [Go dependencies](https://github.com/cli/cli/blob/v2.102.0/go.mod).
+- [gh command entry](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/attestation/verify/verify.go),
+  [attestation selection](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/attestation/verify/attestation.go),
+  [artifact file open](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/attestation/artifact/file.go),
+  [API/bundle acquisition](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/attestation/api/client.go),
+  [Sigstore verification](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/attestation/verification/sigstore.go)
+  and [TUF/cache setup](https://github.com/cli/cli/blob/v2.102.0/pkg/cmd/attestation/verification/tuf.go).
+- [gh authentication resolution](https://github.com/cli/cli/blob/v2.102.0/internal/config/config.go),
+  [HTTP authentication](https://github.com/cli/cli/blob/v2.102.0/api/http_client.go),
+  [transport](https://github.com/cli/go-gh/blob/v2.16.1/pkg/api/http_client.go)
+  and [documented environment](https://cli.github.com/manual/gh_help_environment).
+- [Go Linux CA locations](https://github.com/golang/go/blob/master/src/crypto/x509/root_linux.go)
+  and [resolver dependencies](https://github.com/golang/go/blob/go1.27.1/src/net/conf.go):
+  runtime files/network remain dependencies; these sources are not a pin for an inspected gh binary.
+- [Linux dynamic loader](https://man7.org/linux/man-pages/man8/ld.so.8.html):
+  interpreter/shared-object search, RPATH/RUNPATH, cache and loader variables.
+- [Rust C-runtime linkage](https://doc.rust-lang.org/reference/linkage.html#static-and-dynamic-c-runtimes):
+  target defaults/`crt-static` and the need to inspect actual output rather than
+  infer static linkage from the GNU target or Cargo lockfile.
+
+Linux remains an unregistered implementation candidate; macOS/Windows remain
+NOT_CHECKED and disabled. Next code work is an admitted offline input/JSON/capture
+resource contract, followed by a chosen immutable input ABI and unregistered
+Linux backend tests in an explicitly authorized environment. Registration still
+requires independent provider/runtime/role pins, signer/builder authorization,
+approved resource/isolation/network policies and bootstrap lifecycle. No secret
+is required for this source audit; whether online gh needs a credential
+capability remains an external policy decision. Missing prerequisites mean no
+launch, not a fabricated approval or path-based fallback.
+
 Example offline invocation (not run by the native identity audit):
 
 ```text

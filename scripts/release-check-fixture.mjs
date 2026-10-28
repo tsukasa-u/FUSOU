@@ -130,7 +130,7 @@ export async function checkFixture() {
       role === "notary_registry" ? jsonBytes(security.notary_registry) :
       ["session_authority_registry", "binding_authority_registry"].includes(role) ? Buffer.from(`synthetic CLI ${role}`) : Buffer.from(`synthetic ${role}`);
     nativeInputs.set(`bundle_artifact_${role}`, raw);
-    artifacts[role] = { path: `${role}.artifact`, sha256: sha256(raw), byte_length: raw.length };
+    artifacts[role] = { path: `${role}.artifact`, artifact_sha256: sha256(raw), byte_length: raw.length };
   }
   nativeInputs.set("bundle", jsonBytes({ capture_id: archive.capture_id, security_identity: { git_commit_sha: sourceSha }, artifacts }));
   for (const role of ["trusted_notary_registry", "session_authority_registry", "binding_authority_registry",

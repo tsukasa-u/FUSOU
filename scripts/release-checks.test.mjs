@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { checkFixture } from "./release-check-fixture.mjs";
 import { verifyReleaseChecks, recordCheckExecution, captureArchiveReadback, verifyArchiveReadback,
-  captureOfflineExecution, verifyOfflineExecution, jsonBytes, LOCK_PATHS } from "./release-checks.mjs";
+  captureOfflineExecution, verifyOfflineExecution, offlineLayout, jsonBytes, LOCK_PATHS } from "./release-checks.mjs";
 import { consumeReleaseRun } from "./release-consumer.mjs";
 import { sha256 } from "./release-bytes.mjs";
 import { verifyProducerBuild } from "./release-build-proof.mjs";
@@ -259,4 +259,62 @@ test("missing executable pin, repinned path traversal and Notary identity mismat
   checkPolicy.offline.expected_derived.notary_key_id = "other";
   const bytes = jsonBytes(checkPolicy);
   await assert.rejects(verifyReleaseChecks(other.args, { ...other.config, checkPolicyBytes: bytes, checkPolicySha256: sha256(bytes) }), /Notary/);
+});
+function repinnedBundle(f, change) {
+  const bundle = JSON.parse(f.nativeInputs.get("bundle"));
+  for (const artifact of Object.values(bundle.artifacts)) {
+    artifact.artifact_sha256 = artifact.artifact_sha256 ?? artifact.sha256;
+    delete artifact.sha256;
+  }
+  change(bundle);
+  const inputs = new Map(f.nativeInputs); inputs.set("bundle", jsonBytes(bundle));
+  const policy = { ...f.checkPolicy.offline,
+    input_sha256: { ...f.checkPolicy.offline.input_sha256, bundle: sha256(inputs.get("bundle")) } };
+  return { inputs, policy };
+}
+test("offline layout uses the Rust manifest artifact_sha256 contract, not receipt sha256 descriptors", async () => {
+  const f = await checkFixture(), args = repinnedBundle(f, () => {});
+  const layout = offlineLayout(args.policy, args.inputs);
+  assert.deepEqual(layout.files.get("presentation.artifact"), f.nativeInputs.get("bundle_artifact_presentation"));
+  const capture = await captureOfflineExecution({ context: f.context, ...args }, { execute: f.executor });
+  assert.equal(JSON.parse(capture.receipt).status, "PASS");
+});
+test("a legacy sha256 alias cannot substitute for or override the Rust manifest hash", async () => {
+  const f = await checkFixture();
+  for (const kind of ["missing", "corrupt"]) {
+    const args = repinnedBundle(f, (bundle) => {
+      for (const artifact of Object.values(bundle.artifacts)) artifact.sha256 = artifact.artifact_sha256;
+      const artifact = bundle.artifacts.presentation;
+      if (kind === "missing") delete artifact.artifact_sha256;
+      else artifact.artifact_sha256 = "0".repeat(43);
+    });
+    assert.throws(() => offlineLayout(args.policy, args.inputs), /artifact\/path binding/);
+  }
+});
+test("offline paths cannot be both an input file and another input's parent directory", async () => {
+  const f = await checkFixture();
+  const withLegacyAliases = (bundle) => {
+    for (const artifact of Object.values(bundle.artifacts)) artifact.sha256 = artifact.artifact_sha256;
+  };
+  const control = repinnedBundle(f, withLegacyAliases);
+  assert.doesNotThrow(() => offlineLayout(control.policy, control.inputs));
+  for (const path of ["bundle.input", "result.artifact", "bundle.input/child", "session.artifact/child", "nested", "nested/child"]) {
+    const args = repinnedBundle(f, (bundle) => {
+      withLegacyAliases(bundle);
+      bundle.artifacts.presentation.path = path;
+      if (path === "nested") bundle.artifacts.result.path = "nested/child";
+      if (path === "nested/child") bundle.artifacts.result.path = "nested";
+    });
+    assert.throws(() => offlineLayout(args.policy, args.inputs), /artifact\/path binding/);
+  }
+});
+test("offline layout preserves raw inputs across shared directories and descriptor reordering", async () => {
+  const f = await checkFixture(), args = repinnedBundle(f, (bundle) => {
+    bundle.artifacts.presentation.path = "shared/nested/presentation";
+    bundle.artifacts.result.path = "shared/nested/result";
+    bundle.artifacts = Object.fromEntries(Object.entries(bundle.artifacts).reverse());
+  });
+  const layout = offlineLayout(args.policy, args.inputs);
+  assert.deepEqual(layout.files.get("shared/nested/presentation"), f.nativeInputs.get("bundle_artifact_presentation"));
+  assert.deepEqual(layout.files.get("shared/nested/result"), f.nativeInputs.get("bundle_artifact_result"));
 });
