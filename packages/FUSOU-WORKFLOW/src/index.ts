@@ -8,6 +8,7 @@ import {
   handleCleanupRequest,
 } from "./master_data_cleanup";
 import { z } from "zod";
+import { timingSafeEqual } from "./utils/auth";
 
 const UploadIngestPayloadSchema = z.object({
   dataset_id: z.string().optional(),
@@ -62,7 +63,7 @@ async function handleRead(
 }
 
 const queueConsumer = {
-  async queue(batch: MessageBatch<QueueMessage>, env: Env, _ctx: ExecutionContext) {
+  async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
     if (!env.BATTLE_INDEX_DB) {
       console.error("[Queue] Missing BATTLE_INDEX_DB binding");
       batch.messages.forEach((m) => m.retry());
@@ -77,13 +78,20 @@ const queueConsumer = {
 };
 
 const queueDLQ = {
-  async queue(batch: MessageBatch<unknown>, _env: Env, _ctx: ExecutionContext) {
+  async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
     for (const message of batch.messages) {
-      console.error("[DLQ] Unhandled message", {
-        id: message.id,
-        body: message.body,
-      });
-      message.ack();
+      try {
+        const key = `dead-letter/${encodeURIComponent(batch.queue)}/${encodeURIComponent(message.id)}.json`;
+        await env.BATTLE_DATA_BUCKET.put(key, JSON.stringify({
+          id: message.id, queue: batch.queue, timestamp: message.timestamp.toISOString(),
+          body: message.body,
+        }), { httpMetadata: { contentType: "application/json" } });
+        console.error("[DLQ] Message persisted for manual recovery", { id: message.id, key });
+        message.ack();
+      } catch (error) {
+        console.error("[DLQ] Persistence failed", { id: message.id, error });
+        message.retry({ delaySeconds: 300 });
+      }
     }
   },
 };
@@ -92,22 +100,6 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.trunc(parsed);
-}
-
-/** Timing-safe string equality using XOR byte-by-byte comparison */
-function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const aBytes = enc.encode(a);
-  const bBytes = enc.encode(b);
-  if (aBytes.length !== bBytes.length) return false;
-  let diff = 0;
-  for (let i = 0; i < aBytes.length; i++) {
-    const aByte = aBytes[i];
-    const bByte = bBytes[i];
-    if (aByte === undefined || bByte === undefined) return false;
-    diff |= aByte ^ bByte;
-  }
-  return diff === 0;
 }
 
 function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
@@ -232,6 +224,13 @@ export default {
             avro_base64: b64,
           },
         }));
+        const sizes = messages.map((message) => new TextEncoder().encode(JSON.stringify(message.body)).byteLength + 100);
+        if (messages.length > 100 || sizes.some((size) => size > 128000) ||
+            sizes.reduce((sum, size) => sum + size, 0) > 256000) {
+          return new Response(JSON.stringify({ error: "Upload exceeds Queue message or batch size limits" }), {
+            status: 413, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          });
+        }
         await env.COMPACTION_QUEUE.sendBatch(messages);
         return new Response(
           JSON.stringify({ status: "accepted", enqueued: messages.length }),
@@ -241,8 +240,10 @@ export default {
           },
         );
       } catch (err) {
-        return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-          status: 400,
+        console.error("[Upload] Request failed:", err);
+        const invalidJson = err instanceof SyntaxError;
+        return new Response(JSON.stringify({ error: invalidJson ? "Invalid JSON body" : "Queue enqueue failed" }), {
+          status: invalidJson ? 400 : 503,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
       }
@@ -299,6 +300,7 @@ export default {
       return handleCleanupRequest(request, {
         MASTER_DATA_BUCKET: env.MASTER_DATA_BUCKET,
         MASTER_DATA_INDEX_DB: env.MASTER_DATA_INDEX_DB,
+        ...(env.MASTER_DATA_CLEANUP_TOKEN !== undefined ? { MASTER_DATA_CLEANUP_TOKEN: env.MASTER_DATA_CLEANUP_TOKEN } : {}),
       });
     }
 
@@ -315,11 +317,11 @@ export default {
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
   async queue(
-    batch: MessageBatch<QueueMessage>,
+    batch: MessageBatch<unknown>,
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const queueName = (batch as MessageBatch<QueueMessage> & { queue?: string }).queue;
+    const queueName = batch.queue;
     const target =
       queueName && queueName.toLowerCase().includes("dlq") ? "dlq" : "main";
     if (target === "dlq") {

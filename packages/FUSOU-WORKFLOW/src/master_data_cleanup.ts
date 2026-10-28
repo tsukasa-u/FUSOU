@@ -12,6 +12,7 @@
  */
 
 import { R2KeysSchema } from "./schemas";
+import { timingSafeEqual } from "./utils/auth";
 
 interface Env {
   MASTER_DATA_BUCKET: R2Bucket;
@@ -47,22 +48,6 @@ function getErrorStatus(error: unknown): number | undefined {
   return undefined;
 }
 
-/** Timing-safe string equality using XOR byte-by-byte comparison */
-function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const aBytes = enc.encode(a);
-  const bBytes = enc.encode(b);
-  if (aBytes.length !== bBytes.length) return false;
-  let diff = 0;
-  for (let i = 0; i < aBytes.length; i++) {
-    const aByte = aBytes[i];
-    const bByte = bBytes[i];
-    if (aByte === undefined || bByte === undefined) return false;
-    diff |= aByte ^ bByte;
-  }
-  return diff === 0;
-}
-
 /**
  * Cleanup orphaned master data uploads
  * Called via scheduled cron job
@@ -86,6 +71,7 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
       SELECT id, period_tag, content_hash, r2_keys, table_offsets, upload_status, created_at, table_count
       FROM master_data_index
       WHERE upload_status = 'pending' AND created_at < ? AND r2_keys IS NULL
+      ORDER BY id LIMIT 100
     `);
 
     const pendingRecords = await stmt.bind(oneHourAgo).all<MasterDataRecord>();
@@ -99,11 +85,11 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
         const updateStmt = db.prepare(`
           UPDATE master_data_index
           SET upload_status = 'failed'
-          WHERE id = ?
+          WHERE id = ? AND upload_status = 'pending' AND r2_keys IS NULL AND created_at < ?
         `);
 
-        await updateStmt.bind(record.id).run();
-        cleaned++;
+        const updated = await updateStmt.bind(record.id, oneHourAgo).run();
+        cleaned += updated.meta.changes;
 
         console.info(`[master-data-cleanup] Marked as failed: period=${record.period_tag}, id=${record.id}`);
       } catch (err) {
@@ -119,10 +105,11 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
       const orphanStmt = db.prepare(`
         SELECT id, r2_keys, period_tag
         FROM master_data_index
-        WHERE (upload_status = 'failed' OR upload_status = 'pending') AND r2_keys IS NOT NULL
+        WHERE upload_status = 'failed' AND created_at < ? AND r2_keys IS NOT NULL
+        ORDER BY id LIMIT 100
       `);
 
-      const orphanedRecords = await orphanStmt.all<OrphanedMasterDataRecord>();
+      const orphanedRecords = await orphanStmt.bind(oneHourAgo).all<OrphanedMasterDataRecord>();
       const orphans = orphanedRecords.results ?? [];
 
       console.log(`[master-data-cleanup] Found ${orphans.length} orphaned R2 object sets to clean`);
@@ -150,6 +137,16 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
           let allDeleted = true;
           for (const r2Key of r2Keys) {
             try {
+              const reference = await db.prepare(`
+                SELECT master_data_id FROM master_data_tables WHERE r2_key = ? LIMIT 1
+              `).bind(r2Key).first<{ master_data_id: number }>();
+              if (reference) {
+                const msg = `Retaining referenced R2 object ${r2Key} (record ${orphan.id})`;
+                console.warn(`[master-data-cleanup] ${msg}`);
+                errors.push(msg);
+                allDeleted = false;
+                continue;
+              }
               await bucket.delete(r2Key);
               deleted++;
               console.info(`[master-data-cleanup] Deleted R2 object: ${r2Key}`);
@@ -159,11 +156,11 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
               // [Bug Fix #16] Improve R2 error classification - check status code if available
               const statusCode = getErrorStatus(deleteErr);
               
-              if (statusCode === 404 || errorMsg.includes("404") || errorMsg.includes("NoSuchKey")) {
+              if (statusCode === 404 || /\bNoSuchKey\b/.test(errorMsg)) {
                 // R2 オブジェクトが既に存在しない → count as deleted
                 console.warn(`[master-data-cleanup] R2 object already deleted: ${r2Key}`);
                 deleted++;
-              } else if (statusCode === 403 || errorMsg.includes("403") || errorMsg.includes("Forbidden")) {
+              } else if (statusCode === 403 || /\bForbidden\b/.test(errorMsg)) {
                 // 権限エラー → アラート対象
                 const msg = `[CRITICAL] R2 permission denied for object ${r2Key}`;
                 console.error(`[master-data-cleanup] ${msg}`);
@@ -185,9 +182,9 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
               const clearStmt = db.prepare(`
                 UPDATE master_data_index
                 SET r2_keys = NULL
-                WHERE id = ?
+                WHERE id = ? AND upload_status = 'failed' AND r2_keys = ?
               `);
-              await clearStmt.bind(orphan.id).run();
+              await clearStmt.bind(orphan.id, orphan.r2_keys).run();
               console.info(`[master-data-cleanup] Cleared r2_keys for id=${orphan.id}`);
             } catch (clearErr) {
               const msg = `Failed to clear r2_keys for id=${orphan.id}: ${String(clearErr)}`;
@@ -253,7 +250,7 @@ export async function handleCleanupRequest(req: Request, env: Env): Promise<Resp
   const result = await cleanupOrphanedMasterData(env);
 
   return new Response(JSON.stringify(result), {
-    status: 200,
+    status: result.errors.length ? 503 : 200,
     headers: { "Content-Type": "application/json" },
   });
 }

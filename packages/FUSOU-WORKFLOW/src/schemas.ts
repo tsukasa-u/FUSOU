@@ -5,22 +5,22 @@ export const JsonRecordSchema = z.record(z.unknown());
 const LegacyQueueMessageSchema = z.object({
   batched: z.literal(false).optional(),
   table: z.string().min(1),
-  avro_base64: z.string().min(1),
+  avro_base64: z.string().min(1).max(1398104),
   datasetId: z.string().min(1),
   periodTag: z.string().min(1),
   tableVersion: z.string().min(1),
-  triggeredAt: z.string().optional(),
+  triggeredAt: z.string().datetime({ offset: true }).optional(),
   userId: z.string().optional(),
   trust_tag: z.string().optional(),
 }).strict();
 
 const SnakeCaseLegacyQueueMessageSchema = z.object({
   table: z.string().min(1),
-  avro_base64: z.string().min(1),
+  avro_base64: z.string().min(1).max(1398104),
   dataset_id: z.string().min(1),
   period_tag: z.string().min(1),
   table_version: z.string().min(1),
-  triggered_at: z.string().optional(),
+  triggered_at: z.string().datetime({ offset: true }).optional(),
   user_id: z.string().optional(),
   trust_tag: z.string().optional(),
 }).strict().transform((message) => ({
@@ -36,9 +36,9 @@ const SnakeCaseLegacyQueueMessageSchema = z.object({
 
 const TableOffsetSchema = z.object({
   table_name: z.string().min(1),
-  start_byte: z.number().int().nonnegative(),
-  byte_length: z.number().int().positive(),
-  record_count: z.number().int().nonnegative().optional(),
+  start_byte: z.number().int().safe().nonnegative(),
+  byte_length: z.number().int().safe().positive(),
+  record_count: z.number().int().safe().nonnegative().optional(),
 }).strict();
 
 const BatchedQueueMessageSchema = z.object({
@@ -46,10 +46,10 @@ const BatchedQueueMessageSchema = z.object({
   datasetId: z.string().min(1),
   periodTag: z.string().min(1),
   tableVersion: z.string().min(1),
-  triggeredAt: z.string().optional(),
+  triggeredAt: z.string().datetime({ offset: true }).optional(),
   userId: z.string().optional(),
-  payload_base64: z.string().min(1),
-  table_offsets: z.array(TableOffsetSchema).min(1),
+  payload_base64: z.string().min(1).max(5592408),
+  table_offsets: z.array(TableOffsetSchema).min(1).max(100),
   trust_tag: z.string().optional(),
 }).strict();
 

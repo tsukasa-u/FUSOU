@@ -36,6 +36,7 @@ import {
 } from "./schemas";
 import type { FingerprintVersionMap } from "./schemas";
 import { toUint8Array } from "./utils/binary";
+import { tableVersionAliases, normalizeTableVersion } from "./version";
 
 // Bundled fingerprints — kept in sync via: pnpm --filter fusou-workflow run generate:all
 // This import is resolved at build time, so no manual env var setup is needed.
@@ -49,25 +50,6 @@ interface Env {
   TABLE_FINGERPRINTS_JSON?: string; // map: { "0.4": { "table": ["<sha256>", ...] }, ... }
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN: string;
-}
-
-const KV_PROCESSING_ACTIVE_KEY = "buffer_processing_active";
-
-async function shouldIncludeProcessingTable(env: Env): Promise<boolean> {
-  if (!env.WORKFLOW_STATE_KV) {
-    // Safe default when KV is not configured.
-    return true;
-  }
-  try {
-    const state = await env.WORKFLOW_STATE_KV.get(KV_PROCESSING_ACTIVE_KEY);
-    return state === "1";
-  } catch (error) {
-    console.warn(
-      "[Reader] Failed to read KV processing state; falling back to include processing table:",
-      error instanceof Error ? error.message : String(error),
-    );
-    return true;
-  }
 }
 
 interface QueryParams {
@@ -125,11 +107,10 @@ function recordTimestamp(record: JsonRecord): number {
  * Must deserialize using Avro parser.
  */
 async function fetchHotData(env: Env, params: QueryParams): Promise<JsonRecord[]> {
-  const includeProcessing = await shouldIncludeProcessingTable(env);
   const { rows } = await fetchTursoHotData(env, {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
-    includeProcessing,
+    includeProcessing: true,
     ...(params.from !== undefined ? { from: params.from } : {}),
     ...(params.to !== undefined ? { to: params.to } : {}),
     ...(params.table_version !== undefined
@@ -204,8 +185,9 @@ async function fetchColdIndexes(
 
   // Filter by table_version if specified
   if (table_version !== undefined) {
-    sql += " AND bi.table_version = ?";
-    bindings.push(table_version);
+    const aliases = tableVersionAliases(table_version);
+    sql += ` AND bi.table_version IN (${aliases.map(() => "?").join(",")})`;
+    bindings.push(...aliases);
   }
 
   if (from !== undefined) {
@@ -357,7 +339,7 @@ async function validateHeaderTableVersion(
   if (!tableVersion) return;
   const { fingerprint, namespace } =
     await parseSchemaFingerprintFromHeader(header);
-  const versionEntry = allowedMap[tableVersion];
+  const versionEntry = tableVersionAliases(tableVersion).map((version) => allowedMap[version]).find(Boolean);
   if (!versionEntry || !fingerprint) return;
   const allowed = versionEntry.tables[tableName];
   const allowedList = Array.isArray(allowed)
@@ -534,7 +516,7 @@ export async function handleRead(
       }
 
       // Check for mixed table versions (OCF format requires single schema)
-      const uniqueVersions = new Set(indexes.map((idx) => idx.table_version));
+      const uniqueVersions = new Set(indexes.map((idx) => normalizeTableVersion(idx.table_version)));
       if (uniqueVersions.size > 1) {
         console.warn(
           `[Reader] Mixed table versions detected for OCF request: ${Array.from(uniqueVersions).join(", ")}`,
@@ -598,7 +580,7 @@ export async function handleRead(
     console.log(`Cold indexes: ${coldIndexes.length}`);
 
     // Detect mixed table versions
-    const uniqueVersions = new Set(coldIndexes.map((idx) => idx.table_version));
+    const uniqueVersions = new Set(coldIndexes.map((idx) => normalizeTableVersion(idx.table_version)));
     const mixedVersions = uniqueVersions.size > 1;
     if (mixedVersions) {
       console.warn(

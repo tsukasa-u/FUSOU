@@ -28,6 +28,8 @@
   },
   "include": [
     "src/**/*",
+    "test/*.test.ts",
+    "test/*-fixture.ts",
     "../avro-wasm/**/*"
   ],
   "exclude": [

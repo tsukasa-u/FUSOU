@@ -16,13 +16,16 @@ import {
   mergeAvroOCF,
   mergeAvroOCFWithBoundaries,
   MergeResult,
+  parseOcfHeader,
 } from "@fusou/compaction-core";
 import { getAvroHeaderLengthFromPrefix } from "@fusou/compaction-core";
+import { createTursoClientFromEnv, type BufferLogRecord } from "./db/turso-client";
 import {
-  fetchProcessingBufferedData,
-  cleanupProcessingBuffer,
-  BufferLogRecord,
-} from "./db";
+  claimCompaction, finishCompaction, releaseCompaction, markCompactionPublished,
+  MAX_COMPACTION_INPUT_BYTES, type CompactionClaim,
+} from "./db/compaction-state";
+import { inspectAvroFrames } from "./avro-integrity";
+import { normalizeTableVersion } from "./version";
 import { toArrayBuffer, toUint8Array } from "./utils/binary";
 
 interface Env {
@@ -96,7 +99,7 @@ function convertToBufferRow(record: BufferLogRecord): BufferRow {
     dataset_id: record.dataset_id,
     table_name: record.table_name,
     period_tag: record.period_tag,
-    table_version: record.table_version,
+    table_version: normalizeTableVersion(record.table_version),
     timestamp: record.timestamp,
     // FIXED: Use proper slice to avoid byteOffset issues when data is a Uint8Array view
     data: toArrayBuffer(record.data),
@@ -119,10 +122,19 @@ function resolveTrustTag(tags: Array<string | null | undefined>): string | null 
  */
 function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   const groupMap = new Map<string, Map<string, BufferRow[]>>();
+  const encodings = new Map<string, string>();
 
   // Group by (table_version::table_name::period_tag) -> dataset_id -> rows[]
   for (const row of rows) {
     const groupKey = `${row.table_version}::${row.table_name}::${row.period_tag}`;
+    const bytes = toUint8Array(row.data);
+    inspectAvroFrames(bytes);
+    const header = parseOcfHeader(bytes);
+    const encoding = JSON.stringify([header.codec ?? "null", header.schema]);
+    if (encodings.has(groupKey) && encodings.get(groupKey) !== encoding) {
+      throw new Error(`Incompatible Avro schema/codec in ${groupKey}`);
+    }
+    encodings.set(groupKey, encoding);
     if (!groupMap.has(groupKey)) {
       groupMap.set(groupKey, new Map());
     }
@@ -182,7 +194,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
       blocks.push({
         dataset_id,
         avroData: mergedAvro,
-        recordCount: rows.length, // Number of source OCF files merged
+        recordCount: inspectAvroFrames(mergedAvro).recordCount,
         startTimestamp: Math.min(...timestamps),
         endTimestamp: Math.max(...timestamps),
         trust_tag: resolveTrustTag(rows.map((r) => r.trust_tag)),
@@ -198,9 +210,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   return groups;
 }
 
-// File size limit: 128MB (2^27 bytes)
-// Multiple datasets are merged into single files up to this limit for efficient storage
-const MAX_FILE_SIZE = 128 * 1024 * 1024;
+const MAX_FILE_SIZE = MAX_COMPACTION_INPUT_BYTES;
 
 function createOutputGroupKey(runTimestampMs: number): string {
   const epochSec = Math.max(0, Math.trunc(Number(runTimestampMs || 0) / 1000));
@@ -221,11 +231,12 @@ function generateFilePath(
   tableName: string,
   fileIndex: number,
   runTimestamp: number,
+  runId: string,
 ): string {
   // Generate file path with index for multi-dataset files
   // and keep tier direct child as epoch-hash folder.
   const indexStr = String(fileIndex).padStart(3, "0");
-  const groupKey = createOutputGroupKey(runTimestamp);
+  const groupKey = `${createOutputGroupKey(runTimestamp)}-${runId}`;
   return `${tableVersion}/${periodTag}/hourly/${groupKey}/${tableName}-${indexStr}.avro`;
 }
 
@@ -325,21 +336,21 @@ async function insertBlockIndexes(
 
   // Delete existing indexes for these file_ids to handle retries
   const fileIds = [...new Set(rows.map((r) => r.file_id))];
+  const statements: D1PreparedStatement[] = [];
   if (fileIds.length > 0) {
     const placeholders = fileIds.map(() => "?").join(",");
-    await db
+    statements.push(db
       .prepare(
         `
       DELETE FROM block_indexes WHERE file_id IN (${placeholders})
     `,
       )
       .bind(...fileIds)
-      .run();
+    );
   }
 
-  // Insert new indexes in chunks to stay within D1's 999-parameter bind limit.
-  // Each row uses 15 parameters; floor(999/15) = 66 rows per chunk.
-  const CHUNK_SIZE = 66;
+  // D1 permits 100 bound parameters per statement, not SQLite's generic 999.
+  const CHUNK_SIZE = 6;
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
     const sql = `
@@ -372,29 +383,56 @@ async function insertBlockIndexes(
         r.trust_tag ?? "unverified",
       );
     }
-    await db
+    statements.push(db
       .prepare(sql)
-      .bind(...params)
-      .run();
+      .bind(...params));
   }
+  await db.batch(statements);
 }
 
 export async function handleCron(env: Env): Promise<void> {
-  let archiveSuccess = false; // FIXED: Track success to prevent data loss on error
-  let hadRows = false;
+  const deadline = Date.now() + 10 * 60 * 1000;
+  for (let batches = 0; batches < 50 && Date.now() < deadline; batches++) {
+    if (!await handleCronBatch(env)) return;
+  }
+  console.warn("[Archival] Invocation budget reached; remaining buffer rows will be retried by the next cron");
+}
+
+async function handleCronBatch(env: Env): Promise<boolean> {
+  const client = createTursoClientFromEnv(env);
+  let claim: CompactionClaim | null = null;
   let processingFlagSet = false;
 
   try {
-    const runTimestamp = Date.now();
+    claim = await claimCompaction(client);
+    if (!claim) return false;
+    if (claim.published) {
+      await finishCompaction(client, claim);
+      return true;
+    }
+    const runTimestamp = claim.startedAt;
 
-    // Fetch processing rows. If processing is empty, db layer swaps active->processing.
-    const { rows: fetchedRows } = await fetchProcessingBufferedData(env);
-    const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
+    const fetched = await client.execute({
+      sql: `SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
+        FROM buffer_logs_processing WHERE id <= ?
+        ORDER BY table_version, table_name, period_tag, dataset_id, id`,
+      args: [claim.cutoffId],
+    });
+    const rows: BufferRow[] = fetched.rows.map((row) => {
+      const data = row["data"];
+      if (!(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) throw new Error("Nonbinary processing row");
+      return convertToBufferRow({
+        id: Number(row["id"]), dataset_id: String(row["dataset_id"]),
+        table_name: String(row["table_name"]), period_tag: String(row["period_tag"]),
+        table_version: String(row["table_version"]), timestamp: Number(row["timestamp"]),
+        data, uploaded_by: row["uploaded_by"] == null ? null : String(row["uploaded_by"]),
+        trust_tag: row["trust_tag"] == null ? null : String(row["trust_tag"]),
+      });
+    });
 
     if (!rows.length) {
-      return; // Silent: no data to archive
+      throw new Error("Claimed compaction has no processing rows");
     }
-    hadRows = true;
 
     if (env.WORKFLOW_STATE_KV) {
       await env.WORKFLOW_STATE_KV.put(KV_PROCESSING_ACTIVE_KEY, "1", {
@@ -408,7 +446,6 @@ export async function handleCron(env: Env): Promise<void> {
     let totalFiles = 0;
     let totalBytes = 0;
     let totalDatasets = 0;
-    let hasError = false;
 
     // Process each table_name + period_tag group
     for (const group of groups) {
@@ -451,6 +488,7 @@ export async function handleCron(env: Env): Promise<void> {
           group.key.table_name,
           fileIndex + 1,
           runTimestamp,
+          claim.runId,
         );
 
         // Merge all dataset blocks in this chunk into a single file
@@ -465,10 +503,8 @@ export async function handleCron(env: Env): Promise<void> {
           if (singleBlock === undefined) {
             throw new Error("Single-block merge has no block data");
           }
-          try {
-            // Parse header to find data block start position
-            const headerSize = getAvroHeaderLengthFromPrefix(singleBlock);
-            mergeResult = {
+          const headerSize = getAvroHeaderLengthFromPrefix(singleBlock);
+          mergeResult = {
               merged: singleBlock,
               boundaries: [
                 {
@@ -478,24 +514,7 @@ export async function handleCron(env: Env): Promise<void> {
                 },
               ],
               headerSize: headerSize,
-            };
-          } catch (err) {
-            // Fallback if header parsing fails - use whole file
-            console.warn(
-              `[Archiver] Failed to parse header for single block, using whole file offset: ${err instanceof Error ? err.message : String(err)}`,
-            );
-            mergeResult = {
-              merged: singleBlock,
-              boundaries: [
-                {
-                  sourceIndex: 0,
-                  startByte: 0,
-                  length: singleBlock.byteLength,
-                },
-              ],
-              headerSize: 0,
-            };
-          }
+          };
         } else {
           // Multiple blocks - merge with boundary tracking
           try {
@@ -555,7 +574,7 @@ export async function handleCron(env: Env): Promise<void> {
             "hourly",
             chunkWindowStart,
             chunkWindowEnd,
-            "null",
+            inspectAvroFrames(combined).codec,
           );
 
           // FIXED: Create block indexes using accurate boundaries from merge result
@@ -583,21 +602,17 @@ export async function handleCron(env: Env): Promise<void> {
               end_timestamp: block.endTimestamp,
               window_start_ms: chunkWindowStart,
               window_end_ms: chunkWindowEnd,
-              source_file_count: block.recordCount,
+              source_file_count: rows.filter((row) =>
+                row.dataset_id === block.dataset_id &&
+                row.table_name === group.key.table_name &&
+                row.period_tag === group.key.period_tag &&
+                row.table_version === group.key.table_version).length,
               trust_tag: block.trust_tag,
             });
           }
 
           await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
         } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          if (errorMsg.includes("UNIQUE constraint failed")) {
-            console.warn(
-              `[Archival] File already registered (duplicate): ${filePath}`,
-            );
-            hasError = true;
-            continue;
-          }
           throw err;
         }
 
@@ -608,58 +623,26 @@ export async function handleCron(env: Env): Promise<void> {
     }
 
     // Summary log
-    if (hasError) {
-      console.log(
-        `[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows (some duplicates skipped)`,
-      );
-    } else {
-      console.log(
-        `[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`,
-      );
-    }
+    console.log(
+      `[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`,
+    );
 
     // ── Pre-generate R2 Snapshots for Battles Dashboard (Overview / Drops / Sorties) ──
-    try {
-      const snapResult = await generateAndSaveSnapshots(env, rows);
+    const snapResult = await generateAndSaveSnapshots(env, rows);
       console.log(
         `[Archival] Pre-generated snapshots: ${snapResult.sortiesSaved} sorties saved, updated periods: [${snapResult.snapshotsUpdated.join(", ")}]`,
       );
-      await triggerDetailSnapshotPreGeneration(env);
-    } catch (snapErr) {
-      console.error(
-        "[Archival] Snapshot generation failed (non-fatal, archival succeeded):",
-        snapErr,
-      );
-    }
+    await triggerDetailSnapshotPreGeneration(env);
 
-    // Mark archival as successful - safe to cleanup
-    archiveSuccess = true;
+    await markCompactionPublished(client, claim);
+    await finishCompaction(client, claim);
+    return true;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("[Archival Error]", errorMsg);
-    // archiveSuccess remains false - DO NOT cleanup to prevent data loss
+    throw error;
   } finally {
-    // FIXED: Only cleanup processing table if archival was successful
-    // This prevents data loss when R2 upload or index registration fails
-    if (hadRows && archiveSuccess) {
-      try {
-        const { source: cleanupSource, rowsAffected } =
-          await cleanupProcessingBuffer(env);
-
-        console.log(
-          `[Archival] Cleaned up ${rowsAffected} rows from ${cleanupSource} buffer_logs_processing`,
-        );
-      } catch (cleanupErr) {
-        console.error(
-          "[Archival] Cleanup failed:",
-          cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-        );
-      }
-    } else if (hadRows && !archiveSuccess) {
-      console.warn(
-        "[Archival] Skipped cleanup due to archival error - processing rows preserved for retry",
-      );
-    }
+    if (claim) await releaseCompaction(client, claim);
 
     if (processingFlagSet && env.WORKFLOW_STATE_KV) {
       try {

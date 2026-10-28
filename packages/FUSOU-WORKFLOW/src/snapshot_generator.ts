@@ -1,9 +1,7 @@
 import * as node_util from 'node:util';
 import * as node_zlib from 'node:zlib';
 import {
-  parseAllNullAvroBlocks,
-  parseAllDeflateAvroBlocks,
-  getAvroHeaderLengthFromPrefix,
+  decodeAvroOcfToJsonAsync,
   compressBrotli,
   buildOverviewSnapshot,
   buildDropsSnapshot,
@@ -11,8 +9,43 @@ import {
   type JsonRecord,
 } from '@fusou/compaction-core';
 import { toUint8Array } from './utils/binary';
+import { z } from "zod";
+import { normalizeTableVersion } from "./version";
+import { inspectAvroFrames } from "./avro-integrity";
 
 const brotliDecompressAsync = node_util.promisify(node_zlib.brotliDecompress);
+export const MAX_SNAPSHOT_JSON_BYTES = 16 * 1024 * 1024;
+const SnapshotSchema = z.object({
+  success: z.literal(true),
+  battles: z.array(z.record(z.unknown())),
+  cells: z.array(z.record(z.unknown())).optional(),
+  enemy_decks: z.array(z.record(z.unknown())).optional(),
+  enemy_ships: z.array(z.record(z.unknown())).optional(),
+}).passthrough();
+const DetailSchema = z.object({
+  env_uuid: z.string(),
+  period_tag: z.string(),
+  table_version: z.string(),
+  tables: z.record(z.array(z.record(z.unknown()))),
+}).passthrough();
+
+async function readSnapshot(object: R2ObjectBody): Promise<unknown> {
+  if (object.size > MAX_SNAPSHOT_JSON_BYTES) throw new Error("Compressed snapshot exceeds 16 MiB");
+  const raw = Buffer.from(await object.arrayBuffer());
+  if (raw.byteLength > MAX_SNAPSHOT_JSON_BYTES) throw new Error("Snapshot input exceeds 16 MiB");
+  try {
+    return JSON.parse(raw.toString("utf8")) as unknown;
+  } catch {
+    const expanded = await brotliDecompressAsync(raw, { maxOutputLength: MAX_SNAPSHOT_JSON_BYTES });
+    return JSON.parse(expanded.toString("utf8")) as unknown;
+  }
+}
+
+async function compressSnapshot(value: unknown): Promise<Uint8Array> {
+  const json = JSON.stringify(value);
+  if (Buffer.byteLength(json) > MAX_SNAPSHOT_JSON_BYTES) throw new Error("Snapshot JSON exceeds 16 MiB");
+  return compressBrotli(json);
+}
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -33,29 +66,8 @@ interface BufferRow {
 
 async function parseAvroRecordsFromBuffer(data: ArrayBuffer): Promise<JsonRecord[]> {
   const bytes = toUint8Array(data);
-  if (bytes.byteLength < 24) return [];
-
-  if (bytes[0] !== 0x4f || bytes[1] !== 0x62 || bytes[2] !== 0x6a || bytes[3] !== 0x01) {
-    return [];
-  }
-
-  const headerSize = getAvroHeaderLengthFromPrefix(bytes);
-  const header = bytes.subarray(0, headerSize);
-  const body = bytes.subarray(headerSize);
-
-  const headerStr = new TextDecoder().decode(header);
-  const isDeflate = headerStr.includes('deflate');
-
-  try {
-    if (isDeflate) {
-      return (await parseAllDeflateAvroBlocks(header, body)) as JsonRecord[];
-    } else {
-      return parseAllNullAvroBlocks(header, body) as JsonRecord[];
-    }
-  } catch (err) {
-    console.warn('[SnapshotGenerator] Failed to parse Avro record block:', err);
-    return [];
-  }
+  inspectAvroFrames(bytes);
+  return decodeAvroOcfToJsonAsync(bytes, { maxRecords: 10000, maxDecodedBytes: 4 * 1024 * 1024 });
 }
 
 /**
@@ -82,8 +94,9 @@ function resolveSortieTimestamp(envUuid: string, tables: Record<string, JsonReco
     for (const b of battles) {
       const ts = b['timestamp'] ?? b['midnight_timestamp'];
       const numTs = Number(ts);
-      if (Number.isFinite(numTs) && numTs > 1_577_836_800_000) {
-        return numTs;
+      const ms = numTs < 1_000_000_000_000 ? numTs * 1000 : numTs;
+      if (Number.isFinite(ms) && ms > 1_577_836_800_000 && ms < 4_102_444_800_000) {
+        return ms;
       }
     }
   }
@@ -109,11 +122,10 @@ async function saveOverviewAndDropsSnapshot(
   let historicalShips: JsonRecord[] = [];
 
   const existingObj = await env.BATTLE_DATA_BUCKET.get(overviewKey);
+  const existingDropsObj = await env.BATTLE_DATA_BUCKET.get(dropsKey);
+  const existingDrops = existingDropsObj ? SnapshotSchema.parse(await readSnapshot(existingDropsObj)) : null;
   if (existingObj) {
-    try {
-      const rawBuffer = await existingObj.arrayBuffer();
-      const decompressed = await brotliDecompressAsync(Buffer.from(rawBuffer));
-      const existingOverview = JSON.parse(decompressed.toString('utf8'));
+      const existingOverview = SnapshotSchema.parse(await readSnapshot(existingObj));
 
       const existingBattles = Array.isArray(existingOverview.battles) ? existingOverview.battles : [];
       const existingCells = Array.isArray(existingOverview.cells) ? existingOverview.cells : [];
@@ -164,9 +176,6 @@ async function saveOverviewAndDropsSnapshot(
           mergedSorties.push(oldBundle);
         }
       }
-    } catch (err) {
-      console.warn('[SnapshotGenerator] Failed to merge existing snapshot for ' + targetTag + ':', err);
-    }
   }
 
   const overview = buildOverviewSnapshot(mergedSorties, {
@@ -175,9 +184,31 @@ async function saveOverviewAndDropsSnapshot(
     existingEnemyDecks: historicalDecks,
     existingEnemyShips: historicalShips,
   });
-  const overviewCompressed = await compressBrotli(JSON.stringify(overview));
+  const overviewCompressed = await compressSnapshot(overview);
+  const newEnvs = new Set(sorties.map((sortie) => sortie.env_uuid));
+  const dropHistory = new Map<string, SortieBundle>();
+  for (const battle of existingDrops?.battles ?? []) {
+    const envUuid = String(battle["env_uuid"] ?? "");
+    if (!envUuid || newEnvs.has(envUuid)) continue;
+    let bundle = dropHistory.get(envUuid);
+    if (!bundle) {
+      bundle = {
+        env_uuid: envUuid, period_tag: targetTag,
+        timestamp: Number(battle["timestamp"]) || extractTimestampFromUuidV7(envUuid) || 0,
+        cells: [], battles: [], battleResults: [],
+      };
+      dropHistory.set(envUuid, bundle);
+    }
+    bundle.battles.push(battle);
+  }
+  const drops = buildDropsSnapshot([...sorties, ...dropHistory.values()], {
+    maxBattles: options?.maxDrops ?? 5000,
+    periodTag: targetTag,
+  });
+  const dropsCompressed = await compressSnapshot(drops);
 
-  await env.BATTLE_DATA_BUCKET.put(overviewKey, overviewCompressed, {
+  const overviewSaved = await env.BATTLE_DATA_BUCKET.put(overviewKey, overviewCompressed, {
+    onlyIf: existingObj ? { etagMatches: existingObj.etag } : { etagDoesNotMatch: "*" },
     httpMetadata: {
       contentType: 'application/json',
       contentEncoding: 'br',
@@ -189,14 +220,9 @@ async function saveOverviewAndDropsSnapshot(
       'updated-at': String(Date.now()),
     },
   });
-
-  const drops = buildDropsSnapshot(mergedSorties, {
-    maxBattles: options?.maxDrops ?? 5000,
-    periodTag: targetTag,
-  });
-  const dropsCompressed = await compressBrotli(JSON.stringify(drops));
-
-  await env.BATTLE_DATA_BUCKET.put(dropsKey, dropsCompressed, {
+  if (!overviewSaved) throw new Error("Concurrent overview snapshot publication");
+  const dropsSaved = await env.BATTLE_DATA_BUCKET.put(dropsKey, dropsCompressed, {
+    onlyIf: existingDropsObj ? { etagMatches: existingDropsObj.etag } : { etagDoesNotMatch: "*" },
     httpMetadata: {
       contentType: 'application/json',
       contentEncoding: 'br',
@@ -208,6 +234,7 @@ async function saveOverviewAndDropsSnapshot(
       'updated-at': String(Date.now()),
     },
   });
+  if (!dropsSaved) throw new Error("Concurrent drops snapshot publication");
 }
 
 export async function generateAndSaveSnapshots(
@@ -223,25 +250,37 @@ export async function generateAndSaveSnapshots(
     fallbackTimestamp: number;
     tables: Record<string, JsonRecord[]>;
   }>();
+  let decodedBytes = 0;
+  let decodedCount = 0;
 
   for (const row of rows) {
     const records = await parseAvroRecordsFromBuffer(row.data);
+    decodedBytes += Buffer.byteLength(JSON.stringify(records));
+    decodedCount += records.length;
+    if (decodedBytes > MAX_SNAPSHOT_JSON_BYTES || decodedCount > 50000) {
+      throw new Error("Snapshot batch exceeds decoded resource limits");
+    }
     for (const record of records) {
-      const envUuidRaw = record['env_uuid'] ?? record['sortie_key'];
+      const envUuidRaw = record['env_uuid'] ?? record['sortie_key'] ??
+        (row.table_name === "env_info" ? record["uuid"] : undefined);
       const envUuid = typeof envUuidRaw === 'string' ? envUuidRaw.trim() : '';
       if (!envUuid) continue;
 
-      let sortie = sortiesByEnvUuid.get(envUuid);
+      const identity = `${row.period_tag}/${envUuid}`;
+      const version = normalizeTableVersion(row.table_version);
+      let sortie = sortiesByEnvUuid.get(identity);
       if (!sortie) {
         sortie = {
           env_uuid: envUuid,
           period_tag: row.period_tag || 'latest',
-          table_version: row.table_version,
+          table_version: version,
           fallbackTimestamp: row.timestamp,
           tables: {},
         };
-        sortiesByEnvUuid.set(envUuid, sortie);
+        sortiesByEnvUuid.set(identity, sortie);
       }
+      if (sortie.table_version !== version) throw new Error("Conflicting sortie table versions");
+      sortie.fallbackTimestamp = Math.max(sortie.fallbackTimestamp, row.timestamp);
 
       // Explicitly ensure env_uuid is attached to every child record for scopeRows compatibility
       const normalizedRecord: JsonRecord = {
@@ -260,8 +299,31 @@ export async function generateAndSaveSnapshots(
   }
 
   let sortiesSaved = 0;
-  for (const [envUuid, sortie] of sortiesByEnvUuid.entries()) {
-    try {
+  let retainedDetailBytes = 0;
+  for (const sortie of sortiesByEnvUuid.values()) {
+      const envUuid = sortie.env_uuid;
+      const r2Key = 'snapshots/env_detail/' + sortie.period_tag + '/' + envUuid + '.json.br';
+      const existingObj = await env.BATTLE_DATA_BUCKET.get(r2Key);
+      const previousTables = existingObj ? DetailSchema.parse(await readSnapshot(existingObj)) : null;
+      if (previousTables) {
+        const existing = previousTables;
+        if (existing.env_uuid !== envUuid || existing.period_tag !== sortie.period_tag ||
+            normalizeTableVersion(existing.table_version) !== sortie.table_version) {
+          throw new Error("Existing sortie identity/version mismatch");
+        }
+      }
+        for (const table of new Set([...Object.keys(previousTables?.tables ?? {}), ...Object.keys(sortie.tables)])) {
+          const records = previousTables?.tables[table] ?? [];
+          const byKey = new Map<string, JsonRecord>();
+          for (const record of [...records, ...(sortie.tables[table] ?? [])]) {
+            const uuid = record["uuid"];
+            const key = typeof uuid === "string"
+              ? JSON.stringify([uuid, record["index"], record["index_1"], record["index_2"], record["cell_index"]])
+              : JSON.stringify(record);
+            byKey.set(key, record);
+          sortie.tables[table] = [...byKey.values()];
+        }
+      }
       const actualTimestamp = resolveSortieTimestamp(envUuid, sortie.tables, sortie.fallbackTimestamp);
       const detailPayload = {
         env_uuid: envUuid,
@@ -270,15 +332,16 @@ export async function generateAndSaveSnapshots(
         timestamp: actualTimestamp,
         tables: sortie.tables,
       };
-      const jsonStr = JSON.stringify(detailPayload);
-      const compressed = await compressBrotli(jsonStr);
+      retainedDetailBytes += Buffer.byteLength(JSON.stringify(detailPayload));
+      if (retainedDetailBytes > MAX_SNAPSHOT_JSON_BYTES) throw new Error("Merged sortie batch exceeds 16 MiB");
+      const compressed = await compressSnapshot(detailPayload);
 
-      const r2Key = 'snapshots/env_detail/' + sortie.period_tag + '/' + envUuid + '.json.br';
-      await env.BATTLE_DATA_BUCKET.put(r2Key, compressed, {
+      const saved = await env.BATTLE_DATA_BUCKET.put(r2Key, compressed, {
+        onlyIf: existingObj ? { etagMatches: existingObj.etag } : { etagDoesNotMatch: "*" },
         httpMetadata: {
           contentType: 'application/json',
           contentEncoding: 'br',
-          cacheControl: 'public, max-age=31536000, immutable, no-transform',
+          cacheControl: 'public, max-age=0, must-revalidate, no-transform',
         },
         customMetadata: {
           'env-uuid': envUuid,
@@ -287,13 +350,10 @@ export async function generateAndSaveSnapshots(
           'generated-at': String(Date.now()),
         },
       });
+      if (!saved) throw new Error("Concurrent sortie snapshot publication");
       sortiesSaved++;
-    } catch (err) {
-      console.error('[SnapshotGenerator] Failed to save sortie snapshot ' + envUuid + ':', err);
-    }
   }
 
-  const allSortieBundles: SortieBundle[] = [];
   const sortiesByPeriodTag = new Map<string, SortieBundle[]>();
 
   for (const sortie of sortiesByEnvUuid.values()) {
@@ -319,19 +379,14 @@ export async function generateAndSaveSnapshots(
     };
 
     list.push(bundle);
-    allSortieBundles.push(bundle);
   }
 
   const snapshotsUpdated: string[] = [];
 
   // 1. Update per-period snapshots
   for (const [periodTag, newSorties] of sortiesByPeriodTag.entries()) {
-    try {
       await saveOverviewAndDropsSnapshot(env, periodTag, newSorties);
       snapshotsUpdated.push(periodTag);
-    } catch (err) {
-      console.error('[SnapshotGenerator] Failed to update snapshots for period ' + periodTag + ':', err);
-    }
   }
 
   // 2. 'latest' alias generation removed: API dynamically resolves current period
