@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { setImmediate } from "node:timers/promises";
+import { setImmediate, setTimeout as delay } from "node:timers/promises";
+import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { assertNativeResourceScope, createNativeInspectionBudget, withNativeInspectionBudget,
   withNativeInspectionBudgetSync } from "./release-native-resources.mjs";
@@ -114,4 +115,109 @@ test("a nonresponsive mock times out without freeing its outstanding-work slot",
   await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
   finish(); await setImmediate();
   await withNativeInspectionBudget(budget, undefined, () => 1);
+});
+test("operation body timeout covers promises that do not call scope.wait", async () => {
+  const budget = nativeResourceFixtureBudget({ timeout_ms: 20, max_concurrent_operations: 1 });
+  let finish;
+  const operation = withNativeInspectionBudget(budget, undefined, () => new Promise((resolve) => { finish = resolve; }));
+  const observed = operation.then(() => "unexpected success", (error) => error.code);
+  try {
+    assert.equal(await Promise.race([observed, delay(100).then(() => "deadline did not return")]), "NATIVE_RESOURCE_TIMEOUT");
+    await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+  } finally { finish(); await observed; await setImmediate(); }
+  await withNativeInspectionBudget(budget, undefined, () => 1);
+});
+test("only the owner can dispose an operation scope", () => {
+  withNativeInspectionBudgetSync(nativeResourceFixtureBudget(), (scope) => assert.equal("close" in scope, false));
+});
+test("clock and timer references are captured before caller mutation", (t) => {
+  const budget = nativeResourceFixtureBudget();
+  withNativeInspectionBudgetSync(budget, (scope) => {
+    for (const value of [0, Number.MAX_SAFE_INTEGER]) {
+      t.mock.method(performance, "now", () => value);
+      scope.check();
+      t.mock.restoreAll();
+    }
+  });
+  t.mock.restoreAll();
+  t.mock.method(globalThis, "setTimeout", () => assert.fail("caller timer used"));
+  t.mock.method(globalThis, "clearTimeout", () => assert.fail("caller timer cleanup used"));
+  assert.equal(withNativeInspectionBudgetSync(budget, () => 1), 1);
+});
+test("async results in the synchronous API are rejected and retained until settlement", async () => {
+  const budget = nativeResourceFixtureBudget({ max_concurrent_operations: 1 });
+  let finish, result;
+  try {
+    assert.throws(() => {
+      result = withNativeInspectionBudgetSync(budget, () => new Promise((resolve) => { finish = resolve; }));
+    }, code("NATIVE_RESOURCE_ASYNC_IN_SYNC"));
+    await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+  } finally { finish(); await result; await setImmediate(); }
+  await withNativeInspectionBudget(budget, undefined, () => 1);
+});
+test("an owner cannot report completion with unawaited managed work", async () => {
+  const budget = nativeResourceFixtureBudget({ max_concurrent_operations: 1 });
+  let finish, observed;
+  const operation = withNativeInspectionBudget(budget, undefined, (scope) => {
+    const child = scope.wait(() => new Promise((resolve) => { finish = resolve; }));
+    observed = child.then(() => "completed", (error) => error.code);
+    return "premature success";
+  });
+  try {
+    await assert.rejects(operation, code("NATIVE_RESOURCE_PENDING_WORK"));
+    await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+  } finally { finish(); await observed; await setImmediate(); }
+  await withNativeInspectionBudget(budget, undefined, () => 1);
+});
+test("old duplicate completions cannot release a newer operation or another controller", async () => {
+  const first = nativeResourceFixtureBudget({ max_concurrent_operations: 1 });
+  const other = nativeResourceFixtureBudget({ max_concurrent_operations: 1 });
+  let duplicate, finish;
+  await withNativeInspectionBudget(first, undefined, (scope) => scope.wait(() => ({
+    then(resolve, reject) { duplicate = () => { resolve(2); reject(new Error("late duplicate")); }; resolve(1); },
+  })));
+  const newer = withNativeInspectionBudget(first, undefined, (scope) =>
+    scope.wait(() => new Promise((resolve) => { finish = resolve; })));
+  await setImmediate(); duplicate(); await setImmediate();
+  await assert.rejects(withNativeInspectionBudget(first, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+  assert.equal(await withNativeInspectionBudget(other, undefined, () => 2), 2);
+  finish(1); await newer;
+});
+test("a failed byte reservation is atomic and does not change the remaining amount", () => {
+  withNativeInspectionBudgetSync(nativeResourceFixtureBudget({ max_bytes: 8 }), (scope) => {
+    scope.charge(4);
+    assert.throws(() => scope.charge(5), code("NATIVE_RESOURCE_BYTES_EXCEEDED"));
+    scope.charge(4);
+    assert.throws(() => scope.charge(1), code("NATIVE_RESOURCE_BYTES_EXCEEDED"));
+  });
+});
+test("caller abort listeners cannot suppress operation cancellation", async () => {
+  const budget = nativeResourceFixtureBudget({ max_concurrent_operations: 1 }), controller = new AbortController();
+  controller.signal.addEventListener("abort", (event) => event.stopImmediatePropagation());
+  let finish;
+  const operation = withNativeInspectionBudget(budget, controller.signal,
+    () => new Promise((resolve) => { finish = resolve; }));
+  const observed = operation.then(() => "unexpected success", (error) => error.code);
+  try {
+    controller.abort();
+    assert.equal(await Promise.race([observed, delay(60).then(() => "abort suppressed")]), "NATIVE_RESOURCE_ABORTED");
+  } finally { finish(); await observed; await setImmediate(); }
+});
+test("timeout late resolve/reject and cancellation-completion races settle once", async () => {
+  for (const settlement of ["resolve", "reject"]) {
+    const budget = nativeResourceFixtureBudget({ timeout_ms: 20, max_concurrent_operations: 1 });
+    let finish;
+    const operation = withNativeInspectionBudget(budget, undefined, () =>
+      new Promise((resolve, reject) => { finish = settlement === "resolve" ? resolve : reject; }));
+    await assert.rejects(operation, code("NATIVE_RESOURCE_TIMEOUT"));
+    await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+    finish(new Error("synthetic late completion")); await setImmediate();
+    const controller = new AbortController();
+    const racing = withNativeInspectionBudget(budget, controller.signal, () => {
+      controller.abort(); return Promise.resolve("must not succeed");
+    });
+    await assert.rejects(racing, code("NATIVE_RESOURCE_ABORTED"));
+    await setImmediate();
+    assert.equal(await withNativeInspectionBudget(budget, undefined, () => 1), 1);
+  }
 });

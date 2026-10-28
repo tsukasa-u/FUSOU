@@ -117,3 +117,26 @@ test("multiple individually bounded files charge their combined allocation and p
     } else assert.deepEqual(await operation, Buffer.from("efg"));
   }
 });
+test("handle bounds use the same value that was validated, not a second accessor read", async () => {
+  let accesses = 0;
+  const limits = { get maxBytes() { return ++accesses === 1 ? 4 : 8; } };
+  await assert.rejects(readBoundedFileHandle(handle(Buffer.from("abcde")), limits), code("RELEASE_FILE_TOO_LARGE"));
+  assert.equal(accesses, 1);
+});
+test("path reads snapshot bounds and reservation callbacks before opening", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fusou-reader-snapshot-"));
+  try {
+    const path = join(directory, "input.bin");
+    await writeFile(path, Buffer.from("abcde"));
+    const limits = { maxBytes: 4 }, oversized = readBoundedRegularFile(path, limits);
+    limits.maxBytes = 8;
+    await assert.rejects(oversized, code("RELEASE_FILE_TOO_LARGE"));
+    await writeFile(path, Buffer.from("abcd"));
+    let reservations = 0;
+    const options = { reserveBytes: () => { reservations++; throw Object.assign(new Error("reservation"), { code: "BUDGET" }); } };
+    const reserved = readBoundedRegularFile(path, { maxBytes: 4 }, options);
+    options.reserveBytes = undefined;
+    await assert.rejects(reserved, code("BUDGET"));
+    assert.equal(reservations, 1);
+  } finally { await rm(directory, { recursive: true }); }
+});

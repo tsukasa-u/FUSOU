@@ -437,3 +437,27 @@ test("inspection cancellation reaches the runner signal without exposing the cal
   await assert.rejects(inspect(t), (error) => error.code === "NATIVE_RESOURCE_ABORTED" &&
     !error.message.includes("synthetic private abort reason"));
 });
+test("approval labels cannot mint admission or enable a formal process", async () => {
+  const t = nativeGhFixture();
+  t.resourceBudget = Object.freeze({ ...t.resourceBudget, approval: "APPROVED" });
+  await assert.rejects(inspect(t), (error) => error.code === "NATIVE_RESOURCE_BUDGET_MISSING");
+  let reads = 0;
+  await assert.rejects(inspectNativeGhArtifact(t, { mockReadFile: async () => { reads++; return t.binary; } }),
+    (error) => error.code === NATIVE_GH_IDENTITY_BLOCKER);
+  assert.equal(reads, 0); assert.equal(t.calls.length, 0);
+});
+test("replacing a request controller cannot increase the active operation budget", async () => {
+  const t = nativeGhFixture(), read = t.options.mockReadFile;
+  t.resourceBudget = nativeResourceFixtureBudget({ max_reads: 1 });
+  t.options.mockReadFile = async (...args) => {
+    t.resourceBudget = nativeResourceFixtureBudget();
+    return read(...args);
+  };
+  await assert.rejects(inspect(t), (error) => error.code === "NATIVE_RESOURCE_READS_EXCEEDED");
+  assert.equal(t.calls.length, 0);
+});
+test("owner admission preserves the verifier snapshot before the first asynchronous turn", async () => {
+  const t = nativeGhFixture(), operation = inspect(t);
+  t.verifier.sha256 = "0".repeat(64);
+  await assert.rejects(operation, (error) => error.code === "NATIVE_GH_INPUT_CHANGED");
+});

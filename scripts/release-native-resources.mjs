@@ -1,8 +1,11 @@
 import { ReleaseBlocked } from "./release-transport.mjs";
 import { MAX_RELEASE_RECORD_BYTES } from "./release-bytes.mjs";
 import { performance } from "node:perf_hooks";
+import { setTimeout as nodeSetTimeout, clearTimeout as nodeClearTimeout } from "node:timers";
+import { addAbortListener } from "node:events";
 
-const budgets = new WeakMap(), scopes = new WeakSet(), errors = new WeakSet();
+const now = performance.now.bind(performance), schedule = nodeSetTimeout, cancelTimer = nodeClearTimeout;
+const budgets = new WeakMap(), scopes = new WeakMap(), errors = new WeakSet();
 const fields = ["max_bytes", "max_reads", "max_captures", "max_json_bytes", "max_json_nodes",
   "max_json_depth", "max_string_length", "max_concurrent_operations", "timeout_ms"];
 const fail = (code) => {
@@ -42,16 +45,16 @@ function enter(budget, signal) {
   if (signal?.aborted) fail("NATIVE_RESOURCE_ABORTED");
   if (state.active >= state.limits.max_concurrent_operations) fail("NATIVE_RESOURCE_BUSY");
   state.active++;
-  const limits = state.limits, controller = new AbortController(), deadline = performance.now() + limits.timeout_ms;
+  const limits = state.limits, controller = new AbortController(), deadline = now() + limits.timeout_ms;
   let bytes = 0, reads = 0, captures = 0, pending = 0, closed = false, released = false, timedOut = false;
   const abort = () => controller.abort();
-  signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => { timedOut = true; abort(); }, limits.timeout_ms);
+  const callerAbort = signal ? addAbortListener(signal, abort) : undefined;
+  const timer = schedule(() => { timedOut = true; abort(); }, limits.timeout_ms);
   const release = () => {
     if (closed && !pending && !released) { released = true; state.active--; }
   };
   const check = () => {
-    if (timedOut || performance.now() >= deadline) fail("NATIVE_RESOURCE_TIMEOUT");
+    if (timedOut || now() >= deadline) fail("NATIVE_RESOURCE_TIMEOUT");
     if (controller.signal.aborted) fail("NATIVE_RESOURCE_ABORTED");
     if (closed) fail("NATIVE_RESOURCE_SCOPE_CLOSED");
   };
@@ -135,45 +138,63 @@ function enter(budget, signal) {
     charge(2 * size);
     return text;
   };
-  const wait = (action) => {
+  const retain = (task) => {
+    pending++;
+    const settled = () => { pending--; release(); };
+    Promise.resolve(task).then(settled, settled);
+  };
+  const wait = (action, eager = false) => {
     check(); pending++;
-    const task = Promise.resolve().then(() => { check(); return action(); });
+    const task = eager ? new Promise((resolve) => resolve(action())) :
+      Promise.resolve().then(() => { check(); return action(); });
     const settled = () => { pending--; release(); };
     task.then(settled, settled);
     return new Promise((resolve, reject) => {
       const cancelled = () => {
         try { check(); } catch (error) { reject(error); }
       };
-      controller.signal.addEventListener("abort", cancelled, { once: true });
+      const cancellation = addAbortListener(controller.signal, cancelled);
       task.then((result) => {
-        controller.signal.removeEventListener("abort", cancelled);
+        cancellation[Symbol.dispose]();
         try { check(); resolve(result); } catch (error) { reject(error); }
-      }, (error) => { controller.signal.removeEventListener("abort", cancelled); reject(error); });
+      }, (error) => { cancellation[Symbol.dispose](); reject(error); });
       if (controller.signal.aborted) cancelled();
     });
   };
   const scope = {
-    check, object, jsonText, charge, wait, signal: controller.signal,
+    check, object, jsonText, charge, wait: (action) => wait(action), signal: controller.signal,
     read() { check(); if (++reads > limits.max_reads) fail("NATIVE_RESOURCE_READS_EXCEEDED"); },
     capture() { check(); if (++captures > limits.max_captures) fail("NATIVE_RESOURCE_CAPTURES_EXCEEDED"); },
     copy(raw) { charge(raw.byteLength); return Buffer.from(raw); },
+  };
+  scopes.set(scope, {
+    run: (action) => wait(action, true),
+    retain,
+    finish() { check(); if (pending) fail("NATIVE_RESOURCE_PENDING_WORK"); },
     close() {
-      closed = true; clearTimeout(timer); signal?.removeEventListener("abort", abort);
+      closed = true; cancelTimer(timer); callerAbort?.[Symbol.dispose]();
+      if (pending) abort();
       release();
     },
-  };
-  scopes.add(scope);
+  });
   return Object.freeze(scope);
 }
 
 export async function withNativeInspectionBudget(budget, signal, action) {
-  const scope = enter(budget, signal);
-  try { const result = await action(scope); scope.check(); return result; }
-  finally { scope.close(); }
+  const scope = enter(budget, signal), owner = scopes.get(scope);
+  // Start synchronously so native entry snapshots still precede the first asynchronous turn.
+  try { const result = await owner.run(() => action(scope)); owner.finish(); return result; }
+  finally { owner.close(); }
 }
 
 export function withNativeInspectionBudgetSync(budget, action) {
-  const scope = enter(budget);
-  try { const result = action(scope); scope.check(); return result; }
-  finally { scope.close(); }
+  const scope = enter(budget), owner = scopes.get(scope);
+  try {
+    const result = action(scope);
+    if (result && typeof result.then === "function") {
+      owner.retain(result);
+      fail("NATIVE_RESOURCE_ASYNC_IN_SYNC");
+    }
+    owner.finish(); return result;
+  } finally { owner.close(); }
 }

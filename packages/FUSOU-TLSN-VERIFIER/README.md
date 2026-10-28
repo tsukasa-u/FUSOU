@@ -571,6 +571,14 @@ candidate inspector) additionally require an explicit process-local
 This frozen controller is labelled `approval: UNAPPROVED`; it is implementation
 admission, not registered policy, execution authority or a credential.
 Consumer binary/metadata inspections share one operation and budget.
+`UNAPPROVED` deliberately does not prohibit mock inspection: it is not formal
+admission. Only the private controller identity admits those local operations;
+copying its fields, changing `approval` or replacing the request's controller
+cannot change an admitted operation. There is no approved-controller factory or
+registration API. Without a mock runner, refusal precedes file access even if
+the caller supplies an `APPROVED` label. A formal provider must reject these
+mock controllers and obtain policy plus shared limits from its independent
+registration root; it must not promote the existing factory.
 
 | Required limit | Candidate enforcement |
 |---|---|
@@ -586,6 +594,23 @@ release policy or a default. Timer values must fit Node's timer range. Every
 limit must otherwise be an explicitly supplied positive safe integer. Fixture
 values have no release approval; production values and their registration are
 still BLOCKED.
+
+Operation disposal is private to the admission owner, not a scope method.
+The owner's returned Promise is included in outstanding work even when it does
+not use `scope.wait`; the synchronous API rejects and retains asynchronous
+results. A body cannot return success while managed child work remains.
+Completion accounting is per operation and idempotent through Promise
+settlement; late completion cannot release a newer operation. Failed byte
+reservations do not debit bytes, while failed read/capture attempts still count
+as work. Charges are cumulative, not a refundable allocation pool.
+Monotonic clock/timer functions are captured on module initialization.
+Abort subscriptions resist `stopImmediatePropagation` and are disposed on
+settlement/owner cleanup. This protects runtime reference changes after import,
+not a compromised JavaScript runtime or arbitrary code loaded before bootstrap.
+The abort-subscription contract uses Node's documented
+[`events.addAbortListener`](https://nodejs.org/docs/latest-v22.x/api/events.html#eventsaddabortlistenersignal-listener)
+and disposable cleanup (validated here on Node 22.21.1), not ordinary abort
+listeners whose propagation another listener can stop.
 
 Captured stdout/stderr are copied before later asynchronous work. File data
 needed only for hashes is not retained across subsequent reads; candidate owned
@@ -641,16 +666,94 @@ Backend choices are deliberately not interchangeable:
 | Candidate | Assumptions and outstanding validation |
 |---|---|
 | Controlled immutable installation, any OS | The trusted consumer deployment must control file ownership/ACLs, every parent directory, update/replacement rules and loader/runtime dependencies for the lease lifetime. A read-only mode bit alone is insufficient. Root/kernel or trusted-deployment compromise is outside this proposed boundary; this does not add APP process/image authority. |
-| Linux descriptor/sealed-image backend | Candidate for first investigation because the build recipe targets Linux. Exact execution-by-handle and sealing semantics, kernel/libc/filesystem prerequisites, interpreter/loader closure and failure behavior require official API review and authorized integration tests. An open descriptor alone does not establish immutable contents. No Linux backend is currently registered. |
+| Linux descriptor/sealed-image backend | OS primitives documented below support a concrete first implementation candidate: seal owned image bytes, compare independent pins, then `execveat` the same descriptor. Kernel/security-policy prerequisites, interpreter/loader closure, input layout and failure handling still require authorized integration tests. No Linux backend is implemented or registered. |
 | macOS backend | No admitted handle/image-binding backend. Official API guarantees, supported versions and deployment isolation are NOT_CHECKED; do not infer Linux-equivalent semantics. |
 | Windows backend | No admitted handle/image-binding backend. File sharing, replacement/reparse-point handling, image creation and supported API guarantees are NOT_CHECKED; a caller-supplied OS name is not admission. |
 
-A small unprivileged provider with a Linux-first backend is a research candidate,
-not an approved solution. No platform API guarantee was verified or backend
-executed by the mock-only tests. A formal selection requires official API review,
-an explicit writer/privilege threat model, deployment ownership and independent
-registration approval. No TPM, privileged helper, APP process attestation or
-browser integrity requirement is introduced.
+A small unprivileged Linux-first provider is the implementation candidate, not an
+approved solution. The documentation review below establishes primitive
+semantics, not their availability or correct composition on a deployment host.
+No backend was executed by mock tests. Deployment ownership, complete runtime
+closure and independent registration remain prerequisites. No TPM, privileged
+helper, APP process attestation or browser integrity requirement is introduced.
+
+##### Linux implementation feasibility (documentation checked 2026-10-29)
+
+Threat model: acquisition paths, producer metadata, mock callbacks and request
+approval labels are untrusted. They may change files before or during acquisition.
+The independent consumer installation/admission authority must already trust the
+provider package, native ABI, complete runtime closure and pinned policy through
+a separately approved deployment root. That root and its provisioning are
+NOT_IMPLEMENTED here. Kernel/administrator compromise, ptrace/process-memory
+injection and hostile JavaScript in the provider's own process are not defeated
+by file seals; isolating the admitted provider from those actors is a deployment
+precondition, not APP process/image attestation.
+
+| Stage | Concrete candidate mechanism and refusal conditions |
+|---|---|
+| Bootstrap/registration | Verify an independently installed provider closure against the consumer deployment root, then issue a nonserializable registration capability bound to provider digest/ABI/platform, policy digest, independent gh/verifier pins, approved role/aggregate limits and environment/network policy. The provider cannot verify its own bootstrap merely by echoing a digest, and the gh being admitted cannot authenticate that bootstrap. No caller-created resource controller or serialized report can mint this capability. Missing root/approval means no launch. |
+| Prepare | Reserve approved work before acquisition/copies. Create private executable and input memfds; bounded-copy bytes from the acquired handles. Never expose writable mappings/fds to the producer. Create owned argv/env and bounded pipes, noninteractive stdin, private config/HOME/XDG/cwd, and an invocation-local input inventory. Path regularity and a matching pre/post stat alone do not authenticate acquisition. |
+| Seal | For an executable use `memfd_create` with explicit `MFD_EXEC`, `MFD_ALLOW_SEALING` and close-on-exec policy. Before admission, add and read back `F_SEAL_WRITE`, `F_SEAL_GROW`, `F_SEAL_SHRINK`, `F_SEAL_EXEC`, then `F_SEAL_SEAL`. Writable shared mappings must be gone; `EBUSY`, unsupported flags/seals or security-policy rejection fail closed. Input-only memfds use `MFD_NOEXEC_SEAL` plus content/size seals. `F_SEAL_FUTURE_WRITE` alone is insufficient because old writable mappings can still modify contents. |
+| Independent pin comparison | Hash and length-check the sealed descriptor bytes, not the original path, against the independently registered role pins; compare policy/provider/invocation context. Verify final seals. Seals give immutability, not provenance or permission to trust/execute those bytes. Reject scripts and, for the first candidate, dynamic ELF (`PT_INTERP`) or any unadmitted loader/runtime dependency. Actual gh/verifier distribution suitability for this restriction is UNVERIFIED. |
+| Launch | Invoke `execveat(image_fd, "", argv, envp, AT_EMPTY_PATH)` on that same sealed image descriptor, not a `/proc` executable pathname or `execFile`. Direct descriptor selection binds the top-level executable; it does not bind ELF interpreters/shared objects. `execveat` returns only on error; child startup/error-pipe handling, signals and permitted inherited fds need a native implementation. Reject unsupported kernel/ABI/LSM/container policy; never fall back to path launch. |
+| Verifier inputs | Seal every artifact, metadata, evidence/registry/policy file used by the child and bind their role/digest/length and layout to the lease. A child-opened `/proc/self/fd/N` input is only a candidate: explicit inherited descriptors, proc availability and pinned gh/verifier path/directory behavior need source review and integration tests. The official gh command documents a file-path operand, not an execution-by-handle or fd-input guarantee. Until every required input can be mapped without mutable-path fallback, launch remains BLOCKED. |
+| Capture/timeout | Independently supervise the child, drain bounded stdout/stderr concurrently, own the bytes, and reject overflow/truncation, timeout, cancellation, startup failure or invalid exit state. Use a pidfd for task identity/signalling and `waitid` for reaping, with the documented `pidfd_open` child-lifetime conditions or atomic `CLONE_PIDFD`. A pidfd is not executable identity and does not kill descendants. A delegated cgroup v2 domain with approved limits and tree cleanup is a deployment candidate, not something Node byte-work emulates. |
+| Dispose | No success before expected child exit, complete capture and validated input/image context. On cancellation/failure terminate the invocation tree, observe/reap termination, drain/close pipes, close image/input/pid fds and clean private directories. Do not reuse a lease or release an admission slot while work/descendants remain. If cleanup cannot be confirmed, quarantine the operation; an unresponsive task may continue consuming a slot. No retry through another backend. |
+
+The candidate uses modern executable-memfd controls (`F_SEAL_EXEC` is documented
+since Linux 6.3), not implicit legacy executable defaults. This is a proposed
+minimum feature profile, not an approved supported-kernel list. Namespace
+`vm.memfd_noexec=2` rejects executable memfd creation; do not lower that setting
+or bypass an administrator policy. An unprivileged provider also needs any
+cgroup delegation pre-provisioned by the deployment owner; no privileged helper
+is introduced. `memory.max` can temporarily be exceeded, `cpu.max` is bandwidth
+control (not a wall-clock timeout), and pid limits do not establish executable
+identity. A process-tree escape/namespace policy and all finite values still
+need explicit approval. macOS/Windows remain NOT_CHECKED and disabled.
+
+Official/project documentation and the precise guarantees used:
+
+- [Linux memfd API](https://man7.org/linux/man-pages/man2/memfd_create.2.html):
+  anonymous file, sealing opt-in, fd lifetime; no implicit immutable image.
+- [Linux file seals](https://man7.org/linux/man-pages/man2/F_GET_SEALS.2const.html):
+  inode-wide, irreversible seals; content/size/execute-mode restrictions,
+  writable-mapping failure, and the weaker future-write seal.
+- [Kernel executable-memfd policy](https://docs.kernel.org/userspace-api/mfd_noexec.html):
+  explicit EXEC/NX creation and hierarchical namespace rejection policy.
+- [Linux execveat](https://man7.org/linux/man-pages/man2/execveat.2.html):
+  empty path with `AT_EMPTY_PATH` executes the referenced fd; scripts and
+  close-on-exec have a documented incompatibility.
+- [Linux execve](https://man7.org/linux/man-pages/man2/execve.2.html):
+  explicit argv/env, preserved process attributes, and ELF `PT_INTERP` loader
+  behavior; sealing the main file is not a loader-closure guarantee.
+- [Linux pidfd_open](https://man7.org/linux/man-pages/man2/pidfd_open.2.html):
+  stable child reference, poll/signalling/wait uses and PID-reuse prerequisites.
+- [Kernel cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html):
+  delegation, `memory.max` caveats, `cpu.max`, `pids.max`, `cgroup.kill` tree
+  termination and `cgroup.events` population observation. Available controllers,
+  permissions and safe pre-execution placement are UNVERIFIED locally.
+- [GitHub CLI attestation verify](https://cli.github.com/manual/gh_attestation_verify):
+  file operand, default API acquisition and JSON verification output. This
+  review made no API call and does not establish behavior of the pinned gh build.
+
+Next implementation order: approve the bootstrap/deployment and attacker model;
+review pinned executable/runtime and input-layout compatibility; implement an
+unregistered native backend with synthetic image/input and cleanup tests in an
+authorized environment; provision/approve shared limits and isolation; only then
+consider independent registration and real attestation/evidence verification.
+Pure Node lifecycle/reader guards can be implemented and tested now, but adding
+a callback-shaped launcher or naming state-machine stages would not supply the
+missing OS binding, closure or trust root. No native backend is added here.
+
+Legacy priority before provider integration: first admit all offline evidence,
+registry, policy and input-layout files (the callback-only `captureOfflineExecution`
+in `scripts/release-checks.mjs` is not a registered provider); then any artifact/
+bundle acquisition fallback introduced by that integration. The source-only
+`readNativeBuildPreflight` and fixed-disabled builder remain lower-priority
+legacy readers, outside consumer admission. The producer's saved archive-source
+reader is a separate boundary, not certified by the native audit. The existing
+report layer explicitly separates `AUTHENTICATED_NATIVE_EXECUTION_REPORT` from
+`consumer_native_crypto_reexecution: NOT_CHECKED`.
 
 Even a successfully bound executable still needs independently approved gh
 distribution pins, actual attestation verification, signer/builder approval,

@@ -7,15 +7,15 @@ const fail = (code) => { throw Object.assign(new Error(code), { code }); };
 export function assertReleaseFileLimits({ maxBytes, minBytes = 1 } = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > bufferConstants.MAX_LENGTH ||
     !Number.isSafeInteger(minBytes) || minBytes < 0 || minBytes > maxBytes) fail("RELEASE_FILE_LIMIT_INVALID");
+  return Object.freeze({ maxBytes, minBytes });
 }
 
 const checkSignal = (signal) => { if (signal?.aborted) fail("RELEASE_FILE_ABORTED"); };
 
 // The same open handle bounds reads; this is not a guarantee about a later path-based execution.
 export async function readBoundedFileHandle(file, limits, { signal, reserveBytes } = {}) {
-  assertReleaseFileLimits(limits);
+  const { maxBytes, minBytes } = assertReleaseFileLimits(limits);
   checkSignal(signal);
-  const { maxBytes, minBytes = 1 } = limits;
   const before = await file.stat({ bigint: true });
   checkSignal(signal);
   if (!before.isFile()) fail("RELEASE_FILE_NOT_REGULAR");
@@ -46,14 +46,15 @@ export async function readBoundedFileHandle(file, limits, { signal, reserveBytes
 }
 
 export async function readBoundedRegularFile(path, limits, options = {}) {
-  assertReleaseFileLimits(limits);
-  checkSignal(options.signal);
+  const ownedLimits = assertReleaseFileLimits(limits);
+  const ownedOptions = Object.freeze({ signal: options.signal, reserveBytes: options.reserveBytes });
+  checkSignal(ownedOptions.signal);
   if (!Number.isInteger(constants.O_NOFOLLOW) || !Number.isInteger(constants.O_NONBLOCK)) {
     fail("RELEASE_FILE_OPEN_UNSUPPORTED");
   }
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    return await readBoundedFileHandle(file, limits, options);
+    return await readBoundedFileHandle(file, ownedLimits, ownedOptions);
   } finally {
     await file.close();
   }
