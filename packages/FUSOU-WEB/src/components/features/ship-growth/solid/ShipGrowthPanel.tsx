@@ -111,11 +111,13 @@ type BoundRow = {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  lucky_naked: number;
   // Optional: source period that contributed the winning (minimum) value.
   // Populated only in cumulative mode from /api/ship-growth/cumulative.
   kaihi_source_period?: string;
   taisen_source_period?: string;
   sakuteki_source_period?: string;
+  lucky_source_period?: string;
 };
 
 type AllPeriodsEntry = {
@@ -174,6 +176,7 @@ function normalizeBoundRows(rows: unknown): BoundRow[] {
         kaihi_naked: toFiniteNumber(r["kaihi_naked"]),
         taisen_naked: toFiniteNumber(r["taisen_naked"]),
         sakuteki_naked: toFiniteNumber(r["sakuteki_naked"]),
+        lucky_naked: toFiniteNumber(r["lucky_naked"]),
         ...(typeof r["kaihi_source_period"] === "string"
           ? { kaihi_source_period: r["kaihi_source_period"] }
           : {}),
@@ -182,6 +185,9 @@ function normalizeBoundRows(rows: unknown): BoundRow[] {
           : {}),
         ...(typeof r["sakuteki_source_period"] === "string"
           ? { sakuteki_source_period: r["sakuteki_source_period"] }
+          : {}),
+        ...(typeof r["lucky_source_period"] === "string"
+          ? { lucky_source_period: r["lucky_source_period"] }
           : {}),
       };
     })
@@ -229,6 +235,8 @@ function mergeBoundsByMax(
           liveRow.taisen_source_period ?? liveSourcePeriod,
         sakuteki_source_period:
           liveRow.sakuteki_source_period ?? liveSourcePeriod,
+        lucky_source_period:
+          liveRow.lucky_source_period ?? liveSourcePeriod,
       });
       continue;
     }
@@ -260,6 +268,14 @@ function mergeBoundsByMax(
       next.sakuteki_naked = liveRow.sakuteki_naked;
       next.sakuteki_source_period =
         liveRow.sakuteki_source_period ?? liveSourcePeriod;
+    }
+    if (
+      liveRow.lucky_naked > 0 &&
+      (existing.lucky_naked === 0 || liveRow.lucky_naked < existing.lucky_naked)
+    ) {
+      next.lucky_naked = liveRow.lucky_naked;
+      next.lucky_source_period =
+        liveRow.lucky_source_period ?? liveSourcePeriod;
     }
     merged.set(key, next);
   }
@@ -348,6 +364,20 @@ function buildBoundsChartData(
       tension: 0,
       pointRadius: 2,
     },
+    {
+      label: "運(naked)",
+      data: boundRows.map((r) => ({
+        x: r.lv,
+        y: r.lucky_naked,
+        ...(r.lucky_source_period
+          ? { sourcePeriod: r.lucky_source_period }
+          : {}),
+      })),
+      borderColor: "rgb(234, 179, 8)",
+      backgroundColor: "transparent",
+      tension: 0,
+      pointRadius: 2,
+    },
   ];
 
   // Cap reference lines are only meaningful when there are bounds rows to
@@ -407,6 +437,7 @@ const STAT_COLORS = {
   kaihi: "34,197,94", // green
   taisen: "249,115,22", // orange
   sakuteki: "168,85,247", // purple
+  lucky: "234,179,8", // amber/yellow
 } as const;
 
 function buildAllPeriodsBoundsChartData(
@@ -446,7 +477,7 @@ function buildAllPeriodsBoundsChartData(
     // The most recent period that has data for this ship gets a thicker line.
     const borderWidth = i === lastDataIdx ? 2.5 : 1.5;
     const shortLabel = `${entry.period_tag}(v${entry.table_version})`;
-    const { kaihi, taisen, sakuteki } = STAT_COLORS;
+    const { kaihi, taisen, sakuteki, lucky } = STAT_COLORS;
     datasets.push(
       {
         label: `回避(naked) - ${shortLabel}`,
@@ -477,6 +508,18 @@ function buildAllPeriodsBoundsChartData(
         data: rows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
         borderColor: `rgba(${sakuteki},${alpha})`,
         hoverBorderColor: `rgb(${sakuteki})`,
+        backgroundColor: "transparent",
+        borderWidth,
+        hoverBorderWidth: 3,
+        tension: 0,
+        pointRadius: 1,
+        pointHoverRadius: 4,
+      },
+      {
+        label: `運(naked) - ${shortLabel}`,
+        data: rows.map((r) => ({ x: r.lv, y: r.lucky_naked })),
+        borderColor: `rgba(${lucky},${alpha})`,
+        hoverBorderColor: `rgb(${lucky})`,
         backgroundColor: "transparent",
         borderWidth,
         hoverBorderWidth: 3,
@@ -1483,7 +1526,7 @@ export default function ShipGrowthPanel() {
                   >
                     <Show when={isAllPeriodsPeriod(selectedPeriod())}>
                       <p class="text-sm text-base-content/60">
-                        {Math.round(boundsChartData().datasets.length / 3)}{" "}
+                        {Math.round(boundsChartData().datasets.length / 4)}{" "}
                         期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
                       </p>
                     </Show>
@@ -1497,6 +1540,44 @@ export default function ShipGrowthPanel() {
                     <div class="relative w-full h-[360px] sm:h-[420px] lg:h-[480px]">
                       <canvas ref={setBoundsCanvas} class="w-full h-full block" />
                     </div>
+                    <Show when={!isAllPeriodsPeriod(selectedPeriod()) && boundRows().length > 0}>
+                      <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                          <h4 class="text-sm font-semibold text-base-content/80">
+                            レベル別パラメータ一覧 (naked)
+                          </h4>
+                          <span class="text-xs text-base-content/50">
+                            全 {boundRows().length} レベル
+                          </span>
+                        </div>
+                        <div class="overflow-x-auto max-h-72 overflow-y-auto border border-base-300 rounded-lg">
+                          <table class="table table-xs sm:table-sm table-pin-rows table-zebra w-full text-center">
+                            <thead>
+                              <tr class="bg-base-200 text-base-content">
+                                <th>Lv</th>
+                                <th class="text-green-600 dark:text-green-400">回避</th>
+                                <th class="text-orange-600 dark:text-orange-400">対潜</th>
+                                <th class="text-purple-600 dark:text-purple-400">索敵</th>
+                                <th class="text-amber-600 dark:text-amber-400">運</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <For each={boundRows()}>
+                                {(row) => (
+                                  <tr>
+                                    <td class="font-mono font-medium">{row.lv}</td>
+                                    <td class="font-mono">{row.kaihi_naked > 0 ? row.kaihi_naked : "-"}</td>
+                                    <td class="font-mono">{row.taisen_naked > 0 ? row.taisen_naked : "-"}</td>
+                                    <td class="font-mono">{row.sakuteki_naked > 0 ? row.sakuteki_naked : "-"}</td>
+                                    <td class="font-mono">{row.lucky_naked > 0 ? row.lucky_naked : "-"}</td>
+                                  </tr>
+                                )}
+                              </For>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </Show>
                   </Show>
                 </div>
               </div>

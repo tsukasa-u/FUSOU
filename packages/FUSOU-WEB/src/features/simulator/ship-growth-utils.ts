@@ -34,6 +34,7 @@ export type ShipGrowthBoundRow = {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  lucky_naked?: number;
 };
 
 export type ShipGrowthBoundsResponse = {
@@ -80,6 +81,7 @@ const ShipGrowthBoundSchema = z
     kaihi_naked: z.number().finite(),
     taisen_naked: z.number().finite(),
     sakuteki_naked: z.number().finite(),
+    lucky_naked: z.number().finite().optional().default(0),
   })
   .passthrough();
 
