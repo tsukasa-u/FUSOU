@@ -3582,6 +3582,13 @@ app.get("/global/drops", async (c) => {
 function healBattlePayloads(bundle: any, envUuid: string): void {
   if (!bundle || !bundle.battles || typeof bundle.battles !== "object") return;
   const battles = Object.values(bundle.battles) as any[];
+  if (bundle.period_tag && bundle.period_tag !== "latest" && bundle.period_tag !== "all") {
+    for (const b of battles) {
+      if (!b.period_tag || b.period_tag === "latest" || b.period_tag === "all") {
+        b.period_tag = bundle.period_tag;
+      }
+    }
+  }
   let canonicalFriendlyFleet: any[] | null = null;
   const aggregatedShips = new Map<number, any>();
   const aggregatedSlotItems = new Map<number, any>();
@@ -3996,6 +4003,9 @@ app.get("/detail", async (c) => {
           // Format A: pre-resolved battles bundle
           const battlePayload = bundle.battles?.[battleIndexRaw] ?? bundle.battles?.[String(battleIndex)];
           if (battlePayload) {
+            if (!battlePayload.period_tag || battlePayload.period_tag === "latest" || battlePayload.period_tag === "all") {
+              battlePayload.period_tag = bundle.period_tag || targetTag;
+            }
             const payloadStr = JSON.stringify(battlePayload);
             if (cacheKV) {
               const ttl = periodTag === "latest" ? 86400 : 7 * 86400;

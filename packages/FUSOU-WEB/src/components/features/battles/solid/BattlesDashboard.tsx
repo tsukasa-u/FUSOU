@@ -827,11 +827,25 @@ export default function BattlesDashboard(props: {
 
     const p = selectedPeriod();
     if (p) {
-      url.searchParams.set("period_tag", p.period_tag);
-      if (p.table_version) {
-        url.searchParams.set("table_version", p.table_version);
+      if (currentTab === "detail" && p.period_tag === "latest") {
+        const concrete = periods().find((row) => row.period_tag !== "latest" && row.period_tag !== "all");
+        if (concrete) {
+          url.searchParams.set("period_tag", concrete.period_tag);
+          if (concrete.table_version) {
+            url.searchParams.set("table_version", concrete.table_version);
+          } else {
+            url.searchParams.delete("table_version");
+          }
+        } else {
+          url.searchParams.set("period_tag", p.period_tag);
+        }
       } else {
-        url.searchParams.delete("table_version");
+        url.searchParams.set("period_tag", p.period_tag);
+        if (p.table_version) {
+          url.searchParams.set("table_version", p.table_version);
+        } else {
+          url.searchParams.delete("table_version");
+        }
       }
     }
 
@@ -1111,6 +1125,7 @@ export default function BattlesDashboard(props: {
                 battleIndex={selectedBattleIndex()}
                 datasetId={selectedDatasetId()}
                 repository={repository}
+                periods={periods()}
                 onBattleIndexChange={(index) => setSelectedBattleIndex(index)}
                 onLoadStatusChange={setDetailLoadStatus}
               />

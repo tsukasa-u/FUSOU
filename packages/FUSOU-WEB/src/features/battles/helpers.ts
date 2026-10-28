@@ -154,3 +154,15 @@ export function transitionState(
   };
 }
 
+
+export function extractTimestampFromUuidV7(uuidStr: string): number | null {
+  const hex = uuidStr.replace(/-/g, "").trim();
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+  const version = Number.parseInt(hex[12] ?? "", 16);
+  if (version !== 7) return null;
+  const ts = Number(BigInt(`0x${hex.slice(0, 12)}`));
+  if (!Number.isFinite(ts) || ts < 1_577_836_800_000 || ts > 4_102_444_800_000) {
+    return null;
+  }
+  return ts;
+}

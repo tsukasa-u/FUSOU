@@ -15,8 +15,6 @@ import {
 import {
   Chart,
   registerables,
-  type ChartData,
-  type ChartDataset,
   type ChartOptions,
 } from "chart.js";
 import { cachedFetch } from "@/utils/fetchCache";
@@ -29,9 +27,7 @@ import {
   ShipGrowthBoundsResponseSchema,
   ShipGrowthExpResponseSchema,
   ShipGrowthSummaryResponseSchema,
-  normalizeShipGrowthCaps,
   selectLatestShipGrowthPeriod,
-  type ShipGrowthCaps,
   type BoundRow,
   type CapRow,
   type AllPeriodsEntry,
@@ -41,7 +37,6 @@ import {
   mergeCapsByMax,
   buildBoundsChartData,
   buildAllPeriodsBoundsChartData,
-  STAT_COLORS,
   normalizeCapRows,
   parsePositiveInt,
 } from "@/features/simulator/ship-growth-utils";
@@ -84,8 +79,10 @@ const ALL_PERIODS_TABLE_VERSION = "__all__";
 function isLatestPeriod(p: PeriodSummary | null | undefined): boolean {
   return (
     !!p &&
-    p.period_tag === LATEST_PERIOD_TAG &&
-    p.table_version === LATEST_TABLE_VERSION
+    (p.period_tag === LATEST_PERIOD_TAG ||
+      p.period_tag === "latest" ||
+      p.table_version === LATEST_TABLE_VERSION ||
+      p.source === "latest")
   );
 }
 
@@ -125,7 +122,6 @@ type ShipMasterRow = {
   stype: number | null;
 };
 
-type AnyRecord = Record<string, unknown>;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -827,8 +823,16 @@ export default function ShipGrowthPanel() {
     } else if (isLatestPeriod(period)) {
       url.searchParams.delete("cumulative");
       url.searchParams.delete("all_periods");
-      url.searchParams.set("period_tag", LATEST_PERIOD_TAG);
-      url.searchParams.delete("table_version");
+      const latestLive = selectLatestShipGrowthPeriod(
+        periods().filter((p) => p.source === "live" && p.period_tag !== "latest" && p.period_tag !== LATEST_PERIOD_TAG && p.period_tag !== "all")
+      );
+      if (latestLive) {
+        url.searchParams.set("period_tag", latestLive.period_tag);
+        url.searchParams.set("table_version", latestLive.table_version);
+      } else {
+        url.searchParams.set("period_tag", LATEST_PERIOD_TAG);
+        url.searchParams.delete("table_version");
+      }
     } else {
       url.searchParams.delete("cumulative");
       url.searchParams.delete("all_periods");
@@ -850,8 +854,11 @@ export default function ShipGrowthPanel() {
     const period = selectedPeriod();
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
+    const livePeriods = periods().filter(
+      (p) => p.source === "live" && p.period_tag !== "latest" && p.period_tag !== LATEST_PERIOD_TAG && p.period_tag !== "all"
+    );
     const sharePeriod = isLatestPeriod(period)
-      ? selectLatestShipGrowthPeriod(periods().filter((p) => p.source === "live"))
+      ? selectLatestShipGrowthPeriod(livePeriods)
       : period;
     if (!sharePeriod) return null;
     // Cumulative and all-periods are synthetic local-only selections; share
@@ -859,6 +866,9 @@ export default function ShipGrowthPanel() {
     if (isCumulativePeriod(sharePeriod)) return null;
     if (isAllPeriodsPeriod(sharePeriod)) return null;
     if (isLatestPeriod(sharePeriod)) return null;
+    if (sharePeriod.period_tag === "latest" || sharePeriod.period_tag === LATEST_PERIOD_TAG || sharePeriod.period_tag === "all") {
+      return null;
+    }
 
     return buildShareGrowthUrl(window.location.origin, {
       periodTag: sharePeriod.period_tag,

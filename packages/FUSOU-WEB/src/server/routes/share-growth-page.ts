@@ -26,7 +26,9 @@ export async function handleShareGrowthRequest(
   if (
     !isSafeToken(periodTag) ||
     !isSafeToken(tableVersion) ||
-    masterId == null
+    masterId == null ||
+    periodTag === "latest" ||
+    periodTag === "all"
   ) {
     return buildShareBadRequestResponse("invalid growth share parameters");
   }

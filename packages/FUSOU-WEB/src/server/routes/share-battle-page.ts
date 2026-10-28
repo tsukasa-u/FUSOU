@@ -20,7 +20,10 @@ export async function handleShareBattleRequest(
   const view = requestUrl.searchParams.get("view");
   const normalizedView = view === "timeline" || view === "phase" ? view : null;
   const separators = requestUrl.searchParams.get("separators") === "1";
-  const periodTag = requestUrl.searchParams.get("period_tag")?.trim();
+  let periodTag = requestUrl.searchParams.get("period_tag")?.trim();
+  if (periodTag === "latest" || periodTag === "all") {
+    periodTag = undefined;
+  }
   const tableVersion = requestUrl.searchParams.get("table_version")?.trim();
   const datasetId = requestUrl.searchParams.get("dataset_id")?.trim();
 

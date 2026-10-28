@@ -30,6 +30,7 @@ import { formatMapTextByIds } from "@/features/battles/map-labels";
 import {
   normalizeNullableNumber,
   normalizeEpochMs,
+  extractTimestampFromUuidV7,
 } from "@/features/battles/helpers";
 import {
   getMstShipById,
@@ -138,6 +139,7 @@ function formatDetailLoadError(
 }
 
 type BattleDetailPayload = {
+  period_tag?: string;
   table_version?: string | null;
   battle_indexes?: number[];
   battle?: Record<string, unknown> | null;
@@ -323,6 +325,7 @@ export default function BattleDetailPanel(props: {
   battleIndex?: number | null;
   datasetId?: string | null;
   repository?: BattleDataRepository;
+  periods?: Array<{ period_tag: string; table_version?: string | null }>;
   onBattleIndexChange?: (index: number) => void;
   onLoadStatusChange?: (status: BattleDetailLoadStatus) => void;
 }): JSX.Element {
@@ -409,6 +412,8 @@ export default function BattleDetailPanel(props: {
   });
   const [resolvedTableVersion, setResolvedTableVersion] =
     createSignal<string | null>(null);
+  const [resolvedPeriodTag, setResolvedPeriodTag] =
+    createSignal<string | null>(null);
   const [battleIndexes, setBattleIndexes] = createSignal<number[]>([]);
   const [switchingBattleIndex, setSwitchingBattleIndex] = createSignal<
     number | null
@@ -442,8 +447,38 @@ export default function BattleDetailPanel(props: {
     return left[2] < right[2];
   }
 
+  function resolveConcreteBattlePeriodTag(): string | null {
+    const resolved = resolvedPeriodTag()?.trim();
+    if (resolved && resolved !== "latest" && resolved !== "all") {
+      return resolved;
+    }
+    const requested = requestedPeriodTag().trim();
+    if (requested && requested !== "latest" && requested !== "all") {
+      return requested;
+    }
+    if (props.periods && props.periods.length > 0) {
+      const b = battle();
+      const rawTs = b ? (normalizeEpochMs(b["timestamp"]) ?? normalizeEpochMs(b["midnight_timestamp"])) : null;
+      const battleTs: number | null = rawTs ?? extractTimestampFromUuidV7(props.battleId);
+      if (battleTs !== null) {
+        const match = props.periods.find((p) => {
+          if (p.period_tag === "latest" || p.period_tag === "all") return false;
+          const pMs = Date.parse(`${p.period_tag}T00:00:00Z`);
+          return !Number.isNaN(pMs) && battleTs !== null && battleTs >= pMs;
+        });
+        if (match) return match.period_tag;
+      }
+      const latestConcrete = props.periods.find(
+        (p) => p.period_tag !== "latest" && p.period_tag !== "all"
+      );
+      if (latestConcrete) return latestConcrete.period_tag;
+    }
+    return null;
+  }
+
   function buildCurrentShareUrl(): string {
-    const tableVersion = requestedTableVersion().trim();
+    const tableVersion = (resolvedTableVersion()?.trim()) || requestedTableVersion().trim();
+    const periodTag = resolveConcreteBattlePeriodTag();
     const datasetId =
       props.datasetId !== undefined
         ? (props.datasetId ?? "").trim()
@@ -452,7 +487,7 @@ export default function BattleDetailPanel(props: {
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
       battleIndex: currentBattleIdx,
-      periodTag: requestedPeriodTag(),
+      ...(periodTag ? { periodTag } : {}),
       ...(tableVersion ? { tableVersion } : {}),
       ...(datasetId ? { datasetId } : {}),
       view: viewMode(),
@@ -667,6 +702,7 @@ export default function BattleDetailPanel(props: {
     };
     if (!battle()) {
       setResolvedTableVersion(null);
+      setResolvedPeriodTag(null);
     }
     if (!battle()) {
       setMasterDataStatus([
@@ -816,6 +852,9 @@ export default function BattleDetailPanel(props: {
             });
             if (!isCurrentLoad()) return;
             if (envPayload && envPayload.battles && Object.keys(envPayload.battles).length > 0) {
+              if (typeof envPayload.period_tag === "string" && envPayload.period_tag.trim() && envPayload.period_tag !== "latest" && envPayload.period_tag !== "all") {
+                setResolvedPeriodTag(envPayload.period_tag.trim());
+              }
               const bIndexes = Object.keys(envPayload.battles)
                 .map(Number)
                 .filter((n) => Number.isFinite(n) && n >= 0)
@@ -914,6 +953,9 @@ export default function BattleDetailPanel(props: {
           ? payload.table_version.trim()
           : effectiveTableVersion,
       );
+      if (typeof payload.period_tag === "string" && payload.period_tag.trim() && payload.period_tag !== "latest" && payload.period_tag !== "all") {
+        setResolvedPeriodTag(payload.period_tag.trim());
+      }
       const detailBattle = payload.battle ?? null;
       if (detailBattle) {
           const resolvedMstShip = new Map(currentBundle?.commonMstShip ?? parseMstShipMap(payload.refs?.mst_ship));
@@ -1185,6 +1227,12 @@ export default function BattleDetailPanel(props: {
       url.searchParams.set("separators", "1");
     } else {
       url.searchParams.delete("separators");
+    }
+    const concreteTag = resolvedPeriodTag();
+    if (concreteTag && concreteTag !== "latest" && concreteTag !== "all") {
+      if (url.searchParams.get("period_tag") === "latest" || !url.searchParams.has("period_tag")) {
+        url.searchParams.set("period_tag", concreteTag);
+      }
     }
     window.history.replaceState({}, "", url.toString());
   });
