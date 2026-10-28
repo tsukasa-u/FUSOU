@@ -660,3 +660,14 @@ Worker からブラウザへスナップショットを配信する際、以下�
 - `0.5` と `0.5.0` のD1行は両方を読み、正規化した同一期間として一度だけ保存する。過去の EXP は bounds とは独立して検出する。bounds の `0` は従来仕様どおり未観測であり、正の観測の最小値を消さない。
 - JSONは1件16 MiB以下、圧縮入力も16 MiB以下とする。Brotli解凍には `maxOutputLength` を指定する。超過時は切捨てず失敗する。これは isolate 全体のメモリやCPU時間の保証ではなく、全再構築で保持するMapや並行要求の負荷測定・将来の分割生成は引き続き必要。
 - [Cloudflare公式制限](https://developers.cloudflare.com/workers/platform/limits/#memory)（2026-10-27確認）では通常のWorkersはFree/Paidとも isolate あたり128 MB、JSヒープとWasmを含み並行要求と共有する。CPUはFree HTTPで10 ms、Paid HTTPは既定30秒・設定で最大5分であり、50 msをFreeの前提にしない。
+
+### 13.7 運ステータス（lucky_naked）およびレベル別パラメータ一覧表示
+
+- **運のデータ特性**:
+  - D1 の `ship_growth_bounds` テーブルおよび R2 スナップショット（`bounds`）に保存されている `lucky_naked`（裸の運ステータス）を可視化。
+  - 運は通常レベルアップで成長せず初期値固定（まるゆ改修等で上昇）のため、未改修の初期運が下限値（最小観測値）として記録される。
+  - 2026年4〜5月の初期アーカイブなど、`lucky_naked` カラムが存在しない旧データに対しては、Zod スキーマ（`ShipGrowthArchiveBoundsRowSchema` / `ShipGrowthBoundSchema`）で `optional().default(0)` フォールバックを提供し、下位互換性を確保する。
+- **UI表示**:
+  - 折れ線グラフ（Chart.js）にアンバー色（`rgb(234, 179, 8)`）の「運(naked)」系列を追加。
+  - 全期間比較モード（`all_periods=1`）では、4系列（回避・対潜・索敵・運）× 期間数として描画され、新旧に応じた不透明度グラデーションと履歴期間数計算（データセット数 ÷ 4）を適用。
+  - 単一期間モードでは折れ線グラフ直下に「レベル別パラメータ一覧 (naked)」テーブル（DaisyUI `table table-pin-rows`）を配置し、Lvごとの回避・対潜・索敵・運の数値を一覧確認可能。
