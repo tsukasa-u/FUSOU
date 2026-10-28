@@ -783,3 +783,90 @@ delegation/grant blockers, four real checks **UNVERIFIED**,
 `publication_authorized: false`, deployment **NOT_CHECKED** and Production
 acceptance **BLOCKED** are unchanged. APP process/image authority, TPM,
 measured boot, privileged helpers and browser integrity remain out of scope.
+
+## Native build inputs and provenance candidate (source-only)
+
+Source basis: `1a98e76ee941f902ea322a8d0e76749593bc873f`. This advances the
+source foundation beyond the preceding stopping-boundary audit, not its trust
+decisions. Its historical "no new schema" and untracked-lock findings describe
+that earlier source, not a claim that the following candidate is authenticated.
+
+The native [manifest](../../packages/FUSOU-TLSN-VERIFIER/Cargo.toml) now declares
+an explicit standalone workspace/resolver and the existing formal CLI binary.
+There is no ancestor Cargo workspace. The existing Cargo-generated
+[lock](../../packages/FUSOU-TLSN-VERIFIER/Cargo.lock) belongs to this package;
+only its ignore exception was added and its original bytes were retained
+(SHA-256 hex `a23d6d3363b0e2c34fc244fb74f51dd87aca80d2a4f31e6f0e9ca833c4c9a21c`).
+The authenticity-core and patched TLSN path dependencies retain their own
+workspace boundaries. Cargo resolution/locked-build consistency and the
+complete native input closure remain **NOT_CHECKED**.
+
+The [candidate contract](../../scripts/release-native-build.mjs) provides:
+
+- explicit package/bin/workspace, four tracked input byte descriptors and
+  source-shape guards, not a Cargo resolver or complete native TCB inventory;
+- an **UNAPPROVED** Rust `1.98.1`/Linux x86_64/release/default-feature recipe
+  with `--locked`, explicit output directory and empty extra Rust flags;
+- canonical candidate metadata binding executable SHA-256 hex/length/path,
+  source repository/IDs/SHA, workflow path/revision, run/attempt, compiler
+  observation, input/lock hashes and recipe/flags; these declarations are not
+  authenticated build measurements;
+- independent expected-context/input/recipe/compiler comparisons against raw
+  binary/metadata bytes and a separately supplied normalized artifact origin
+  (ID/name/archive digest/repository/workflow/run/attempt);
+- a **MOCK_ONLY** normalized provenance interface requiring the SLSA v1
+  predicate and both executable and metadata subjects to match the same
+  expected context. It is not a parser for actual SLSA/`gh` output.
+
+The archive digest (`sha256:` plus hex), executable hex subject, and
+source-input base64url digests have separate meanings. Actual raw binary and
+metadata subject hashes are recomputed, not taken as trust pins from the
+metadata. Independent expectations must come from an approved consumer
+policy/acquisition path, not this draft or its own build record. Currently
+the candidate origin comparison authenticates neither GitHub metadata nor
+downloaded artifact bytes. Even a consistent mock packet reports
+`signature_verification`, `signer_authentication`,
+`artifact_origin_authentication` and native cryptographic verification as
+**UNVERIFIED**, `authenticated: false` and `BLOCKED_IMPLEMENTATION`.
+
+The [workflow](../../.github/workflows/tlsn-native-build.yml) is a reusable
+source candidate; **all three jobs have literal `if: ${{ false }}`**.
+Its candidate implementation locator and future build source SHA are distinct,
+full-SHA inputs, neither an approved signer pin. Existing checkout/setup-node/
+github-script immutable action pins are reused. The user-supplied
+`actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` remains a candidate
+reference only. Local action metadata was unavailable and `gh` was absent;
+network access was prohibited. Accordingly no guessed action inputs, actual
+attest step, write/OIDC permissions or `gh` options/output parser were added.
+There is no workflow metadata capture/upload/attest connection. Preflight
+always refuses build authorization, including if its draft fields are
+self-declared approved. The attestation placeholder also fails explicitly.
+
+The existing [consumer](../../scripts/release-consumer.mjs),
+[checks](../../scripts/release-checks.mjs),
+[collector](../../scripts/release-evidence-producer.mjs) and app/worker
+transport proof roles are unchanged; no native success capability or
+authenticated report is connected. Existing argv/input/raw-output/exit/evidence
+correlation contracts are retained, but do not measure a real launched
+executable. Key-free candidate tests are synthetic-byte/mock control-flow
+checks, not actual attestation, native execution or TLSN verification.
+
+Remaining approvals/registrations are the native source/build input closure,
+repository/owner IDs, exact toolchain/target/flags, trusted workflow immutable
+revision/isolation, verified action/API/permissions/eligibility, approved
+attestation verifier/trust acquisition, artifact role/member/download proof
+and executable launcher/measurement/producer report. The draft's recipe and
+action digest do not grant any of them. Actual locked build, binary/compiler
+measurement, artifact publication/reacquisition, attestation verification and
+native execution require separately authorized observations.
+
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` therefore remains maintained;
+new granular preflight blockers include
+`NATIVE_ARTIFACT_ACQUISITION_NOT_REGISTERED`,
+`NATIVE_ATTESTATION_VERIFIER_NOT_REGISTERED` and
+`NATIVE_LAUNCHER_NOT_IMPLEMENTED`. Delegation remains **PROPOSED**,
+`DERIVED_NOT_AUTHORIZED`, both archive-grant registration blockers, four real
+checks **UNVERIFIED**, `publication_authorized: false`, deployment
+**NOT_CHECKED**, Production acceptance **BLOCKED**. No keys, new trust root,
+issuer, grant, `--version`, APP process/image authority or browser integrity
+guarantee is introduced.

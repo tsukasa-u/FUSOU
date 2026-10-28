@@ -5081,3 +5081,318 @@ git rev-parse HEAD HEAD^
 git -c core.fsmonitor=false status --short --untracked-files=all -- packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock 'scripts/release-*.mjs' .github/workflows/tlsn-release-eligibility.yml .github/workflows/tlsn-release-consumer.yml .github/workflows/tlsn-grant-delegation.yml
 git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 ```
+
+## Native build inputs and provenance candidate: source-only implementation
+
+Start branch `tlsn-first-testplay-candidate`, actual HEAD
+`1a98e76ee941f902ea322a8d0e76749593bc873f`, matching the requested start.
+The explicit task scope was initially clean. Protected files were not read,
+searched, compared, hashed, edited, staged or committed. No broad repository
+search/status/diff or comprehensive package/test/build script was used.
+
+### Source progress and trust boundary
+
+The formal CLI remains
+`packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs`.
+Its existing JSON/exit/argv contract is unchanged. The native package now
+explicitly declares its own workspace/resolver and binary target. Neither
+the repository root nor `packages/` has a Cargo manifest. Existing path
+dependencies include authenticity-core and the patched TLSN sparse workspace;
+their separate locks are not collected into this change.
+
+The existing Cargo-generated native v4 lock has been staged without changing
+any bytes; only a native-path ignore exception was added. Original and
+post-stage SHA-256 hex both equal
+`a23d6d3363b0e2c34fc244fb74f51dd87aca80d2a4f31e6f0e9ca833c4c9a21c`
+(72,356 bytes). TOML parsing confirms the native package/version and explicit
+workspace/bin shape. Cargo was not executed: full manifest/lock consistency
+and complete dependency/source closure remain **NOT_CHECKED**.
+
+New source files:
+
+- `scripts/release-native-policy.draft.json`: PROPOSED/unapproved, false
+  operational/publication flags; repository/owner IDs and signer revision
+  null, action contract/eligibility unchecked, verifier/launcher unimplemented.
+- `scripts/release-native-build.mjs`: tracked four-input source-shape guard,
+  fail-closed preflight, `--locked` candidate recipe, canonical byte-bound
+  metadata and mock-only independent comparison interface.
+- `scripts/release-native-build.test.mjs`: key-free synthetic input/metadata/
+  artifact-origin/provenance controls and existing offline-check refusal.
+- `.github/workflows/tlsn-native-build.yml`: reusable candidate with all
+  three jobs literal `if: ${{ false }}` and `contents: read` only.
+
+Rust `1.98.1`, `x86_64-unknown-linux-gnu`, release/default features, empty
+extra Rust flags and explicit output directory are **UNAPPROVED candidate
+values**, not formal pins inferred from a README. Recipe includes `--locked`;
+no lock update or retry fallback exists. Candidate implementation locator,
+binary source SHA and future approved workflow revision are separate roles.
+No current commit is registered as a trusted native builder.
+
+Metadata binds executable raw SHA-256 hex/length/path, source repository/IDs/
+SHA, workflow path/SHA, run/attempt, compiler observation, four input/lock
+byte descriptors and recipe/flags. Those declarations do not authenticate a
+builder. The mock interface recomputes binary and metadata hashes, requires
+independently supplied expectations, compares separately supplied normalized
+artifact origin (ID/name/archive digest/repository/workflow/run/attempt),
+and compares both subjects/predicate/context against a normalized mock result.
+The archive digest is separate from the executable digest. This is not a
+real SLSA/`gh` parser, GitHub artifact re-fetcher or signature verifier.
+Expected values copied from the candidate's own metadata are not independent
+policy. Mutation during the asynchronous mock is rejected.
+
+`actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` is retained as the
+user-supplied candidate reference, not a trust root. Existing immutable
+checkout/setup-node/github-script pins are reused. The requested action's
+local metadata was unavailable; `gh` was not installed and network access
+was prohibited. No CLI options/output schema or action inputs/permissions
+were invented. Consequently no actual attest step or `id-token`/
+`attestations` write permissions were added. Workflow metadata observation,
+upload and attestation remain **NOT_IMPLEMENTED**, as do real attestation
+adapter, authenticated native artifact acquisition and native launcher.
+Preflight and the placeholder explicitly fail closed; even changing draft
+approval labels cannot produce native/build authorization.
+
+The existing independent consumer, app/worker artifact proof roles and
+native report/collector validators are unchanged. Existing argument/input/
+output/exit/archive/session/binding tests still use synthetic process/API
+doubles. Native launcher measurement, stderr/start/end and real native
+cryptographic verification are not implemented by this candidate. No
+`--version`, key, new root, signature format or native success path was added.
+
+### Checks and exact local commands
+
+All commands below target explicit allowed paths or local parser package
+names. They do not execute Cargo, Rust, native code, package lifecycle
+scripts, workflow runs, signing or external services.
+
+Start metadata/scoped state: **PASS**, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git branch --show-current && git rev-parse HEAD && git -c core.fsmonitor=false status --short --untracked-files=all -- .gitignore packages/FUSOU-TLSN-VERIFIER/.gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock packages/FUSOU-TLSN-VERIFIER/src/bin/verify_fusou_tlsn_evidence.rs .github/workflows/tlsn-native-build.yml scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json scripts/release-build-proof.mjs scripts/release-checks.mjs scripts/release-execution-intake.mjs scripts/release-evidence-producer.mjs scripts/release-consumer.mjs docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md .githooks/pre-commit scripts/scoped_code_review_graph.py
+```
+
+Manifest inventory/ignore/CLI availability: **PASS**, exit 0. Initially the
+native lock matched `.gitignore:8:Cargo.lock`; it was not tracked. No `gh`
+executable was found. These commands do not execute it.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git ls-files -- Cargo.toml .gitignore packages/.gitignore packages/FUSOU-TLSN-VERIFIER/.gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock packages/authenticity/Cargo.toml packages/authenticity/authenticity-core/Cargo.toml packages/tlsn-alpha15-sparse/Cargo.toml packages/tlsn-alpha15-sparse/crates/tlsn/Cargo.toml && git check-ignore -v --no-index -- packages/FUSOU-TLSN-VERIFIER/Cargo.lock; command -v gh || true
+```
+
+Ancestor-manifest/native-ignore existence and CLI availability confirmation:
+**PASS**, exit 0; three `ABSENT` values and `GH_NOT_INSTALLED`.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+for path in Cargo.toml packages/Cargo.toml packages/FUSOU-TLSN-VERIFIER/.gitignore; do if test -e "$path"; then printf 'PRESENT %s\n' "$path"; else printf 'ABSENT %s\n' "$path"; fi; done
+if command -v gh; then printf 'GH_AVAILABLE\n'; else printf 'GH_NOT_INSTALLED\n'; fi
+```
+
+Local parser resolution/discovery: **PASS**, both commands exit 0.
+Root resolution returned `NOT_INSTALLED`; existing pnpm-store parsers were
+then found without installing dependencies. Earlier bounded file lookups
+also found no local action metadata; a roadmap range exceeded the file end
+and was narrowed. These were discovery misses, not test failures.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module -e 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url); for (const name of ["yaml", "@iarna/toml", "smol-toml"]) { try { console.log(name + " " + require.resolve(name)); } catch (error) { if (error.code !== "MODULE_NOT_FOUND") throw error; console.log(name + " NOT_INSTALLED"); } }'
+```
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module -e 'import { readdirSync } from "node:fs"; console.log(readdirSync("node_modules/.pnpm").filter((name) => /^(yaml|js-yaml|smol-toml|@iarna\+toml)@/.test(name)).join("\n") || "NO_LOCAL_PARSER");'
+```
+
+Original lock hash and initial changed-module syntax: **PASS**, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && sha256sum packages/FUSOU-TLSN-VERIFIER/Cargo.lock && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.test.mjs
+```
+
+Initial selected suite: **PASS**, 123/123, fail/skip/cancel 0, exit 0.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-native-build.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-build-candidate-tests.log 2>&1; result=$?; tail -n 38 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-build-candidate-tests.log; exit "$result"
+```
+
+Initial full YAML/TOML static parse: **PASS**, exit 0; no Cargo resolution.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { NATIVE_ROOT, NATIVE_BINARY, NATIVE_WORKFLOW, NATIVE_POLICY, NATIVE_ATTEST_ACTION, nativeBuildRecipe } from './scripts/release-native-build.mjs';
+const require = createRequire(import.meta.url);
+const yaml = require('./node_modules/.pnpm/yaml@2.8.3/node_modules/yaml');
+const toml = require('./node_modules/.pnpm/smol-toml@1.8.0/node_modules/smol-toml');
+const source = readFileSync(NATIVE_WORKFLOW, 'utf8');
+const parsed = yaml.parseDocument(source, { uniqueKeys: true });
+assert.deepEqual(parsed.errors, []);
+const workflow = parsed.toJS();
+assert.deepEqual(Object.keys(workflow.on), ['workflow_call']);
+assert.deepEqual(workflow.permissions, { contents: 'read' });
+assert.deepEqual(Object.keys(workflow.jobs), ['preflight', 'candidate-build', 'attestation']);
+for (const job of Object.values(workflow.jobs)) {
+  assert.equal(job.if, '${{ false }}');
+  assert.equal(job.permissions, undefined);
+  for (const step of job.steps) if (step.uses) assert.match(step.uses, /^actions\/[a-z-]+@[0-9a-f]{40}$/);
+}
+assert.equal(workflow.jobs.attestation.steps[0].env.CANDIDATE_ACTION, NATIVE_ATTEST_ACTION);
+const policy = JSON.parse(readFileSync(NATIVE_POLICY, 'utf8'));
+assert.equal(policy.recipe_approval, 'UNAPPROVED');
+assert.equal(policy.operational_enabled, false);
+assert(source.includes('cargo ' + nativeBuildRecipe(policy.recipe).argv.join(' ')));
+const manifest = toml.parse(readFileSync(`${NATIVE_ROOT}/Cargo.toml`, 'utf8'));
+assert.equal(manifest.package.name, 'fusou-tlsn-verifier');
+assert.equal(manifest.workspace.resolver, '2');
+assert.deepEqual(manifest.bin, [{ name: NATIVE_BINARY, path: `src/bin/${NATIVE_BINARY}.rs` }]);
+const lockRaw = readFileSync(`${NATIVE_ROOT}/Cargo.lock`);
+const lock = toml.parse(lockRaw.toString('utf8'));
+assert.equal(lock.version, 4);
+assert.equal(lock.package.find((pkg) => pkg.name === manifest.package.name).version, manifest.package.version);
+assert.equal(createHash('sha256').update(lockRaw).digest('hex'), 'a23d6d3363b0e2c34fc244fb74f51dd87aca80d2a4f31e6f0e9ca833c4c9a21c');
+console.log('PASS: YAML fixed gates/action pins/permissions and candidate recipe; TOML workspace/bin/lock scope and unchanged lock bytes. Cargo resolution and attestation remain NOT_RUN.');
+JS
+```
+
+After that successful first run, candidate checks were completed with seven
+independent artifact-origin mismatch tests, an explicit recipe environment
+and unregistered-acquisition blocker. No assertion was weakened or skipped;
+no test/syntax/YAML/TOML failure occurred.
+
+Final syntax plus selected suite: **PASS**, 130/130 (50 new candidate tests
+plus 80 existing native/collector/consumer contracts), fail/skip/cancel 0,
+exit 0. Fixtures/mock normalized verifiers use no key generation, signing,
+network, build or native executable. Their consistency result is never real
+signature/provenance/native verification.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.mjs && env -u NODE_OPTIONS -u NODE_PATH node --check scripts/release-native-build.test.mjs && env -u NODE_OPTIONS -u NODE_PATH node --test scripts/release-native-build.test.mjs scripts/release-evidence-producer.test.mjs scripts/release-checks.test.mjs > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-build-candidate-final-tests.log 2>&1; result=$?; tail -n 26 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-build-candidate-final-tests.log; exit "$result"
+```
+
+Exact seven-path stage, tracked-lock/unchanged-hash confirmation and actual
+source preflight assertions: **PASS**, exit 0. Source result is
+`SOURCE_CONTRACT_READY` (four-file tracked shape only), while authorization
+remains `BLOCKED_IMPLEMENTATION`, false authenticated/build/publication
+flags and Production BLOCKED. This assertion command's exit 0 means the
+expected refusal was observed, not that a build was authorized.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && git -c core.fsmonitor=false add -- .gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock .github/workflows/tlsn-native-build.yml scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json && git ls-files --error-unmatch -- packages/FUSOU-TLSN-VERIFIER/Cargo.lock && sha256sum packages/FUSOU-TLSN-VERIFIER/Cargo.lock && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { readNativeBuildPreflight, NATIVE_BLOCKER } from './scripts/release-native-build.mjs';
+const result = await readNativeBuildPreflight();
+assert.equal(result.source_contract, 'SOURCE_CONTRACT_READY');
+assert.equal(result.cargo_locked_consistency, 'NOT_CHECKED');
+assert.equal(result.build_authorized, false);
+assert.equal(result.authenticated, false);
+assert(result.blockers.includes(NATIVE_BLOCKER));
+console.log(JSON.stringify(result, null, 2));
+JS
+```
+
+Final YAML/TOML parse, job gates/read-only permissions/action pins, exact
+recipe argv/environment, native workspace/bin and original lock hash:
+**PASS**, exit 0, using already installed local parsers only.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU && env -u NODE_OPTIONS -u NODE_PATH node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { NATIVE_ROOT, NATIVE_BINARY, NATIVE_WORKFLOW, NATIVE_POLICY, NATIVE_ATTEST_ACTION, nativeBuildRecipe } from './scripts/release-native-build.mjs';
+const require = createRequire(import.meta.url);
+const yaml = require('./node_modules/.pnpm/yaml@2.8.3/node_modules/yaml');
+const toml = require('./node_modules/.pnpm/smol-toml@1.8.0/node_modules/smol-toml');
+const source = readFileSync(NATIVE_WORKFLOW, 'utf8');
+const parsed = yaml.parseDocument(source, { uniqueKeys: true });
+assert.deepEqual(parsed.errors, []);
+const workflow = parsed.toJS();
+assert.deepEqual(Object.keys(workflow.on), ['workflow_call']);
+assert.deepEqual(workflow.permissions, { contents: 'read' });
+assert.deepEqual(Object.keys(workflow.jobs), ['preflight', 'candidate-build', 'attestation']);
+for (const job of Object.values(workflow.jobs)) {
+  assert.equal(job.if, '${{ false }}');
+  assert.equal(job.permissions, undefined);
+  for (const step of job.steps) if (step.uses) assert.match(step.uses, /^actions\/[a-z-]+@[0-9a-f]{40}$/);
+}
+assert.equal(workflow.jobs.attestation.steps[0].env.CANDIDATE_ACTION, NATIVE_ATTEST_ACTION);
+const policy = JSON.parse(readFileSync(NATIVE_POLICY, 'utf8'));
+assert.equal(policy.recipe_approval, 'UNAPPROVED');
+assert.equal(policy.operational_enabled, false);
+const recipe = nativeBuildRecipe(policy.recipe);
+assert(source.includes('cargo ' + recipe.argv.join(' ')));
+assert.deepEqual(workflow.jobs['candidate-build'].steps.at(-1).env, recipe.environment);
+const manifest = toml.parse(readFileSync(`${NATIVE_ROOT}/Cargo.toml`, 'utf8'));
+assert.equal(manifest.package.name, 'fusou-tlsn-verifier');
+assert.equal(manifest.workspace.resolver, '2');
+assert.deepEqual(manifest.bin, [{ name: NATIVE_BINARY, path: `src/bin/${NATIVE_BINARY}.rs` }]);
+const lockRaw = readFileSync(`${NATIVE_ROOT}/Cargo.lock`);
+const lock = toml.parse(lockRaw.toString('utf8'));
+assert.equal(lock.version, 4);
+assert.equal(lock.package.find((pkg) => pkg.name === manifest.package.name).version, manifest.package.version);
+assert.equal(createHash('sha256').update(lockRaw).digest('hex'), 'a23d6d3363b0e2c34fc244fb74f51dd87aca80d2a4f31e6f0e9ca833c4c9a21c');
+console.log('PASS: final YAML gates/pins/read-only permissions/recipe environment; TOML workspace/bin/lock identity and unchanged lock bytes. No Cargo or attestation execution.');
+JS
+```
+
+### Remaining non-executed work and maintained status
+
+| Work | State / reason |
+| --- | --- |
+| Cargo resolution / `cargo build --locked` / compiler observation | **NOT_RUN**, build/native-tool execution prohibited; lock consistency NOT_CHECKED |
+| Actual workflow / artifact upload / attestation issuance | **NOT_RUN**, prohibited; workflow fixed-disabled and API/approval incomplete |
+| Actual `gh attestation verify` / online artifact reacquisition | **NOT_RUN**, prohibited external access; CLI absent and real adapter/acquisition role NOT_IMPLEMENTED |
+| Native executable / real TLSN cryptographic evidence verification | **NOT_RUN**, prohibited; launcher/report authentication unresolved |
+| Real GitHub OIDC positive integration / repository settings / active pins | **NOT_CHECKED**, outside this source-only stage |
+| Delegation / reusable workflow | **PROPOSED** / unapproved; fixed-disabled |
+| Four real evidence checks | **UNVERIFIED** |
+| Publication / deployment / Production acceptance | `publication_authorized: false` / **NOT_CHECKED** / **BLOCKED** |
+
+`DERIVED_NOT_AUTHORIZED`,
+`ARCHIVE_GRANT_AUTHORITY_READER_NOT_REGISTERED`,
+`ARCHIVE_GRANT_PUBLICATION_PROVIDER_NOT_REGISTERED` and
+`FORMAL_NATIVE_BUILD_IDENTITY_CONTRACT_UNDEFINED` are maintained.
+Actual preflight additionally names unregistered repository IDs/signer pin,
+unapproved build pins, unchecked action/eligibility, unregistered attestation
+verifier/acquisition and unimplemented launcher. Required later inputs are
+independently approved native input closure/locked recipe, repository/owner
+identity, immutable builder revision and isolation, verified action/API/
+permissions/eligibility, consumer verifier/trust acquisition, artifact/member/
+download identity and executable measurement/report contract. Real build,
+attestation and execution observations are still necessary after registration.
+No new key/root or package version substitutes for them.
+
+### Scoped whitespace and local commit protocol
+
+Ten-path working/staged whitespace result: **PASS**, exit 0. Repeated as the
+final commit gate after recording that observed result. Documentation-only
+edits after the passing code checks do not change the tested code.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- .gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock .github/workflows/tlsn-native-build.yml scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@"
+```
+
+Unsigned local-only commit, normal scoped hook retained. Actual hook/commit
+outcome is observed when executing, not assumed by this pre-commit record:
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- .gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock .github/workflows/tlsn-native-build.yml scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check -- "$@" && git -c core.fsmonitor=false add -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --cached --check -- "$@" && git --no-pager -c core.fsmonitor=false -c commit.gpgsign=false commit --only -m "feat(tlsn): add nonoperational native build provenance candidate" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" -- "$@" > /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-build-candidate-commit.log 2>&1; result=$?; tail -n 26 /home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/native-build-candidate-commit.log; exit "$result"
+```
+
+Final branch/HEAD/parent, ten-path state/committed whitespace and unchanged
+tracked lock verification use only the following explicit paths. Their
+observed outcome and full end SHA are reported after commit, without trying
+to write a commit's own hash inside itself.
+
+```sh
+cd /home/ogu-h/Documents/GitHub/FUSOU
+set -- .gitignore packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock .github/workflows/tlsn-native-build.yml scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
+git branch --show-current && git rev-parse HEAD HEAD^ && git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- "$@" && git ls-files --error-unmatch -- packages/FUSOU-TLSN-VERIFIER/Cargo.lock && sha256sum packages/FUSOU-TLSN-VERIFIER/Cargo.lock
+```

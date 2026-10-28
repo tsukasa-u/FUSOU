@@ -489,6 +489,30 @@ and [dated audit/validation record](../../docs/implementation-plans/tlsn-data-au
 record the missing contracts. No new key, attestation trust root, `--version`
 option or native success path is implied.
 
+The [source-only native candidate](../../scripts/release-native-build.mjs)
+now identifies this standalone workspace and explicit binary target, tracks the
+existing Cargo-generated lock bytes, and defines a `--locked` recipe,
+raw-byte metadata, independent-expectation checks and a fail-closed preflight.
+Rust `1.98.1`, `x86_64-unknown-linux-gnu`, release/default features, empty extra
+Rust flags and the output directory are **UNAPPROVED candidate** choices.
+Tracking the lock does not prove manifest consistency: Cargo resolution and
+`cargo build --locked` were not run. The four-file source-shape check is not a
+complete dependency/source closure.
+
+The [builder candidate](../../.github/workflows/tlsn-native-build.yml) has all
+three jobs fixed-disabled and read-only permissions. Its
+[draft policy](../../scripts/release-native-policy.draft.json) does not register
+repository IDs, an approved signer revision or a provenance verifier.
+`actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6` is only a candidate
+reference: its local API/permission contract and repository eligibility have
+not been established, so no attestation action or write/OIDC permissions were
+added. Metadata production/upload/attestation is not wired into the workflow.
+There is no real `gh attestation verify` adapter, native artifact acquisition
+role or launcher. The mock-only normalized provenance interface checks two
+subjects (binary and metadata) and candidate origin/run context but always
+returns unauthenticated, blocked results. It neither parses real GitHub
+attestations nor promotes `offline_verification` or Production acceptance.
+
 Example offline invocation (not run by the native identity audit):
 
 ```text

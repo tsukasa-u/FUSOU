@@ -5,6 +5,13 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Strict parser and frozen TLSNotary alpha.15 adapter for FUSOU require_info evidence"
 
+[workspace]
+resolver = "2"
+
+[[bin]]
+name = "verify_fusou_tlsn_evidence"
+path = "src/bin/verify_fusou_tlsn_evidence.rs"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

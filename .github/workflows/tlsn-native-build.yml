@@ -1,0 +1,85 @@
+name: FUSOU native build source-only candidate
+
+on:
+  workflow_call:
+    inputs:
+      candidate_implementation_sha:
+        description: Untrusted candidate workflow-code locator, never an approved signer pin
+        required: true
+        type: string
+      source_sha:
+        description: Candidate source revision, never the trusted builder workflow revision
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate candidate implementation locator
+        id: implementation
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          CANDIDATE_IMPLEMENTATION_SHA: ${{ inputs.candidate_implementation_sha }}
+        with:
+          script: |
+            const sha = process.env.CANDIDATE_IMPLEMENTATION_SHA;
+            if (!/^[0-9a-f]{40}$/.test(sha ?? "")) throw new Error("full candidate implementation SHA required");
+            core.setOutput("sha", sha);
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: tsukasa-u/FUSOU
+          ref: ${{ steps.implementation.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+      - name: Require independent approval and registered verifier before any build
+        run: |
+          node --input-type=module <<'JS'
+          import { readNativeBuildPreflight } from "./scripts/release-native-build.mjs";
+          console.log(JSON.stringify(await readNativeBuildPreflight()));
+          process.exitCode = 1;
+          JS
+
+  candidate-build:
+    if: ${{ false }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate source locator separately from workflow identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          node --input-type=module -e 'if (!/^[0-9a-f]{40}$/.test(process.env.SOURCE_SHA ?? "")) throw new Error("full candidate source SHA required");'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: tsukasa-u/FUSOU
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Candidate toolchain and recipe, not approved for execution
+        env:
+          CARGO_TARGET_DIR: packages/FUSOU-TLSN-VERIFIER/target
+          RUSTFLAGS: ""
+          CARGO_ENCODED_RUSTFLAGS: ""
+          RUSTDOCFLAGS: ""
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cargo +1.98.1 build --locked --release --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --bin verify_fusou_tlsn_evidence --target x86_64-unknown-linux-gnu
+
+  attestation:
+    if: ${{ false }}
+    needs: candidate-build
+    runs-on: ubuntu-24.04
+    # No write/OIDC permissions or action invocation until its API and requirements are verified.
+    steps:
+      - name: Attestation action contract and independent verifier are unresolved
+        env:
+          CANDIDATE_ACTION: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        run: |
+          echo "NATIVE_ATTEST_ACTION_CONTRACT_NOT_VERIFIED"
+          exit 1

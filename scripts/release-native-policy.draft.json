@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "scope": "fusou-native-build-candidate-v1",
+  "lifecycle": "PROPOSED",
+  "operational_enabled": false,
+  "publication_authorized": false,
+  "repository": "tsukasa-u/FUSOU",
+  "repository_id": null,
+  "repository_owner_id": null,
+  "workflow_path": ".github/workflows/tlsn-native-build.yml",
+  "trusted_workflow_sha": null,
+  "recipe_approval": "UNAPPROVED",
+  "recipe": {
+    "toolchain": "1.98.1",
+    "target": "x86_64-unknown-linux-gnu",
+    "profile": "release",
+    "features": [],
+    "default_features": true
+  },
+  "attestation_action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+  "attestation_action_contract": "NOT_CHECKED",
+  "predicate_type": "https://slsa.dev/provenance/v1",
+  "repository_attestation_eligibility": "NOT_CHECKED",
+  "verifier_adapter": "NOT_IMPLEMENTED",
+  "launcher_contract": "NOT_IMPLEMENTED"
+}
