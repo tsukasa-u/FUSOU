@@ -112,10 +112,8 @@ fn verify_require_info_presentation_inner(
     let device_challenge: [u8; 32] = device_challenge
         .try_into()
         .map_err(|_| JsValue::from_str("device_challenge must be exactly 32 bytes"))?;
-    let origin_inventory_sha256 = optional_production_digest(
-        origin_inventory_sha256,
-        "origin_inventory_sha256",
-    )?;
+    let origin_inventory_sha256 =
+        optional_production_digest(origin_inventory_sha256, "origin_inventory_sha256")?;
     let target_approval_artifact_sha256 = optional_production_digest(
         target_approval_artifact_sha256,
         "target_approval_artifact_sha256",
@@ -185,10 +183,8 @@ fn verify_sparse_require_info_presentation_inner(
     let device_challenge: [u8; 32] = device_challenge
         .try_into()
         .map_err(|_| JsValue::from_str("device_challenge must be exactly 32 bytes"))?;
-    let origin_inventory_sha256 = optional_production_digest(
-        origin_inventory_sha256,
-        "origin_inventory_sha256",
-    )?;
+    let origin_inventory_sha256 =
+        optional_production_digest(origin_inventory_sha256, "origin_inventory_sha256")?;
     let target_approval_artifact_sha256 = optional_production_digest(
         target_approval_artifact_sha256,
         "target_approval_artifact_sha256",
@@ -470,7 +466,9 @@ mod trust_store_tests {
         let mut root_params = CertificateParams::default();
         root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         root_params.key_usages = vec![KeyUsagePurpose::KeyCertSign];
-        let root_certificate = root_params.self_signed(&root_key).expect("synthetic root certificate");
+        let root_certificate = root_params
+            .self_signed(&root_key)
+            .expect("synthetic root certificate");
 
         let leaf_key = KeyPair::generate().expect("synthetic leaf key");
         let mut leaf_params = CertificateParams::new(vec!["inventory.example.test".to_owned()])
@@ -483,8 +481,11 @@ mod trust_store_tests {
 
         let root_der = CertificateDer(root_certificate.der().to_vec());
         let leaf_der = CertificateDer(leaf_certificate.der().to_vec());
-        let explicit_store = RootCertStore { roots: vec![root_der] };
-        let explicit_verifier = ServerCertVerifier::new(&explicit_store).expect("synthetic verifier");
+        let explicit_store = RootCertStore {
+            roots: vec![root_der],
+        };
+        let explicit_verifier =
+            ServerCertVerifier::new(&explicit_store).expect("synthetic verifier");
         let server_name = ServerName::Dns(
             DnsName::try_from("inventory.example.test").expect("synthetic DNS identity"),
         );
