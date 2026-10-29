@@ -31,6 +31,21 @@ test("aggregate byte-work includes multiple owned copies at below/equal/above bo
     else assert.deepEqual(run(), Buffer.from("efgh"));
   }
 });
+test("frame allocations reserve cumulative bytes and have isolated backing stores", () => {
+  for (const max_bytes of [7, 8, 9]) {
+    const run = () => withNativeInspectionBudgetSync(nativeResourceFixtureBudget({ max_bytes }), (scope) => {
+      const first = scope.allocate(4), second = scope.allocate(4);
+      assert.equal(first.byteLength, 4); assert.equal(second.byteLength, 4);
+      assert.notEqual(first.buffer, second.buffer);
+      first.fill(1); second.fill(2);
+      assert.deepEqual([...first], [1, 1, 1, 1]);
+    });
+    if (max_bytes === 7) assert.throws(run, code("NATIVE_RESOURCE_BYTES_EXCEEDED"));
+    else run();
+  }
+  assert.throws(() => withNativeInspectionBudgetSync(nativeResourceFixtureBudget(),
+    (scope) => scope.allocate(-1)), code("NATIVE_RESOURCE_BYTES_EXCEEDED"));
+});
 test("admission values and branded scope methods cannot be replaced after validation", () => {
   const limits = { ...nativeResourceFixtureLimits, max_bytes: 8 }, budget = createNativeInspectionBudget(limits);
   limits.max_bytes = 100;

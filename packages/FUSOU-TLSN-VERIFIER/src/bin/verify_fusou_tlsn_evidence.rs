@@ -2,7 +2,12 @@ use fusou_tlsn_verifier::evidence_bundle::{
     verify_bundle, BundleVerificationError, BundleVerifierOptions,
 };
 use serde_json::json;
-use std::{env, fs, process};
+use std::{collections::HashSet, env, fs, process};
+
+enum Invocation {
+    Path(Arguments),
+    FdV1,
+}
 
 struct Arguments {
     bundle: String,
@@ -40,8 +45,22 @@ where
         .ok_or_else(|| format!("missing value for {flag}\n{}", usage()))
 }
 
-fn parse_arguments() -> Result<Arguments, String> {
-    let mut arguments = env::args().skip(1);
+fn parse_arguments_from(mut arguments: Vec<String>) -> Result<Invocation, String> {
+    if arguments.iter().any(|flag| flag == "--fd-abi-v1") {
+        return if arguments.len() == 1 {
+            Ok(Invocation::FdV1)
+        } else {
+            Err("FD ABI mode cannot be mixed with path arguments or repeated".to_owned())
+        };
+    }
+    if arguments.first().is_some_and(|flag| flag == "--path-mode") {
+        arguments.remove(0);
+    }
+    parse_path_arguments(arguments.into_iter()).map(Invocation::Path)
+}
+
+fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<Arguments, String> {
+    let mut seen = HashSet::new();
     let mut bundle = None;
     let mut evidence_root_key_id = None;
     let mut evidence_root_public_key_spki = None;
@@ -64,8 +83,11 @@ fn parse_arguments() -> Result<Arguments, String> {
     let mut trust_anchor_der = None;
     while let Some(flag) = arguments.next() {
         if flag == "--help" {
-            println!("{}", usage());
+            println!("{}\nFD mode: --fd-abi-v1 (independent policy registration required)\nLegacy mode: [--path-mode] path arguments", usage());
             process::exit(0);
+        }
+        if !seen.insert(flag.clone()) {
+            return Err(format!("duplicate argument: {flag}"));
         }
         let value = required_value(&mut arguments, &flag)?;
         match flag.as_str() {
@@ -209,13 +231,19 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
     )
 }
 
+fn run_invocation(invocation: Invocation) -> Result<serde_json::Value, BundleVerificationError> {
+    match invocation {
+        Invocation::Path(arguments) => run(arguments),
+        Invocation::FdV1 => Err(BundleVerificationError::new(
+            "fd_policy", None, "FD_POLICY_CONTEXT_NOT_REGISTERED",
+        )),
+    }
+}
+
 fn main() {
-    let result = parse_arguments()
+    let result = parse_arguments_from(env::args().skip(1).collect())
         .map_err(|error| json!({ "status": "REJECTED", "error": { "trust_edge": "cli", "message": error } }))
-        .and_then(|arguments| match run(arguments) {
-            Ok(report) => Ok(report),
-            Err(error) => Err(error.report()),
-        });
+        .and_then(|invocation| run_invocation(invocation).map_err(|error| error.report()));
     match result {
         Ok(report) => println!(
             "{}",
@@ -228,5 +256,32 @@ fn main() {
             );
             process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fd_mode_is_explicit_and_excludes_all_other_arguments() {
+        assert!(matches!(parse_arguments_from(vec!["--fd-abi-v1".into()]), Ok(Invocation::FdV1)));
+        for args in [
+            vec!["--fd-abi-v1", "--bundle", "input"],
+            vec!["--bundle", "input", "--fd-abi-v1"],
+            vec!["--fd-abi-v1", "--fd-abi-v1"],
+            vec!["--path-mode", "--fd-abi-v1"],
+        ] {
+            assert!(parse_arguments_from(args.into_iter().map(str::to_owned).collect()).is_err());
+        }
+        let report = run_invocation(Invocation::FdV1).unwrap_err().report();
+        assert_eq!(report["error"]["message"], "FD_POLICY_CONTEXT_NOT_REGISTERED");
+    }
+
+    #[test]
+    fn legacy_duplicate_flags_are_rejected() {
+        let error = parse_path_arguments(["--bundle", "a", "--bundle", "b"].into_iter().map(str::to_owned))
+            .err().unwrap();
+        assert!(error.contains("duplicate argument"));
     }
 }

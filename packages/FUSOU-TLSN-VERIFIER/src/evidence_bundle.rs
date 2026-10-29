@@ -360,6 +360,11 @@ struct LoadedBundle {
     artifacts: BTreeMap<String, Artifact>,
 }
 
+pub struct BundleBytes {
+    pub manifest: Vec<u8>,
+    pub artifacts: BTreeMap<String, Vec<u8>>,
+}
+
 struct RegistryKey {
     key_id: String,
     public_key_spki: String,
@@ -379,6 +384,15 @@ pub fn verify_bundle(
     options: &BundleVerifierOptions,
 ) -> Result<Value> {
     let bundle = load_bundle(bundle_path.as_ref())?;
+    verify_loaded_bundle(bundle, options)
+}
+
+pub fn verify_bundle_bytes(bytes: BundleBytes, options: &BundleVerifierOptions) -> Result<Value> {
+    let bundle = load_bundle_bytes(bytes, PathBuf::from("fd-abi-v1"))?;
+    verify_loaded_bundle(bundle, options)
+}
+
+fn verify_loaded_bundle(bundle: LoadedBundle, options: &BundleVerifierOptions) -> Result<Value> {
     validate_manifest(&bundle.manifest)?;
     let required_artifact_names = [
         "presentation",
@@ -848,52 +862,83 @@ fn load_bundle(bundle_path: &Path) -> Result<LoadedBundle> {
                 format!("read failed: {error}"),
             )
         })?;
-        let expected_hash = descriptor
-            .get("artifact_sha256")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                BundleVerificationError::new(
-                    "artifact_manifest",
-                    Some(name),
-                    "artifact hash is missing",
-                )
-            })?;
-        let actual_hash = sha256_base64url(&bytes);
-        if expected_hash != actual_hash {
-            return Err(BundleVerificationError::mismatch(
-                "artifact_manifest",
-                Some(name),
-                "artifact SHA-256 does not match the manifest",
-                expected_hash,
-                actual_hash,
-            ));
+        validate_artifact_bytes(name, descriptor, &bytes)?;
+        artifacts.insert(name.clone(), bytes);
+    }
+    load_bundle_bytes(BundleBytes { manifest: manifest_raw, artifacts }, manifest_path)
+}
+
+fn load_bundle_bytes(bytes: BundleBytes, manifest_path: PathBuf) -> Result<LoadedBundle> {
+    let manifest = parse_json(&bytes.manifest, "manifest", "bundle_manifest")?;
+    let descriptors = manifest.get("artifacts").and_then(Value::as_object).ok_or_else(|| {
+        BundleVerificationError::new("artifact_manifest", Some("manifest"), "manifest artifacts are missing")
+    })?;
+    if descriptors.len() != bytes.artifacts.len()
+        || descriptors.keys().any(|name| !bytes.artifacts.contains_key(name))
+    {
+        return Err(BundleVerificationError::new(
+            "artifact_manifest", Some("manifest"), "artifact byte inventory differs from manifest",
+        ));
+    }
+    let mut artifacts = BTreeMap::new();
+    for (name, raw) in bytes.artifacts {
+        let descriptor = descriptors.get(&name).ok_or_else(|| {
+            BundleVerificationError::new("artifact_manifest", Some(&name), "artifact descriptor is missing")
+        })?;
+        if descriptor.get("path").and_then(Value::as_str).is_none() {
+            return Err(BundleVerificationError::new("artifact_manifest", Some(&name), "artifact path is missing"));
         }
-        let expected_length = descriptor
-            .get("byte_length")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| {
-                BundleVerificationError::new(
-                    "artifact_manifest",
-                    Some(name),
-                    "artifact byte_length is missing",
-                )
-            })?;
-        if expected_length != bytes.len() as u64 {
-            return Err(BundleVerificationError::mismatch(
-                "artifact_manifest",
-                Some(name),
-                "artifact byte length does not match the manifest",
-                expected_length.to_string(),
-                bytes.len().to_string(),
-            ));
-        }
-        artifacts.insert(name.clone(), Artifact { bytes });
+        validate_artifact_bytes(&name, descriptor, &raw)?;
+        artifacts.insert(name, Artifact { bytes: raw });
     }
     Ok(LoadedBundle {
         manifest_path,
         manifest,
         artifacts,
     })
+}
+
+fn validate_artifact_bytes(name: &str, descriptor: &Value, raw: &[u8]) -> Result<()> {
+    let expected_hash = descriptor
+        .get("artifact_sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "artifact_manifest",
+                Some(name),
+                "artifact hash is missing",
+            )
+        })?;
+    let actual_hash = sha256_base64url(raw);
+    if expected_hash != actual_hash {
+        return Err(BundleVerificationError::mismatch(
+            "artifact_manifest",
+            Some(name),
+            "artifact SHA-256 does not match the manifest",
+            expected_hash,
+            actual_hash,
+        ));
+    }
+    let expected_length = descriptor
+        .get("byte_length")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "artifact_manifest",
+                Some(name),
+                "artifact byte_length is missing",
+            )
+        })?;
+    if expected_length != raw.len() as u64 {
+        return Err(BundleVerificationError::mismatch(
+            "artifact_manifest",
+            Some(name),
+            "artifact byte length does not match the manifest",
+            expected_length.to_string(),
+            raw.len().to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_manifest(manifest: &Value) -> Result<()> {
@@ -1111,7 +1156,12 @@ fn artifact_bytes<'a>(bundle: &'a LoadedBundle, name: &str) -> Result<&'a [u8]> 
 }
 
 fn parse_json(bytes: &[u8], label: &str, edge: &str) -> Result<Value> {
-    serde_json::from_slice(bytes).map_err(|error| {
+    crate::strict_json::parse_json(bytes, crate::strict_json::JsonLimits {
+        max_bytes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
+        max_nodes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
+        max_depth: crate::MAX_JSON_DEPTH,
+        max_string_bytes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
+    }).map_err(|error| {
         BundleVerificationError::new(edge, Some(label), format!("invalid JSON: {error}"))
     })
 }

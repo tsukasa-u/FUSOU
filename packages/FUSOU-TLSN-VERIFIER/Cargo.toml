@@ -32,6 +32,9 @@ tlsn-attestation = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee
 tlsn-core = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15" }
 uuid = { version = "1.16", features = ["js", "v4"] }
 
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+nix = { version = "=0.30.1", default-features = false, features = ["fs"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 ring = { version = "0.17", features = ["wasm32_unknown_unknown_js"] }

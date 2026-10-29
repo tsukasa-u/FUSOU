@@ -13,6 +13,9 @@ import { assertAuthenticatedCrossRunExecution } from "./release-execution-intake
 import { verifyArchiveHttpExecution } from "./release-archive-http.mjs";
 import { assertNativeResourceScope, isNativeResourceError, parseNativeInspectionJson,
   withNativeInspectionBudget, withNativeInspectionBudgetSync } from "./release-native-resources.mjs";
+import { OFFLINE_FILE_FLAGS as fileFlags, OFFLINE_SCALAR_FLAGS as scalarFlags, OFFLINE_BUNDLE_ARTIFACTS,
+  assertFdPolicy, encodeOfflineFdFrameInScope, parseOfflineFdFrameInScope } from "./release-offline-fd.mjs";
+export { OFFLINE_BUNDLE_ARTIFACTS } from "./release-offline-fd.mjs";
 
 export const CHECKS = ["locked_dependencies", "compiled_inputs", "archive_readback", "offline_verification"];
 // Data-only artifacts cannot carry these in-process execution capabilities.
@@ -369,16 +372,12 @@ export function verifyArchiveReadback({ inputs, receipt, policy, nowMs, httpTran
     receipt.output.transport.policy_sha256 === httpTransportSpec.policy_sha256 && inputs.size === 6 :
     receipt.output.transport === undefined && inputs.size === 4, "archive raw input inventory");
 }
-const fileFlags = {
-  bundle: "--bundle", trusted_notary_registry: "--trusted-notary-registry", session_authority_registry: "--session-authority-registry",
-  binding_authority_registry: "--binding-authority-registry", origin_inventory: "--origin-inventory",
-  target_approval: "--target-approval", trust_anchor_der: "--trust-anchor-der",
-};
-const scalarFlags = ["evidence-root-key-id", "evidence-root-public-key-spki", "session-authority-key-id",
-  "session-authority-public-key-spki", "binding-authority-key-id", "binding-authority-public-key-spki",
-  "canonical-user-id", "device-id", "device-public-key", "server-identity", "profile-sha256", "verifier-key-id"];
 export function offlineInvocation(policy) {
   requireRelease(/^[A-Za-z0-9_-]{43}$/.test(policy.executable_sha256), "independently pinned native executable digest");
+  if (Object.hasOwn(policy, "fd_abi")) {
+    assertFdPolicy(policy);
+    return ["--fd-abi-v1"];
+  }
   const argv = [];
   for (const [role, flag] of Object.entries(fileFlags)) argv.push(flag, `${role}.input`);
   for (const flag of scalarFlags) {
@@ -388,10 +387,14 @@ export function offlineInvocation(policy) {
   if (policy.options["sparse-profile-sha256"]) argv.push("--sparse-profile-sha256", policy.options["sparse-profile-sha256"]);
   return argv;
 }
-export const OFFLINE_BUNDLE_ARTIFACTS = ["presentation", "result", "result_registry", "result_registry_envelope",
-  "notary_registry", "health", "session", "authenticated_user", "device_identity", "device_authentication",
-  "possession_proof", "consume_receipt", "replay", "session_authority_registry", "binding_authority_registry",
-  "capture_metadata", "semantic_verification", "trust_root", "subject"];
+export function buildOfflineFdFrame({ context, inputs, policy, resourceBudget }) {
+  return withNativeInspectionBudgetSync(resourceBudget, (resources) => {
+    const ownedPolicy = cloneOfflineValue(policy, resources), ownedContext = cloneOfflineValue(context, resources);
+    const ownedInputs = copyOfflineMap(inputs, resources), layout = offlineLayoutInScope(ownedPolicy, ownedInputs, resources);
+    requireRelease(ownedInputs.size === layout.required.length, "offline required raw input inventory");
+    return encodeOfflineFdFrameInScope({ context: ownedContext, policy: ownedPolicy, inputs: ownedInputs }, resources);
+  });
+}
 export function offlineLayout(policy, inputs, { resourceBudget } = {}) {
   return withNativeInspectionBudgetSync(resourceBudget, (scope) =>
     offlineLayoutInScope(cloneOfflineValue(policy, scope), copyOfflineMap(inputs, scope), scope));
@@ -447,9 +450,14 @@ export async function captureOfflineExecution({ context, inputs, policy, resourc
     const ownedInputs = copyOfflineMap(inputs, resources);
     const layout = offlineLayoutInScope(ownedPolicy, ownedInputs, resources), argv = Object.freeze(layout.argv);
     requireRelease(ownedInputs.size === layout.required.length, "offline required raw input inventory");
+    const fd = Object.hasOwn(ownedPolicy, "fd_abi") ?
+      encodeOfflineFdFrameInScope({ context: ownedContext, policy: ownedPolicy, inputs: ownedInputs }, resources) : undefined;
     const snapshot = descriptors(ownedInputs, resources), executionInputs = copyOfflineMap(ownedInputs, resources);
-    const executionFiles = copyOfflineMap(layout.files, resources), fileSnapshot = descriptors(executionFiles, resources);
-    const request = Object.freeze({ argv, inputs: executionInputs, files: executionFiles,
+    const executionFiles = fd ? undefined : copyOfflineMap(layout.files, resources);
+    const fileSnapshot = executionFiles && descriptors(executionFiles, resources);
+    const callbackFrame = fd && copyOfflineBytes(fd.frame, resources);
+    const request = Object.freeze({ argv, inputs: executionInputs,
+      ...(fd ? { frame: callbackFrame } : { files: executionFiles }),
       executable_sha256: ownedPolicy.executable_sha256, signal: resources.signal });
     resources.capture();
     resources.capture();
@@ -469,16 +477,20 @@ export async function captureOfflineExecution({ context, inputs, policy, resourc
     const observed = cloneOfflineValue({ executable_sha256: result.executable_sha256, executable_version: result.executable_version,
       argv: result.argv, exit_code: result.exit_code }, resources);
     requireRelease(isDeepStrictEqual(snapshot, descriptors(copyOfflineMap(executionInputs, resources), resources)) &&
-      isDeepStrictEqual(fileSnapshot, descriptors(copyOfflineMap(executionFiles, resources), resources)) &&
+      (fd ? callbackFrame.equals(fd.frame) :
+        isDeepStrictEqual(fileSnapshot, descriptors(copyOfflineMap(executionFiles, resources), resources))) &&
       before.equals(ownedInputs.get("verifier_executable")) && after.equals(before) &&
       observed.executable_version === ownedPolicy.executable_version &&
       observed.executable_sha256 === ownedPolicy.executable_sha256 && isDeepStrictEqual(observed.argv, argv) &&
       Number.isInteger(observed.exit_code), "native execution source/executable/command");
     const rawInputs = new Map(ownedInputs); rawInputs.set("stdout", stdout); rawInputs.set("stderr", stderr);
-    if (observed.exit_code === 0) assertOfflineReport(stdout, ownedPolicy, resources);
+    if (fd) rawInputs.set("fd_frame", copyOfflineBytes(fd.frame, resources));
+    if (observed.exit_code === 0) assertOfflineReport(stdout, ownedPolicy, resources, fd?.binding);
     const execution = recordCheckExecution("offline_verification", ownedContext, rawInputs,
       { executable_sha256: observed.executable_sha256, executable_version: observed.executable_version, argv,
-        stdout_sha256: sha256(stdout), stderr_sha256: sha256(stderr) },
+        stdout_sha256: sha256(stdout), stderr_sha256: sha256(stderr),
+        ...(fd ? { input_abi: "FUSOU_FD_V1", submitted_input_binding: fd.binding,
+          ...(observed.exit_code === 0 ? { input_binding: fd.binding } : {}) } : {}) },
       observed.exit_code === 0 ? {} : { status: "FAIL", exitCode: observed.exit_code, error: "native verifier rejected evidence" }, resources);
     if (observed.exit_code === 0) {
       execution.executionProof = Object.freeze({});
@@ -494,7 +506,7 @@ function assertAuthenticatedOfflineExecution(proof, execution, policy) {
     executable_sha256: policy.executable_sha256,
   }), "unauthenticated/mismatched native execution proof");
 }
-function assertOfflineReport(stdout, policy, resources) {
+function assertOfflineReport(stdout, policy, resources, inputBinding) {
   const report = parseNativeInspectionJson(stdout, resources);
   assertCanonicalServerIdentity(policy.options["server-identity"]);
   requireRelease(report.status === "VERIFIED" && report.verification === "FUSOU_TLSN_EVIDENCE_BUNDLE" &&
@@ -503,6 +515,7 @@ function assertOfflineReport(stdout, policy, resources) {
     policy.expected_derived && Object.keys(policy.expected_derived).length > 0 &&
     policy.expected_derived.server_identity === policy.options["server-identity"] &&
     Object.entries(policy.expected_derived).every(([key, value]) => report.derived?.[key] === value), "native verification result/trust/identity");
+  if (inputBinding) requireRelease(isDeepStrictEqual(report.input_binding, inputBinding), "offline actual consumed FD inventory");
 }
 export function verifyOfflineExecution({ inputs, receipt, policy, archiveInputs, archivePolicy, context, resourceBudget }) {
   return withNativeInspectionBudgetSync(resourceBudget, (scope) => verifyOfflineExecutionInScope({
@@ -520,9 +533,19 @@ function verifyOfflineExecutionInScope({ inputs, receipt, policy, archiveInputs,
   requireRelease(stdout instanceof Uint8Array && sha256(stdout) === receipt.output.stdout_sha256, "offline actual stdout");
   const stderr = inputs.get("stderr");
   requireRelease(stderr instanceof Uint8Array && sha256(stderr) === receipt.output.stderr_sha256, "offline actual stderr");
-  assertOfflineReport(stdout, policy, resources);
   const layout = offlineLayoutInScope(policy, inputs, resources);
-  requireRelease(inputs.size === layout.required.length + 2, "offline required raw input inventory");
+  let binding;
+  if (Object.hasOwn(policy, "fd_abi")) {
+    const expected = encodeOfflineFdFrameInScope({ context, policy, inputs }, resources);
+    const actual = parseOfflineFdFrameInScope(inputs.get("fd_frame"), policy.fd_abi.limits, resources);
+    requireRelease(actual.frame.equals(expected.frame) && receipt.output.input_abi === "FUSOU_FD_V1" &&
+      isDeepStrictEqual(receipt.output.submitted_input_binding, expected.binding) &&
+      isDeepStrictEqual(receipt.output.input_binding, expected.binding), "offline FD frame/receipt binding");
+    binding = expected.binding;
+  } else requireRelease(receipt.output.input_abi === undefined && receipt.output.input_binding === undefined &&
+    receipt.output.submitted_input_binding === undefined, "offline legacy input ABI");
+  assertOfflineReport(stdout, policy, resources, binding);
+  requireRelease(inputs.size === layout.required.length + (binding ? 3 : 2), "offline required raw input inventory");
   for (const role of ["presentation", "result"]) {
     requireRelease(Buffer.from(inputs.get(`bundle_artifact_${role}`)).equals(Buffer.from(archiveInputs.get(`readback_${role}`))),
       "offline verifier did not receive the same archive readback");

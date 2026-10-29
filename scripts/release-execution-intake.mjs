@@ -17,7 +17,7 @@ export const EXECUTION_IMPLEMENTATION_PATHS = Object.freeze([
   "scripts/release-manifest.mjs", "scripts/release-eligibility.mjs",
   "scripts/release-evidence-producer.mjs",
   "scripts/release-archive-http.mjs",
-  "scripts/release-native-resources.mjs",
+  "scripts/release-native-resources.mjs", "scripts/release-offline-fd.mjs",
   "scripts/release-archive-job.mjs",
   "scripts/release-archive-provenance.mjs", "scripts/release-grant-provider.mjs",
   "packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http-contract.mjs",

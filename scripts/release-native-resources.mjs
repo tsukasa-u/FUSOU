@@ -226,6 +226,10 @@ function enter(budget, signal) {
     },
     read() { check(); if (++reads > limits.max_reads) fail("NATIVE_RESOURCE_READS_EXCEEDED"); },
     capture() { check(); if (++captures > limits.max_captures) fail("NATIVE_RESOURCE_CAPTURES_EXCEEDED"); },
+    allocate(length) {
+      charge(length);
+      return allocateOwnedBytes(length);
+    },
     copy(raw) {
       if (!(raw instanceof Uint8Array) || typedArrayAccessors.buffer.get.call(raw) instanceof SharedArrayBuffer) {
         fail("NATIVE_GH_INPUT_UNCLONEABLE");

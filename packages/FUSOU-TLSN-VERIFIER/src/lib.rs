@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 pub mod evidence_bundle;
+pub mod offline_fd;
+pub mod strict_json;
 pub mod experimental;
 pub mod experimental_correlation;
 pub mod prover_transport;
@@ -1554,7 +1556,7 @@ impl<'a> JsonCursor<'a> {
 
     fn skip_object(&mut self, depth: usize) -> Result<()> {
         self.expect_byte(b'{')?;
-        let mut keys = Vec::new();
+        let mut keys = std::collections::BTreeSet::new();
         self.skip_whitespace();
         if self.peek() == Some(b'}') {
             self.position += 1;
@@ -1562,10 +1564,9 @@ impl<'a> JsonCursor<'a> {
         }
         loop {
             let key = self.parse_string()?;
-            if keys.iter().any(|known: &String| known == &key.value) {
+            if !keys.insert(key.value) {
                 return Err(VerifierError::InvalidJson("duplicate JSON object key"));
             }
-            keys.push(key.value);
             self.skip_whitespace();
             self.expect_byte(b':')?;
             self.skip_value(depth)?;

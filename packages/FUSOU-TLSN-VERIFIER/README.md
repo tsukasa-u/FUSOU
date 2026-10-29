@@ -787,7 +787,9 @@ does not remove RPATH/RUNPATH, loader cache/default directories or system preloa
 Neither format currently has an enabled backend.
 
 The Node offline inspection/capture boundary uses the native resource scope.
-The Rust loader and a real native provider remain separate and unconnected:
+The path loader and a real native provider remain separate. The bounded FD
+parser and shared bytes loader below are implemented in source, not admitted
+or executed as a native provider:
 
 | Input | Acquisition, ownership and integrity path | Remaining read/layout boundary |
 |---|---|---|
@@ -846,7 +848,8 @@ argv prevents in-place argument substitution. Callback map mutations remaining
 at settlement are rejected; transient changes to a callback's own mutable byte
 copies are **not detected as execution events**. No comparison of start/end
 digests proves what an arbitrary callback or a future native process consumed.
-That requires the still-missing provider/input ABI.
+That requires the FD consumption binding below plus a still-missing registered
+provider that enforces the real execution/capture contract.
 
 [`parseNativeInspectionJson`](../../scripts/release-native-resources.mjs)
 performs bounded fatal UTF-8 decoding and structural prechecks before
@@ -861,7 +864,8 @@ require `artifact_sha256`/`byte_length`/`path`; receipt inventories use
 `sha256`/`byte_length`, with no substitution between these contracts. Presentation,
 Result, signatures and other opaque artifacts retain their exact pinned bytes;
 this Node layer does not independently perform their cryptography or certify
-all Rust JSON loaders.
+all Rust cryptography. The shared Rust bundle loader now independently rejects
+duplicate decoded keys and applies JSON size/structure limits.
 
 Timeout/cancel rejects the operation without producing successful capture
 evidence. A noncooperative managed callback retains its execution slot until
@@ -880,7 +884,46 @@ not an OS materialization mechanism: the Rust manifest uses relative sibling
 paths, so seven isolated `/proc/self/fd/N` arguments alone cannot supply its
 artifact directory. A provider must deliver a sealed/read-only complete
 namespace or an explicitly revised fd-native input ABI without mutable fallback.
-No such namespace/ABI is implemented here.
+The FD ABI below implements the latter input contract in source; it does not
+implement or enable a provider.
+
+###### FD ABI v1 implementation boundary
+
+The normative [FD ABI v1 specification](FD-ABI-V1.md) defines a single binary
+frame with an explicit version, bounded entry table and unmodified input
+payloads. [`release-offline-fd.mjs`](../../scripts/release-offline-fd.mjs)
+encodes/inspects it in the existing operation scope. An explicit `policy.fd_abi`
+profile selects structural/mock FD capture; the callback receives a separate
+frame copy and `--fd-abi-v1`, not a mutable path map. The receipt archives the
+exact submitted frame, and successful stdout must supply the matching consumed
+frame/control/inventory/build/profile binding. Independent verification rebuilds
+that frame from the original archived inputs and pinned policy. Failed capture
+records a submitted binding only, never a successful consumption claim.
+
+[`offline_fd.rs`](src/offline_fd.rs) validates the frame, all 19 minimum artifact
+roles plus every extra descriptor, six external inputs, strict JSON and four
+external/bundled byte equalities. Its Linux x86-64 reader requires immutable,
+non-executable seals and bounded positional reads. `ParsedFrame::verify` passes
+only owned bytes into the common bundle verification core; no logical artifact
+path is opened. Legacy path acquisition remains explicitly separate and is
+still mutable/unbounded. It performs per-artifact hash/length checks immediately
+after each path read before delegating to that common core.
+
+The CLI rejects mixed modes and rejects formal FD execution **before stdin
+access** with `FD_POLICY_CONTEXT_NOT_REGISTERED`. No policy issuer, registration
+root, runner, memfd producer, executable launcher or trusted signer/builder was
+added. Local inspection limits and build/profile digests are not approvals.
+The Node scope's existing hard JSON/record ceilings also apply; larger FD limits
+do not bypass those ceilings. Modeled parent work is not peak RSS or a native
+process-tree budget.
+
+Rust unit tests and a shared Node structural vector were added, but no Rust
+build/test or native execution was performed for this change. The Linux-only
+safe `nix` dependency and its lock entries were checked against public package
+metadata, not a Cargo resolver/build. Rust compilation and lock resolution
+remain unverified. Linux x86-64 musl static ELF is the runtime first candidate;
+the GNU recipe is unchanged. Actual ELF/linker/sysroot/config/entropy/runtime
+closure remains unverified. `gh` retains its separate, unapproved online profile.
 
 Provider readiness, classified independently of mock success:
 
@@ -888,12 +931,12 @@ Provider readiness, classified independently of mock success:
 |---|---|---|
 | Bootstrap root | MISSING | Draft policy and migration contract only; no independent install/update/revocation or registration issuer. |
 | Authorization | MISSING | Caller pins and `UNAPPROVED` controllers are not approved signer/builder/image/resource policies. |
-| Immutable execution input | PARTIAL | Native owned snapshots/bounded reads and offline digest/layout checks exist; no sealed executable/runtime/input namespace or admitted launcher. |
+| Immutable execution input | PARTIAL | Owned snapshots, FD frame/parser/seal-reader source and common bytes core exist; no admitted sealed executable/runtime/FD handoff or launcher. |
 | Execution isolation | MISSING | Mock environment contract exists; no registered OS backend, private filesystem/network/credential enforcement or descendant containment. |
 | Capture | PARTIAL | Owned bounded native mock capture and offline receipts exist, but no actual child/image/exit-bound provider proof. |
 | Cancellation and disposal | PARTIAL | [`release-native-resources.mjs`](../../scripts/release-native-resources.mjs) retains managed native/offline mock work until settlement; no real process-tree cleanup. |
 | Evidence binding | PARTIAL | Exact role/input/report/archive digests and context checks exist; no registered image/runtime/input/capture evidence chain. |
-| Aggregate budgets | PARTIAL | Node native/offline operations share work within each owner-bound scope and concurrency within the supplied controller. Independent controllers are independent domains; Rust input acquisition and an approved global issuer remain missing. |
+| Aggregate budgets | PARTIAL | Node native/offline/FD frame operations share work within each owner-bound scope and concurrency within the supplied controller. Independent controllers are independent domains; the Rust reader has explicit frame/read limits, not an approved shared native/global issuer. |
 
 Source/documentation references (not artifact authentication):
 
@@ -920,8 +963,9 @@ Source/documentation references (not artifact authentication):
 
 Linux remains an unregistered implementation candidate; macOS/Windows remain
 NOT_CHECKED and disabled. Node offline input/JSON/mock-capture admission is
-implemented locally, not approved for real execution. Next work is a chosen
-immutable input ABI/runtime profile, followed by unregistered Linux backend tests
+implemented locally, not approved for real execution. Next work is authorized
+Rust compile/lock/parser validation, runtime-profile admission and a sealed FD
+provider handoff, followed by unregistered Linux backend tests
 in an explicitly authorized environment. Registration still
 requires independent provider/runtime/role pins, signer/builder authorization,
 approved resource/isolation/network policies and bootstrap lifecycle. No secret
