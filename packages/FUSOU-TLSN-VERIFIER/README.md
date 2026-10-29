@@ -924,11 +924,23 @@ after each path read before delegating to that common core.
 
 The CLI rejects mixed modes and rejects formal FD execution **before stdin
 access** with `FD_POLICY_CONTEXT_NOT_REGISTERED`. No policy issuer, registration
-root, runner, memfd producer, executable launcher or trusted signer/builder was
-added. Local inspection limits and build/profile digests are not approvals.
+root, production runner or trusted signer/builder was added. A separate
+[synthetic native launch substrate](NATIVE-LAUNCH-SUBSTRATE-DECISION.md)
+implements sealed image/input preparation and FD-selected child execution
+behind a crate-private, test-only capability. It does not register or enable
+the formal FD path. Local inspection limits and build/profile digests are not approvals.
 The Node scope's existing hard JSON/record ceilings also apply; larger FD limits
 do not bypass those ceilings. Modeled parent work is not peak RSS or a native
 process-tree budget.
+
+The launch decision record preserves the A/B/C investigation and choice of B:
+unsafe/FFI is confined to a dedicated crate's OS module; the verifier retains
+its unsafe prohibition. Direct synthetic execution/capture/timeout/reap tests
+are separate from provider authorization. No admitted cgroup delegation/no-escape
+root exists, no shared cgroup is modified, and every direct-only operation
+retains a quarantined resource slot rather than claiming tree cleanup.
+Private cgroup OS hooks are not a completed cgroup lifecycle. There is no Node
+resource-controller bridge, real verifier launch or musl/runtime-closure proof.
 
 Locked/offline resolution, GNU native library/CLI checking and selected Rust
 FD/JSON/CLI unit tests have been executed locally, including the Linux-only
@@ -953,9 +965,9 @@ Provider readiness, classified independently of mock success:
 |---|---|---|
 | Bootstrap root | MISSING | Draft policy and migration contract only; no independent install/update/revocation or registration issuer. |
 | Authorization | MISSING | Caller pins and `UNAPPROVED` controllers are not approved signer/builder/image/resource policies. |
-| Immutable execution input | PARTIAL | Owned snapshots, FD frame/parser/seal-reader source and common bytes core exist; no admitted sealed executable/runtime/FD handoff or launcher. |
+| Immutable execution input | PARTIAL | Owned snapshots, FD parser/common bytes core and separate synthetic sealed-image/input handoff exist; no independently admitted executable/runtime/provider. |
 | Execution isolation | MISSING | Mock environment contract exists; no registered OS backend, private filesystem/network/credential enforcement or descendant containment. |
-| Capture | PARTIAL | Owned bounded native mock capture and offline receipts exist, but no actual child/image/exit-bound provider proof. |
+| Capture | PARTIAL | Mock/offline receipts and direct synthetic child capture tests exist; no registered image/runtime/exit-bound provider evidence. |
 | Cancellation and disposal | PARTIAL | [`release-native-resources.mjs`](../../scripts/release-native-resources.mjs) retains managed native/offline mock work until settlement; no real process-tree cleanup. |
 | Evidence binding | PARTIAL | Exact role/input/report/archive digests and context checks exist; no registered image/runtime/input/capture evidence chain. |
 | Aggregate budgets | PARTIAL | Node native/offline/FD frame operations share work within each owner-bound scope and concurrency within the supplied controller. Independent controllers are independent domains; the Rust reader has explicit frame/read limits, not an approved shared native/global issuer. |
