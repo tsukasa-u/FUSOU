@@ -10,6 +10,12 @@ The lifecycle/bridge follow-up starts at
 `tlsn-first-testplay-candidate`. Section G records this follow-up separately
 from the original implementation and historical results below.
 
+The privilege/recovery follow-up starts at
+`d7ec9c5cdaab761e2a30fba701982477ccd15eb0`, parent
+`643315e00c303135b4aebde78a32e30f4e3d2ea1`, on the same branch.
+Section H records its audit, deliberately non-releasing recovery assessment
+and current validation. Section G's results are historical.
+
 Implementation baseline: branch `tlsn-first-testplay-candidate`, HEAD
 `89d940d40b42955bdce24cee3d85643870ae69e3`, parent
 `4e767539076fb32e1de83a31ac0168f3a48e5dd2`. That HEAD existed before this
@@ -47,7 +53,7 @@ measured boot, privileged helper or process attestation is introduced.
 Commit messages are navigation aids, not design specifications. The evidence
 below is scoped source/diff inspection plus the indicated historical reports.
 Historical PASS counts are **based on past reports**, not current reruns unless
-explicitly identified in section E.
+explicitly identified as a current rerun in section H.
 
 | Commit / investigation | Source change or finding | Validation classification |
 |---|---|---|
@@ -204,7 +210,7 @@ durable cleanup across parent/kernel failure.
 
 ### Cgroup boundary: deliberately incomplete
 
-There is **no admitted delegated subtree/no-escape root**, no cgroup factory
+There is **no admitted delegated subtree/no-escape root**, no formal cgroup factory
 and no automatic reuse of an existing user/IDE/shared cgroup.
 `require_delegated_containment()` rejects before launching.
 
@@ -223,7 +229,8 @@ PIDFD/direct-child success is never promoted to descendant cleanup success.
 ## E. Original implementation verification (historical)
 
 This section records the previous `643315e...` implementation report, not
-new runs of those commands. Use section G for current results and selectors;
+new runs of those commands. Use section H for current results and section G for
+the historical lifecycle selectors;
 an unfiltered native test run now also selects an explicitly configured IPC
 peer and is not the ordinary unit-test command.
 
@@ -252,7 +259,7 @@ The initial, deliberately offline metadata resolution omitted `--locked` only
 to add the authorized local package to Cargo.lock; subsequent checks/tests use
 both `--locked --offline`. The original ABI specification/vector were unchanged.
 
-Current results:
+Results at the original implementation:
 
 | Selection | Result / scope |
 |---|---|
@@ -287,6 +294,7 @@ interrupted calls) and an exhaustion assertion. No failing assertions were relax
 | Capture/deadline/cancel/direct reap/quarantine | IMPLEMENTED (synthetic) | Whole-tree kernel validation remains BLOCKED |
 | Delegated cgroup lifecycle/no escape/disposal | IMPLEMENTED in private source / runtime BLOCKED | Root/leaf validation, atomic placement, credential drop and removal exist; actual delegated/no-escape/descendant cases have not run |
 | Node resource controller integration | IMPLEMENTED (mechanical, unapproved) | Unix-stream identity/reservation/state bridge; fake cleanup and actual direct synthetic IPC tested; no registered provider/peer authorization |
+| Quarantine inspection/recheck | IMPLEMENTED (assessment only) | Owner/revision checks retain occupied slots; a joined OS cleanup owner and exactly-once cross-language release reconciler are NOT_IMPLEMENTED (section H) |
 | Resource policy/shared budget issuer | NOT_IMPLEMENTED | Fixture limits and independent controllers are not global admission |
 | musl static runtime profile | UNVERIFIED | Recipe remains GNU; musl dependency build/linker/sysroot/build-script closure not tested |
 | Actual ELF interpreter/DT_NEEDED/runtime closure | UNVERIFIED | Synthetic header markers are not a verified dependency distribution |
@@ -457,7 +465,7 @@ mint the existing executionProof or enable the production consumer. A future
 registered provider must independently admit the peer/launch path; accepting
 caller-supplied JSON as production execution authority remains forbidden.
 
-### Current validation (not historical)
+### Validation at the lifecycle/bridge follow-up (historical)
 
 No dependency was downloaded and Cargo.lock is unchanged. nix 0.30.1 adds only
 the user feature for safe parent UID/chown APIs; existing serde_json moves from
@@ -488,7 +496,7 @@ verifier executable is used as the IPC peer. The Node peer suite explicitly
 selects `--exact ipc_peer::serve --nocapture` with a private test socket/mode.
 These variables configure tests only, not public policy registration.
 
-| Selection | Current result |
+| Selection | Historical result at `d7ec9c5...` |
 |---|---|
 | Native selected tests | 35 PASS = prior 25 + cgroup parsing/refusal/budget adapter 3 + lifecycle 4 + bridge/cleanup adapters 3 |
 | Verifier safe parser/acquisition selections | 20 PASS = FD 10 + strict JSON 2 + acquisition 4 + CLI parser 4 |
@@ -517,6 +525,220 @@ Runtime closure, peer/bootstrap registration, signer/builder and shared resource
 issuer authorization, real native input/evidence integration and Production
 acceptance remain separate gates. Choosing B still avoids A's launcher trust
 root and C's filesystem/namespace closure; it solves neither of these gates.
+
+## H. Privilege audit and quarantine assessment follow-up
+
+### Audit scope and execution environment
+
+The starting scoped tree was clean at `d7ec9c5...`; no dependency/manifest/
+lockfile change is needed. The read-only audit found no high-confidence
+exploitable vulnerability in the selected path. That is not certification of
+kernel containment, privileged-runtime safety or production acceptance.
+The host was observed as UID/GID 1000/1000; no explicit test delegated root was
+supplied. This task forbids real cgroup mutation and real credential switching.
+No shared cgroup was inspected as a substitute delegation, modified or used.
+
+The following are **execution-environment** choices, not a renaming of launch
+methods A/B/C above:
+
+| Environment | Necessary authority and trust boundary | Decision |
+|---|---|---|
+| A: dedicated system service/supervisor | An independently authorized, narrowly exposed supervisor with switch/chown capabilities, approved image/input/resource admission, trusted runtime/signal setup and an administrator-delegated root. IPC authentication, installation/update/revocation and crash ownership would need approval. | Provisional architectural fit for the current root-supervisor/non-root-child model **only if such an independently authorized actor exists**. Availability/authorization BLOCKED; no service or APP elevation added. |
+| B: privileged helper | A new distribution/pin/runtime trust root, constrained request protocol, setuid/file capabilities or other privileged admission, lifecycle and install/revocation policy. | NOT_SELECTED as a workaround; independently privileged helper is not approved or implemented. |
+| C: user namespace | Approved UID/GID maps, setgroups policy, namespace/mount authority and separately established cgroup delegation/migration restrictions. Namespace-root capabilities do not imply authority over host-owned cgroups. Mapping helpers add another trust boundary. | UNVERIFIED; namespace/delegation compatibility is not established and no namespace/helper is introduced. |
+
+This comparison does not authorize an independent actor. The APP is not made
+privileged, and APP process/image authority remains OUT_OF_SCOPE.
+
+### Credentials: source postconditions versus kernel evidence
+
+The safe parent admission requires nonzero/non-sentinel target IDs, effective
+UID 0, securebits 0 and effective CHOWN, SETGID, SETUID and SETPCAP.
+These are checks in the caller's current namespace, not independent proof of
+initial-user-namespace authority or administrative delegation. The caller also
+needs actual filesystem/cgroup permission for preparation, birth placement,
+kill and removal. A writable path or numeric IDs alone are not authorization.
+The current UID-1000 process cannot satisfy this parent switch contract.
+
+The actual child uses a fixed, allocation-free credential driver before
+`execveat`. Its order is:
+
+1. `PR_SET_NO_NEW_PRIVS=1`.
+2. Drop bounding capabilities 0..63 (EINVAL ends the supported range).
+3. Clear all ambient capabilities.
+4. Raw `setgroups(0, NULL)`.
+5. Raw `setresgid(target, target, target)`.
+6. Raw `setresuid(target, target, target)`.
+7. Capability-v3 `capset`: effective/permitted/inheritable all zero.
+8. Re-read all six real/effective/saved IDs, supplementary-group count,
+   effective/permitted/inheritable sets and NNP; also query filesystem IDs with
+   `setfsuid(-1)` / `setfsgid(-1)` and require the dedicated IDs.
+
+The filesystem-ID observations and the shared failure-short-circuit driver are
+new here. Raw scalar syscalls and live stack `repr(C)` records remain inside
+`native-launch/src/sys.rs`; no FFI/unsafe is introduced elsewhere. Every failed
+step or mismatched postcondition reaches stage-4 error notification and `_exit`
+before the untrusted image's exec call. A predicate mismatch is a refusal even
+when errno is not useful as a syscall diagnosis. The target image is a sealed
+mode-0500 ELF, not a script or setuid image. NNP also prevents exec-time
+setuid/file-capability privilege gains. Bounding/ambient **removal return
+values** are checked; they are not separately re-read by the final observation.
+
+The driver unit tests inject failure at every step and check the same
+short-circuit/order used by the real child. Separate predicate tests reject
+each saved/filesystem-ID mismatch. These are **fake/state tests**, not real
+setgroups/setresuid/capability or no-escape kernel experiments.
+
+Inherited signal dispositions/mask are still not normalized or admitted by
+this mechanism. A parent handler could run between clone and exec; ignored
+SIGCHLD or SA_NOCLDWAIT can prevent the expected wait/reap contract. A future
+privileged runtime must admit/implement and test its signal/clone environment.
+No arbitrary multithreaded APP runtime is certified safe by the credential
+postconditions, and no speculative signal rewrite is added here.
+
+### Cgroup no-escape and cleanup audit
+
+`clone3(CLONE_PIDFD | CLONE_INTO_CGROUP)` receives the anchored leaf FD,
+placing the child at birth. There is no after-spawn migration race/fallback.
+Only trusted child setup precedes credential removal; the image is not run
+until that completes. CLOEXEC FD setup removes inherited control FDs at exec.
+PIDFD identifies a task, not its descendants.
+
+Root/ancestor `cgroup.procs`, root/leaf directories and opened controls are
+checked root-owned and not group/world writable; the operation leaf is
+exclusive mode 0700. A capability-free dedicated account cannot use those
+checked controls to migrate, chmod the boundary or manage siblings under the
+admitted, stable host policy. The privileged supervisor, not that child,
+retains cleanup authority.
+
+This is **conditional source reasoning**, not an unconditional no-escape
+proof. The code does not establish dedicated-account allocation, all alternate
+mount/migration-service policy, stable permissions after inspection, a trusted
+administrator, or permission to operate the delegated subtree. Permission
+checks precede later use and do not freeze host policy. Namespaces, privileged
+services or helpers must not provide the child another migration authority.
+Host/admin mutation and inherited signal behavior need explicit runtime
+admission and real tests before any formal provider exists.
+
+The supervisor still distinguishes stop/kill, direct reap, populated=0,
+capture/error-pipe EOF, explicit FD closes and same-leaf removal/ENOENT.
+Errors prevent normal lease release. Existing fake adapters exercise each
+cleanup milestone, including kill/reap/empty/capture/removal failures. They do
+not demonstrate real cgroup.kill, child descendants, escape resistance or
+leaf removal on this kernel. All such actual cgroup integration is **BLOCKED,
+NOT EXECUTED**, both by missing authority/delegation and this task's prohibition.
+
+### Quarantine ownership and state contract
+
+The audit found a concrete architectural limit, not a recoverable OS fact:
+task/pidfd quarantine, cgroup/partial-disposal quarantine, native lease state,
+capture observations and the Node channel are not one joined retained owner.
+Direct reap retry never releases a slot. In some failure paths FDs have
+already been consumed/closed and cannot be safely reconstructed from a path,
+PID or caller JSON. Consequently no general unquarantine/release API is added.
+
+| Condition | Actual state/owner | Allowed next step |
+|---|---|---|
+| Cleanup progressing | Existing native lifecycle; Node `CLEANUP_IN_PROGRESS` with its managed completion | Normal ordered cleanup may finish. Recovery requests reject without poisoning late normal completion. |
+| Cleanup failed/unknown | Failure reason and occupied native lease/Node hold | Register/retain `QUARANTINED`, never refund or decrement occupied counters. |
+| Quarantine retained | Native controller-bound operation record; branded Node budget/operation record | Inspect exact owner/ID and revision; no caller observer/path/socket replacement. |
+| Recovery assessment running | `CHECKING` with a new revision/attempt | Ordered checks; cancel/deadline/failure invalidates that attempt. Stale/duplicate completion rejects. |
+| Facts temporarily unavailable | `QUARANTINED` with reason | A bounded retry can use only remaining original work; time alone is not evidence. |
+| Facts irrecoverably unjoined/mismatched | `ADMIN_REQUIRED` | Terminal in these APIs; retain slot. External administration is a requirement, not proof or a release action. |
+| Every cleanup fact rechecked | `RECOVERABLE`, private fake checklist only | Classification only, no counter change; real adapter/reconciler NOT_IMPLEMENTED. |
+| Cleanup confirmed | Existing normal native `CLEANUP_CONFIRMED` plus Node final event/channel close | Existing normal exactly-once settlement, not a recovery transition from quarantine. |
+
+Native `Controller::inspect_quarantine` requires the original private Owner's
+Arc identity and exact operation ID. `recheck_quarantine` also requires the
+current revision, charges existing Cleanup work, and uses the existing cleanup
+deadline/cancel flag. The mutex serializes assessment and epoch changes.
+The private ordered checklist is: owner, child reaped, leaf identity, tree
+empty, capture complete, FDs closed, bridge closed, lease terminal, leaf
+removed. Failures are explicit; direct-child success cannot replace tree
+empty. The only actual adapter confirms owner association and refuses the
+unavailable joined record with `OWNED_RECORD_INCOMPLETE / ADMIN_REQUIRED`.
+Every returned snapshot has `slot_released=false`. No recovery method can
+decrement active/quarantine counters or re-use a settled lease.
+
+Node `inspectNativeQuarantine(budget, operationId)` and
+`recheckNativeQuarantine(budget, operationId, revision)` require the original
+branded budget, exact retained ID and current revision. Records retain local
+pending/scope state, bounded diagnostic native ID/phase, and closure observed
+on the original Socket. No caller-supplied "closed" or "recovered" flag is
+accepted. Normal settlement now also requires internally observed channel
+close and the final native phase. The bridge still validates all event order,
+IDs, outcome and bounded usage; diagnostic phase/JSON is not independent OS
+cleanup proof or peer authentication.
+
+Recheck spends one modeled work unit from the original scope's remaining
+byte-work, even after scope close; it creates no replacement budget or OS
+probe. Pending callbacks/open channel keep `LOCAL_CLEANUP_PENDING`; otherwise
+the missing joined native record yields terminal `ADMIN_REQUIRED`. This
+synchronous metadata-only transition cannot race an asynchronous callback
+inside its checks. Stale revisions, unknown/foreign IDs, duplicate assessments
+and extra force flags reject. Failed normal holds stay quarantined even if
+later callbacks settle; non-quarantined late normal cleanup after cancel can
+still finish through its existing owned completion.
+
+The adjacent second-attach bug is fixed: after a normally completed hold has
+deleted its record, another attachment in that same live scope reports
+`NATIVE_RESOURCE_NATIVE_ALREADY_ATTACHED`, not an undefined-record TypeError.
+It cannot affect another operation. No `force-release`, fresh socket,
+administrator boolean, elapsed-time release or recovery registration factory
+exists. Recovery state is process-local, not durable across restart/crash.
+
+### Current validation and remaining recovery gate
+
+The same isolated empty-HOME/offline-cache wrapper described above was used.
+The target-filtered executable dependency identity comparison remains
+55 unchanged; manifests and Cargo.lock are unchanged. Commands and results
+for this follow-up (not old-checkout reruns) are:
+
+```sh
+cargo metadata --format-version 1 --filter-platform x86_64-unknown-linux-gnu --locked --offline
+cargo check -p fusou-tlsn-native-launch -p fusou-tlsn-verifier --target x86_64-unknown-linux-gnu --lib --bins --examples --locked --offline --jobs 2
+cargo build --locked --offline --package fusou-tlsn-native-launch --target x86_64-unknown-linux-gnu --example synthetic_probe --jobs 2
+cargo test --locked --offline --package fusou-tlsn-native-launch --target x86_64-unknown-linux-gnu --lib --jobs 2 -- tests::
+cargo test --locked --offline --package fusou-tlsn-verifier --target x86_64-unknown-linux-gnu --lib --bin verify_fusou_tlsn_evidence --jobs 2 -- offline_fd::tests strict_json::tests evidence_bundle::tests::acquisition:: tests::fd_mode_is_explicit_and_excludes_all_other_arguments tests::legacy_duplicate_flags_are_rejected tests::legacy_path_modes_preserve_all_arguments_and_optional_sparse_profile tests::unsupported_flags_and_fd_mixing_never_select_legacy_execution
+FUSOU_NATIVE_BRIDGE_TEST_PEER="<compiled native lib test harness>" FUSOU_SYNTHETIC_PROBE="<compiled synthetic_probe>" node --test scripts/release-native-resources.test.mjs scripts/release-native-launch-bridge.test.mjs scripts/release-native-launch-peer.test.mjs scripts/release-consumer.test.mjs scripts/release-offline-fd.test.mjs scripts/release-checks.test.mjs
+node --check scripts/release-native-resources.mjs
+node --check scripts/release-native-resources.test.mjs
+node --check scripts/release-native-launch-bridge.mjs
+node --check scripts/release-native-launch-bridge.test.mjs
+```
+
+| Selection | Current result / actual scope |
+|---|---|
+| Native selected tests | 45 PASS: existing synthetic/preparation 25 + cgroup 3 + lifecycle 4 + bridge 3 + recovery 8 + credential driver/predicate 2 |
+| Verifier parser/acquisition | 20 PASS: FD 10 + strict JSON 2 + acquisition 4 + CLI parser 4; no operational verifier/key-generating selection |
+| Node resources / bridge / IPC peer | 23 + 24 + 9 PASS |
+| Node consumer / FD / release-check | 18 + 53 + 46 PASS; Node total 173 |
+| IPC peer scope | Seven fake cleanup cases and two actual direct-synthetic/cancel cases. Direct cases retain quarantine; no actual cgroup or dedicated-ID switch. |
+| GNU metadata/check/probe build; JS syntax | PASS (exit 0); compilation/parse only, not formal native execution |
+| Actual cgroup/credential switching/descendant/no-escape integration | BLOCKED, NOT EXECUTED |
+
+During development, the first two new Node tests failed because their helper
+treated scope completion with an outstanding native hold as success. The
+fixtures now explicitly assert the existing `NATIVE_RESOURCE_PENDING_WORK`
+refusal; no production assertion or pending-work rule was weakened.
+The original existing 41 resource/bridge tests passed before these additions.
+All fake checklist success remains classification only, with no release API.
+
+True recovery needs a retained, operation-bound record joining the exact
+task/pidfd/reap owner, anchored same-leaf identity/empty/removal observations,
+capture/FD ownership and authenticated lifecycle-channel/lease terminal state,
+plus a cancellation-safe, exactly-once cross-language reconciler. Acquiring
+authority for that record, a durable crash policy and actual kernel tests are
+NOT_IMPLEMENTED/UNVERIFIED; independent resource policy/shared issuer remains
+NOT_IMPLEMENTED and unapproved. A human must approve the runtime/signal
+profile, dedicated account, supervisor authority and host delegation before
+those tests. External cleanup alone cannot turn these APIs into slot release.
+
+Method B is retained: these changes add no launcher path or immutable namespace
+trust root, and no privileged actor. They do not resolve musl/runtime closure,
+independent bootstrap/provider registration, signer/trusted-builder approval,
+real native input identity, real attestation/TLSN evidence or Production.
+The trust states in section F remain unchanged.
 
 ## References
 

@@ -195,49 +195,105 @@ struct CapData {
     permitted: u32,
     inheritable: u32,
 }
-unsafe fn child_credentials(credentials: Credentials, error: RawFd) {
-    // SAFETY: prctl takes scalar arguments only. NNP prevents file-capability/setuid escalation.
-    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
-        // SAFETY: fixed error record, no return/unwinding.
-        unsafe { child_error(error, 4) }
-    }
-    for cap in 0..64 {
-        // SAFETY: scalar bounded capability number; this modifies only the new child.
-        if unsafe { libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) } != 0 {
-            // SAFETY: child-local errno pointer remains live, no allocation.
-            if unsafe { *libc::__errno_location() } == libc::EINVAL {
-                break;
-            }
-            // SAFETY: fixed error reporting and termination.
-            unsafe { child_error(error, 4) }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CredentialStep {
+    NoNewPrivileges,
+    Bounding,
+    Ambient,
+    Groups,
+    GroupIds,
+    UserIds,
+    Sets,
+    Verify,
+}
+const CREDENTIAL_STEPS: [CredentialStep; 8] = [
+    CredentialStep::NoNewPrivileges,
+    CredentialStep::Bounding,
+    CredentialStep::Ambient,
+    CredentialStep::Groups,
+    CredentialStep::GroupIds,
+    CredentialStep::UserIds,
+    CredentialStep::Sets,
+    CredentialStep::Verify,
+];
+fn credential_sequence(mut apply: impl FnMut(CredentialStep) -> bool) -> bool {
+    for step in CREDENTIAL_STEPS {
+        if !apply(step) {
+            return false;
         }
     }
-    // SAFETY: no ambient capability may survive. Empty groups uses a null pointer/count zero;
-    // scalar setres calls permanently remove initial-user-namespace root credentials.
-    if unsafe {
-        libc::prctl(
-            libc::PR_CAP_AMBIENT,
-            libc::PR_CAP_AMBIENT_CLEAR_ALL,
-            0,
-            0,
-            0,
-        ) != 0
-            || libc::syscall(libc::SYS_setgroups, 0, std::ptr::null::<libc::gid_t>()) != 0
-            || libc::syscall(
-                libc::SYS_setresgid,
-                credentials.gid,
-                credentials.gid,
-                credentials.gid,
-            ) != 0
-            || libc::syscall(
-                libc::SYS_setresuid,
-                credentials.uid,
-                credentials.uid,
-                credentials.uid,
-            ) != 0
-    } {
-        // SAFETY: fixed error reporting and termination.
-        unsafe { child_error(error, 4) }
+    true
+}
+fn credential_ids_match(
+    credentials: Credentials,
+    ids: [u32; 6],
+    fsuid: libc::c_long,
+    fsgid: libc::c_long,
+) -> bool {
+    ids[..3] == [credentials.uid; 3]
+        && ids[3..] == [credentials.gid; 3]
+        && fsuid == credentials.uid as libc::c_long
+        && fsgid == credentials.gid as libc::c_long
+}
+unsafe fn credential_step(step: CredentialStep, credentials: Credentials) -> bool {
+    // SAFETY: scalar-only operations affect this child. Group removal uses NULL/count zero.
+    // Raw setxid syscalls avoid libc's multithreaded coordination after clone.
+    match step {
+        CredentialStep::NoNewPrivileges => {
+            // SAFETY: scalar prctl on the child only; prevents privilege gains at exec.
+            return unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0 };
+        }
+        CredentialStep::Bounding => {
+            for cap in 0..64 {
+                // SAFETY: bounded scalar capability number and child-local live errno.
+                if unsafe { libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) } != 0 {
+                    // SAFETY: errno storage is valid in the child's copied address space.
+                    return unsafe { *libc::__errno_location() == libc::EINVAL };
+                }
+            }
+            return true;
+        }
+        CredentialStep::Ambient => {
+            // SAFETY: scalar prctl clears the child's entire ambient set.
+            return unsafe {
+                libc::prctl(
+                    libc::PR_CAP_AMBIENT,
+                    libc::PR_CAP_AMBIENT_CLEAR_ALL,
+                    0,
+                    0,
+                    0,
+                ) == 0
+            };
+        }
+        CredentialStep::Groups => {
+            // SAFETY: zero groups requires no dereference of the NULL pointer.
+            return unsafe {
+                libc::syscall(libc::SYS_setgroups, 0, std::ptr::null::<libc::gid_t>()) == 0
+            };
+        }
+        CredentialStep::GroupIds => {
+            // SAFETY: scalar IDs affect only the child's real/effective/saved GIDs.
+            return unsafe {
+                libc::syscall(
+                    libc::SYS_setresgid,
+                    credentials.gid,
+                    credentials.gid,
+                    credentials.gid,
+                ) == 0
+            };
+        }
+        CredentialStep::UserIds => {
+            // SAFETY: scalar IDs affect only the child's real/effective/saved UIDs.
+            return unsafe {
+                libc::syscall(
+                    libc::SYS_setresuid,
+                    credentials.uid,
+                    credentials.uid,
+                    credentials.uid,
+                ) == 0
+            };
+        }
+        CredentialStep::Sets | CredentialStep::Verify => {}
     }
     let mut header = CapHeader {
         version: 0x20080522,
@@ -248,10 +304,9 @@ unsafe fn child_credentials(credentials: Credentials, error: RawFd) {
         permitted: 0,
         inheritable: 0,
     }; 2];
-    // SAFETY: Linux capability v3 ABI uses two repr(C) data records and a live header.
-    if unsafe { libc::syscall(libc::SYS_capset, &header, data.as_ptr()) } != 0 {
-        // SAFETY: fixed error reporting and termination.
-        unsafe { child_error(error, 4) }
+    if step == CredentialStep::Sets {
+        // SAFETY: Linux capability v3 ABI uses two repr(C) records and a live header.
+        return unsafe { libc::syscall(libc::SYS_capset, &header, data.as_ptr()) == 0 };
     }
     let mut observed = [CapData {
         effective: 0,
@@ -269,17 +324,33 @@ unsafe fn child_credentials(credentials: Credentials, error: RawFd) {
             || libc::syscall(libc::SYS_getgroups, 0, std::ptr::null::<libc::gid_t>()) != 0
             || libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1
     };
-    if invalid
-        || ids[..3] != [credentials.uid; 3]
-        || ids[3..] != [credentials.gid; 3]
-        || observed
+    // SAFETY: -1 is not an admitted target UID/GID; Linux setfs[ug]id(-1) queries the
+    // existing filesystem identity without changing it. Both calls take scalar values.
+    let (fsuid, fsgid) = unsafe {
+        (
+            libc::syscall(libc::SYS_setfsuid, u32::MAX),
+            libc::syscall(libc::SYS_setfsgid, u32::MAX),
+        )
+    };
+    !invalid
+        && credential_ids_match(credentials, ids, fsuid, fsgid)
+        && !observed
             .iter()
             .any(|cap| cap.effective != 0 || cap.permitted != 0 || cap.inheritable != 0)
-    {
+}
+unsafe fn child_credentials(credentials: Credentials, error: RawFd) {
+    if !credential_sequence(|step| {
+        // SAFETY: the fixed stack-only driver runs solely in the newly cloned child.
+        unsafe { credential_step(step, credentials) }
+    }) {
         // SAFETY: fixed failure notification followed by _exit.
         unsafe { child_error(error, 4) }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/credentials.rs"]
+mod credential_tests;
 
 unsafe fn child_error(fd: RawFd, stage: u32) -> ! {
     // SAFETY: clone without CLONE_VM preserves valid thread-local errno storage.

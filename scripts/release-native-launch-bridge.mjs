@@ -64,6 +64,7 @@ export async function withNativeLaunchBridge({ resourceBudget, signal, reservati
         const canonical = { native_id: event.native_id, operation_id: event.operation_id, outcome: event.outcome,
           sequence: event.sequence, state: event.state, usage: event.usage, version: event.version };
         if (text !== JSON.stringify(canonical)) { fail("NATIVE_BRIDGE_CANONICAL_JSON"); break; }
+        hold.observeNative(nativeId, phase);
         if (phase === "QUARANTINED") { fail("NATIVE_BRIDGE_QUARANTINED"); break; }
         if (phase === "CLEANUP_CONFIRMED") {
           if (event.outcome === "PENDING") { fail("NATIVE_BRIDGE_OUTCOME"); break; }
@@ -84,6 +85,7 @@ export async function withNativeLaunchBridge({ resourceBudget, signal, reservati
       if (!Number.isSafeInteger(cleanupTimeoutMs) || cleanupTimeoutMs <= 0 || cleanupTimeoutMs > 2 ** 31 - 1) {
         throw blocked("NATIVE_BRIDGE_CLEANUP_LIMIT_REQUIRED");
       }
+      hold.watchChannel(channel);
       const done = new Promise((resolve) => {
         channel.on("data", onData);
         channel.once("error", () => { fail("NATIVE_BRIDGE_CHANNEL"); });

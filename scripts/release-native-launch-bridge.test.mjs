@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { setImmediate, setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { withNativeLaunchBridge } from "./release-native-launch-bridge.mjs";
-import { withNativeInspectionBudget } from "./release-native-resources.mjs";
+import { withNativeInspectionBudget, inspectNativeQuarantine, recheckNativeQuarantine,
+  retainNativeLaunchOperation } from "./release-native-resources.mjs";
 import { nativeResourceFixtureBudget } from "./release-native-attestation-fixture.mjs";
 
 const reservation = Object.freeze({ image: 4096, input: 4096, fds: 4096, execution: 1,
@@ -102,18 +103,75 @@ for (const fault of ["unknown-id", "changed-native-id", "duplicate", "reverse", 
 }
 test("cancel returns promptly but a late verified cleanup owns the slot until channel close", async t => {
   const abort = new AbortController();
-  let finish, started;
+  let finish, started, operationId;
   const ready = new Promise(resolve => { started = resolve; });
   const options = await fixture(t, (socket, request) => {
-    if (request.action === "START") { socket.write(encode(events(request.operation_id).slice(0, 4))); started(); }
+    if (request.action === "START") {
+      operationId = request.operation_id;
+      socket.write(encode(events(request.operation_id).slice(0, 4))); started();
+    }
     else { finish = () => socket.end(encode(events(request.operation_id, "FAILED").slice(4))); }
   });
   const result = withNativeLaunchBridge({ ...options, signal: abort.signal });
   await ready; abort.abort();
   await assert.rejects(result, { code: "NATIVE_RESOURCE_ABORTED" });
+  const waiting = inspectNativeQuarantine(options.resourceBudget, operationId);
+  assert.equal(waiting.state, "CLEANUP_IN_PROGRESS");
+  assert.throws(() => recheckNativeQuarantine(options.resourceBudget, operationId, waiting.revision),
+    { code: "NATIVE_RESOURCE_RECOVERY_NOT_RECHECKABLE" });
   while (!finish) await setImmediate();
   await busy(options.resourceBudget); finish();
   await once(options.channel, "close"); await setImmediate();
+  assert.throws(() => inspectNativeQuarantine(options.resourceBudget, operationId),
+    { code: "NATIVE_RESOURCE_RECOVERY_UNKNOWN_OPERATION" });
+  assert.equal(await withNativeInspectionBudget(options.resourceBudget, undefined, () => 1), 1);
+});
+
+test("closed channel and direct-child reap are not a recoverable tree", async t => {
+  let operationId;
+  const options = await fixture(t, (socket, request) => {
+    operationId = request.operation_id;
+    socket.end(encode(events(operationId).slice(0, 6)));
+  });
+  await assert.rejects(withNativeLaunchBridge(options), { code: "NATIVE_BRIDGE_INCOMPLETE" });
+  const snapshot = inspectNativeQuarantine(options.resourceBudget, operationId);
+  assert.equal(snapshot.native_state, "REAPED"); assert.equal(snapshot.channel_closed, true);
+  const checked = recheckNativeQuarantine(options.resourceBudget, operationId, snapshot.revision);
+  assert.equal(checked.state, "ADMIN_REQUIRED"); assert.equal(checked.slot_released, false);
+  await busy(options.resourceBudget);
+});
+test("old operation completion and recovery cannot release a newer native hold", async t => {
+  let oldId, currentId;
+  const first = await fixture(t, (socket, request) => {
+    oldId = request.operation_id; socket.end(encode(events(oldId)));
+  });
+  await withNativeLaunchBridge(first);
+  const next = await fixture(t, (socket, request) => {
+    currentId = request.operation_id;
+    const values = events(currentId); values[6].operation_id = oldId;
+    socket.end(encode(values));
+  });
+  next.resourceBudget = first.resourceBudget;
+  await assert.rejects(withNativeLaunchBridge(next), { code: "NATIVE_BRIDGE_TRANSITION" });
+  assert.notEqual(currentId, oldId);
+  assert.throws(() => recheckNativeQuarantine(first.resourceBudget, oldId, 0),
+    { code: "NATIVE_RESOURCE_RECOVERY_UNKNOWN_OPERATION" });
+  const held = inspectNativeQuarantine(first.resourceBudget, currentId);
+  assert.equal(recheckNativeQuarantine(first.resourceBudget, currentId, held.revision).slot_released, false);
+  await busy(first.resourceBudget);
+});
+test("second native attachment after normal settlement rejects explicitly, not via a missing record", async t => {
+  const options = await fixture(t, () => assert.fail("test-only ownership case sends no START"));
+  await withNativeInspectionBudget(options.resourceBudget, undefined, async scope => {
+    const hold = retainNativeLaunchOperation(scope, reservation);
+    assert.throws(() => hold.cleanup(), { code: "NATIVE_RESOURCE_NATIVE_SETTLEMENT" });
+    hold.watchChannel(options.channel); hold.observeNative(1, "CLEANUP_CONFIRMED");
+    const closed = once(options.channel, "close"); options.channel.destroy(); await closed;
+    hold.cleanup();
+    assert.throws(() => hold.cleanup(), { code: "NATIVE_RESOURCE_NATIVE_SETTLEMENT" });
+    assert.throws(() => retainNativeLaunchOperation(scope, reservation),
+      { code: "NATIVE_RESOURCE_NATIVE_ALREADY_ATTACHED" });
+  });
   assert.equal(await withNativeInspectionBudget(options.resourceBudget, undefined, () => 1), 1);
 });
 test("unresponsive peer cleanup timeout preserves quarantine after caller timeout", async t => {

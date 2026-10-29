@@ -953,6 +953,19 @@ quarantine recovery or musl/runtime-closure proof. See the
 [updated decision record](NATIVE-LAUNCH-SUBSTRATE-DECISION.md#g-delegated-lifecycle-and-node-bridge-follow-up)
 for exact contracts, historical/current results and remaining gates.
 
+The [privilege/recovery follow-up](NATIVE-LAUNCH-SUBSTRATE-DECISION.md#h-privilege-audit-and-quarantine-assessment-follow-up)
+records the root-supervisor/dedicated-account prerequisites, service/helper/
+user-namespace comparison and unverified inherited signal/runtime conditions.
+Credential setup now checks filesystem as well as real/effective/saved IDs.
+Its fake failure/order tests do not prove actual UID switching or containment.
+Owner-bound quarantine inspection/recheck requires the original controller or
+branded Node budget, exact operation ID and revision. It never releases slots:
+missing joined task/cgroup/capture/channel ownership yields `ADMIN_REQUIRED`;
+pending local work remains quarantined. No force flag, callback settlement,
+elapsed time or fresh budget can substitute cleanup proof. A joined OS owner
+and exactly-once release reconciler remain **NOT_IMPLEMENTED**. No service,
+helper, provider registration or independent resource issuer is introduced.
+
 Locked/offline resolution, GNU native library/CLI checking and selected Rust
 FD/JSON/CLI unit tests have been executed locally, including the Linux-only
 safe `nix` reader. The Node serializer must reproduce the committed shared

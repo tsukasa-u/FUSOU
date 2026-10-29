@@ -3,10 +3,83 @@ import { setImmediate, setTimeout as delay } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { assertNativeResourceScope, createNativeInspectionBudget, withNativeInspectionBudget,
-  withNativeInspectionBudgetSync } from "./release-native-resources.mjs";
+  withNativeInspectionBudgetSync, inspectNativeQuarantine, recheckNativeQuarantine,
+  retainNativeLaunchOperation } from "./release-native-resources.mjs";
 import { nativeResourceFixtureBudget, nativeResourceFixtureLimits } from "./release-native-attestation-fixture.mjs";
 
 const code = (expected) => (error) => { assert.ok(Object.isFrozen(error)); return error.code === expected; };
+const nativeReservation = Object.freeze({ image: 1, input: 1, fds: 1, execution: 1,
+  capture: 1, stop: 1, cleanup: 1, reads: 1, captures: 1 });
+function quarantinedHold(budget) {
+  let hold;
+  assert.throws(() => withNativeInspectionBudgetSync(budget, scope => {
+    hold = retainNativeLaunchOperation(scope, nativeReservation); hold.quarantine();
+  }), code("NATIVE_RESOURCE_PENDING_WORK"));
+  return hold;
+}
+
+test("recovery requires exact budget, operation and revision and cannot accept force flags", async () => {
+  const budget = nativeResourceFixtureBudget({ max_concurrent_operations: 1 });
+  const hold = quarantinedHold(budget), snapshot = inspectNativeQuarantine(budget, hold.operationId);
+  assert.ok(Object.isFrozen(snapshot)); assert.equal(snapshot.state, "QUARANTINED");
+  assert.throws(() => hold.observeNative(1, { recovered: true }), code("NATIVE_RESOURCE_NATIVE_ID"));
+  assert.throws(() => inspectNativeQuarantine({}, hold.operationId), code("NATIVE_RESOURCE_BUDGET_MISSING"));
+  assert.throws(() => inspectNativeQuarantine(nativeResourceFixtureBudget(), hold.operationId),
+    code("NATIVE_RESOURCE_RECOVERY_OWNER_MISMATCH"));
+  assert.throws(() => inspectNativeQuarantine(budget, "native-unknown"), code("NATIVE_RESOURCE_RECOVERY_UNKNOWN_OPERATION"));
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, snapshot.revision + 1),
+    code("NATIVE_RESOURCE_RECOVERY_STALE"));
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, { recovered: true }),
+    code("NATIVE_RESOURCE_RECOVERY_REQUEST_INVALID"));
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, snapshot.revision, { force: true }),
+    code("NATIVE_RESOURCE_RECOVERY_REQUEST_INVALID"));
+  const checked = recheckNativeQuarantine(budget, hold.operationId, snapshot.revision);
+  assert.equal(checked.state, "ADMIN_REQUIRED"); assert.equal(checked.slot_released, false);
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, snapshot.revision),
+    code("NATIVE_RESOURCE_RECOVERY_STALE"));
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, checked.revision),
+    code("NATIVE_RESOURCE_RECOVERY_NOT_RECHECKABLE"));
+  assert.throws(() => hold.cleanup(), code("NATIVE_RESOURCE_NATIVE_SETTLEMENT"));
+  await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+});
+test("cancelled pending callbacks keep quarantine and rechecking does not guess native cleanup", async () => {
+  const budget = nativeResourceFixtureBudget({ max_concurrent_operations: 1 }), abort = new AbortController();
+  let hold, finish;
+  const completion = withNativeInspectionBudget(budget, abort.signal, async scope => {
+    hold = retainNativeLaunchOperation(scope, nativeReservation);
+    await scope.wait(() => new Promise(resolve => { finish = resolve; }));
+  });
+  await setImmediate(); abort.abort();
+  await assert.rejects(completion, code("NATIVE_RESOURCE_ABORTED"));
+  const pending = inspectNativeQuarantine(budget, hold.operationId);
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, pending.revision),
+    code("NATIVE_RESOURCE_RECOVERY_NOT_RECHECKABLE"));
+  hold.quarantine();
+  const first = inspectNativeQuarantine(budget, hold.operationId);
+  const retry = recheckNativeQuarantine(budget, hold.operationId, first.revision);
+  assert.equal(retry.state, "QUARANTINED"); assert.equal(retry.reason, "LOCAL_CLEANUP_PENDING");
+  finish(); await setImmediate();
+  const checked = recheckNativeQuarantine(budget, hold.operationId, retry.revision);
+  assert.equal(checked.state, "ADMIN_REQUIRED"); assert.equal(checked.slot_released, false);
+  await assert.rejects(withNativeInspectionBudget(budget, undefined, () => 1), code("NATIVE_RESOURCE_BUSY"));
+});
+test("recheck spends the original scope budget without refunds or replacement budgets", () => {
+  const budget = nativeResourceFixtureBudget({ max_bytes: 4096, max_concurrent_operations: 1 });
+  let hold, exhausted = false;
+  assert.throws(() => withNativeInspectionBudgetSync(budget, scope => {
+    hold = retainNativeLaunchOperation(scope, nativeReservation); hold.quarantine();
+    for (let i = 0; i <= 4096; i++) {
+      try { scope.charge(1); } catch (error) {
+        assert.equal(error.code, "NATIVE_RESOURCE_BYTES_EXCEEDED"); exhausted = true; break;
+      }
+    }
+  }), code("NATIVE_RESOURCE_PENDING_WORK"));
+  assert.equal(exhausted, true);
+  const before = inspectNativeQuarantine(budget, hold.operationId);
+  assert.throws(() => recheckNativeQuarantine(budget, hold.operationId, before.revision),
+    code("NATIVE_RESOURCE_BYTES_EXCEEDED"));
+  assert.deepEqual(inspectNativeQuarantine(budget, hold.operationId), before);
+});
 
 test("resource limits are required, finite, complete and explicitly unapproved", async () => {
   for (const limits of [undefined, {}, { ...nativeResourceFixtureLimits, extra: 1 },

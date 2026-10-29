@@ -63,6 +63,21 @@ pub(crate) struct State {
     pub bridge_reads: Option<usize>,
     pub reads: usize,
     pub next_id: u64,
+    pub recovery: std::collections::BTreeMap<u64, crate::recovery::Record>,
+}
+impl State {
+    fn quarantine(&mut self, id: u64) -> Result<()> {
+        match self.recovery.entry(id) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(crate::recovery::Record::quarantined(id));
+                self.quarantined += 1;
+                Ok(())
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {
+                Err(LaunchError::Invalid("duplicate quarantine operation"))
+            }
+        }
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Controller {
@@ -157,6 +172,52 @@ impl Controller {
         state.reads += count;
         Ok(())
     }
+    pub fn inspect_quarantine(&self, owner: &Owner) -> Result<crate::recovery::Snapshot> {
+        owner.require_controller(self)?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| LaunchError::Invalid("controller poisoned"))?;
+        state
+            .recovery
+            .get(&owner.id)
+            .map(|record| record.snapshot())
+            .ok_or(LaunchError::Invalid("unknown quarantine operation"))
+    }
+    pub fn recheck_quarantine(
+        &self,
+        owner: &Owner,
+        revision: u64,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<crate::recovery::Snapshot> {
+        let candidate = self.inspect_quarantine(owner)?;
+        if candidate.revision != revision
+            || candidate.status != crate::recovery::Status::Quarantined
+        {
+            return Err(LaunchError::Invalid(
+                "stale/non-quarantined recovery request",
+            ));
+        }
+        self.charge(Stage::Cleanup, 1)?;
+        let deadline = std::time::Instant::now() + self.limits.cleanup_timeout;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| LaunchError::Invalid("controller poisoned"))?;
+        let record = state
+            .recovery
+            .get_mut(&owner.id)
+            .ok_or(LaunchError::Invalid("unknown quarantine operation"))?;
+        record.recheck_owned_gaps(revision, || {
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                Some(crate::recovery::Reason::Cancelled)
+            } else if std::time::Instant::now() >= deadline {
+                Some(crate::recovery::Reason::Deadline)
+            } else {
+                None
+            }
+        })
+    }
 }
 pub(crate) struct Lease {
     pub controller: Controller,
@@ -178,7 +239,7 @@ impl Lease {
         if cleanup_verified {
             state.active -= 1;
         } else {
-            state.quarantined += 1;
+            state.quarantine(self.id)?;
         }
         self.released = true;
         Ok(())
@@ -189,7 +250,9 @@ impl Drop for Lease {
         if !self.released {
             if let Ok(mut state) = self.controller.state.lock() {
                 if self.spawned || self.cleanup_pending {
-                    state.quarantined += 1;
+                    if let Err(error) = state.quarantine(self.id) {
+                        eprintln!("NATIVE_LAUNCH quarantine record {}: {error}", self.id);
+                    }
                 } else {
                     state.active -= 1;
                 }
@@ -235,6 +298,12 @@ impl Owner {
     pub fn require(&self, lease: &Lease) -> Result<()> {
         if self.id != lease.id || !Arc::ptr_eq(&self.state, &lease.controller.state) {
             return Err(LaunchError::Invalid("operation owner mismatch"));
+        }
+        Ok(())
+    }
+    fn require_controller(&self, controller: &Controller) -> Result<()> {
+        if !Arc::ptr_eq(&self.state, &controller.state) {
+            return Err(LaunchError::Invalid("recovery controller owner mismatch"));
         }
         Ok(())
     }

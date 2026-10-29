@@ -62,6 +62,8 @@ mod lifecycle;
 #[allow(dead_code)]
 mod prepare;
 #[allow(dead_code)]
+mod recovery;
+#[allow(dead_code)]
 mod supervise;
 #[allow(dead_code, unsafe_code)]
 mod sys;
