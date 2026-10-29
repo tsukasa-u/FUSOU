@@ -814,6 +814,19 @@ builder or resource-policy approval. Default formal consumption has no issuer
 for this admission and stays blocked. Explicit local structural admission never
 upgrades a report to native reexecution or authorizes publication.
 
+`consumeReleaseRun` preserves two distinct failure surfaces. After producer
+provenance admission, expected `ReleaseBlocked` conditions (including absent
+or forged `offlineResourceBudget`) return a structured blocked report. Invalid
+provenance/input assertions, unexpected exceptions and failed final rechecks
+still reject the promise; the workflow caller records those as `FAIL`.
+Consumer reports explicitly retain `authenticated: false` and
+`publication_authorized: false`, even for artifact-linkage-only validation.
+Missing inspection admission returns `NATIVE_RESOURCE_BUDGET_MISSING` without
+a validated manifest, successful check results, consumption receipt or execution
+proof. The check scope is refused before input cloning/parsing or check execution
+callbacks. Transport/build inspection and Runtime Config validation precede this
+check admission; their completion is not offline/native authentication.
+
 One owner-bound operation covers input copies, layout, JSON validation, map
 materialization, callback waits, stdout/stderr capture, receipt/output
 materialization and proof checks. Copy/read counts, cumulative modeled byte-work,
@@ -917,13 +930,22 @@ The Node scope's existing hard JSON/record ceilings also apply; larger FD limits
 do not bypass those ceilings. Modeled parent work is not peak RSS or a native
 process-tree budget.
 
-Rust unit tests and a shared Node structural vector were added, but no Rust
-build/test or native execution was performed for this change. The Linux-only
-safe `nix` dependency and its lock entries were checked against public package
-metadata, not a Cargo resolver/build. Rust compilation and lock resolution
-remain unverified. Linux x86-64 musl static ELF is the runtime first candidate;
-the GNU recipe is unchanged. Actual ELF/linker/sysroot/config/entropy/runtime
-closure remains unverified. `gh` retains its separate, unapproved online profile.
+Locked/offline resolution, GNU native library/CLI checking and selected Rust
+FD/JSON/CLI unit tests have been executed locally, including the Linux-only
+safe `nix` reader. The Node serializer must reproduce the committed shared
+vector byte-for-byte; the Rust test reads that vector directly and validates
+its expected binding. The Rust re-encoder uses parsed entries, so its roundtrip
+alone is not the cross-language oracle: that oracle is the committed bytes and
+binding reproduced independently by Node. Neither the vector nor its expected
+binding is regenerated to accommodate parser changes.
+Acquisition-only path/bytes tests use synthetic, non-Production manifests:
+they cover raw digest/length rejection, owned bytes, manifest selection and
+path escape rejection, not signed evidence acceptance. Operational CLI launches,
+real Presentation verification and key-generating tests are separate and are
+not implied by those parser/loader results. Linux x86-64 musl static ELF remains
+the unverified runtime first candidate; the GNU recipe is unchanged. Actual
+ELF/linker/sysroot/config/entropy/runtime closure remains unverified. `gh` retains
+its separate, unapproved online profile.
 
 Provider readiness, classified independently of mock success:
 

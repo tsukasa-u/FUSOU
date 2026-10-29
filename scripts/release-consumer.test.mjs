@@ -4,6 +4,8 @@ import { consumeReleaseRun, parseConsumerInputs, assembleReleaseManifest } from 
 import { consumerFixture, recordBytes } from "./release-consumer-fixture.mjs";
 import { verifyProducerBuild } from "./release-build-proof.mjs";
 import { sha256, parseReleaseManifest, encodeReleaseManifest } from "./release-manifest.mjs";
+import { verifyReleaseChecks } from "./release-checks.mjs";
+import { ReleaseBlocked } from "./release-transport.mjs";
 
 function updateReport(f) { f.files.set("release-report.json", recordBytes(f.report)); f.sync(); }
 test("synthetic complete consumer path derives expectations before reading a candidate; never authorizes publication/deployment", async () => {
@@ -11,6 +13,7 @@ test("synthetic complete consumer path derives expectations before reading a can
   const result = await consumeReleaseRun(f.options, f.dependencies);
   assert.equal(result.status, "RELEASE_ARTIFACTS_VALIDATED");
   assert.equal(result.artifact_status, "RELEASE_ARTIFACTS_VALIDATED");
+  assert.equal(result.authenticated, false);
   assert.equal(result.publication_authorized, false);
   assert.equal(result.deployment_status, "NOT_CHECKED");
   const m = parseReleaseManifest(Buffer.from(result.manifest_base64url, "base64url"));
@@ -174,14 +177,68 @@ test("independent public pin, required platforms, Worker version and Runtime Con
   const input = parseConsumerInputs(f.options.publicInputsBytes, f.options.publicInputsSha256, 1234);
   assert.equal(input.verification.policy.now_ms, 1234);
 });
-test("real crypto adapter never accepts the unsigned synthetic fixture; check PASS claims alone remain blocked", async () => {
+test("the real Runtime Config adapter rejects the unsigned synthetic envelope", async () => {
   const f = consumerFixture();
   await assert.rejects(consumeReleaseRun(f.options, { transport: f.dependencies.transport }));
+});
+test("missing or forged resource budget returns a blocked report without successful consumption claims", async () => {
+  for (const offlineResourceBudget of [undefined, Object.freeze({ approval: "APPROVED" })]) {
+    const f = consumerFixture();
+    let callbacks = 0;
+    const unexpectedExecution = () => { callbacks++; assert.fail("check execution must not start without admission"); };
+    const result = await consumeReleaseRun(f.options, {
+      transport: f.dependencies.transport, verifyRuntimeEnvelope: f.dependencies.verifyRuntimeEnvelope,
+      offlineResourceBudget, authenticateOfflineExecution: unexpectedExecution,
+      authenticateArchiveReadback: unexpectedExecution, authenticateCheckExecution: unexpectedExecution,
+    });
+    assert.equal(result.status, "BLOCKED_IMPLEMENTATION");
+    assert.equal(result.authenticated, false);
+    assert.equal(result.publication_authorized, false);
+    assert.equal(result.production_acceptance, "BLOCKED");
+    assert.equal(result.build_status, "BUILD_OUTPUTS_VERIFIED");
+    assert.equal(result.artifact_status, "NOT_CHECKED");
+    assert.equal(result.signature_status, "NOT_CHECKED");
+    assert.equal(result.deployment_status, "NOT_CHECKED");
+    assert.deepEqual(result.blockers, ["NATIVE_RESOURCE_BUDGET_MISSING"]);
+    assert.deepEqual(Object.keys(result).sort(), ["schema_version", "status", "tag_status", "build_status",
+      "artifact_status", "signature_status", "deployment_status", "authenticated", "publication_authorized",
+      "production_acceptance", "blockers", "transport", "archive_byte_length", "tag", "commit_sha"].sort());
+    assert.equal(result.manifest_base64url, undefined);
+    assert.equal(result.check_results, undefined);
+    assert.equal(result.receipt, undefined);
+    assert.equal(result.executionProof, undefined);
+    assert.equal(callbacks, 0);
+  }
+});
+test("missing inspection admission rejects before release-check inputs or callbacks are accessed", async () => {
+  let work = 0;
+  const unexpectedWork = () => { work++; assert.fail("resource admission must precede check work"); };
+  await assert.rejects(verifyReleaseChecks({ get records() { return unexpectedWork(); } }, {
+    authenticateOfflineExecution: unexpectedWork, authenticateArchiveReadback: unexpectedWork,
+    authenticateCheckExecution: unexpectedWork,
+  }), (error) => {
+    assert.ok(error instanceof ReleaseBlocked);
+    assert.equal(error.code, "NATIVE_RESOURCE_BUDGET_MISSING");
+    assert.equal(error.status, "BLOCKED_IMPLEMENTATION");
+    return true;
+  });
+  assert.equal(work, 0);
+});
+test("unexpected verifier errors remain exceptions rather than blocked results", async () => {
+  const f = consumerFixture(), failure = new Error("synthetic verifier failure");
   await assert.rejects(consumeReleaseRun(f.options, {
-    transport: f.dependencies.transport, verifyRuntimeEnvelope: f.dependencies.verifyRuntimeEnvelope,
-  }));
+    ...f.dependencies, verifyRuntimeEnvelope: async () => { throw failure; },
+  }), (error) => error === failure);
+});
+test("missing check records return a blocked report, never a successful manifest", async () => {
   const g = consumerFixture(); g.files.delete("check-archive_readback.json"); g.sync();
-  assert.equal((await consumeReleaseRun(g.options, g.dependencies)).blockers[0], "REQUIRED_RELEASE_CHECK_RECORDS_MISSING");
+  const result = await consumeReleaseRun(g.options, g.dependencies);
+  assert.equal(result.status, "BLOCKED_EXTERNAL_INPUTS");
+  assert.equal(result.authenticated, false);
+  assert.equal(result.publication_authorized, false);
+  assert.deepEqual(result.blockers, ["REQUIRED_RELEASE_CHECK_RECORDS_MISSING"]);
+  assert.equal(result.manifest_base64url, undefined);
+  assert.equal(result.check_results, undefined);
 });
 test("tag movement after download or after check verification is rejected", async () => {
   for (const afterChecks of [false, true]) {

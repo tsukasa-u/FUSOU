@@ -4482,6 +4482,117 @@ mod tests {
     use super::*;
     use k256::elliptic_curve::sec1::ToEncodedPoint;
 
+    mod acquisition {
+        use super::*;
+
+        struct Fixture {
+            root: PathBuf,
+            manifest: Value,
+            raw: Vec<u8>,
+        }
+
+        impl Fixture {
+            fn new() -> Self {
+                let root = std::env::temp_dir().join(format!("fusou-loader-test-{}", uuid::Uuid::new_v4()));
+                fs::create_dir(&root).expect("create synthetic loader directory");
+                let raw = b"synthetic acquisition bytes, not Production evidence".to_vec();
+                let fixture = Self {
+                    root,
+                    manifest: serde_json::json!({ "artifacts": { "synthetic": {
+                        "path": "artifact.bin", "artifact_sha256": sha256_base64url(&raw),
+                        "byte_length": raw.len(),
+                    } } }),
+                    raw,
+                };
+                fs::create_dir(fixture.bundle()).expect("create synthetic bundle directory");
+                fs::write(fixture.bundle().join("artifact.bin"), &fixture.raw).unwrap();
+                fixture.write_manifest();
+                fixture
+            }
+
+            fn bundle(&self) -> PathBuf { self.root.join("bundle") }
+            fn write_manifest(&self) {
+                fs::write(self.bundle().join("manifest.json"), serde_json::to_vec(&self.manifest).unwrap()).unwrap();
+            }
+            fn bytes(&self, raw: Vec<u8>) -> BundleBytes {
+                BundleBytes {
+                    manifest: serde_json::to_vec(&self.manifest).unwrap(),
+                    artifacts: BTreeMap::from([("synthetic".to_owned(), raw)]),
+                }
+            }
+        }
+
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.root).expect("remove synthetic loader directory");
+            }
+        }
+
+        #[test]
+        fn path_and_bytes_loaders_preserve_owned_artifacts_and_manifest_selection() {
+            let fixture = Fixture::new();
+            let owned = load_bundle_bytes(fixture.bytes(fixture.raw.clone()), PathBuf::from("synthetic")).unwrap();
+            let loaded = load_bundle(&fixture.bundle().join("manifest.json")).unwrap();
+            assert_eq!(loaded.manifest, owned.manifest);
+            assert_eq!(loaded.artifacts["synthetic"].bytes, owned.artifacts["synthetic"].bytes);
+            let mut previous = fixture.bundle().join("manifest.json");
+            for name in ["tlsn-production-evidence.json", "manifest.json", "evidence-manifest.json"] {
+                let path = fixture.bundle().join(name);
+                fs::rename(&previous, &path).unwrap();
+                let selected = load_bundle(&fixture.bundle()).unwrap();
+                assert_eq!(selected.manifest_path, path);
+                assert_eq!(selected.artifacts["synthetic"].bytes, fixture.raw);
+                previous = path;
+            }
+            fs::write(fixture.bundle().join("artifact.bin"), b"changed after acquisition").unwrap();
+            assert_eq!(loaded.artifacts["synthetic"].bytes, fixture.raw);
+            assert_eq!(owned.artifacts["synthetic"].bytes, fixture.raw);
+            let mut extra = fixture.bytes(fixture.raw.clone());
+            extra.artifacts.insert("undeclared".to_owned(), Vec::new());
+            assert!(load_bundle_bytes(extra, PathBuf::from("synthetic")).err().unwrap()
+                .to_string().contains("inventory differs"));
+        }
+
+        #[test]
+        fn path_and_bytes_loaders_reject_digest_and_length_mismatch() {
+            let mut fixture = Fixture::new();
+            for length_mismatch in [false, true] {
+                let raw = if length_mismatch { fixture.raw.clone() } else { b"tampered".to_vec() };
+                fixture.manifest["artifacts"]["synthetic"]["byte_length"] =
+                    serde_json::json!(fixture.raw.len() + usize::from(length_mismatch));
+                fixture.write_manifest();
+                fs::write(fixture.bundle().join("artifact.bin"), &raw).unwrap();
+                let path_error = load_bundle(&fixture.bundle()).err().unwrap();
+                let bytes_error = load_bundle_bytes(fixture.bytes(raw), PathBuf::from("synthetic")).err().unwrap();
+                let expected = if length_mismatch { "byte length" } else { "SHA-256" };
+                assert!(path_error.to_string().contains(expected));
+                assert!(bytes_error.to_string().contains(expected));
+            }
+        }
+
+        #[test]
+        fn path_loader_rejects_traversal_and_absolute_artifacts() {
+            let mut fixture = Fixture::new();
+            for path in ["../outside.bin".to_owned(), fixture.root.join("outside.bin").display().to_string()] {
+                fixture.manifest["artifacts"]["synthetic"]["path"] = Value::String(path);
+                fixture.write_manifest();
+                assert!(load_bundle(&fixture.bundle()).err().unwrap().to_string().contains("must be relative"));
+            }
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn path_loader_rejects_symlink_escape_before_consuming_artifacts() {
+            let mut fixture = Fixture::new();
+            let outside = fixture.root.join("outside.bin");
+            fs::write(&outside, &fixture.raw).unwrap();
+            std::os::unix::fs::symlink(outside, fixture.bundle().join("linked.bin")).unwrap();
+            fixture.manifest["artifacts"]["synthetic"]["path"] = Value::String("linked.bin".to_owned());
+            fixture.write_manifest();
+            assert!(load_bundle(&fixture.bundle()).err().unwrap().to_string().contains("escapes the bundle"));
+        }
+    }
+
     fn p010_corpus() -> Value {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures/p010-cross-language-corpus-v1.json");

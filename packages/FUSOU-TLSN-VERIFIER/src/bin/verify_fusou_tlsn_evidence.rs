@@ -263,6 +263,72 @@ fn main() {
 mod tests {
     use super::*;
 
+    fn legacy_arguments() -> Vec<String> {
+        [
+            ("--bundle", "synthetic-bundle"),
+            ("--evidence-root-key-id", "root"),
+            ("--evidence-root-public-key-spki", "synthetic-root-spki"),
+            ("--trusted-notary-registry", "notary.json"),
+            ("--session-authority-registry", "session.json"),
+            ("--session-authority-key-id", "session"),
+            ("--session-authority-public-key-spki", "synthetic-session-spki"),
+            ("--binding-authority-registry", "binding.json"),
+            ("--binding-authority-key-id", "binding"),
+            ("--binding-authority-public-key-spki", "synthetic-binding-spki"),
+            ("--canonical-user-id", "synthetic-user"),
+            ("--device-id", "synthetic-device"),
+            ("--device-public-key", "synthetic-device-key"),
+            ("--server-identity", "game.example.test"),
+            ("--origin-inventory", "inventory.json"),
+            ("--target-approval", "approval.json"),
+            ("--profile-sha256", "synthetic-profile"),
+            ("--verifier-key-id", "verifier"),
+            ("--trust-anchor-der", "anchor.der"),
+        ]
+        .into_iter()
+        .flat_map(|(flag, value)| [flag.to_owned(), value.to_owned()])
+        .collect()
+    }
+
+    #[test]
+    fn legacy_path_modes_preserve_all_arguments_and_optional_sparse_profile() {
+        let expected: Vec<String> = legacy_arguments().chunks_exact(2)
+            .map(|pair| pair[1].clone()).collect();
+        for explicit in [false, true] {
+            for sparse in [false, true] {
+                let mut args = legacy_arguments();
+                if explicit { args.insert(0, "--path-mode".to_owned()); }
+                if sparse { args.extend(["--sparse-profile-sha256".to_owned(), "sparse-profile".to_owned()]); }
+                let Invocation::Path(parsed) = parse_arguments_from(args).unwrap() else {
+                    panic!("legacy arguments must select path mode");
+                };
+                assert_eq!(parsed.sparse_profile_sha256, sparse.then(|| "sparse-profile".to_owned()));
+                assert_eq!(vec![
+                    parsed.bundle, parsed.evidence_root_key_id, parsed.evidence_root_public_key_spki,
+                    parsed.trusted_notary_registry, parsed.session_authority_registry,
+                    parsed.session_authority_key_id, parsed.session_authority_public_key_spki,
+                    parsed.binding_authority_registry, parsed.binding_authority_key_id,
+                    parsed.binding_authority_public_key_spki, parsed.canonical_user_id, parsed.device_id,
+                    parsed.device_public_key, parsed.server_identity, parsed.origin_inventory,
+                    parsed.target_approval, parsed.profile_sha256, parsed.verifier_key_id, parsed.trust_anchor_der,
+                ], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_flags_and_fd_mixing_never_select_legacy_execution() {
+        for flag in ["--unknown", "--fd-abi-v2", "--path-mode"] {
+            let mut args = legacy_arguments();
+            args.extend([flag.to_owned(), "value".to_owned()]);
+            let error = parse_arguments_from(args).err().expect("unsupported flag must reject");
+            assert!(error.contains("unknown argument"));
+        }
+        let mut args = legacy_arguments();
+        args.push("--fd-abi-v1".to_owned());
+        assert!(parse_arguments_from(args).is_err());
+    }
+
     #[test]
     fn fd_mode_is_explicit_and_excludes_all_other_arguments() {
         assert!(matches!(parse_arguments_from(vec!["--fd-abi-v1".into()]), Ok(Invocation::FdV1)));

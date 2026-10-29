@@ -141,7 +141,8 @@ export async function consumeReleaseRun({ github, runId, runAttempt, trustedSha,
     workflows[0].sha === workflows[1].sha, "producer workflow differs from trusted consumer revision");
   const result = { schema_version: 1, status: "BLOCKED_EXTERNAL_INPUTS", tag_status: "NOT_CHECKED",
     build_status: "NOT_CHECKED", artifact_status: "NOT_CHECKED", signature_status: "NOT_CHECKED",
-    deployment_status: "NOT_CHECKED", publication_authorized: false, production_acceptance: "BLOCKED", blockers: [] };
+    deployment_status: "NOT_CHECKED", authenticated: false, publication_authorized: false,
+    production_acceptance: "BLOCKED", blockers: [] };
   let finalRecheck, executionIntake, archiveIntake;
   try {
     const downloaded = await acquireReleaseTransport({ github, run, downloadArchive, ...dependencies.transport });

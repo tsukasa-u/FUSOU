@@ -101,6 +101,26 @@ fn rejects_header_flags_lengths_versions_and_ranges() {
 }
 
 #[test]
+fn shared_node_vector_rejects_entry_metadata_padding_and_payload_mutations() {
+    let original = bytes();
+    let path_start = HEADER_BYTES + ENTRY_BYTES + "control".len();
+    let padding_start = path_start + "control.json".len();
+    for offset in [50, 60, padding_start, 80, original.len() - 1] {
+        let mut raw = original.clone();
+        raw[offset] ^= 1;
+        assert!(parse_frame(raw, &limits()).is_err());
+    }
+    let mut invalid_utf8 = original.clone();
+    invalid_utf8[path_start] = 0xff;
+    assert!(parse_frame(invalid_utf8, &limits()).is_err());
+    let mut trailing = original;
+    trailing.push(0);
+    let length = trailing.len() as u64;
+    trailing[32..40].copy_from_slice(&length.to_le_bytes());
+    assert!(parse_frame(trailing, &limits()).is_err());
+}
+
+#[test]
 fn rejects_missing_duplicate_unknown_and_noncanonical_paths() {
     let mut missing = entries(); missing.retain(|entry| entry.1 != "health");
     assert!(parse_frame(encode(missing), &limits()).is_err());
