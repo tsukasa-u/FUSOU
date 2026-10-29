@@ -1,3 +1,5 @@
+use crate::bridge::Bridge;
+use crate::lifecycle::{Lifecycle, Phase};
 use crate::prepare::{Arguments, Image, Input, Lease, Permit, Stage};
 use crate::{sys, LaunchError, Result};
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
@@ -6,41 +8,14 @@ use nix::sys::wait::WaitStatus;
 use nix::unistd::{close, pipe2};
 use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::fd::{AsFd, AsRawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-/// No constructor: an independently admitted delegation/no-escape root does not exist.
-pub(crate) struct DelegatedCgroup {
-    directory: File,
-    kill: File,
-    events: File,
-}
-impl DelegatedCgroup {
-    fn kill(&mut self) -> Result<()> {
-        self.kill.write_all(b"1")?;
-        Ok(())
-    }
-    fn empty(&self) -> Result<bool> {
-        use std::os::unix::fs::FileExt;
-        let mut raw = [0u8; 1024];
-        let size = self.events.read_at(&mut raw, 0)?;
-        if size == raw.len() {
-            return Err(LaunchError::Invalid("cgroup events bound"));
-        }
-        let text = std::str::from_utf8(&raw[..size])
-            .map_err(|_| LaunchError::Invalid("cgroup events encoding"))?;
-        match text.lines().find(|line| line.starts_with("populated ")) {
-            Some("populated 0") => Ok(true),
-            Some("populated 1") => Ok(false),
-            _ => Err(LaunchError::Invalid("cgroup empty unconfirmed")),
-        }
-    }
-}
 pub(crate) enum Containment {
     DirectSynthetic,
-    Delegated(DelegatedCgroup),
+    Delegated(crate::cgroup::Cgroup),
 }
 pub(crate) fn require_delegated_containment() -> Result<Containment> {
     Err(LaunchError::Invalid(
@@ -92,6 +67,7 @@ pub(crate) struct Observation {
     pub slot_released: bool,
     pub fds_closed: bool,
     pub errors: Vec<String>,
+    pub phase: Phase,
 }
 
 struct Stream {
@@ -202,7 +178,7 @@ fn exec_report(raw: &[u8], eof: bool) -> ExecReport {
     if eof && raw.len() == 16 && &raw[..4] == b"FLX1" && raw[12..] == [0; 4] {
         let stage = u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]);
         let errno = i32::from_le_bytes([raw[8], raw[9], raw[10], raw[11]]);
-        if (1..=3).contains(&stage) && errno > 0 {
+        if (1..=4).contains(&stage) && errno > 0 {
             return ExecReport::Failed { stage, errno };
         }
     }
@@ -239,6 +215,9 @@ pub(crate) fn launch(
     lease.controller.charge(Stage::Capture, capture_work)?;
     lease.controller.charge(Stage::Fds, 12)?;
     lease.controller.charge(Stage::Cleanup, 4096)?;
+    if matches!(&containment, Containment::DirectSynthetic) {
+        lease.controller.charge(Stage::Stop, 4096)?;
+    }
     let (stdout_r, stdout_w) = pipe()?;
     let (stderr_r, stderr_w) = pipe()?;
     let (exec_r, exec_w) = pipe()?;
@@ -260,11 +239,26 @@ pub(crate) fn launch(
     }
     let group = match &containment {
         Containment::DirectSynthetic => None,
-        Containment::Delegated(group) => Some(&group.directory),
+        Containment::Delegated(group) => Some(group.fd()?),
     };
+    let credentials = match &containment {
+        Containment::DirectSynthetic => None,
+        Containment::Delegated(group) => Some(group.credentials),
+    };
+    if let Some(credentials) = credentials {
+        if let Containment::Delegated(group) = &containment {
+            group.owner.require(&lease)?;
+        }
+        sys::validate_credentials(credentials)?;
+        nix::unistd::fchown(
+            &image.file,
+            Some(nix::unistd::Uid::from_raw(credentials.uid)),
+            Some(nix::unistd::Gid::from_raw(credentials.gid)),
+        )?;
+    }
     let started = Instant::now();
     lease.controller.charge(Stage::Execution, 1)?;
-    let task = sys::spawn(&plan, &arguments.argv, &arguments.env, group)?;
+    let task = sys::spawn(&plan, &arguments.argv, &arguments.env, group, credentials)?;
     lease.spawned = true;
     // Parent writers/image/input/argv are dropped only after clone has copied its FD/address tables.
     let mut setup_errors = Vec::with_capacity(8);
@@ -301,7 +295,23 @@ impl Child {
         }
         Ok(())
     }
-    pub fn observe(mut self, cancel: &AtomicBool) -> Result<Observation> {
+    pub fn observe(self, cancel: &AtomicBool) -> Result<Observation> {
+        self.observe_internal(cancel, None)
+    }
+    pub fn observe_bridged(self, cancel: &AtomicBool, bridge: &mut Bridge) -> Result<Observation> {
+        bridge.require_owner(&self.lease)?;
+        self.observe_internal(cancel, Some(bridge))
+    }
+    fn observe_internal(
+        mut self,
+        cancel: &AtomicBool,
+        mut bridge: Option<&mut Bridge>,
+    ) -> Result<Observation> {
+        let mut lifecycle = Lifecycle::new();
+        lifecycle.advance(Phase::ChildCreated)?;
+        if let Some(peer) = bridge.as_deref_mut() {
+            peer.advance(Phase::ChildCreated, &self.lease, "PENDING")?;
+        }
         let mut stop = Stop::Exited;
         let mut exit = None;
         let mut kill_at = None;
@@ -314,9 +324,23 @@ impl Child {
             kill_at = Some(Instant::now());
         }
         let mut reaped = false;
+        let mut tree_empty = false;
         loop {
             let now = Instant::now();
-            if kill_at.is_none() && cancel.load(Ordering::Acquire) {
+            let mut peer_cancelled = false;
+            if let Some(peer) = bridge.as_deref_mut() {
+                match peer.cancelled() {
+                    Ok(value) => peer_cancelled = value,
+                    Err(error) => {
+                        if errors.len() < 8 {
+                            errors.push(error.to_string());
+                        }
+                        stop = Stop::SupervisionError;
+                        kill_at.get_or_insert(now);
+                    }
+                }
+            }
+            if kill_at.is_none() && (cancel.load(Ordering::Acquire) || peer_cancelled) {
                 stop = Stop::Cancelled;
                 kill_at = Some(now);
             }
@@ -410,7 +434,11 @@ impl Child {
                 }
             }
             if resource_exhausted {
-                if let Err(error) = sys::terminate(&self.task) {
+                let stopped = match &mut self.containment {
+                    Containment::DirectSynthetic => sys::terminate(&self.task),
+                    Containment::Delegated(group) => group.kill(),
+                };
+                if let Err(error) = stopped {
                     errors.push(format!("stop: {error}"));
                 }
                 self.task.kill_requested = true;
@@ -441,8 +469,41 @@ impl Child {
                 }
                 break;
             }
+            if self.exec_pipe.eof
+                && self.exec_pipe.bytes.is_empty()
+                && stop == Stop::Exited
+                && lifecycle.phase == Phase::ChildCreated
+            {
+                for phase in [Phase::ExecObserved, Phase::Capturing] {
+                    lifecycle.advance(phase)?;
+                    if let Some(peer) = bridge.as_deref_mut() {
+                        if let Err(error) = peer.advance(phase, &self.lease, "PENDING") {
+                            errors.push(error.to_string());
+                            stop = Stop::SupervisionError;
+                            kill_at.get_or_insert(now);
+                            break;
+                        }
+                    }
+                }
+            }
+            if reaped && !tree_empty {
+                match &self.containment {
+                    Containment::DirectSynthetic => {}
+                    Containment::Delegated(group) => match group.empty() {
+                        Ok(empty) => tree_empty = empty,
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            stop = Stop::SupervisionError;
+                            break;
+                        }
+                    },
+                }
+            }
             let eof = self.output.eof && self.error_output.eof && self.exec_pipe.eof;
-            if reaped && eof {
+            if reaped
+                && eof
+                && (tree_empty || matches!(&self.containment, Containment::DirectSynthetic))
+            {
                 break;
             }
             let mut fds: [PollFd<'_>; 4] =
@@ -468,16 +529,6 @@ impl Child {
             }
         }
         let capture_eof = self.output.eof && self.error_output.eof && self.exec_pipe.eof;
-        let tree_empty = match &self.containment {
-            Containment::DirectSynthetic => false,
-            Containment::Delegated(group) => match group.empty() {
-                Ok(empty) => empty,
-                Err(error) => {
-                    errors.push(error.to_string());
-                    false
-                }
-            },
-        };
         let exec = exec_report(&self.exec_pipe.bytes, self.exec_pipe.eof);
         let operation_id = self.lease.id;
         let (stdout, stdout_close) = self.output.capture();
@@ -494,16 +545,54 @@ impl Child {
                 fds_closed = false;
             }
         }
-        // All stream FDs are closed before deciding whether the resource slot can settle.
-        // Delegation admission and operation-directory removal are not implemented.
-        // Even a readable empty event file is insufficient to release a cgroup slot.
-        let containment_disposed = false;
-        let cleanup_verified = reaped
-            && capture_eof
-            && tree_empty
-            && fds_closed
-            && containment_disposed
-            && errors.is_empty();
+        let outcome = if stop == Stop::Exited
+            && exit == Some(Exit::Code(0))
+            && exec == ExecReport::NoReportedExecError
+        {
+            "SUCCEEDED"
+        } else {
+            "FAILED"
+        };
+        let cleanup = lifecycle.cleanup(|phase| {
+            let confirmed = match phase {
+                Phase::Stopping => errors.is_empty(),
+                Phase::Reaped => reaped,
+                Phase::TreeEmpty => tree_empty,
+                Phase::CaptureComplete => capture_eof && fds_closed,
+                Phase::CleanupConfirmed => match &mut self.containment {
+                    Containment::DirectSynthetic => false,
+                    Containment::Delegated(group) => {
+                        group.dispose()?;
+                        true
+                    }
+                },
+                _ => false,
+            };
+            if !confirmed {
+                return Err(LaunchError::Invalid("native cleanup milestone unconfirmed"));
+            }
+            if let Some(peer) = bridge.as_deref_mut() {
+                peer.advance(
+                    phase,
+                    &self.lease,
+                    if phase == Phase::CleanupConfirmed {
+                        outcome
+                    } else {
+                        "PENDING"
+                    },
+                )?;
+            }
+            Ok(())
+        });
+        let cleanup_verified = cleanup.is_ok();
+        if let Err(error) = cleanup {
+            errors.push(error.to_string());
+            if let Some(peer) = bridge.as_deref_mut() {
+                if let Err(error) = peer.advance(Phase::Quarantined, &self.lease, "FAILED") {
+                    errors.push(error.to_string());
+                }
+            }
+        }
         self.lease.finish(cleanup_verified)?;
         Ok(Observation {
             operation_id,
@@ -518,6 +607,7 @@ impl Child {
             slot_released: cleanup_verified,
             fds_closed,
             errors,
+            phase: lifecycle.phase,
         })
     }
 }

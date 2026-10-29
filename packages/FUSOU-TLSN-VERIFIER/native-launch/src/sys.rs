@@ -11,6 +11,47 @@ pub(super) struct ChildPlan {
     pub stderr: RawFd,
     pub error: RawFd,
 }
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Credentials {
+    pub uid: u32,
+    pub gid: u32,
+}
+pub(crate) fn validate_credentials(credentials: Credentials) -> Result<()> {
+    if credentials.uid == 0
+        || credentials.gid == 0
+        || credentials.uid == u32::MAX
+        || credentials.gid == u32::MAX
+        || !nix::unistd::geteuid().is_root()
+    {
+        return Err(LaunchError::Invalid(
+            "root supervisor and dedicated non-root UID/GID required",
+        ));
+    }
+    // SAFETY: PR_GET_SECUREBITS reads this task's flags and has no pointer arguments.
+    let bits = unsafe { libc::prctl(libc::PR_GET_SECUREBITS) };
+    if bits != 0 {
+        return Err(LaunchError::Invalid("unsupported supervisor securebits"));
+    }
+    let mut header = CapHeader {
+        version: 0x20080522,
+        pid: 0,
+    };
+    let mut data = [CapData {
+        effective: 0,
+        permitted: 0,
+        inheritable: 0,
+    }; 2];
+    let required = (1 << 0) | (1 << 6) | (1 << 7) | (1 << 8);
+    // SAFETY: Linux v3 capability ABI writes exactly two repr(C) data records and a live header.
+    if unsafe { libc::syscall(libc::SYS_capget, &mut header, data.as_mut_ptr()) } != 0
+        || data[0].effective & required != required
+    {
+        return Err(LaunchError::Invalid(
+            "supervisor lacks CHOWN/SETGID/SETUID/SETPCAP",
+        ));
+    }
+    Ok(())
+}
 pub(super) struct Task {
     pub pid: libc::pid_t,
     pidfd: Option<File>,
@@ -32,6 +73,7 @@ pub(super) fn spawn(
     argv: &[CString],
     env: &[CString],
     cgroup: Option<&File>,
+    credentials: Option<Credentials>,
 ) -> Result<Task> {
     validate_plan(plan)?;
     let argv: Vec<_> = argv
@@ -78,7 +120,7 @@ pub(super) fn spawn(
     if pid == 0 {
         // SAFETY: all arrays and source FDs were prepared and kept owned by the caller.
         // This branch cannot allocate, unwind, lock, log, or return to its caller.
-        unsafe { child_exec(plan, argv.as_ptr(), env.as_ptr()) }
+        unsafe { child_exec(plan, argv.as_ptr(), env.as_ptr(), credentials) }
     }
     // SAFETY: successful CLONE_PIDFD installs one new owned FD in this parent's slot.
     // No other owner has been constructed; the child has a separate descriptor table.
@@ -95,6 +137,7 @@ unsafe fn child_exec(
     plan: &ChildPlan,
     argv: *const *const libc::c_char,
     env: *const *const libc::c_char,
+    credentials: Option<Credentials>,
 ) -> ! {
     for (source, target) in [(plan.input, 0), (plan.stdout, 1), (plan.stderr, 2)] {
         // SAFETY: source FDs are owned/live, above stdio, and the child has a private FD table.
@@ -117,6 +160,13 @@ unsafe fn child_exec(
         // SAFETY: fixed error reporting and _exit do not return or allocate.
         unsafe { child_error(plan.error, 2) }
     }
+    if let Some(credentials) = credentials {
+        // SAFETY: fixed syscall-only credential transition; failure exits via the error pipe.
+        // All inherited supplementary groups/capabilities are removed before target execution.
+        unsafe {
+            child_credentials(credentials, plan.error);
+        }
+    }
     // SAFETY: image is the same sealed FD retained by the parent; pathname is a static
     // empty C string. Null-terminated pointer arrays and their CStrings live in this
     // child's copied address space. The syscall, unlike nix's wrapper, does not allocate.
@@ -130,6 +180,104 @@ unsafe fn child_exec(
             libc::AT_EMPTY_PATH,
         );
         child_error(plan.error, 3)
+    }
+}
+
+#[repr(C)]
+struct CapHeader {
+    version: u32,
+    pid: i32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CapData {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+}
+unsafe fn child_credentials(credentials: Credentials, error: RawFd) {
+    // SAFETY: prctl takes scalar arguments only. NNP prevents file-capability/setuid escalation.
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
+        // SAFETY: fixed error record, no return/unwinding.
+        unsafe { child_error(error, 4) }
+    }
+    for cap in 0..64 {
+        // SAFETY: scalar bounded capability number; this modifies only the new child.
+        if unsafe { libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) } != 0 {
+            // SAFETY: child-local errno pointer remains live, no allocation.
+            if unsafe { *libc::__errno_location() } == libc::EINVAL {
+                break;
+            }
+            // SAFETY: fixed error reporting and termination.
+            unsafe { child_error(error, 4) }
+        }
+    }
+    // SAFETY: no ambient capability may survive. Empty groups uses a null pointer/count zero;
+    // scalar setres calls permanently remove initial-user-namespace root credentials.
+    if unsafe {
+        libc::prctl(
+            libc::PR_CAP_AMBIENT,
+            libc::PR_CAP_AMBIENT_CLEAR_ALL,
+            0,
+            0,
+            0,
+        ) != 0
+            || libc::syscall(libc::SYS_setgroups, 0, std::ptr::null::<libc::gid_t>()) != 0
+            || libc::syscall(
+                libc::SYS_setresgid,
+                credentials.gid,
+                credentials.gid,
+                credentials.gid,
+            ) != 0
+            || libc::syscall(
+                libc::SYS_setresuid,
+                credentials.uid,
+                credentials.uid,
+                credentials.uid,
+            ) != 0
+    } {
+        // SAFETY: fixed error reporting and termination.
+        unsafe { child_error(error, 4) }
+    }
+    let mut header = CapHeader {
+        version: 0x20080522,
+        pid: 0,
+    };
+    let data = [CapData {
+        effective: 0,
+        permitted: 0,
+        inheritable: 0,
+    }; 2];
+    // SAFETY: Linux capability v3 ABI uses two repr(C) data records and a live header.
+    if unsafe { libc::syscall(libc::SYS_capset, &header, data.as_ptr()) } != 0 {
+        // SAFETY: fixed error reporting and termination.
+        unsafe { child_error(error, 4) }
+    }
+    let mut observed = [CapData {
+        effective: 0,
+        permitted: 0,
+        inheritable: 0,
+    }; 2];
+    let mut ids = [0u32; 6];
+    let [ruid, euid, suid, rgid, egid, sgid] = &mut ids;
+    // SAFETY: all output pointers address distinct live stack scalars/records of the Linux ABI.
+    // Raw syscalls avoid libc's multithreaded setxid coordination after clone.
+    let invalid = unsafe {
+        libc::syscall(libc::SYS_capget, &mut header, observed.as_mut_ptr()) != 0
+            || libc::syscall(libc::SYS_getresuid, ruid, euid, suid) != 0
+            || libc::syscall(libc::SYS_getresgid, rgid, egid, sgid) != 0
+            || libc::syscall(libc::SYS_getgroups, 0, std::ptr::null::<libc::gid_t>()) != 0
+            || libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1
+    };
+    if invalid
+        || ids[..3] != [credentials.uid; 3]
+        || ids[3..] != [credentials.gid; 3]
+        || observed
+            .iter()
+            .any(|cap| cap.effective != 0 || cap.permitted != 0 || cap.inheritable != 0)
+    {
+        // SAFETY: fixed failure notification followed by _exit.
+        unsafe { child_error(error, 4) }
     }
 }
 

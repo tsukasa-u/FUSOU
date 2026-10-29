@@ -54,6 +54,12 @@ pub fn registered_policy_context() -> Result<RegisteredPolicyContext> {
 // The mechanism is private and has no production admission constructor.
 // Only this crate's test harness can manufacture a launch permit.
 #[allow(dead_code)]
+mod bridge;
+#[allow(dead_code)]
+mod cgroup;
+#[allow(dead_code)]
+mod lifecycle;
+#[allow(dead_code)]
 mod prepare;
 #[allow(dead_code)]
 mod supervise;
@@ -63,3 +69,7 @@ mod sys;
 #[cfg(test)]
 #[path = "../tests/synthetic.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/ipc_peer.rs"]
+mod ipc_peer;

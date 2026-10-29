@@ -2,7 +2,13 @@
 
 ## Status and scope
 
-**Decision: B. Implementation: PARTIAL, synthetic-only. Provider: NOT_IMPLEMENTED.**
+**Decision: B. Mechanisms implemented; kernel delegation validation BLOCKED.
+Overall implementation: PARTIAL, synthetic-only. Provider: NOT_IMPLEMENTED.**
+
+The lifecycle/bridge follow-up starts at
+`643315e00c303135b4aebde78a32e30f4e3d2ea1` (parent `89d940d...`), on
+`tlsn-first-testplay-candidate`. Section G records this follow-up separately
+from the original implementation and historical results below.
 
 Implementation baseline: branch `tlsn-first-testplay-candidate`, HEAD
 `89d940d40b42955bdce24cee3d85643870ae69e3`, parent
@@ -202,11 +208,11 @@ There is **no admitted delegated subtree/no-escape root**, no cgroup factory
 and no automatic reuse of an existing user/IDE/shared cgroup.
 `require_delegated_containment()` rejects before launching.
 
-The OS boundary has a `CLONE_INTO_CGROUP` hook (placement atomic with creation),
-and private supervision hooks for `cgroup.kill`/bounded `cgroup.events`.
-They are not a completed/admitted cgroup lifecycle. Safe private creation,
-no-escape authority, operation-directory removal and verified disposal remain
-NOT_IMPLEMENTED/BLOCKED. Even an empty event file cannot release a slot.
+At `643315e...`, cgroup placement/kill/events were private hooks only.
+The follow-up implements private root validation, exclusive leaf creation,
+credential separation and ordered disposal, as described in section G.
+Actual delegated placement/no-escape/descendant cleanup remains BLOCKED, not
+validated by fake adapters. An empty event file alone cannot release a slot.
 No shared cgroup is created, modified, moved into or killed by these tests.
 
 Direct-synthetic mode is constructible only behind the test permit; it is not
@@ -214,7 +220,12 @@ a fallback for failed containment. Its process-tree cleanup is always
 unverified and its slot is always quarantined, even after exit, EOF and FD close.
 PIDFD/direct-child success is never promoted to descendant cleanup success.
 
-## E. Current verification and reproduction
+## E. Original implementation verification (historical)
+
+This section records the previous `643315e...` implementation report, not
+new runs of those commands. Use section G for current results and selectors;
+an unfiltered native test run now also selects an explicitly configured IPC
+peer and is not the ordinary unit-test command.
 
 Toolchain: Rust 1.98.1 (`48a229cea`); GNU target
 `x86_64-unknown-linux-gnu`. Exact cached nix 0.30.1 and libc 0.2.190.
@@ -273,9 +284,9 @@ interrupted calls) and an exhaustion assertion. No failing assertions were relax
 |---|---|---|
 | Localized OS boundary and direct synthetic execution | IMPLEMENTED | Limited to tested Linux x86-64 host; not an authorized provider |
 | Sealed image/input mechanism | IMPLEMENTED (synthetic) | Independent image policy and formal native input identity still absent |
-| Capture/deadline/cancel/direct reap/quarantine | IMPLEMENTED (synthetic) | Whole-tree settlement and production-controller bridge not implemented |
-| Delegated cgroup lifecycle/no escape/disposal | PARTIAL / BLOCKED | Only private OS hooks; no issuer, safe creator, tested no-escape boundary or removal |
-| Node resource controller integration | NOT_IMPLEMENTED | Existing owner/budget/callback contracts preserved unchanged; no Rust bridge |
+| Capture/deadline/cancel/direct reap/quarantine | IMPLEMENTED (synthetic) | Whole-tree kernel validation remains BLOCKED |
+| Delegated cgroup lifecycle/no escape/disposal | IMPLEMENTED in private source / runtime BLOCKED | Root/leaf validation, atomic placement, credential drop and removal exist; actual delegated/no-escape/descendant cases have not run |
+| Node resource controller integration | IMPLEMENTED (mechanical, unapproved) | Unix-stream identity/reservation/state bridge; fake cleanup and actual direct synthetic IPC tested; no registered provider/peer authorization |
 | Resource policy/shared budget issuer | NOT_IMPLEMENTED | Fixture limits and independent controllers are not global admission |
 | musl static runtime profile | UNVERIFIED | Recipe remains GNU; musl dependency build/linker/sysroot/build-script closure not tested |
 | Actual ELF interpreter/DT_NEEDED/runtime closure | UNVERIFIED | Synthetic header markers are not a verified dependency distribution |
@@ -286,14 +297,13 @@ interrupted calls) and an exhaustion assertion. No failing assertions were relax
 | gh exact distribution/pin/network/CA/DNS/TUF/credentials | UNVERIFIED / UNAPPROVED | Separate online profile, not covered by this synthetic ELF |
 | Production acceptance | BLOCKED | Real Game Server/Notary/deployment/gameplay and independent real evidence acceptance remain required |
 
-Next work must first define an independently admitted delegation/no-escape
-configuration and resource/registration root. A writable cgroup directory alone
-is insufficient, especially if the target retains permission to migrate
-outside it. Test operation-private placement before exec, descendant fork/exit/
-escape, cgroup.kill, empty confirmation, capture EOF, FD close and directory
-removal before enabling settlement. Do not weaken to PID/process-group cleanup.
-Only after that, runtime/image admission and a resource-owner-preserving bridge
-can be considered. Do not enable the formal consumer as part of mechanism tests.
+Next work requires an independently admitted delegation/no-escape configuration
+and resource/registration root. Test actual operation-private placement before
+exec, descendant fork/exit/escape, cgroup.kill, empty confirmation, capture EOF,
+FD close and directory removal. Do not weaken to PID/process-group cleanup.
+The mechanical bridge does not supply bootstrap, peer authentication,
+runtime/image admission or a shared budget issuer. Do not enable the formal
+consumer as part of mechanism tests.
 
 The following trust states remain unchanged:
 
@@ -309,6 +319,204 @@ publication_authorized: false
 deployment: NOT_CHECKED
 Production acceptance: BLOCKED
 ```
+
+## G. Delegated lifecycle and Node bridge follow-up
+
+### Environment and authority
+
+Observed for this follow-up: supervisor UID/GID **1000/1000**;
+`FUSOU_SYNTHETIC_CGROUP_PARENT` **unset**. There is no explicitly approved private
+delegated subtree, and the selected UID/GID-switch authority is absent.
+Consequently **all real cgroup/credential/descendant integration is BLOCKED,
+NOT EXECUTED**. No shared cgroup or host policy was changed to obtain a test.
+No conditional test silently returns or reports a fake kernel PASS.
+
+The user selected a distinct non-root child UID/GID, capability removal and
+no-new-privileges. The source requires a root supervisor with effective
+CHOWN/SETUID/SETGID/SETPCAP and supported securebits before filesystem mutation.
+After atomic clone placement, the child uses raw credential syscalls, not
+libc's multithreaded setxid coordination: clear supplementary groups, set all
+real/effective/saved IDs, clear ambient/permitted/effective/inheritable and
+bounding capabilities, and set NNP before exec. IDs/groups/capability sets/NNP
+are checked. These operations remain exclusively in the dedicated unsafe
+`sys.rs`; the verifier still forbids unsafe.
+
+An absolute, explicitly supplied root is opened component by component with
+NOFOLLOW/directory/CLOEXEC descriptors. It must be a non-root cgroup2 domain;
+memory/pids must already be enabled. Root/ancestors and migration controls
+must be root-owned and not group/world writable. This deliberately rejects
+ordinary same-UID writable delegation. There is no subtree_control write.
+These checks do **not** prove administrative delegation, dedicated account
+allocation, stable mount/admin policy, absence of a privileged migration
+service, or independent resource approval. A trusted kernel/admin and no
+hostile administrative permission changes remain external conditions.
+UID/GID, numeric limits and environment settings are not authorization.
+
+Each operation exclusively mkdirs a 128-bit random-suffixed leaf (random
+identifier, not cryptographic key material); existing leaves are never reused.
+Only that leaf receives memory.max/pids.max writes. Anchored parent/leaf FDs,
+device/inode identity, kill/events FDs and operation owner remain retained.
+`clone3(CLONE_PIDFD | CLONE_INTO_CGROUP)` uses that leaf FD from birth: there
+is no post-spawn placement race, path exec, process-group or direct-only
+fallback. Unsupported kernel/permissions reject. Root validation and all
+successful kernel paths are compile-checked but have **not** run here.
+
+### State and cleanup ownership
+
+The state machine and the shared real/fake cleanup callback distinguish:
+
+```text
+PREPARING -> CHILD_CREATED -> EXEC_OBSERVED -> CAPTURING
+                                    -> STOPPING -> REAPED -> TREE_EMPTY
+                                    -> CAPTURE_COMPLETE -> CLEANUP_CONFIRMED
+failure/unknown -----------------------------------------> QUARANTINED
+```
+
+STOPPING is also allowed before exec and before child creation. Duplicate,
+reversed, unknown or terminal transitions fail closed; an invalid cleanup
+entry cannot invoke the adapter. EXEC_OBSERVED means error-pipe EOF without
+a reported exec error, **not** authenticated execution or cryptographic proof.
+
+The supervisor fixes timeout/cancel/output failure, requests cgroup.kill when
+stopping (including natural direct-child exit with possible descendants),
+reaps the direct child and polls bounded cgroup.events until empty or cleanup
+deadline. Concurrent capture drain remains bounded. It checks all capture/error
+EOF and explicit parent FD closes, then verifies empty/leaf identity, closes
+leaf control FDs, removes the leaf and confirms ENOENT. Only the complete
+successful cleanup chain releases the native lease. PIDFD/reap/kill alone do
+not establish whole-tree success. Errors or missing facts retain ownership and
+quarantine the slot; partially prepared leaves also retain their owner.
+
+Prelaunch bridge/group preparation marks cleanup pending, so dropping a failed
+attempt cannot return a slot while native resources may remain. Existing
+direct-synthetic mode remains test-only and **always quarantined**. Cgroup and
+unreaped-task quarantine retain handles; there is no automatic cgroup
+quarantine recovery or administrative unquarantine API in this change.
+Actual descendant termination/no-escape, zombie handling by the host, permission
+changes, removal races and kernel close/error behavior remain unverified.
+The eventual supervisor's inherited signal dispositions/mask and runtime
+profile also require admission/review; these tests do not establish safe
+bootstrap inside an arbitrary privileged application runtime.
+
+### Node/native boundary
+
+There was no existing production native invocation or Node operation ID to
+connect: `captureOfflineExecution` accepts only its mockExecutor and rejects
+production execute; intake authenticates cross-run records, not local children.
+Those gates and the consumer remain unchanged.
+
+The mechanical bridge uses a supplied Unix stream, not a new launcher binary,
+N-API/IPC dependency or provider factory. Node's branded scope issues a unique
+controller/operation ID and reserves image/input/FD/execution/capture/stop/
+cleanup modeled work plus read/capture counts **before START**. A native hold
+is additional to pending callbacks; scope close/caller cancellation cannot
+release it. Invalid reservations themselves quarantine the attempted hold.
+The bridge retains managed completion eagerly, including synchronous caller
+abort, until final cleanup and channel close or bounded failure.
+
+START carries the ID and reservation. Rust binds these to the exact native
+lease owner/ID, requires a fresh exclusively owned controller, and applies
+per-stage/read ceilings in addition to its local limits. Independent Rust/Node
+controllers are **not** a global/shared approved budget. Native stage counters
+remain spent; there is no refund on failure. Usage is modeled work (including
+up-front capture reservations), not measured peak RSS or a hard process-global
+FD/memory limit.
+
+Private-leaf creation reserves FD/stop/cleanup work before mkdir. Every bounded
+events read consumes a read and 4096 cleanup work units before I/O, including
+the final empty recheck before removal. Exhaustion quarantines instead of
+performing unbudgeted successful cleanup. A fake memfd events adapter checks
+this threshold; it is not kernel containment evidence. Real admission must
+reserve enough for its chosen cleanup deadline/polling, not reuse small fake
+protocol fixtures as production policy.
+
+Version-1 newline JSON events contain exactly native_id, operation_id, outcome,
+sequence, state, usage and version. Top-level canonical reserialization rejects
+duplicate/aliased keys, whitespace/number aliases and unexpected fields; only
+fixed ASCII states/IDs and bounded numeric usage are accepted. Rust control
+parsing reuses the verifier's bounded strict JSON parser. START is bounded to
+2048 bytes/two seconds, CANCEL to 256 bytes/one command; event frames are
+1024 bytes, at most 16 frames/16384 total bytes. Node charges a conservative
+65536 work units for protocol processing. The two possible control writes are
+bounded; write buffering is not completion. An explicit cleanupTimeoutMs
+is required (fixture/admission input, not a newly approved resource policy).
+
+Only a matching, ordered CLEANUP_CONFIRMED with bounded usage **and channel
+close** clears Node's hold. Execution outcome FAILED is distinct from confirmed
+cleanup: a failed/cancelled operation can eventually free a slot only after
+cleanup, never return successful evidence. Unknown IDs, changed native IDs,
+duplicate completion, malformed/truncated/disconnected/over-limit transport
+and unconfirmed cleanup quarantine. Stale closures cannot decrement another
+operation's counter. Cancel sends control and returns promptly while its owned
+completion stays pending; deadline/disconnect retains quarantine.
+
+The stream is an explicit host-owned mechanical channel, **not an
+independently authenticated peer or proof**. Its diagnostic result is
+UNAPPROVED, authenticated=false and publication_authorized=false. It cannot
+mint the existing executionProof or enable the production consumer. A future
+registered provider must independently admit the peer/launch path; accepting
+caller-supplied JSON as production execution authority remains forbidden.
+
+### Current validation (not historical)
+
+No dependency was downloaded and Cargo.lock is unchanged. nix 0.30.1 adds only
+the user feature for safe parent UID/chown APIs; existing serde_json moves from
+dev to runtime dependency for framing. Target-filtered metadata has the same
+55 unique build-script/proc-macro package identities as the prior GNU metadata.
+An initial comparison used mismatched platform filters and saw Windows/WASI
+packages; the identical GNU filter resolves the discrepancy without lock edits.
+
+Use the isolated empty-HOME/offline-cache environment described in section E.
+The MPZ checkout is copied privately; registry/git caches are reused read-only.
+With that environment, the complete command arguments are:
+
+```sh
+cargo metadata --filter-platform x86_64-unknown-linux-gnu --locked --offline --format-version 1
+cargo check -p fusou-tlsn-native-launch -p fusou-tlsn-verifier --target x86_64-unknown-linux-gnu --lib --bins --examples --locked --offline --jobs 2
+cargo build -p fusou-tlsn-native-launch --example synthetic_probe --target x86_64-unknown-linux-gnu --locked --offline
+cargo test -p fusou-tlsn-native-launch --lib --target x86_64-unknown-linux-gnu --locked --offline -- tests::
+cargo test --locked --offline --package fusou-tlsn-verifier --target x86_64-unknown-linux-gnu --lib --bin verify_fusou_tlsn_evidence --jobs 2 -- offline_fd::tests strict_json::tests evidence_bundle::tests::acquisition:: tests::fd_mode_is_explicit_and_excludes_all_other_arguments tests::legacy_duplicate_flags_are_rejected tests::legacy_path_modes_preserve_all_arguments_and_optional_sparse_profile tests::unsupported_flags_and_fd_mixing_never_select_legacy_execution
+FUSOU_NATIVE_BRIDGE_TEST_PEER="<compiled native lib test harness>" FUSOU_SYNTHETIC_PROBE="<compiled synthetic_probe>" node --test scripts/release-native-resources.test.mjs scripts/release-native-launch-bridge.test.mjs scripts/release-native-launch-peer.test.mjs scripts/release-consumer.test.mjs scripts/release-offline-fd.test.mjs scripts/release-checks.test.mjs
+node --check scripts/release-native-resources.mjs
+node --check scripts/release-native-launch-bridge.mjs
+node --check scripts/release-native-launch-bridge.test.mjs
+node --check scripts/release-native-launch-peer.test.mjs
+```
+
+The harness path is printed by the selected cargo test command; no production
+verifier executable is used as the IPC peer. The Node peer suite explicitly
+selects `--exact ipc_peer::serve --nocapture` with a private test socket/mode.
+These variables configure tests only, not public policy registration.
+
+| Selection | Current result |
+|---|---|
+| Native selected tests | 35 PASS = prior 25 + cgroup parsing/refusal/budget adapter 3 + lifecycle 4 + bridge/cleanup adapters 3 |
+| Verifier safe parser/acquisition selections | 20 PASS = FD 10 + strict JSON 2 + acquisition 4 + CLI parser 4 |
+| Node resource / bridge / IPC peer | 20 + 21 + 9 PASS |
+| Node consumer / FD / release-check | 18 + 53 + 46 PASS |
+| Real Rust/Node IPC | 7 fake-cleanup cases plus 2 actual direct-synthetic/cancel cases; direct cases quarantine, not tree PASS |
+| Actual cgroup creation/placement/no-escape/descendants/empty/removal | BLOCKED, NOT EXECUTED |
+
+During development, compiler E0499 exposed overlapping mutable ID-array
+references; destructuring fixed the pointer preparation. Test-count checking
+found three tests nested inside a function; they were moved to a discovered
+test module (31 initially, 34 after correction). Cross-language direct tests
+also rejected an insufficient input-work reservation: the fixture now reserves
+the existing parser's conservative max_json_bytes * max_entries * 16 ceiling,
+without changing the parser, assertions or admitted production limits. The
+same immediate-abort test exposed an unowned late-rejecting cleanup promise;
+the native hold now registers it eagerly. All failures were retained in logs;
+none were skipped or weakened.
+
+Kernel acceptance still requires an explicitly administered dedicated root,
+dedicated non-root account and switching capabilities, then actual atomic
+placement/procs observation, attempted escape, descendant kill/direct reap,
+populated=0, capture EOF, FD closure/removal and final slot release tests.
+No automatic kernel fixture or host setup is supplied in this environment.
+Runtime closure, peer/bootstrap registration, signer/builder and shared resource
+issuer authorization, real native input/evidence integration and Production
+acceptance remain separate gates. Choosing B still avoids A's launcher trust
+root and C's filesystem/namespace closure; it solves neither of these gates.
 
 ## References
 

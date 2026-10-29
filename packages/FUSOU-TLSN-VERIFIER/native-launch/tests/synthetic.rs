@@ -99,6 +99,37 @@ fn run_with(c: &Controller, mode: &str, cancel: &AtomicBool) -> Observation {
     report
 }
 
+pub(crate) fn observe_direct_bridge(
+    lease: Lease,
+    bridge: &mut crate::bridge::Bridge,
+    cancelling: bool,
+) {
+    let input = prepare_input(&frame(), pin(&frame()), &fd_limits(), &lease).unwrap();
+    let arguments = args(if cancelling { "sleep" } else { "echo" }, &lease);
+    let child = launch(
+        image(&lease),
+        input,
+        arguments,
+        lease,
+        Containment::DirectSynthetic,
+        &synthetic_permit(),
+    )
+    .unwrap();
+    let report = child
+        .observe_bridged(&AtomicBool::new(false), bridge)
+        .unwrap();
+    assert!(
+        report.reaped && report.capture_eof && report.fds_closed,
+        "{report:?}"
+    );
+    assert!(!report.slot_released && !report.tree_cleanup_verified);
+    if cancelling {
+        assert_eq!(report.stop, Stop::Cancelled);
+    } else {
+        assert_eq!(report.stdout.bytes, frame());
+    }
+}
+
 #[test]
 fn provider_gate_and_missing_containment_are_unconditionally_closed() {
     assert_eq!(
@@ -295,6 +326,20 @@ fn exec_error_protocol_never_promotes_incomplete_or_unknown_data() {
             errno: libc::ENOEXEC
         }
     );
+    raw[4..8].copy_from_slice(&4u32.to_le_bytes());
+    raw[8..12].copy_from_slice(&libc::EACCES.to_le_bytes());
+    assert_eq!(
+        check_exec_report(&raw, true),
+        ExecReport::Failed {
+            stage: 4,
+            errno: libc::EACCES
+        }
+    );
+    for stage in [0u32, 5, u32::MAX] {
+        raw[4..8].copy_from_slice(&stage.to_le_bytes());
+        assert_eq!(check_exec_report(&raw, true), ExecReport::ProtocolFailure);
+    }
+    raw[4..8].copy_from_slice(&4u32.to_le_bytes());
     raw[15] = 1;
     assert_eq!(check_exec_report(&raw, true), ExecReport::ProtocolFailure);
 }

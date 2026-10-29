@@ -8,6 +8,8 @@ const now = performance.now.bind(performance), schedule = nodeSetTimeout, cancel
 const allocateOwnedBytes = Buffer.allocUnsafeSlow, setBytes = Uint8Array.prototype.set;
 const typedArrayAccessors = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(Uint8Array.prototype));
 const budgets = new WeakMap(), scopes = new WeakMap(), errors = new WeakSet();
+const retainedNative = new Map();
+let nextBudgetId = 0n;
 const fields = ["max_bytes", "max_reads", "max_captures", "max_json_bytes", "max_json_nodes",
   "max_json_depth", "max_string_length", "max_concurrent_operations", "timeout_ms"];
 const fail = (code) => {
@@ -31,7 +33,7 @@ export function createNativeInspectionBudget(limits) {
     owned.timeout_ms > 2 ** 31 - 1 ||
     !Number.isSafeInteger(owned.max_bytes * owned.max_concurrent_operations)) fail("NATIVE_RESOURCE_LIMITS_INVALID");
   const budget = Object.freeze({ scope: "native-inspection-admission", approval: "UNAPPROVED" });
-  budgets.set(budget, { limits: Object.freeze(owned), active: 0 });
+  budgets.set(budget, { limits: Object.freeze(owned), active: 0, id: ++nextBudgetId, nextOperation: 0n });
   return budget;
 }
 
@@ -85,12 +87,14 @@ function enter(budget, signal) {
   if (state.active >= state.limits.max_concurrent_operations) fail("NATIVE_RESOURCE_BUSY");
   state.active++;
   const limits = state.limits, controller = new AbortController(), deadline = now() + limits.timeout_ms;
-  let bytes = 0, reads = 0, captures = 0, pending = 0, closed = false, released = false, timedOut = false;
+  const operationId = `native-${state.id}-${++state.nextOperation}`;
+  let bytes = 0, reads = 0, captures = 0, pending = 0, nativeHeld = false, nativeAttached = false,
+    closed = false, released = false, timedOut = false;
   const abort = () => controller.abort();
   const callerAbort = signal ? addAbortListener(signal, abort) : undefined;
   const timer = schedule(() => { timedOut = true; abort(); }, limits.timeout_ms);
   const release = () => {
-    if (closed && !pending && !released) { released = true; state.active--; }
+    if (closed && !pending && !nativeHeld && !released) { released = true; state.active--; }
   };
   const check = () => {
     if (timedOut || now() >= deadline) fail("NATIVE_RESOURCE_TIMEOUT");
@@ -201,7 +205,7 @@ function enter(budget, signal) {
     });
   };
   const scope = {
-    check, object, jsonText, charge, wait: (action) => wait(action), signal: controller.signal,
+    check, object, jsonText, charge, wait: (action) => wait(action), signal: controller.signal, operationId,
     collection(count) {
       check();
       if (!Number.isSafeInteger(count) || count < 0 || count > limits.max_json_nodes) fail("NATIVE_RESOURCE_NODES_EXCEEDED");
@@ -244,7 +248,37 @@ function enter(budget, signal) {
   scopes.set(scope, {
     run: (action) => wait(action, true),
     retain,
-    finish() { check(); if (pending) fail("NATIVE_RESOURCE_PENDING_WORK"); },
+    native(reservation) {
+      check();
+      if (nativeAttached) {
+        retainedNative.get(operationId).quarantined = true;
+        fail("NATIVE_RESOURCE_NATIVE_ALREADY_ATTACHED");
+      }
+      nativeAttached = true; nativeHeld = true;
+      const record = { operationId, quarantined: false, done: false };
+      retainedNative.set(operationId, record);
+      const keys = ["image", "input", "fds", "execution", "capture", "stop", "cleanup", "reads", "captures"];
+      try {
+        const entries = scope.recordEntries(reservation);
+        if (entries.length !== keys.length || entries.some(([key, value]) => !keys.includes(key) ||
+          !Number.isSafeInteger(value) || value <= 0)) fail("NATIVE_RESOURCE_NATIVE_RESERVATION");
+        const owned = Object.freeze(Object.fromEntries(entries));
+        const total = keys.slice(0, 7).reduce((sum, key) => sum + owned[key], 0);
+        if (!Number.isSafeInteger(total) || owned.reads > limits.max_reads - reads ||
+          owned.captures > limits.max_captures - captures) fail("NATIVE_RESOURCE_NATIVE_RESERVATION");
+        charge(total); reads += owned.reads; captures += owned.captures;
+        return Object.freeze({
+          operationId, reservation: owned,
+          wait: (action) => wait(action, true),
+          quarantine() { record.quarantined = true; },
+          cleanup() {
+            if (record.done || record.quarantined) fail("NATIVE_RESOURCE_NATIVE_SETTLEMENT");
+            record.done = true; nativeHeld = false; retainedNative.delete(operationId); release();
+          },
+        });
+      } catch (error) { record.quarantined = true; throw error; }
+    },
+    finish() { check(); if (pending || nativeHeld) fail("NATIVE_RESOURCE_PENDING_WORK"); },
     close() {
       closed = true; cancelTimer(timer); callerAbort?.[Symbol.dispose]();
       if (pending) abort();
@@ -259,6 +293,13 @@ export async function withNativeInspectionBudget(budget, signal, action) {
   // Start synchronously so native entry snapshots still precede the first asynchronous turn.
   try { const result = await owner.run(() => action(scope)); owner.finish(); return result; }
   finally { owner.close(); }
+}
+
+// Mechanical ownership only: not a provider, signer, runtime or resource-policy approval.
+export function retainNativeLaunchOperation(scope, reservation) {
+  const owner = scopes.get(scope);
+  if (!owner) fail("NATIVE_RESOURCE_SCOPE_MISSING");
+  return owner.native(reservation);
 }
 
 export function withNativeInspectionBudgetSync(budget, action) {

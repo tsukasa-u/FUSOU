@@ -939,8 +939,19 @@ its unsafe prohibition. Direct synthetic execution/capture/timeout/reap tests
 are separate from provider authorization. No admitted cgroup delegation/no-escape
 root exists, no shared cgroup is modified, and every direct-only operation
 retains a quarantined resource slot rather than claiming tree cleanup.
-Private cgroup OS hooks are not a completed cgroup lifecycle. There is no Node
-resource-controller bridge, real verifier launch or musl/runtime-closure proof.
+The follow-up implements private delegated-root validation, exclusive leaves,
+atomic clone placement, dedicated-UID/capability/NNP transitions and ordered
+kill/reap/empty/capture/FD-close/removal checks. A mechanical
+[`release-native-launch-bridge.mjs`](../../scripts/release-native-launch-bridge.mjs)
+binds Node scope reservations and native IDs/states, retaining slots until
+cleanup and channel close; malformed/unknown/incomplete operations quarantine.
+Fake cleanup adapters and actual direct-synthetic IPC/cancel are tested.
+Actual delegated cgroup/no-escape/descendant integration remains **BLOCKED**:
+no explicit safe subtree or UID-switch authority was available. These are not
+production peer/resource authorization, real verifier launch, automatic
+quarantine recovery or musl/runtime-closure proof. See the
+[updated decision record](NATIVE-LAUNCH-SUBSTRATE-DECISION.md#g-delegated-lifecycle-and-node-bridge-follow-up)
+for exact contracts, historical/current results and remaining gates.
 
 Locked/offline resolution, GNU native library/CLI checking and selected Rust
 FD/JSON/CLI unit tests have been executed locally, including the Linux-only

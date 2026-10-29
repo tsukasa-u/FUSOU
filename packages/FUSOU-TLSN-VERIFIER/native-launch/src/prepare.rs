@@ -45,6 +45,7 @@ pub(crate) enum Stage {
     Fds,
     Execution,
     Capture,
+    Stop,
     Cleanup,
 }
 impl Stage {
@@ -57,7 +58,9 @@ impl Stage {
 pub(crate) struct State {
     pub active: usize,
     pub quarantined: usize,
-    pub work: [usize; 6],
+    pub work: [usize; 7],
+    pub bridge_caps: Option<[usize; 7]>,
+    pub bridge_reads: Option<usize>,
     pub reads: usize,
     pub next_id: u64,
 }
@@ -109,6 +112,7 @@ impl Controller {
             controller: self.clone(),
             id: state.next_id,
             spawned: false,
+            cleanup_pending: false,
             released: false,
         })
     }
@@ -125,6 +129,13 @@ impl Controller {
         if count > self.limits.max_work.saturating_sub(total) {
             return Err(LaunchError::Invalid("work budget exceeded"));
         }
+        if state.bridge_caps.is_some_and(|caps| {
+            count > caps[stage.index()].saturating_sub(state.work[stage.index()])
+        }) {
+            return Err(LaunchError::Invalid(
+                "native bridge stage reservation exceeded",
+            ));
+        }
         state.work[stage.index()] += count;
         Ok(())
     }
@@ -136,7 +147,11 @@ impl Controller {
             .state
             .lock()
             .map_err(|_| LaunchError::Invalid("controller poisoned"))?;
-        if count > self.limits.max_reads.saturating_sub(state.reads) {
+        let limit = self
+            .limits
+            .max_reads
+            .min(state.bridge_reads.unwrap_or(self.limits.max_reads));
+        if count > limit.saturating_sub(state.reads) {
             return Err(LaunchError::Invalid("read budget exceeded"));
         }
         state.reads += count;
@@ -147,6 +162,7 @@ pub(crate) struct Lease {
     pub controller: Controller,
     pub id: u64,
     pub spawned: bool,
+    pub cleanup_pending: bool,
     released: bool,
 }
 impl Lease {
@@ -172,7 +188,7 @@ impl Drop for Lease {
     fn drop(&mut self) {
         if !self.released {
             if let Ok(mut state) = self.controller.state.lock() {
-                if self.spawned {
+                if self.spawned || self.cleanup_pending {
                     state.quarantined += 1;
                 } else {
                     state.active -= 1;
@@ -204,6 +220,7 @@ pub(crate) struct Input {
     pub pin: ExpectedPin,
     pub owner: Owner,
 }
+#[derive(Clone)]
 pub(crate) struct Owner {
     state: Arc<Mutex<State>>,
     id: u64,
