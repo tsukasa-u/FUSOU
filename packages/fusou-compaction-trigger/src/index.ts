@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { statSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
@@ -6,7 +10,7 @@ import {
   S3Client,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
-import { mergeAvroOCF, mergeAvroOCFWithBoundaries, deduplicateNullAvroOcf } from "@fusou/compaction-core";
+import { mergeAvroOCF, mergeAvroOCFWithBoundaries, deduplicateAvroOcf, parseOcfHeader } from "@fusou/compaction-core";
 import { InternalCompactionClient } from "./internal-api.js";
 import {
   CompactionJobInputSchema,
@@ -228,7 +232,24 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
           `[compactor] failed to merge dataset OCF slices for dataset_id=${datasetId} table=${input.table_name} period=${input.period_tag} version=${input.table_version} source_tier=${input.source_tier}: ${error instanceof Error ? error.message : String(error)} | slices=${JSON.stringify(sliceSummary)}`,
         );
       }
-      datasetMergedOcf.push(mergedDataset);
+      let expandedBytes = 0;
+      const maxExpandedBytes = 64 * 1024 * 1024;
+      const dedup = deduplicateAvroOcf(mergedDataset, input.table_name, {
+        inflate: (payload) => {
+          const remaining = maxExpandedBytes - expandedBytes;
+          if (remaining <= 0) throw new Error("Dataset exceeds the 64 MiB deflate expansion limit");
+          const decoded = inflateRawSync(payload, { maxOutputLength: remaining });
+          expandedBytes += decoded.byteLength;
+          return decoded;
+        },
+        deflate: (payload) => deflateRawSync(payload),
+      });
+      if (dedup.duplicateCount > 0) {
+        console.warn(
+          `[compactor] deduplicated ${dedup.duplicateCount} records in dataset ${datasetId} (${input.table_name})`,
+        );
+      }
+      datasetMergedOcf.push(dedup.deduplicatedOcf);
       const firstBlock = datasetBlocks[0];
       if (firstBlock === undefined) {
         throw new Error(`Missing source block for dataset_id=${datasetId}`);
@@ -238,7 +259,7 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
         dataset_id: datasetId,
         table_name: firstBlock.table_name,
         period_tag: firstBlock.period_tag,
-        record_count: datasetBlocks.reduce((sum, b) => sum + Number(b.record_count || 0), 0),
+        record_count: dedup.uniqueCount,
         start_timestamp: Math.min(...datasetBlocks.map((b) => Number(b.start_timestamp || 0))),
         end_timestamp: Math.max(...datasetBlocks.map((b) => Number(b.end_timestamp || 0))),
         source_file_count: new Set(datasetBlocks.map((b) => b.file_id)).size,
@@ -247,14 +268,7 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
 
     const merged = mergeAvroOCFWithBoundaries(datasetMergedOcf);
 
-    // 重複を禁止（Deduplication）: 同一主キーのレコードは1件に統合
-    const dedup = deduplicateNullAvroOcf(merged.merged, input.table_name);
-    if (dedup.duplicateCount > 0) {
-      console.warn(
-        `[compactor] deduplicated ${dedup.duplicateCount} duplicate records in ${input.table_name} (${input.period_tag}) [original=${dedup.originalCount}, unique=${dedup.uniqueCount}]`,
-      );
-    }
-    const finalMergedBytes = dedup.deduplicatedOcf;
+    const finalMergedBytes = merged.merged;
 
     await uploadToR2(finalMergedBytes, outputKey, {
       tier: input.tier,
@@ -308,8 +322,8 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
       source_tier: input.source_tier,
       window_start_ms: input.window_start_ms,
       window_end_ms: input.window_end_ms,
-      file_size: merged.merged.byteLength,
-      compression_codec: "deflate",
+      file_size: finalMergedBytes.byteLength,
+      compression_codec: parseOcfHeader(finalMergedBytes).codec ?? "null",
       blocks: registerBlocks,
       source_objects: sourceObjects,
     });
@@ -349,7 +363,18 @@ function parseJobFromEnv(): CompactionJobInput {
   return CompactionJobInputSchema.parse(JSON.parse(raw) as unknown);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isCliEntrypoint(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const entryPath = resolve(entry);
+  if (import.meta.url === pathToFileURL(entryPath).href) return true;
+  const entryStat = statSync(entryPath, { bigint: true, throwIfNoEntry: false });
+  if (!entryStat?.isFile()) return false;
+  const moduleStat = statSync(fileURLToPath(import.meta.url), { bigint: true });
+  return entryStat.ino !== 0n && entryStat.ino === moduleStat.ino && entryStat.dev === moduleStat.dev;
+}
+
+if (isCliEntrypoint()) {
   runCompactionJob(parseJobFromEnv()).catch((error) => {
     console.error("Compaction job failed", error);
     process.exit(1);

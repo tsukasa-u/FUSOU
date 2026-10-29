@@ -84,6 +84,31 @@ Required secrets remain `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and endpoint-s
 
 The former GitHub daily trigger is retired by operator choice: it sent a scheduler-only message to the Avro ingest queue. Daily/weekly tier compaction belongs to Trigger.dev's `compact-daily` / `compact-weekly` tasks on the `compaction-scheduled` queue. Manual dispatch of the retired Action now fails with an explicit retirement message instead of appearing to enqueue work.
 
+### Tier output integrity (2026-10-29)
+
+- Deduplicate each dataset before the final merge and byte-boundary calculation. A primary key in another dataset is not a duplicate.
+- Register the final byte length, actual OCF codec, and deduplicated record counts. Never reuse pre-deduplication byte ranges for rewritten bytes.
+- Preserve indexed attack rows for the actual `opening_airattack` and `airbase_airattack` table names.
+- Null and deflate codecs are supported by the tier deduplicator. The Node deflate adapter limits expanded bytes to 64 MiB per dataset; this is not a total-job memory bound.
+- Shared OCF merging rejects different schemas or codecs rather than interpreting later payloads under the first header. It does not automatically transcode heterogeneous inputs.
+- Source pagination must advance a safe-integer cursor. Missing or repeated cursors fail the job instead of publishing a partial result or looping.
+- `chunk_limit` is a page size, not a bound on total job memory. Large jobs still need aggregate byte budgeting or incremental output.
+- The standalone compaction CLI compares canonical file URLs so Windows paths and paths containing spaces execute the entrypoint.
+
+### Native pending-upload metadata
+
+The client writes and synchronizes a new metadata file beside the canonical JSON, then renames it into place. A failed replacement leaves the previously published metadata intact and returns an error. Payload bytes are synchronized before the first metadata publication. Incomplete temporary files are not pending records. Invalid historical metadata is logged and retained for manual recovery; its payload is not silently discarded.
+
+This protects publication from an interrupted in-place truncate/write. It is not a filesystem-wide transaction, cross-process exclusion, or a guarantee against power loss; directory synchronization and orphan recovery remain separate concerns.
+
+### Secondary patch validation (2026-10-29)
+
+- OCF merge comparison sorts JSON object keys and ignores `doc` at schema/field positions. Record field arrays, union order, enum symbols, logical types, and unknown semantic attributes remain significant; this is not schema evolution or transcoding.
+- CLI entry detection accepts file identity aliases (including directory junctions) in addition to the direct file URL. The ordinary and alias paths must both execute required-input validation, not exit successfully without running.
+- Windows metadata replacement retries only access/sharing/lock failures (5, 32, 33), with at most six rename attempts and 310 ms of scheduled delay. Other errors return immediately. Permanent locks still return errors and retain the old record. No delete-first or in-place-write fallback is used.
+- Background retry logs metadata persistence failures explicitly. Persistent sharing denial still requires intervention; a failed write cannot durably increase the stored attempt count.
+- Temporary metadata uses UUID plus `create_new`; cleanup only follows successful creation. Crash-left temporary files are not pending records. Remove them only with writers stopped or under an explicitly coordinated maintenance procedure.
+
 ### Snapshot safety boundaries
 
 - Malformed OCF and existing corrupt snapshots fail the batch; required snapshot failures do not allow processing cleanup.

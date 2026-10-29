@@ -1,3 +1,5 @@
+import { parseOcfHeader } from "./avro.js";
+
 export interface MergeResult {
   merged: Uint8Array;
   boundaries: Array<{ sourceIndex: number; startByte: number; length: number }>;
@@ -258,6 +260,23 @@ function consolidateNullDataBlocks(
   return out;
 }
 
+function schemaComparisonEncoding(schema: unknown): string {
+  const normalize = (value: unknown, schemaPosition: boolean): unknown => {
+    if (Array.isArray(value)) return value.map((item) => normalize(item, schemaPosition));
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !schemaPosition || key !== "doc")
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [
+          key,
+          normalize(child, schemaPosition && ["type", "fields", "items", "values"].includes(key)),
+        ]),
+    );
+  };
+  return JSON.stringify(normalize(schema, true));
+}
+
 export function mergeAvroOCFWithBoundaries(
   ocfDataArray: Uint8Array[],
   options?: MergeAvroOptions,
@@ -267,6 +286,7 @@ export function mergeAvroOCFWithBoundaries(
   const first = ocfDataArray[0];
   if (first === undefined) throw new Error("Cannot merge empty OCF array");
   const unifiedHeader = parseOCFHeader(first);
+  const schemaEncoding = schemaComparisonEncoding(parseOcfHeader(first).schema);
   const headerSize = unifiedHeader.metadataEnd + 16;
   const shouldReblock = (options?.reblock ?? true) && unifiedHeader.codec === "null";
 
@@ -278,6 +298,12 @@ export function mergeAvroOCFWithBoundaries(
     const source = ocfDataArray[i];
     if (source === undefined) throw new Error("OCF source is missing");
     const sourceHeader = parseOCFHeader(source);
+    if (sourceHeader.codec !== unifiedHeader.codec) {
+      throw new Error("Cannot merge incompatible Avro codecs");
+    }
+    if (schemaComparisonEncoding(parseOcfHeader(source).schema) !== schemaEncoding) {
+      throw new Error("Cannot merge incompatible Avro schemas");
+    }
     const rawBlocks = extractDataBlocksRaw(source, sourceHeader);
     const rewritten =
       shouldReblock && sourceHeader.codec === "null"

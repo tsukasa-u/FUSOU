@@ -861,7 +861,9 @@ export function getAvroRecordPrimaryKey(
     case "friend_slotitem":
     case "plane_info":
     case "air_base_air_attack":
+    case "airbase_airattack":
     case "opening_air_attack":
+    case "opening_airattack":
     case "opening_taisen":
     case "midnight_hougeki":
     case "friendly_support_hourai":
@@ -880,6 +882,21 @@ export function getAvroRecordPrimaryKey(
 export function deduplicateNullAvroOcf(
   avroBytes: Uint8Array,
   tableName: string,
+): ReturnType<typeof deduplicateAvroOcf> {
+  const codec = parseHeaderForDecoder(avroBytes).codec ?? "null";
+  if (codec !== "null") {
+    throw new AvroOcfError("UNSUPPORTED_CODEC", `Deduplication only supports null codec, got: ${codec}`);
+  }
+  return deduplicateAvroOcf(avroBytes, tableName);
+}
+
+export function deduplicateAvroOcf(
+  avroBytes: Uint8Array,
+  tableName: string,
+  deflateCodec?: {
+    inflate: (payload: Uint8Array) => Uint8Array;
+    deflate: (payload: Uint8Array) => Uint8Array;
+  },
 ): {
   deduplicatedOcf: Uint8Array;
   originalCount: number;
@@ -888,10 +905,10 @@ export function deduplicateNullAvroOcf(
 } {
   const header = parseHeaderForDecoder(avroBytes);
   const codec = header.codec ?? "null";
-  if (codec !== "null") {
+  if (codec !== "null" && (codec !== "deflate" || !deflateCodec)) {
     throw new AvroOcfError(
       "UNSUPPORTED_CODEC",
-      `Deduplication only supports null codec, got: ${codec}`,
+      `No deduplication codec implementation for: ${codec}`,
     );
   }
 
@@ -916,7 +933,10 @@ export function deduplicateNullAvroOcf(
     }
 
     const payloadEnd = cursor.offset + payloadSize;
-    const payload = body.subarray(cursor.offset, payloadEnd);
+    const encodedPayload = body.subarray(cursor.offset, payloadEnd);
+    const payload = codec === "deflate" && deflateCodec
+      ? deflateCodec.inflate(encodedPayload)
+      : encodedPayload;
     const payloadCursor: Cursor = { offset: 0 };
 
     for (let index = 0; index < recordCount; index += 1) {
@@ -963,11 +983,22 @@ export function deduplicateNullAvroOcf(
   }
 
   const countBytes = encodeZigzagLong(seenKeys.size);
-  const sizeBytes = encodeZigzagLong(totalPayloadBytes);
+  let compressedPayload: Uint8Array | undefined;
+  if (codec === "deflate" && deflateCodec) {
+    const rawPayload = new Uint8Array(totalPayloadBytes);
+    let payloadOffset = 0;
+    for (const slice of uniqueSlices) {
+      rawPayload.set(slice, payloadOffset);
+      payloadOffset += slice.byteLength;
+    }
+    compressedPayload = deflateCodec.deflate(rawPayload);
+  }
+  const payloadLength = compressedPayload?.byteLength ?? totalPayloadBytes;
+  const sizeBytes = encodeZigzagLong(payloadLength);
   const newBlockLength =
     countBytes.byteLength +
     sizeBytes.byteLength +
-    totalPayloadBytes +
+    payloadLength +
     header.syncMarker.length;
 
   const result = new Uint8Array(header.bodyOffset + newBlockLength);
@@ -979,9 +1010,14 @@ export function deduplicateNullAvroOcf(
   result.set(sizeBytes, writeOffset);
   writeOffset += sizeBytes.byteLength;
 
-  for (const slice of uniqueSlices) {
-    result.set(slice, writeOffset);
-    writeOffset += slice.byteLength;
+  if (compressedPayload) {
+    result.set(compressedPayload, writeOffset);
+    writeOffset += compressedPayload.byteLength;
+  } else {
+    for (const slice of uniqueSlices) {
+      result.set(slice, writeOffset);
+      writeOffset += slice.byteLength;
+    }
   }
 
   result.set(header.syncMarker, writeOffset);
