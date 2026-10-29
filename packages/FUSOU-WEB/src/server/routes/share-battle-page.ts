@@ -16,6 +16,14 @@ export async function handleShareBattleRequest(
   if (!isSafeBattleId(battleId)) {
     return buildShareBadRequestResponse("invalid battle id");
   }
+  const battleIndexRaw = requestUrl.searchParams.get("battle_index");
+  const battleIndex = battleIndexRaw === null ? null : Number(battleIndexRaw);
+  if (
+    battleIndex !== null &&
+    (!battleIndexRaw?.trim() || !Number.isSafeInteger(battleIndex) || battleIndex < 0)
+  ) {
+    return buildShareBadRequestResponse("invalid battle index");
+  }
 
   const view = requestUrl.searchParams.get("view");
   const normalizedView = view === "timeline" || view === "phase" ? view : null;
@@ -31,6 +39,9 @@ export async function handleShareBattleRequest(
     `/battles/${encodeURIComponent(battleId)}`,
     requestUrl.origin,
   );
+  if (battleIndex !== null) {
+    targetUrl.searchParams.set("battle_index", String(battleIndex));
+  }
   if (periodTag) {
     targetUrl.searchParams.set("period_tag", periodTag);
   }
