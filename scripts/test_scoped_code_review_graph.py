@@ -32,7 +32,7 @@ class ScopedCodeReviewGraphTests(unittest.TestCase):
         )
         self._write(
             "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs",
-            b"// synthetic protected baseline\n",
+            b"// synthetic wasm baseline\n",
         )
         self._git("add", "--all")
         self._git("commit", "--quiet", "-m", "base")
@@ -77,7 +77,7 @@ class ScopedCodeReviewGraphTests(unittest.TestCase):
         self._write("outside.py", b"value = 'unstaged outside'\n")
         self._write(
             "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs",
-            b"// unstaged protected sentinel\n",
+            b"// unstaged outside sentinel\n",
         )
         self._write(
             "packages/FUSOU-APP/src-tauri/roaming/user/configs.toml",
@@ -140,7 +140,7 @@ class ScopedCodeReviewGraphTests(unittest.TestCase):
         self._stage("allowed.py")
         self._write(
             "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs",
-            b"// unstaged protected sentinel\n",
+            b"// unstaged outside sentinel\n",
         )
 
         repository = Path(__file__).resolve().parent.parent
@@ -349,11 +349,45 @@ class ScopedCodeReviewGraphTests(unittest.TestCase):
                 str(scoped_root),
             )
 
+    def test_wasm_module_is_analyzed_as_an_ordinary_staged_path(self):
+        relative_path = "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs"
+        self.assertEqual(
+            scope_helper.PROTECTED_PATHS,
+            {"justfile", "packages/FUSOU-APP/src-tauri/roaming/user/configs.toml"},
+        )
+        content = b"pub fn synthetic_wasm_export() {}\n"
+        self._write(relative_path, content)
+        self._stage(relative_path)
+        scope = self._scope()
+        self.assertEqual(scope.paths, (relative_path,))
+        self.assertEqual(scope.staged_blobs[relative_path], content)
+
+        with tempfile.TemporaryDirectory(prefix="fusou-wasm-scope-") as temp:
+            scoped_root, env = scope_helper.create_scoped_repository(scope, temp)
+            self.assertEqual(
+                self._sandbox_tracked_paths(scoped_root, env), [relative_path]
+            )
+            self.assertEqual(
+                scoped_root.joinpath(*relative_path.split("/")).read_bytes(), content
+            )
+            invoked = []
+
+            def recording_runner(command, **kwargs):
+                invoked.append(command)
+                return subprocess.CompletedProcess(command, 0)
+
+            commands = scope_helper.run_analyzers(
+                scoped_root, env, "test-analyzer", recording_runner
+            )
+            self.assertEqual(invoked, commands)
+            self.assertEqual(
+                [command[1] for command in commands], ["update", "detect-changes"]
+            )
+
     def test_protected_staged_path_fails_before_blob_or_worktree_reads(self):
         protected_paths = (
             "justfile",
             "packages/FUSOU-APP/src-tauri/roaming/user/configs.toml",
-            "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs",
         )
         for protected in protected_paths:
             with self.subTest(protected=protected):

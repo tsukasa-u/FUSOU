@@ -16,7 +16,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 PROTECTED_PATHS = {
     "justfile",
     "packages/FUSOU-APP/src-tauri/roaming/user/configs.toml",
-    "packages/FUSOU-TLSN-VERIFIER/src/wasm.rs",
 }
 REGULAR_MODES = {"100644", "100755"}
 
