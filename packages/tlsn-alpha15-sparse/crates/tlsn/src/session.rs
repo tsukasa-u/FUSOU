@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{AsyncRead, AsyncWrite};
-use mpz_common::{Executor, io::Io, mux::Mux};
+use mpz_common::{Executor, executor::SpawnFn, io::Io, mux::Mux};
 use tlsn_core::config::{prover::ProverConfig, verifier::VerifierConfig};
 use tlsn_mux::{Connection, Handle};
 
@@ -47,6 +47,22 @@ where
 {
     /// Creates a new session.
     pub fn new(io: Io) -> Self {
+        Self::with_worker_spawn(io, None)
+    }
+
+    /// Creates a session with caller-owned worker scheduling.
+    ///
+    /// The callback must schedule each entry-point independently; running one
+    /// inline blocks construction. Dropping the session handle requests worker
+    /// shutdown, but the caller must separately observe entry-point completion.
+    pub fn new_with_worker_spawn<F>(io: Io, spawn: F) -> Self
+    where
+        F: Fn(Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()> + Send + Sync + 'static,
+    {
+        Self::with_worker_spawn(io, Some(Box::new(spawn)))
+    }
+
+    fn with_worker_spawn(io: Io, spawn: Option<SpawnFn>) -> Self {
         let mut mux_config = tlsn_mux::Config::default();
 
         mux_config.set_keep_alive(true);
@@ -54,9 +70,12 @@ where
 
         let conn = tlsn_mux::Connection::new(io, mux_config);
         let handle = conn.handle().expect("handle should be available");
-        let executor = build_executor(MuxHandle {
-            handle: handle.clone(),
-        });
+        let executor = build_executor(
+            MuxHandle {
+                handle: handle.clone(),
+            },
+            spawn,
+        );
 
         Self {
             conn: Some(conn),
@@ -310,7 +329,7 @@ impl Mux for MuxHandle {
 }
 
 /// Builds a work-stealing executor with the given muxer.
-fn build_executor(mux: MuxHandle) -> Executor {
+fn build_executor(mux: MuxHandle, spawn: Option<SpawnFn>) -> Executor {
     #[cfg(all(feature = "web", target_arch = "wasm32"))]
     let cores = web_spawn::available_parallelism().map(|n| n.get());
 
@@ -325,5 +344,8 @@ fn build_executor(mux: MuxHandle) -> Executor {
         Ok(())
     });
 
-    builder.build(mux)
+    match spawn {
+        Some(spawn) => builder.spawn(spawn).build(mux),
+        None => builder.build(mux),
+    }
 }

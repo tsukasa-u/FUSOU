@@ -195,11 +195,12 @@ struct RuntimeConfigGuardedOriginTransportFactory {
 }
 
 #[cfg(feature = "tlsn-production")]
-impl Alpha15OriginTransportFactory for RuntimeConfigGuardedOriginTransportFactory {
-    fn send_once(
+impl RuntimeConfigGuardedOriginTransportFactory {
+    fn send_revalidated(
         &self,
         config: OriginTransportConfig,
         request: SerializedOriginRequest,
+        lifecycle: Option<proxy_https::exchange_lifecycle::ExchangeLifecycle>,
     ) -> TlsnTransportFuture {
         let manager = Arc::clone(&self.manager);
         let expected_manifest_sha256 = self.expected_manifest_sha256.clone();
@@ -213,8 +214,35 @@ impl Alpha15OriginTransportFactory for RuntimeConfigGuardedOriginTransportFactor
                     }
                     RuntimeConfigGateFailure::Changed => TlsnTransportError::RuntimeConfigChanged,
                 })?;
-            inner.send_once(config, request).await
+            match lifecycle {
+                Some(lifecycle) => {
+                    inner
+                        .send_once_with_lifecycle(config, request, lifecycle)
+                        .await
+                }
+                None => inner.send_once(config, request).await,
+            }
         })
+    }
+}
+
+#[cfg(feature = "tlsn-production")]
+impl Alpha15OriginTransportFactory for RuntimeConfigGuardedOriginTransportFactory {
+    fn send_once(
+        &self,
+        config: OriginTransportConfig,
+        request: SerializedOriginRequest,
+    ) -> TlsnTransportFuture {
+        self.send_revalidated(config, request, None)
+    }
+
+    fn send_once_with_lifecycle(
+        &self,
+        config: OriginTransportConfig,
+        request: SerializedOriginRequest,
+        lifecycle: proxy_https::exchange_lifecycle::ExchangeLifecycle,
+    ) -> TlsnTransportFuture {
+        self.send_revalidated(config, request, Some(lifecycle))
     }
 }
 
@@ -228,6 +256,10 @@ fn build_production_tlsn_dependencies(
     worker_health_observation: WorkerHealthObservation,
     public_configuration_fingerprints: AppPublicConfigurationFingerprints,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
+    let lifecycle_policy = crate::tlsn_preflight::explicit_exchange_policy()
+        .map_err(production_configuration_error)?;
+    let attestation_limit = crate::tlsn_preflight::explicit_notary_attestation_limit()
+        .map_err(production_configuration_error)?;
     let proxy_configs = configs::get_user_configs_for_proxy();
     let selected_target = runtime_config
         .approved_target(proxy_target)
@@ -292,8 +324,12 @@ fn build_production_tlsn_dependencies(
             inner: remote_binding_provider,
         });
     let real_transport_factory = std::sync::Arc::new(
-        RealAlpha15OriginTransportFactory::new(notary_endpoint, std::sync::Arc::clone(&handoff))
-            .map_err(production_configuration_error)?,
+        RealAlpha15OriginTransportFactory::new(
+            notary_endpoint,
+            std::sync::Arc::clone(&handoff),
+            attestation_limit,
+        )
+        .map_err(production_configuration_error)?,
     );
     let transport_factory: Arc<dyn Alpha15OriginTransportFactory> =
         Arc::new(RuntimeConfigGuardedOriginTransportFactory {
@@ -345,6 +381,7 @@ fn build_production_tlsn_dependencies(
         result_signer,
         std::sync::Arc::new(FilesystemResultDelivery::new(artifact_root.join("results"))),
     )
+    .with_lifecycle_policy(lifecycle_policy)
     .with_presentation_artifact_sink(std::sync::Arc::new(
         FilesystemPresentationArtifactSink::new(artifact_root)
             .with_enabled(candidate_capture_enabled),
@@ -631,6 +668,26 @@ mod runtime_config_transport_gate_tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async { Err(TlsnTransportError::Unavailable) })
         }
+
+        fn send_once_with_lifecycle(
+            &self,
+            _config: OriginTransportConfig,
+            _request: SerializedOriginRequest,
+            lifecycle: proxy_https::exchange_lifecycle::ExchangeLifecycle,
+        ) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                Err(match lifecycle.check() {
+                    Err(proxy_https::exchange_lifecycle::ExchangeStop::Cancelled) => {
+                        TlsnTransportError::Cancelled
+                    }
+                    Err(proxy_https::exchange_lifecycle::ExchangeStop::Deadline) => {
+                        TlsnTransportError::DeadlineExceeded
+                    }
+                    Ok(()) => TlsnTransportError::Unavailable,
+                })
+            })
+        }
     }
 
     fn test_binding_provider(
@@ -712,6 +769,54 @@ mod runtime_config_transport_gate_tests {
 
         assert!(matches!(result, Err(TlsnTransportError::Unavailable)));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn runtime_config_guard_forwards_the_same_cancellation_context() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let factory = test_factory(vec![Ok("A".repeat(43))], Arc::clone(&calls));
+        let lifecycle = proxy_https::exchange_lifecycle::ExchangePolicy::from_millis(
+            Some("1000"),
+            Some("1000"),
+        )
+        .unwrap()
+        .start()
+        .unwrap();
+        lifecycle.stop(proxy_https::exchange_lifecycle::ExchangeStop::Cancelled);
+        let result = factory
+            .send_once_with_lifecycle(
+                origin_config(),
+                SerializedOriginRequest::new(b"GET / HTTP/1.1\r\n\r\n".as_slice().into()).unwrap(),
+                lifecycle,
+            )
+            .await;
+        assert!(matches!(result, Err(TlsnTransportError::Cancelled)));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn lifecycle_aware_transport_cannot_bypass_runtime_config_revalidation() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let factory = test_factory(vec![Ok("B".repeat(43))], Arc::clone(&calls));
+        let lifecycle = proxy_https::exchange_lifecycle::ExchangePolicy::from_millis(
+            Some("1000"),
+            Some("1000"),
+        )
+        .unwrap()
+        .start()
+        .unwrap();
+        let result = factory
+            .send_once_with_lifecycle(
+                origin_config(),
+                SerializedOriginRequest::new(b"GET / HTTP/1.1\r\n\r\n".as_slice().into()).unwrap(),
+                lifecycle,
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(TlsnTransportError::RuntimeConfigChanged)
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

@@ -1,3 +1,4 @@
+use crate::exchange_lifecycle::{ExchangeLifecycle, ExchangePolicy, ExchangeStop};
 use http::{
     request, HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, Version,
 };
@@ -8,6 +9,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
 };
+use tokio_util::task::AbortOnDropHandle;
 
 pub const BINDING_HEADER: &str = "X-Attestation-Binding";
 const BINDING_HEADER_NAME: HeaderName = HeaderName::from_static("x-attestation-binding");
@@ -471,6 +473,9 @@ pub struct TlsnOriginExchange {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TlsnTransportError {
+    LifecyclePolicyMissing,
+    Cancelled,
+    DeadlineExceeded,
     Unavailable,
     RuntimeConfigUnavailable,
     RuntimeConfigChanged,
@@ -484,11 +489,14 @@ pub enum TlsnTransportError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProofContinuationError {
+    Cancelled,
+    Deadline,
     ProverFinalization,
     TranscriptCommit,
     Prove,
     AttestationRequest,
     Notary,
+    NotaryAttestationLimit,
     AttestationValidation,
     Presentation,
 }
@@ -496,11 +504,16 @@ pub enum ProofContinuationError {
 impl std::fmt::Display for ProofContinuationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
+            Self::Cancelled => "TLSN proof cancelled; no upstream retry",
+            Self::Deadline => "TLSN proof deadline exceeded; no upstream retry",
             Self::ProverFinalization => "TLSN prover finalization failed",
             Self::TranscriptCommit => "TLSN transcript commit failed",
             Self::Prove => "TLSN prove failed",
             Self::AttestationRequest => "TLSN AttestationRequest construction failed",
             Self::Notary => "TLSN Notary exchange failed",
+            Self::NotaryAttestationLimit => {
+                "TLSN Notary attestation exceeds the explicit local byte limit"
+            }
             Self::AttestationValidation => "TLSN Attestation validation failed",
             Self::Presentation => "TLSN Presentation construction failed",
         })
@@ -575,6 +588,9 @@ pub struct TlsnOriginCapture {
 impl std::fmt::Display for TlsnTransportError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
+            Self::LifecyclePolicyMissing => "TLSN transport lifecycle policy is not configured",
+            Self::Cancelled => "TLSN transport cancelled; no upstream retry",
+            Self::DeadlineExceeded => "TLSN absolute exchange deadline exceeded; no upstream retry",
             Self::Unavailable => "TLSN origin transport is unavailable",
             Self::RuntimeConfigUnavailable => {
                 "TLSN Runtime Config verification is unavailable before origin transport"
@@ -600,6 +616,14 @@ impl std::fmt::Display for TlsnTransportError {
 
 pub trait TlsnOriginTransport: Send + Sync {
     fn send_once(&self, request: SerializedOriginRequest) -> TlsnTransportFuture;
+
+    fn send_once_with_lifecycle(
+        &self,
+        request: SerializedOriginRequest,
+        _lifecycle: ExchangeLifecycle,
+    ) -> TlsnTransportFuture {
+        self.send_once(request)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -793,6 +817,17 @@ pub trait ExperimentalVerifierBoundary: Send + Sync {
         binding: AttestationBinding,
         exchange: TlsnOriginExchange,
     ) -> VerificationFuture;
+
+    fn verify_with_lifecycle(
+        &self,
+        connection_id: u64,
+        request: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+        _lifecycle: ExchangeLifecycle,
+    ) -> VerificationFuture {
+        self.verify(connection_id, request, binding, exchange)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -830,6 +865,14 @@ impl std::fmt::Display for ResultBoundaryError {
 
 pub trait ExperimentalResultBoundary: Send + Sync {
     fn accept(&self, evidence: VerifiedTlsnEvidence) -> ResultBoundaryFuture;
+
+    fn accept_with_lifecycle(
+        &self,
+        evidence: VerifiedTlsnEvidence,
+        _lifecycle: ExchangeLifecycle,
+    ) -> ResultBoundaryFuture {
+        self.accept(evidence)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -869,6 +912,11 @@ pub enum ExperimentalTlsnRuntimeState {
     ResultSigningFailed,
     ArtifactDeliveryFailed,
     ResultReady,
+    ResultDelivered,
+    Cancelled,
+    DeadlineExceeded,
+    Unattested,
+    CleanupUnconfirmed,
 }
 
 pub struct ExperimentalTlsnForwarder {
@@ -878,6 +926,34 @@ pub struct ExperimentalTlsnForwarder {
     verifier: Arc<dyn ExperimentalVerifierBoundary>,
     result_boundary: Arc<dyn ExperimentalResultBoundary>,
     state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+    lifecycle_policy: Option<ExchangePolicy>,
+    lifecycle: Arc<Mutex<Option<ExchangeLifecycle>>>,
+    proof_task: Arc<Mutex<Option<AbortOnDropHandle<()>>>>,
+}
+
+struct ExchangeOwner {
+    lifecycle: ExchangeLifecycle,
+    state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+    finished: bool,
+}
+
+fn stop_state(reason: ExchangeStop) -> ExperimentalTlsnRuntimeState {
+    match reason {
+        ExchangeStop::Cancelled => ExperimentalTlsnRuntimeState::Cancelled,
+        ExchangeStop::Deadline => ExperimentalTlsnRuntimeState::DeadlineExceeded,
+    }
+}
+
+impl Drop for ExchangeOwner {
+    fn drop(&mut self) {
+        if !self.finished {
+            let reason = self.lifecycle.stop(ExchangeStop::Cancelled);
+            match self.state.lock() {
+                Ok(mut state) => *state = stop_state(reason),
+                Err(_) => tracing::error!("TLSN runtime state poisoned during cancellation"),
+            }
+        }
+    }
 }
 
 impl ExperimentalTlsnForwarder {
@@ -888,6 +964,24 @@ impl ExperimentalTlsnForwarder {
         verifier: Arc<dyn ExperimentalVerifierBoundary>,
         result_boundary: Arc<dyn ExperimentalResultBoundary>,
     ) -> Arc<Self> {
+        Self::new_with_policy(
+            binding_provider,
+            serializer,
+            transport,
+            verifier,
+            result_boundary,
+            None,
+        )
+    }
+
+    pub fn new_with_policy(
+        binding_provider: Arc<dyn AttestationBindingProvider>,
+        serializer: Arc<dyn OriginRequestSerializer>,
+        transport: Arc<dyn TlsnOriginTransport>,
+        verifier: Arc<dyn ExperimentalVerifierBoundary>,
+        result_boundary: Arc<dyn ExperimentalResultBoundary>,
+        lifecycle_policy: Option<ExchangePolicy>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             binding_provider: Arc::new(SingleUseBindingProvider::new(binding_provider)),
             serializer,
@@ -895,6 +989,9 @@ impl ExperimentalTlsnForwarder {
             verifier,
             result_boundary,
             state: Arc::new(Mutex::new(ExperimentalTlsnRuntimeState::Ready)),
+            lifecycle_policy,
+            lifecycle: Arc::new(Mutex::new(None)),
+            proof_task: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -913,6 +1010,35 @@ impl ExperimentalTlsnForwarder {
             .lock()
             .map(|state| *state)
             .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())
+    }
+
+    pub fn cancel(&self) -> Result<(), String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "TLSN runtime state poisoned")?;
+        if !matches!(
+            *state,
+            ExperimentalTlsnRuntimeState::Selected
+                | ExperimentalTlsnRuntimeState::BindingIssued
+                | ExperimentalTlsnRuntimeState::Serialized
+                | ExperimentalTlsnRuntimeState::Sent
+                | ExperimentalTlsnRuntimeState::ResponseReceived
+                | ExperimentalTlsnRuntimeState::ResponseReturned
+                | ExperimentalTlsnRuntimeState::ProofStarted
+                | ExperimentalTlsnRuntimeState::EvidenceReady
+                | ExperimentalTlsnRuntimeState::Verified
+                | ExperimentalTlsnRuntimeState::ResultDelivered
+        ) {
+            return Err("TLSN exchange is not active".to_owned());
+        }
+        let lifecycle = self
+            .lifecycle
+            .lock()
+            .map_err(|_| "TLSN lifecycle state poisoned")?;
+        let lifecycle = lifecycle.as_ref().ok_or("TLSN exchange has not started")?;
+        lifecycle.stop(ExchangeStop::Cancelled);
+        Ok(())
     }
 
     fn transition(
@@ -940,6 +1066,7 @@ impl ExperimentalTlsnForwarder {
         serialized: SerializedOriginRequest,
         binding: AttestationBinding,
         exchange: TlsnOriginExchange,
+        lifecycle: Option<ExchangeLifecycle>,
     ) {
         if Self::transition_shared(
             &state,
@@ -953,6 +1080,8 @@ impl ExperimentalTlsnForwarder {
         if let Err(error) = proof.run().await {
             tracing::warn!(%error, "TLSN proof continuation failed after browser response");
             let next = match error {
+                ProofContinuationError::Cancelled => ExperimentalTlsnRuntimeState::Cancelled,
+                ProofContinuationError::Deadline => ExperimentalTlsnRuntimeState::DeadlineExceeded,
                 ProofContinuationError::ProverFinalization => {
                     ExperimentalTlsnRuntimeState::ProverFinalizationFailed
                 }
@@ -963,7 +1092,9 @@ impl ExperimentalTlsnForwarder {
                 ProofContinuationError::AttestationRequest => {
                     ExperimentalTlsnRuntimeState::AttestationRequestFailed
                 }
-                ProofContinuationError::Notary => ExperimentalTlsnRuntimeState::NotaryFailed,
+                ProofContinuationError::Notary | ProofContinuationError::NotaryAttestationLimit => {
+                    ExperimentalTlsnRuntimeState::NotaryFailed
+                }
                 ProofContinuationError::AttestationValidation => {
                     ExperimentalTlsnRuntimeState::AttestationValidationFailed
                 }
@@ -985,10 +1116,17 @@ impl ExperimentalTlsnForwarder {
             return;
         }
 
-        let outcome = match verifier
-            .verify(connection_id, serialized, binding, exchange)
-            .await
-        {
+        let verification = match lifecycle.as_ref() {
+            Some(lifecycle) => verifier.verify_with_lifecycle(
+                connection_id,
+                serialized,
+                binding,
+                exchange,
+                lifecycle.clone(),
+            ),
+            None => verifier.verify(connection_id, serialized, binding, exchange),
+        };
+        let outcome = match verification.await {
             Ok(outcome) => outcome,
             Err(error) => {
                 tracing::warn!(%error, "TLSN Presentation or worker verification failed after browser response");
@@ -1041,7 +1179,11 @@ impl ExperimentalTlsnForwarder {
         {
             return;
         }
-        if let Err(error) = result_boundary.accept(verified).await {
+        let result = match lifecycle {
+            Some(lifecycle) => result_boundary.accept_with_lifecycle(verified, lifecycle),
+            None => result_boundary.accept(verified),
+        };
+        if let Err(error) = result.await {
             tracing::warn!(%error, "TLSN result signing or delivery failed after browser response");
             let next = match error {
                 ResultBoundaryError::SigningUnavailable => {
@@ -1058,7 +1200,7 @@ impl ExperimentalTlsnForwarder {
         let _ = Self::transition_shared(
             &state,
             ExperimentalTlsnRuntimeState::Verified,
-            ExperimentalTlsnRuntimeState::ResultReady,
+            ExperimentalTlsnRuntimeState::ResultDelivered,
         );
     }
 }
@@ -1091,55 +1233,107 @@ impl ExperimentalTlsnForwarder {
             ExperimentalTlsnRuntimeState::Ready,
             ExperimentalTlsnRuntimeState::Selected,
         )?;
-        let (parts, body) = request.into_parts();
-        let context = BindingRequestContext::new(connection_id, parts.uri.path());
-        let binding = self
-            .binding_provider
-            .issue_binding(context)
-            .await
-            .map_err(|error| error.to_string())?;
-        self.transition(
-            ExperimentalTlsnRuntimeState::Selected,
-            ExperimentalTlsnRuntimeState::BindingIssued,
-        )?;
-        let serialized = self
-            .serializer
-            .serialize(&parts, body, &binding)
-            .map_err(|error| error.to_string())?;
-        self.transition(
-            ExperimentalTlsnRuntimeState::BindingIssued,
-            ExperimentalTlsnRuntimeState::Serialized,
-        )?;
+        let lifecycle = self
+            .lifecycle_policy
+            .map(ExchangePolicy::start)
+            .transpose()?;
+        *self
+            .lifecycle
+            .lock()
+            .map_err(|_| "TLSN lifecycle state poisoned")? = lifecycle.clone();
+        let mut owner = lifecycle.clone().map(|lifecycle| ExchangeOwner {
+            lifecycle,
+            state: Arc::clone(&self.state),
+            finished: false,
+        });
+        let preparation = async {
+            let (parts, body) = request.into_parts();
+            let context = BindingRequestContext::new(connection_id, parts.uri.path());
+            let binding = self
+                .binding_provider
+                .issue_binding(context)
+                .await
+                .map_err(|error| error.to_string())?;
+            self.transition(
+                ExperimentalTlsnRuntimeState::Selected,
+                ExperimentalTlsnRuntimeState::BindingIssued,
+            )?;
+            let serialized = self
+                .serializer
+                .serialize(&parts, body, &binding)
+                .map_err(|error| error.to_string())?;
+            self.transition(
+                ExperimentalTlsnRuntimeState::BindingIssued,
+                ExperimentalTlsnRuntimeState::Serialized,
+            )?;
 
-        // This transition is intentionally committed before transport I/O. Any
-        // partial write or connection error must not be retried or sent to Production.
-        self.transition(
-            ExperimentalTlsnRuntimeState::Serialized,
-            ExperimentalTlsnRuntimeState::Sent,
-        )?;
-        let capture = self
-            .transport
-            .send_once(serialized.clone())
-            .await
-            .map_err(|error| error.to_string())?;
-        self.transition(
-            ExperimentalTlsnRuntimeState::Sent,
-            ExperimentalTlsnRuntimeState::ResponseReceived,
-        )?;
+            // This transition is intentionally committed before transport I/O. Any
+            // partial write or connection error must not be retried or sent to Production.
+            self.transition(
+                ExperimentalTlsnRuntimeState::Serialized,
+                ExperimentalTlsnRuntimeState::Sent,
+            )?;
+            let transport = match lifecycle.as_ref() {
+                Some(lifecycle) => self
+                    .transport
+                    .send_once_with_lifecycle(serialized.clone(), lifecycle.clone()),
+                None => self.transport.send_once(serialized.clone()),
+            };
+            let capture = transport.await.map_err(|error| error.to_string())?;
+            self.transition(
+                ExperimentalTlsnRuntimeState::Sent,
+                ExperimentalTlsnRuntimeState::ResponseReceived,
+            )?;
+            let browser_response = capture.exchange.response.clone();
+            let response = response_from_origin(browser_response)?;
+            self.transition(
+                ExperimentalTlsnRuntimeState::ResponseReceived,
+                ExperimentalTlsnRuntimeState::ResponseReturned,
+            )?;
+            Ok::<_, String>((serialized, binding, capture, response))
+        };
+        let prepared = match lifecycle.as_ref() {
+            Some(lifecycle) => lifecycle
+                .run(preparation)
+                .await
+                .map_err(|reason| reason.to_string())
+                .and_then(|result| result),
+            None => preparation.await,
+        };
+        let (serialized, binding, capture, response) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if let Some(lifecycle) = lifecycle.as_ref() {
+                    let stopped = lifecycle.stop_reason();
+                    lifecycle.stop(ExchangeStop::Cancelled);
+                    let next = if lifecycle.wait_for_cleanup().await {
+                        stopped
+                            .map(stop_state)
+                            .unwrap_or(ExperimentalTlsnRuntimeState::Unattested)
+                    } else {
+                        tracing::error!("TLSN cleanup deadline expired after transport failure");
+                        ExperimentalTlsnRuntimeState::CleanupUnconfirmed
+                    };
+                    *self
+                        .state
+                        .lock()
+                        .map_err(|_| "TLSN runtime state poisoned")? = next;
+                    owner
+                        .as_mut()
+                        .expect("lifecycle owns the exchange")
+                        .finished = true;
+                }
+                return Err(error);
+            }
+        };
         let TlsnOriginCapture { exchange, proof } = capture;
-        let browser_response = exchange.response.clone();
-        let response = response_from_origin(browser_response)?;
-        self.transition(
-            ExperimentalTlsnRuntimeState::ResponseReceived,
-            ExperimentalTlsnRuntimeState::ResponseReturned,
-        )?;
         let state = Arc::clone(&self.state);
         let verifier = Arc::clone(&self.verifier);
         let result_boundary = Arc::clone(&self.result_boundary);
-        tokio::spawn(async move {
+        let task = AbortOnDropHandle::new(tokio::spawn(async move {
             tokio::task::yield_now().await;
-            Self::run_proof_pipeline(
-                state,
+            let pipeline = Self::run_proof_pipeline(
+                Arc::clone(&state),
                 proof,
                 verifier,
                 result_boundary,
@@ -1147,9 +1341,46 @@ impl ExperimentalTlsnForwarder {
                 serialized,
                 binding,
                 exchange,
-            )
-            .await;
-        });
+                lifecycle.clone(),
+            );
+            let stopped = match lifecycle.as_ref() {
+                Some(lifecycle) => lifecycle.run(pipeline).await.err(),
+                None => {
+                    pipeline.await;
+                    None
+                }
+            };
+            let cleanup_confirmed = match lifecycle.as_ref() {
+                Some(lifecycle) => lifecycle.wait_for_cleanup().await,
+                None => true,
+            };
+            match state.lock() {
+                Ok(mut state) => {
+                    let stopped = stopped.or_else(|| {
+                        lifecycle
+                            .as_ref()
+                            .and_then(|lifecycle| lifecycle.check().err())
+                    });
+                    if !cleanup_confirmed {
+                        tracing::error!("TLSN owned tasks did not finish within cleanup budget");
+                        *state = ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
+                    } else if let Some(reason) = stopped {
+                        tracing::warn!(%reason, "TLSN proof pipeline stopped without retry");
+                        *state = stop_state(reason);
+                    } else if *state == ExperimentalTlsnRuntimeState::ResultDelivered {
+                        *state = ExperimentalTlsnRuntimeState::ResultReady;
+                    }
+                }
+                Err(_) => tracing::error!("TLSN runtime state poisoned during proof completion"),
+            }
+            if let Some(owner) = owner.as_mut() {
+                owner.finished = true;
+            }
+        }));
+        *self
+            .proof_task
+            .lock()
+            .map_err(|_| "TLSN proof task owner poisoned")? = Some(task);
 
         Ok(response)
     }
@@ -1164,6 +1395,9 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
             verifier: Arc::clone(&self.verifier),
             result_boundary: Arc::clone(&self.result_boundary),
             state: Arc::clone(&self.state),
+            lifecycle_policy: self.lifecycle_policy,
+            lifecycle: Arc::clone(&self.lifecycle),
+            proof_task: Arc::clone(&self.proof_task),
         });
         Box::pin(forwarder.forward_inner(connection_id, request))
     }
@@ -1421,6 +1655,156 @@ mod tests {
                 response_sha256: sha256(&raw_response),
             },
         }
+    }
+
+    fn policy_forwarder(
+        proof_release: Option<oneshot::Receiver<()>>,
+        exchange_ms: &str,
+    ) -> (
+        Arc<ExperimentalTlsnForwarder>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+    ) {
+        let sends = Arc::new(AtomicUsize::new(0));
+        let results = Arc::new(AtomicUsize::new(0));
+        let serialized = Http1OriginRequestSerializer
+            .serialize(
+                &request(None).into_parts().0,
+                Bytes::from_static(b"abc"),
+                &binding(),
+            )
+            .unwrap();
+        let mut response = exchange();
+        response.transcript.request_sha256 = sha256(serialized.bytes());
+        let forwarder = ExperimentalTlsnForwarder::new_with_policy(
+            Arc::new(MockBindingProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+                connection_ids: Arc::new(Mutex::new(Vec::new())),
+            }),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::new(MockTransport {
+                calls: Arc::clone(&sends),
+                request_bytes: Arc::new(Mutex::new(Vec::new())),
+                response,
+                retained_response: Mutex::new(None),
+                proof_release: Mutex::new(proof_release),
+            }),
+            Arc::new(MockVerifier {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::clone(&results),
+            }),
+            Some(ExchangePolicy::from_millis(Some(exchange_ms), Some("1000")).unwrap()),
+        );
+        (forwarder, sends, results)
+    }
+
+    async fn wait_state(
+        forwarder: &ExperimentalTlsnForwarder,
+        expected: ExperimentalTlsnRuntimeState,
+    ) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while forwarder.state().unwrap() != expected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn explicit_policy_completes_pipeline_once_and_only_after_cleanup() {
+        let (forwarder, sends, results) = policy_forwarder(None, "1000");
+        assert_eq!(
+            forwarder.forward(1, request(None)).await.unwrap().status(),
+            StatusCode::OK
+        );
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::ResultReady).await;
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+        assert_eq!(results.load(Ordering::SeqCst), 1);
+        assert!(forwarder.cancel().is_err());
+        assert_eq!(
+            forwarder
+                .lifecycle
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .stop_reason(),
+            None
+        );
+        assert!(forwarder.forward(2, request(None)).await.is_err());
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn absolute_deadline_after_browser_response_never_retries_or_delivers_result() {
+        let (release, wait) = oneshot::channel();
+        let (forwarder, sends, results) = policy_forwarder(Some(wait), "50");
+        forwarder.forward(1, request(None)).await.unwrap();
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::DeadlineExceeded).await;
+        assert!(release.send(()).is_err());
+        assert_eq!(results.load(Ordering::SeqCst), 0);
+        assert!(forwarder.forward(2, request(None)).await.is_err());
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_proof_cannot_publish_late_result_or_affect_another_exchange() {
+        let (release, wait) = oneshot::channel();
+        let (forwarder, sends, results) = policy_forwarder(Some(wait), "1000");
+        let (other, other_sends, other_results) = policy_forwarder(None, "1000");
+        forwarder.forward(1, request(None)).await.unwrap();
+        forwarder.cancel().unwrap();
+        other.forward(2, request(None)).await.unwrap();
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::Cancelled).await;
+        wait_state(&other, ExperimentalTlsnRuntimeState::ResultReady).await;
+        assert!(release.send(()).is_err());
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+        assert_eq!(results.load(Ordering::SeqCst), 0);
+        assert_eq!(other_sends.load(Ordering::SeqCst), 1);
+        assert_eq!(other_results.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn dropping_runtime_owner_cancels_background_proof_instead_of_detaching() {
+        let (release, wait) = oneshot::channel();
+        let (forwarder, sends, results) = policy_forwarder(Some(wait), "1000");
+        forwarder.forward(1, request(None)).await.unwrap();
+        let lifecycle = forwarder.lifecycle.lock().unwrap().clone().unwrap();
+        drop(forwarder);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !release.is_closed() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(lifecycle.stop_reason(), Some(ExchangeStop::Cancelled));
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+        assert_eq!(results.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cleanup_timeout_prevents_result_ready_and_does_not_reopen_the_single_use_runtime() {
+        let (_release, wait) = oneshot::channel();
+        let (forwarder, sends, results) = policy_forwarder(Some(wait), "10000");
+        forwarder.forward(1, request(None)).await.unwrap();
+        let lifecycle = forwarder.lifecycle.lock().unwrap().clone().unwrap();
+        let unfinished = lifecycle.tasks().spawn(std::future::pending::<()>());
+        forwarder.cancel().unwrap();
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::CleanupUnconfirmed).await;
+        assert!(forwarder.forward(2, request(None)).await.is_err());
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+        assert_eq!(results.load(Ordering::SeqCst), 0);
+        unfinished.abort();
+        assert!(unfinished.await.unwrap_err().is_cancelled());
+        assert!(lifecycle.wait_for_cleanup().await);
+        assert_eq!(
+            forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::CleanupUnconfirmed
+        );
     }
 
     #[test]

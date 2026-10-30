@@ -1,5 +1,9 @@
 use authenticity_core::ServerIdentity;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use proxy_https::exchange_lifecycle::{
+    ExchangePolicy, NotaryAttestationLimit, CLEANUP_TIMEOUT_ENV, EXCHANGE_TIMEOUT_ENV,
+    NOTARY_ATTESTATION_LIMIT_ENV,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -57,6 +61,8 @@ fn app_configuration_fingerprint_contract() -> &'static AppConfigurationFingerpr
 
 #[derive(Debug, Clone)]
 pub struct TlsnPreflightConfig {
+    pub exchange_policy: Result<ExchangePolicy, String>,
+    pub notary_attestation_limit: Result<NotaryAttestationLimit, String>,
     pub experiment_enabled: bool,
     pub candidate_capture_enabled: bool,
     pub runtime_config_bootstrap_error: Option<String>,
@@ -83,6 +89,8 @@ pub struct TlsnPreflightConfig {
 impl TlsnPreflightConfig {
     pub fn from_proxy(proxy: &configs::ConfigsProxy) -> Self {
         Self {
+            exchange_policy: explicit_exchange_policy(),
+            notary_attestation_limit: explicit_notary_attestation_limit(),
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
             runtime_config_bootstrap_error: RuntimeConfigBootstrap::from_embedded()
@@ -115,6 +123,8 @@ impl TlsnPreflightConfig {
     ) -> Self {
         let input = |name| Some(verified.worker_input(name).to_owned());
         Self {
+            exchange_policy: explicit_exchange_policy(),
+            notary_attestation_limit: explicit_notary_attestation_limit(),
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
             runtime_config_bootstrap_error: None,
@@ -140,6 +150,27 @@ impl TlsnPreflightConfig {
             response_mode: proxy.get_tlsn_response_mode(),
             notary_verifying_key: input(RuntimeConfigWorkerInput::NotaryVerifyingKey),
             artifact_output_path: proxy.get_tlsn_artifact_output_path(),
+        }
+    }
+}
+
+pub fn explicit_exchange_policy() -> Result<ExchangePolicy, String> {
+    let exchange = explicit_limit_input(EXCHANGE_TIMEOUT_ENV)?;
+    let cleanup = explicit_limit_input(CLEANUP_TIMEOUT_ENV)?;
+    ExchangePolicy::from_millis(exchange.as_deref(), cleanup.as_deref())
+}
+
+pub fn explicit_notary_attestation_limit() -> Result<NotaryAttestationLimit, String> {
+    let value = explicit_limit_input(NOTARY_ATTESTATION_LIMIT_ENV)?;
+    NotaryAttestationLimit::from_bytes(value.as_deref())
+}
+
+fn explicit_limit_input(name: &str) -> Result<Option<String>, String> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err(format!("{name} must be a UTF-8 positive integer"))
         }
     }
 }
@@ -421,6 +452,22 @@ fn run_preflight_with_origin_inventory(
     );
 
     let bootstrap_required = feature_enabled && config.experiment_enabled;
+    for (name, policy, detail) in [
+        ("tlsn_transport_lifecycle_policy", config.exchange_policy.as_ref().map(|_| ()),
+         "absolute exchange deadline and separate cleanup budget explicitly configured; local operational limits, not authority"),
+        ("tlsn_notary_attestation_limit", config.notary_attestation_limit.as_ref().map(|_| ()),
+         "Notary attestation byte limit explicitly configured; local acquisition limit, not authority"),
+    ] {
+        let (status, detail) = if bootstrap_required {
+            match policy {
+                Ok(()) => (PreflightStatus::Pass, detail.to_owned()),
+                Err(error) => (PreflightStatus::Error, error.clone()),
+            }
+        } else {
+            (PreflightStatus::Warning, "not required while Production TLSN is disabled".to_owned())
+        };
+        push_check(&mut checks, name, status, detail);
+    }
     let (bootstrap_status, bootstrap_detail) = if bootstrap_required {
         match config.runtime_config_bootstrap_error.as_deref() {
             Some(error) => (PreflightStatus::Error, error.to_owned()),
@@ -1486,6 +1533,8 @@ mod tests {
         Fixture {
             root,
             config: TlsnPreflightConfig {
+                exchange_policy: ExchangePolicy::from_millis(Some("1000"), Some("1000")),
+                notary_attestation_limit: NotaryAttestationLimit::from_bytes(Some("1024")),
                 experiment_enabled: true,
                 candidate_capture_enabled: false,
                 runtime_config_bootstrap_error: None,
@@ -1628,6 +1677,29 @@ mod tests {
                 .candidate_binding_status,
             "UNBOUND"
         );
+    }
+
+    #[test]
+    #[cfg(feature = "tlsn-production")]
+    fn explicit_transport_policy_is_required_without_implicit_defaults() {
+        let mut fixture = fixture();
+        fixture.config.exchange_policy =
+            Err("FUSOU_TLSN_EXCHANGE_TIMEOUT_MS must be explicitly configured".to_owned());
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_error(&report, "tlsn_transport_lifecycle_policy");
+        assert!(!report.ready);
+    }
+
+    #[test]
+    #[cfg(feature = "tlsn-production")]
+    fn notary_byte_limit_is_required_and_invalid_limits_block_preflight() {
+        for value in [None, Some("0"), Some("01"), Some("18446744073709551615")] {
+            let mut fixture = fixture();
+            fixture.config.notary_attestation_limit = NotaryAttestationLimit::from_bytes(value);
+            let report = run_preflight(&fixture.config, &fixture.config_path);
+            assert_error(&report, "tlsn_notary_attestation_limit");
+            assert!(!report.ready);
+        }
     }
 
     #[test]

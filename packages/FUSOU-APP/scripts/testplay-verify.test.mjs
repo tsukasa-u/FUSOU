@@ -6,8 +6,23 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { runtimeEnvironment } from "./testplay-verify.mjs";
 
 const recoveryModuleUrl = new URL("./testplay-verify.mjs", import.meta.url).href;
+
+test("runtime environment forwards only the explicit local TLSN limits without defaults or secret expansion", () => {
+  const limits = {
+    FUSOU_TLSN_EXCHANGE_TIMEOUT_MS: "1000",
+    FUSOU_TLSN_CLEANUP_TIMEOUT_MS: "1000",
+    FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES: "1024",
+  };
+  assert.deepEqual(runtimeEnvironment({
+    ...limits, FUSOU_TLSN_UNRELATED_SECRET: "test-only-do-not-forward",
+  }, "test-recovery-token"), { ...limits, FUSOU_TESTPLAY_RECOVERY_TOKEN: "test-recovery-token" });
+  assert.deepEqual(runtimeEnvironment({}, "test-recovery-token"), {
+    FUSOU_TESTPLAY_RECOVERY_TOKEN: "test-recovery-token",
+  });
+});
 
 function spawnRecoveryProcess(source, markerPath) {
   return spawn(process.execPath, ["--input-type=module", "-e", source], {

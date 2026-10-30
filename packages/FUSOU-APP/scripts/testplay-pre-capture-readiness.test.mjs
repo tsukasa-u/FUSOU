@@ -42,6 +42,8 @@ const requiredPreflightCheckNames = [
   "config_source",
   "tlsn_enabled",
   "tlsn_runtime_config_bootstrap",
+  "tlsn_transport_lifecycle_policy",
+  "tlsn_notary_attestation_limit",
   "tlsn_notary_endpoint",
   "tlsn_session_authority_endpoint",
   "tlsn_verification_endpoint",
@@ -189,6 +191,11 @@ for (const mode of ["complete", "sparse"]) {
         server_identity: null,
       });
       assert.equal(readiness.gates.runtime_target_approval, "REQUIRES_APP_RUNTIME");
+      assert.equal(readiness.gates.transport_lifecycle_policy, "EXPLICIT_LOCAL_LIMITS");
+      assert.equal(readiness.gates.notary_attestation_limit, "EXPLICIT_LOCAL_LIMIT");
+      assert.equal(readiness.gates.service_connectivity, "NOT_CHECKED");
+      assert.equal(readiness.gates.evidence_delivery, "POST_CAPTURE_REQUIRED");
+      assert.equal(readiness.gates.independent_evidence_verification, "POST_CAPTURE_REQUIRED");
       assert.equal(readiness.gates.target_approval, "POST_CAPTURE_REQUIRED");
       assert.equal(readiness.gates.auth_and_registered_device, "REQUIRES_APP_RUNTIME");
       assert.equal(readiness.gates.human_gameplay_approval, "REQUIRES_HUMAN_OPERATOR");

@@ -50,7 +50,7 @@ tlsn-formats = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b5
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"], optional = true }
 rustls = { version = "0.23.13", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 x509-parser = { version = "0.16.0", optional = true }
-tokio-util = { version = "0.7", optional = true, features = ["compat", "rt"] }
+tokio-util = { version = "0.7", features = ["compat", "rt"] }
 ring = { version = "0.17", optional = true }
 rama = { version = "=0.4.0", default-features = false, features = ["http-backend", "ws", "rustls", "ring"], optional = true }
 rama-http-backend = { version = "=0.4.0", default-features = false, optional = true }
@@ -72,7 +72,6 @@ alpha15-tlsn = [
 	"tlsn",
 	"tlsn-formats",
 	"dep:tokio-rustls",
-	"tokio-util",
 	"ring",
 ]
 tlsn-origin-probe = ["dep:rustls", "dep:tokio-rustls", "dep:x509-parser"]

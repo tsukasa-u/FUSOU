@@ -9,17 +9,40 @@ The Rama implementation is compiled only with `rama-experimental`; no production
 ## Real TLSN Task Ownership
 
 The optional `alpha15-tlsn` path uses in-process TLSN, not the experimental
-native-launch/cgroup bridge. Its driver and prover tasks use the existing
-tokio-util `AbortOnDropHandle`: early IO/parse errors, cancellation during a
-join or dropping an unrun proof continuation requests cancellation instead
-of detaching owned tasks. Successful joins and inner task failures retain
-their original results. Four synthetic Tokio tests observe task-owned
-resource drop and isolation from another exchange; they do not prove
-real Notary/TLSN completion or synchronous cleanup at runtime destruction.
+native-launch/cgroup bridge. Driver, prover and post-response proof tasks
+have owned tokio-util `AbortOnDropHandle`s. A per-exchange `TaskTracker`
+observes driver/prover future destruction, MPC worker entry-point completion,
+and admitted local Presentation/Result persistence. The local TLSN fork's
+optional worker-spawn callback schedules APP MPC workers through that tracker;
+the existing `Session::new` default and protocol remain unchanged.
+
+The APP requires explicit `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS`,
+`FUSOU_TLSN_CLEANUP_TIMEOUT_MS` and
+`FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES`. There are no defaults. Preflight
+and dependency construction reject missing/noncanonical/unsupported limits;
+the launcher forwards only these named operational inputs. They are local
+limits, not independent authority or Production policy. One absolute deadline
+starts when the typed request is selected, before binding/serialization, and
+continues through Origin/MPC, proof, Worker verification and Result delivery.
+Notary acquisition reads at most its admitted limit plus one rejection byte.
+Worker HTTP/poll timeouts remain subordinate to that same deadline.
+
+Cancellation does not restart the deadline, retry the Origin or reopen the
+single-use runtime. A started local persistence operation is retained for
+draining under the separate cleanup budget: dropping a Tokio filesystem future
+alone would not stop its blocking IO. `ResultDelivered` becomes `ResultReady`
+only after tracked cleanup and a final stop/deadline check serialized against
+cancel. Cleanup timeout is `CleanupUnconfirmed`, never success or automatic
+reuse. MPC blocking work cannot be forcibly preempted; unfinished entry-points
+remain tracked rather than being reported as exited.
+
+Synthetic task, actual session-executor construction/drop and fixture IO tests
+exercise these ownership boundaries without a Game Server or Notary exchange.
+Drop requests cancellation, not synchronous cleanup. A timed-out remote Worker
+job may still run server-side; this is not remote cancellation or OS-wide FD/
+thread cleanup attestation.
 Returning the browser response still precedes proof completion by design;
 the background proof pipeline is not replaced with a browser-response success.
-An overall Origin/MPC/proof deadline remains a separate unresolved contract;
-Worker HTTP/poll timeouts are not that deadline.
 
 See the [testplay mechanism decision](../../FUSOU-TLSN-VERIFIER/NATIVE-LAUNCH-SUBSTRATE-DECISION.md#i-testplay-dependency-audit-and-simplification)
 for actual callers, crypto/approval gates, and unadopted OS-hardening scope.

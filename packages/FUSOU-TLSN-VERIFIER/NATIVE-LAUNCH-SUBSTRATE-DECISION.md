@@ -944,6 +944,97 @@ performs that run. Privileged supervisor/cgroup/recovery design is separate,
 conditional hardening work, not the next implicit testplay requirement.
 The section F trust-state values remain unchanged.
 
+## J. APP integration and bounded in-process exchange lifecycle
+
+This follow-up starts from `f8965eaf4d83fe67123c5ace6bb88b53cf3bf92c`
+on `tlsn-first-testplay-candidate`. Section I's metadata-only APP validation,
+four task tests and unresolved deadline describe that earlier baseline, not
+the current source.
+
+The actual APP `tlsn-production` graph was checked using its committed lock,
+GNU target and an isolated offline environment. The command's Cargo arguments
+were:
+
+```sh
+cargo check --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml --package app --features tlsn-production --locked --offline --target x86_64-unknown-linux-gnu --lib --bins --jobs 2
+```
+
+The check passed; this is library/bin compilation, not a running APP,
+release artifact identity, real service connectivity or evidence acceptance.
+The observed APP feature closure enables proxy `alpha15-tlsn` and tokio-util
+`rt`, without the native-launch crate. Common forwarder ownership now declares
+tokio-util as non-optional; no new dependency version or network fetch is
+needed. Standalone proxy unit tests use the separate proxy lock and are not
+substituted for the APP integration check.
+
+### Adopted operational contract
+
+The user explicitly selected required local inputs without defaults:
+
+| Input | Meaning |
+|---|---|
+| `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS` | One absolute logical-exchange budget |
+| `FUSOU_TLSN_CLEANUP_TIMEOUT_MS` | Separate bounded wait for tracked completion |
+| `FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES` | Bounded raw Notary attestation acquisition |
+
+Values must be canonical positive integers and fit the timer/native buffer
+representation. No test fixture value is a Production policy. Both APP
+preflight and dependency construction require these inputs for enabled
+Production TLSN; the Node launcher explicitly preserves only the three named
+inputs in its runtime allowlist. Runtime Config roots, Target Approval and
+independent resource-policy/issuer approval are not supplied by these limits.
+
+One lifecycle starts on typed request selection, before binding and
+serialization. The same context crosses the Runtime Config freshness guard
+and real Origin factory, then remains active through connect/TLS/MPC, the
+single upstream send, response, proof/Notary, Presentation, Worker and Result
+delivery. Worker HTTP/poll timeouts do not extend it. Notary reads stop at
+limit+1 and reject oversize before deserialization. Proxy ingress/body
+collection before typed selection and startup configuration checks are
+separate; this is not a newly invented timeout for every proxy connection.
+
+### Owners and observed completion
+
+* Driver and prover handles are owned abort-on-drop guards registered with
+  the per-exchange tracker. Early error, abandoned exchange or unrun proof
+  drops the guards; normal paths explicitly join them.
+* The post-response proof handle is owned by the forwarder, not discarded.
+  Final owner drop cancels it; browser response success is not proof success.
+* The cached MPZ executor's default worker spawn drops OS join handles; its
+  destructor requests shutdown but does not observe entry-point exit.
+  The local TLSN `Session::new_with_worker_spawn` callback allows APP workers
+  to use tracked Tokio blocking jobs instead. Session/handle destruction
+  requests executor shutdown; tracker completion observes the admitted
+  entry-points actually returning. Normal `Session::new`, WASM defaults and
+  cryptographic/wire configuration remain unchanged. The callback source
+  change is additional to the older fork audit and still needs independent
+  release/compatibility approval.
+* Admitted local Presentation export and signed-Result persistence remain
+  owned tasks if cancellation interrupts their caller. Their futures are
+  allowed to drain already-started local IO; remote verification remains
+  cancellable. This prevents a dropped filesystem future from being treated
+  as proof that its blocking IO ended. Partial or even late-written candidate
+  files are not successful exchange admission or publication authorization.
+* Only tracked completion and a final deadline/cancel check can promote
+  `ResultDelivered` to `ResultReady`. Cancel and final success serialize on
+  the state mutex; a terminal runtime cannot be cancelled into a new operation.
+  A cleanup timeout stays `CleanupUnconfirmed` and cannot reopen single-use.
+
+The regression boundary includes synthetic Tokio ownership/error/drop races,
+actual Session executor construction/drop without TLSN protocol execution,
+bounded Notary byte reads, fixture persistence and Runtime Config revalidation.
+It is not a real Notary, Game Server or actual attestation test.
+Abort is cooperative; synchronous CPU/OS calls are not forcibly preempted.
+Runtime destruction cannot await cleanup. The tracker covers registered local
+tasks/entry-points, not all OS threads/FDs in third-party/auth dependencies or
+already-submitted remote Worker jobs. No process attestation claim follows.
+
+No cgroup, UID switch, privileged supervisor, native registration factory or
+recovery ledger is added. Linux containment remains an isolated experiment,
+not a common testplay gate. Other target builds and mobile traffic capture
+remain unverified. Formal native image/runtime/input/signer/resource/provider
+gates and Production acceptance are unchanged.
+
 ## References
 
 * [FD ABI v1](FD-ABI-V1.md), [fixed shared vector](fixtures/offline-fd-v1-vector.json).

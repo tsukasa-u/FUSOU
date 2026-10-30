@@ -175,7 +175,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("base64url");
 }
 
-function runtimeEnvironment(environment, recoveryToken) {
+export function runtimeEnvironment(environment, recoveryToken) {
   const names = [
     "PATH",
     "HOME",
@@ -197,6 +197,9 @@ function runtimeEnvironment(environment, recoveryToken) {
     "DBUS_SESSION_BUS_ADDRESS",
     "XAUTHORITY",
     "GDK_BACKEND",
+    "FUSOU_TLSN_EXCHANGE_TIMEOUT_MS",
+    "FUSOU_TLSN_CLEANUP_TIMEOUT_MS",
+    "FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES",
   ];
   const result = Object.fromEntries(
     names.filter((name) => environment[name] !== undefined)

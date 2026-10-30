@@ -1,3 +1,4 @@
+use crate::exchange_lifecycle::{ExchangeLifecycle, ExchangePolicy};
 use crate::experimental_tlsn::{
     sha256, AttestationBinding, DeferredVerification, ExperimentalResultBoundary,
     ExperimentalTlsnForwarder, ExperimentalVerifierBoundary, ResultBoundaryError,
@@ -239,6 +240,15 @@ pub trait Alpha15OriginTransportFactory: Send + Sync {
         config: OriginTransportConfig,
         request: SerializedOriginRequest,
     ) -> TlsnTransportFuture;
+
+    fn send_once_with_lifecycle(
+        &self,
+        config: OriginTransportConfig,
+        request: SerializedOriginRequest,
+        _lifecycle: ExchangeLifecycle,
+    ) -> TlsnTransportFuture {
+        self.send_once(config, request)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -280,6 +290,18 @@ impl TlsnOriginTransport for ProductionAlpha15OriginTransport {
             return Box::pin(async { Err(TlsnTransportError::AlreadySent) });
         }
         self.factory.send_once(self.config.clone(), request)
+    }
+
+    fn send_once_with_lifecycle(
+        &self,
+        request: SerializedOriginRequest,
+        lifecycle: ExchangeLifecycle,
+    ) -> TlsnTransportFuture {
+        if self.sent.swap(true, Ordering::AcqRel) {
+            return Box::pin(async { Err(TlsnTransportError::AlreadySent) });
+        }
+        self.factory
+            .send_once_with_lifecycle(self.config.clone(), request, lifecycle)
     }
 }
 
@@ -1235,13 +1257,14 @@ impl PresentationVerifierBoundary {
     }
 }
 
-impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
-    fn verify(
+impl PresentationVerifierBoundary {
+    fn verify_owned(
         &self,
         connection_id: u64,
         request: SerializedOriginRequest,
         binding: AttestationBinding,
         exchange: TlsnOriginExchange,
+        lifecycle: Option<ExchangeLifecycle>,
     ) -> VerificationFuture {
         let request_sha256 = sha256(request.bytes());
         let response_sha256 = sha256(&exchange.response.raw_response_bytes);
@@ -1274,17 +1297,22 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
                     })?;
             let result = async {
                 if let Some(artifact_sink) = artifact_sink {
-                    artifact_sink
-                        .export(context.clone(), presentation.clone())
-                        .await
-                        .map_err(|error| match error {
-                            PresentationExportError::Unavailable => {
-                                VerificationError::PresentationExportUnavailable
-                            }
-                            PresentationExportError::Failed => {
-                                VerificationError::PresentationExportFailed
-                            }
-                        })?;
+                    let export = artifact_sink.export(context.clone(), presentation.clone());
+                    let exported = match lifecycle {
+                        Some(lifecycle) => lifecycle
+                            .finish_local_io(export)
+                            .await
+                            .map_err(|_| VerificationError::PresentationExportFailed)?,
+                        None => export.await,
+                    };
+                    exported.map_err(|error| match error {
+                        PresentationExportError::Unavailable => {
+                            VerificationError::PresentationExportUnavailable
+                        }
+                        PresentationExportError::Failed => {
+                            VerificationError::PresentationExportFailed
+                        }
+                    })?;
                 }
                 let presentation_metadata = TlsnEvidenceMetadata::new(
                     context.connection_id(),
@@ -1324,6 +1352,29 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
             provider.discard(&context);
             result
         })
+    }
+}
+
+impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
+    fn verify(
+        &self,
+        connection_id: u64,
+        request: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+    ) -> VerificationFuture {
+        self.verify_owned(connection_id, request, binding, exchange, None)
+    }
+
+    fn verify_with_lifecycle(
+        &self,
+        connection_id: u64,
+        request: SerializedOriginRequest,
+        binding: AttestationBinding,
+        exchange: TlsnOriginExchange,
+        lifecycle: ExchangeLifecycle,
+    ) -> VerificationFuture {
+        self.verify_owned(connection_id, request, binding, exchange, Some(lifecycle))
     }
 }
 
@@ -1432,6 +1483,20 @@ impl ExperimentalResultBoundary for SignedResultBoundary {
             })
         })
     }
+
+    fn accept_with_lifecycle(
+        &self,
+        evidence: VerifiedTlsnEvidence,
+        lifecycle: ExchangeLifecycle,
+    ) -> ResultBoundaryFuture {
+        let persistence = self.accept(evidence);
+        Box::pin(async move {
+            lifecycle
+                .finish_local_io(persistence)
+                .await
+                .map_err(|_| ResultBoundaryError::DeliveryUnavailable)?
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1461,6 +1526,7 @@ pub struct ProductionTlsnDependencies {
     signer: Arc<dyn ProductionResultSigner>,
     delivery: Arc<dyn ProductionResultDelivery>,
     identifiers: RuntimeIdentifiers,
+    lifecycle_policy: Option<ExchangePolicy>,
 }
 
 impl ProductionTlsnDependencies {
@@ -1483,11 +1549,17 @@ impl ProductionTlsnDependencies {
             signer,
             delivery,
             identifiers: RuntimeIdentifiers::default(),
+            lifecycle_policy: None,
         }
     }
 
     pub fn with_identifiers(mut self, identifiers: RuntimeIdentifiers) -> Self {
         self.identifiers = identifiers;
+        self
+    }
+
+    pub fn with_lifecycle_policy(mut self, policy: ExchangePolicy) -> Self {
+        self.lifecycle_policy = Some(policy);
         self
     }
 
@@ -1520,12 +1592,13 @@ impl ProductionTlsnDependencies {
             Some(presentation_artifact_sink),
         );
         let result_boundary = SignedResultBoundary::new(self.signer, self.delivery);
-        Ok(ExperimentalTlsnForwarder::new(
+        Ok(ExperimentalTlsnForwarder::new_with_policy(
             self.binding_provider,
             Arc::new(crate::experimental_tlsn::Http1OriginRequestSerializer),
             transport,
             verifier,
             result_boundary,
+            self.lifecycle_policy,
         ))
     }
 }
@@ -2020,12 +2093,17 @@ mod tests {
             Some(Arc::clone(&sink) as Arc<dyn PresentationArtifactSink>),
         );
 
+        let lifecycle = ExchangePolicy::from_millis(Some("1000"), Some("1000"))
+            .unwrap()
+            .start()
+            .unwrap();
         boundary
-            .verify(
+            .verify_with_lifecycle(
                 7,
                 request(),
                 AttestationBinding::new("opaque".to_owned()).unwrap(),
                 exchange(),
+                lifecycle.clone(),
             )
             .await
             .unwrap();
@@ -2040,6 +2118,7 @@ mod tests {
             sink.presentation.lock().unwrap().as_ref().unwrap().bytes(),
             &[9, 8, 7]
         );
+        assert!(lifecycle.wait_for_cleanup().await);
     }
 
     #[tokio::test]
@@ -2429,12 +2508,19 @@ mod tests {
             Arc::clone(&delivery) as Arc<dyn ProductionResultDelivery>,
         );
 
+        let lifecycle = ExchangePolicy::from_millis(Some("1000"), Some("1000"))
+            .unwrap()
+            .start()
+            .unwrap();
         boundary
-            .accept(VerifiedTlsnEvidence::from_verifier(
-                sha256(b"request"),
-                sha256(b"response"),
-                VerifiedMemberId::from_verifier("16189463".to_owned()).unwrap(),
-            ))
+            .accept_with_lifecycle(
+                VerifiedTlsnEvidence::from_verifier(
+                    sha256(b"request"),
+                    sha256(b"response"),
+                    VerifiedMemberId::from_verifier("16189463".to_owned()).unwrap(),
+                ),
+                lifecycle.clone(),
+            )
             .await
             .unwrap();
 
@@ -2444,6 +2530,7 @@ mod tests {
         assert_eq!(result.key_id(), "key-1");
         assert_eq!(result.bytes(), b"signed-result");
         assert_eq!(result.sha256(), &sha256(b"signed-result"));
+        assert!(lifecycle.wait_for_cleanup().await);
     }
 
     #[tokio::test]

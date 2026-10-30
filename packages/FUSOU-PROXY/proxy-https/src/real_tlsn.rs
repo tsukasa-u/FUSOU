@@ -1,3 +1,4 @@
+use crate::exchange_lifecycle::{ExchangeLifecycle, ExchangeStop, NotaryAttestationLimit};
 use crate::{
     experimental_tlsn::{
         sha256, AttestationBinding, BindingError, BindingFuture, BindingRequestContext,
@@ -245,6 +246,7 @@ fn max_sent_data_for_request(request: &[u8]) -> Result<usize, TlsnTransportError
 pub struct RealAlpha15OriginTransportFactory {
     notary_endpoint: String,
     handoff: Arc<PresentationHandoff>,
+    attestation_limit: NotaryAttestationLimit,
 }
 
 pub struct RemoteSessionBindingProvider {
@@ -1473,6 +1475,7 @@ impl RealAlpha15OriginTransportFactory {
     pub fn new(
         notary_endpoint: String,
         handoff: Arc<PresentationHandoff>,
+        attestation_limit: NotaryAttestationLimit,
     ) -> Result<Self, TlsnTransportError> {
         if notary_endpoint.trim().is_empty() {
             return Err(TlsnTransportError::Unavailable);
@@ -1480,6 +1483,7 @@ impl RealAlpha15OriginTransportFactory {
         Ok(Self {
             notary_endpoint,
             handoff,
+            attestation_limit,
         })
     }
 }
@@ -1487,12 +1491,37 @@ impl RealAlpha15OriginTransportFactory {
 impl Alpha15OriginTransportFactory for RealAlpha15OriginTransportFactory {
     fn send_once(
         &self,
+        _config: OriginTransportConfig,
+        _request: SerializedOriginRequest,
+    ) -> crate::experimental_tlsn::TlsnTransportFuture {
+        Box::pin(async { Err(TlsnTransportError::LifecyclePolicyMissing) })
+    }
+
+    fn send_once_with_lifecycle(
+        &self,
         config: OriginTransportConfig,
         request: SerializedOriginRequest,
+        lifecycle: ExchangeLifecycle,
     ) -> crate::experimental_tlsn::TlsnTransportFuture {
         let notary_endpoint = self.notary_endpoint.clone();
         let handoff = Arc::clone(&self.handoff);
-        Box::pin(async move { run_real_exchange(config, request, notary_endpoint, handoff).await })
+        let attestation_limit = self.attestation_limit;
+        Box::pin(async move {
+            lifecycle
+                .run(run_real_exchange(
+                    config,
+                    request,
+                    notary_endpoint,
+                    handoff,
+                    attestation_limit,
+                    lifecycle.clone(),
+                ))
+                .await
+                .map_err(|reason| match reason {
+                    ExchangeStop::Cancelled => TlsnTransportError::Cancelled,
+                    ExchangeStop::Deadline => TlsnTransportError::DeadlineExceeded,
+                })?
+        })
     }
 }
 
@@ -1501,6 +1530,8 @@ async fn run_real_exchange(
     request: SerializedOriginRequest,
     notary_endpoint: String,
     handoff: Arc<PresentationHandoff>,
+    attestation_limit: NotaryAttestationLimit,
+    lifecycle: ExchangeLifecycle,
 ) -> Result<TlsnOriginCapture, TlsnTransportError> {
     let parsed_request = parse_require_info_request(
         request.bytes(),
@@ -1517,9 +1548,13 @@ async fn run_real_exchange(
         .await
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
 
-    let session = Session::new(notary_socket.compat());
+    let worker_lifecycle = lifecycle.clone();
+    let session = Session::new_with_worker_spawn(notary_socket.compat(), move |work| {
+        spawn_exchange_worker(work, &worker_lifecycle);
+        Ok(())
+    });
     let (driver, mut handle) = session.split();
-    let driver_task = spawn_exchange_task(driver);
+    let driver_task = spawn_exchange_task(driver, &lifecycle);
     let prover = handle
         .new_prover(
             ProverConfig::builder()
@@ -1581,7 +1616,7 @@ async fn run_real_exchange(
                 server_identity: config.target().server_identity().to_owned(),
             }
         })?;
-    let prover_task = spawn_exchange_task(prover.into_future());
+    let prover_task = spawn_exchange_task(prover.into_future(), &lifecycle);
     let mut transport = ProverOwnedTlsTransport::new(connection);
     transport
         .send_actual_require_info(
@@ -1611,7 +1646,8 @@ async fn run_real_exchange(
             response_sha256,
         },
     };
-    let proof = ProofContinuation::new(Box::pin(async move {
+    let proof_lifecycle = lifecycle.clone();
+    let proof_work = async move {
         transport
             .close()
             .await
@@ -1706,11 +1742,8 @@ async fn run_real_exchange(
             .close()
             .await
             .map_err(|_| ProofContinuationError::Notary)?;
-        let mut attestation_bytes = Vec::new();
-        notary_socket
-            .read_to_end(&mut attestation_bytes)
-            .await
-            .map_err(|_| ProofContinuationError::Notary)?;
+        let attestation_bytes =
+            read_notary_attestation(&mut notary_socket, attestation_limit).await?;
         let attestation: Attestation =
             bincode::deserialize(&attestation_bytes).map_err(|_| ProofContinuationError::Notary)?;
         attestation_request
@@ -1720,6 +1753,7 @@ async fn run_real_exchange(
             .map_err(|_| ProofContinuationError::Presentation)?;
         let presentation_bytes =
             bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
+        proof_lifecycle.check().map_err(proof_stop)?;
         handoff
             .publish(
                 request_sha256,
@@ -1728,6 +1762,9 @@ async fn run_real_exchange(
             )
             .map_err(|_| ProofContinuationError::Presentation)?;
         Ok(())
+    };
+    let proof = ProofContinuation::new(Box::pin(async move {
+        lifecycle.run(proof_work).await.map_err(proof_stop)?
     }));
 
     Ok(TlsnOriginCapture {
@@ -1736,14 +1773,46 @@ async fn run_real_exchange(
     })
 }
 
-fn spawn_exchange_task<F>(future: F) -> AbortOnDropHandle<F::Output>
+fn spawn_exchange_task<F>(future: F, lifecycle: &ExchangeLifecycle) -> AbortOnDropHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    AbortOnDropHandle::new(tokio::spawn(future))
+    AbortOnDropHandle::new(lifecycle.tasks().spawn(future))
 }
 
+fn spawn_exchange_worker(work: Box<dyn FnOnce() + Send + 'static>, lifecycle: &ExchangeLifecycle) {
+    // Blocking workers stop via Executor::shutdown, not Tokio abort. The same
+    // tracker waits for their actual exit, including already-queued workers.
+    drop(lifecycle.tasks().spawn_blocking(work));
+}
+
+async fn read_notary_attestation<R: futures::AsyncRead + Unpin>(
+    reader: &mut R,
+    limit: NotaryAttestationLimit,
+) -> Result<Vec<u8>, ProofContinuationError> {
+    let sentinel = u64::try_from(limit.max_bytes())
+        .ok()
+        .and_then(|bytes| bytes.checked_add(1))
+        .ok_or(ProofContinuationError::NotaryAttestationLimit)?;
+    let mut bytes = Vec::new();
+    reader
+        .take(sentinel)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|_| ProofContinuationError::Notary)?;
+    if bytes.len() > limit.max_bytes() {
+        return Err(ProofContinuationError::NotaryAttestationLimit);
+    }
+    Ok(bytes)
+}
+
+fn proof_stop(reason: ExchangeStop) -> ProofContinuationError {
+    match reason {
+        ExchangeStop::Cancelled => ProofContinuationError::Cancelled,
+        ExchangeStop::Deadline => ProofContinuationError::Deadline,
+    }
+}
 fn build_presentation(
     attestation: &Attestation,
     secrets: &tlsn::attestation::Secrets,

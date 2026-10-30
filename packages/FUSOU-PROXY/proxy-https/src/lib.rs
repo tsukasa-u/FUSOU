@@ -9,6 +9,7 @@ pub mod mpsc_channel;
 pub mod grpc_channel;
 
 pub mod edit_pac;
+pub mod exchange_lifecycle;
 pub mod experimental_tlsn;
 pub mod pac_server;
 pub mod production_tlsn;
