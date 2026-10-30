@@ -9,13 +9,6 @@ const now = performance.now.bind(performance), schedule = nodeSetTimeout, cancel
 const allocateOwnedBytes = Buffer.allocUnsafeSlow, setBytes = Uint8Array.prototype.set;
 const typedArrayAccessors = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(Uint8Array.prototype));
 const budgets = new WeakMap(), scopes = new WeakMap(), errors = new WeakSet();
-const retainedNative = new Map();
-const quarantineNative = (record) => {
-  if (!record.quarantined) {
-    record.quarantined = true; record.status = "QUARANTINED"; record.revision++;
-    record.reason = "OWNED_NATIVE_RECORD_INCOMPLETE";
-  }
-};
 let nextBudgetId = 0n;
 const fields = ["max_bytes", "max_reads", "max_captures", "max_json_bytes", "max_json_nodes",
   "max_json_depth", "max_string_length", "max_concurrent_operations", "timeout_ms"];
@@ -97,6 +90,7 @@ function enter(budget, signal) {
   const operationId = `native-${state.id}-${++state.nextOperation}`;
   let bytes = 0, reads = 0, captures = 0, pending = 0, nativeHeld = false, nativeAttached = false,
     closed = false, released = false, timedOut = false;
+  let nativeRecord;
   const abort = () => controller.abort();
   const callerAbort = signal ? addAbortListener(signal, abort) : undefined;
   const timer = schedule(() => { timedOut = true; abort(); }, limits.timeout_ms);
@@ -258,20 +252,12 @@ function enter(budget, signal) {
     native(reservation) {
       check();
       if (nativeAttached) {
-        const previous = retainedNative.get(operationId);
-        if (previous) quarantineNative(previous);
+        nativeRecord.quarantined = true;
         fail("NATIVE_RESOURCE_NATIVE_ALREADY_ATTACHED");
       }
       nativeAttached = true; nativeHeld = true;
-      const record = { operationId, owner: state, quarantined: false, done: false,
-        status: "CLEANUP_IN_PROGRESS", revision: 0, reason: null,
-        nativeId: null, nativeState: null, channel: null, channelClosed: false,
-        local: () => ({ pending, closed }),
-        spendRecovery() {
-          if (bytes >= limits.max_bytes) fail("NATIVE_RESOURCE_BYTES_EXCEEDED");
-          bytes++;
-        } };
-      retainedNative.set(operationId, record);
+      const record = nativeRecord = { quarantined: false, done: false,
+        nativeId: null, nativeState: null, channel: null, channelClosed: false };
       const keys = ["image", "input", "fds", "execution", "capture", "stop", "cleanup", "reads", "captures"];
       try {
         const entries = scope.recordEntries(reservation);
@@ -285,7 +271,7 @@ function enter(budget, signal) {
         return Object.freeze({
           operationId, reservation: owned,
           wait: (action) => wait(action, true),
-          quarantine() { quarantineNative(record); },
+          quarantine() { record.quarantined = true; },
           watchChannel(channel) {
             if (record.channel || !(channel instanceof Socket) || channel.pending ||
               channel.remoteAddress !== undefined) fail("NATIVE_RESOURCE_NATIVE_CHANNEL");
@@ -296,18 +282,17 @@ function enter(budget, signal) {
             if (!Number.isSafeInteger(nativeId) || nativeId <= 0 ||
               (record.nativeId !== null && record.nativeId !== nativeId) ||
               typeof nativeState !== "string" || nativeState.length > 32 || !/^[A-Z_]+$/.test(nativeState)) {
-              quarantineNative(record); fail("NATIVE_RESOURCE_NATIVE_ID");
+              record.quarantined = true; fail("NATIVE_RESOURCE_NATIVE_ID");
             }
             record.nativeId = nativeId; record.nativeState = nativeState;
           },
           cleanup() {
             if (record.done || record.quarantined || !record.channelClosed ||
               record.nativeState !== "CLEANUP_CONFIRMED") fail("NATIVE_RESOURCE_NATIVE_SETTLEMENT");
-            record.status = "CLEANUP_CONFIRMED";
-            record.done = true; nativeHeld = false; retainedNative.delete(operationId); release();
+            record.done = true; nativeHeld = false; release();
           },
         });
-      } catch (error) { quarantineNative(record); throw error; }
+      } catch (error) { record.quarantined = true; throw error; }
     },
     finish() { check(); if (pending || nativeHeld) fail("NATIVE_RESOURCE_PENDING_WORK"); },
     close() {
@@ -331,47 +316,6 @@ export function retainNativeLaunchOperation(scope, reservation) {
   const owner = scopes.get(scope);
   if (!owner) fail("NATIVE_RESOURCE_SCOPE_MISSING");
   return owner.native(reservation);
-}
-
-function nativeRecoveryRecord(budget, operationId) {
-  const owner = budgets.get(budget);
-  if (!owner) fail("NATIVE_RESOURCE_BUDGET_MISSING");
-  const record = typeof operationId === "string" ? retainedNative.get(operationId) : undefined;
-  if (!record) fail("NATIVE_RESOURCE_RECOVERY_UNKNOWN_OPERATION");
-  if (record.owner !== owner) fail("NATIVE_RESOURCE_RECOVERY_OWNER_MISMATCH");
-  return record;
-}
-function nativeRecoverySnapshot(record) {
-  const local = record.local();
-  return Object.freeze({ operation_id: record.operationId, native_id: record.nativeId,
-    revision: record.revision, state: record.status, reason: record.reason,
-    pending_callbacks: local.pending, scope_closed: local.closed,
-    channel_closed: record.channelClosed, native_state: record.nativeState,
-    slot_released: false, approval: "UNAPPROVED" });
-}
-export function inspectNativeQuarantine(budget, operationId) {
-  if (arguments.length !== 2) fail("NATIVE_RESOURCE_RECOVERY_REQUEST_INVALID");
-  return nativeRecoverySnapshot(nativeRecoveryRecord(budget, operationId));
-}
-export function recheckNativeQuarantine(budget, operationId, revision) {
-  if (arguments.length !== 3 || !Number.isSafeInteger(revision) || revision < 0) {
-    fail("NATIVE_RESOURCE_RECOVERY_REQUEST_INVALID");
-  }
-  const record = nativeRecoveryRecord(budget, operationId);
-  if (record.revision !== revision) fail("NATIVE_RESOURCE_RECOVERY_STALE");
-  if (record.status !== "QUARANTINED") fail("NATIVE_RESOURCE_RECOVERY_NOT_RECHECKABLE");
-  record.spendRecovery();
-  record.status = "CHECKING"; record.revision++;
-  const local = record.local();
-  if (local.pending || !local.closed || (record.channel && !record.channelClosed)) {
-    record.status = "QUARANTINED";
-    record.reason = "LOCAL_CLEANUP_PENDING";
-  } else {
-    record.status = "ADMIN_REQUIRED";
-    record.reason = "OWNED_NATIVE_RECORD_INCOMPLETE";
-  }
-  record.revision++;
-  return nativeRecoverySnapshot(record);
 }
 
 export function withNativeInspectionBudgetSync(budget, action) {

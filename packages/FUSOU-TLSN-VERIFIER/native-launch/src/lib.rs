@@ -51,21 +51,20 @@ pub fn registered_policy_context() -> Result<RegisteredPolicyContext> {
     Err(LaunchError::PolicyContextNotRegistered)
 }
 
-// The mechanism is private and has no production admission constructor.
-// Only this crate's test harness can manufacture a launch permit.
-#[allow(dead_code)]
+// Unadopted OS containment is a synthetic experiment, not a testplay dependency.
+// The ordinary library exposes only the closed registration boundary.
+#[cfg(test)]
 mod bridge;
-#[allow(dead_code)]
+#[cfg(test)]
 mod cgroup;
-#[allow(dead_code)]
+#[cfg(test)]
 mod lifecycle;
-#[allow(dead_code)]
+#[cfg(test)]
 mod prepare;
-#[allow(dead_code)]
-mod recovery;
-#[allow(dead_code)]
+#[cfg(test)]
 mod supervise;
-#[allow(dead_code, unsafe_code)]
+#[cfg(test)]
+#[allow(unsafe_code)]
 mod sys;
 
 #[cfg(test)]

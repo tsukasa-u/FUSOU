@@ -925,46 +925,36 @@ after each path read before delegating to that common core.
 The CLI rejects mixed modes and rejects formal FD execution **before stdin
 access** with `FD_POLICY_CONTEXT_NOT_REGISTERED`. No policy issuer, registration
 root, production runner or trusted signer/builder was added. A separate
-[synthetic native launch substrate](NATIVE-LAUNCH-SUBSTRATE-DECISION.md)
-implements sealed image/input preparation and FD-selected child execution
-behind a crate-private, test-only capability. It does not register or enable
+[synthetic native launch experiment](NATIVE-LAUNCH-SUBSTRATE-DECISION.md)
+contains sealed image/input preparation and FD-selected child execution
+compiled only under `cfg(test)`. It does not register or enable
 the formal FD path. Local inspection limits and build/profile digests are not approvals.
 The Node scope's existing hard JSON/record ceilings also apply; larger FD limits
 do not bypass those ceilings. Modeled parent work is not peak RSS or a native
 process-tree budget.
 
-The launch decision record preserves the A/B/C investigation and choice of B:
-unsafe/FFI is confined to a dedicated crate's OS module; the verifier retains
-its unsafe prohibition. Direct synthetic execution/capture/timeout/reap tests
-are separate from provider authorization. No admitted cgroup delegation/no-escape
-root exists, no shared cgroup is modified, and every direct-only operation
-retains a quarantined resource slot rather than claiming tree cleanup.
-The follow-up implements private delegated-root validation, exclusive leaves,
-atomic clone placement, dedicated-UID/capability/NNP transitions and ordered
-kill/reap/empty/capture/FD-close/removal checks. A mechanical
+**The APP testplay and independent verifier do not depend on this experiment.**
+APP `tlsn-production` enables `proxy-https/alpha15-tlsn` and uses in-process
+TLSN plus remote Session Authority/Worker APIs. Explicit legacy path mode
+calls the common bundle verifier directly. It is not a fallback from rejected
+FD execution. Web PKI, observed canonical hostname/Target Approval, signature,
+Presentation/Result byte binding and independent trust inputs remain required.
+See the [current mechanism classification and direct blockers](NATIVE-LAUNCH-SUBSTRATE-DECISION.md#i-testplay-dependency-audit-and-simplification).
+
+The launch decision record preserves method B as historical experiment work,
+not an adopted Production isolation requirement. Its cgroup/credential code
+and synthetic tests remain separately maintained; privileged runtime admission,
+actual delegation/no-escape and descendants have not been verified. A mechanical
 [`release-native-launch-bridge.mjs`](../../scripts/release-native-launch-bridge.mjs)
 binds Node scope reservations and native IDs/states, retaining slots until
 cleanup and channel close; malformed/unknown/incomplete operations quarantine.
-Fake cleanup adapters and actual direct-synthetic IPC/cancel are tested.
-Actual delegated cgroup/no-escape/descendant integration remains **BLOCKED**:
-no explicit safe subtree or UID-switch authority was available. These are not
-production peer/resource authorization, real verifier launch, automatic
-quarantine recovery or musl/runtime-closure proof. See the
-[updated decision record](NATIVE-LAUNCH-SUBSTRATE-DECISION.md#g-delegated-lifecycle-and-node-bridge-follow-up)
-for exact contracts, historical/current results and remaining gates.
-
-The [privilege/recovery follow-up](NATIVE-LAUNCH-SUBSTRATE-DECISION.md#h-privilege-audit-and-quarantine-assessment-follow-up)
-records the root-supervisor/dedicated-account prerequisites, service/helper/
-user-namespace comparison and unverified inherited signal/runtime conditions.
-Credential setup now checks filesystem as well as real/effective/saved IDs.
-Its fake failure/order tests do not prove actual UID switching or containment.
-Owner-bound quarantine inspection/recheck requires the original controller or
-branded Node budget, exact operation ID and revision. It never releases slots:
-missing joined task/cgroup/capture/channel ownership yields `ADMIN_REQUIRED`;
-pending local work remains quarantined. No force flag, callback settlement,
-elapsed time or fresh budget can substitute cleanup proof. A joined OS owner
-and exactly-once release reconciler remain **NOT_IMPLEMENTED**. No service,
-helper, provider registration or independent resource issuer is introduced.
+Only synthetic tests call that bridge; the resource controller's bounded
+parser/input/callback ownership is separately used by release consumers.
+The disconnected recovery ledger, revision/recheck APIs and fake recoverable
+state machine were removed. Failed holds/leases still retain occupied slots;
+no elapsed-time, caller flag or callback settlement can clear them. There is
+no recovery API or process-restart durability guarantee. No service, helper,
+provider registration or independent resource issuer is introduced.
 
 Locked/offline resolution, GNU native library/CLI checking and selected Rust
 FD/JSON/CLI unit tests have been executed locally, including the Linux-only

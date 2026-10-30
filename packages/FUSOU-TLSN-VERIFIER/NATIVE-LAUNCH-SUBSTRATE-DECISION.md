@@ -2,8 +2,14 @@
 
 ## Status and scope
 
-**Decision: B. Mechanisms implemented; kernel delegation validation BLOCKED.
-Overall implementation: PARTIAL, synthetic-only. Provider: NOT_IMPLEMENTED.**
+**Current disposition: method B is an unadopted, test-only OS experiment,
+DECOUPLE_FROM_TESTPLAY. Kernel delegation validation BLOCKED; provider
+NOT_IMPLEMENTED. Testplay readiness: PARTIAL/BLOCKED independently of cgroups.**
+
+Section I is the current classification. Sections B-H preserve historical
+investigations, including recovery APIs subsequently removed. They must not
+be read as a current implementation inventory or a requirement to install a
+privileged supervisor before TLSN evidence can be obtained/verified.
 
 The lifecycle/bridge follow-up starts at
 `643315e00c303135b4aebde78a32e30f4e3d2ea1` (parent `89d940d...`), on
@@ -13,8 +19,8 @@ from the original implementation and historical results below.
 The privilege/recovery follow-up starts at
 `d7ec9c5cdaab761e2a30fba701982477ccd15eb0`, parent
 `643315e00c303135b4aebde78a32e30f4e3d2ea1`, on the same branch.
-Section H records its audit, deliberately non-releasing recovery assessment
-and current validation. Section G's results are historical.
+Section H records its audit, then-implemented non-releasing recovery assessment
+and historical validation. Section I supersedes that assessment's API status.
 
 Implementation baseline: branch `tlsn-first-testplay-candidate`, HEAD
 `89d940d40b42955bdce24cee3d85643870ae69e3`, parent
@@ -285,7 +291,7 @@ Staged review also identified unmetered ELF header `read_exact_at` calls;
 they were replaced with the controller-bounded positional reader (including
 interrupted calls) and an exhaustion assertion. No failing assertions were relaxed.
 
-## F. Remaining gates
+## F. Experimental native-provider gates (not testplay prerequisites)
 
 | Item | Status | Missing evidence / implementation |
 |---|---|---|
@@ -294,7 +300,7 @@ interrupted calls) and an exhaustion assertion. No failing assertions were relax
 | Capture/deadline/cancel/direct reap/quarantine | IMPLEMENTED (synthetic) | Whole-tree kernel validation remains BLOCKED |
 | Delegated cgroup lifecycle/no escape/disposal | IMPLEMENTED in private source / runtime BLOCKED | Root/leaf validation, atomic placement, credential drop and removal exist; actual delegated/no-escape/descendant cases have not run |
 | Node resource controller integration | IMPLEMENTED (mechanical, unapproved) | Unix-stream identity/reservation/state bridge; fake cleanup and actual direct synthetic IPC tested; no registered provider/peer authorization |
-| Quarantine inspection/recheck | IMPLEMENTED (assessment only) | Owner/revision checks retain occupied slots; a joined OS cleanup owner and exactly-once cross-language release reconciler are NOT_IMPLEMENTED (section H) |
+| Quarantine inspection/recheck | REMOVED | Disconnected ledger/checklist had no actual OS observer or release reconciler. Ordinary cleanup and retained failed slots remain (section I). |
 | Resource policy/shared budget issuer | NOT_IMPLEMENTED | Fixture limits and independent controllers are not global admission |
 | musl static runtime profile | UNVERIFIED | Recipe remains GNU; musl dependency build/linker/sysroot/build-script closure not tested |
 | Actual ELF interpreter/DT_NEEDED/runtime closure | UNVERIFIED | Synthetic header markers are not a verified dependency distribution |
@@ -526,7 +532,11 @@ issuer authorization, real native input/evidence integration and Production
 acceptance remain separate gates. Choosing B still avoids A's launcher trust
 root and C's filesystem/namespace closure; it solves neither of these gates.
 
-## H. Privilege audit and quarantine assessment follow-up
+## H. Privilege audit and quarantine assessment follow-up (historical)
+
+The assessment APIs/checklist described below existed at `07a5d358...`.
+They were removed in section I's follow-up; this section is historical
+evidence, not a remaining implementation plan or testplay gate.
 
 ### Audit scope and execution environment
 
@@ -687,7 +697,7 @@ It cannot affect another operation. No `force-release`, fresh socket,
 administrator boolean, elapsed-time release or recovery registration factory
 exists. Recovery state is process-local, not durable across restart/crash.
 
-### Current validation and remaining recovery gate
+### Historical validation and proposed recovery gate
 
 The same isolated empty-HOME/offline-cache wrapper described above was used.
 The target-filtered executable dependency identity comparison remains
@@ -707,7 +717,7 @@ node --check scripts/release-native-launch-bridge.mjs
 node --check scripts/release-native-launch-bridge.test.mjs
 ```
 
-| Selection | Current result / actual scope |
+| Selection | Historical result at `07a5d358...` / actual scope |
 |---|---|
 | Native selected tests | 45 PASS: existing synthetic/preparation 25 + cgroup 3 + lifecycle 4 + bridge 3 + recovery 8 + credential driver/predicate 2 |
 | Verifier parser/acquisition | 20 PASS: FD 10 + strict JSON 2 + acquisition 4 + CLI parser 4; no operational verifier/key-generating selection |
@@ -739,6 +749,192 @@ trust root, and no privileged actor. They do not resolve musl/runtime closure,
 independent bootstrap/provider registration, signer/trusted-builder approval,
 real native input identity, real attestation/TLSN evidence or Production.
 The trust states in section F remain unchanged.
+
+## I. Testplay dependency audit and simplification
+
+Baseline: branch `tlsn-first-testplay-candidate`, HEAD
+`07a5d358bf48b9cadc89bac11b06aeef66c96e99`, parent
+`d7ec9c5cdaab761e2a30fba701982477ccd15eb0`. Both were found in the observed
+branch history. Cached upstream was identical (ahead 0 / behind 0); no fetch was made.
+The scoped index/worktree was clean before this work. This section uses the
+current sources/callers, not old commit-message claims or old CI success.
+
+### Threat model and actual execution paths
+
+TLSN evidence authenticity comes from independently admitted TLSN/Notary/
+Result/authority roots, the transcript, Web PKI and application predicates.
+Client displays/logs/DB/metadata and claims about an untampered local binary
+are not trusted cryptographic evidence. Running a local verifier is useful
+only insofar as its result can be independently reproduced with trusted
+verification rules/inputs; the local execution receipt is a different claim.
+Ordinary resource/IO correctness remains necessary even though an
+administrator can alter local software. OS containment here neither prevents
+all administrator tampering nor proves an official binary ran. No TPM, TEE,
+process/image attestation or APP authority is added.
+
+The source trace is:
+
+1. APP `scripts/testplay-verify.mjs --tlsn-candidate` checks independently pinned
+   Worker/build inputs and actual APP preflight, launches the existing APP,
+   forwards termination signals and restores its temporary configuration.
+   The test-only launcher fixtures use private temporary files, not user config.
+2. APP `src-tauri/src/wrap_proxy.rs::serve_proxy` requires `tlsn-production`
+   when TLSN is enabled, refreshes/verifies Runtime Config and preflight,
+   observes the selected Worker and constructs approved Origin/Session/Worker
+   dependencies. Runtime Config is revalidated before binding and Origin IO.
+3. Hudsucker's `LogHandler` routes the single selected require_info request to
+   `ExperimentalTlsnForwarder`; failed body collection and repeated selection
+   reject, never replay through ordinary forwarding.
+   `ProductionAlpha15OriginTransport` commits its single-use sent flag before
+   factory IO. `RealAlpha15OriginTransportFactory` runs TLSN in-process.
+4. `run_real_exchange` connects the Origin/Notary, uses Web PKI roots and DNS
+   name, sends once through `ProverOwnedTlsTransport`, reads bounded explicit
+   HTTP framing, then returns the browser response before the proof pipeline.
+   Proof completion, Presentation verification/export, remote Worker Result
+   validation and Result delivery are separate states: a browser response is
+   not proof success. Deferred verification is not ResultReady.
+5. Worker `verifyPresentationToPreparedResult` derives observed identity from
+   Presentation and checks Inventory/Approval in Production, verifies the
+   requested profile and signs the Result. Both sync/async persistence paths
+   verify exact Presentation/Result archive readback before authority commit.
+6. Independent verifier `--path-mode`/legacy path invocation calls
+   `evidence_bundle::verify_bundle`. It checks artifact bytes, independently
+   supplied roots/registries, signed Result, Presentation cryptography,
+   canonical DNS/Approval, signed Presentation hash and derived Result.
+   FD mode remains a separate explicit refusal before stdin access.
+
+There is **no call/dependency** from these paths to native-launch, cgroups or
+Node's launch bridge/recovery. GNU-filtered APP Cargo metadata confirms the
+proxy transitive dependency closure excludes `fusou-tlsn-native-launch`.
+The verifier depends on neither it nor the Node modules; dependency direction
+is the reverse. Only synthetic tests call `withNativeLaunchBridge`.
+`release-consumer -> release-checks/native-build -> release-native-resources`
+is a different release/provenance automation path. Its mock-only native
+executor and authenticated cross-run intake are not the APP transport.
+
+Therefore missing cgroup/UID/supervisor/recovery prevents **that experimental
+OS execution assurance**, not TLSN Presentation production or independent
+cryptographic verification in the existing explicit path-mode. Do not select
+path mode automatically to bypass a rejected FD-mode request. No cryptographic,
+approval, resource error or provider gate is disabled by this decision.
+
+### Mechanism inventory and final disposition
+
+Categories: **T** = TESTPLAY_REQUIRED, **B** =
+CORRECTNESS_AND_BASELINE_SAFETY, **P** = candidate Production hardening
+(not an adopted acceptance requirement), **D** = DEAD_OR_OVERENGINEERED.
+Paths below are relative to the repository unless prefixed `verifier/`,
+`proxy/` or `APP/` (their corresponding package roots). Test names/locations
+identify source contracts; current executions are distinguished below.
+
+| Mechanism / actual caller | Category; final disposition | Failure prevented / responsibility after change | Source/test evidence |
+|---|---|---|---|
+| Feature/runtime bootstrap and freshness; APP serve_proxy/guarded binding/transport | T; KEEP_AND_COMPLETE | Disabled build, missing/stale/changed manifest must fail before Origin IO. No native registration substitute. | APP Cargo `tlsn-production`, `tlsn_runtime_config_manifest.rs`, `wrap_proxy.rs`; APP readiness fixture tests |
+| Canonical observed hostname, Web PKI, Inventory/Approval | T; KEEP_AND_COMPLETE | Candidate selection/IP/custom root cannot become Production identity. | proxy `production_tlsn.rs`, Worker `index.ts`/`origin-trust-contract.mjs`, verifier `tlsn_alpha15.rs`/`evidence_bundle.rs`; production-target-contract tests |
+| Binding/Session Authority/device ownership | T; KEEP_AND_COMPLETE | Cross-session/device/binding evidence rejected; no new signer or authority. | APP dependency construction, proxy `real_tlsn.rs` remote binding/verification; existing parsing/binding contracts; real services NOT EXECUTED |
+| Single-use routing and actual request transport | T+B; KEEP_AND_COMPLETE | Partial IO must not cause another Game API request. | proxy `experimental_tlsn.rs`, `proxy_server_https.rs`, `production_tlsn.rs`; route/replay/body-failure tests |
+| Raw capture IO/framing/EOF/completion | B; KEEP_AND_COMPLETE | Failed or partial read/write must not become complete transcript; no post-write retry. | proxy `capture_io.rs`, verifier `prover_transport.rs`; partial/pending/limit/close/error tests |
+| HTTP/WebSocket relay cleanup | B; KEEP_AND_COMPLETE | Distinguish completed HTTP101 from relay health; abort/close must not fabricate natural require_info proof. | Hudsucker `TrackedProxyTask`/JoinSet, `RawCaptureHook`; existing capture/relay tests; no backend switch |
+| Driver/prover task ownership on error/cancel | B; SIMPLIFY_AND_KEEP | Bare JoinHandle drop detached child tasks on early `?` or dropped proof. Reuse tokio-util AbortOnDropHandle, preserving successful await and task errors. | proxy `real_tlsn.rs::spawn_exchange_task`, new `real_tlsn/task_tests.rs` |
+| Browser response / proof / deferred verification states | T+B; KEEP_AND_COMPLETE | An HTTP response or queued job cannot mean verified Result; proof failure remains explicit. | `ExperimentalTlsnForwarder::run_proof_pipeline`; fake proof failure/deferred/single-use tests |
+| Presentation, signed Result v2/v3 and exact-byte archive | T; KEEP_AND_COMPLETE | Mutations, missing archive, wrong signature/identity or digest pair cannot authorize acceptance. | Worker `index.ts`/`result_archive.ts`; verifier lib/sparse_result/evidence_bundle; signing/framing/strict parser tests. Completed canary byte-binding test unchanged. |
+| Independent path/owned-bytes verification | T; KEEP_AND_COMPLETE | Evidence/raw metadata cannot authorize itself. External roots and full cryptographic verification remain. | verifier CLI `run_invocation`, evidence_bundle shared core; explicit mode/acquisition/JSON tests |
+| FD ABI parser/positional sealed reader | B; KEEP_AND_COMPLETE | Bounds, corruption, descriptor aliases/cursor races rejected; parser usable without launcher. | verifier `offline_fd.rs`, Node `release-offline-fd.mjs`; shared vectors/mutation/refusal tests |
+| FD policy/provider gate, native identity and attestation automation | P; DECOUPLE_FROM_TESTPLAY | Keep `FD_POLICY_CONTEXT_NOT_REGISTERED`, native executable/attestation blockers and authenticated release intake. They do not authenticate TLSN by themselves. | native lib public gate, verifier FD CLI rejection, release-checks mockExecutor-only route; consumer refusal tests |
+| Node bounded parser, owned input, budgets and pending callback accounting | B; SIMPLIFY_AND_KEEP | Active callbacks after timeout/cancel retain their own slot; bounded copying/strict JSON and owners remain. Only disconnected recovery bookkeeping removed. | release-native-resources -> native-build/checks/offline-fd; resource/input/cancel/stale-completion tests |
+| Native image/input pin/seals, FD plan/error pipe, capture/pidfd/reap | P; DECOUPLE_FROM_TESTPLAY | Preserve synthetic mechanism and cleanup/error distinction, not proof of an authentic local runtime or independent shared issuer. | native-launch `prepare/sys/supervise`, synthetic tests, explicit IPC peer |
+| cgroup leaf/birth placement/kill/empty/removal | P; DECOUPLE_FROM_TESTPLAY | Descendant containment needs admitted delegation/host policy; no fallback to direct child success. Keep only the test-compiled experiment, not a Production requirement. | native-launch `cgroup/lifecycle`, fake fault tests; actual kernel path BLOCKED |
+| UID/GID/capability/NNP and signal/runtime admission | P; DECOUPLE_FROM_TESTPLAY | Conditional no-escape needs a privileged actor which is absent/unapproved. No service/helper installed; no broad signal rewrite. | native `sys.rs`, credential predicate/order tests only; actual switching NOT EXECUTED |
+| Node/native IPC state, IDs/reservation/channel lifetime | P+B; DECOUPLE_FROM_TESTPLAY | Experimental bridge retains ordered protocol and resource hold; wire validation and OS milestones are distinct, not interchangeable recovery authorities. | release-native-launch-bridge, native bridge; fake/actual direct-synthetic IPC tests |
+| Global retainedNative recovery registry, revision/recheck APIs | D; REMOVE | No real OS observer/release implementation or non-test caller. Scope-local native hold keeps settlement/quarantine/one-attachment checks without duplicate global ownership. | removed inspection/recheck exports and helpers; resource and bridge non-release/stale-ID tests retained/reworked |
+| Native recovery map, Attempt/revision/checklist/RECOVERABLE/ADMIN_REQUIRED | D; REMOVE | It only classified fabricated facts or reported missing ownership. Lease counters and task/cgroup retention already prevent release; no replacement recovery promise. | removed recovery module and eight tests specific to that removed API; existing lease/owner/drop/cleanup-fault tests remain |
+| Joined owner, reconciler, restart-durable exactly-once recovery | P; DECOUPLE_FROM_TESTPLAY | No approved runtime/operator/crash policy. Not implemented, not a prerequisite for independent TLSN verification. No placeholder factory. | design only; no release/unquarantine API |
+
+KEEP_AND_COMPLETE identifies required responsibilities retained or fixed here,
+not certification that external services/roots or all failure modes are ready.
+Remaining implementation questions below are explicit, not successful fallbacks.
+No production caller was removed. Native OS modules now compile only with
+`cfg(test)`; the ordinary crate contains the closed registration boundary,
+not dormant unsafe launch code. Method B's existing mechanisms remain reproducible
+in synthetic tests; they are retained as a **bounded existing test experiment**,
+not kept on the critical path merely because they might someday be needed.
+Adopting or extending them requires a separate threat/operations decision.
+
+### Surgical changes and validation scope
+
+* Removed both metadata-only recovery APIs, the native map/checklist and its
+  eight fake/ledger tests. No actual cleanup or slot-return implementation was
+  removed: none existed there. The native lease single-settlement/counter and
+  retained cgroup/task owners still handle failures. No time-based release.
+* Replaced Node's process-global recovery map with the operation's closure-local
+  native hold. Budget/operation identity, reserved work, managed completion,
+  channel-close/final-phase, double attach and failed-slot retention remain.
+  Recovery-only tests were replaced with direct non-release and API-absence
+  regressions; malformed/stale IPC and cancel/late cleanup tests remain.
+* Wrapped the two real TLSN spawned tasks using the existing locked tokio-util
+  0.7.20 safe AbortOnDropHandle. Early error, cancellation while awaiting or
+  an unrun/dropped proof now requests task cancellation rather than detach.
+  Four loop-local async tests observe task-owned resource drop and unrelated
+  task isolation. No real Origin, key, Presentation or attestation is used.
+  Drop requests cancellation, **not synchronous join or OS-tree cleanup**.
+  The intentionally continued post-response proof pipeline is unchanged.
+* Added tokio-util's explicit `rt` feature to the proxy manifest to declare
+  the API requirement (already enabled in the observed APP graph). Native
+  launch mechanism dependencies are now dev-dependencies; its ordinary error
+  type retains only featureless nix. No package versions were upgraded and no
+  dependency was fetched. APP Cargo.lock had an unstaged delta outside the
+  initially inventoried edit paths; its origin was not established. After
+  explicit user approval, it was reviewed for inclusion: it records the core
+  verifier's existing nix 0.30.1 requirement, disambiguates notify's unchanged
+  nix 0.31.3, and adds tokio-util's existing futures-util dependency for `rt`.
+  The final APP `--locked --offline` metadata succeeded without changing the
+  lock hash. The verifier lock is unchanged. No native provider was enabled.
+
+Current results/commands are recorded in the accompanying task report.
+Native selected tests: 37 PASS (the prior 45 minus removed recovery eight);
+verifier non-cryptographic parser/framing/CLI/Result signing-vector tests:
+29 PASS; proxy capture/single-send/task-owner tests: 34 PASS; Node release/input/resource/bridge/IPC:
+222 PASS; APP readiness/temporary-file launcher: 33 PASS; target contract:
+3 PASS. GNU library/bin/example check and JS syntax also passed.
+Proxy tests used its existing standalone lock (time-family versions differ
+from the APP lock); APP validation is metadata, not a compiled/running APP.
+An intermediate verifier run failed with duplicate serde_json crate identities,
+then passed with unchanged source after cleaning only private verifier artifacts.
+A final Node rerun with an overlong TMPDIR caused Unix-socket collisions and
+was stopped; the unchanged suite passed with a short private TMPDIR. No tests
+were skipped/weakened. Fake adapters prove logic only. Actual cgroup/UID/
+no-escape and real services/evidence/attestation verification remain NOT EXECUTED.
+
+### Direct blockers and next gate, independently of OS hardening
+
+* Source registration explicitly reports Runtime Config signer/pin/APP root/
+  manifest endpoint NOT_REGISTERED/NOT_CONFIGURED. APP bootstrap requires
+  actual embedded values and a verified fresh envelope; the operator's current
+  compiled artifact/effective settings were **not inspected** here.
+* Approved canonical Origin/Inventory/Target Approval and observed Presentation
+  identity, active Worker/Notary and Session Authority/device ownership must be
+  independently admitted/checked. No external deployment or account operation
+  was performed; deployment remains NOT_CHECKED.
+* Actual human gameplay, fresh Presentation/signed Result/execution receipt
+  capture, exact archive retention and independent evidence verification have
+  not run in this task. Source/fixture PASS is not that acceptance.
+* The real exchange has no overall Origin/MPC/proof deadline in these functions;
+  Worker HTTP/poll timeouts are separate. A bounded runtime timeout/admission
+  contract remains an implementation question; this work fixes dropped-owner
+  cleanup but does not invent an arbitrary timeout or claim bounded completion.
+  Path acquisition is still separately mutable/unbounded as documented.
+* Formal automated native release execution, image/runtime bootstrap,
+  signer/trusted builder and shared resource issuer remain blocked/unapproved.
+  They are not a reason to require cgroup recovery before explicit independent
+  path-mode TLSN verification. No gate was bypassed or reclassified as passed.
+
+Next: admit the public Runtime Config/authority/target inputs and actual
+service identities, resolve the explicit transport deadline/admission policy,
+then use the existing candidate workflow with human authorization to acquire
+and independently verify real evidence. This task neither authorizes nor
+performs that run. Privileged supervisor/cgroup/recovery design is separate,
+conditional hardening work, not the next implicit testplay requirement.
+The section F trust-state values remain unchanged.
 
 ## References
 
