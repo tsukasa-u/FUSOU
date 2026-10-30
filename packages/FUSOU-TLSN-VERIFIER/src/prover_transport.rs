@@ -24,9 +24,9 @@ pub enum ProverTransportError {
     ResponseHeadersTooLarge,
     #[error("response body exceeded the configured limit")]
     ResponseBodyTooLarge,
-    #[error("response ended before the Content-Length body was complete")]
+    #[error("response ended before the framed body was complete")]
     ResponseEofBeforeComplete,
-    #[error("response must use a single Content-Length framing header")]
+    #[error("response framing is unsupported or ambiguous")]
     UnsupportedResponseFraming,
     #[error("prover-owned TLS connection is closed")]
     ConnectionClosed,
@@ -117,24 +117,24 @@ impl ProverOwnedTlsTransport {
                 break response.len();
             }
         };
-        let body_length = parse_content_length(&response[..header_end])?;
-        let total_length = header_end
-            .checked_add(body_length)
-            .ok_or(ProverTransportError::ResponseBodyTooLarge)?;
-        if total_length > MAX_RESPONSE_TRANSCRIPT_BYTES {
-            return Err(ProverTransportError::ResponseBodyTooLarge);
-        }
-        response.resize(total_length, 0);
-        connection
-            .read_exact(&mut response[header_end..])
-            .await
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::UnexpectedEof {
-                    ProverTransportError::ResponseEofBeforeComplete
-                } else {
-                    ProverTransportError::Io(error)
+        match parse_response_framing(&response[..header_end])? {
+            ResponseFraming::ContentLength(body_length) => {
+                let total_length = header_end
+                    .checked_add(body_length)
+                    .ok_or(ProverTransportError::ResponseBodyTooLarge)?;
+                if total_length > MAX_RESPONSE_TRANSCRIPT_BYTES {
+                    return Err(ProverTransportError::ResponseBodyTooLarge);
                 }
-            })?;
+                response.resize(total_length, 0);
+                connection
+                    .read_exact(&mut response[header_end..])
+                    .await
+                    .map_err(map_response_read_error)?;
+            }
+            ResponseFraming::Chunked => {
+                read_chunked_body(connection, &mut response).await?;
+            }
+        }
         Ok(response)
     }
 
@@ -147,7 +147,13 @@ impl ProverOwnedTlsTransport {
     }
 }
 
-fn parse_content_length(headers: &[u8]) -> Result<usize> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponseFraming {
+    ContentLength(usize),
+    Chunked,
+}
+
+fn parse_response_framing(headers: &[u8]) -> Result<ResponseFraming> {
     let first_line_end = headers
         .windows(2)
         .position(|window| window == b"\r\n")
@@ -157,6 +163,7 @@ fn parse_content_length(headers: &[u8]) -> Result<usize> {
     }
 
     let mut content_length = None;
+    let mut chunked = false;
     let mut cursor = first_line_end + 2;
     while cursor < headers.len() {
         let line_end = headers[cursor..]
@@ -176,16 +183,15 @@ fn parse_content_length(headers: &[u8]) -> Result<usize> {
             .position(|byte| *byte == b':')
             .ok_or(ProverTransportError::UnsupportedResponseFraming)?;
         let name = &line[..colon];
-        let value = line[colon + 1..]
-            .iter()
-            .copied()
-            .skip_while(|byte| matches!(byte, b' ' | b'\t'))
-            .collect::<Vec<_>>();
+        let value = trim_ows(&line[colon + 1..]);
         if name.eq_ignore_ascii_case(b"transfer-encoding") {
-            return Err(ProverTransportError::UnsupportedResponseFraming);
+            if chunked || !value.eq_ignore_ascii_case(b"chunked") {
+                return Err(ProverTransportError::UnsupportedResponseFraming);
+            }
+            chunked = true;
         }
         if name.eq_ignore_ascii_case(b"content-length") {
-            if content_length.is_some() {
+            if content_length.is_some() || value.is_empty() {
                 return Err(ProverTransportError::UnsupportedResponseFraming);
             }
             let value = std::str::from_utf8(&value)
@@ -198,7 +204,111 @@ fn parse_content_length(headers: &[u8]) -> Result<usize> {
         cursor = line_end + 2;
     }
 
-    content_length.ok_or(ProverTransportError::UnsupportedResponseFraming)
+    match (content_length, chunked) {
+        (Some(_), true) | (None, false) => Err(ProverTransportError::UnsupportedResponseFraming),
+        (Some(length), false) => Ok(ResponseFraming::ContentLength(length)),
+        (None, true) => Ok(ResponseFraming::Chunked),
+    }
+}
+
+fn trim_ows(mut value: &[u8]) -> &[u8] {
+    while value
+        .first()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        value = &value[1..];
+    }
+    while value
+        .last()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        value = &value[..value.len() - 1];
+    }
+    value
+}
+
+async fn read_chunked_body(connection: &mut TlsConnection, response: &mut Vec<u8>) -> Result<()> {
+    loop {
+        let size_line = read_crlf_line(connection, response).await?;
+        if size_line.is_empty()
+            || size_line.len() > 16
+            || !size_line.iter().all(u8::is_ascii_hexdigit)
+        {
+            return Err(ProverTransportError::UnsupportedResponseFraming);
+        }
+        let size = usize::from_str_radix(
+            std::str::from_utf8(&size_line)
+                .map_err(|_| ProverTransportError::UnsupportedResponseFraming)?,
+            16,
+        )
+        .map_err(|_| ProverTransportError::UnsupportedResponseFraming)?;
+        if size == 0 {
+            let terminator_end = response
+                .len()
+                .checked_add(2)
+                .ok_or(ProverTransportError::ResponseBodyTooLarge)?;
+            if terminator_end > MAX_RESPONSE_TRANSCRIPT_BYTES {
+                return Err(ProverTransportError::ResponseBodyTooLarge);
+            }
+            let mut trailer_terminator = [0; 2];
+            connection
+                .read_exact(&mut trailer_terminator)
+                .await
+                .map_err(map_response_read_error)?;
+            response.extend_from_slice(&trailer_terminator);
+            if trailer_terminator != *b"\r\n" {
+                return Err(ProverTransportError::UnsupportedResponseFraming);
+            }
+            return Ok(());
+        }
+
+        let chunk_end = response
+            .len()
+            .checked_add(size)
+            .and_then(|length| length.checked_add(2))
+            .ok_or(ProverTransportError::ResponseBodyTooLarge)?;
+        if chunk_end > MAX_RESPONSE_TRANSCRIPT_BYTES {
+            return Err(ProverTransportError::ResponseBodyTooLarge);
+        }
+        let chunk_start = response.len();
+        response.resize(chunk_end, 0);
+        connection
+            .read_exact(&mut response[chunk_start..])
+            .await
+            .map_err(map_response_read_error)?;
+        if &response[chunk_start + size..chunk_end] != b"\r\n" {
+            return Err(ProverTransportError::UnsupportedResponseFraming);
+        }
+    }
+}
+
+async fn read_crlf_line(connection: &mut TlsConnection, response: &mut Vec<u8>) -> Result<Vec<u8>> {
+    let line_start = response.len();
+    loop {
+        if response.len().saturating_sub(line_start) >= 18 {
+            return Err(ProverTransportError::UnsupportedResponseFraming);
+        }
+        let mut byte = [0; 1];
+        let count = connection.read(&mut byte).await?;
+        if count == 0 {
+            return Err(ProverTransportError::ResponseEofBeforeComplete);
+        }
+        if response.len() >= MAX_RESPONSE_TRANSCRIPT_BYTES {
+            return Err(ProverTransportError::ResponseBodyTooLarge);
+        }
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n") {
+            return Ok(response[line_start..response.len() - 2].to_vec());
+        }
+    }
+}
+
+fn map_response_read_error(error: std::io::Error) -> ProverTransportError {
+    if error.kind() == std::io::ErrorKind::UnexpectedEof {
+        ProverTransportError::ResponseEofBeforeComplete
+    } else {
+        ProverTransportError::Io(error)
+    }
 }
 
 #[cfg(test)]
@@ -285,6 +395,7 @@ mod tests {
         socket: tokio::io::DuplexStream,
         certificate: Vec<u8>,
         private_key: Vec<u8>,
+        chunked: bool,
         release_close: Option<oneshot::Receiver<()>>,
     ) -> (Vec<u8>, Vec<u8>) {
         let config = ServerConfig::builder()
@@ -310,12 +421,23 @@ mod tests {
 
         let body =
             b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
-        let mut response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
-            body.len()
-        )
-        .into_bytes();
-        response.extend_from_slice(body);
+        let mut response = if chunked {
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n"
+                .to_vec()
+        } else {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+                body.len()
+            )
+            .into_bytes()
+        };
+        if chunked {
+            response.extend_from_slice(format!("{:x}\r\n", body.len()).as_bytes());
+            response.extend_from_slice(body);
+            response.extend_from_slice(b"\r\n0\r\n\r\n");
+        } else {
+            response.extend_from_slice(body);
+        }
         stream.write_all(&response).await.unwrap();
         if let Some(release_close) = release_close {
             release_close.await.unwrap();
@@ -325,17 +447,29 @@ mod tests {
     }
 
     #[test]
-    fn content_length_framing_rejects_eof_dependent_responses() {
+    fn response_framing_accepts_content_length_and_chunked_only() {
         assert!(matches!(
-            parse_content_length(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"),
-            Ok(3)
+            parse_response_framing(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"),
+            Ok(ResponseFraming::ContentLength(3))
         ));
         assert!(matches!(
-            parse_content_length(b"HTTP/1.1 200 OK\r\n\r\n"),
+            parse_response_framing(b"HTTP/1.1 200 OK\r\n\r\n"),
             Err(ProverTransportError::UnsupportedResponseFraming)
         ));
         assert!(matches!(
-            parse_content_length(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"),
+            parse_response_framing(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"),
+            Ok(ResponseFraming::Chunked)
+        ));
+        assert!(matches!(
+            parse_response_framing(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n"
+            ),
+            Err(ProverTransportError::UnsupportedResponseFraming)
+        ));
+        assert!(matches!(
+            parse_response_framing(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n"
+            ),
             Err(ProverTransportError::UnsupportedResponseFraming)
         ));
     }
@@ -448,6 +582,7 @@ mod tests {
             origin_socket,
             server_certificate,
             private_key,
+            true,
             Some(release_close_rx),
         ));
         let prover_root_store = root_store.clone();
@@ -726,6 +861,7 @@ mod tests {
             origin_socket,
             server_certificate,
             private_key,
+            false,
             None,
         ));
         let prover_root_store = root_store;

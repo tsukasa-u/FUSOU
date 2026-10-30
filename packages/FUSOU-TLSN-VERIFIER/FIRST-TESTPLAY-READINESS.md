@@ -69,6 +69,55 @@ post-capture delivery/verification pending, and Production acceptance `BLOCKED`.
 `target_approval: POST_CAPTURE_REQUIRED` refers to evidence of the observed
 identity match, not permission to skip pre-capture runtime Target Approval.
 
+## Stage A source-path and runtime-input follow-up
+
+This source-only follow-up starts from `18778247cb7b5641378e5bed4a153a9cd555531c`.
+The prior hosted candidate run at that baseline passed its two jobs; it does not
+validate the local follow-up or prove a real-game exchange.
+
+The APP path still has no independent protocol-only entry. Its production
+dependency graph constructs Session Binding and the identity-bound Worker
+verification/result path. The Worker `/verify/tlsn` contract requires the
+authenticated user/device proof flow. There is no approved identity-free
+Result signing API in the inspected source. This remains `BLOCKED_CODE`; no
+anonymous Worker route, local signer, or synthetic authority was introduced.
+Runtime bootstrap pins, the reviewed target/approval, and Notary endpoint/key
+are also `BLOCKED_EXTERNAL_INPUTS`. Resolving the signer/API trust contract
+requires explicit human approval.
+
+The origin transport now accepts either a single `Content-Length` or the
+existing strict chunked-response profile (hex chunk sizes, no extensions or
+trailers). It preserves the exact wire response bytes for the TLSN transcript
+and response digest; chunked bytes are decoded only for browser forwarding and
+semantic parsing. Close-delimited and other transfer codings remain rejected.
+The target server's actual response framing and body-size distribution are
+`UNKNOWN` because no real-game connection was made. Existing limits were not
+changed: request capture remains bounded by its existing TLSN admission
+contract, the Prover receive setting remains 4 MiB, and the verifier response
+transcript limit remains 16 MiB. No ordinary-proxy body or concurrency limit
+was added.
+
+Source instrumentation records request/wire-response/body byte counts,
+response status and framing, origin and Notary TCP connection time, TLS
+handshake time, request-write and response-read time, then elapsed durations
+for Presentation/Notary processing, Worker verification, and signed-Result
+signing/delivery. It does not record request/response bodies, auth material,
+keys, or proof bytes. The last two stages are end-to-end durations; internal
+remote signer time is not separately observable. These logs are measurement
+support, not evidence that any stage completed against the real services.
+
+| Input group | Source and consumer | Stage / current handling |
+|---|---|---|
+| `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | Embedded compile-time bootstrap pins consumed by `RuntimeConfigBootstrap` | Public trust inputs; absent or partial registration rejects bootstrap. Current Production manifest validation remains unchanged. |
+| `FUSOU_TLSN_NOTARY_ENDPOINT`, `FUSOU_TLSN_NOTARY_VERIFYING_KEY` | APP compile-time inputs read by `packages/configs/src/configs.rs`; preflight and the alpha.15 transport consume them | Public endpoint/key inputs required for the Notary path; their configured values were not inspected. |
+| `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS`, `FUSOU_TLSN_CLEANUP_TIMEOUT_MS`, `FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES` | Runtime environment parsed by `exchange_lifecycle` | Required explicit limits with range/canonical checks and no defaults; an operator must supply approved values. |
+| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Signed Runtime Config V2 and independently pinned bootstrap | The selected target must come from verified approval and later match the identity observed in the Presentation. The existing Production manifest requires a wider Worker/authority input set; it was not weakened for Stage A. |
+| `FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI`, `FUSOU_TLSN_RESULT_SIGNER_KEY_ID`, `FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY` | Result signature verifier and current Worker result path | A signed Result needs an independently trusted signer/registry. These public inputs do not supply a Stage A signing endpoint; the existing Worker path remains identity-bound. |
+| `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, `FUSOU_TLSN_EXPECTED_BINDING_MODE`, `FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID`, `FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA`, `FUSOU_TLSN_EXPECTED_WORKER_NAME`, `FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT`, `FUSOU_TLSN_VERIFICATION_ENDPOINT` | Current Worker deployment identity, health and verification endpoint pins | These bind the existing Worker production route; there is no separate approved protocol-only Worker contract. |
+| `FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT`, `FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID`, `FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY` | Session receipt verification and binding prewarm | Stage B identity/session inputs, not intrinsic TLSN Presentation verification inputs. They remain required by the existing APP path and were not bypassed. |
+| APP E2E variables, `FUSOU_TLSN_EVIDENCE_BUNDLE`, and `FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH` | Test harnesses and evidence CLI only | Test/CLI inputs, not production runtime configuration and not proof of real service readiness. No values were inspected. |
+| `artifact_output_path` and capture toggles | APP user configuration and local filesystem sink | Local path/behavior inputs; protected user configuration values were not inspected. No real artifact path or output was created. |
+
 ## Current local implementation validation
 
 Follow-up baseline: `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.

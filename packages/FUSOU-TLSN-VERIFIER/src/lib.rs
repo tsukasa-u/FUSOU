@@ -734,6 +734,10 @@ fn decode_chunked(body: &[u8], max_body: usize) -> Result<Vec<u8>> {
     }
 }
 
+pub fn decode_chunked_http_body(body: &[u8], max_body: usize) -> Result<Vec<u8>> {
+    decode_chunked(body, max_body)
+}
+
 struct OneByteReader<'a> {
     bytes: &'a [u8],
     position: usize,

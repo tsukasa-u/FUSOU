@@ -23,8 +23,9 @@ use base64::{
 use chrono::{DateTime, Utc};
 use fusou_auth::{AuthManager, DeviceKey, FileStorage};
 use fusou_tlsn_verifier::{
-    parse_binding_value, parse_require_info_request, prover_transport::ProverOwnedTlsTransport,
-    ParserLimits, REQUIRE_INFO_TARGET,
+    decode_chunked_http_body, parse_binding_value, parse_require_info_request,
+    parse_uint64_decimal, prover_transport::ProverOwnedTlsTransport, ParserLimits,
+    MAX_RESPONSE_TRANSCRIPT_BYTES, REQUIRE_INFO_TARGET,
 };
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
@@ -1734,6 +1735,7 @@ async fn run_real_exchange(
     attestation_limit: NotaryAttestationLimit,
     lifecycle: ExchangeLifecycle,
 ) -> Result<TlsnOriginCapture, TlsnTransportError> {
+    let exchange_started = std::time::Instant::now();
     let parsed_request = parse_require_info_request(
         request.bytes(),
         config.target().server_identity(),
@@ -1742,12 +1744,16 @@ async fn run_real_exchange(
     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
     let max_sent_data = max_sent_data_for_request(request.bytes())?;
 
+    let origin_connect_started = std::time::Instant::now();
     let origin_socket = TcpStream::connect((config.target().hostname(), config.target().port()))
         .await
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let origin_connect_elapsed = origin_connect_started.elapsed();
+    let notary_connect_started = std::time::Instant::now();
     let notary_socket = TcpStream::connect(&notary_endpoint)
         .await
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let notary_connect_elapsed = notary_connect_started.elapsed();
 
     let worker_lifecycle = lifecycle.clone();
     let session = Session::new_with_worker_spawn(notary_socket.compat(), move |work| {
@@ -1799,6 +1805,7 @@ async fn run_real_exchange(
     };
     tlsn::webpki::ServerCertVerifier::new(&root_store)
         .map_err(|_| TlsnTransportError::SystemTrustStoreUnavailable)?;
+    let origin_handshake_started = std::time::Instant::now();
     let (connection, prover) = prover
         .connect(
             TlsClientConfig::builder()
@@ -1817,8 +1824,10 @@ async fn run_real_exchange(
                 server_identity: config.target().server_identity().to_owned(),
             }
         })?;
+    let origin_handshake_elapsed = origin_handshake_started.elapsed();
     let prover_task = spawn_exchange_task(prover.into_future(), &lifecycle);
     let mut transport = ProverOwnedTlsTransport::new(connection);
+    let request_write_started = std::time::Instant::now();
     transport
         .send_actual_require_info(
             request.bytes(),
@@ -1827,11 +1836,29 @@ async fn run_real_exchange(
         )
         .await
         .map_err(|_| TlsnTransportError::AmbiguousOriginSend)?;
+    let request_write_elapsed = request_write_started.elapsed();
+    let response_read_started = std::time::Instant::now();
     let raw_response = transport
         .read_response_to_end()
         .await
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+    let response_read_elapsed = response_read_started.elapsed();
     let response = parse_http_response(raw_response)?;
+    tracing::info!(
+        server_identity = config.target().server_identity(),
+        request_bytes = request.bytes().len(),
+        response_status = response.status.as_u16(),
+        response_framing = response.framing.as_str(),
+        response_wire_bytes = response.raw_response_bytes.len(),
+        response_body_bytes = response.body.len(),
+        origin_connect_ms = duration_millis(origin_connect_elapsed),
+        notary_connect_ms = duration_millis(notary_connect_elapsed),
+        origin_handshake_ms = duration_millis(origin_handshake_elapsed),
+        request_write_ms = duration_millis(request_write_elapsed),
+        response_read_ms = duration_millis(response_read_elapsed),
+        exchange_to_response_ms = duration_millis(exchange_started.elapsed()),
+        "TLSN protocol exchange response received"
+    );
     let server_identity = config.target().server_identity().to_owned();
     let request_sha256 = sha256(request.bytes());
     let response_sha256 = sha256(&response.raw_response_bytes);
@@ -1890,6 +1917,7 @@ async fn run_real_exchange(
         let prove_config = prove_builder
             .build()
             .map_err(|_| ProofContinuationError::Prove)?;
+        let prover_proof_started = std::time::Instant::now();
         let ProverOutput {
             transcript_commitments,
             transcript_secrets,
@@ -1898,6 +1926,11 @@ async fn run_real_exchange(
             .prove(&prove_config)
             .await
             .map_err(|_| ProofContinuationError::Prove)?;
+        tracing::info!(
+            server_identity = server_identity.as_str(),
+            elapsed_ms = duration_millis(prover_proof_started.elapsed()),
+            "TLSN transcript proof generation completed"
+        );
         let prover_transcript = prover.transcript().clone();
         let tls_transcript = prover.tls_transcript().clone();
         let handshake_data = HandshakeData {
@@ -1935,6 +1968,7 @@ async fn run_real_exchange(
             .map_err(|_| ProofContinuationError::Notary)?;
         let request_bytes =
             bincode::serialize(&attestation_request).map_err(|_| ProofContinuationError::Notary)?;
+        let notary_started = std::time::Instant::now();
         notary_socket
             .write_all(&request_bytes)
             .await
@@ -1950,10 +1984,19 @@ async fn run_real_exchange(
         attestation_request
             .validate(&attestation, &CryptoProvider::default())
             .map_err(|_| ProofContinuationError::AttestationValidation)?;
+        tracing::info!(
+            server_identity = server_identity.as_str(),
+            notary_request_bytes = request_bytes.len(),
+            notary_attestation_bytes = attestation_bytes.len(),
+            elapsed_ms = duration_millis(notary_started.elapsed()),
+            "TLSN Notary attestation exchange and validation completed"
+        );
+        let presentation_started = std::time::Instant::now();
         let presentation = build_presentation(&attestation, &secrets)
             .map_err(|_| ProofContinuationError::Presentation)?;
         let presentation_bytes =
             bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation_bytes_len = presentation_bytes.len();
         proof_lifecycle.check().map_err(proof_stop)?;
         handoff
             .publish(
@@ -1962,6 +2005,12 @@ async fn run_real_exchange(
                 presentation_bytes,
             )
             .map_err(|_| ProofContinuationError::Presentation)?;
+        tracing::info!(
+            server_identity = server_identity.as_str(),
+            presentation_bytes = presentation_bytes_len,
+            elapsed_ms = duration_millis(presentation_started.elapsed()),
+            "TLSN Presentation serialization and handoff completed"
+        );
         Ok(())
     };
     let proof = ProofContinuation::new(Box::pin(async move {
@@ -2042,6 +2091,29 @@ struct ParsedHttpResponse {
     headers: HeaderMap,
     body: Bytes,
     raw_response_bytes: Bytes,
+    framing: HttpResponseFraming,
+}
+
+#[derive(Clone, Copy)]
+enum HttpResponseFraming {
+    ContentLength,
+    Chunked,
+}
+
+impl HttpResponseFraming {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ContentLength => "content-length",
+            Self::Chunked => "chunked",
+        }
+    }
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    duration
+        .as_secs()
+        .saturating_mul(1_000)
+        .saturating_add(u64::from(duration.subsec_millis()))
 }
 
 fn parse_http_response(raw: Vec<u8>) -> Result<ParsedHttpResponse, TlsnTransportError> {
@@ -2051,7 +2123,7 @@ fn parse_http_response(raw: Vec<u8>) -> Result<ParsedHttpResponse, TlsnTransport
         .position(|window| window == b"\r\n\r\n")
         .ok_or(TlsnTransportError::ResponseReadFailed)?;
     let head = &raw[..header_end];
-    let body = raw.slice(header_end + 4..);
+    let wire_body = raw.slice(header_end + 4..);
     let mut lines = head.split(|byte| *byte == b'\r' || *byte == b'\n');
     let status_line = lines.next().ok_or(TlsnTransportError::ResponseReadFailed)?;
     let mut status_fields = status_line.splitn(3, |byte| *byte == b' ');
@@ -2080,23 +2152,87 @@ fn parse_http_response(raw: Vec<u8>) -> Result<ParsedHttpResponse, TlsnTransport
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
         headers.append(name, value);
     }
-    if let Some(content_length) = headers.get(http::header::CONTENT_LENGTH) {
+    let content_length_count = headers.get_all(http::header::CONTENT_LENGTH).iter().count();
+    let transfer_encoding_count = headers
+        .get_all(http::header::TRANSFER_ENCODING)
+        .iter()
+        .count();
+    if content_length_count > 1
+        || transfer_encoding_count > 1
+        || (content_length_count > 0 && transfer_encoding_count > 0)
+    {
+        return Err(TlsnTransportError::ResponseReadFailed);
+    }
+    let (framing, body) = if let Some(content_length) = headers.get(http::header::CONTENT_LENGTH) {
         let expected = content_length
             .to_str()
             .ok()
-            .and_then(|value| value.parse::<usize>().ok())
+            .and_then(|value| parse_uint64_decimal(value.trim()).ok())
+            .and_then(|value| usize::try_from(value).ok())
             .ok_or(TlsnTransportError::ResponseReadFailed)?;
-        if expected != body.len() {
+        if expected != wire_body.len() {
             return Err(TlsnTransportError::ResponseReadFailed);
         }
-    }
+        (HttpResponseFraming::ContentLength, wire_body)
+    } else if let Some(transfer_encoding) = headers.get(http::header::TRANSFER_ENCODING) {
+        if !transfer_encoding
+            .to_str()
+            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("chunked"))
+        {
+            return Err(TlsnTransportError::ResponseReadFailed);
+        }
+        let decoded = decode_chunked_http_body(wire_body.as_ref(), MAX_RESPONSE_TRANSCRIPT_BYTES)
+            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+        headers.remove(http::header::TRANSFER_ENCODING);
+        headers.remove(HeaderName::from_static("trailer"));
+        let content_length = HeaderValue::from_bytes(decoded.len().to_string().as_bytes())
+            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+        headers.insert(http::header::CONTENT_LENGTH, content_length);
+        (HttpResponseFraming::Chunked, Bytes::from(decoded))
+    } else {
+        return Err(TlsnTransportError::ResponseReadFailed);
+    };
     Ok(ParsedHttpResponse {
         status: StatusCode::from_u16(status_code)
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?,
         headers,
         body,
         raw_response_bytes: raw,
+        framing,
     })
+}
+
+#[cfg(test)]
+mod response_parser_tests {
+    use super::*;
+
+    #[test]
+    fn chunked_response_is_decoded_for_forwarding_and_kept_raw_for_evidence() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7\r\npayload\r\n0\r\n\r\n";
+        let parsed = parse_http_response(raw.to_vec()).unwrap();
+
+        assert_eq!(parsed.status, StatusCode::OK);
+        assert_eq!(parsed.framing.as_str(), "chunked");
+        assert_eq!(parsed.body.as_ref(), b"payload");
+        assert_eq!(parsed.raw_response_bytes.as_ref(), raw);
+        assert!(!parsed.headers.contains_key(http::header::TRANSFER_ENCODING));
+        assert_eq!(
+            parsed.headers[http::header::CONTENT_LENGTH]
+                .to_str()
+                .unwrap(),
+            "7"
+        );
+    }
+
+    #[test]
+    fn response_parser_rejects_ambiguous_framing_and_chunk_trailers() {
+        let conflicting = b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nTransfer-Encoding: chunked\r\n\r\n7\r\npayload\r\n0\r\n\r\n";
+        assert!(parse_http_response(conflicting.to_vec()).is_err());
+
+        let with_trailer =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX-Trace: value\r\n\r\n";
+        assert!(parse_http_response(with_trailer.to_vec()).is_err());
+    }
 }
 
 fn hex_identifier(bytes: &[u8]) -> String {

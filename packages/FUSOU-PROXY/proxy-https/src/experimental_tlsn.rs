@@ -1360,8 +1360,14 @@ impl ExperimentalTlsnForwarder {
         {
             return;
         }
+        let proof_started = std::time::Instant::now();
         if let Err(error) = proof.run().await {
-            tracing::warn!(%error, "TLSN proof continuation failed after browser response");
+            tracing::warn!(
+                connection_id,
+                elapsed_ms = elapsed_millis(proof_started),
+                %error,
+                "TLSN presentation generation and Notary stage failed after browser response"
+            );
             let next = match error {
                 ProofContinuationError::Cancelled => ExperimentalTlsnRuntimeState::Cancelled,
                 ProofContinuationError::Deadline => ExperimentalTlsnRuntimeState::DeadlineExceeded,
@@ -1389,6 +1395,11 @@ impl ExperimentalTlsnForwarder {
                 Self::transition_shared(&state, ExperimentalTlsnRuntimeState::ProofStarted, next);
             return;
         }
+        tracing::info!(
+            connection_id,
+            elapsed_ms = elapsed_millis(proof_started),
+            "TLSN presentation generation and Notary stage completed"
+        );
         if Self::transition_shared(
             &state,
             ExperimentalTlsnRuntimeState::ProofStarted,
@@ -1398,7 +1409,7 @@ impl ExperimentalTlsnForwarder {
         {
             return;
         }
-
+        let verification_started = std::time::Instant::now();
         let verification = match lifecycle.as_ref() {
             Some(lifecycle) => verifier.verify_with_lifecycle(
                 connection_id,
@@ -1412,7 +1423,12 @@ impl ExperimentalTlsnForwarder {
         let outcome = match verification.await {
             Ok(outcome) => outcome,
             Err(error) => {
-                tracing::warn!(%error, "TLSN Presentation or worker verification failed after browser response");
+                tracing::warn!(
+                    connection_id,
+                    elapsed_ms = elapsed_millis(verification_started),
+                    %error,
+                    "TLSN Presentation or Worker verification failed after browser response"
+                );
                 let next = match error {
                     VerificationError::PresentationUnavailable
                     | VerificationError::PresentationInvalid => {
@@ -1439,10 +1455,19 @@ impl ExperimentalTlsnForwarder {
             }
         };
         let verified = match outcome {
-            VerificationOutcome::Verified(evidence) => evidence,
+            VerificationOutcome::Verified(evidence) => {
+                tracing::info!(
+                    connection_id,
+                    elapsed_ms = elapsed_millis(verification_started),
+                    "TLSN Presentation and Worker verification completed"
+                );
+                evidence
+            }
             VerificationOutcome::Deferred(deferred) => {
                 tracing::info!(
+                    connection_id,
                     job_id = deferred.job_id(),
+                    elapsed_ms = elapsed_millis(verification_started),
                     "TLSN Presentation verification deferred to the configured backend"
                 );
                 let _ = Self::transition_shared(
@@ -1462,12 +1487,18 @@ impl ExperimentalTlsnForwarder {
         {
             return;
         }
+        let result_started = std::time::Instant::now();
         let result = match lifecycle {
             Some(lifecycle) => result_boundary.accept_with_lifecycle(verified, lifecycle),
             None => result_boundary.accept(verified),
         };
         if let Err(error) = result.await {
-            tracing::warn!(%error, "TLSN result signing or delivery failed after browser response");
+            tracing::warn!(
+                connection_id,
+                elapsed_ms = elapsed_millis(result_started),
+                %error,
+                "TLSN Result signing or delivery failed after browser response"
+            );
             let next = match error {
                 ResultBoundaryError::SigningUnavailable => {
                     ExperimentalTlsnRuntimeState::ResultSigningFailed
@@ -1480,12 +1511,25 @@ impl ExperimentalTlsnForwarder {
             let _ = Self::transition_shared(&state, ExperimentalTlsnRuntimeState::Verified, next);
             return;
         }
+        tracing::info!(
+            connection_id,
+            elapsed_ms = elapsed_millis(result_started),
+            "TLSN signed Result delivery completed"
+        );
         let _ = Self::transition_shared(
             &state,
             ExperimentalTlsnRuntimeState::Verified,
             ExperimentalTlsnRuntimeState::ResultDelivered,
         );
     }
+}
+
+fn elapsed_millis(started: std::time::Instant) -> u64 {
+    let elapsed = started.elapsed();
+    elapsed
+        .as_secs()
+        .saturating_mul(1_000)
+        .saturating_add(u64::from(elapsed.subsec_millis()))
 }
 
 fn transition_state(
