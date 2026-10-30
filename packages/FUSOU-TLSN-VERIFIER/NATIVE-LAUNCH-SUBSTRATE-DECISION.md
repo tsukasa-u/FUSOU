@@ -882,8 +882,8 @@ Adopting or extending them requires a separate threat/operations decision.
   the API requirement (already enabled in the observed APP graph). Native
   launch mechanism dependencies are now dev-dependencies; its ordinary error
   type retains only featureless nix. No package versions were upgraded and no
-  dependency was fetched. APP Cargo.lock had an unstaged delta outside the
-  initially inventoried edit paths; its origin was not established. After
+  dependency was fetched. Final scoped review found an unstaged APP Cargo.lock
+  delta; its origin was not established. After
   explicit user approval, it was reviewed for inclusion: it records the core
   verifier's existing nix 0.30.1 requirement, disambiguates notify's unchanged
   nix 0.31.3, and adds tokio-util's existing futures-util dependency for `rt`.
@@ -904,6 +904,14 @@ A final Node rerun with an overlong TMPDIR caused Unix-socket collisions and
 was stopped; the unchanged suite passed with a short private TMPDIR. No tests
 were skipped/weakened. Fake adapters prove logic only. Actual cgroup/UID/
 no-escape and real services/evidence/attestation verification remain NOT EXECUTED.
+
+The code changes are split into `e6915180eaf2c06ab7764e4e6213e4398dc35b15`
+(proxy task ownership/APP lock) and `f3d764c3981500ed490109c21f62c8c59374c341`
+(native/Node simplification). Normal scoped hooks passed for 5 and 10 paths.
+Their heuristic graph reported 6 and 15 test gaps respectively, including
+the real exchange and lease methods. Synthetic ownership/lease tests actually
+ran, but are not complete coverage or a real exchange/OS integration test.
+Reviewed/staged/committed binary patches matched for both commits.
 
 ### Direct blockers and next gate, independently of OS hardening
 
