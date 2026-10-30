@@ -65,6 +65,11 @@ where
     fn with_worker_spawn(io: Io, spawn: Option<SpawnFn>) -> Self {
         let mut mux_config = tlsn_mux::Config::default();
 
+        #[cfg(feature = "fusou-large-mux")]
+        {
+            mux_config.set_max_connection_receive_window(Some(2560 * 1024 * 1024));
+            mux_config.set_max_num_streams(10240);
+        }
         mux_config.set_keep_alive(true);
         mux_config.set_close_sync(true);
 

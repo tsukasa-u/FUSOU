@@ -45,7 +45,7 @@ base64 = { version = "0.22", optional = true }
 futures = { version = "0.3.34", optional = true }
 fusou-tlsn-verifier = { path = "../../FUSOU-TLSN-VERIFIER", optional = true }
 rcgen = { version = "0.13.2", optional = true }
-tlsn = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
+tlsn = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", features = ["fusou-large-mux"], optional = true }
 tlsn-formats = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15", optional = true }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"], optional = true }
 rustls = { version = "0.23.13", default-features = false, features = ["ring", "std", "tls12"], optional = true }
@@ -102,9 +102,6 @@ required-features = ["tlsn-origin-probe"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }
-
-[patch."https://github.com/tlsnotary/tlsn-utils"]
-tlsn-mux = { path = "../../tlsn-mux-alpha15" }
 
 [patch."https://github.com/tlsnotary/tlsn.git"]
 tlsn = { path = "../../tlsn-alpha15-sparse/crates/tlsn" }

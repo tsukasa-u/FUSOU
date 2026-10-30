@@ -17,6 +17,7 @@ rayon = ["mpz-zk/rayon", "mpz-garble/rayon"]
 web = ["dep:web-spawn"]
 hash-keccak256 = ["mpz-hash/keccak256"]
 hash-blake3 = ["mpz-hash/blake3"]
+fusou-large-mux = []
 
 [dependencies]
 tlsn-attestation = { workspace = true }
