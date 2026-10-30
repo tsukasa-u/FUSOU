@@ -1,4 +1,5 @@
 import path from "node:path";
+import { testplayAcceptanceStages } from "./testplay-acceptance-stages.mjs";
 import {
   assertBuildReference,
   assertCompiledReport,
@@ -170,6 +171,7 @@ export function createPreCaptureReadiness({
     authority_status: "UNVERIFIED",
     gameplay_authorized: false,
     production_acceptance: "BLOCKED",
+    acceptance_stages: testplayAcceptanceStages(),
     worker_reference_sha256: expectedReferenceSha256,
     worker_source_sha: expectedWorkerSha,
     active_version_id: reference.cloudflare.version_id,

@@ -19,6 +19,13 @@ import {
   attestationSessionReceiptSigningBytes,
 } from "./attestation_receipts.js";
 import {
+  authenticateDeviceProof,
+  authenticateTlsnDeviceProof,
+  tlsnDeviceProofSigningBytes,
+  type DeviceAuthenticationResult,
+  type DevicePossessionAuthenticationResult,
+} from "./device-proof-client.js";
+import {
   PrivateKeyValidationCache,
   type PrivateKeyValidationObservation,
 } from "./private_key_validation_cache.js";
@@ -2107,101 +2114,6 @@ async function authenticateRequest(
   }
 }
 
-type DeviceAuthenticationResult =
-  | { ok: true; canonicalUserId: string; deviceId: string }
-  | {
-      ok: false;
-      status: 401 | 403 | 409 | 503;
-      error:
-        | "device_auth_unconfigured"
-        | "device_unauthorized"
-        | "device_owner_mismatch"
-        | "device_revoked"
-        | "device_nonce_invalid"
-        | "device_nonce_replayed"
-        | "device_auth_unavailable";
-    };
-
-type DevicePossessionAuthenticationResult =
-  | { ok: true; canonicalUserId: string; deviceId: string; replayDigestHex: string }
-  | {
-      ok: false;
-      status: 401 | 403 | 409 | 503;
-      error:
-        | "device_possession_unauthorized"
-        | "device_possession_owner_mismatch"
-        | "device_possession_revoked"
-        | "device_possession_replayed"
-        | "device_possession_unavailable";
-    };
-
-const deviceProofResponseSchema = z
-  .object({
-    authenticated: z.literal(true),
-    canonical_user_id: z.string().uuid(),
-    device_id: z.string().uuid(),
-  })
-  .strict();
-
-const tlsnDeviceProofResponseSchema = deviceProofResponseSchema.extend({
-  replay_digest_hex: z.string().regex(/^[a-f0-9]{64}$/),
-});
-
-async function authenticateDeviceProof(
-  subject: AuthenticatedSubject,
-  proof: z.infer<typeof deviceProofRequestSchema>,
-  endpoint: string,
-): Promise<DeviceAuthenticationResult> {
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      redirect: "manual",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${subject.accessToken}`,
-      },
-      body: JSON.stringify(proof),
-    });
-    if (response.status >= 300 && response.status < 400) {
-      return { ok: false, status: 503, error: "device_auth_unavailable" };
-    }
-    const payload = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
-      if (response.status === 403) {
-        return { ok: false, status: 403, error: "device_owner_mismatch" };
-      }
-      if (response.status === 409 && error === "device_revoked") {
-        return { ok: false, status: 409, error: "device_revoked" };
-      }
-      if (response.status === 409 && error === "nonce_already_used") {
-        return { ok: false, status: 409, error: "device_nonce_replayed" };
-      }
-      if (response.status === 401 && error === "nonce_invalid_or_expired") {
-        return { ok: false, status: 401, error: "device_nonce_invalid" };
-      }
-      if (response.status >= 500) {
-        return { ok: false, status: 503, error: "device_auth_unavailable" };
-      }
-      return { ok: false, status: 401, error: "device_unauthorized" };
-    }
-    const parsed = deviceProofResponseSchema.safeParse(payload);
-    if (!parsed.success || parsed.data.canonical_user_id !== subject.canonicalUserId) {
-      return { ok: false, status: 403, error: "device_owner_mismatch" };
-    }
-    if (parsed.data.device_id !== proof.device_id) {
-      return { ok: false, status: 403, error: "device_owner_mismatch" };
-    }
-    return {
-      ok: true,
-      canonicalUserId: parsed.data.canonical_user_id,
-      deviceId: parsed.data.device_id,
-    };
-  } catch {
-    return { ok: false, status: 503, error: "device_auth_unavailable" };
-  }
-}
-
 function testDeviceAuthenticationEnabled(env: Bindings): boolean {
   const device = configuredTestDevice(env);
   return env.TLSN_ENVIRONMENT === "test" &&
@@ -2262,24 +2174,7 @@ function testTlsnDeviceProofMessage(proof: {
   binding_value: string;
   challenge: string;
 }): Uint8Array {
-  const encoder = new TextEncoder();
-  const chunks = [encoder.encode("FUSOU-TLSN-DEVICE-PROOF-V1\0")];
-  for (const value of [
-    encoder.encode(proof.device_id),
-    encoder.encode(proof.session_id),
-    encoder.encode(proof.binding_value),
-    decodeBase64Url(proof.challenge, 32),
-  ]) {
-    const length = new Uint8Array([value.length >> 8, value.length & 0xff]);
-    chunks.push(length, value);
-  }
-  const message = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    message.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return message;
+  return tlsnDeviceProofSigningBytes(proof, decodeBase64Url(proof.challenge, 32));
 }
 
 async function deviceProofReplayDigestHex(proof: {
@@ -2359,85 +2254,6 @@ async function authenticateTestTlsnDeviceProof(
     deviceId: proof.device_id,
     replayDigestHex,
   };
-}
-
-async function authenticateTlsnDeviceProof(
-  subject: AuthenticatedSubject,
-  proof: {
-    device_id: string;
-    session_id: string;
-    binding_value: string;
-    challenge: string;
-    sig: string;
-  },
-  endpoint: string,
-  expectedReplayDigestHex?: string,
-): Promise<DevicePossessionAuthenticationResult> {
-  let replayDigestHex: string | undefined;
-  if (expectedReplayDigestHex) {
-    try {
-      const message = testTlsnDeviceProofMessage(proof);
-      replayDigestHex = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", message)))
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
-    } catch {
-      return { ok: false, status: 401, error: "device_possession_unauthorized" };
-    }
-  }
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      redirect: "manual",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${subject.accessToken}`,
-      },
-      body: JSON.stringify(proof),
-    });
-    if (response.status >= 300 && response.status < 400) {
-      return { ok: false, status: 503, error: "device_possession_unavailable" };
-    }
-    const payload = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
-      if (response.status === 403) {
-        return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
-      }
-      if (response.status === 409 && error === "device_revoked") {
-        return { ok: false, status: 409, error: "device_possession_revoked" };
-      }
-      if (response.status === 409 && error === "device_proof_replayed") {
-        if (replayDigestHex && replayDigestHex === expectedReplayDigestHex) {
-          return {
-            ok: true,
-            canonicalUserId: subject.canonicalUserId,
-            deviceId: proof.device_id,
-            replayDigestHex,
-          };
-        }
-        return { ok: false, status: 409, error: "device_possession_replayed" };
-      }
-      if (response.status >= 500) {
-        return { ok: false, status: 503, error: "device_possession_unavailable" };
-      }
-      return { ok: false, status: 401, error: "device_possession_unauthorized" };
-    }
-    const parsed = tlsnDeviceProofResponseSchema.safeParse(payload);
-    if (!parsed.success || parsed.data.canonical_user_id !== subject.canonicalUserId) {
-      return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
-    }
-    if (parsed.data.device_id !== proof.device_id) {
-      return { ok: false, status: 403, error: "device_possession_owner_mismatch" };
-    }
-    return {
-      ok: true,
-      canonicalUserId: parsed.data.canonical_user_id,
-      deviceId: parsed.data.device_id,
-      replayDigestHex: parsed.data.replay_digest_hex,
-    };
-  } catch {
-    return { ok: false, status: 503, error: "device_possession_unavailable" };
-  }
 }
 
 function requireAuthentication(
@@ -4327,7 +4143,10 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     const devicePossessionStartedAt = requestBenchmarkEnabled ? performance.now() : undefined;
     const devicePossession = testDeviceAuthenticationEnabled(c.env)
       ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
-      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
+      : await authenticateTlsnDeviceProof(
+        authentication, devicePossessionProof, config.devicePossessionAuthUrl,
+        await deviceProofReplayDigestHex(devicePossessionProof),
+      );
     const devicePossessionMilliseconds = devicePossessionStartedAt === undefined
       ? undefined
       : performance.now() - devicePossessionStartedAt;
@@ -4677,7 +4496,10 @@ const handleTlsnVerification = async (c: Context<{ Bindings: Bindings }>) => {
     };
     const devicePossession = testDeviceAuthenticationEnabled(c.env)
       ? await authenticateTestTlsnDeviceProof(authentication, devicePossessionProof, c.env)
-      : await authenticateTlsnDeviceProof(authentication, devicePossessionProof, config.devicePossessionAuthUrl);
+      : await authenticateTlsnDeviceProof(
+        authentication, devicePossessionProof, config.devicePossessionAuthUrl,
+        await deviceProofReplayDigestHex(devicePossessionProof),
+      );
     if (!devicePossession.ok) {
       return c.json({ verified: false, error: devicePossession.error }, devicePossession.status);
     }

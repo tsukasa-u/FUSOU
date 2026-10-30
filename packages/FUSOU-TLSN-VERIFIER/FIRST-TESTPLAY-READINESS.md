@@ -8,6 +8,17 @@ real gameplay, real TLSN evidence acquisition and independent verification are
 **NOT EXECUTED**. This document is a source/validation record, not permission
 to launch the APP, contact services, publish or deploy.
 
+The [device-proof contract and nineteen-role data lineage](DEVICE-PROOF-MATERIAL-LINEAGE.md)
+separates **TLSN_PROTOCOL_TESTPLAY**, **IDENTITY_BOUND_TESTPLAY** and
+**PRODUCTION_EVIDENCE_DELIVERY**. All currently have `BLOCKED_CODE`, for
+different reasons. The APP has no independent protocol-only entry: its current
+route already depends on the missing proof APIs and Session/Binding services.
+Complete-Bundle remote retention is not required by the local nineteen-role
+verifier. The existing candidate execution-receipt prerequisite is retained by
+the user's explicit decision, not described as an intrinsic TLSN requirement.
+The existing pre-capture report now includes this source-only stage assessment,
+without enabling a path or granting gameplay.
+
 The preceding implementation follow-ups were:
 
 * `929bbf58350b9641e6c1589235c3e854f5e8cd18`: bounded exchange ownership.
@@ -17,11 +28,13 @@ They follow baseline `f8965eaf4d83fe67123c5ace6bb88b53cf3bf92c`
 on `tlsn-first-testplay-candidate`. Earlier native, corpus and hosted-run
 results are historical; they were not rerun or promoted here.
 
-This finalization audit starts at `fbafee38f6da832f780bd9c2756651201a8ebf10`,
+The preceding finalization audit started at `fbafee38f6da832f780bd9c2756651201a8ebf10`,
 parent `7ea2ba9d026c9b74d5ea8b30e8d471b29f651dee`, on that same branch.
 The cached upstream was `origin/tlsn-first-testplay-candidate`, ahead/behind
 0/0, with a clean scoped worktree/index. No fetch or external operation was used.
-The current audit's validation is recorded separately below.
+Its validation is recorded separately below. The newer contract/lineage
+follow-up starts at `ec37f88e7be4937dfae49f7ec6917c736992592c` and records its
+own commands/results in the linked lineage document; do not merge the runs.
 
 Linux native-launch/cgroup/quarantine mechanisms are not dependencies of the
 actual APP normal/build closure. No privileged helper, process/image authority,
@@ -36,7 +49,7 @@ and runtime gates. They do not replace them or create a release policy.
 
 | Stage | Current status | Owner / completion evidence | Refusal / next action |
 |---|---|---|---|
-| CODE_READY | BLOCKED_CODE | A strict operator-side finalizer now has a CLI caller. Matching device-auth service handlers, Production execution-receipt support and the real-material collection handoff are still missing. | Do not call candidate files a finalized Evidence Bundle. |
+| CODE_READY | BLOCKED_CODE | Strict local finalizer exists. Current APP protocol path lacks matching proof handlers; identity-bound completion also lacks real-material collection and retains the candidate receipt prerequisite. Production transport/execution approval is a separate stage. | Do not call candidate files a finalized Evidence Bundle or enable a protocol-only bypass. |
 | LOCAL_BUILD_READY | VERIFIED, GNU check only | Actual APP `tlsn-production`, its own manifest/lock and library/binary targets checked. | Not a GUI launch, release package, clean candidate handoff or live-bootstrap test. |
 | CONFIG_READY | BLOCKED_EXTERNAL_INPUTS | Trust/release operator supplies approved embedded bootstrap and fresh signed manifest/artifacts; APP independently verifies them. | Missing/expired/mismatched/unregistered inputs reject; no fixture or stale-manifest fallback. |
 | TARGET_APPROVAL_READY | BLOCKED_EXTERNAL_INPUTS | Deployment operator supplies the actual canonical hostname, reviewed Inventory and Approval bound by the manifest. | No real target/approval was admitted in this task. Candidate selection is not observed identity. |

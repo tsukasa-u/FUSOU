@@ -97,6 +97,14 @@ service, actual archive operation or finalized Production evidence delivery.
 Production Runtime Config signing registration remains closed. Approved real
 bootstrap/target/service inputs were not supplied or exercised in this audit.
 See the [current testplay readiness boundary](FIRST-TESTPLAY-READINESS.md).
+The [device-proof proposal and material data lineage](DEVICE-PROOF-MATERIAL-LINEAGE.md)
+records the exact existing HTTP consumer contract, pending owner/enrollment
+decisions and generation/storage/collection/verification of every required role.
+Its protocol, identity-bound-local and Production-delivery stages are separate
+source assessments, not feature switches. The APP has no independent A entry;
+all three stages remain code-blocked. The candidate receipt gate is unchanged
+by explicit user decision; full-Bundle remote retention is not a local
+nineteen-role verifier requirement.
 Local transport and verifier tests do not establish external service behavior
 or Production acceptance.
 

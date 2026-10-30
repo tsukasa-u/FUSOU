@@ -545,6 +545,23 @@ mod tests {
     }
 
     #[test]
+    fn captured_flags_do_not_replace_the_retained_required_execution_receipt() {
+        let f = Fixture::new();
+        fs::remove_file(f.candidate().join("verifier-execution-receipt.bin")).unwrap();
+        let path = f.candidate().join("candidate-manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        manifest["artifacts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("verifier-execution-receipt.bin");
+        fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error =
+            finalize_candidate(f.candidate(), f.material(), f.output(), &options()).unwrap_err();
+        assert!(error.message.contains("verifier-execution-receipt.bin"));
+        assert!(!f.output().exists());
+    }
+
+    #[test]
     fn exact_envelope_must_match_inner_result_receipt_replay_and_parsed_response() {
         for field in [
             "result",

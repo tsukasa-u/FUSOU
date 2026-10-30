@@ -18,6 +18,27 @@ use std::{
 pub mod finalization;
 
 const EVIDENCE_SCOPE: &str = "tlsn-production-evidence";
+const REQUIRED_ARTIFACT_NAMES: [&str; 19] = [
+    "presentation",
+    "result",
+    "result_registry",
+    "result_registry_envelope",
+    "notary_registry",
+    "health",
+    "session",
+    "authenticated_user",
+    "device_identity",
+    "device_authentication",
+    "possession_proof",
+    "consume_receipt",
+    "replay",
+    "session_authority_registry",
+    "binding_authority_registry",
+    "capture_metadata",
+    "semantic_verification",
+    "trust_root",
+    "subject",
+];
 const RESULT_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
 const RESULT_REGISTRY_ENVELOPE_SCOPE: &str = "fusou-result-signing-key-registry-envelope";
 const RESULT_REGISTRY_ENVELOPE_ALGORITHM: &str = "Ed25519";
@@ -396,30 +417,7 @@ pub fn verify_bundle_bytes(bytes: BundleBytes, options: &BundleVerifierOptions) 
 
 fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) -> Result<Value> {
     validate_manifest(&bundle.manifest)?;
-    let required_artifact_names = [
-        "presentation",
-        "result",
-        "result_registry",
-        "result_registry_envelope",
-        "notary_registry",
-        "health",
-        "session",
-        "authenticated_user",
-        "device_identity",
-        "device_authentication",
-        "possession_proof",
-        "consume_receipt",
-        "replay",
-        "session_authority_registry",
-        "binding_authority_registry",
-        "capture_metadata",
-        "semantic_verification",
-        "trust_root",
-        "subject",
-    ];
-    for name in required_artifact_names {
-        require_artifact(&bundle, name)?;
-    }
+    require_bundle_artifacts(bundle)?;
 
     let presentation = artifact_bytes(&bundle, "presentation")?;
     let result_bytes = artifact_bytes(&bundle, "result")?;
@@ -1148,6 +1146,13 @@ fn verify_predicate_statuses(
                 format!("{field} predicate is not passed: {name}"),
             ));
         }
+    }
+    Ok(())
+}
+
+fn require_bundle_artifacts(bundle: &LoadedBundle) -> Result<()> {
+    for name in REQUIRED_ARTIFACT_NAMES {
+        require_artifact(bundle, name)?;
     }
     Ok(())
 }
@@ -4496,6 +4501,27 @@ fn days_from_civil(year: u32, month: u32, day: u32) -> i64 {
 mod tests {
     use super::*;
     use k256::elliptic_curve::sec1::ToEncodedPoint;
+
+    #[test]
+    fn every_one_of_the_nineteen_roles_is_mandatory_without_an_execution_receipt_role() {
+        assert_eq!(REQUIRED_ARTIFACT_NAMES.len(), 19);
+        assert!(!REQUIRED_ARTIFACT_NAMES.contains(&"execution_receipt"));
+        for omitted in REQUIRED_ARTIFACT_NAMES {
+            let bundle = LoadedBundle {
+                manifest_path: PathBuf::from("inventory-only-unit-test"),
+                manifest: Value::Null,
+                artifacts: REQUIRED_ARTIFACT_NAMES
+                    .into_iter()
+                    .filter(|name| *name != omitted)
+                    .map(|name| (name.to_owned(), Artifact { bytes: Vec::new() }))
+                    .collect(),
+            };
+            let error = require_bundle_artifacts(&bundle).unwrap_err();
+            assert_eq!(error.edge, "artifact_manifest");
+            assert_eq!(error.artifact.as_deref(), Some(omitted));
+            assert_eq!(error.message, "required artifact is missing");
+        }
+    }
 
     mod acquisition {
         use super::*;

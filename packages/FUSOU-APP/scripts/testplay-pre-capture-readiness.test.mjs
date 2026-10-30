@@ -185,6 +185,11 @@ for (const mode of ["complete", "sparse"]) {
       assert.equal(readiness.authority_status, "UNVERIFIED");
       assert.equal(readiness.gameplay_authorized, false);
       assert.equal(readiness.production_acceptance, "BLOCKED");
+      assert.equal(readiness.acceptance_stages.assessment_scope, "SOURCE_CONTRACT_ONLY");
+      assert.equal(readiness.acceptance_stages.gameplay_authorized, false);
+      for (const stage of ["TLSN_PROTOCOL_TESTPLAY", "IDENTITY_BOUND_TESTPLAY", "PRODUCTION_EVIDENCE_DELIVERY"]) {
+        assert.equal(readiness.acceptance_stages[stage].status, "BLOCKED_CODE");
+      }
       assert.equal(readiness.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
       assert.deepEqual(readiness.target_identity, {
         status: "NOT_YET_OBSERVED",

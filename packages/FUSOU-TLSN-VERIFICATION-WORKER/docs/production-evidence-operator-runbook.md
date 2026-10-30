@@ -31,6 +31,28 @@ There are existing source-level limits that must not be hidden behind a checklis
 
 All steps below are conditional operating instructions. Until these stop conditions and the required real inputs are resolved without bypass, do not begin real Production gameplay.
 
+### Choose the acceptance stage before operating
+
+The [device-proof proposal, ownership decisions and complete data lineage](../../FUSOU-TLSN-VERIFIER/DEVICE-PROOF-MATERIAL-LINEAGE.md)
+is the current source-contract follow-up. It does not authorize an API or gameplay.
+
+* **A / TLSN_PROTOCOL_TESTPLAY:** real Presentation/Notary/Web PKI/observed DNS
+  and real signed Result binding. Current APP construction still requires owner
+  proof and Session/Binding services; an independent A path is not implemented.
+  Do not disable auth or supply a fake binding to bypass that dependency.
+* **B / IDENTITY_BOUND_TESTPLAY:** adds all nineteen materials and independent
+  local verification. Full-Bundle remote delivery is not required by this local
+  verifier. The existing candidate receipt gate remains unchanged by the user's
+  decision; material collection and proof handlers are still code blockers.
+* **C / PRODUCTION_EVIDENCE_DELIVERY:** additionally requires full-Bundle remote
+  readback/retention, authenticated delivery receipts and formal applicable
+  signer/builder/provider/operational approval. Existing Worker raw-object
+  archive readback is not that whole-Bundle delivery.
+
+All three currently have `BLOCKED_CODE` plus external inputs. The following
+Production procedure must not turn every C obligation into an intrinsic A
+cryptographic requirement, or claim B/C from successful A evidence.
+
 ### Local finalization and independent handoff
 
 Current decision is **BLOCKED_CODE**, additionally awaiting external inputs.
@@ -48,9 +70,11 @@ was performed by this audit.
    Ed25519/framing contracts, challenge expiry and atomic nonce/proof replay
    prevention. Refresh/revoke or dataset tokens are not substitutes.
    The deployed hostname/operator is not inferred from these consumer paths.
-2. Resolve the Production execution-receipt contract and real-material
-   collector. Current source receipt production is Canary-only; the APP marks
-   receipt-missing candidates incomplete and the finalizer rejects them.
+2. Resolve the real-material collector and the **retained current candidate
+   receipt prerequisite**. Current source receipt production is Canary-only;
+   the APP marks receipt-missing candidates incomplete and the finalizer rejects
+   them. The nineteen-role schema itself does not contain an execution receipt;
+   the distinct Production execution-authority contract needs its own approval.
    Do not relabel a Canary receipt or manually turn blocked/unavailable
    evidence/predicates into PASS. The blocked manifest helper is not a completed
    capture producer.
