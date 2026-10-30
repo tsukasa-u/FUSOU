@@ -2,12 +2,13 @@
 
 ## Scope and evidence
 
-Overall: **PARTIAL**. Actual APP GNU checking and selected local contracts pass;
+Testplay decision: **BLOCKED_CODE**, with additional **BLOCKED_EXTERNAL_INPUTS**.
+Actual APP GNU checking and selected local contracts pass;
 real gameplay, real TLSN evidence acquisition and independent verification are
 **NOT EXECUTED**. This document is a source/validation record, not permission
 to launch the APP, contact services, publish or deploy.
 
-The current implementation follow-ups are:
+The preceding implementation follow-ups were:
 
 * `929bbf58350b9641e6c1589235c3e854f5e8cd18`: bounded exchange ownership.
 * `7ea2ba9d026c9b74d5ea8b30e8d471b29f651dee`: current-exchange Result admission.
@@ -15,6 +16,12 @@ The current implementation follow-ups are:
 They follow baseline `f8965eaf4d83fe67123c5ace6bb88b53cf3bf92c`
 on `tlsn-first-testplay-candidate`. Earlier native, corpus and hosted-run
 results are historical; they were not rerun or promoted here.
+
+This finalization audit starts at `fbafee38f6da832f780bd9c2756651201a8ebf10`,
+parent `7ea2ba9d026c9b74d5ea8b30e8d471b29f651dee`, on that same branch.
+The cached upstream was `origin/tlsn-first-testplay-candidate`, ahead/behind
+0/0, with a clean scoped worktree/index. No fetch or external operation was used.
+The current audit's validation is recorded separately below.
 
 Linux native-launch/cgroup/quarantine mechanisms are not dependencies of the
 actual APP normal/build closure. No privileged helper, process/image authority,
@@ -29,13 +36,15 @@ and runtime gates. They do not replace them or create a release policy.
 
 | Stage | Current status | Owner / completion evidence | Refusal / next action |
 |---|---|---|---|
-| CODE_READY | PARTIAL | APP transport and Result acceptance paths exist and have selected local regressions. Real-service integration and finalized evidence delivery are not established. | Do not call candidate files a finalized Evidence Bundle. |
+| CODE_READY | BLOCKED_CODE | A strict operator-side finalizer now has a CLI caller. Matching device-auth service handlers, Production execution-receipt support and the real-material collection handoff are still missing. | Do not call candidate files a finalized Evidence Bundle. |
 | LOCAL_BUILD_READY | VERIFIED, GNU check only | Actual APP `tlsn-production`, its own manifest/lock and library/binary targets checked. | Not a GUI launch, release package, clean candidate handoff or live-bootstrap test. |
 | CONFIG_READY | BLOCKED_EXTERNAL_INPUTS | Trust/release operator supplies approved embedded bootstrap and fresh signed manifest/artifacts; APP independently verifies them. | Missing/expired/mismatched/unregistered inputs reject; no fixture or stale-manifest fallback. |
 | TARGET_APPROVAL_READY | BLOCKED_EXTERNAL_INPUTS | Deployment operator supplies the actual canonical hostname, reviewed Inventory and Approval bound by the manifest. | No real target/approval was admitted in this task. Candidate selection is not observed identity. |
 | SERVICE_CONNECTIVITY_READY | NOT_CHECKED | Operators confirm intended Worker, Session Authority, device-auth, Notary and storage contracts/version. | Local mocks/health JSON are not execution or deployment proof. |
 | CAPTURE_READY | BLOCKED | Existing runtime gates plus explicit human approval and the three local limits below must pass. | No real capture command was run; no gameplay permission follows from a local report. |
-| EVIDENCE_DELIVERY_READY | UNVERIFIED / POST_CAPTURE_REQUIRED | Storage/evidence operator retrieves exact artifacts and produces the verifier's required bundle. | APP export alone does not establish archive retrieval or finalization. |
+| DEVICE_AUTHENTICATION_READY | NOT_IMPLEMENTED, matching tracked handlers | Worker requires two exact proof APIs; WEB registration/challenge/refresh/revoke are different contracts. | Service/enrollment owners must implement and approve the matching handlers; deployment remains NOT_CHECKED. |
+| EVIDENCE_FINALIZATION_READY | PARTIAL | CLI consumes five APP artifacts plus an existing-schema material manifest and independently pinned inputs; all 19 artifacts must pass the real verifier before local publication. | Missing receipt/material or invalid bindings reject. No successful real finalization was run. |
+| EVIDENCE_DELIVERY_READY | PARTIAL locally; remote UNVERIFIED | Private create-only local handoff with byte readback is implemented. Worker separately archives Presentation and exact outer Result before authority commit. | No full-Bundle remote upload/retention receipt or APP-to-collector transport is established. |
 | INDEPENDENT_VERIFICATION_READY | IMPLEMENTED source; real run UNVERIFIED | Independent verifier uses externally pinned roots/registries and real artifacts. | No actual evidence verifier/attestation command was executed. |
 | HUMAN_TESTPLAY_REQUIRED | NOT_EXECUTED | Human release/protocol authority approves exact scope/profile, operator, stop conditions and evidence review. | Unresolved fork/P0-10 decisions are not waived by this document. |
 
@@ -157,17 +166,24 @@ cannot replace an unconsumed operation. Signing domains/bytes are unchanged.
 
 The candidate sink writes raw Presentation and unverified metadata into private
 create-only output. The remote Result signer preserves `result-exact.bin`,
-inner pretty Result, receipt bytes/header, session/consume/device/replay material
+compact canonical inner Result, receipt bytes/header, session/consume/device material
 and inventory; filesystem Result delivery is a separate JSON output. Pretty
 JSON is not the authoritative exact response-byte source. These files remain
 unapproved candidates, not an automatically finalized Evidence Bundle.
 
-The current APP/Worker script entry inventory and bounded collector/finalizer
-trace did not establish an operational finalization handoff. Contract helpers
-are not a collector. The evidence/storage owner must identify and review that
-handoff and its exact artifact/receipt inventory; automatic finalized bundle
-delivery remains UNVERIFIED. Do not synthesize missing receipts, roots or
-Production signer authority from candidate fields.
+The new operator caller is the existing offline CLI's paired
+`--finalize-candidate PATH --output NEW_DIRECTORY` path. Its implementation is
+[finalization](src/evidence_bundle/finalization.rs), not an automatic APP
+callback. It takes the existing Production manifest and external material via
+`--bundle`; the five APP-owned roles are loaded from the candidate instead of
+requiring manually copied duplicates. Their descriptor hashes/lengths must
+already match. Other required artifacts/predicates are not fabricated.
+All candidate sidecars are preserved separately under `candidate/`.
+
+The previous pretty inner export was incompatible with the independent
+canonical Result parser. New APP exports are compact; exact outer
+`result-exact.bin` is unchanged. Old pretty exports are not silently rewritten.
+Candidate-write cleanup errors are now returned explicitly rather than ignored.
 
 The [offline CLI](src/bin/verify_fusou_tlsn_evidence.rs) still supports legacy
 path arguments or explicit `--path-mode`. Its external inputs include bundle,
@@ -186,7 +202,217 @@ contents, plus session/device/consume/replay. This independent derivation is
 not replaced by the APP signature/context check. Real evidence acquisition,
 archive retrieval and this verifier run are all **NOT EXECUTED**.
 
-## Current local validation
+## Evidence finalization and delivery contract
+
+The actual source chain is:
+
+1. APP runtime/verified Runtime Config builds the Proxy dependencies.
+2. The single-use route calls the production forwarder; Prover-owned TLS/MPC
+   creates the actual Presentation, then the deferred proof invokes Worker
+   verification. Browser response completion is earlier, not evidence completion.
+3. Worker verifies/signs the inner Complete v2 or Sparse v3 Result. In the
+   Production-inventory path it PUTs and readbacks exact Presentation and outer
+   Result, verifies length/hash/generation, then commits the consumed binding,
+   exact Result and optional execution receipt/catalog in the authority transaction.
+4. APP Result admission verifies signature, current exchange and authority pair.
+   `RemoteWorkerResultSigner::sign` calls the private candidate writer.
+   `FilesystemResultDelivery::deliver` is separate local JSON delivery, not R2 success.
+5. After separately authorized capture and material collection, a human operator
+   invokes `run` in the existing CLI, then `finalize_candidate`, then
+   `verify_loaded_bundle`, then local publication. No APP automatic invocation
+   or real-service collector was added.
+6. Only a successful independent verifier call permits local publication.
+   New output is exclusive/private; artifact/report writes are create-only,
+   synced and read back. The complete manifest is published last with atomic
+   create-if-absent hard-link semantics. Existing output is never reused,
+   overwritten or removed. Filesystems without the required operations fail
+   closed. This is local filesystem handoff, not remote retention verification.
+7. Later independent verification reads the finalized directory with the same
+   externally approved roots/pins. A saved local report is not trusted instead
+   of re-verification. Missing inputs or any partial failure never produce a
+   successful return; failed new-output cleanup is explicitly reported.
+
+Finalizer reads are capped at 32 MiB/file and 256 MiB cumulative input, before
+read-all allocation, with a bounded read sentinel as well. This is not a
+formal shared memory/resource issuer. Production Bundle schema is unchanged:
+scope `tlsn-production-evidence`, schema 1, capture PASS, verification VERIFIED,
+production provenance, but overall/Production/P0-05 statuses remain BLOCKED.
+The 14 evidence requirements, semantic/device predicates, timestamps and trust
+graph remain mandatory; proxy process provenance can remain UNVERIFIED.
+
+### Required artifact / binding matrix
+
+All 19 roles below are mandatory for the existing independent verifier.
+Output stores them under `artifacts/<role>.bin`; descriptor length/SHA-256 and
+production provenance apply to every role. External means separately acquired
+real material, not values generated from a candidate declaration.
+
+| Artifact / fields | Producer and input location | Binding / verification owner | Current acquisition |
+|---|---|---|---|
+| `presentation` | Actual APP proof; `presentation.bin` | Exact raw SHA-256, Notary signature, Web PKI DER, observed DNS identity; independent Rust verifier | APP writer implemented; real capture UNVERIFIED |
+| `result` | Worker; APP compact `result.json` | Strict Complete v2 / Sparse v3, signing domain V2, external Result registry, exact Presentation digest and authority pair; verifier independently re-derives Result | APP admission/export implemented; real Result UNVERIFIED |
+| `session` | Worker Session Authority; APP `session.json` | Signed receipt binds user/device/auth nonce/session/binding/challenge/times to Result and external authority key | APP-owned finalizer role |
+| `possession_proof` | Registered device's existing signature; APP `possession-proof.json` | Canonical framed message, device key pin, session/binding/challenge, digest; Rust signature verification | APP-owned finalizer role |
+| `consume_receipt` | Worker Binding Authority; APP `consume-receipt.json` | Independent signed consumption receipt, exact Presentation hash and current subject/session/binding/time | APP-owned finalizer role |
+| `result_registry` | Approved published Result registry; external file | Envelope-authorized bytes, signer status/validity at capture | Real publication/collection NOT_CHECKED |
+| `result_registry_envelope` | Approved registry signer; external file | Independent evidence-root ID/SPKI authorizes exact registry bytes | No root/signing registration performed |
+| `notary_registry` | Approved Notary publication; external file | Byte equality with external option and actual Presentation Notary key | Real input pending |
+| `health` | Actual Worker health response; external capture | Result/Notary/Session/Binding public identities and registry hashes agree | APP metadata observation is not the complete required artifact |
+| `authenticated_user` | Supabase authenticated-user observation; external material | Externally pinned canonical user; signed session/Result cross-reference | No real authenticated observation |
+| `device_identity` | Approved WEB `user_devices` observation; external material | External device key/hash, canonical owner, non-revoked row; session/Result cross-reference | APP's `authority_state=UNVERIFIED` record is not promoted |
+| `device_authentication` | Actual auth request + Worker session issuance observation; external material | Request must equal APP capture; device signature and signed session receipt bind auth nonce; acceptance 201 binds device/session | Candidate metadata alone is not endpoint execution proof |
+| `replay` | Approved authority/device-proof negative observation; external material | Actual 409 and allowed error plus canonical digest/session/device/binding/stored digest | No producer captured here; a cached 200 Result is not a 409 replay observation |
+| `session_authority_registry` | Session authority publication; external file | Exact byte equality with separately supplied registry; independent key ID/SPKI and historical validity | Worker signing source exists; deployment/pins NOT_CHECKED |
+| `binding_authority_registry` | Binding authority publication; external file | Exact byte equality and independent key pin; consumption signature validity | Same separation as Session authority |
+| `capture_metadata` | Real production capture mapping; external material | Fixed HTTP profile, Presentation hash, timestamps, false synthetic/test/local flags; proxy cryptographic provenance remains UNVERIFIED | Candidate `metadata.json` is not automatically this schema |
+| `semantic_verification` | Independent actual-Presentation analysis; external material | Exact Presentation size/hash, unsigned Result, disclosed ranges, identity/member/Notary, profile predicates and verifier/time metadata | Not a fabricated PASS report; no real material collected |
+| `trust_root` | Independently approved Web PKI DER anchor; external file | Exact byte equality with external trust-anchor option; actual Presentation TLS chain | DER is not target identity or a custom-CA authorization |
+| `subject` | Capture/evidence producer from verified subject context; external file | SHA-256s of canonical user/device/session/member/binding match signed Result | Must match current exchange, not candidate identity authority |
+
+Origin Inventory and Target Approval are independently supplied raw CLI inputs,
+not new manifest artifact roles. Both digests are mandatory together in
+Production Result, and checked against these exact inputs and the hostname
+actually observed from Presentation. Supplied target selection alone has no authority.
+Manifest provenance/version/status/times and all graph/evidence relationships
+are checked by the existing verifier, not supplied as bypass booleans.
+
+### Exact outer Result, execution receipt and archive limits
+
+`result` in the existing Bundle schema is the canonical **inner** signed Result,
+not the outer HTTP response. The finalizer also checks raw outer JSON agrees
+with captured inner Result/consume receipt/replay digest and parsed response;
+preserves raw outer/header/receipt bytes; and checks local digest/length and
+header encoding. These are consistency checks, **not an independent signature
+verification or archive-authority proof for the outer response/execution receipt**.
+The saved report retains the existing Bundle verifier's scope only.
+
+The source execution-receipt signer is explicitly Canary-scoped and guarded by
+`canaryVerifierExecution`; a Production receipt producer/verification contract
+was not established. The existing candidate status is INCOMPLETE when receipt
+bytes are missing, and this finalizer rejects it. It does not mint a Production
+receipt, reinterpret a Canary receipt as Production, or treat local hashes as
+independently authorized bytes. Resolving this code/contract gap requires the
+responsible verifier/evidence authority, not a random key or relaxed assertion.
+
+The existing [archive catalog](../FUSOU-TLSN-VERIFICATION-WORKER/src/archive-catalog.mjs)
+connects exact consumed binding/job/attempt/subject to object keys, versions,
+lengths and hashes. The [archive HTTP handler](../FUSOU-TLSN-VERIFICATION-WORKER/src/archive-http.mjs)
+is read-only, OIDC/grant/policy constrained; it is not a full-Bundle upload API.
+The [release collector](../../scripts/release-evidence-producer.mjs) and
+[archive job](../../scripts/release-archive-job.mjs) require an independently
+eligible main release/workflow context, not a local APP candidate. The existing
+[delivery policy](../../scripts/evidence-delivery-policy.mjs) is a helper with
+a trusted-verifier interface, not a connected APP collector. No new caller
+claims its mock authorization is real authority.
+Remote Bundle delivery, permanence/retention and an independently verifiable
+full-Bundle delivery receipt remain UNVERIFIED / NOT_IMPLEMENTED where absent.
+The finalizer does not claim `archive_success` or publication authorization.
+
+## Worker / Session / WEB service contract
+
+The audit inventoried tracked source across APP/Proxy, `fusou-auth`, Worker,
+WEB routes/pages and SQL migrations, including source filenames for Edge
+Functions. No matching tracked device-proof/tlsn-device-proof handler was found.
+This is **NOT_IMPLEMENTED in tracked source**, not evidence that an unknown
+external deployment does or does not run one.
+
+* APP `AuthManager` fetches the configured
+  `anonymous_sync_v2_challenge_endpoint` with `device_id`, then calls the
+  Runtime-Config-pinned Worker's `/attestation/session` using its authenticated
+  bearer and `{device_id, nonce, sig}`. It does not directly call a fictional
+  TLSN device-auth URL. Nonce signing/registered-key handling stays unchanged.
+* Worker validates bearer with Supabase `/auth/v1/user`, rejects anonymous
+  subjects, then calls the configured device-auth endpoint without redirect
+  following. Production config requires the allowlisted HTTPS path
+  `/api/auth/anonymous-sync/v2/device-proof`. Success must be exactly
+  `{authenticated:true, canonical_user_id:UUID, device_id:UUID}`, matching
+  both bearer subject and requested device.
+* Worker possession authentication requires the separately configured
+  `/api/auth/anonymous-sync/v2/tlsn-device-proof` endpoint, the existing framed
+  device/session/binding/challenge signature, and canonical replay digest.
+  Success extends the auth response with `replay_digest_hex`. A matching
+  previously recorded operation digest can support the existing authority's
+  same-operation replay handling; it does not authorize an unknown operation.
+* Error contracts remain 403 owner mismatch; 409 revoked, nonce already used
+  or proof replayed as appropriate; 401 invalid/expired nonce/signature; 5xx,
+  redirect or transport failure unavailable. No refresh fallback is added.
+* Intended data/service responsibility is the WEB device-ownership service and
+  its Supabase administrator, since WEB/SQL own `user_devices`,
+  `user_member_map` and atomic nonce consumption. An appointed human endpoint
+  owner, approved enrollment policy, implementation, deployed URL/version and
+  credential configuration remain unregistered/NOT_CHECKED, not inferred.
+* Existing WEB `/auth/anonymous-sync/v2` register/challenge/refresh/revoke and
+  authenticated device listing/deletion are mounted in the real server.
+  Registration resolves member/public/canonical mapping; the SQL registration
+  RPC serializes/quota-limits it and rejects revoked rows. Ordinary initial
+  registration is not itself a non-anonymous bearer-owner/enrollment proof.
+  Refresh checks registered key/nonce/member mapping and returns a dataset
+  token; it is not the Worker's required auth response. Device-signed revoke
+  checks the same canonical owner; web deletion verifies bearer/ownership.
+* Challenge freshness uses the existing signed challenge; nonce consumption has
+  a database `(device_id, nonce)` uniqueness boundary and fails when the table
+  is unavailable. Refresh can return its durably saved response for an identical
+  retry. These contracts do not implement either missing TLSN proof API.
+* Worker holds distinct Session and Binding authority signing APIs/keys/
+  registries. Session receipt signs auth nonce and exact identity/binding/time;
+  consume receipt signs exact Presentation identity and consumption. The
+  independent verifier pins both registries byte-for-byte and both authority
+  public keys; no private key is exported to the bundle.
+* Binding authority transactions fence user/device/session/job/attempt/lease.
+  Exact repeated commits can be idempotent only with matching stored bytes,
+  receipt and catalog; stale/foreign attempts reject. Status reads retrieve the
+  authoritative exact Result; `/verify/tlsn/retry` is explicitly disabled.
+  This is not permission to resend an origin request.
+
+The missing service contract must implement bearer-to-row owner checks,
+revocation, registered public-key verification, challenge expiry and atomic
+single consumption, with the exact existing response/error contracts and
+separately approved enrollment rules. No endpoint, secret or owner was invented.
+
+## Ingress, deadlines, single-use and cleanup
+
+Browser request body collection occurs **before** the TLSN absolute exchange
+deadline. With TLSN enabled, one shared local
+[ingress collector](../FUSOU-PROXY/proxy-https/src/request_ingress.rs) now applies
+to target and non-target requests: 1 MiB body, 10 s idle, 30 s absolute
+completion, eight concurrent collector reservations. These are the approved
+local default code constants, not new mandatory environment inputs, independent
+resource authorization or a whole-process memory bound.
+
+Capacity is reserved before body reads/allocation; declared lower bounds and
+each streamed chunk are checked. Progress cannot reset the completion deadline.
+The collector/body reservation is owned through the handler, including selected
+TLSN forwarding; normal forwarding hands its buffered body onward afterward.
+This reservation is not a deferred MPC/proof/archive resource lease.
+Cancellation/drop discards the collector buffer and returns that reservation;
+it does not certify external FD/job cleanup. Logging, unrelated response
+buffering, and remote service resource budgets are not covered by this bound.
+Ingress excess/busy/timeout fails before upstream IO with 413/503/408.
+Read errors never become a forwarded empty body, including in non-TLSN mode.
+The previous selected-TLSN read-error 503 remains; ordinary read errors are 400.
+Repeated TLSN selection is rejected before collecting another body. Disabled
+TLSN otherwise keeps ordinary ingress behavior, not a silently imposed size cap.
+HTTP/1 rejections with an uncollected body request connection close rather
+than keep-alive reuse; no HTTP/2 connection-specific header is introduced.
+
+The existing three mandatory exchange/cleanup/Notary inputs still have no
+defaults. Their canonical-positive/range checks remain. One absolute exchange
+deadline covers selected forwarding/session/capture/proof/Worker/Result work
+without resets; cleanup uses its separate wait budget. Notary reads use
+`take(max_bytes + 1)` before deserialize, not an unbounded attestation allocation.
+Local tracked cleanup must complete before `ResultReady`; no cleanup-unknown
+operation is promoted or its single-use state reopened. Remote jobs can continue
+after local cancellation. Immutable stop reason, current-exchange admission,
+non-overwriting store and single-use ownership prevent late data becoming a
+new operation's successful Result; this is not remote-job cancellation proof.
+
+Single-use means FUSOU does not resend after send intent:
+normal completion has one logical request, pre-send rejection can have zero,
+and ambiguous write failure leaves Game Server receipt **UNKNOWN**. No retry
+can repair that uncertainty. Neither browser success nor a local callback
+settlement establishes completed proof, durable archive, or Production acceptance.
+
+## Historical local validation before this finalization audit
 
 All Cargo commands used the actual checked-in manifests/locks with
 `--locked --offline --target x86_64-unknown-linux-gnu`, Rust 1.98.1, a sanitized
@@ -238,6 +464,74 @@ new ignored tests, fake Production inputs or network dependency acquisition.
 No protected configuration, real launcher/evidence verifier, external service,
 privileged host operation, deployment or publication was used.
 
+## Current finalization audit validation
+
+The new runner was isolated under the session's `evidence-finalization-gate`,
+using Rust 1.98.1 GNU, `env -i`, private HOME/TMPDIR/CARGO_HOME, separate
+APP/proxy/verifier targets, and committed lockfiles. Only existing local caches
+were restored after an offline missing-dependency failure; MPZ was privately
+copied. No dependencies were downloaded. No actual evidence, GUI APP,
+Notary/game session, device registration or actual verifier CLI was executed.
+
+| Suite / command scope | Current result |
+|---|---|
+| Actual APP `check --features tlsn-production --locked --offline --lib --bins` | PASS, exit 0; existing warnings remain |
+| APP library preflight / manifest / runtime manager / wrapper gates | 55 PASS, 0 FAIL, 1 pre-existing ignored external-roundtrip test, exit 0 |
+| Proxy combined selected suites, `alpha15-tlsn` | 78 PASS, 0 FAIL/ignored, exit 0: lifecycle 7, experimental 15, production 22, real-task 10, Result binding 8, signature/canonical export 6, ingress 5, request routing/body failure 4, candidate export 1 |
+| Finalizer input/state/IO and relative-output parent sync | 13 PASS, 0 FAIL/ignored, exit 0; no fake finalization success or real positive-evidence run |
+| Existing Bundle schema/acquisition/signature/receipt trust-edge tests | 24 PASS, 0 FAIL/ignored, exit 0; fixed synthetic vectors only |
+| Existing CLI parsing / finalizer flags / closed FD gate | 5 PASS, 0 FAIL/ignored, exit 0; not actual evidence execution |
+| Node APP helper/readiness 34 + delivery policy 5 + archive catalog 41 | 80 PASS, 0 FAIL/SKIP, exit 0; in-memory/temporary-file tests, not service/archive operations |
+| Ordinary proxy `--no-default-features --features kc-api-epoch-20250627 --lib` | PASS, exit 0 |
+| New Rust modules, edition-2021 formatter check | PASS, exit 0 |
+| Required README/readiness/runbook local links | 95 existing targets checked, exit 0; four stale deployment/builder links corrected to current contracts, without inventing removed commands |
+
+Full current invocations, with `ROOT` the repository and `GATE` the new isolated
+directory, are below. The current runner's first argument selects the actual
+working directory (`app`, `proxy` or `verifier`); it supplies the sanitized
+environment described above. It is not the previous task's runner.
+
+```sh
+ROOT=/home/ogu-h/Documents/GitHub/FUSOU
+GATE=/home/ogu-h/.copilot/session-state/641fd5f4-19dd-4ad5-a248-79cd863d59da/files/evidence-finalization-gate
+sh "$GATE/run-cargo.sh" app check --features tlsn-production --locked --offline --lib --bins
+sh "$GATE/run-cargo.sh" app test --features tlsn-production --locked --offline --lib -- tlsn_preflight::tests tlsn_runtime_config_manifest::tests tlsn_runtime_config_runtime::tests wrap_proxy::runtime_config_transport_gate_tests
+sh "$GATE/run-cargo.sh" proxy test --locked --offline --features alpha15-tlsn --lib -- request_ingress::tests proxy_server_https::tests::ingress_ proxy_server_https::tests::uncollectable_tlsn_request_is_not_sent_or_forwarded_to_production real_tlsn::tests::candidate_bundle_preserves_exact_response_and_receipt_without_overwrite real_tlsn::tests::result_signature_verifier_export_bytes_are_canonical exchange_lifecycle::tests experimental_tlsn::tests real_tlsn::task_tests production_tlsn::tests real_tlsn::tests::result_binding_tests real_tlsn::tests::result_signature_verifier
+sh "$GATE/run-cargo.sh" verifier test --locked --offline --lib evidence_bundle::finalization::tests
+sh "$GATE/run-cargo.sh" verifier test --locked --offline --lib evidence_bundle::tests
+sh "$GATE/run-cargo.sh" verifier test --locked --offline --lib -- evidence_bundle::finalization::tests evidence_bundle::tests
+sh "$GATE/run-cargo.sh" verifier test --locked --offline --bin verify_fusou_tlsn_evidence
+sh "$GATE/run-cargo.sh" verifier check --locked --offline --lib --bins
+sh "$GATE/run-cargo.sh" proxy check --locked --offline --no-default-features --features kc-api-epoch-20250627 --lib
+sh "$GATE/run-cargo.sh" proxy test --locked --offline --features alpha15-tlsn --lib request_ingress::tests
+/home/ogu-h/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustfmt --check --edition 2021 "$ROOT/packages/FUSOU-PROXY/proxy-https/src/request_ingress.rs" "$ROOT/packages/FUSOU-TLSN-VERIFIER/src/evidence_bundle/finalization.rs"
+cd "$ROOT"
+node --test scripts/evidence-delivery-policy.test.mjs scripts/release-archive-catalog.test.mjs packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.test.mjs packages/FUSOU-APP/scripts/testplay-verify.test.mjs
+```
+
+Non-successful/intermediate commands were not hidden:
+
+* The first isolated verifier checks exited 101 for missing `nix` in an empty
+  private cache, then a misplaced registry link; existing caches/link correction
+  resolved this offline.
+* The initial finalizer run was 11 PASS / 1 FAIL because a new test expected
+  the wrong existing structured rejection edge. It now asserts the exact
+  `artifact_manifest` rejection and message; no verifier check was weakened.
+* The first proxy attempts found a new `BytesMut` import and two test-body
+  constructor mistakes, corrected using existing re-exports/`Full`.
+* The attempted `synthetic-tlsn` test build also found a pre-existing ignored
+  roundtrip test calling `.collect()` on an already-buffered `Bytes` response.
+  That unrelated opt-in test was not changed or run. Validation uses the actual
+  APP's `alpha15-tlsn` feature; the synthetic-feature build remains a known
+  pre-existing failure, not a PASS.
+* An initial Node invocation used two nonexistent `-test.mjs` filenames; Node
+  selected only the two real root suites (46 PASS). The corrected existing
+  `.test.mjs` inputs above ran all four files (80 PASS). The 46-run is not
+  represented as APP helper validation.
+* OIDC HTTP tests that generate fresh RSA keypairs were not run under this
+  task's no-key-generation constraint. Existing catalog/delivery fake tests are
+  not live OIDC, archive retention, or TLSN proof evidence.
+
 ## Human next operations (not performed here)
 
 | What the responsible human supplies/approves | Where / why | Completion evidence |
@@ -246,9 +540,11 @@ privileged host operation, deployment or publication was used.
 | Public bootstrap tuple and authorized manifest signing/publication arrangement | Controlled APP release build plus Runtime Config signing/endpoint owners; establish independent roots, not self-reported candidate values. | Approved public pin provenance, matching compiled handoff, fresh signature/raw-artifact checks and explicit registration review. Do not paste private keys here. |
 | Real canonical hostname, Inventory and Approval | Deployment operator and APP selected route; constrain the intended Game Server. | Signed manifest/security-set raw digest bindings, valid ordered approval subset; later observed Presentation identity match. |
 | Exchange/cleanup milliseconds and maximum Notary bytes | APP operator's explicit local limits; bound this attempt without inventing formal shared resource policy. | Required preflight checks pass with recorded public operational settings; no fixture defaults. |
-| Actual service/deployment references, device-auth handler owner, trusted registries, authenticated user/device | Worker/Notary/Session/device/storage operators; verify compatible services and ownership/revocation contract. | Separately authorized live connectivity/negative checks and approved version/provenance evidence; no secrets printed. |
+| Matching proof APIs and approved enrollment/ownership policy | WEB/device service and Supabase owners, then Worker/Session owners; implement both fixed proof paths and nonce/proof replay contracts before claiming CODE_READY. | Reviewed code/tests, appointed owner and deployment/API compatibility; refresh/revoke are not substitutes. |
+| Actual service/deployment references, trusted registries, authenticated user/device | Worker/Notary/Session/device/storage operators; verify compatible services and ownership/revocation contract. | Separately authorized live connectivity/negative checks and approved version/provenance evidence; no secrets printed. |
 | Clean approved candidate build and permission for actual gameplay | Release/gameplay operator; current audit did not run scripts that touch protected configuration. | Exact build/config reference match, runtime verified gates, human permission and scoped private capture output. |
-| Archive access, finalizer/delivery ownership and independent verifier inputs | Evidence/storage operator and independent reviewer; turn exact raw artifacts/receipts into a reviewable bundle. | Byte/hash/length inventory and successful independent reconstruction against externally pinned roots, followed by human evidence review. |
+| Production receipt contract and all 19-role real material | Verifier/evidence authority and collector owner; resolve incomplete candidate receipt status and source the actual owner/replay/semantic/capture observations. | Approved non-fabricated producers, schema-correct manifest/predicates and independent external pins; a local metadata flag cannot complete it. |
+| Archive access, finalizer/delivery ownership and independent verifier inputs | Evidence/storage operator and independent reviewer; run the conditional finalizer/verification procedure in the [operator runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md). | Exact archive generation/readback, full artifact inventory, verified local bundle and separately established remote delivery/retention evidence, then human review. |
 
 No human step above authorizes an operation in this task. A later explicit
 instruction is required before real gameplay or service operations.

@@ -11,6 +11,8 @@ enum Invocation {
 
 struct Arguments {
     bundle: String,
+    finalize_candidate: Option<String>,
+    output: Option<String>,
     evidence_root_key_id: String,
     evidence_root_public_key_spki: String,
     trusted_notary_registry: String,
@@ -33,7 +35,7 @@ struct Arguments {
 }
 
 fn usage() -> &'static str {
-    "usage: verify_fusou_tlsn_evidence --bundle PATH --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
+    "usage: verify_fusou_tlsn_evidence --bundle PATH [--finalize-candidate PATH --output NEW_DIRECTORY] --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
 }
 
 fn required_value<I>(arguments: &mut I, flag: &str) -> Result<String, String>
@@ -62,6 +64,8 @@ fn parse_arguments_from(mut arguments: Vec<String>) -> Result<Invocation, String
 fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut seen = HashSet::new();
     let mut bundle = None;
+    let mut finalize_candidate = None;
+    let mut output = None;
     let mut evidence_root_key_id = None;
     let mut evidence_root_public_key_spki = None;
     let mut trusted_notary_registry = None;
@@ -92,6 +96,8 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
         let value = required_value(&mut arguments, &flag)?;
         match flag.as_str() {
             "--bundle" => bundle = Some(value),
+            "--finalize-candidate" => finalize_candidate = Some(value),
+            "--output" => output = Some(value),
             "--evidence-root-key-id" => evidence_root_key_id = Some(value),
             "--evidence-root-public-key-spki" => evidence_root_public_key_spki = Some(value),
             "--trusted-notary-registry" => trusted_notary_registry = Some(value),
@@ -118,8 +124,13 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
             _ => return Err(format!("unknown argument: {flag}\n{}", usage())),
         }
     }
+    if finalize_candidate.is_some() != output.is_some() {
+        return Err("--finalize-candidate and --output must be supplied together".to_owned());
+    }
     Ok(Arguments {
         bundle: bundle.ok_or_else(|| format!("missing --bundle\n{}", usage()))?,
+        finalize_candidate,
+        output,
         evidence_root_key_id: evidence_root_key_id
             .ok_or_else(|| format!("missing --evidence-root-key-id\n{}", usage()))?,
         evidence_root_public_key_spki: evidence_root_public_key_spki
@@ -205,30 +216,43 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
             format!("read failed: {error}"),
         )
     })?;
-    verify_bundle(
-        arguments.bundle,
-        &BundleVerifierOptions {
-            evidence_root_key_id: arguments.evidence_root_key_id,
-            evidence_root_public_key_spki: arguments.evidence_root_public_key_spki,
-            trusted_notary_registry_raw: trusted_notary_registry,
-            session_authority_registry_raw: session_authority_registry,
-            session_authority_key_id: arguments.session_authority_key_id,
-            session_authority_public_key_spki: arguments.session_authority_public_key_spki,
-            binding_authority_registry_raw: binding_authority_registry,
-            binding_authority_key_id: arguments.binding_authority_key_id,
-            binding_authority_public_key_spki: arguments.binding_authority_public_key_spki,
-            canonical_user_id: arguments.canonical_user_id,
-            device_id: arguments.device_id,
-            device_public_key: arguments.device_public_key,
-            server_identity: arguments.server_identity,
-            origin_inventory_raw,
-            target_approval_raw,
-            profile_sha256: arguments.profile_sha256,
-            sparse_profile_sha256: arguments.sparse_profile_sha256,
-            verifier_key_id: arguments.verifier_key_id,
-            trust_anchor_der,
-        },
-    )
+    let options = BundleVerifierOptions {
+        evidence_root_key_id: arguments.evidence_root_key_id,
+        evidence_root_public_key_spki: arguments.evidence_root_public_key_spki,
+        trusted_notary_registry_raw: trusted_notary_registry,
+        session_authority_registry_raw: session_authority_registry,
+        session_authority_key_id: arguments.session_authority_key_id,
+        session_authority_public_key_spki: arguments.session_authority_public_key_spki,
+        binding_authority_registry_raw: binding_authority_registry,
+        binding_authority_key_id: arguments.binding_authority_key_id,
+        binding_authority_public_key_spki: arguments.binding_authority_public_key_spki,
+        canonical_user_id: arguments.canonical_user_id,
+        device_id: arguments.device_id,
+        device_public_key: arguments.device_public_key,
+        server_identity: arguments.server_identity,
+        origin_inventory_raw,
+        target_approval_raw,
+        profile_sha256: arguments.profile_sha256,
+        sparse_profile_sha256: arguments.sparse_profile_sha256,
+        verifier_key_id: arguments.verifier_key_id,
+        trust_anchor_der,
+    };
+    match (arguments.finalize_candidate, arguments.output) {
+        (Some(candidate), Some(output)) => {
+            fusou_tlsn_verifier::evidence_bundle::finalization::finalize_candidate(
+                candidate,
+                arguments.bundle,
+                output,
+                &options,
+            )
+        }
+        (None, None) => verify_bundle(arguments.bundle, &options),
+        _ => Err(BundleVerificationError::new(
+            "cli",
+            None,
+            "incomplete finalization arguments",
+        )),
+    }
 }
 
 fn run_invocation(invocation: Invocation) -> Result<serde_json::Value, BundleVerificationError> {
@@ -349,5 +373,24 @@ mod tests {
         let error = parse_path_arguments(["--bundle", "a", "--bundle", "b"].into_iter().map(str::to_owned))
             .err().unwrap();
         assert!(error.contains("duplicate argument"));
+    }
+
+    #[test]
+    fn finalization_requires_paired_output_and_cannot_mix_with_fd_mode() {
+        for flag in ["--finalize-candidate", "--output"] {
+            let mut args = legacy_arguments();
+            args.extend([flag.to_owned(), "path".to_owned()]);
+            assert!(parse_arguments_from(args).err().unwrap().contains("supplied together"));
+        }
+        let mut args = legacy_arguments();
+        args.extend(["--finalize-candidate", "candidate", "--output", "new-output"]
+            .into_iter().map(str::to_owned));
+        let Invocation::Path(parsed) = parse_arguments_from(args.clone()).unwrap() else {
+            panic!("finalization must use explicit path inputs");
+        };
+        assert_eq!(parsed.finalize_candidate.as_deref(), Some("candidate"));
+        assert_eq!(parsed.output.as_deref(), Some("new-output"));
+        args.push("--fd-abi-v1".to_owned());
+        assert!(parse_arguments_from(args).is_err());
     }
 }

@@ -55,8 +55,12 @@ ordinary-play `POST /kcsapi/api_get_member/require_info` request. The embedded
 Runtime Config bootstrap is not registered in this checkout, so this route
 cannot currently be started from it. If the gate is reached without a usable
 forwarder, the selected request fails closed with `503`; it is not retried or
-sent through a fallback. Non-target requests and the default-disabled route
-remain unchanged.
+sent through a fallback. With TLSN enabled, request ingress for target and
+non-target requests is bounded to 1 MiB, 10 s idle, 30 s absolute collection
+time and eight shared collector reservations. These local defaults are separate
+from the three explicit exchange/cleanup/Notary inputs. Disabled TLSN keeps
+ordinary collection behavior, except body-read failures now reject rather than
+forwarding an empty body.
 
 The backend is pinned to:
 
@@ -95,6 +99,39 @@ bootstrap/target/service inputs were not supplied or exercised in this audit.
 See the [current testplay readiness boundary](FIRST-TESTPLAY-READINESS.md).
 Local transport and verifier tests do not establish external service behavior
 or Production acceptance.
+
+## Evidence finalization and handoff
+
+The existing offline path-mode CLI accepts the paired optional arguments
+`--finalize-candidate PATH --output NEW_DIRECTORY`. Its existing `--bundle`
+input then supplies the current Production schema manifest and external
+material. The [finalizer](src/evidence_bundle/finalization.rs) loads exact
+Presentation, canonical inner Result, session, possession proof and consume
+receipt from the APP candidate, checks candidate/manifest/external-auth
+correlation, and runs the unchanged full Bundle verification contract with
+independently supplied roots/registries/approval. It never manufactures absent
+artifacts, PASS predicates or authorization.
+
+Only successful verification permits private create-only local handoff with
+synced, readback-checked files and a complete manifest published last.
+Existing output refuses reuse; failed cleanup is explicit. Operator-owned
+private parents and quiescent input files are required. This is the existing
+operator path interface, not the approved immutable-FD/native provider.
+Unsupported filesystem publication operations reject, without fallback.
+
+The [19-role artifact matrix and remaining code/service gaps](FIRST-TESTPLAY-READINESS.md#required-artifact--binding-matrix)
+and [conditional operator procedure](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md#local-finalization-and-independent-handoff)
+define the scope. Raw outer Result and execution-receipt sidecars are preserved
+and checked for local consistency, not assigned an independent authority by the
+inner-Result Bundle report. Missing execution-receipt candidates still reject;
+the existing source signer is Canary-only. Full-Bundle remote upload/retention
+is not implemented by this CLI or implied by local readback. Matching device
+proof APIs and approved real-material collection remain code blockers.
+
+Current testplay decision: **BLOCKED_CODE**, also awaiting external approvals,
+pins and services. Formal `--fd-abi-v1` remains
+`FD_POLICY_CONTEXT_NOT_REGISTERED`; no provider, signer, shared resource issuer,
+deployment, publication or Production acceptance is enabled.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
 rejects trailing bytes, calls `Presentation::verify`, and requires complete

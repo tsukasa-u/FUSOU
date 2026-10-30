@@ -15,6 +15,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+pub mod finalization;
+
 const EVIDENCE_SCOPE: &str = "tlsn-production-evidence";
 const RESULT_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
 const RESULT_REGISTRY_ENVELOPE_SCOPE: &str = "fusou-result-signing-key-registry-envelope";
@@ -384,15 +386,15 @@ pub fn verify_bundle(
     options: &BundleVerifierOptions,
 ) -> Result<Value> {
     let bundle = load_bundle(bundle_path.as_ref())?;
-    verify_loaded_bundle(bundle, options)
+    verify_loaded_bundle(&bundle, options)
 }
 
 pub fn verify_bundle_bytes(bytes: BundleBytes, options: &BundleVerifierOptions) -> Result<Value> {
     let bundle = load_bundle_bytes(bytes, PathBuf::from("fd-abi-v1"))?;
-    verify_loaded_bundle(bundle, options)
+    verify_loaded_bundle(&bundle, options)
 }
 
-fn verify_loaded_bundle(bundle: LoadedBundle, options: &BundleVerifierOptions) -> Result<Value> {
+fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) -> Result<Value> {
     validate_manifest(&bundle.manifest)?;
     let required_artifact_names = [
         "presentation",
@@ -763,6 +765,14 @@ fn parse_result_profile(input: &[u8]) -> Result<ParsedVerifierResult> {
 }
 
 fn load_bundle(bundle_path: &Path) -> Result<LoadedBundle> {
+    load_bundle_with_artifacts(bundle_path, &BTreeMap::new(), |path| fs::read(path))
+}
+
+fn load_bundle_with_artifacts(
+    bundle_path: &Path,
+    supplied: &BTreeMap<String, Vec<u8>>,
+    mut read: impl FnMut(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<LoadedBundle> {
     let (manifest_path, root) = if bundle_path.is_dir() {
         let candidates = [
             "tlsn-production-evidence.json",
@@ -788,7 +798,7 @@ fn load_bundle(bundle_path: &Path) -> Result<LoadedBundle> {
             .to_path_buf();
         (bundle_path.to_path_buf(), root)
     };
-    let manifest_raw = fs::read(&manifest_path).map_err(|error| {
+    let manifest_raw = read(&manifest_path).map_err(|error| {
         BundleVerificationError::new(
             "bundle_manifest",
             Some("manifest"),
@@ -840,6 +850,11 @@ fn load_bundle(bundle_path: &Path) -> Result<LoadedBundle> {
                 "artifact path must be relative and cannot contain parent traversal",
             ));
         }
+        if let Some(bytes) = supplied.get(name) {
+            validate_artifact_bytes(name, descriptor, bytes)?;
+            artifacts.insert(name.clone(), bytes.clone());
+            continue;
+        }
         let path = root.join(relative_path);
         let canonical_path = fs::canonicalize(&path).map_err(|error| {
             BundleVerificationError::new(
@@ -855,7 +870,7 @@ fn load_bundle(bundle_path: &Path) -> Result<LoadedBundle> {
                 "artifact path escapes the bundle directory",
             ));
         }
-        let bytes = fs::read(&canonical_path).map_err(|error| {
+        let bytes = read(&canonical_path).map_err(|error| {
             BundleVerificationError::new(
                 "artifact_manifest",
                 Some(name),

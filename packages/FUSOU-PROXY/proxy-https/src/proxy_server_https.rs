@@ -68,6 +68,7 @@ struct ExperimentalRequireInfoRoute {
     enabled: bool,
     state: Arc<Mutex<ExperimentalRequireInfoState>>,
     forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>,
+    ingress: Option<crate::request_ingress::RequestIngress>,
 }
 
 #[derive(Clone)]
@@ -94,6 +95,7 @@ impl ExperimentalRequireInfoRoute {
             enabled,
             state: Arc::new(Mutex::new(ExperimentalRequireInfoState::Ready)),
             forwarder,
+            ingress: enabled.then(crate::request_ingress::RequestIngress::default),
         }
     }
 
@@ -146,6 +148,19 @@ fn experimental_tlsn_failure_response(message: &'static str) -> http::Response<h
         .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(hyper::body::Bytes::from_static(message.as_bytes()))
         .expect("failed to build Experimental TLSN failure response")
+}
+
+fn reject_uncollected_request(
+    mut response: http::Response<hyper::body::Bytes>,
+    version: http::Version,
+) -> RequestOrResponse {
+    if matches!(version, http::Version::HTTP_10 | http::Version::HTTP_11) {
+        response.headers_mut().insert(
+            http::header::CONNECTION,
+            http::HeaderValue::from_static("close"),
+        );
+    }
+    RequestOrResponse::Response(to_hudsucker_response(response))
 }
 
 fn to_hudsucker_response(response: http::Response<hyper::body::Bytes>) -> Response<Body> {
@@ -1264,13 +1279,42 @@ impl HttpHandler for LogHandler {
                 .unwrap_or_default(),
         );
 
-        let (body, body_collection_failed) = match body.collect().await {
-            Ok(collected) => (collected.to_bytes(), false),
-            Err(e) => {
-                tracing::warn!("failed to collect request body for logging: {}", e);
-                (hyper::body::Bytes::new(), true)
+        if route_decision == ExperimentalRequireInfoDecision::Blocked {
+            return reject_uncollected_request(
+                experimental_tlsn_failure_response(
+                    "Experimental TLSN route rejected a repeated request",
+                ),
+                part.version,
+            );
+        }
+        let collected = match &self.experimental_require_info_route.ingress {
+            Some(ingress) => ingress.collect(body).await,
+            None => body
+                .collect()
+                .await
+                .map(|body| crate::request_ingress::CollectedRequest::unbounded(body.to_bytes()))
+                .map_err(|_| crate::request_ingress::IngressError::ReadFailed),
+        };
+        let collected = match collected {
+            Ok(collected) => collected,
+            Err(error) => {
+                tracing::warn!(%error, connection_id = ctx.connection_id,
+                    "request ingress rejected before upstream forwarding");
+                let mut response = experimental_tlsn_failure_response(
+                    "Request body ingress failed; request was not forwarded",
+                );
+                *response.status_mut() =
+                    if route_decision == ExperimentalRequireInfoDecision::Selected
+                        && error == crate::request_ingress::IngressError::ReadFailed
+                    {
+                        http::StatusCode::SERVICE_UNAVAILABLE
+                    } else {
+                        error.status()
+                    };
+                return reject_uncollected_request(response, part.version);
             }
         };
+        let body = collected.bytes.clone();
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
@@ -1287,17 +1331,6 @@ impl HttpHandler for LogHandler {
         match route_decision {
             ExperimentalRequireInfoDecision::Forward => {}
             ExperimentalRequireInfoDecision::Selected => {
-                if body_collection_failed {
-                    tracing::warn!(
-                        connection_id = ctx.connection_id,
-                        "Experimental TLSN request body could not be collected; request was not forwarded"
-                    );
-                    return hudsucker::RequestOrResponse::Response(to_hudsucker_response(
-                        experimental_tlsn_failure_response(
-                            "Experimental TLSN route failed closed; request body could not be collected",
-                        ),
-                    ));
-                }
                 let response = match self
                     .experimental_require_info_route
                     .forward_selected(ctx.connection_id, http::Request::from_parts(part, body))
@@ -2393,7 +2426,6 @@ mod tests {
             .expect("actual require_info request")
     }
 
-    #[cfg(feature = "synthetic-tlsn")]
     fn test_handler(route: ExperimentalRequireInfoRoute) -> LogHandler {
         let channel = super::bidirectional_channel::BidirectionalChannel::new(2);
         LogHandler {
@@ -2407,6 +2439,71 @@ mod tests {
             allow_save_main_js_local: false,
             experimental_require_info_route: route,
         }
+    }
+
+    #[tokio::test]
+    async fn ingress_rejects_oversize_selected_request_and_consumes_selection_without_retry() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let requests = forwarder.requests.clone();
+        let mut handler = test_handler(ExperimentalRequireInfoRoute::new(true, Some(forwarder)));
+        let context = HttpContext::new("127.0.0.1:40009".parse().unwrap(), 99);
+        let request = Request::builder().method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .body(hudsucker::Body::from(http_body_util::Full::new(Bytes::from(vec![0; 1024 * 1024 + 1])))).unwrap();
+        let hudsucker::RequestOrResponse::Response(response) = handler.handle_request(&context, request).await else {
+            panic!("oversized request was forwarded");
+        };
+        assert_eq!(response.status(), http::StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(
+            response.headers().get(http::header::CONNECTION).unwrap(),
+            "close"
+        );
+        let retry = Request::builder().method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .body(hudsucker::Body::from_stream(hudsucker::futures::stream::pending::<Result<Bytes, std::io::Error>>())).unwrap();
+        let retry = tokio::time::timeout(std::time::Duration::from_secs(1),
+            handler.handle_request(&context, retry)).await.expect("blocked retry must not collect its body");
+        let hudsucker::RequestOrResponse::Response(response) = retry else {
+            panic!("rejected selection was reused");
+        };
+        assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get(http::header::CONNECTION).unwrap(),
+            "close"
+        );
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn ingress_bounds_non_target_requests_only_in_tlsn_enabled_mode() {
+        for enabled in [true, false] {
+            let mut handler = test_handler(ExperimentalRequireInfoRoute::new(enabled, None));
+            let context = HttpContext::new("127.0.0.1:40009".parse().unwrap(), 99);
+            let request = Request::builder().method("POST").uri("https://game.example.test/unrelated")
+                .body(hudsucker::Body::from(http_body_util::Full::new(Bytes::from(vec![0; 1024 * 1024 + 1])))).unwrap();
+            match handler.handle_request(&context, request).await {
+                hudsucker::RequestOrResponse::Response(response) => {
+                    assert!(enabled);
+                    assert_eq!(response.status(), http::StatusCode::PAYLOAD_TOO_LARGE);
+                }
+                hudsucker::RequestOrResponse::Request(_) => assert!(!enabled),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_read_failure_never_forwards_an_empty_body_in_non_tlsn_mode() {
+        let mut handler = test_handler(ExperimentalRequireInfoRoute::new(false, None));
+        let context = HttpContext::new("127.0.0.1:40009".parse().unwrap(), 99);
+        let body = hudsucker::Body::from_stream(hudsucker::futures::stream::iter([
+            Err::<Bytes, _>(std::io::Error::other("synthetic ingress failure")),
+        ]));
+        let request = Request::builder().method("POST").uri("https://game.example.test/unrelated")
+            .body(body).unwrap();
+        let hudsucker::RequestOrResponse::Response(response) = handler.handle_request(&context, request).await else {
+            panic!("body collection failure became a forwarded empty request");
+        };
+        assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

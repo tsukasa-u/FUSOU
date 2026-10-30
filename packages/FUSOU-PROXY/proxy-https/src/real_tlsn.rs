@@ -1085,7 +1085,7 @@ async fn write_production_capture_bundle(
             "possession-proof.json",
             serde_json::to_vec_pretty(&possession_json)?,
         ),
-        ("result.json", serde_json::to_vec_pretty(result)?),
+        ("result.json", serde_json::to_vec(result)?),
         (
             "consume-receipt.json",
             serde_json::to_vec_pretty(consume_receipt)?,
@@ -1175,10 +1175,15 @@ async fn write_production_capture_bundle(
     Ok::<(), std::io::Error>(())
     }
     .await;
-    if write_result.is_err() {
-        let _ = tokio::fs::remove_dir_all(&directory).await;
+    match write_result {
+        Ok(()) => Ok(()),
+        Err(error) => match tokio::fs::remove_dir_all(&directory).await {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(std::io::Error::other(format!(
+                "{error}; candidate cleanup unconfirmed: {cleanup}"
+            ))),
+        },
     }
-    write_result
 }
 
 fn required_candidate_identity_string<'a>(
@@ -2258,6 +2263,12 @@ mod tests {
         .await
         .expect("write candidate proof bundle");
 
+        assert_eq!(
+            tokio::fs::read(directory.join("result.json")).await.unwrap(),
+            serde_json::to_vec(&payload["result"]).unwrap(),
+            "inner Result export must be compact; exact outer bytes remain separate",
+        );
+
         let device_identity: serde_json::Value = serde_json::from_slice(
             &tokio::fs::read(directory.join("device-identity.json"))
                 .await
@@ -2690,6 +2701,20 @@ mod tests {
         let mut public_key_spki = ED25519_SPKI_PREFIX.to_vec();
         public_key_spki.extend_from_slice(key_pair.public_key().as_ref());
         (payload, public_key_spki)
+    }
+
+    #[test]
+    fn result_signature_verifier_export_bytes_are_canonical() {
+        let (payload, _) = signed_result_payload();
+        let bytes = serde_json::to_vec(&payload["result"]).unwrap();
+        let result = fusou_tlsn_verifier::parse_verifier_result(
+            &bytes, &ParserLimits::default(),
+        ).expect("candidate inner Result must be accepted by the independent strict parser");
+        assert_eq!(result.canonical_json().unwrap().as_bytes(), bytes);
+        assert!(fusou_tlsn_verifier::parse_verifier_result(
+            &serde_json::to_vec_pretty(&payload["result"]).unwrap(),
+            &ParserLimits::default(),
+        ).is_err());
     }
 
     #[test]

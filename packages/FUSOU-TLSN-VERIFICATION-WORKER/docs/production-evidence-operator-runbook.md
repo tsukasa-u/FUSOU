@@ -6,7 +6,7 @@ This is an operator runbook, not gameplay authorization. The completed consumer 
 
 The [current APP testplay follow-up](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md)
 records the actual GNU APP check, explicit local operational limits and signed
-Result admission at `7ea2ba9d026c9b74d5ea8b30e8d471b29f651dee`.
+Result admission, finalizer caller and current source-level blockers.
 Older validation sections below retain their historical scope/counts; they
 are not current service or gameplay execution results.
 
@@ -27,9 +27,133 @@ There are existing source-level limits that must not be hidden behind a checklis
 - The APP experiment calls [its health observer](../../FUSOU-APP/src-tauri/src/tlsn_runtime.rs) before starting the proxy. It now requires the independently expected pair `canary + fixed_canary` or `production + random`, with `environment == "production"` in both cases. Root and nested deployment identity, Git SHA, Result authority and the independently pinned active version must match. The [caller](../../FUSOU-APP/src-tauri/src/wrap_proxy.rs) supplies compile-time pins before health observation. Missing pins or incompatible identities still block entry; source/test compatibility is not evidence of an actual Production deployment.
 - The tracked APP helper is [`testplay-pre-capture-readiness.mjs`](../../FUSOU-APP/scripts/testplay-pre-capture-readiness.mjs), not a human gameplay authorization gate. It records a local reference/build/config preflight, leaves `gameplay_authorized` false and the target identity unobserved, and does not fetch/verify the Production Runtime Config manifest or authorize gameplay. No `human-gameplay-preflight.mjs` is tracked in this checkout.
 - [The APP config renderer](../scripts/production-trust-contract.mjs) validates its manifest inputs but emits only `enabled`, disclosure/response mode and artifact output path. Its fragment does not supply all compile-time trust pins, health expectations, endpoints or `candidate_capture_enabled`. Do not assume rendering it completes APP setup.
-- The tracked [`FUSOU-TLSN-VERIFICATION-WORKER/`](..) contains verification/job/Session Authority handlers and Result/archive code, as well as trust contracts and the WASM interface. Source is not deployment evidence. The external device-auth endpoint's matching implementation/owner was not identified in the bounded current WEB-source trace. APP candidate export is not a finalized bundle collector; the current APP/Worker script entry inventory did not establish that finalization handoff. These remain explicit integration requirements, not mock-based successes.
+- The tracked [`FUSOU-TLSN-VERIFICATION-WORKER/`](..) contains verification/job/Session Authority handlers and Result/archive code, as well as trust contracts and the WASM interface. Source is not deployment evidence. The all-tracked-source proof API investigation found Worker consumers but no matching WEB/Edge handler for its required device-proof or tlsn-device-proof paths. The current [Rust operator finalizer](../../FUSOU-TLSN-VERIFIER/src/evidence_bundle/finalization.rs) has a real CLI caller, but is not an automatic APP/service collector and does not establish remote full-Bundle delivery.
 
 All steps below are conditional operating instructions. Until these stop conditions and the required real inputs are resolved without bypass, do not begin real Production gameplay.
+
+### Local finalization and independent handoff
+
+Current decision is **BLOCKED_CODE**, additionally awaiting external inputs.
+The [current readiness record](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md)
+contains the exact 19-artifact matrix, current test commands/results, authority
+bindings, missing endpoint contracts and deadline boundaries. The following
+procedure is conditional; none of its real capture/service/verifier operations
+was performed by this audit.
+
+1. First appoint WEB/device/Supabase and verifier/evidence owners. Implement and
+   approve the Worker's required allowlisted HTTPS paths
+   `/api/auth/anonymous-sync/v2/device-proof` and
+   `/api/auth/anonymous-sync/v2/tlsn-device-proof`. They must enforce
+   non-anonymous bearer ownership of the registered/non-revoked row, existing
+   Ed25519/framing contracts, challenge expiry and atomic nonce/proof replay
+   prevention. Refresh/revoke or dataset tokens are not substitutes.
+   The deployed hostname/operator is not inferred from these consumer paths.
+2. Resolve the Production execution-receipt contract and real-material
+   collector. Current source receipt production is Canary-only; the APP marks
+   receipt-missing candidates incomplete and the finalizer rejects them.
+   Do not relabel a Canary receipt or manually turn blocked/unavailable
+   evidence/predicates into PASS. The blocked manifest helper is not a completed
+   capture producer.
+3. Independently approve/register public bootstrap signer ID/SPKI and manifest
+   endpoint, APP evidence trust root, fresh epoch/manifest/raw-artifact digests,
+   actual canonical DNS target and Inventory/Approval, compatible Worker/Notary/
+   Session/Binding services and their public registries. No candidate pin,
+   configured hostname, private key or environment flag is independent authority.
+   Confirm the same approved set is admitted by APP and Worker.
+4. Human release/protocol authority must resolve applicable patch/profile
+   approvals, define gameplay scope/operator/stop conditions, and separately
+   authorize actual capture. Record the three mandatory local
+   exchange/cleanup/Notary limits. Ingress has local 1 MiB/10 s idle/30 s total/
+   eight-collector defaults, distinct from exchange time. Never run a real
+   launcher as a supposedly offline check.
+5. After authorized gameplay, preserve the private APP candidate and exact
+   Presentation/outer Result/receipt bytes. Worker Production archive source
+   already readbacks Presentation and outer Result **before** consumed-authority
+   commit. Separately retrieve the authority catalog/object generations through
+   an approved actual reader and compare exact bytes/lengths/hashes. A local
+   file or local receipt is not an archive readback. A response already shown
+   to the browser is not successful evidence finalization.
+6. The approved collector supplies the existing-schema material manifest with
+   all 19 descriptors, real observations, timestamps/evidence requirements,
+   trust graph and semantic/device/capture predicates. Five roles come directly
+   from the candidate: `presentation`, canonical `result`, `session`,
+   `possession_proof`, `consume_receipt`; their supplied descriptor hashes and
+   lengths must match. Other roles must be acquired, not invented from candidate
+   flags. In particular authoritative user/device data, real replay rejection,
+   complete health, semantic material and correctly mapped capture metadata
+   must exist. APP's UNVERIFIED device/provenance record is not an authority export.
+7. An authorized operator can then use the existing path-mode CLI. The example
+   below uses only separately supplied approved public inputs, existing files
+   and a new private local destination. It does not configure or invoke the
+   formally unregistered FD/native provider. All variables must be supplied
+   by the responsible operator; no fixture/default root is valid.
+
+```bash
+VERIFY_ARGS=(
+  --evidence-root-key-id "$EVIDENCE_ROOT_KEY_ID"
+  --evidence-root-public-key-spki "$EVIDENCE_ROOT_PUBLIC_KEY_SPKI"
+  --trusted-notary-registry "$NOTARY_REGISTRY"
+  --session-authority-registry "$SESSION_AUTHORITY_REGISTRY"
+  --session-authority-key-id "$SESSION_AUTHORITY_KEY_ID"
+  --session-authority-public-key-spki "$SESSION_AUTHORITY_PUBLIC_KEY_SPKI"
+  --binding-authority-registry "$BINDING_AUTHORITY_REGISTRY"
+  --binding-authority-key-id "$BINDING_AUTHORITY_KEY_ID"
+  --binding-authority-public-key-spki "$BINDING_AUTHORITY_PUBLIC_KEY_SPKI"
+  --canonical-user-id "$CANONICAL_USER_ID"
+  --device-id "$DEVICE_ID"
+  --device-public-key "$DEVICE_PUBLIC_KEY"
+  --server-identity "$APPROVED_CANONICAL_DNS_HOSTNAME"
+  --origin-inventory "$ORIGIN_INVENTORY"
+  --target-approval "$TARGET_APPROVAL"
+  --profile-sha256 "$COMPLETE_PROFILE_SHA256"
+  --verifier-key-id "$VERIFIER_KEY_ID"
+  --trust-anchor-der "$WEB_PKI_TRUST_ANCHOR_DER"
+)
+if [ -n "${SPARSE_PROFILE_SHA256:-}" ]; then
+  VERIFY_ARGS+=(--sparse-profile-sha256 "$SPARSE_PROFILE_SHA256")
+fi
+"$VERIFIER" --path-mode --bundle "$MATERIAL_MANIFEST" \
+  --finalize-candidate "$CANDIDATE_DIRECTORY" --output "$NEW_BUNDLE_DIRECTORY" \
+  "${VERIFY_ARGS[@]}"
+"$VERIFIER" --path-mode --bundle "$NEW_BUNDLE_DIRECTORY" "${VERIFY_ARGS[@]}"
+```
+
+For Sparse, supply the independently approved sparse profile explicitly.
+Do not invoke these commands until all prior code, authority and operational
+conditions are met. The audit ran unit tests, not either real-evidence command.
+
+The finalizer invokes the real independent verifier before creating output;
+verification rejects absent/invalid authority material, incomplete candidates
+and mismatched current-exchange data. Output is private/create-only and files
+are synced/readback checked before the completion manifest is published last.
+Use operator-owned private parents/quiescent inputs. On failure there is no
+successful completion; failed cleanup is reported explicitly with the retained
+location. Existing output is not overwritten or cleaned. Inspect any retained
+partial output under separately authorized local procedures, never resubmit
+the Game Server request or force-success a blocked artifact. A second
+finalization to the same output refuses rather than double-claiming anything.
+
+The inner Result retains canonical signed semantics; the exact outer response
+and receipt/header remain distinct under `candidate/`. Local consistency and
+hash checks do not independently authenticate the outer response/execution
+receipt. The report proves only the existing 19-role Bundle verification scope.
+Preserve the external archive catalog/readback evidence and trust inputs for
+separate review; no Production execution-receipt root is created here.
+
+The Worker archive HTTP interface is read-only OIDC/grant/policy constrained.
+The main-release evidence collector is not an APP candidate uploader and
+requires an independently eligible release/workflow. Neither is a full-Bundle
+PUT API. This local handoff therefore does **not** establish remote Bundle
+permanence, retention or independently verified remote delivery receipt.
+Those are separate outstanding collector/storage contracts and real observations.
+
+Re-verify at the receiving side with independently obtained roots/registries,
+raw Inventory/Approval and canonical subject/target/profile inputs. Do not
+trust the saved local report or roots carried inside the bundle as their own
+authorization. Human evidence review, real gameplay and Production acceptance
+remain separate. No capture, local verifier exit zero, helper test or archive
+readback authorizes publication/deployment or closes formal signer/builder/
+provider/resource-policy gates.
 
 ### End-to-end readiness audit: first real-game testplay
 
@@ -190,9 +314,21 @@ The tables classify each input's primary acquisition phase. Public pins acquired
 
 Proxy provenance is governance-only. With no external pin, the existing predicate remains `UNVERIFIED`; this is not missing Game Server/Notary authority and does not require process/image attestation. A self-declared or newly invented key cannot upgrade it. Do not supply a pin to unsigned/unverified metadata simply to make a status green.
 
-Use [production-inputs.json](../scripts/production-inputs.json), [deployment contract](../scripts/deployment-contract.mjs) and [guarded deploy](../scripts/deploy-production.mjs) for deployment input allowlists and required remote-gate/previous-release artifacts. Some common input names retain `TLSN_CANDIDATE_` prefixes (selected key IDs, Notary/Auth endpoints and allowlists); that naming does not authorize candidate-derived Game Server identity. The deploy allowlist also retains legacy consumer private-key/raw-override names: they are **not** supported capture instructions. Current consumer source requires an APP bundle.
+The [deployment contract](../scripts/deployment-contract.mjs) and
+[Production trust contract](../scripts/production-trust-contract.mjs) retain
+source-level input/identity checks. The old `production-inputs.json` and
+`deploy-production.mjs` references are not tracked at this HEAD and are not
+current operator entry points. Some input names retain `TLSN_CANDIDATE_`
+prefixes; that naming does not authorize candidate-derived Game Server identity.
+Legacy private-key/raw-override names are not supported capture instructions.
+Current consumer source requires an APP bundle.
 
-The guarded `pnpm run deploy:production` sequence is preflight, WASM build, previous-deployment capture, remote gate, previous-change validation, deploy, deployment verification, then independent APP handoff capture. A clean approved checkout and all its prerequisite inputs are required. The handoff requires `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and `TLSN_APP_WORKER_REFERENCE_PATH`; these are operator/CLI inputs, not new Worker variables or secrets. Do not replace the sequence with a direct deployment to bypass a gate. This runbook does not execute deployment.
+The formerly documented guarded deployment sequence is historical, not an
+executable command at this HEAD: the current package registers only WASM build,
+WASM provenance verification and typecheck scripts, not `deploy:production`.
+Do not replace a removed guard with direct deployment. A future real deployment
+and control-plane handoff require separately approved operator procedures and
+inputs; this audit neither implements nor executes them.
 
 ### REQUIRED_AFTER_DEPLOY
 
@@ -222,7 +358,16 @@ Run existing `pnpm run verify:deployment` with independently acquired provenance
    - [Get Worker Script Version](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/): `GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}` for that active version.
 3. Require exactly one version with 100% traffic. Match the active version's public environment/role, Git SHA, logical deployment ID, Worker name, Result registry/public authority/Root envelope, Session public authority, Notary selection/registry, Verifier selection and security registry-set binding to the approved release. Reject forbidden Canary/Test bindings; Production `random` is derived by the existing Worker source, not a new Worker binding-mode variable. Require `CF_VERSION_METADATA`. Verify endpoint mapping as below, then re-read both active deployments and mapping and reject changes during acquisition.
 4. Store the new schema-2 reference in restricted **operator-controlled storage outside the evidence package**. `flag: "wx"` prevents overwriting a prior reference. The record preserves acquisition time, distinct Cloudflare deployment/version IDs, account/script/API sources, approved release context, checked public bindings, endpoint mapping and the complete public Worker-entry `compile_inputs`. It deliberately excludes API credentials, private keys and unrelated/secret version bindings. Preserve the authorized release/control-plane acquisition record and independently approve its exact raw SHA-256 in base64url form; the resulting JSON is an unsigned operator handoff, not a new cryptographic root or Runtime Attestation. A hash computed from an arbitrary supplied file is not independent approval. Schema-1 references lack mapping and must be reacquired; the builder does not silently upgrade them.
-5. Use the dedicated [approved APP builder](../scripts/build-approved-app.mjs) to pass those exact `compile_inputs` into the APP build environment, especially `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, and compare the actual resulting binary's offline report. They are compile-time `option_env!` inputs; putting reference JSON in APP config, changing user TOML, running frontend-only `pnpm run build`, or merely exporting a variable is not verified binary handoff. Handoff defaults to the existing `complete` mode; select `TLSN_PRODUCTION_DISCLOSURE_MODE=sparse` to derive the existing same-origin `/verify/tlsn/sparse` route from the approved manifest endpoint. The effective APP TOML disclosure mode must match the handoff's `disclosure_mode`. Preserve raw registry strings, including trailing newlines. Do not use shell command substitution, `eval`, or JSON reserialization to replace registry bytes.
+5. Apply the existing [APP build handoff contract](../scripts/app-build-handoff.mjs)
+   to an independently approved controlled APP build and its actual binary
+   report. The former `build-approved-app.mjs` entry is not tracked here;
+   the contract helper alone is not proof of an executed approved build.
+   Pass exact `compile_inputs`, especially `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`,
+   as compile-time inputs. Putting reference JSON in APP config, changing user
+   TOML, frontend-only build or merely exporting variables is not verified
+   binary handoff. Complete/Sparse mode, endpoint and actual runtime mode must
+   agree. Preserve raw registry bytes including trailing newlines; do not
+   replace them through reserialization or command substitution.
 6. Only after the expectation exists does APP contact the pinned `/health`. The health and verification URLs must be canonical HTTPS DNS URLs on the **same approved origin**, with no credentials, nondefault port, query, fragment or normalized path manipulation. Health path is `/health`; verification is `/verify/tlsn` or the existing same-origin `/verify/tlsn/sparse` route and must match the effective disclosure mode. Health, verification/status and Session clients do not follow redirects. A correct health URL paired with another Worker's verification URL is rejected.
 
 To refresh a handoff for an already authorized release, use `pnpm run capture:app-worker-reference` with the same independent release inputs, context, Cloudflare credentials and a **new** `TLSN_APP_WORKER_REFERENCE_PATH`. It does not contact health, the Game Server, Auth or device services. Never extract its authorities from a captured evidence package.
@@ -590,7 +735,14 @@ Keep checked inputs and outputs in the operator reference/validation record. A m
 | 9. Registered device | Live WEB device-identity response, correct owner/device/public key/hash and no revocation; existing APP key/challenge path available | Unknown device, wrong owner/key, revocation or inability to use registered local key |
 | 10. APP capture directory | Existing APP configuration preflight; reviewed full pins/endpoints; capture enabled; private writable artifact root; enough storage | Disabled capture, incomplete config, unsupported runtime health expectation or unwritable/shared output |
 
-Use existing validators, not new acceptance logic: [deployment preflight](../scripts/deployment-preflight.mjs), [registry envelope](../scripts/result-registry-envelope.mjs), [authority registry](../scripts/authority-key-registry.mjs), [Origin contract](../src/origin-trust-contract.mjs), and [APP preflight](../../FUSOU-APP/src-tauri/src/tlsn_preflight.rs).
+Use existing validators, not new acceptance logic:
+[deployment contract](../scripts/deployment-contract.mjs),
+[registry envelope](../scripts/result-registry-envelope.mjs),
+[authority registry](../scripts/authority-key-registry.mjs),
+[Origin contract](../src/origin-trust-contract.mjs), and
+[APP preflight](../../FUSOU-APP/src-tauri/src/tlsn_preflight.rs).
+The former `deployment-preflight.mjs` command is not tracked at this HEAD;
+these contract modules are not a replacement operational deploy command.
 
 The baseline raw-byte facts, locally recomputed through the existing Inventory/Approval parsers, are:
 
