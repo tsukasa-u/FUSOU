@@ -1035,6 +1035,45 @@ not a common testplay gate. Other target builds and mobile traffic capture
 remain unverified. Formal native image/runtime/input/signer/resource/provider
 gates and Production acceptance are unchanged.
 
+## K. APP signed Result admission for the current exchange
+
+The follow-up source trace found that the APP checked the inner Result
+signature but did not compare its signed fields with the current exchange
+before caching it as verified. This is separate from exact outer response
+byte/archive verification and does not change Result signing bytes.
+
+The real backend now uses one acceptance function before either Result-store
+insertion or `VerifiedTlsnEvidence` construction. Complete v2 and Sparse v3
+both require the exact raw Presentation hash, approved expected DNS identity,
+session ID, binding value/nonce, canonical user/device, device challenge, and
+captured request/response lengths. Complete additionally checks both captured
+transcript hashes. Sparse does not acquire fabricated full transcript hashes.
+The expected identity is a comparison constraint from verified Target Approval;
+the Worker must still obtain its observed identity from the Presentation.
+
+The APP constructor supplies both authority digests from the already verified
+Runtime Config manifest. Both non-null signed Result digests must match.
+The generic unpinned fixture path accepts only null authority digests, so it
+cannot silently accept a Production Result. Duplicate insertions cannot
+replace a Result still owned by an earlier operation. None of these APIs
+registers or independently approves the supplied public policy.
+
+Current local validation: 67 selected proxy tests PASS, including eight new
+context-admission tests and five existing signature/registry tests; 55 actual
+APP contract tests PASS with one pre-existing ignored external-roundtrip test;
+34 Node readiness/launcher tests PASS. The actual APP GNU `tlsn-production`
+`cargo check --locked --offline --lib --bins` also PASSes. These are current
+local results, not replayed historical counts. The new tests use the existing
+fixed synthetic signer fixture, valid signatures for wrong contexts, and the
+actual acceptance/cache function; they do not contact services or verify real
+TLSN evidence. No lockfile change was required.
+
+The APP candidate export is still not an independently verified Evidence
+Bundle. Execution/consume receipts, exact archive retrieval, external trust
+roots and transcript-derived independent Result reconstruction retain their
+separate verifier obligations. Real gameplay and evidence verification remain
+NOT EXECUTED; Production acceptance remains BLOCKED.
+
 ## References
 
 * [FD ABI v1](FD-ABI-V1.md), [fixed shared vector](fixtures/offline-fd-v1-vector.json).

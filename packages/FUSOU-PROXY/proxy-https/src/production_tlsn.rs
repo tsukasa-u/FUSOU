@@ -600,7 +600,7 @@ impl PresentationVerificationInput {
 }
 
 impl PresentationRequestContext {
-    fn from_exchange(
+    pub(crate) fn from_exchange(
         identifiers: RuntimeIdentifiers,
         connection_id: u64,
         binding: &AttestationBinding,

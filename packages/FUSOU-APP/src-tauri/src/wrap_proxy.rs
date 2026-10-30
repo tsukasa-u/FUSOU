@@ -352,6 +352,13 @@ fn build_production_tlsn_dependencies(
                 result_signing_key_registry,
             )
         }
+        .and_then(|verifier| {
+            let pins = &runtime_config.payload().production_authority_pins;
+            verifier.with_production_authority_pins(
+                &pins.origin_inventory_sha256,
+                &pins.target_approval_artifact_sha256,
+            )
+        })
         .map_err(production_configuration_error)?,
     );
     let verification_backend = std::sync::Arc::new(

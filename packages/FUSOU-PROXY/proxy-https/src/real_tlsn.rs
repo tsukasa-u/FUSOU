@@ -85,9 +85,41 @@ pub struct ResultSignatureVerifier {
     not_before: DateTime<Utc>,
     not_after: Option<DateTime<Utc>>,
     sparse: bool,
+    authority_digests: Option<([u8; 32], [u8; 32])>,
+}
+
+struct ResultExchangeContext<'a> {
+    session: &'a SessionBindingContext,
+    presentation: &'a TlsnPresentation,
+    server_identity: &'a str,
+    request: &'a [u8],
+    response: &'a [u8],
 }
 
 impl ResultSignatureVerifier {
+    pub fn with_production_authority_pins(
+        mut self,
+        origin_inventory_sha256: &str,
+        target_approval_artifact_sha256: &str,
+    ) -> Result<Self, TlsnTransportError> {
+        let decode = |value: &str| {
+            let bytes: [u8; 32] = URL_SAFE_NO_PAD
+                .decode(value)
+                .map_err(|_| TlsnTransportError::Unavailable)?
+                .try_into()
+                .map_err(|_| TlsnTransportError::Unavailable)?;
+            if URL_SAFE_NO_PAD.encode(bytes) != value {
+                return Err(TlsnTransportError::Unavailable);
+            }
+            Ok(bytes)
+        };
+        self.authority_digests = Some((
+            decode(origin_inventory_sha256)?,
+            decode(target_approval_artifact_sha256)?,
+        ));
+        Ok(self)
+    }
+
     pub fn new(
         public_key_spki: Vec<u8>,
         expected_key_id: String,
@@ -173,7 +205,75 @@ impl ResultSignatureVerifier {
             not_before,
             not_after,
             sparse,
+            authority_digests: None,
         })
+    }
+
+    fn verify_exchange(
+        &self,
+        payload: &serde_json::Value,
+        context: ResultExchangeContext<'_>,
+    ) -> Result<VerifiedMemberId, VerificationError> {
+        let member_id = self.verify(payload)?;
+        let result = &payload["result"];
+        let session = context.session;
+        let mut expected = vec![
+            (
+                "presentation_sha256",
+                URL_SAFE_NO_PAD.encode(context.presentation.sha256()),
+            ),
+            ("server_identity", context.server_identity.to_owned()),
+            (
+                "canonical_user_id",
+                session.session_receipt.canonical_user_id.clone(),
+            ),
+            ("device_id", session.device_id.clone()),
+            ("attestation_session_id", session.session_id.clone()),
+            ("binding_nonce", session.binding_challenge.clone()),
+            ("binding_value", session.binding.clone()),
+            ("device_challenge", session.device_challenge.clone()),
+            ("request_transcript_size", context.request.len().to_string()),
+            (
+                "response_transcript_size",
+                context.response.len().to_string(),
+            ),
+        ];
+        if !self.sparse {
+            expected.extend([
+                (
+                    "request_transcript_sha256",
+                    URL_SAFE_NO_PAD.encode(sha256(context.request)),
+                ),
+                (
+                    "response_transcript_sha256",
+                    URL_SAFE_NO_PAD.encode(sha256(context.response)),
+                ),
+            ]);
+        }
+        for (field, value) in expected {
+            if result.get(field).and_then(serde_json::Value::as_str) != Some(value.as_str()) {
+                tracing::warn!(field, "signed Result does not match the current exchange");
+                return Err(VerificationError::WorkerRejected);
+            }
+        }
+        let digests = match self.authority_digests {
+            Some((inventory, approval)) => [
+                serde_json::Value::String(URL_SAFE_NO_PAD.encode(inventory)),
+                serde_json::Value::String(URL_SAFE_NO_PAD.encode(approval)),
+            ],
+            // Unpinned generic fixtures cannot consume non-null Production authority.
+            None => [serde_json::Value::Null, serde_json::Value::Null],
+        };
+        for (field, digest) in ["origin_inventory_sha256", "target_approval_artifact_sha256"]
+            .into_iter()
+            .zip(digests)
+        {
+            if result.get(field) != Some(&digest) {
+                tracing::warn!(field, "signed Result does not match configured authority");
+                return Err(VerificationError::WorkerRejected);
+            }
+        }
+        Ok(member_id)
     }
 
     fn verify(&self, payload: &serde_json::Value) -> Result<VerifiedMemberId, VerificationError> {
@@ -314,10 +414,16 @@ impl RemoteWorkerResultStore {
         request_sha256: [u8; 32],
         result: RemoteWorkerResult,
     ) -> Result<(), VerificationError> {
-        self.results
+        let mut results = self
+            .results
             .lock()
-            .map_err(|_| VerificationError::WorkerUnavailable)?
-            .insert(request_sha256, result);
+            .map_err(|_| VerificationError::WorkerUnavailable)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = results.entry(request_sha256) {
+            entry.insert(result);
+        } else {
+            tracing::warn!("refusing to overwrite an unconsumed Worker Result");
+            return Err(VerificationError::WorkerRejected);
+        }
         Ok(())
     }
 
@@ -591,8 +697,7 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
         let result_verifier = Arc::clone(&self.result_verifier);
         let response_mode = self.response_mode;
         Box::pin(async move {
-            let (context, _request, binding, _exchange, presentation) = input.into_parts();
-            let connection_id = context.connection_id();
+            let (context, request, binding, exchange, presentation) = input.into_parts();
             let session = binding_state
                 .lock()
                 .map_err(|_| VerificationError::WorkerUnavailable)?
@@ -664,37 +769,74 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
             if device_key.public_key_b64() != session.device_public_key {
                 return Err(VerificationError::WorkerRejected);
             }
-            let WorkerResponse {
-                payload: response_payload,
-                body_bytes: response_bytes,
-                verifier_execution_receipt_header_bytes,
-                verifier_execution_receipt_bytes,
-                status: response_status,
-            } = worker_response;
-            let (payload, key_id, _member_id) = verified_worker_payload(response_payload)?;
-            let member_id = result_verifier.verify(&payload)?;
-            let request_sha256 = *context.request_sha256();
-            let response_sha256 = *context.response_sha256();
-            results.insert(
-                request_sha256,
-                RemoteWorkerResult {
+            accept_worker_result(
+                PresentationVerificationInput::new(
+                    context,
+                    request,
+                    binding,
+                    exchange,
                     presentation,
-                    session,
-                    device_signature,
-                    payload,
-                    response_bytes,
-                    verifier_execution_receipt_header_bytes,
-                    verifier_execution_receipt_bytes,
-                    response_status,
-                    connection_id,
-                    key_id,
-                },
-            )?;
-            Ok(VerificationOutcome::Verified(
-                VerifiedTlsnEvidence::from_verifier(request_sha256, response_sha256, member_id),
-            ))
+                ),
+                session,
+                device_signature,
+                worker_response,
+                &result_verifier,
+                &results,
+            )
         })
     }
+}
+
+fn accept_worker_result(
+    input: PresentationVerificationInput,
+    session: SessionBindingContext,
+    device_signature: String,
+    response: WorkerResponse,
+    verifier: &ResultSignatureVerifier,
+    results: &RemoteWorkerResultStore,
+) -> Result<VerificationOutcome, VerificationError> {
+    let (context, request, binding, exchange, presentation) = input.into_parts();
+    if binding.value() != session.binding() {
+        return Err(VerificationError::BindingMismatch);
+    }
+    let WorkerResponse {
+        payload,
+        body_bytes: response_bytes,
+        verifier_execution_receipt_header_bytes,
+        verifier_execution_receipt_bytes,
+        status: response_status,
+    } = response;
+    let (payload, key_id, _) = verified_worker_payload(payload)?;
+    let member_id = verifier.verify_exchange(
+        &payload,
+        ResultExchangeContext {
+            session: &session,
+            presentation: &presentation,
+            server_identity: context.server_identity(),
+            request: request.bytes(),
+            response: &exchange.response.raw_response_bytes,
+        },
+    )?;
+    let request_sha256 = *context.request_sha256();
+    let response_sha256 = *context.response_sha256();
+    results.insert(
+        request_sha256,
+        RemoteWorkerResult {
+            presentation,
+            session,
+            device_signature,
+            payload,
+            response_bytes,
+            verifier_execution_receipt_header_bytes,
+            verifier_execution_receipt_bytes,
+            response_status,
+            connection_id: context.connection_id(),
+            key_id,
+        },
+    )?;
+    Ok(VerificationOutcome::Verified(
+        VerifiedTlsnEvidence::from_verifier(request_sha256, response_sha256, member_id),
+    ))
 }
 
 pub struct RemoteWorkerResultSigner {
@@ -1918,6 +2060,8 @@ mod task_tests;
 
 #[cfg(test)]
 mod tests {
+    mod result_binding_tests;
+
     use super::*;
     use crate::{
         experimental_tlsn::{AttestationBindingProvider, ExperimentalVerifierBoundary},
