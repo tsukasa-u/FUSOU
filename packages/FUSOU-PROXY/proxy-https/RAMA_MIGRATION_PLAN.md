@@ -6,6 +6,24 @@ Rama is integrated as an optional experimental backend for side-by-side testing.
 
 The Rama implementation is compiled only with `rama-experimental`; no production configuration or runtime switch selects it.
 
+## Real TLSN Task Ownership
+
+The optional `alpha15-tlsn` path uses in-process TLSN, not the experimental
+native-launch/cgroup bridge. Its driver and prover tasks use the existing
+tokio-util `AbortOnDropHandle`: early IO/parse errors, cancellation during a
+join or dropping an unrun proof continuation requests cancellation instead
+of detaching owned tasks. Successful joins and inner task failures retain
+their original results. Four synthetic Tokio tests observe task-owned
+resource drop and isolation from another exchange; they do not prove
+real Notary/TLSN completion or synchronous cleanup at runtime destruction.
+Returning the browser response still precedes proof completion by design;
+the background proof pipeline is not replaced with a browser-response success.
+An overall Origin/MPC/proof deadline remains a separate unresolved contract;
+Worker HTTP/poll timeouts are not that deadline.
+
+See the [testplay mechanism decision](../../FUSOU-TLSN-VERIFIER/NATIVE-LAUNCH-SUBSTRATE-DECISION.md#i-testplay-dependency-audit-and-simplification)
+for actual callers, crypto/approval gates, and unadopted OS-hardening scope.
+
 ## Existing Hudsucker Capture Contract
 
 The proxy depends on the local `hudsucker` 0.23.0 fork. Its relevant FUSOU-specific API and use are:

@@ -52,7 +52,7 @@ use tlsn::{
 };
 use tlsn_formats::http::{DefaultHttpCommitter, HttpCommit, HttpTranscript};
 use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::{compat::TokioAsyncReadCompatExt, task::AbortOnDropHandle};
 
 const MAX_SENT_DATA: usize = MAX_TLSN_SENT_DATA_BYTES;
 const MAX_RECV_DATA: usize = 4 * 1024 * 1024;
@@ -1519,7 +1519,7 @@ async fn run_real_exchange(
 
     let session = Session::new(notary_socket.compat());
     let (driver, mut handle) = session.split();
-    let driver_task = tokio::spawn(driver);
+    let driver_task = spawn_exchange_task(driver);
     let prover = handle
         .new_prover(
             ProverConfig::builder()
@@ -1581,7 +1581,7 @@ async fn run_real_exchange(
                 server_identity: config.target().server_identity().to_owned(),
             }
         })?;
-    let prover_task = tokio::spawn(prover.into_future());
+    let prover_task = spawn_exchange_task(prover.into_future());
     let mut transport = ProverOwnedTlsTransport::new(connection);
     transport
         .send_actual_require_info(
@@ -1736,6 +1736,14 @@ async fn run_real_exchange(
     })
 }
 
+fn spawn_exchange_task<F>(future: F) -> AbortOnDropHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    AbortOnDropHandle::new(tokio::spawn(future))
+}
+
 fn build_presentation(
     attestation: &Attestation,
     secrets: &tlsn::attestation::Secrets,
@@ -1835,6 +1843,9 @@ fn hex_bytes(bytes: &[u8; 32]) -> String {
     }
     output
 }
+
+#[cfg(test)]
+mod task_tests;
 
 #[cfg(test)]
 mod tests {
