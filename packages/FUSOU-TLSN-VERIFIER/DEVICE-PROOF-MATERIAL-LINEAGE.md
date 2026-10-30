@@ -404,14 +404,28 @@ object/version retention semantics, authenticated receipts and explicit
 partial-failure/reconciliation policy without duplicate origin requests.
 
 The explicit exchange timeout, separate cleanup timeout and maximum Notary
-bytes remain mandatory/default-free. One absolute deadline is not reset;
-late Result admission uses the current exchange, and cancellation cannot
-promote partial output to success. Shared ingress limits remain 1 MiB,
-10-second idle, 30-second total and eight collectors; not a proof/archive lease.
-Pre-send rejection may send zero origin requests; normal completion is one
-logical operation; ambiguous writes are never retried and Game Server receipt
-can be `UNKNOWN`. Worker-only polling/cached lookup is not another origin send,
-but also not an automatic replay-evidence collector or remote cancellation.
+bytes remain mandatory/default-free. The absolute exchange deadline starts
+after a prepared binding is claimed and covers origin exchange and proof/
+Worker/Result work; background Runtime Config, health and Session/Binding
+prewarm occur before it and use their own bounded calls/retry schedule. Cleanup
+has its separate wait budget, and late Result admission uses the current
+exchange; cancellation cannot promote partial output to success.
+
+The default Hudsucker path selects only a single bounded Content-Length no
+greater than the 128 KiB TLSN sent-data ceiling; the complete serialized
+request has the same 128 KiB ceiling. Its ingress collector adds a 1 MiB body
+cap, 10-second idle timeout, 30-second completion timeout and eight-slot
+reservation. These TLSN-specific checks do not apply to non-target or not-ready
+requests sent through the ordinary proxy. Capture-unavailable, unsupported-body
+and admission-busy requests fall through before body collection. A selected
+body read/timeout/limit failure after collection begins is fail-closed and is
+not retried upstream because the body may have been consumed. This local
+ingress reservation is not a proof/archive lease or a process-wide memory
+bound. Pre-send rejection may send zero origin requests;
+normal completion is one logical operation; ambiguous writes are never retried
+and Game Server receipt can be `UNKNOWN`. Worker-only polling/cached lookup is
+not another origin send, but also not an automatic replay-evidence collector
+or remote cancellation.
 
 ## 7. Human decisions and external inputs
 
@@ -510,3 +524,45 @@ Non-successful/intermediate commands were not hidden:
 * The earlier task's opt-in synthetic-feature compile issue is historical, not
   rerun or reported as a PASS here. Actual APP/Proxy feature validation above
   is distinct from that optional test harness.
+
+## Nonblocking capture and origin-send journal follow-up
+
+The local follow-up keeps the nineteen-role schema, producer/collector
+assignments and finalizer gates unchanged. It changes only how the APP decides
+whether a request is eligible to enter that existing capture pipeline:
+
+* The ordinary Proxy listener starts before Runtime Config refresh, preflight,
+  Worker health and TLSN dependency construction run in a background task.
+  The forwarder is installed only after those checks pass. Initialization
+  failure leaves capture unavailable rather than stopping ordinary proxying.
+* Capture is per-request, not a listener-global one-shot. A matching request
+  is captured only when a prepared binding, one-request admission and selected
+  TLSN ingress capacity are available. Otherwise, its untouched body follows
+  the ordinary proxy path. A selected body read failure after consumption is
+  fail-closed and never triggers a retry.
+* Production APP wiring opens an append-only, private JSONL send journal under
+  the APP roaming directory. It durably records the SHA-256 of the authority
+  binding as the local attempt key, canonical target and serialized request
+  digest before origin transport I/O; no binding value or raw request body is
+  stored. On startup, an unfinished `send_started` entry is durably finalized
+  as `unknown`, and its attempt key cannot be reused. `response_received`
+  persistence is asynchronous after the browser response, so a crash before
+  that update is conservatively recovered as `unknown`.
+* This journal is local crash/replay protection, not an authority-issued
+  logical-operation reservation. The existing Worker Binding Authority
+  durably owns per-binding state, but its contract does not bind a stable Game
+  Server operation ID, request digest or origin-send intent. A retry of the
+  same logical game operation with a newly issued binding is not identifiable
+  from the current contract; no endpoint or ownership policy was invented.
+
+| Follow-up check | Result | Evidence boundary |
+|---|---|---|
+| Default Proxy library suite | 122 PASS, 0 FAIL, exit 0 | Local Rust tests only. |
+| `rama-experimental` Proxy library suite | 155 PASS, 0 FAIL, exit 0 | Includes Rama route fallback and HTTP/1 loopback tests, not real-game evidence. |
+| APP `tlsn-production` library/binary check | PASS, exit 0 | Type checking only; existing warnings remain, no GUI/package launch. |
+| APP `runtime_config_transport_gate_tests` with `tlsn-production` | 7 PASS, 0 FAIL, exit 0 | Local fake revalidation/binding/origin tests; not APP launch or live services. |
+
+No Worker/Durable Object test, actual service request, real Presentation,
+archive operation, APP GUI launch or gameplay was performed in this follow-up.
+The three testplay stages therefore retain their prior blocked/external-input
+states.

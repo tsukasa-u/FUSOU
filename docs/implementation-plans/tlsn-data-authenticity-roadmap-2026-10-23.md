@@ -5705,3 +5705,49 @@ cd /home/ogu-h/Documents/GitHub/FUSOU
 set -- scripts/release-native-build.mjs scripts/release-native-build.test.mjs scripts/release-native-attestation.mjs scripts/release-native-attestation-fixture.mjs scripts/release-native-attestation.test.mjs scripts/release-consumer.mjs .github/workflows/tlsn-native-build.yml packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.mjs packages/FUSOU-TLSN-VERIFIER/README.md docs/architecture/adr-tlsn-grant-authority-delegation.md docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md
 git branch --show-current && git rev-parse HEAD HEAD^ && git -c core.fsmonitor=false status --short --untracked-files=all -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check HEAD^ HEAD -- "$@" && git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --exit-code HEAD^ HEAD -- scripts/release-native-policy.draft.json packages/FUSOU-TLSN-VERIFIER/Cargo.toml packages/FUSOU-TLSN-VERIFIER/Cargo.lock
 ```
+
+## Nonblocking capture and local journal implementation follow-up
+
+The local implementation separates normal Game Server proxy traffic from
+optional TLSN capture without changing the existing evidence schema or
+authority contract:
+
+1. The APP starts the ordinary proxy first. Runtime Config refresh, preflight,
+   Worker health validation and TLSN dependency construction run in a
+   background task. The capture forwarder is installed only after success;
+   failure leaves capture unavailable and ordinary proxy traffic active.
+2. Capture admission is per matching request, not a listener-global one-shot.
+   The route requires a ready prepared binding, a free one-request slot and
+   supported bounded body framing. A not-ready binding, competing request,
+   unsupported body or unavailable TLSN ingress slot follows the ordinary
+   proxy before body consumption.
+3. Default Hudsucker capture selection requires one bounded Content-Length no
+   greater than the 128 KiB TLSN sent-data ceiling; the complete serialized
+   request has the same 128 KiB ceiling. Its ingress collector adds a 1 MiB
+   body cap, 10-second idle / 30-second completion timeout and eight-slot
+   reservation. Non-target and not-ready requests bypass these TLSN-specific
+   limits. A selected body read failure after partial consumption fails closed;
+   it is not replayed through another route.
+4. The APP journal durably appends a binding-derived attempt digest, canonical
+   target and serialized request digest before origin transport I/O. It does
+   not persist the binding value or raw request body. Restart converts an
+   unfinished send into `UNKNOWN` and refuses reuse of that attempt digest.
+   A successful origin response is returned without waiting for the journal's
+   terminal `ResponseReceived` sync; a crash before that update remains
+   conservatively `UNKNOWN`.
+5. This local journal and the Worker Binding Authority's existing durable
+   per-binding record do not form a stable logical Game Server attempt
+   reservation. The Worker record does not bind an operation ID, request
+   digest or origin-send intent, and a new binding cannot prove that a
+   repeated logical operation is new. No endpoint, signer or ownership policy
+   was added to fill that gap. Ambiguous writes remain non-retryable and the
+   Game Server receipt remains `UNKNOWN`.
+
+The source/test follow-up is locally verified: Proxy default library tests
+122/122 pass, `rama-experimental` Proxy library tests 155/155 pass, the APP
+`tlsn-production` library/binary check passes with existing warnings, and the
+APP Runtime Config transport-gate tests 7/7 pass. These are local Rust tests,
+including synthetic and loopback cases; they do not prove
+deployed services, a real Presentation, user gameplay or Production
+acceptance. The earlier Phase 1/authority policy questions remain unresolved;
+these implementation changes do not authorize a new logical-attempt policy.

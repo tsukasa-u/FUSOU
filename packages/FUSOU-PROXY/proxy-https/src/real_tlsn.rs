@@ -866,14 +866,21 @@ impl RemoteWorkerResultSigner {
         materials: Arc<BTreeMap<String, Vec<u8>>>,
     ) -> Result<Self, ResultSignerError> {
         let names = [
-            "runtime-config-envelope.json", "runtime-worker-reference.json",
-            "runtime-origin-inventory.json", "runtime-target-approval.json",
-            "runtime-security-registry-set.json", "runtime-result-registry-envelope.json",
+            "runtime-config-envelope.json",
+            "runtime-worker-reference.json",
+            "runtime-origin-inventory.json",
+            "runtime-target-approval.json",
+            "runtime-security-registry-set.json",
+            "runtime-result-registry-envelope.json",
             "runtime-result-registry.json",
         ];
         if materials.len() != names.len()
-            || names.iter().any(|name| materials.get(*name).is_none_or(Vec::is_empty))
-            || materials.values().try_fold(0_usize, |size, raw| size.checked_add(raw.len()))
+            || names
+                .iter()
+                .any(|name| materials.get(*name).is_none_or(Vec::is_empty))
+            || materials
+                .values()
+                .try_fold(0_usize, |size, raw| size.checked_add(raw.len()))
                 .is_none_or(|size| size > 16 * 1024 * 1024)
         {
             return Err(ResultSignerError::Failed);
@@ -1491,6 +1498,22 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             });
             AttestationBinding::new(authority.binding).map_err(|_| BindingError::InvalidBinding)
         })
+    }
+
+    fn attempt_completed(&self, binding: &AttestationBinding) {
+        match self.state.lock() {
+            Ok(mut state)
+                if state
+                    .as_ref()
+                    .is_some_and(|session| session.binding() == binding.value()) =>
+            {
+                *state = None;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::error!(%error, "Remote TLSN session binding state is poisoned during attempt cleanup");
+            }
+        }
     }
 }
 
@@ -2290,32 +2313,80 @@ mod tests {
         );
 
         let runtime_materials: BTreeMap<String, Vec<u8>> = [
-            "runtime-config-envelope.json", "runtime-worker-reference.json",
-            "runtime-origin-inventory.json", "runtime-target-approval.json",
-            "runtime-security-registry-set.json", "runtime-result-registry-envelope.json",
+            "runtime-config-envelope.json",
+            "runtime-worker-reference.json",
+            "runtime-origin-inventory.json",
+            "runtime-target-approval.json",
+            "runtime-security-registry-set.json",
+            "runtime-result-registry-envelope.json",
             "runtime-result-registry.json",
-        ].into_iter().map(|name| (name.to_owned(), format!("{{\"source\":\"{name}\"}}\n").into_bytes())).collect();
+        ]
+        .into_iter()
+        .map(|name| {
+            (
+                name.to_owned(),
+                format!("{{\"source\":\"{name}\"}}\n").into_bytes(),
+            )
+        })
+        .collect();
         let store = RemoteWorkerResultStore::new();
-        assert!(RemoteWorkerResultSigner::new(Arc::clone(&store), artifact_root.clone())
-            .with_runtime_config_materials(Arc::new(runtime_materials.clone())).is_ok());
+        assert!(
+            RemoteWorkerResultSigner::new(Arc::clone(&store), artifact_root.clone())
+                .with_runtime_config_materials(Arc::new(runtime_materials.clone()))
+                .is_ok()
+        );
         for mutated in [
             BTreeMap::new(),
-            { let mut changed = runtime_materials.clone(); changed.remove("runtime-result-registry.json"); changed },
-            { let mut changed = runtime_materials.clone(); changed.insert("../outside".to_owned(), vec![1]); changed },
-            { let mut changed = runtime_materials.clone(); changed.insert("runtime-result-registry.json".to_owned(), Vec::new()); changed },
-            { let mut changed = runtime_materials.clone(); changed.insert("runtime-result-registry.json".to_owned(), vec![0; 16 * 1024 * 1024 + 1]); changed },
+            {
+                let mut changed = runtime_materials.clone();
+                changed.remove("runtime-result-registry.json");
+                changed
+            },
+            {
+                let mut changed = runtime_materials.clone();
+                changed.insert("../outside".to_owned(), vec![1]);
+                changed
+            },
+            {
+                let mut changed = runtime_materials.clone();
+                changed.insert("runtime-result-registry.json".to_owned(), Vec::new());
+                changed
+            },
+            {
+                let mut changed = runtime_materials.clone();
+                changed.insert(
+                    "runtime-result-registry.json".to_owned(),
+                    vec![0; 16 * 1024 * 1024 + 1],
+                );
+                changed
+            },
         ] {
-            assert!(RemoteWorkerResultSigner::new(Arc::clone(&store), artifact_root.clone())
-                .with_runtime_config_materials(Arc::new(mutated)).is_err());
+            assert!(
+                RemoteWorkerResultSigner::new(Arc::clone(&store), artifact_root.clone())
+                    .with_runtime_config_materials(Arc::new(mutated))
+                    .is_err()
+            );
         }
         write_production_capture_bundle(
-            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9, Some(&runtime_materials),
+            args.0,
+            args.1,
+            args.2,
+            args.3,
+            args.4,
+            args.5,
+            args.6,
+            args.7,
+            args.8,
+            args.9,
+            Some(&runtime_materials),
         )
         .await
         .expect("write candidate proof bundle");
 
         assert_eq!(
-            tokio::fs::read(directory.join("result.json")).await.unwrap(),
+            tokio::fs::read(directory.join("result.json"))
+                .await
+                .unwrap(),
             serde_json::to_vec(&payload["result"]).unwrap(),
             "inner Result export must be compact; exact outer bytes remain separate",
         );
@@ -2401,12 +2472,18 @@ mod tests {
         .await;
         assert_eq!(retry.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
         let manifest: serde_json::Value = serde_json::from_slice(
-            &tokio::fs::read(directory.join("candidate-manifest.json")).await.unwrap(),
-        ).unwrap();
+            &tokio::fs::read(directory.join("candidate-manifest.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         for (name, raw) in &runtime_materials {
             assert_eq!(&tokio::fs::read(directory.join(name)).await.unwrap(), raw);
             assert_eq!(manifest["artifacts"][name]["size_bytes"], raw.len());
-            assert_eq!(manifest["artifacts"][name]["sha256"], URL_SAFE_NO_PAD.encode(sha256(raw)));
+            assert_eq!(
+                manifest["artifacts"][name]["sha256"],
+                URL_SAFE_NO_PAD.encode(sha256(raw))
+            );
         }
         assert_eq!(
             tokio::fs::read(directory.join("result-exact.bin"))
@@ -2766,14 +2843,14 @@ mod tests {
     fn result_signature_verifier_export_bytes_are_canonical() {
         let (payload, _) = signed_result_payload();
         let bytes = serde_json::to_vec(&payload["result"]).unwrap();
-        let result = fusou_tlsn_verifier::parse_verifier_result(
-            &bytes, &ParserLimits::default(),
-        ).expect("candidate inner Result must be accepted by the independent strict parser");
+        let result = fusou_tlsn_verifier::parse_verifier_result(&bytes, &ParserLimits::default())
+            .expect("candidate inner Result must be accepted by the independent strict parser");
         assert_eq!(result.canonical_json().unwrap().as_bytes(), bytes);
         assert!(fusou_tlsn_verifier::parse_verifier_result(
             &serde_json::to_vec_pretty(&payload["result"]).unwrap(),
             &ParserLimits::default(),
-        ).is_err());
+        )
+        .is_err());
     }
 
     #[test]

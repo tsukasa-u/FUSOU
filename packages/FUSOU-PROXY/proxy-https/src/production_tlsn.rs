@@ -1,17 +1,21 @@
 use crate::exchange_lifecycle::{ExchangeLifecycle, ExchangePolicy};
 use crate::experimental_tlsn::{
-    sha256, AttestationBinding, DeferredVerification, ExperimentalResultBoundary,
-    ExperimentalTlsnForwarder, ExperimentalVerifierBoundary, ResultBoundaryError,
-    ResultBoundaryFuture, SerializedOriginRequest, TlsnEvidenceMetadata, TlsnOriginExchange,
-    TlsnOriginTransport, TlsnTransportError, TlsnTransportFuture, VerificationError,
-    VerificationFuture, VerificationOutcome, VerifiedTlsnEvidence,
+    digest_hex, sha256, AttestationBinding, AttestationBindingProvider, BindingRequestContext,
+    DeferredVerification, ExperimentalResultBoundary, ExperimentalTlsnForwarder,
+    ExperimentalVerifierBoundary, OriginSendJournal, OriginSendJournalOutcome,
+    PreparedBindingProvider, ResultBoundaryError, ResultBoundaryFuture, SerializedOriginRequest,
+    TlsnEvidenceMetadata, TlsnOriginExchange, TlsnOriginTransport, TlsnTransportError,
+    TlsnTransportFuture, VerificationError, VerificationFuture, VerificationOutcome,
+    VerifiedTlsnEvidence,
 };
 use authenticity_core::ServerIdentity;
+use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
+    fs::{self, OpenOptions},
     future::Future,
-    io,
-    path::Path,
+    io::{self, Write},
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -20,7 +24,7 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OriginConfigurationError {
@@ -1499,10 +1503,292 @@ impl ExperimentalResultBoundary for SignedResultBoundary {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PersistedOriginSendOutcome {
+    SendStarted,
+    NotSent,
+    Unknown,
+    ResponseReceived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OriginSendJournalEntry {
+    target: String,
+    request_sha256: String,
+    outcome: PersistedOriginSendOutcome,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+enum OriginSendJournalEvent {
+    SendIntent {
+        schema_version: u8,
+        attempt_id: String,
+        target: String,
+        request_sha256: String,
+    },
+    Outcome {
+        schema_version: u8,
+        attempt_id: String,
+        outcome: PersistedOriginSendOutcome,
+    },
+}
+
+struct OriginSendJournalState {
+    file: fs::File,
+    entries: BTreeMap<String, OriginSendJournalEntry>,
+    poisoned: bool,
+}
+
+pub struct FilesystemOriginSendJournal {
+    state: Mutex<OriginSendJournalState>,
+}
+
+impl FilesystemOriginSendJournal {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Arc<Self>, String> {
+        let path = path.into();
+        let parent = path
+            .parent()
+            .ok_or_else(|| "TLSN origin journal path has no parent directory".to_owned())?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create TLSN journal directory: {error}"))?;
+
+        if let Ok(metadata) = fs::symlink_metadata(&path) {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err("TLSN origin journal must be a regular non-symlink file".to_owned());
+            }
+        }
+
+        let entries = match fs::read(&path) {
+            Ok(bytes) => Self::replay(&bytes)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(error) => {
+                return Err(format!("failed to read TLSN origin journal: {error}"));
+            }
+        };
+        let mut options = OpenOptions::new();
+        options.append(true).create(true).read(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let file = options
+            .open(&path)
+            .map_err(|error| format!("failed to open TLSN origin journal: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("failed to sync TLSN origin journal: {error}"))?;
+        #[cfg(unix)]
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| format!("failed to sync TLSN journal directory: {error}"))?;
+
+        let mut state = OriginSendJournalState {
+            file,
+            entries,
+            poisoned: false,
+        };
+        let unfinished_attempts: Vec<String> = state
+            .entries
+            .iter()
+            .filter_map(|(attempt_id, entry)| {
+                (entry.outcome == PersistedOriginSendOutcome::SendStarted)
+                    .then(|| attempt_id.clone())
+            })
+            .collect();
+        for attempt_id in unfinished_attempts {
+            let event = OriginSendJournalEvent::Outcome {
+                schema_version: 1,
+                attempt_id,
+                outcome: PersistedOriginSendOutcome::Unknown,
+            };
+            Self::append(&mut state, &event)?;
+            Self::apply_event(&mut state.entries, event)?;
+        }
+
+        Ok(Arc::new(Self {
+            state: Mutex::new(state),
+        }))
+    }
+
+    fn replay(bytes: &[u8]) -> Result<BTreeMap<String, OriginSendJournalEntry>, String> {
+        if !bytes.is_empty() && !bytes.ends_with(b"\n") {
+            return Err("TLSN origin journal ends with an incomplete record".to_owned());
+        }
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| "TLSN origin journal is not valid UTF-8".to_owned())?;
+        let mut entries = BTreeMap::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                return Err("TLSN origin journal contains an empty record".to_owned());
+            }
+            let event: OriginSendJournalEvent = serde_json::from_str(line)
+                .map_err(|_| "TLSN origin journal contains an invalid record".to_owned())?;
+            Self::apply_event(&mut entries, event)?;
+        }
+        Ok(entries)
+    }
+
+    fn apply_event(
+        entries: &mut BTreeMap<String, OriginSendJournalEntry>,
+        event: OriginSendJournalEvent,
+    ) -> Result<(), String> {
+        match event {
+            OriginSendJournalEvent::SendIntent {
+                schema_version,
+                attempt_id,
+                target,
+                request_sha256,
+            } => {
+                if schema_version != 1
+                    || !is_lower_hex_digest(&attempt_id)
+                    || !is_lower_hex_digest(&request_sha256)
+                    || target != target.to_ascii_lowercase()
+                    || ServerIdentity::new(&target).is_err()
+                    || entries.contains_key(&attempt_id)
+                {
+                    return Err("TLSN origin journal send-intent violates its contract".to_owned());
+                }
+                entries.insert(
+                    attempt_id,
+                    OriginSendJournalEntry {
+                        target,
+                        request_sha256,
+                        outcome: PersistedOriginSendOutcome::SendStarted,
+                    },
+                );
+            }
+            OriginSendJournalEvent::Outcome {
+                schema_version,
+                attempt_id,
+                outcome,
+            } => {
+                if schema_version != 1 || outcome == PersistedOriginSendOutcome::SendStarted {
+                    return Err("TLSN origin journal outcome violates its contract".to_owned());
+                }
+                let entry = entries
+                    .get_mut(&attempt_id)
+                    .ok_or_else(|| "TLSN origin journal outcome has no send intent".to_owned())?;
+                if entry.outcome != PersistedOriginSendOutcome::SendStarted {
+                    return Err(
+                        "TLSN origin journal attempt already has a terminal outcome".to_owned()
+                    );
+                }
+                entry.outcome = outcome;
+            }
+        }
+        Ok(())
+    }
+
+    fn append(
+        state: &mut OriginSendJournalState,
+        event: &OriginSendJournalEvent,
+    ) -> Result<(), String> {
+        if state.poisoned {
+            return Err("TLSN origin journal is poisoned after a prior write failure".to_owned());
+        }
+        let mut bytes = serde_json::to_vec(event)
+            .map_err(|_| "failed to serialize TLSN origin journal record".to_owned())?;
+        bytes.push(b'\n');
+        if let Err(error) = state
+            .file
+            .write_all(&bytes)
+            .and_then(|()| state.file.sync_all())
+        {
+            state.poisoned = true;
+            return Err(format!(
+                "failed to durably append TLSN origin journal: {error}"
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl OriginSendJournal for FilesystemOriginSendJournal {
+    fn record_send_intent(
+        &self,
+        attempt_id: &str,
+        target: &str,
+        request_sha256: &[u8; 32],
+    ) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "TLSN origin journal state is poisoned".to_owned())?;
+        if !is_lower_hex_digest(attempt_id)
+            || target != target.to_ascii_lowercase()
+            || ServerIdentity::new(target).is_err()
+            || state.entries.contains_key(attempt_id)
+        {
+            return Err("TLSN origin journal refused a duplicate or invalid attempt".to_owned());
+        }
+        let request_sha256 = digest_hex(request_sha256);
+        let event = OriginSendJournalEvent::SendIntent {
+            schema_version: 1,
+            attempt_id: attempt_id.to_owned(),
+            target: target.to_owned(),
+            request_sha256: request_sha256.clone(),
+        };
+        Self::append(&mut state, &event)?;
+        state.entries.insert(
+            attempt_id.to_owned(),
+            OriginSendJournalEntry {
+                target: target.to_owned(),
+                request_sha256,
+                outcome: PersistedOriginSendOutcome::SendStarted,
+            },
+        );
+        Ok(())
+    }
+
+    fn record_outcome(
+        &self,
+        attempt_id: &str,
+        outcome: OriginSendJournalOutcome,
+    ) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "TLSN origin journal state is poisoned".to_owned())?;
+        let entry = state
+            .entries
+            .get(attempt_id)
+            .ok_or_else(|| "TLSN origin journal outcome has no send intent".to_owned())?;
+        if entry.outcome != PersistedOriginSendOutcome::SendStarted {
+            return Err("TLSN origin journal attempt already has a terminal outcome".to_owned());
+        }
+        let outcome = match outcome {
+            OriginSendJournalOutcome::NotSent => PersistedOriginSendOutcome::NotSent,
+            OriginSendJournalOutcome::Unknown => PersistedOriginSendOutcome::Unknown,
+            OriginSendJournalOutcome::ResponseReceived => {
+                PersistedOriginSendOutcome::ResponseReceived
+            }
+        };
+        let event = OriginSendJournalEvent::Outcome {
+            schema_version: 1,
+            attempt_id: attempt_id.to_owned(),
+            outcome,
+        };
+        Self::append(&mut state, &event)?;
+        state
+            .entries
+            .get_mut(attempt_id)
+            .expect("journal entry was verified before append")
+            .outcome = outcome;
+        Ok(())
+    }
+}
+
+fn is_lower_hex_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProductionConfigurationError {
     InvalidOrigin(OriginConfigurationError),
     MissingPresentationArtifactSink,
+    MissingOriginSendJournal,
 }
 
 impl std::fmt::Display for ProductionConfigurationError {
@@ -1511,6 +1797,9 @@ impl std::fmt::Display for ProductionConfigurationError {
             Self::InvalidOrigin(error) => write!(formatter, "invalid production origin: {error}"),
             Self::MissingPresentationArtifactSink => {
                 formatter.write_str("production TLSN requires a Presentation artifact sink")
+            }
+            Self::MissingOriginSendJournal => {
+                formatter.write_str("production TLSN requires a durable origin send journal")
             }
         }
     }
@@ -1527,6 +1816,7 @@ pub struct ProductionTlsnDependencies {
     delivery: Arc<dyn ProductionResultDelivery>,
     identifiers: RuntimeIdentifiers,
     lifecycle_policy: Option<ExchangePolicy>,
+    send_journal: Option<Arc<dyn OriginSendJournal>>,
 }
 
 impl ProductionTlsnDependencies {
@@ -1550,6 +1840,7 @@ impl ProductionTlsnDependencies {
             delivery,
             identifiers: RuntimeIdentifiers::default(),
             lifecycle_policy: None,
+            send_journal: None,
         }
     }
 
@@ -1560,6 +1851,11 @@ impl ProductionTlsnDependencies {
 
     pub fn with_lifecycle_policy(mut self, policy: ExchangePolicy) -> Self {
         self.lifecycle_policy = Some(policy);
+        self
+    }
+
+    pub fn with_origin_send_journal(mut self, journal: Arc<dyn OriginSendJournal>) -> Self {
+        self.send_journal = Some(journal);
         self
     }
 
@@ -1580,6 +1876,10 @@ impl ProductionTlsnDependencies {
         let presentation_artifact_sink = self
             .presentation_artifact_sink
             .ok_or(ProductionConfigurationError::MissingPresentationArtifactSink)?;
+        let send_journal = self
+            .send_journal
+            .ok_or(ProductionConfigurationError::MissingOriginSendJournal)?;
+        let journal_target = self.origin.target().hostname().to_owned();
         let transport = Arc::new(
             ProductionAlpha15OriginTransport::new(self.origin.clone(), self.transport_factory)
                 .map_err(ProductionConfigurationError::InvalidOrigin)?,
@@ -1592,13 +1892,20 @@ impl ProductionTlsnDependencies {
             Some(presentation_artifact_sink),
         );
         let result_boundary = SignedResultBoundary::new(self.signer, self.delivery);
-        Ok(ExperimentalTlsnForwarder::new_with_policy(
-            self.binding_provider,
+        let binding_provider: Arc<dyn AttestationBindingProvider> =
+            Arc::new(PreparedBindingProvider::new(
+                self.binding_provider,
+                BindingRequestContext::new(0, "/kcsapi/api_get_member/require_info"),
+            ));
+        Ok(ExperimentalTlsnForwarder::new_with_policy_and_journal(
+            binding_provider,
             Arc::new(crate::experimental_tlsn::Http1OriginRequestSerializer),
             transport,
             verifier,
             result_boundary,
             self.lifecycle_policy,
+            Some(send_journal),
+            Some(journal_target),
         ))
     }
 }
@@ -1730,6 +2037,27 @@ mod tests {
     }
 
     struct Binding;
+
+    struct TestOriginSendJournal;
+
+    impl OriginSendJournal for TestOriginSendJournal {
+        fn record_send_intent(
+            &self,
+            _attempt_id: &str,
+            _target: &str,
+            _request_sha256: &[u8; 32],
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn record_outcome(
+            &self,
+            _attempt_id: &str,
+            _outcome: OriginSendJournalOutcome,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
 
     impl crate::experimental_tlsn::AttestationBindingProvider for Binding {
         fn issue_binding(
@@ -1932,6 +2260,7 @@ mod tests {
             Arc::new(UnconfiguredProductionResultDelivery),
         )
         .with_presentation_artifact_sink(sink)
+        .with_origin_send_journal(Arc::new(TestOriginSendJournal))
         .build_forwarder()
         .unwrap();
         let request = hudsucker::hyper::Request::builder()
@@ -1941,10 +2270,15 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
 
-        assert_eq!(
-            forwarder.forward(42, request).await.unwrap_err(),
-            "TLSN origin transport is unavailable"
-        );
+        forwarder.start_preparation();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !forwarder.capture_ready() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("binding preparation did not complete");
+        assert!(forwarder.forward(42, request).await.unwrap().is_none());
     }
 
     #[test]
@@ -1968,6 +2302,61 @@ mod tests {
             error.to_string(),
             "production TLSN requires a Presentation artifact sink"
         );
+    }
+
+    #[test]
+    fn filesystem_origin_journal_survives_restart_and_refuses_attempt_replay() {
+        let path = std::env::temp_dir().join(format!(
+            "fusou-tlsn-origin-journal-{}-{}.jsonl",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let attempt_id = "a".repeat(64);
+        {
+            let journal = FilesystemOriginSendJournal::open(&path).unwrap();
+            journal
+                .record_send_intent(&attempt_id, "game.example.test", &[0x55; 32])
+                .unwrap();
+        }
+        {
+            let journal = FilesystemOriginSendJournal::open(&path).unwrap();
+            assert_eq!(
+                journal
+                    .state
+                    .lock()
+                    .unwrap()
+                    .entries
+                    .get(&attempt_id)
+                    .unwrap()
+                    .outcome,
+                PersistedOriginSendOutcome::Unknown
+            );
+            assert!(journal
+                .record_send_intent(&attempt_id, "game.example.test", &[0x55; 32])
+                .is_err());
+            assert!(journal
+                .record_outcome(&attempt_id, OriginSendJournalOutcome::Unknown)
+                .is_err());
+        }
+        {
+            let journal = FilesystemOriginSendJournal::open(&path).unwrap();
+            assert!(journal
+                .record_outcome(&attempt_id, OriginSendJournalOutcome::ResponseReceived)
+                .is_err());
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn filesystem_origin_journal_fails_closed_on_truncated_tail() {
+        let path = std::env::temp_dir().join(format!(
+            "fusou-tlsn-origin-journal-truncated-{}-{}.jsonl",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&path, b"{\"event\":\"send_intent\"").unwrap();
+        assert!(FilesystemOriginSendJournal::open(&path).is_err());
+        fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]

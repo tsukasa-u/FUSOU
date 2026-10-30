@@ -68,16 +68,16 @@ The following requirements are fixed for this work:
 
 | Boundary | Source-observed behavior | Limit of the observation |
 |---|---|---|
-| Route selection | `ExperimentalRequireInfoRoute` selects the first exact `POST /kcsapi/api_get_member/require_info` and shares its `Arc<Mutex<...>>` state across clones. The Rama listener clones one route into per-connection services. | This is listener-scoped, process-memory state, not a session/attempt authority. Hudsucker's request handler uses the same route abstraction. |
-| Rama body handling | The selected Rama request checks an oversized `Content-Length`, then applies a 128 KiB `Body::limited` collector under one 30-second timeout. `Blocked` requests fail before body collection. | These are selected-route controls only. They are not process-wide memory limits and do not limit Hudsucker's body collection. |
+| Route selection | `ExperimentalRequireInfoRoute` checks the exact `POST /kcsapi/api_get_member/require_info` on each request and selects capture only when a prepared forwarder binding is ready. Hudsucker and Rama both use per-request capture admission; clones share the slot, not a consumed listener-wide selection. | This is local process state, not a session/attempt authority or a durable logical-operation reservation. |
+| Rama body handling | A request is selected only with one bounded `Content-Length` no greater than the 128 KiB TLSN sent-data ceiling. The selected body uses `Body::limited` under a 30-second timeout. Unready/busy/unsupported requests go to ordinary proxying before collection; selected-body collection failure fails closed. | These selected-route controls are not process-wide memory limits. Ordinary fallback is not a successful TLSN capture. |
 | Serialized request | The HTTP/1.1 serializer accounts for the request line, each header and CRLF, generated `Content-Length` where needed, the binding header, the header terminator, and body. Length additions use `checked_add`; the complete serialized length is capped before `Vec::with_capacity`. | The 128 KiB ceiling is for the complete serialized sent request, not a 128 KiB permitted body. A body can be accepted by the collector and later rejected because headers and framing use part of that budget. |
-| TLS transport | The Production origin transport uses the configured DNS identity, system trust roots, and a single-use send path. The forwarder commits its `Sent` state before transport I/O and has no retry/fallback path. | Source wiring does not establish a live Game Server or Notary operation. A transport failure after a write begins can leave the remote outcome unknown. |
+| TLS transport | The Production origin transport uses the configured DNS identity, system trust roots, and a single-use send path. A local journal send intent is synced before origin I/O; an outcome classified `NotSent` may use ordinary proxying, but an ambiguous outcome never retries or falls back. | Source wiring does not establish a live Game Server or Notary operation. A transport failure after a write begins can leave the remote outcome unknown; the local journal is not an authoritative logical-attempt receipt. |
 | Transcript and response | The transport records exact serialized request and raw response bytes. The verifier boundary compares their hashes to the exchange values. The origin response is returned before the deferred proof pipeline completes. | The browser-visible response is not an attestation or Result receipt. Proof failure after response return cannot undo the response already delivered. |
 | Presentation verification | `RealAlpha15DedicatedVerifier` verifies the actual Presentation against the trusted Notary key and compares its observed server identity and transcript hashes with the expected values and captured exchange. It checks the binding session and nonce. | External Notary availability, deployed verifier behavior, and real Presentation evidence are not established by this source review. |
 | Generic Result validators and signing bytes | Complete Result v2 and Sparse Result v3 include both inventory/approval digest slots in canonical JSON and signing bytes. Both generic validators reject a half-present pair but permit both digests to be absent. | Generic validation alone does not require Production provenance. This is distinct from the local Production Evidence Bundle checks below and from Worker-side generation/signing. |
 | Local Production Evidence Bundle verifier | `evidence_bundle.rs::verify_bundle` calls `verify_production_target_approval` for Complete and Sparse Results. It rejects missing/incomplete digest pairs, compares both digests with SHA-256 of the externally supplied raw Inventory/Approval bytes, validates the Approval-to-Inventory relationship and membership in both trust sets, and checks that the Result's server identity matches the external identity used for those checks. | `OBSERVED` in local source; execution in this work is `NOT_CHECKED`. This does not establish deployed Worker generation/signing or real Production evidence. |
 | Result and archive handoff | The local boundary separates signing and delivery. The Worker response is verified by the APP-side verifier; the local filesystem delivery path is not an immutable Production archive. | Durable, immutable Production storage, readback, retention, and independent archive verification are not established. |
-| Runtime Config and APP | The APP source has a feature-gated Production TLSN assembly path, guarded binding issuance and origin transport, Runtime Config verification, Target Approval preflight, and Worker identity checks. APP startup calls the Hudsucker entry point. | Rama remains an explicit experimental entry point, not the APP route. The checked-in Runtime Config bootstrap documentation reports release pins unregistered; actual deployed build inputs are `UNVERIFIED`. |
+| Runtime Config and APP | The APP source has a feature-gated Production TLSN assembly path, guarded binding issuance and origin transport, Runtime Config verification, Target Approval preflight, and Worker identity checks. The ordinary Hudsucker proxy starts before capture initialization runs in the background. | Rama remains an explicit experimental entry point, not the APP route. The checked-in Runtime Config bootstrap documentation reports release pins unregistered; actual deployed build inputs are `UNVERIFIED`. |
 | Worker and authorities | The tracked Worker package contains contracts, scripts, and operator documentation. The operator runbook says the Worker runtime, Session Authority handler, Production archive, and evidence collector are not tracked in this checkout. | External deployments may exist, but their code, durability, replay behavior, and current runtime are `NOT_CHECKED`. |
 
 Relevant source anchors:
@@ -179,34 +179,57 @@ query. A connection ID is transport correlation; a Worker job ID is
 asynchronous verification correlation. Neither is an approved logical
 `attempt_id`.
 
-## One-shot, failure, and recovery contract
+## Nonblocking request admission, failure, and recovery contract
 
-The observed route state is `Ready -> Selected` before request body collection.
-The first matching request consumes the listener-shared opportunity. A later
-matching request is `Blocked`. There is no rollback after body overflow,
-timeout, stream error, binding failure, serialization failure, origin failure,
-proof failure, or Result delivery failure.
+The APP starts the ordinary proxy before background Runtime Config refresh,
+preflight, Worker health checks and TLSN dependency construction. It installs
+the capture forwarder only after those checks pass. Initialization failure
+leaves capture unavailable; it does not stop ordinary proxy traffic.
 
-The forwarder has another one-shot state machine. It consumes the binding
-provider before awaiting binding issuance and commits `Sent` before transport
-I/O. The existing implementation therefore avoids automatic retry after a
-possibly partial send. Its scope is the forwarder instance, and it is not a
-durable authority record.
+Capture admission is per-request, not a listener-global one-shot. A matching
+request is selected only when a prepared binding is ready, the single-request
+capture slot is free and the body framing is eligible. The default Hudsucker
+path reserves its TLSN ingress slot before body collection. If capture is not
+ready, admission is busy, the Content-Length is missing/unsupported/too large,
+or TLSN ingress capacity is unavailable, the original unconsumed request
+follows the ordinary proxy path. The prepared binding remains in use until its
+proof task confirms cleanup; while it is unavailable, later target requests
+use ordinary proxying rather than waiting on Worker/session acquisition.
+
+The TLSN-selected body collector is bounded (1 MiB, 10-second idle timeout,
+30-second completion timeout and eight reservations). These are not limits on
+ordinary non-target or not-ready requests and not a process memory guarantee.
+If body collection fails after it starts, the stream may already be consumed;
+the request fails closed and is not forwarded as an empty body or retried.
+
+Production APP wiring supplies a durable local JSONL origin-send journal. It
+syncs a send-intent record before origin transport I/O, containing a
+binding-derived attempt digest, canonical target and serialized-request
+digest—not the binding value or raw request body. On restart, any unfinished
+`send_started` attempt is durably closed as `unknown`; its attempt digest
+cannot be reused. `response_received` persistence runs asynchronously after
+the browser response, so a crash before that update is conservatively
+recovered as `unknown`. A journal write failure before transport prevents the
+origin send. A transport error classified `NotSent` may use the ordinary
+proxy; an ambiguous outcome never falls back or automatically retries.
 
 | Failure point | Observed consequence | Recovery guarantee |
 |---|---|---|
-| Request selected; body read fails, times out, or exceeds limit | Listener route remains consumed; Rama fails closed before forwarder/upstream. | No same-listener retry; a new attempt requires a decision and authoritative issuance. |
-| Binding issuance or receipt verification fails | Request does not reach origin; single-use guard may already be consumed. | No rollback/idempotency query is established. |
-| Serialization fails after binding issuance | No origin send; forwarder and provider state are consumed. | No retry contract is established. |
-| Origin send or response read fails | No fallback or automatic resend; remote processing may be unknown after I/O begins. | Reconcile with an authority before any new attempt; that mechanism is not present. |
-| Origin response succeeds; proof/Notary/Presentation verification fails | Response has already been returned; background state records failure. | No proof recovery or durable job record is established by the local state machine. |
-| Verification defers to a Worker job | A job ID is logged; local state becomes deferred. | Durable job polling, restart recovery, and idempotency are not established here. |
-| Result signing/delivery fails | Browser response remains delivered; local pipeline records failure. | No durable replay or archive readback recovery is established. |
-| Process restart or repeated request | In-memory route/forwarder state is lost on restart; same-listener retries are blocked before restart. | Cross-process uniqueness and replay rejection require authority-side state not established in this checkout. |
+| Background Runtime Config/health/Session prewarm unavailable | Capture remains uninstalled or not ready; request follows ordinary proxy before body read. | Ordinary traffic is not held for TLSN initialization; no capture/evidence claim is made. |
+| Capture slot or TLSN ingress unavailable; unsupported/oversized body framing | Request remains unconsumed and follows ordinary proxy. | One ordinary path; no TLSN attempt is made. |
+| Selected body read fails/times out/exceeds limit | Body may be partially consumed; request fails closed before TLSN origin transport. | No empty-body forwarding and no retry. |
+| Binding claim/serialization fails before send | The selected capture attempt is abandoned; route may forward the untouched/reconstructed request ordinarily only where the body is available and the forwarder reports `NotSent`. | No authority rollback or logical-operation idempotency is established. |
+| Journal send-intent write fails | No origin transport call is made; capture fails closed. | The request is not retried through another route after a durable-state failure. |
+| Origin write/response fails after send may begin | Outcome is `Unknown`; no ordinary fallback or automatic resend. | Game Server receipt remains `UNKNOWN`; local journal restart recovery does not prove receipt. |
+| Origin response succeeds; proof/Notary/Result fails | Browser response is already returned; the evidence pipeline records a separate failure. | Response delivery is not evidence completion, archive retention or acceptance. |
+| Process restart with unfinished journal record | Recovery appends `unknown` and rejects reuse of the same binding-derived attempt digest. | This is local per-binding replay protection only, not a stable logical-operation reservation. |
 
-Do not describe any of these failures as retryable or recoverable until the
-logical attempt identifier, authority idempotency, and recovery procedure are
-approved and evidenced.
+The existing Worker Binding Authority durably stores per-binding/session
+records, but its contract does not bind a stable Game Server operation ID,
+request digest or origin-send intent. The APP journal cannot identify the same
+logical game operation when it is presented after restart with a newly issued
+binding. This remains an unresolved authority/idempotency boundary; no new
+Worker endpoint, enrollment rule or ownership policy was invented.
 
 ## Conservative local delivery policy v1 (2026-10-25)
 
@@ -249,11 +272,11 @@ This follow-up started at `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
 
 | Requirement | Implemented / verified now | Remaining code, not an approval inferred from tests |
 |---|---|---|
-| Q1 | WEB proof consumption is durable, atomic and device/context unique; existing DO owns session/binding consumption. | Neither constitutes a durable **origin attempt** reservation. Listener-global selection and forwarder-local one-shot still remain. Connect authority-issued attempt context and APP pre-send/restart journal; do not identify attempts by TCP/listener/job alone. |
-| Q2 | Independent `NotSent`, `Unknown`, `ResponseReceived` origin states; real transport reports `AmbiguousOriginSend` after send starts; no origin retry. | Durable restart/reconciliation and authority-correlated operation transitions; no claim that an unknown send was received or not received. |
-| Q3 | Controlled proof/Worker/signing/archive failure tests receive the complete origin response first, preserve `ResponseReceived`, and record distinct evidence failure. | Pre-origin Session/Worker acquisition still blocks; later matching requests are still listener-blocked. Complete archive/readback/Evidence Complete stages are not all connected. |
+| Q1 | WEB proof consumption is durable, atomic and device/context unique; existing DO owns session/binding consumption. APP now has a durable local send-intent journal keyed by a binding digest. | Neither constitutes a durable **logical origin attempt** reservation. The Worker record and local journal do not bind a stable Game Server operation ID; a newly issued binding cannot be correlated to the same logical request after restart. |
+| Q2 | Independent `NotSent`, `Unknown`, `ResponseReceived` origin states; real transport reports `AmbiguousOriginSend` after send starts; no origin retry. Unfinished local send-intent recovers as `Unknown` and blocks reuse of that attempt digest. | Authority-correlated operation transitions and reconciliation remain absent; no claim that an unknown send was received or not received. |
+| Q3 | Controlled proof/Worker/signing/archive failure tests receive the complete origin response first, preserve `ResponseReceived`, and record distinct evidence failure. APP Runtime Config/health/Session binding preparation is backgrounded; unavailable capture uses ordinary proxy before body collection. | A selected body read error after partial consumption fails closed. Complete archive/readback/Evidence Complete stages are not all connected. |
 | Q4 | Existing signed Session/consume times, DO expiry, nonce window and registry/manifest/Result validity checks remain; audit consumption uses DB time. | The APP still uses local wall time for portions of validation. No new trusted time anchor/skew/restart protocol was implemented; do not claim local monotonic exchange time is authority wall time. |
-| Q5 | Existing 1 MiB / 10 s idle / 30 s completion / 8 collectors unchanged; Worker proof responses capped at 16 KiB, fetch 10 s; Linux ingress peak measurement added. | Full concurrent connection/queue/TLSN/MPC/serializer/archive memory accounting, per-attempt budgets and restart release are not established. Input caps and mux windows are not process RSS guarantees. |
+| Q5 | TLSN-selected request bodies require a single Content-Length no greater than the 128 KiB sent-data ceiling; the Hudsucker collector additionally caps body collection at 1 MiB / 10 s idle / 30 s completion / 8 reservations. Ordinary/non-target requests bypass these TLSN-specific limits. Worker proof responses remain capped at 16 KiB, fetch 10 s. | The serialized request also has a 128 KiB total ceiling. Full concurrent connection/queue/TLSN/MPC/serializer/archive memory accounting, per-attempt budgets and process-wide memory bounds are not established. Input caps and mux windows are not process RSS guarantees. |
 
 These remaining requirements are `BLOCKED_CODE`, not newly invented human
 policy choices. Existing external signer/root/deployment approvals are separate.
@@ -267,12 +290,12 @@ semantics not established by that adapter; those parts remain `BLOCKED`.
 
 ### Q1 — What is the authoritative attempt identity and scope?
 
-Choose and define whether one-shot applies to a listener, TCP connection,
-authenticated session, or logical verification attempt. Define who issues the
-identity, its uniqueness, lifetime, binding fields, and cross-process/restart
-behavior. Current source establishes only listener-local gate state,
-forwarder-local state, session IDs, connection IDs, request correlation, and
-asynchronous job IDs. It does not establish a unique logical attempt ID.
+Capture selection is now per-request rather than listener-global. The current
+code also records a local attempt key derived from the authority binding and
+recovers an unfinished send as `Unknown`. Those facts still do not define a
+stable logical Game Server operation identity, its issuer, lifetime, request
+binding or cross-process/restart idempotency. Connection IDs and Worker job IDs
+are not substitutes for that missing logical attempt contract.
 
 ### Q2 — Which failures consume an attempt, and how can a retry be authorized?
 
@@ -330,12 +353,14 @@ The adapter's one-byte
 [`CaptureIo` read-chunk setting](../../packages/FUSOU-PROXY/proxy-https/src/capture_io.rs)
 limits the space offered to the wrapped I/O in each `poll_read` call, not the
 HTTP/1 builder's internal buffer allocation or peak memory. Body limiting
-observes DATA only after it has arrived. The Rama
-collector materializes the body and the serializer creates
-the serialized output, so temporary copies and per-connection buffers may
-coexist. Hudsucker's selected request currently passes through an unbounded
-`body.collect()` and additional body copies. No global concurrency cap or
-process memory budget is established here.
+observes DATA only after it has arrived. The default Hudsucker selected-TLSN
+path now reserves a bounded `RequestIngress` slot before collection; the
+ordinary Hudsucker forwarding path still collects bodies without those
+TLSN-specific caps. The optional Rama path has its own selected-body limit and
+timeout. Both capture paths can materialize request bytes and the serializer
+creates output bytes, so temporary copies and per-connection buffers may
+coexist. No process-wide memory budget or bound on ordinary request buffering
+is established here.
 
 ## Evidence gates
 
@@ -344,9 +369,10 @@ The following gates remain distinct:
 | Gate | Current classification | Evidence required to change it |
 |---|---|---|
 | Source implementation | `OBSERVED` for the behaviors described above | Review against the exact source revision; source presence alone is not operational evidence. |
-| Rust type checking and tests for this documentation task | `NOT_CHECKED` | Not run; Cargo may read protected configuration, and this task permits no build/test. |
-| Rama synthetic and HTTP/1 loopback behavior | `OBSERVED` in source/test definitions; current execution `NOT_CHECKED` | Safe approved execution on the exact revision, with test scope identified. |
-| Hudsucker regression | `NOT_CHECKED` for this task | Safe test execution on the exact revision; no claim from Rama-only tests. |
+| Proxy Rust type checking and default Hudsucker tests for this follow-up | `PASS` | `cargo test --lib`: 122 PASS, 0 FAIL, exit 0. Local tests, not actual gameplay. |
+| Rama synthetic and HTTP/1 loopback behavior | `PASS` | `cargo test --features rama-experimental --lib`: 155 PASS, 0 FAIL, exit 0; includes the 23 Rama module tests. |
+| APP `tlsn-production` library/binary check | `PASS` | `cargo check --features tlsn-production --lib --bins`: exit 0; existing warnings remain. |
+| APP TLSN Runtime Config transport-gate tests | `PASS` | APP `tlsn-production` library tests: 7 PASS, 0 FAIL, exit 0; fake/local gates only, not APP launch or live services. |
 | Real Game Server TLSN evidence | `UNVERIFIED` | Human-operated gameplay producing non-synthetic TLSN Presentation and independently verifiable Result/archive. |
 | Production acceptance | `BLOCKED` | Real deployment/runtime, authority, Notary, Game Server, immutable archive/readback, independent verification, and approved release evidence. |
 

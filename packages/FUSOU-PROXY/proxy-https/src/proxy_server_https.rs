@@ -34,7 +34,7 @@ use crate::capture_io::{CaptureDirection, CaptureRecorder};
 pub use crate::experimental_tlsn::{
     ExperimentalForwardFuture, ExperimentalRequireInfoForwarder, ExperimentalTlsnForwarder,
 };
-use crate::{bidirectional_channel, capture};
+use crate::{bidirectional_channel, capture, experimental_tlsn::MAX_TLSN_SENT_DATA_BYTES};
 
 #[cfg(feature = "rama-experimental")]
 pub mod downstream_tls;
@@ -57,18 +57,73 @@ static ORGANIZATION_NAME: &str = "FUSOU";
 static COUNTRY_NAME: &str = "JP";
 const REQUIRE_INFO_TARGET: &str = "/kcsapi/api_get_member/require_info";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExperimentalRequireInfoState {
-    Ready,
-    Selected,
-}
-
 #[derive(Clone)]
 struct ExperimentalRequireInfoRoute {
     enabled: bool,
-    state: Arc<Mutex<ExperimentalRequireInfoState>>,
-    forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>,
+    forwarder: ExperimentalTlsnForwarderSlot,
     ingress: Option<crate::request_ingress::RequestIngress>,
+    capture_slot: Arc<tokio::sync::Semaphore>,
+}
+
+#[derive(Clone, Default)]
+pub struct ExperimentalTlsnForwarderSlot {
+    forwarder: Arc<Mutex<Option<Arc<dyn ExperimentalRequireInfoForwarder>>>>,
+}
+
+impl ExperimentalTlsnForwarderSlot {
+    pub fn new(forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>) -> Self {
+        Self {
+            forwarder: Arc::new(Mutex::new(forwarder)),
+        }
+    }
+
+    pub fn install(
+        &self,
+        forwarder: Arc<dyn ExperimentalRequireInfoForwarder>,
+    ) -> Result<(), String> {
+        let mut current = self
+            .forwarder
+            .lock()
+            .map_err(|_| "Experimental TLSN forwarder slot is poisoned".to_owned())?;
+        if current.is_some() {
+            return Err("Experimental TLSN forwarder is already installed".to_owned());
+        }
+        forwarder.start_preparation();
+        *current = Some(forwarder);
+        Ok(())
+    }
+
+    fn get(&self) -> Option<Arc<dyn ExperimentalRequireInfoForwarder>> {
+        match self.forwarder.lock() {
+            Ok(forwarder) => forwarder.clone(),
+            Err(error) => {
+                tracing::error!(%error, "Experimental TLSN forwarder slot is poisoned");
+                None
+            }
+        }
+    }
+
+    fn start_preparation(&self) {
+        if let Some(forwarder) = self.get() {
+            forwarder.start_preparation();
+        }
+    }
+
+    fn capture_ready(&self) -> bool {
+        self.get()
+            .is_some_and(|forwarder| forwarder.capture_ready())
+    }
+
+    fn forward(
+        &self,
+        connection_id: u64,
+        request: http::Request<hyper::body::Bytes>,
+    ) -> ExperimentalForwardFuture {
+        match self.get() {
+            Some(forwarder) => forwarder.forward(connection_id, request),
+            None => Box::pin(async { Ok(None) }),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -86,16 +141,23 @@ impl ExperimentalTlsnDependencies {
 enum ExperimentalRequireInfoDecision {
     Forward,
     Selected,
-    Blocked,
 }
 
 impl ExperimentalRequireInfoRoute {
+    #[cfg(test)]
     fn new(enabled: bool, forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>) -> Self {
+        Self::with_forwarder_slot(enabled, ExperimentalTlsnForwarderSlot::new(forwarder))
+    }
+
+    fn with_forwarder_slot(enabled: bool, forwarder: ExperimentalTlsnForwarderSlot) -> Self {
+        if enabled {
+            forwarder.start_preparation();
+        }
         Self {
             enabled,
-            state: Arc::new(Mutex::new(ExperimentalRequireInfoState::Ready)),
             forwarder,
             ingress: enabled.then(crate::request_ingress::RequestIngress::default),
+            capture_slot: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 
@@ -107,39 +169,51 @@ impl ExperimentalRequireInfoRoute {
             return ExperimentalRequireInfoDecision::Forward;
         }
 
-        let Ok(mut state) = self.state.lock() else {
-            tracing::error!("experimental TLSN route state is poisoned");
-            return ExperimentalRequireInfoDecision::Blocked;
-        };
-        match *state {
-            ExperimentalRequireInfoState::Ready => {
-                *state = ExperimentalRequireInfoState::Selected;
-                tracing::warn!(
-                    target = REQUIRE_INFO_TARGET,
-                    "selected actual require_info request for Experimental TLSN"
-                );
-                ExperimentalRequireInfoDecision::Selected
-            }
-            ExperimentalRequireInfoState::Selected => {
-                tracing::warn!(
-                    target = REQUIRE_INFO_TARGET,
-                    "blocked subsequent require_info request after Experimental TLSN selection"
-                );
-                ExperimentalRequireInfoDecision::Blocked
-            }
+        if self.forwarder.capture_ready() {
+            tracing::debug!(
+                target = REQUIRE_INFO_TARGET,
+                "admitted require_info request for an available TLSN attempt"
+            );
+            ExperimentalRequireInfoDecision::Selected
+        } else {
+            tracing::debug!(
+                target = REQUIRE_INFO_TARGET,
+                "TLSN capture is not prepared; forwarding require_info through the ordinary proxy"
+            );
+            ExperimentalRequireInfoDecision::Forward
         }
+    }
+
+    fn try_capture_admission(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        if !self.forwarder.capture_ready() {
+            return None;
+        }
+        let permit = Arc::clone(&self.capture_slot).try_acquire_owned().ok()?;
+        self.forwarder.capture_ready().then_some(permit)
     }
 
     async fn forward_selected(
         &self,
         connection_id: u64,
         request: http::Request<hyper::body::Bytes>,
-    ) -> Result<http::Response<hyper::body::Bytes>, String> {
-        let Some(forwarder) = &self.forwarder else {
-            return Err("Prover-owned origin transport is unavailable".to_owned());
-        };
-        forwarder.forward(connection_id, request).await
+    ) -> Result<Option<http::Response<hyper::body::Bytes>>, String> {
+        self.forwarder.forward(connection_id, request).await
     }
+}
+
+fn tlsn_capture_body_eligible(headers: &http::HeaderMap) -> bool {
+    let mut values = headers.get_all(http::header::CONTENT_LENGTH).iter();
+    let Some(value) = values.next() else {
+        return false;
+    };
+    if values.next().is_some() {
+        return false;
+    }
+    value
+        .to_str()
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length <= MAX_TLSN_SENT_DATA_BYTES)
 }
 
 fn experimental_tlsn_failure_response(message: &'static str) -> http::Response<hyper::body::Bytes> {
@@ -1271,7 +1345,7 @@ impl HttpHandler for LogHandler {
         self.request_uri = req.uri().clone();
 
         let (part, body) = req.into_parts();
-        let route_decision = self.experimental_require_info_route.decide(
+        let mut route_decision = self.experimental_require_info_route.decide(
             part.method.as_str(),
             part.uri
                 .path_and_query()
@@ -1279,16 +1353,53 @@ impl HttpHandler for LogHandler {
                 .unwrap_or_default(),
         );
 
-        if route_decision == ExperimentalRequireInfoDecision::Blocked {
-            return reject_uncollected_request(
-                experimental_tlsn_failure_response(
-                    "Experimental TLSN route rejected a repeated request",
-                ),
-                part.version,
+        if route_decision == ExperimentalRequireInfoDecision::Selected
+            && !tlsn_capture_body_eligible(&part.headers)
+        {
+            tracing::debug!(
+                connection_id = ctx.connection_id,
+                "TLSN capture requires a bounded Content-Length; forwarding request ordinarily"
             );
+            route_decision = ExperimentalRequireInfoDecision::Forward;
         }
-        let collected = match &self.experimental_require_info_route.ingress {
-            Some(ingress) => ingress.collect(body).await,
+        let _capture_admission = if route_decision == ExperimentalRequireInfoDecision::Selected {
+            match self.experimental_require_info_route.try_capture_admission() {
+                Some(permit) => Some(permit),
+                None => {
+                    tracing::info!(
+                        connection_id = ctx.connection_id,
+                        "TLSN capture admission was claimed concurrently; forwarding request ordinarily"
+                    );
+                    route_decision = ExperimentalRequireInfoDecision::Forward;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let reservation = match (
+            &self.experimental_require_info_route.ingress,
+            route_decision,
+        ) {
+            (Some(ingress), ExperimentalRequireInfoDecision::Selected) => {
+                match ingress.try_reserve() {
+                    Ok(reservation) => Some((ingress, reservation)),
+                    Err(error) => {
+                        tracing::info!(
+                            %error,
+                            connection_id = ctx.connection_id,
+                            "TLSN ingress capacity unavailable; forwarding request ordinarily"
+                        );
+                        route_decision = ExperimentalRequireInfoDecision::Forward;
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+        let collected = match reservation {
+            Some((ingress, reservation)) => ingress.collect_reserved(body, reservation).await,
             None => body
                 .collect()
                 .await
@@ -1303,14 +1414,14 @@ impl HttpHandler for LogHandler {
                 let mut response = experimental_tlsn_failure_response(
                     "Request body ingress failed; request was not forwarded",
                 );
-                *response.status_mut() =
-                    if route_decision == ExperimentalRequireInfoDecision::Selected
-                        && error == crate::request_ingress::IngressError::ReadFailed
-                    {
-                        http::StatusCode::SERVICE_UNAVAILABLE
-                    } else {
-                        error.status()
-                    };
+                *response.status_mut() = if route_decision
+                    == ExperimentalRequireInfoDecision::Selected
+                    && error == crate::request_ingress::IngressError::ReadFailed
+                {
+                    http::StatusCode::SERVICE_UNAVAILABLE
+                } else {
+                    error.status()
+                };
                 return reject_uncollected_request(response, part.version);
             }
         };
@@ -1333,25 +1444,36 @@ impl HttpHandler for LogHandler {
             ExperimentalRequireInfoDecision::Selected => {
                 let response = match self
                     .experimental_require_info_route
-                    .forward_selected(ctx.connection_id, http::Request::from_parts(part, body))
+                    .forward_selected(
+                        ctx.connection_id,
+                        http::Request::from_parts(part.clone(), body.clone()),
+                    )
                     .await
                 {
-                    Ok(response) => response,
+                    Ok(Some(response)) => {
+                        return hudsucker::RequestOrResponse::Response(to_hudsucker_response(
+                            response,
+                        ));
+                    }
+                    Ok(None) => {
+                        tracing::info!(
+                            connection_id = ctx.connection_id,
+                            "TLSN attempt unavailable before origin send; forwarding request ordinarily"
+                        );
+                        None
+                    }
                     Err(error) => {
-                        tracing::warn!(error = %error, "Experimental TLSN capture failed; no origin retry was attempted");
-                        experimental_tlsn_failure_response(
-                            "Experimental TLSN capture failed; origin outcome may be unknown; do not retry automatically",
-                        )
+                        tracing::warn!(error = %error, "Experimental TLSN capture failed after origin outcome became ambiguous; no origin retry was attempted");
+                        return hudsucker::RequestOrResponse::Response(to_hudsucker_response(
+                            experimental_tlsn_failure_response(
+                                "Experimental TLSN capture failed; origin outcome may be unknown; do not retry automatically",
+                            ),
+                        ));
                     }
                 };
-                return hudsucker::RequestOrResponse::Response(to_hudsucker_response(response));
-            }
-            ExperimentalRequireInfoDecision::Blocked => {
-                return hudsucker::RequestOrResponse::Response(to_hudsucker_response(
-                    experimental_tlsn_failure_response(
-                        "Experimental TLSN route rejected a repeated request",
-                    ),
-                ));
+                if let Some(response) = response {
+                    return hudsucker::RequestOrResponse::Response(to_hudsucker_response(response));
+                }
             }
         }
 
@@ -1554,7 +1676,7 @@ pub fn serve_proxy(
         file_prefix,
         auth_manager,
         capture_runtime_metadata,
-        None,
+        ExperimentalTlsnForwarderSlot::default(),
     )
 }
 
@@ -1581,7 +1703,34 @@ pub fn serve_proxy_with_experimental_dependencies(
         file_prefix,
         auth_manager,
         capture_runtime_metadata,
-        Some(dependencies.forwarder),
+        ExperimentalTlsnForwarderSlot::new(Some(dependencies.forwarder)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn serve_proxy_with_forwarder_slot(
+    port: u16,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    log_save_path: String,
+    asset_sync_save_path: String,
+    ca_save_path: String,
+    file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+    capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
+    forwarder_slot: ExperimentalTlsnForwarderSlot,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    serve_proxy_impl(
+        port,
+        slave,
+        tx_proxy_log,
+        log_save_path,
+        asset_sync_save_path,
+        ca_save_path,
+        file_prefix,
+        auth_manager,
+        capture_runtime_metadata,
+        forwarder_slot,
     )
 }
 
@@ -1611,7 +1760,7 @@ pub fn serve_proxy_with_production_dependencies(
         file_prefix,
         auth_manager,
         capture_runtime_metadata,
-        Some(forwarder),
+        ExperimentalTlsnForwarderSlot::new(Some(forwarder)),
     )
 }
 
@@ -1626,7 +1775,7 @@ fn serve_proxy_impl(
     file_prefix: String,
     _auth_manager: Arc<AuthManager<FileStorage>>,
     capture_runtime_metadata: Option<CaptureRuntimeMetadata>,
-    injected_forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>>,
+    forwarder_slot: ExperimentalTlsnForwarderSlot,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
@@ -1637,8 +1786,6 @@ fn serve_proxy_impl(
     let allow_save_resources = configs.get_allow_save_resources();
     let allow_save_main_js_local = configs.get_allow_save_main_js_local();
     let tlsn_experiment_enabled = configs.get_tlsn_experiment_enabled();
-    let experimental_tlsn_forwarder: Option<Arc<dyn ExperimentalRequireInfoForwarder>> =
-        injected_forwarder;
     let capture_output_root = if configs.get_capture_enabled() {
         match configs.get_capture_output_path().map(PathBuf::from) {
             Some(path) if path.is_absolute() => Some(path),
@@ -1823,9 +1970,9 @@ fn serve_proxy_impl(
             allow_save_api_responses,
             allow_save_resources,
             allow_save_main_js_local,
-            experimental_require_info_route: ExperimentalRequireInfoRoute::new(
+            experimental_require_info_route: ExperimentalRequireInfoRoute::with_forwarder_slot(
                 tlsn_experiment_enabled,
-                experimental_tlsn_forwarder,
+                forwarder_slot,
             ),
         });
 
@@ -2239,8 +2386,10 @@ mod tests {
     }
 
     #[test]
-    fn experimental_require_info_route_selects_actual_post_once_and_blocks_retries() {
-        let route = ExperimentalRequireInfoRoute::new(true, None);
+    fn experimental_require_info_route_selects_repeated_posts_only_while_capture_is_ready() {
+        let forwarder = Arc::new(RecordingForwarder::new());
+        let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
+        let unavailable_route = ExperimentalRequireInfoRoute::new(true, None);
         let non_target = HttpRequest::builder()
             .method("GET")
             .uri("https://game.example.test/kcsapi/api_get_member/require_info")
@@ -2302,7 +2451,18 @@ mod tests {
                     .map(|value| value.as_str())
                     .unwrap_or_default(),
             ),
-            ExperimentalRequireInfoDecision::Blocked
+            ExperimentalRequireInfoDecision::Selected
+        );
+        assert_eq!(
+            unavailable_route.decide(
+                target_parts.method.as_str(),
+                target_parts
+                    .uri
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .unwrap_or_default(),
+            ),
+            ExperimentalRequireInfoDecision::Forward
         );
     }
 
@@ -2442,52 +2602,70 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingress_rejects_oversize_selected_request_and_consumes_selection_without_retry() {
+    async fn oversized_target_request_uses_ordinary_proxy_without_consuming_capture_admission() {
         let forwarder = Arc::new(RecordingForwarder::new());
         let requests = forwarder.requests.clone();
         let mut handler = test_handler(ExperimentalRequireInfoRoute::new(true, Some(forwarder)));
         let context = HttpContext::new("127.0.0.1:40009".parse().unwrap(), 99);
-        let request = Request::builder().method("POST")
+        let oversized_body = vec![0; crate::experimental_tlsn::MAX_TLSN_SENT_DATA_BYTES + 1];
+        let request = Request::builder()
+            .method("POST")
             .uri("https://game.example.test/kcsapi/api_get_member/require_info")
-            .body(hudsucker::Body::from(http_body_util::Full::new(Bytes::from(vec![0; 1024 * 1024 + 1])))).unwrap();
-        let hudsucker::RequestOrResponse::Response(response) = handler.handle_request(&context, request).await else {
-            panic!("oversized request was forwarded");
+            .header(
+                http::header::CONTENT_LENGTH,
+                oversized_body.len().to_string(),
+            )
+            .body(hudsucker::Body::from(http_body_util::Full::new(
+                Bytes::from(oversized_body.clone()),
+            )))
+            .unwrap();
+        let hudsucker::RequestOrResponse::Request(request) =
+            handler.handle_request(&context, request).await
+        else {
+            panic!("oversized target request did not use ordinary proxy");
         };
-        assert_eq!(response.status(), http::StatusCode::PAYLOAD_TOO_LARGE);
+        let (_, body) = request.into_parts();
         assert_eq!(
-            response.headers().get(http::header::CONNECTION).unwrap(),
-            "close"
+            body.collect().await.unwrap().to_bytes(),
+            Bytes::from(oversized_body)
         );
-        let retry = Request::builder().method("POST")
+        let retry = Request::builder()
+            .method("POST")
             .uri("https://game.example.test/kcsapi/api_get_member/require_info")
-            .body(hudsucker::Body::from_stream(hudsucker::futures::stream::pending::<Result<Bytes, std::io::Error>>())).unwrap();
-        let retry = tokio::time::timeout(std::time::Duration::from_secs(1),
-            handler.handle_request(&context, retry)).await.expect("blocked retry must not collect its body");
-        let hudsucker::RequestOrResponse::Response(response) = retry else {
-            panic!("rejected selection was reused");
+            .header(http::header::CONTENT_LENGTH, "0")
+            .body(hudsucker::Body::empty())
+            .unwrap();
+        let retry = handler.handle_request(&context, retry).await;
+        let hudsucker::RequestOrResponse::Response(retry) = retry else {
+            panic!("valid follow-up target request was not admitted for capture");
         };
-        assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            response.headers().get(http::header::CONNECTION).unwrap(),
-            "close"
-        );
-        assert!(requests.lock().unwrap().is_empty());
+        assert_eq!(retry.status(), http::StatusCode::CREATED);
+        assert_eq!(requests.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
-    async fn ingress_bounds_non_target_requests_only_in_tlsn_enabled_mode() {
+    async fn tlsn_ingress_limits_do_not_apply_to_non_target_requests() {
         for enabled in [true, false] {
             let mut handler = test_handler(ExperimentalRequireInfoRoute::new(enabled, None));
             let context = HttpContext::new("127.0.0.1:40009".parse().unwrap(), 99);
-            let request = Request::builder().method("POST").uri("https://game.example.test/unrelated")
-                .body(hudsucker::Body::from(http_body_util::Full::new(Bytes::from(vec![0; 1024 * 1024 + 1])))).unwrap();
-            match handler.handle_request(&context, request).await {
-                hudsucker::RequestOrResponse::Response(response) => {
-                    assert!(enabled);
-                    assert_eq!(response.status(), http::StatusCode::PAYLOAD_TOO_LARGE);
-                }
-                hudsucker::RequestOrResponse::Request(_) => assert!(!enabled),
-            }
+            let oversized_body = vec![0; 1024 * 1024 + 1];
+            let request = Request::builder()
+                .method("POST")
+                .uri("https://game.example.test/unrelated")
+                .body(hudsucker::Body::from(http_body_util::Full::new(
+                    Bytes::from(oversized_body.clone()),
+                )))
+                .unwrap();
+            let hudsucker::RequestOrResponse::Request(request) =
+                handler.handle_request(&context, request).await
+            else {
+                panic!("TLSN ingress limits rejected an ordinary proxy request");
+            };
+            let (_, body) = request.into_parts();
+            assert_eq!(
+                body.collect().await.unwrap().to_bytes(),
+                Bytes::from(oversized_body)
+            );
         }
     }
 
@@ -2495,12 +2673,18 @@ mod tests {
     async fn ingress_read_failure_never_forwards_an_empty_body_in_non_tlsn_mode() {
         let mut handler = test_handler(ExperimentalRequireInfoRoute::new(false, None));
         let context = HttpContext::new("127.0.0.1:40009".parse().unwrap(), 99);
-        let body = hudsucker::Body::from_stream(hudsucker::futures::stream::iter([
-            Err::<Bytes, _>(std::io::Error::other("synthetic ingress failure")),
-        ]));
-        let request = Request::builder().method("POST").uri("https://game.example.test/unrelated")
-            .body(body).unwrap();
-        let hudsucker::RequestOrResponse::Response(response) = handler.handle_request(&context, request).await else {
+        let body =
+            hudsucker::Body::from_stream(hudsucker::futures::stream::iter([Err::<Bytes, _>(
+                std::io::Error::other("synthetic ingress failure"),
+            )]));
+        let request = Request::builder()
+            .method("POST")
+            .uri("https://game.example.test/unrelated")
+            .body(body)
+            .unwrap();
+        let hudsucker::RequestOrResponse::Response(response) =
+            handler.handle_request(&context, request).await
+        else {
             panic!("body collection failure became a forwarded empty request");
         };
         assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
@@ -2533,7 +2717,8 @@ mod tests {
         let response = route
             .forward_selected(7, HttpRequest::from_parts(parts, body))
             .await
-            .expect("experimental forwarder response");
+            .expect("experimental forwarder response")
+            .expect("capture-ready forwarder response");
         assert_eq!(response.status(), http::StatusCode::CREATED);
         assert_eq!(response.body().as_ref(), b"shared TLSN response");
         let requests = requests.lock().expect("recording forwarder lock");
@@ -2563,12 +2748,12 @@ mod tests {
                     .map(|value| value.as_str())
                     .unwrap_or_default(),
             ),
-            ExperimentalRequireInfoDecision::Blocked
+            ExperimentalRequireInfoDecision::Selected
         );
     }
 
     #[tokio::test]
-    async fn handler_routes_the_actual_request_once_without_production_fallback() {
+    async fn handler_routes_each_ready_attempt_without_listener_global_consumption() {
         let forwarder = Arc::new(RecordingForwarder::new());
         let requests = Arc::clone(&forwarder.requests);
         let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
@@ -2612,11 +2797,11 @@ mod tests {
             .to_bytes();
         assert_eq!(first_body, Bytes::from_static(b"shared TLSN response"));
         let hudsucker::RequestOrResponse::Response(second) = second else {
-            panic!("repeated require_info request was forwarded to Production");
+            panic!("second ready require_info attempt was not handled experimentally");
         };
-        assert_eq!(second.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(second.status(), http::StatusCode::CREATED);
         let requests = requests.lock().expect("recording forwarder lock");
-        assert_eq!(requests.len(), 1);
+        assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].connection_id, 7);
         assert_eq!(
             requests[0].headers.get("host").unwrap(),
@@ -2667,7 +2852,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uncollectable_tlsn_request_is_not_sent_or_forwarded_to_production() {
+    async fn uncollectable_tlsn_request_does_not_consume_a_later_capture_attempt() {
         let forwarder = Arc::new(RecordingForwarder::new());
         let requests = Arc::clone(&forwarder.requests);
         let route = ExperimentalRequireInfoRoute::new(true, Some(forwarder));
@@ -2720,13 +2905,10 @@ mod tests {
             )
             .await;
         let hudsucker::RequestOrResponse::Response(retry) = retry else {
-            panic!("request-body failure allowed a retry to Production");
+            panic!("valid follow-up target request was not admitted for capture");
         };
-        assert_eq!(retry.status(), http::StatusCode::SERVICE_UNAVAILABLE);
-        assert!(requests
-            .lock()
-            .expect("recording forwarder lock")
-            .is_empty());
+        assert_eq!(retry.status(), http::StatusCode::CREATED);
+        assert_eq!(requests.lock().expect("recording forwarder lock").len(), 1);
     }
 
     #[cfg(feature = "synthetic-tlsn")]

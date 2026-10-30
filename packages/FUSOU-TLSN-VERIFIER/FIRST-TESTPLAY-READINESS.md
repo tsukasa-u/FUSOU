@@ -51,7 +51,7 @@ and runtime gates. They do not replace them or create a release policy.
 
 | Stage | Current status | Owner / completion evidence | Refusal / next action |
 |---|---|---|---|
-| CODE_READY | BLOCKED_CODE | Strict local finalizer and WEB proof handlers exist. Complete real-material assembly and the retained candidate receipt prerequisite still block identity-bound completion; listener-global one-shot/pre-origin service waits also remain. | Do not call candidate files a finalized Evidence Bundle or enable a protocol-only bypass. |
+| CODE_READY | BLOCKED_CODE | Strict local finalizer and WEB proof handlers exist. Complete real-material assembly, the retained candidate receipt prerequisite and a stable authority-issued logical origin-attempt reservation still block broader completion. Capture initialization is backgrounded; unavailable capture leaves ordinary proxying active. | Do not call candidate files a finalized Evidence Bundle or enable a protocol-only bypass. |
 | LOCAL_BUILD_READY | VERIFIED, GNU check only | Actual APP `tlsn-production`, its own manifest/lock and library/binary targets checked. | Not a GUI launch, release package, clean candidate handoff or live-bootstrap test. |
 | CONFIG_READY | BLOCKED_EXTERNAL_INPUTS | Trust/release operator supplies approved embedded bootstrap and fresh signed manifest/artifacts; APP independently verifies them. | Missing/expired/mismatched/unregistered inputs reject; no fixture or stale-manifest fallback. |
 | TARGET_APPROVAL_READY | BLOCKED_EXTERNAL_INPUTS | Deployment operator supplies the actual canonical hostname, reviewed Inventory and Approval bound by the manifest. | No real target/approval was admitted in this task. Candidate selection is not observed identity. |
@@ -98,12 +98,29 @@ tests hold each proof stage, receive the browser response first, then observe
 the exact evidence failure with one origin send. Pre-send refusal is `NotSent`;
 send-start failure is `Unknown`/`AmbiguousOriginSend`, never automatic retry.
 
-**Remaining gameplay code blockers:** Session acquisition still waits for
-auth/Worker before origin send; the listener-global one-shot still refuses later
-matching requests. Durable proof consumption/DO binding is not an authoritative,
-restart-safe origin-attempt reservation. Post-response async success does not
-prove that all Worker delay is absent from gameplay. Do not waive authentication,
-silently fall back or classify a possibly sent operation as a new attempt.
+**Nonblocking-capture follow-up (source status):** The APP starts the ordinary
+proxy before background Runtime Config refresh, preflight, Worker health checks
+and TLSN dependency construction. It installs the capture forwarder only after
+those gates pass; initialization failure leaves capture unavailable while the
+ordinary proxy remains active. Matching requests are admitted individually
+only when a prepared binding and capture capacity are available. An unready
+binding, competing request, unsupported body framing or unavailable ingress
+capacity falls through to the ordinary proxy before the body is consumed.
+There is no listener-global permanent one-shot.
+
+Once selected body collection begins, a read failure/timeout/limit failure
+cannot be reconstructed from the consumed stream; that request fails closed
+without upstream fallback or retry. A claimed binding remains in use through
+proof-task cleanup, so later target requests use the ordinary proxy until a
+new binding is prepared. The APP's append-only journal synchronously records
+the binding-derived attempt digest, target and serialized-request digest before
+origin I/O; unfinished records recover as `UNKNOWN` and the same attempt digest
+cannot be reused. This is local restart protection, not an authoritative
+logical-operation reservation: the Worker Binding Authority record does not
+bind a stable Game Server operation ID, request digest or origin-send intent.
+No new Worker policy or endpoint was introduced. Do not waive authentication,
+classify a possibly sent operation as unsent, or treat a different binding as
+proof that a repeated logical operation is new.
 
 Ingress-only Linux measurement, one test process/thread: eight retained 1 MiB
 bodies, ninth rejected; baseline RSS 16,612 KiB, process high-water 30,380 KiB,
@@ -266,8 +283,9 @@ archive retrieval and this verifier run are all **NOT EXECUTED**.
 The actual source chain is:
 
 1. APP runtime/verified Runtime Config builds the Proxy dependencies.
-2. The single-use route calls the production forwarder; Prover-owned TLS/MPC
-   creates the actual Presentation, then the deferred proof invokes Worker
+2. Per-request capture admission calls the production forwarder only when a
+   prepared binding and local capture capacity are available; Prover-owned
+   TLS/MPC creates the actual Presentation, then the deferred proof invokes Worker
    verification. Browser response completion is earlier, not evidence completion.
 3. Worker verifies/signs the inner Complete v2 or Sparse v3 Result. In the
    Production-inventory path it PUTs and readbacks exact Presentation and outer
@@ -431,33 +449,35 @@ separately approved enrollment rules. No endpoint, secret or owner was invented.
 ## Ingress, deadlines, single-use and cleanup
 
 Browser request body collection occurs **before** the TLSN absolute exchange
-deadline. With TLSN enabled, one shared local
-[ingress collector](../FUSOU-PROXY/proxy-https/src/request_ingress.rs) now applies
-to target and non-target requests: 1 MiB body, 10 s idle, 30 s absolute
-completion, eight concurrent collector reservations. These are the approved
-local default code constants, not new mandatory environment inputs, independent
-resource authorization or a whole-process memory bound.
+deadline. In the default Hudsucker path, only a matching request with a ready
+binding first acquires per-request capture admission and a slot from the
+[TLSN ingress collector](../FUSOU-PROXY/proxy-https/src/request_ingress.rs).
+Selection additionally requires one bounded Content-Length no greater than
+the 128 KiB TLSN sent-data ceiling, and the complete serialized request has
+that same 128 KiB ceiling. The ingress collector provides a separate 1 MiB
+body cap, 10 s idle timeout, 30 s absolute completion timeout and eight
+concurrent reservations. Declared lower bounds and each streamed chunk are
+checked; progress does not reset completion. These limits apply to selected
+TLSN capture, not to non-target or not-ready requests sent through the ordinary
+proxy, and are not whole-process memory bounds.
 
-Capacity is reserved before body reads/allocation; declared lower bounds and
-each streamed chunk are checked. Progress cannot reset the completion deadline.
-The collector/body reservation is owned through the handler, including selected
-TLSN forwarding; normal forwarding hands its buffered body onward afterward.
-This reservation is not a deferred MPC/proof/archive resource lease.
-Cancellation/drop discards the collector buffer and returns that reservation;
-it does not certify external FD/job cleanup. Logging, unrelated response
-buffering, and remote service resource budgets are not covered by this bound.
-Ingress excess/busy/timeout fails before upstream IO with 413/503/408.
-Read errors never become a forwarded empty body, including in non-TLSN mode.
-The previous selected-TLSN read-error 503 remains; ordinary read errors are 400.
-Repeated TLSN selection is rejected before collecting another body. Disabled
-TLSN otherwise keeps ordinary ingress behavior, not a silently imposed size cap.
-HTTP/1 rejections with an uncollected body request connection close rather
-than keep-alive reuse; no HTTP/2 connection-specific header is introduced.
+If capture is unavailable, the target body has an unsupported/unbounded
+Content-Length, another request owns admission, or TLSN ingress capacity is
+unavailable, the untouched body follows the ordinary proxy path. Once selected
+body collection starts, an overflow, timeout or read error may have consumed
+the stream; the request then fails closed and is not retried upstream. Drop
+discards the temporary buffer and releases local admission, but does not prove
+external FD/job cleanup. The optional Rama path has its own selected-body
+timeout and also routes requests that are not admitted to the ordinary proxy.
+Ordinary request buffering/logging and remote service budgets are not bounded
+by the TLSN collector.
 
 The existing three mandatory exchange/cleanup/Notary inputs still have no
-defaults. Their canonical-positive/range checks remain. One absolute exchange
-deadline covers selected forwarding/session/capture/proof/Worker/Result work
-without resets; cleanup uses its separate wait budget. Notary reads use
+defaults. Their canonical-positive/range checks remain. The absolute exchange
+deadline starts after a prepared binding is claimed and covers the origin
+exchange and proof/Worker/Result pipeline; it does not cover background Runtime
+Config, health or Session/Binding prewarm, which use their own bounded calls and
+retry schedule. Cleanup uses its separate wait budget. Notary reads use
 `take(max_bytes + 1)` before deserialize, not an unbounded attestation allocation.
 Local tracked cleanup must complete before `ResultReady`; no cleanup-unknown
 operation is promoted or its single-use state reopened. Remote jobs can continue
@@ -622,3 +642,23 @@ instruction is required before real gameplay or service operations.
 | publication_authorized | false. |
 | deployment | NOT_CHECKED. |
 | Production acceptance | BLOCKED; successful local tests or eventual testplay are not acceptance. |
+
+## Nonblocking capture follow-up validation
+
+The local source follow-up was validated without launching the APP, contacting
+Worker/Notary/Game Server services, or creating evidence:
+
+| Check | Result | Scope |
+|---|---|---|
+| Proxy default library tests | 122 PASS, 0 FAIL, exit 0 | Existing Hudsucker lifecycle, request routing, ingress and Production boundary tests. |
+| Proxy `rama-experimental` library tests | 155 PASS, 0 FAIL, exit 0 | Includes Rama route fallback and HTTP/1 loopback tests; not an actual Game Server connection. |
+| APP `tlsn-production` library/binary check | PASS, exit 0 | APP Cargo graph type-checks; existing warnings remain. Not a GUI launch or package build. |
+| APP `tlsn-production` Runtime Config transport-gate tests | 7 PASS, 0 FAIL, exit 0 | APP library/test compilation and local fake revalidation/binding/origin gates; not APP GUI launch or service readiness. |
+
+The first optional-feature compile exposed mismatched `http`/Rama header types
+and a test adapter error contract; those were corrected before the 155-test
+pass. A separate APP test filter initially matched zero tests and is not
+counted; the actual `runtime_config_transport_gate_tests` filter ran the
+seven tests above. No CI run covers these uncommitted changes. No real TLSN
+Presentation, external receipt, or Production acceptance was established by
+these local checks.

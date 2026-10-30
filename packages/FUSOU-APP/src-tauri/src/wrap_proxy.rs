@@ -19,9 +19,10 @@ use proxy_https::{
     },
     production_tlsn::{
         Alpha15OriginTransportFactory, AppPublicConfigurationFingerprints,
-        FilesystemPresentationArtifactSink, HandoffPresentationProvider, OriginTarget,
-        OriginTlsConfig, OriginTransportConfig, ProductionTlsnDependencies, RuntimeIdentifiers,
-        ServerIdentityPolicy, WorkerHealthObservation,
+        FilesystemOriginSendJournal, FilesystemPresentationArtifactSink,
+        HandoffPresentationProvider, OriginTarget, OriginTlsConfig, OriginTransportConfig,
+        ProductionTlsnDependencies, RuntimeIdentifiers, ServerIdentityPolicy,
+        WorkerHealthObservation,
     },
     real_tlsn::{
         FilesystemResultDelivery, RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
@@ -377,9 +378,11 @@ fn build_production_tlsn_dependencies(
         RemoteWorkerResultSigner::new(worker_results, artifact_root.clone())
             .with_candidate_capture_enabled(candidate_capture_enabled)
             .with_runtime_config_materials(runtime_config.evidence_materials())
-            .map_err(|_| production_configuration_error(
-                "verified Runtime Config capture materials are missing or exceed their bound",
-            ))?,
+            .map_err(|_| {
+                production_configuration_error(
+                    "verified Runtime Config capture materials are missing or exceed their bound",
+                )
+            })?,
     );
     Ok(ProductionTlsnDependencies::new(
         origin,
@@ -397,6 +400,10 @@ fn build_production_tlsn_dependencies(
         FilesystemPresentationArtifactSink::new(artifact_root)
             .with_enabled(candidate_capture_enabled),
     ))
+    .with_origin_send_journal(
+        FilesystemOriginSendJournal::open(get_ROAMING_DIR().join("tlsn-origin-send-journal.jsonl"))
+            .map_err(production_configuration_error)?,
+    )
     .with_identifiers(
         RuntimeIdentifiers::default()
             .with_worker_health_observation(worker_health_observation)
@@ -428,58 +435,18 @@ where
     let proxy_configs = configs::get_user_configs_for_proxy();
     let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
     #[cfg(feature = "tlsn-production")]
-    let mut public_configuration_fingerprints = None;
-    #[cfg(feature = "tlsn-production")]
-    let mut verified_runtime_config = None;
-    #[cfg(feature = "tlsn-production")]
-    let mut runtime_config_manager = None;
-
-    if proxy_configs.get_tlsn_experiment_enabled() {
-        #[cfg(feature = "tlsn-production")]
-        {
-            let manager = app
-                .try_state::<RuntimeConfigManager>()
-                .ok_or("Runtime Config manager is not registered")?
-                .inner()
-                .clone();
-            let verified = manager
-                .refresh()
-                .await
-                .map_err(|error| format!("TLSN Runtime Config verification failed: {error}"))?;
-            let report =
-                crate::tlsn_preflight::run_verified_runtime_preflight(&verified, &proxy_target);
-            if !report.ready {
-                return Err(report.failure_summary().into());
-            }
-            public_configuration_fingerprints = Some(report.public_configuration_fingerprints);
-            verified_runtime_config = Some(verified);
-            runtime_config_manager = Some(manager);
-        }
-        #[cfg(not(feature = "tlsn-production"))]
-        {
-            return Err(
-                "TLSN experiment is enabled but the application was built without the tlsn-production feature"
-                    .into(),
-            );
-        }
-    }
-
-    #[cfg(feature = "tlsn-production")]
-    let runtime_identity = if let Some(config) = verified_runtime_config.as_ref() {
-        let expected =
-            crate::tlsn_runtime::ExpectedWorkerIdentity::from_verified_runtime_config(config);
-        crate::tlsn_worker_identity::validate_disclosure_endpoint(
-            &config.payload().source.disclosure_mode,
-            expected.verification_endpoint,
-        )?;
-        Some(
-            crate::tlsn_runtime::fetch_and_validate_health_observation(&expected)
-                .await
-                .map_err(|error| format!("TLSN Worker health observation failed: {error}"))?,
-        )
+    let runtime_config_manager = if proxy_configs.get_tlsn_experiment_enabled() {
+        app.try_state::<RuntimeConfigManager>()
+            .map(|manager| manager.inner().clone())
     } else {
         None
     };
+    #[cfg(not(feature = "tlsn-production"))]
+    if proxy_configs.get_tlsn_experiment_enabled() {
+        tracing::warn!(
+            "TLSN production feature is unavailable; ordinary proxy will start with capture disabled"
+        );
+    }
 
     if use_generated_certs {
         let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
@@ -530,36 +497,9 @@ where
     let proxy_addr = if proxy_configs.get_tlsn_experiment_enabled() {
         #[cfg(feature = "tlsn-production")]
         {
-            let artifact_root = proxy_configs
-                .get_tlsn_artifact_output_path()
-                .ok_or("tlsn_artifact_output_path is required for the TLSN experiment")?;
-            let runtime_config = verified_runtime_config
-                .as_ref()
-                .ok_or("verified Runtime Config is required for the TLSN experiment")?;
-            let manager = runtime_config_manager
-                .clone()
-                .ok_or("Runtime Config manager is required for the TLSN experiment")?;
-            let dependencies = build_production_tlsn_dependencies(
-                &proxy_target,
-                &artifact_root,
-                &auth_manager_for_proxy,
-                runtime_config,
-                Arc::new(manager),
-                runtime_identity.ok_or("production Worker health observation is required")?,
-                {
-                    let fingerprints = public_configuration_fingerprints
-                        .expect("TLSN preflight fingerprints are required");
-                    AppPublicConfigurationFingerprints {
-                        schema_version: fingerprints.schema_version,
-                        scope: fingerprints.scope.to_owned(),
-                        compile_time_sha256: fingerprints.compile_time_sha256,
-                        runtime_sha256: fingerprints.runtime_sha256,
-                        combined_sha256: fingerprints.combined_sha256,
-                        candidate_binding_status: fingerprints.candidate_binding_status.to_owned(),
-                    }
-                },
-            )?;
-            proxy_https::proxy_server_https::serve_proxy_with_production_dependencies(
+            let forwarder_slot =
+                proxy_https::proxy_server_https::ExperimentalTlsnForwarderSlot::default();
+            let proxy_addr = proxy_https::proxy_server_https::serve_proxy_with_forwarder_slot(
                 0,
                 proxy_bidirectional_channel_slave,
                 proxy_log_bidirectional_channel_master,
@@ -569,12 +509,96 @@ where
                 file_prefix.unwrap_or_default(),
                 auth_manager_for_proxy,
                 capture_runtime_metadata,
-                dependencies,
-            )
+                forwarder_slot.clone(),
+            );
+            if proxy_addr.is_ok() {
+                let target = proxy_target.clone();
+                let artifact_root = proxy_configs.get_tlsn_artifact_output_path();
+                let auth_manager = {
+                    let guard = auth_manager
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    Arc::new(guard.clone())
+                };
+                let runtime_config_manager = runtime_config_manager.clone();
+                tokio::spawn(async move {
+                    let initialized = async {
+                        let manager = runtime_config_manager.ok_or_else(|| {
+                            "Runtime Config manager is not registered".to_owned()
+                        })?;
+                        let verified = manager
+                            .refresh()
+                            .await
+                            .map_err(|error| format!("Runtime Config verification failed: {error}"))?;
+                        let report =
+                            crate::tlsn_preflight::run_verified_runtime_preflight(&verified, &target);
+                        if !report.ready {
+                            return Err(report.failure_summary());
+                        }
+                        let expected = crate::tlsn_runtime::ExpectedWorkerIdentity::from_verified_runtime_config(&verified);
+                        crate::tlsn_worker_identity::validate_disclosure_endpoint(
+                            &verified.payload().source.disclosure_mode,
+                            expected.verification_endpoint,
+                        )
+                        .map_err(|error| error.to_string())?;
+                        let worker_health =
+                            crate::tlsn_runtime::fetch_and_validate_health_observation(&expected)
+                                .await?;
+                        let artifact_root = artifact_root
+                            .ok_or_else(|| "tlsn_artifact_output_path is not configured".to_owned())?;
+                        let fingerprints = report.public_configuration_fingerprints;
+                        let dependencies = build_production_tlsn_dependencies(
+                            &target,
+                            &artifact_root,
+                            &auth_manager,
+                            &verified,
+                            Arc::new(manager),
+                            worker_health,
+                            AppPublicConfigurationFingerprints {
+                                schema_version: fingerprints.schema_version,
+                                scope: fingerprints.scope.to_owned(),
+                                compile_time_sha256: fingerprints.compile_time_sha256,
+                                runtime_sha256: fingerprints.runtime_sha256,
+                                combined_sha256: fingerprints.combined_sha256,
+                                candidate_binding_status: fingerprints.candidate_binding_status.to_owned(),
+                            },
+                        )
+                        .map_err(|error| error.to_string())?;
+                        let forwarder = dependencies
+                            .build_forwarder()
+                            .map_err(|error| error.to_string())?;
+                        forwarder_slot
+                            .install(forwarder)
+                            .map_err(|error| error.to_string())?;
+                        Ok::<(), String>(())
+                    }
+                    .await;
+                    if let Err(error) = initialized {
+                        tracing::warn!(
+                            %error,
+                            "TLSN capture initialization did not complete; ordinary proxy traffic remains available"
+                        );
+                    }
+                });
+            }
+            proxy_addr
         }
         #[cfg(not(feature = "tlsn-production"))]
         {
-            Err("TLSN experiment is enabled but the application was built without the tlsn-production feature".into())
+            tracing::warn!(
+                "TLSN production feature is unavailable; starting ordinary proxy with capture disabled"
+            );
+            proxy_https::proxy_server_https::serve_proxy(
+                0,
+                proxy_bidirectional_channel_slave,
+                proxy_log_bidirectional_channel_master,
+                save_path,
+                asset_sync_save_path,
+                ca_path,
+                file_prefix.unwrap_or_default(),
+                auth_manager_for_proxy,
+                capture_runtime_metadata,
+            )
         }
     } else {
         proxy_https::proxy_server_https::serve_proxy(

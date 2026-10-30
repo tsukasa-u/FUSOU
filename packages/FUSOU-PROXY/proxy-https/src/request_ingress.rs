@@ -78,15 +78,30 @@ impl Default for RequestIngress {
 }
 
 impl RequestIngress {
-    pub(crate) async fn collect<B>(&self, mut body: B) -> Result<CollectedRequest, IngressError>
+    pub(crate) fn try_reserve(&self) -> Result<OwnedSemaphorePermit, IngressError> {
+        self.slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| IngressError::Busy)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn collect<B>(&self, body: B) -> Result<CollectedRequest, IngressError>
     where
         B: Body<Data = Bytes> + Unpin,
     {
-        let reservation = self
-            .slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| IngressError::Busy)?;
+        let reservation = self.try_reserve()?;
+        self.collect_reserved(body, reservation).await
+    }
+
+    pub(crate) async fn collect_reserved<B>(
+        &self,
+        mut body: B,
+        reservation: OwnedSemaphorePermit,
+    ) -> Result<CollectedRequest, IngressError>
+    where
+        B: Body<Data = Bytes> + Unpin,
+    {
         if body.size_hint().lower() > self.max_bytes as u64 {
             return Err(IngressError::TooLarge);
         }
@@ -265,8 +280,11 @@ mod tests {
                 .output()
                 .expect("run isolated ingress measurement");
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
-            assert!(output.status.success(), "isolated ingress measurement failed: {}",
-                String::from_utf8_lossy(&output.stdout));
+            assert!(
+                output.status.success(),
+                "isolated ingress measurement failed: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
             return;
         }
         fn memory_kib(field: &str) -> usize {
@@ -283,18 +301,32 @@ mod tests {
         let baseline_kib = memory_kib("VmRSS:");
         let mut retained = Vec::new();
         for _ in 0..MAX_COLLECTORS {
-            retained.push(ingress.clone().collect(http_body_util::Full::new(
-                Bytes::from(vec![1; MAX_BODY_BYTES]),
-            )).await.unwrap());
+            retained.push(
+                ingress
+                    .clone()
+                    .collect(http_body_util::Full::new(Bytes::from(vec![
+                        1;
+                        MAX_BODY_BYTES
+                    ])))
+                    .await
+                    .unwrap(),
+            );
         }
-        assert_eq!(retained.iter().map(|body| body.bytes.len()).sum::<usize>(),
-            MAX_COLLECTORS * MAX_BODY_BYTES);
-        assert!(matches!(ingress.collect(PendingBody).await, Err(IngressError::Busy)));
+        assert_eq!(
+            retained.iter().map(|body| body.bytes.len()).sum::<usize>(),
+            MAX_COLLECTORS * MAX_BODY_BYTES
+        );
+        assert!(matches!(
+            ingress.collect(PendingBody).await,
+            Err(IngressError::Busy)
+        ));
         let peak_kib = memory_kib("VmHWM:");
         eprintln!("ingress measurement: baseline_rss_kib={baseline_kib}, process_peak_kib={peak_kib}, retained_bytes={}",
             MAX_COLLECTORS * MAX_BODY_BYTES);
-        assert!(peak_kib.saturating_sub(baseline_kib) <= 64 * 1024,
-            "isolated ingress workload exceeded the 64 MiB measured growth budget");
+        assert!(
+            peak_kib.saturating_sub(baseline_kib) <= 64 * 1024,
+            "isolated ingress workload exceeded the 64 MiB measured growth budget"
+        );
         drop(retained);
         assert_eq!(ingress.slots.available_permits(), MAX_COLLECTORS);
     }

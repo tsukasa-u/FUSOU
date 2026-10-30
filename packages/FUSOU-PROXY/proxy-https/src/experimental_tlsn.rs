@@ -7,7 +7,11 @@ use sha2::{Digest, Sha256};
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -17,9 +21,10 @@ const HOST_HEADER_NAME: HeaderName = HeaderName::from_static("host");
 const CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
 const TRANSFER_ENCODING_HEADER_NAME: HeaderName = HeaderName::from_static("transfer-encoding");
 pub(crate) const MAX_TLSN_SENT_DATA_BYTES: usize = 128 * 1024;
+const REQUIRE_INFO_TARGET: &str = "/kcsapi/api_get_member/require_info";
 
 pub type ExperimentalForwardFuture =
-    Pin<Box<dyn Future<Output = Result<Response<Bytes>, String>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<Option<Response<Bytes>>, String>> + Send>>;
 pub type BindingFuture =
     Pin<Box<dyn Future<Output = Result<AttestationBinding, BindingError>> + Send>>;
 pub type TlsnTransportFuture =
@@ -62,6 +67,12 @@ pub type ResultBoundaryFuture =
 
 pub trait ExperimentalRequireInfoForwarder: Send + Sync {
     fn forward(&self, connection_id: u64, request: Request<Bytes>) -> ExperimentalForwardFuture;
+
+    fn capture_ready(&self) -> bool {
+        true
+    }
+
+    fn start_preparation(&self) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +101,7 @@ pub enum BindingError {
     RuntimeConfigUnavailable,
     RuntimeConfigChanged,
     AlreadyIssued,
+    BindingNotReady,
     InvalidBinding,
 }
 
@@ -108,6 +120,7 @@ impl std::fmt::Display for BindingError {
                 "TLSN Runtime Config changed; restart the proxy before retrying"
             }
             Self::AlreadyIssued => "binding provider already issued its single-use binding",
+            Self::BindingNotReady => "a verified TLSN binding is not ready",
             Self::InvalidBinding => "binding value is not a valid opaque header value",
         };
         formatter.write_str(message)
@@ -139,6 +152,187 @@ impl BindingRequestContext {
 
 pub trait AttestationBindingProvider: Send + Sync {
     fn issue_binding(&self, context: BindingRequestContext) -> BindingFuture;
+
+    fn capture_ready(&self) -> bool {
+        true
+    }
+
+    fn start_preparation(&self, _context: BindingRequestContext) {}
+
+    fn attempt_completed(&self, _binding: &AttestationBinding) {}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginSendJournalOutcome {
+    NotSent,
+    Unknown,
+    ResponseReceived,
+}
+
+pub trait OriginSendJournal: Send + Sync {
+    fn record_send_intent(
+        &self,
+        attempt_id: &str,
+        target: &str,
+        request_sha256: &[u8; 32],
+    ) -> Result<(), String>;
+
+    fn record_outcome(
+        &self,
+        attempt_id: &str,
+        outcome: OriginSendJournalOutcome,
+    ) -> Result<(), String>;
+}
+
+#[derive(Clone)]
+struct PreparedBindingState {
+    binding: Option<AttestationBinding>,
+    preparing: bool,
+    in_use: bool,
+}
+
+pub struct PreparedBindingProvider {
+    inner: Arc<dyn AttestationBindingProvider>,
+    context: BindingRequestContext,
+    state: Arc<Mutex<PreparedBindingState>>,
+    active: Arc<AtomicBool>,
+}
+
+impl PreparedBindingProvider {
+    pub fn new(inner: Arc<dyn AttestationBindingProvider>, context: BindingRequestContext) -> Self {
+        Self {
+            inner,
+            context,
+            state: Arc::new(Mutex::new(PreparedBindingState {
+                binding: None,
+                preparing: false,
+                in_use: false,
+            })),
+            active: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    fn prepare_in_background(&self) {
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+        let should_start = match self.state.lock() {
+            Ok(mut state) if !state.preparing && !state.in_use && state.binding.is_none() => {
+                state.preparing = true;
+                true
+            }
+            Ok(_) => false,
+            Err(_) => {
+                tracing::error!("prepared TLSN binding state is poisoned");
+                false
+            }
+        };
+        if !should_start {
+            return;
+        }
+
+        let inner = Arc::clone(&self.inner);
+        let state = Arc::clone(&self.state);
+        let active = Arc::clone(&self.active);
+        let context = self.context.clone();
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            if let Ok(mut state) = self.state.lock() {
+                state.preparing = false;
+            }
+            tracing::warn!("TLSN binding preparation skipped because no Tokio runtime is active");
+            return;
+        };
+        runtime.spawn(async move {
+            let mut retry_delay = Duration::from_secs(1);
+            loop {
+                if !active.load(Ordering::Acquire) {
+                    if let Ok(mut state) = state.lock() {
+                        state.preparing = false;
+                    }
+                    return;
+                }
+                match inner.issue_binding(context.clone()).await {
+                    Ok(binding) => {
+                        if !active.load(Ordering::Acquire) {
+                            inner.attempt_completed(&binding);
+                            if let Ok(mut state) = state.lock() {
+                                state.preparing = false;
+                            }
+                            return;
+                        }
+                        match state.lock() {
+                            Ok(mut state) => {
+                                state.preparing = false;
+                                if !state.in_use && state.binding.is_none() {
+                                    state.binding = Some(binding);
+                                } else {
+                                    inner.attempt_completed(&binding);
+                                }
+                            }
+                            Err(_) => {
+                                tracing::error!("prepared TLSN binding state is poisoned after preparation");
+                                inner.attempt_completed(&binding);
+                            }
+                        }
+                        return;
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "TLSN binding preparation failed; ordinary proxy traffic remains available");
+                        tokio::time::sleep(retry_delay).await;
+                        retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
+                    }
+                }
+            }
+        });
+    }
+}
+
+impl Drop for PreparedBindingProvider {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Release);
+    }
+}
+
+impl AttestationBindingProvider for PreparedBindingProvider {
+    fn issue_binding(&self, context: BindingRequestContext) -> BindingFuture {
+        let result = if context.target() != self.context.target() {
+            Err(BindingError::InvalidBinding)
+        } else {
+            match self.state.lock() {
+                Ok(mut state) if !state.in_use => match state.binding.take() {
+                    Some(binding) => {
+                        state.in_use = true;
+                        Ok(binding)
+                    }
+                    None => Err(BindingError::BindingNotReady),
+                },
+                Ok(_) => Err(BindingError::BindingNotReady),
+                Err(_) => Err(BindingError::NoBindingAuthority),
+            }
+        };
+        Box::pin(async move { result })
+    }
+
+    fn capture_ready(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.binding.is_some() && !state.in_use)
+            .unwrap_or(false)
+    }
+
+    fn start_preparation(&self, _context: BindingRequestContext) {
+        self.inner.start_preparation(self.context.clone());
+        self.prepare_in_background();
+    }
+
+    fn attempt_completed(&self, binding: &AttestationBinding) {
+        self.inner.attempt_completed(binding);
+        match self.state.lock() {
+            Ok(mut state) => state.in_use = false,
+            Err(_) => tracing::error!("prepared TLSN binding state is poisoned after an attempt"),
+        }
+        self.prepare_in_background();
+    }
 }
 
 #[derive(Debug, Default)]
@@ -936,6 +1130,8 @@ pub struct ExperimentalTlsnForwarder {
     transport: Arc<dyn TlsnOriginTransport>,
     verifier: Arc<dyn ExperimentalVerifierBoundary>,
     result_boundary: Arc<dyn ExperimentalResultBoundary>,
+    send_journal: Option<Arc<dyn OriginSendJournal>>,
+    journal_target: Option<String>,
     state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
     lifecycle_policy: Option<ExchangePolicy>,
     lifecycle: Arc<Mutex<Option<ExchangeLifecycle>>>,
@@ -994,12 +1190,36 @@ impl ExperimentalTlsnForwarder {
         result_boundary: Arc<dyn ExperimentalResultBoundary>,
         lifecycle_policy: Option<ExchangePolicy>,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            binding_provider: Arc::new(SingleUseBindingProvider::new(binding_provider)),
+        Self::new_with_policy_and_journal(
+            binding_provider,
             serializer,
             transport,
             verifier,
             result_boundary,
+            lifecycle_policy,
+            None,
+            None,
+        )
+    }
+
+    pub fn new_with_policy_and_journal(
+        binding_provider: Arc<dyn AttestationBindingProvider>,
+        serializer: Arc<dyn OriginRequestSerializer>,
+        transport: Arc<dyn TlsnOriginTransport>,
+        verifier: Arc<dyn ExperimentalVerifierBoundary>,
+        result_boundary: Arc<dyn ExperimentalResultBoundary>,
+        lifecycle_policy: Option<ExchangePolicy>,
+        send_journal: Option<Arc<dyn OriginSendJournal>>,
+        journal_target: Option<String>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            binding_provider,
+            serializer,
+            transport,
+            verifier,
+            result_boundary,
+            send_journal,
+            journal_target,
             state: Arc::new(Mutex::new(ExperimentalTlsnRuntimeState::Ready)),
             lifecycle_policy,
             lifecycle: Arc::new(Mutex::new(None)),
@@ -1030,6 +1250,49 @@ impl ExperimentalTlsnForwarder {
             .lock()
             .map(|outcome| *outcome)
             .map_err(|_| "TLSN origin outcome state is poisoned".to_owned())
+    }
+
+    fn begin_attempt(&self) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())?;
+        if self.origin_outcome()? == OriginRequestOutcome::Unknown {
+            return Err(
+                "previous TLSN origin outcome is unknown; no retry is permitted".to_owned(),
+            );
+        }
+        if matches!(
+            *state,
+            ExperimentalTlsnRuntimeState::Selected
+                | ExperimentalTlsnRuntimeState::BindingIssued
+                | ExperimentalTlsnRuntimeState::Serialized
+                | ExperimentalTlsnRuntimeState::Sent
+                | ExperimentalTlsnRuntimeState::ResponseReceived
+                | ExperimentalTlsnRuntimeState::ResponseReturned
+                | ExperimentalTlsnRuntimeState::ProofStarted
+                | ExperimentalTlsnRuntimeState::EvidenceReady
+                | ExperimentalTlsnRuntimeState::Verified
+                | ExperimentalTlsnRuntimeState::CleanupUnconfirmed
+        ) {
+            return Err("another TLSN attempt is still active".to_owned());
+        }
+        *state = ExperimentalTlsnRuntimeState::Selected;
+        *self
+            .origin_outcome
+            .lock()
+            .map_err(|_| "TLSN origin outcome state is poisoned".to_owned())? =
+            OriginRequestOutcome::NotSent;
+        Ok(())
+    }
+
+    pub fn start_preparation(&self) {
+        self.binding_provider
+            .start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+    }
+
+    pub fn capture_ready(&self) -> bool {
+        self.binding_provider.capture_ready()
     }
 
     pub fn cancel(&self) -> Result<(), String> {
@@ -1248,15 +1511,30 @@ impl ExperimentalTlsnForwarder {
         self: Arc<Self>,
         connection_id: u64,
         request: Request<Bytes>,
-    ) -> Result<Response<Bytes>, String> {
-        self.transition(
-            ExperimentalTlsnRuntimeState::Ready,
-            ExperimentalTlsnRuntimeState::Selected,
-        )?;
-        let lifecycle = self
-            .lifecycle_policy
-            .map(ExchangePolicy::start)
-            .transpose()?;
+    ) -> Result<Option<Response<Bytes>>, String> {
+        let context = BindingRequestContext::new(connection_id, request.uri().path());
+        let binding = match self.binding_provider.issue_binding(context).await {
+            Ok(binding) => binding,
+            Err(error) => {
+                tracing::info!(%error, connection_id, "TLSN capture unavailable before origin send; using ordinary proxy");
+                return Ok(None);
+            }
+        };
+        if self.begin_attempt().is_err() {
+            self.binding_provider.attempt_completed(&binding);
+            return Ok(None);
+        }
+        let lifecycle = match self.lifecycle_policy.map(ExchangePolicy::start).transpose() {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                tracing::warn!(%error, connection_id, "TLSN exchange could not start before origin send; using ordinary proxy");
+                if let Ok(mut state) = self.state.lock() {
+                    *state = ExperimentalTlsnRuntimeState::Unattested;
+                }
+                self.binding_provider.attempt_completed(&binding);
+                return Ok(None);
+            }
+        };
         *self
             .lifecycle
             .lock()
@@ -1266,26 +1544,43 @@ impl ExperimentalTlsnForwarder {
             state: Arc::clone(&self.state),
             finished: false,
         });
+        let mut fallback_allowed = true;
         let preparation = async {
             let (parts, body) = request.into_parts();
-            let context = BindingRequestContext::new(connection_id, parts.uri.path());
-            let binding = self
-                .binding_provider
-                .issue_binding(context)
-                .await
-                .map_err(|error| error.to_string())?;
             self.transition(
                 ExperimentalTlsnRuntimeState::Selected,
                 ExperimentalTlsnRuntimeState::BindingIssued,
             )?;
-            let serialized = self
-                .serializer
-                .serialize(&parts, body, &binding)
-                .map_err(|error| error.to_string())?;
+            let serialized = match self.serializer.serialize(&parts, body, &binding) {
+                Ok(serialized) => serialized,
+                Err(error) => {
+                    tracing::warn!(%error, connection_id, "TLSN request serialization failed before origin send; using ordinary proxy");
+                    return Ok(None);
+                }
+            };
             self.transition(
                 ExperimentalTlsnRuntimeState::BindingIssued,
                 ExperimentalTlsnRuntimeState::Serialized,
             )?;
+
+            let attempt_id = digest_hex(&sha256(binding.value().as_bytes()));
+            let journal_target = self
+                .journal_target
+                .clone()
+                .or_else(|| parts.uri.host().map(str::to_owned))
+                .unwrap_or_default();
+            if let Some(journal) = &self.send_journal {
+                if let Err(error) = journal.record_send_intent(
+                    &attempt_id,
+                    &journal_target,
+                    &sha256(serialized.bytes()),
+                ) {
+                    fallback_allowed = false;
+                    return Err(format!(
+                        "TLSN pre-send journal rejected origin send: {error}"
+                    ));
+                }
+            }
 
             // This transition is intentionally committed before transport I/O. Any
             // partial write or connection error must not be retried or sent to Production.
@@ -1299,28 +1594,59 @@ impl ExperimentalTlsnForwarder {
                     .send_once_with_lifecycle(serialized.clone(), lifecycle.clone()),
                 None => self.transport.send_once(serialized.clone()),
             };
-            *self.origin_outcome.lock().map_err(|_| "TLSN origin outcome state is poisoned")? =
+            *self
+                .origin_outcome
+                .lock()
+                .map_err(|_| "TLSN origin outcome state is poisoned")? =
                 OriginRequestOutcome::Unknown;
-            let capture = transport.await.map_err(|error| {
-                if matches!(
-                    error,
-                    TlsnTransportError::LifecyclePolicyMissing
-                        | TlsnTransportError::Unavailable
-                        | TlsnTransportError::RuntimeConfigUnavailable
-                        | TlsnTransportError::RuntimeConfigChanged
-                        | TlsnTransportError::RequestTooLarge
-                        | TlsnTransportError::OriginConnectionFailed
-                        | TlsnTransportError::SystemTrustStoreUnavailable
-                        | TlsnTransportError::TlsHandshakeFailed { .. }
-                ) {
-                    match self.origin_outcome.lock() {
-                        Ok(mut outcome) => *outcome = OriginRequestOutcome::NotSent,
-                        Err(_) => tracing::error!("TLSN origin outcome state is poisoned"),
+            let capture = match transport.await {
+                Ok(capture) => capture,
+                Err(error) => {
+                    if matches!(
+                        error,
+                        TlsnTransportError::LifecyclePolicyMissing
+                            | TlsnTransportError::Unavailable
+                            | TlsnTransportError::RuntimeConfigUnavailable
+                            | TlsnTransportError::RuntimeConfigChanged
+                            | TlsnTransportError::RequestTooLarge
+                            | TlsnTransportError::OriginConnectionFailed
+                            | TlsnTransportError::SystemTrustStoreUnavailable
+                            | TlsnTransportError::TlsHandshakeFailed { .. }
+                    ) {
+                        match self.origin_outcome.lock() {
+                            Ok(mut outcome) => *outcome = OriginRequestOutcome::NotSent,
+                            Err(_) => tracing::error!("TLSN origin outcome state is poisoned"),
+                        }
                     }
+                    let origin_outcome = self.origin_outcome()?;
+                    if let Some(journal) = &self.send_journal {
+                        let recorded_outcome = match origin_outcome {
+                            OriginRequestOutcome::NotSent => OriginSendJournalOutcome::NotSent,
+                            OriginRequestOutcome::Unknown => OriginSendJournalOutcome::Unknown,
+                            OriginRequestOutcome::ResponseReceived => {
+                                OriginSendJournalOutcome::ResponseReceived
+                            }
+                        };
+                        if let Err(journal_error) =
+                            journal.record_outcome(&attempt_id, recorded_outcome)
+                        {
+                            fallback_allowed = false;
+                            return Err(format!(
+                                "{error}; TLSN origin outcome journal update failed: {journal_error}"
+                            ));
+                        }
+                    }
+                    if origin_outcome == OriginRequestOutcome::NotSent {
+                        tracing::warn!(%error, connection_id, "TLSN origin request was not sent; using ordinary proxy");
+                        return Ok(None);
+                    }
+                    return Err(error.to_string());
                 }
-                error.to_string()
-            })?;
-            *self.origin_outcome.lock().map_err(|_| "TLSN origin outcome state is poisoned")? =
+            };
+            *self
+                .origin_outcome
+                .lock()
+                .map_err(|_| "TLSN origin outcome state is poisoned")? =
                 OriginRequestOutcome::ResponseReceived;
             self.transition(
                 ExperimentalTlsnRuntimeState::Sent,
@@ -1332,7 +1658,13 @@ impl ExperimentalTlsnForwarder {
                 ExperimentalTlsnRuntimeState::ResponseReceived,
                 ExperimentalTlsnRuntimeState::ResponseReturned,
             )?;
-            Ok::<_, String>((serialized, binding, capture, response))
+            Ok::<_, String>(Some((
+                serialized,
+                binding.clone(),
+                capture,
+                response,
+                attempt_id,
+            )))
         };
         let prepared = match lifecycle.as_ref() {
             Some(lifecycle) => lifecycle
@@ -1342,9 +1674,34 @@ impl ExperimentalTlsnForwarder {
                 .and_then(|result| result),
             None => preparation.await,
         };
-        let (serialized, binding, capture, response) = match prepared {
-            Ok(prepared) => prepared,
+        let (serialized, binding, capture, response, attempt_id) = match prepared {
+            Ok(Some(prepared)) => prepared,
+            Ok(None) => {
+                if let Some(lifecycle) = lifecycle.as_ref() {
+                    lifecycle.stop(ExchangeStop::Cancelled);
+                    if lifecycle.wait_for_cleanup().await {
+                        if let Ok(mut state) = self.state.lock() {
+                            *state = ExperimentalTlsnRuntimeState::Unattested;
+                        }
+                    } else {
+                        if let Ok(mut state) = self.state.lock() {
+                            *state = ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
+                        }
+                        self.binding_provider.attempt_completed(&binding);
+                        return Err("TLSN cleanup deadline expired before origin send".to_owned());
+                    }
+                    owner
+                        .as_mut()
+                        .expect("lifecycle owns the exchange")
+                        .finished = true;
+                } else if let Ok(mut state) = self.state.lock() {
+                    *state = ExperimentalTlsnRuntimeState::Unattested;
+                }
+                self.binding_provider.attempt_completed(&binding);
+                return Ok(None);
+            }
             Err(error) => {
+                let origin_outcome = self.origin_outcome()?;
                 if let Some(lifecycle) = lifecycle.as_ref() {
                     let stopped = lifecycle.stop_reason();
                     lifecycle.stop(ExchangeStop::Cancelled);
@@ -1365,6 +1722,10 @@ impl ExperimentalTlsnForwarder {
                         .expect("lifecycle owns the exchange")
                         .finished = true;
                 }
+                self.binding_provider.attempt_completed(&binding);
+                if origin_outcome == OriginRequestOutcome::NotSent && fallback_allowed {
+                    return Ok(None);
+                }
                 return Err(error);
             }
         };
@@ -1372,8 +1733,30 @@ impl ExperimentalTlsnForwarder {
         let state = Arc::clone(&self.state);
         let verifier = Arc::clone(&self.verifier);
         let result_boundary = Arc::clone(&self.result_boundary);
+        let binding_provider = Arc::clone(&self.binding_provider);
+        let binding_for_completion = binding.clone();
+        let send_journal = self.send_journal.clone();
         let task = AbortOnDropHandle::new(tokio::spawn(async move {
             tokio::task::yield_now().await;
+            if let Some(journal) = send_journal {
+                let journal_update = tokio::task::spawn_blocking(move || {
+                    journal.record_outcome(&attempt_id, OriginSendJournalOutcome::ResponseReceived)
+                })
+                .await;
+                match journal_update {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => tracing::error!(
+                        %error,
+                        connection_id,
+                        "TLSN origin response was received but its durable journal update failed"
+                    ),
+                    Err(error) => tracing::error!(
+                        %error,
+                        connection_id,
+                        "TLSN origin response journal task failed"
+                    ),
+                }
+            }
             let pipeline = Self::run_proof_pipeline(
                 Arc::clone(&state),
                 proof,
@@ -1418,13 +1801,16 @@ impl ExperimentalTlsnForwarder {
             if let Some(owner) = owner.as_mut() {
                 owner.finished = true;
             }
+            if cleanup_confirmed {
+                binding_provider.attempt_completed(&binding_for_completion);
+            }
         }));
         *self
             .proof_task
             .lock()
             .map_err(|_| "TLSN proof task owner poisoned")? = Some(task);
 
-        Ok(response)
+        Ok(Some(response))
     }
 }
 
@@ -1436,6 +1822,8 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
             transport: Arc::clone(&self.transport),
             verifier: Arc::clone(&self.verifier),
             result_boundary: Arc::clone(&self.result_boundary),
+            send_journal: self.send_journal.clone(),
+            journal_target: self.journal_target.clone(),
             state: Arc::clone(&self.state),
             lifecycle_policy: self.lifecycle_policy,
             lifecycle: Arc::clone(&self.lifecycle),
@@ -1461,6 +1849,15 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut output = [0_u8; 32];
     output.copy_from_slice(&digest);
     output
+}
+
+pub(crate) fn digest_hex(digest: &[u8; 32]) -> String {
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
 }
 
 #[cfg(test)]
@@ -1524,6 +1921,7 @@ pub(crate) mod test_support {
                     .status(StatusCode::CREATED)
                     .header("x-tlsn-fixture", "shared")
                     .body(Bytes::from_static(b"shared TLSN response"))
+                    .map(Some)
                     .map_err(|error| error.to_string())
             })
         }
@@ -1760,7 +2158,12 @@ mod tests {
     async fn explicit_policy_completes_pipeline_once_and_only_after_cleanup() {
         let (forwarder, sends, results) = policy_forwarder(None, "1000");
         assert_eq!(
-            forwarder.forward(1, request(None)).await.unwrap().status(),
+            forwarder
+                .forward(1, request(None))
+                .await
+                .unwrap()
+                .expect("capture response")
+                .status(),
             StatusCode::OK
         );
         wait_state(&forwarder, ExperimentalTlsnRuntimeState::ResultReady).await;
@@ -1777,19 +2180,18 @@ mod tests {
                 .stop_reason(),
             None
         );
-        assert!(forwarder.forward(2, request(None)).await.is_err());
-        assert_eq!(sends.load(Ordering::SeqCst), 1);
+        assert!(forwarder.forward(2, request(None)).await.unwrap().is_some());
+        assert_eq!(sends.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
     async fn absolute_deadline_after_browser_response_never_retries_or_delivers_result() {
         let (release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "50");
-        forwarder.forward(1, request(None)).await.unwrap();
+        assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
         wait_state(&forwarder, ExperimentalTlsnRuntimeState::DeadlineExceeded).await;
         assert!(release.send(()).is_err());
         assert_eq!(results.load(Ordering::SeqCst), 0);
-        assert!(forwarder.forward(2, request(None)).await.is_err());
         assert_eq!(sends.load(Ordering::SeqCst), 1);
     }
 
@@ -1798,9 +2200,9 @@ mod tests {
         let (release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "1000");
         let (other, other_sends, other_results) = policy_forwarder(None, "1000");
-        forwarder.forward(1, request(None)).await.unwrap();
+        assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
         forwarder.cancel().unwrap();
-        other.forward(2, request(None)).await.unwrap();
+        assert!(other.forward(2, request(None)).await.unwrap().is_some());
         wait_state(&forwarder, ExperimentalTlsnRuntimeState::Cancelled).await;
         wait_state(&other, ExperimentalTlsnRuntimeState::ResultReady).await;
         assert!(release.send(()).is_err());
@@ -1814,7 +2216,7 @@ mod tests {
     async fn dropping_runtime_owner_cancels_background_proof_instead_of_detaching() {
         let (release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "1000");
-        forwarder.forward(1, request(None)).await.unwrap();
+        assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
         let lifecycle = forwarder.lifecycle.lock().unwrap().clone().unwrap();
         drop(forwarder);
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
@@ -1833,12 +2235,12 @@ mod tests {
     async fn cleanup_timeout_prevents_result_ready_and_does_not_reopen_the_single_use_runtime() {
         let (_release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "10000");
-        forwarder.forward(1, request(None)).await.unwrap();
+        assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
         let lifecycle = forwarder.lifecycle.lock().unwrap().clone().unwrap();
         let unfinished = lifecycle.tasks().spawn(std::future::pending::<()>());
         forwarder.cancel().unwrap();
         wait_state(&forwarder, ExperimentalTlsnRuntimeState::CleanupUnconfirmed).await;
-        assert!(forwarder.forward(2, request(None)).await.is_err());
+        assert!(forwarder.forward(2, request(None)).await.unwrap().is_none());
         assert_eq!(sends.load(Ordering::SeqCst), 1);
         assert_eq!(results.load(Ordering::SeqCst), 0);
         unfinished.abort();
@@ -1943,9 +2345,16 @@ mod tests {
             }),
         );
 
-        let response = forwarder.forward(41, request(None)).await.unwrap();
+        let response = forwarder
+            .forward(41, request(None))
+            .await
+            .unwrap()
+            .expect("capture response");
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::ResponseReceived);
+        assert_eq!(
+            forwarder.origin_outcome().unwrap(),
+            OriginRequestOutcome::ResponseReceived
+        );
         assert_eq!(binding_calls.load(Ordering::SeqCst), 1);
         assert_eq!(connection_ids.lock().unwrap().as_slice(), [41]);
         assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
@@ -2002,7 +2411,11 @@ mod tests {
             }),
         );
 
-        let response = forwarder.forward(41, request(None)).await.unwrap();
+        let response = forwarder
+            .forward(41, request(None))
+            .await
+            .unwrap()
+            .expect("capture response");
         assert_eq!(response.status(), StatusCode::OK);
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
@@ -2055,7 +2468,11 @@ mod tests {
             }),
         );
 
-        let response = forwarder.forward(41, request(None)).await.unwrap();
+        let response = forwarder
+            .forward(41, request(None))
+            .await
+            .unwrap()
+            .expect("capture response");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             forwarder.state().unwrap(),
@@ -2114,7 +2531,11 @@ mod tests {
             }),
         );
 
-        let response = forwarder.forward(41, request(None)).await.unwrap();
+        let response = forwarder
+            .forward(41, request(None))
+            .await
+            .unwrap()
+            .expect("capture response");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             forwarder.state().unwrap(),
@@ -2135,12 +2556,14 @@ mod tests {
     #[tokio::test]
     async fn unavailable_dependencies_fail_closed_before_transport() {
         let forwarder = ExperimentalTlsnForwarder::unavailable();
-        let error = forwarder.forward(7, request(None)).await.unwrap_err();
-        assert!(error.contains("NoBindingAuthority"));
-        assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::NotSent);
+        assert!(forwarder.forward(7, request(None)).await.unwrap().is_none());
+        assert_eq!(
+            forwarder.origin_outcome().unwrap(),
+            OriginRequestOutcome::NotSent
+        );
         assert_eq!(
             forwarder.state().unwrap(),
-            ExperimentalTlsnRuntimeState::Selected
+            ExperimentalTlsnRuntimeState::Ready
         );
     }
 
@@ -2170,13 +2593,12 @@ mod tests {
                 Arc::new(UnconfiguredResultBoundary),
             );
 
-            let error = forwarder.forward(7, request(None)).await.unwrap_err();
-            assert!(error.contains(&binding_error.to_string()));
+            assert!(forwarder.forward(7, request(None)).await.unwrap().is_none());
             assert_eq!(binding_calls.load(Ordering::SeqCst), 1);
             assert_eq!(transport_calls.load(Ordering::SeqCst), 0);
             assert_eq!(
                 forwarder.state().unwrap(),
-                ExperimentalTlsnRuntimeState::Selected
+                ExperimentalTlsnRuntimeState::Ready
             );
         }
     }
@@ -2202,7 +2624,7 @@ mod tests {
             Arc::new(UnconfiguredResultBoundary),
         );
         let first = forwarder.forward(1, request(None)).await;
-        assert!(first.is_ok());
+        assert!(first.is_ok_and(|response| response.is_some()));
         assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
@@ -2217,8 +2639,20 @@ mod tests {
         .await
         .expect("detached verifier failure was not recorded");
         let second = forwarder.forward(1, request(None)).await;
-        assert!(second.is_err());
-        assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
+        assert!(second.is_ok_and(|response| response.is_some()));
+        assert_eq!(transport_calls.load(Ordering::SeqCst), 2);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if forwarder.state().unwrap()
+                    == ExperimentalTlsnRuntimeState::WorkerVerificationFailed
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second attempt failure was not recorded");
         assert_eq!(
             forwarder.state().unwrap(),
             ExperimentalTlsnRuntimeState::WorkerVerificationFailed
@@ -2252,17 +2686,27 @@ mod tests {
                     connection_ids: Arc::new(Mutex::new(Vec::new())),
                 }),
                 Arc::new(Http1OriginRequestSerializer),
-                Arc::new(FailingOrigin { ambiguous, calls: Arc::clone(&calls) }),
+                Arc::new(FailingOrigin {
+                    ambiguous,
+                    calls: Arc::clone(&calls),
+                }),
                 Arc::new(UnconfiguredVerifier),
                 Arc::new(UnconfiguredResultBoundary),
             );
-            assert!(forwarder.forward(1, request(None)).await.is_err());
-            assert_eq!(forwarder.origin_outcome().unwrap(), if ambiguous {
-                OriginRequestOutcome::Unknown
+            let result = forwarder.forward(1, request(None)).await;
+            if ambiguous {
+                assert!(result.is_err());
             } else {
-                OriginRequestOutcome::NotSent
-            });
-            assert!(forwarder.forward(2, request(None)).await.is_err());
+                assert!(result.is_ok_and(|response| response.is_none()));
+            }
+            assert_eq!(
+                forwarder.origin_outcome().unwrap(),
+                if ambiguous {
+                    OriginRequestOutcome::Unknown
+                } else {
+                    OriginRequestOutcome::NotSent
+                }
+            );
             assert_eq!(calls.load(Ordering::SeqCst), 1);
         }
     }
@@ -2273,8 +2717,11 @@ mod tests {
 
     impl ExperimentalVerifierBoundary for GatedWorker {
         fn verify(
-            &self, _: u64, _: SerializedOriginRequest,
-            _: AttestationBinding, _: TlsnOriginExchange,
+            &self,
+            _: u64,
+            _: SerializedOriginRequest,
+            _: AttestationBinding,
+            _: TlsnOriginExchange,
         ) -> VerificationFuture {
             let release = self.release.lock().unwrap().take().unwrap();
             Box::pin(async move {
@@ -2309,23 +2756,33 @@ mod tests {
         for stage in ["worker", "signing", "archive"] {
             let (release_tx, release_rx) = oneshot::channel();
             let (verifier, boundary): (
-                Arc<dyn ExperimentalVerifierBoundary>, Arc<dyn ExperimentalResultBoundary>,
+                Arc<dyn ExperimentalVerifierBoundary>,
+                Arc<dyn ExperimentalResultBoundary>,
             ) = if stage == "worker" {
                 (
-                    Arc::new(GatedWorker { release: Mutex::new(Some(release_rx)) }),
+                    Arc::new(GatedWorker {
+                        release: Mutex::new(Some(release_rx)),
+                    }),
                     Arc::new(UnconfiguredResultBoundary),
                 )
             } else {
                 (
-                    Arc::new(MockVerifier { calls: Arc::new(AtomicUsize::new(0)) }),
+                    Arc::new(MockVerifier {
+                        calls: Arc::new(AtomicUsize::new(0)),
+                    }),
                     Arc::new(GatedDelivery {
-                        release: Mutex::new(Some(release_rx)), signing_failure: stage == "signing",
+                        release: Mutex::new(Some(release_rx)),
+                        signing_failure: stage == "signing",
                     }),
                 )
             };
-            let serialized = Http1OriginRequestSerializer.serialize(
-                &request(None).into_parts().0, Bytes::from_static(b"abc"), &binding(),
-            ).unwrap();
+            let serialized = Http1OriginRequestSerializer
+                .serialize(
+                    &request(None).into_parts().0,
+                    Bytes::from_static(b"abc"),
+                    &binding(),
+                )
+                .unwrap();
             let mut captured = exchange();
             captured.transcript.request_sha256 = sha256(serialized.bytes());
             let calls = Arc::new(AtomicUsize::new(0));
@@ -2338,17 +2795,31 @@ mod tests {
                 Arc::new(MockTransport {
                     calls: Arc::clone(&calls),
                     request_bytes: Arc::new(Mutex::new(Vec::new())),
-                    response: captured, retained_response: Mutex::new(None),
+                    response: captured,
+                    retained_response: Mutex::new(None),
                     proof_release: Mutex::new(None),
                 }),
-                verifier, boundary,
+                verifier,
+                boundary,
             );
-            let response = tokio::time::timeout(std::time::Duration::from_secs(1),
-                forwarder.forward(1, request(None))).await.unwrap().unwrap();
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                forwarder.forward(1, request(None)),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.body().as_ref(), b"ok");
-            assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::ResponseReceived);
-            assert_ne!(forwarder.state().unwrap(), ExperimentalTlsnRuntimeState::ResultReady);
+            assert_eq!(
+                forwarder.origin_outcome().unwrap(),
+                OriginRequestOutcome::ResponseReceived
+            );
+            assert_ne!(
+                forwarder.state().unwrap(),
+                ExperimentalTlsnRuntimeState::ResultReady
+            );
             release_tx.send(()).unwrap();
             let failed = match stage {
                 "worker" => ExperimentalTlsnRuntimeState::WorkerUnavailable,
@@ -2359,10 +2830,13 @@ mod tests {
                 while forwarder.state().unwrap() != failed {
                     tokio::task::yield_now().await;
                 }
-            }).await.unwrap();
-            assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::ResponseReceived);
-            assert_eq!(calls.load(Ordering::SeqCst), 1);
-            assert!(forwarder.forward(2, request(None)).await.is_err());
+            })
+            .await
+            .unwrap();
+            assert_eq!(
+                forwarder.origin_outcome().unwrap(),
+                OriginRequestOutcome::ResponseReceived
+            );
             assert_eq!(calls.load(Ordering::SeqCst), 1);
         }
     }

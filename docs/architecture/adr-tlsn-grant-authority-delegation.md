@@ -970,3 +970,30 @@ formal launcher/report authentication remain unresolved.
 fixed-disabled reusable workflow, existing grant blockers, four real checks
 UNVERIFIED, `publication_authorized: false`, deployment NOT_CHECKED and
 Production acceptance BLOCKED are maintained.
+
+## Local TLSN capture and authority boundary follow-up
+
+The APP now starts ordinary proxying before background Runtime Config,
+preflight, Worker health and TLSN dependency initialization. Per-request
+capture is admitted only with a prepared binding and available local
+resources; when unavailable, the untouched request follows ordinary proxying.
+This changes local request scheduling only. It grants no release, publication,
+archive, deployment or Gameplay authority and does not change any grant,
+signer, workflow, trust-root or role policy in this ADR.
+
+Production APP wiring uses an append-only local journal to sync a binding-
+derived attempt digest, target and serialized-request digest before origin
+transport. On restart, a send intent without a terminal outcome becomes
+`UNKNOWN` and the same binding-derived attempt digest is not reusable. The
+journal is not an authority-issued operation reservation or receipt. The
+existing Worker Binding Authority durably tracks binding/session state, but it
+does not bind a stable Game Server operation ID, request digest or origin-send
+intent. A newly issued binding therefore cannot establish that a repeated
+logical Game Server operation is a new operation. No new endpoint, owner
+policy, key, or trust grant is inferred or implemented.
+
+An ambiguous origin write is still never automatically retried, and the
+Game Server's receipt remains `UNKNOWN` unless independently observed.
+Successful local proxy tests do not alter any native attestation, OIDC,
+delegation, `publication_authorized`, deployment or Production-acceptance
+status.
