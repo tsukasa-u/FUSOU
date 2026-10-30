@@ -248,4 +248,54 @@ mod tests {
         ));
         assert_eq!(ingress.slots.available_permits(), 1);
     }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn measures_resident_peak_with_eight_full_collectors_and_rejects_the_ninth() {
+        const CHILD: &str = "FUSOU_INGRESS_MEMORY_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "request_ingress::tests::measures_resident_peak_with_eight_full_collectors_and_rejects_the_ninth",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .expect("run isolated ingress measurement");
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            assert!(output.status.success(), "isolated ingress measurement failed: {}",
+                String::from_utf8_lossy(&output.stdout));
+            return;
+        }
+        fn memory_kib(field: &str) -> usize {
+            std::fs::read_to_string("/proc/self/status")
+                .expect("Linux process memory metrics are required")
+                .lines()
+                .find_map(|line| line.strip_prefix(field))
+                .and_then(|value| value.split_whitespace().next())
+                .expect("memory metric missing")
+                .parse()
+                .expect("invalid memory metric")
+        }
+        let ingress = RequestIngress::default();
+        let baseline_kib = memory_kib("VmRSS:");
+        let mut retained = Vec::new();
+        for _ in 0..MAX_COLLECTORS {
+            retained.push(ingress.clone().collect(http_body_util::Full::new(
+                Bytes::from(vec![1; MAX_BODY_BYTES]),
+            )).await.unwrap());
+        }
+        assert_eq!(retained.iter().map(|body| body.bytes.len()).sum::<usize>(),
+            MAX_COLLECTORS * MAX_BODY_BYTES);
+        assert!(matches!(ingress.collect(PendingBody).await, Err(IngressError::Busy)));
+        let peak_kib = memory_kib("VmHWM:");
+        eprintln!("ingress measurement: baseline_rss_kib={baseline_kib}, process_peak_kib={peak_kib}, retained_bytes={}",
+            MAX_COLLECTORS * MAX_BODY_BYTES);
+        assert!(peak_kib.saturating_sub(baseline_kib) <= 64 * 1024,
+            "isolated ingress workload exceeded the 64 MiB measured growth budget");
+        drop(retained);
+        assert_eq!(ingress.slots.available_permits(), MAX_COLLECTORS);
+    }
 }

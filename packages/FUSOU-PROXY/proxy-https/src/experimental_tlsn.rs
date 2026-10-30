@@ -482,6 +482,7 @@ pub enum TlsnTransportError {
     AlreadySent,
     RequestTooLarge,
     OriginConnectionFailed,
+    AmbiguousOriginSend,
     SystemTrustStoreUnavailable,
     TlsHandshakeFailed { server_identity: String },
     ResponseReadFailed,
@@ -599,6 +600,9 @@ impl std::fmt::Display for TlsnTransportError {
             Self::AlreadySent => "TLSN origin transport rejected a duplicate send",
             Self::RequestTooLarge => "TLSN origin request exceeds the configured capacity",
             Self::OriginConnectionFailed => "TLSN origin connection failed",
+            Self::AmbiguousOriginSend => {
+                "TLSN origin write failed; Game Server receipt is UNKNOWN; no upstream retry"
+            }
             Self::SystemTrustStoreUnavailable => {
                 "platform TLS trust store is unavailable or invalid"
             }
@@ -919,6 +923,13 @@ pub enum ExperimentalTlsnRuntimeState {
     CleanupUnconfirmed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginRequestOutcome {
+    NotSent,
+    Unknown,
+    ResponseReceived,
+}
+
 pub struct ExperimentalTlsnForwarder {
     binding_provider: Arc<dyn AttestationBindingProvider>,
     serializer: Arc<dyn OriginRequestSerializer>,
@@ -929,6 +940,7 @@ pub struct ExperimentalTlsnForwarder {
     lifecycle_policy: Option<ExchangePolicy>,
     lifecycle: Arc<Mutex<Option<ExchangeLifecycle>>>,
     proof_task: Arc<Mutex<Option<AbortOnDropHandle<()>>>>,
+    origin_outcome: Arc<Mutex<OriginRequestOutcome>>,
 }
 
 struct ExchangeOwner {
@@ -992,6 +1004,7 @@ impl ExperimentalTlsnForwarder {
             lifecycle_policy,
             lifecycle: Arc::new(Mutex::new(None)),
             proof_task: Arc::new(Mutex::new(None)),
+            origin_outcome: Arc::new(Mutex::new(OriginRequestOutcome::NotSent)),
         })
     }
 
@@ -1010,6 +1023,13 @@ impl ExperimentalTlsnForwarder {
             .lock()
             .map(|state| *state)
             .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())
+    }
+
+    pub fn origin_outcome(&self) -> Result<OriginRequestOutcome, String> {
+        self.origin_outcome
+            .lock()
+            .map(|outcome| *outcome)
+            .map_err(|_| "TLSN origin outcome state is poisoned".to_owned())
     }
 
     pub fn cancel(&self) -> Result<(), String> {
@@ -1279,7 +1299,29 @@ impl ExperimentalTlsnForwarder {
                     .send_once_with_lifecycle(serialized.clone(), lifecycle.clone()),
                 None => self.transport.send_once(serialized.clone()),
             };
-            let capture = transport.await.map_err(|error| error.to_string())?;
+            *self.origin_outcome.lock().map_err(|_| "TLSN origin outcome state is poisoned")? =
+                OriginRequestOutcome::Unknown;
+            let capture = transport.await.map_err(|error| {
+                if matches!(
+                    error,
+                    TlsnTransportError::LifecyclePolicyMissing
+                        | TlsnTransportError::Unavailable
+                        | TlsnTransportError::RuntimeConfigUnavailable
+                        | TlsnTransportError::RuntimeConfigChanged
+                        | TlsnTransportError::RequestTooLarge
+                        | TlsnTransportError::OriginConnectionFailed
+                        | TlsnTransportError::SystemTrustStoreUnavailable
+                        | TlsnTransportError::TlsHandshakeFailed { .. }
+                ) {
+                    match self.origin_outcome.lock() {
+                        Ok(mut outcome) => *outcome = OriginRequestOutcome::NotSent,
+                        Err(_) => tracing::error!("TLSN origin outcome state is poisoned"),
+                    }
+                }
+                error.to_string()
+            })?;
+            *self.origin_outcome.lock().map_err(|_| "TLSN origin outcome state is poisoned")? =
+                OriginRequestOutcome::ResponseReceived;
             self.transition(
                 ExperimentalTlsnRuntimeState::Sent,
                 ExperimentalTlsnRuntimeState::ResponseReceived,
@@ -1398,6 +1440,7 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
             lifecycle_policy: self.lifecycle_policy,
             lifecycle: Arc::clone(&self.lifecycle),
             proof_task: Arc::clone(&self.proof_task),
+            origin_outcome: Arc::clone(&self.origin_outcome),
         });
         Box::pin(forwarder.forward_inner(connection_id, request))
     }
@@ -1902,6 +1945,7 @@ mod tests {
 
         let response = forwarder.forward(41, request(None)).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::ResponseReceived);
         assert_eq!(binding_calls.load(Ordering::SeqCst), 1);
         assert_eq!(connection_ids.lock().unwrap().as_slice(), [41]);
         assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
@@ -2093,6 +2137,7 @@ mod tests {
         let forwarder = ExperimentalTlsnForwarder::unavailable();
         let error = forwarder.forward(7, request(None)).await.unwrap_err();
         assert!(error.contains("NoBindingAuthority"));
+        assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::NotSent);
         assert_eq!(
             forwarder.state().unwrap(),
             ExperimentalTlsnRuntimeState::Selected
@@ -2178,5 +2223,147 @@ mod tests {
             forwarder.state().unwrap(),
             ExperimentalTlsnRuntimeState::WorkerVerificationFailed
         );
+    }
+
+    struct FailingOrigin {
+        ambiguous: bool,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl TlsnOriginTransport for FailingOrigin {
+        fn send_once(&self, _: SerializedOriginRequest) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let error = if self.ambiguous {
+                TlsnTransportError::AmbiguousOriginSend
+            } else {
+                TlsnTransportError::OriginConnectionFailed
+            };
+            Box::pin(async move { Err(error) })
+        }
+    }
+
+    #[tokio::test]
+    async fn pre_send_failure_and_ambiguous_write_are_distinct_and_neither_retries() {
+        for ambiguous in [false, true] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let forwarder = ExperimentalTlsnForwarder::new(
+                Arc::new(MockBindingProvider {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    connection_ids: Arc::new(Mutex::new(Vec::new())),
+                }),
+                Arc::new(Http1OriginRequestSerializer),
+                Arc::new(FailingOrigin { ambiguous, calls: Arc::clone(&calls) }),
+                Arc::new(UnconfiguredVerifier),
+                Arc::new(UnconfiguredResultBoundary),
+            );
+            assert!(forwarder.forward(1, request(None)).await.is_err());
+            assert_eq!(forwarder.origin_outcome().unwrap(), if ambiguous {
+                OriginRequestOutcome::Unknown
+            } else {
+                OriginRequestOutcome::NotSent
+            });
+            assert!(forwarder.forward(2, request(None)).await.is_err());
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    struct GatedWorker {
+        release: Mutex<Option<oneshot::Receiver<()>>>,
+    }
+
+    impl ExperimentalVerifierBoundary for GatedWorker {
+        fn verify(
+            &self, _: u64, _: SerializedOriginRequest,
+            _: AttestationBinding, _: TlsnOriginExchange,
+        ) -> VerificationFuture {
+            let release = self.release.lock().unwrap().take().unwrap();
+            Box::pin(async move {
+                let _ = release.await;
+                Err(VerificationError::WorkerUnavailable)
+            })
+        }
+    }
+
+    struct GatedDelivery {
+        release: Mutex<Option<oneshot::Receiver<()>>>,
+        signing_failure: bool,
+    }
+
+    impl ExperimentalResultBoundary for GatedDelivery {
+        fn accept(&self, _: VerifiedTlsnEvidence) -> ResultBoundaryFuture {
+            let release = self.release.lock().unwrap().take().unwrap();
+            let signing_failure = self.signing_failure;
+            Box::pin(async move {
+                let _ = release.await;
+                Err(if signing_failure {
+                    ResultBoundaryError::SigningUnavailable
+                } else {
+                    ResultBoundaryError::DeliveryUnavailable
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_worker_signing_and_archive_failures_cannot_hold_or_rewrite_origin_response() {
+        for stage in ["worker", "signing", "archive"] {
+            let (release_tx, release_rx) = oneshot::channel();
+            let (verifier, boundary): (
+                Arc<dyn ExperimentalVerifierBoundary>, Arc<dyn ExperimentalResultBoundary>,
+            ) = if stage == "worker" {
+                (
+                    Arc::new(GatedWorker { release: Mutex::new(Some(release_rx)) }),
+                    Arc::new(UnconfiguredResultBoundary),
+                )
+            } else {
+                (
+                    Arc::new(MockVerifier { calls: Arc::new(AtomicUsize::new(0)) }),
+                    Arc::new(GatedDelivery {
+                        release: Mutex::new(Some(release_rx)), signing_failure: stage == "signing",
+                    }),
+                )
+            };
+            let serialized = Http1OriginRequestSerializer.serialize(
+                &request(None).into_parts().0, Bytes::from_static(b"abc"), &binding(),
+            ).unwrap();
+            let mut captured = exchange();
+            captured.transcript.request_sha256 = sha256(serialized.bytes());
+            let calls = Arc::new(AtomicUsize::new(0));
+            let forwarder = ExperimentalTlsnForwarder::new(
+                Arc::new(MockBindingProvider {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    connection_ids: Arc::new(Mutex::new(Vec::new())),
+                }),
+                Arc::new(Http1OriginRequestSerializer),
+                Arc::new(MockTransport {
+                    calls: Arc::clone(&calls),
+                    request_bytes: Arc::new(Mutex::new(Vec::new())),
+                    response: captured, retained_response: Mutex::new(None),
+                    proof_release: Mutex::new(None),
+                }),
+                verifier, boundary,
+            );
+            let response = tokio::time::timeout(std::time::Duration::from_secs(1),
+                forwarder.forward(1, request(None))).await.unwrap().unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.body().as_ref(), b"ok");
+            assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::ResponseReceived);
+            assert_ne!(forwarder.state().unwrap(), ExperimentalTlsnRuntimeState::ResultReady);
+            release_tx.send(()).unwrap();
+            let failed = match stage {
+                "worker" => ExperimentalTlsnRuntimeState::WorkerUnavailable,
+                "signing" => ExperimentalTlsnRuntimeState::ResultSigningFailed,
+                _ => ExperimentalTlsnRuntimeState::ArtifactDeliveryFailed,
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while forwarder.state().unwrap() != failed {
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            assert_eq!(forwarder.origin_outcome().unwrap(), OriginRequestOutcome::ResponseReceived);
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert!(forwarder.forward(2, request(None)).await.is_err());
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
     }
 }

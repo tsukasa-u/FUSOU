@@ -1338,9 +1338,9 @@ impl HttpHandler for LogHandler {
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        tracing::warn!(error = %error, "Experimental TLSN request was not forwarded");
+                        tracing::warn!(error = %error, "Experimental TLSN capture failed; no origin retry was attempted");
                         experimental_tlsn_failure_response(
-                            "Experimental TLSN route failed closed; the request was not forwarded",
+                            "Experimental TLSN capture failed; origin outcome may be unknown; do not retry automatically",
                         )
                     }
                 };
@@ -2514,6 +2514,7 @@ mod tests {
         let request = HttpRequest::builder()
             .method("POST")
             .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header(http::header::HOST, "game.example.test")
             .body(hyper::body::Bytes::from_static(b"actual body"))
             .unwrap();
         let (parts, body) = request.into_parts();

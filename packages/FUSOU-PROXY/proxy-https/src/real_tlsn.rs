@@ -31,7 +31,7 @@ use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use hyper::body::Bytes;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     future::IntoFuture,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -843,6 +843,7 @@ pub struct RemoteWorkerResultSigner {
     results: Arc<RemoteWorkerResultStore>,
     artifact_root: PathBuf,
     candidate_capture_enabled: bool,
+    runtime_materials: Option<Arc<BTreeMap<String, Vec<u8>>>>,
 }
 
 impl RemoteWorkerResultSigner {
@@ -851,12 +852,34 @@ impl RemoteWorkerResultSigner {
             results,
             artifact_root,
             candidate_capture_enabled: false,
+            runtime_materials: None,
         }
     }
 
     pub fn with_candidate_capture_enabled(mut self, enabled: bool) -> Self {
         self.candidate_capture_enabled = enabled;
         self
+    }
+
+    pub fn with_runtime_config_materials(
+        mut self,
+        materials: Arc<BTreeMap<String, Vec<u8>>>,
+    ) -> Result<Self, ResultSignerError> {
+        let names = [
+            "runtime-config-envelope.json", "runtime-worker-reference.json",
+            "runtime-origin-inventory.json", "runtime-target-approval.json",
+            "runtime-security-registry-set.json", "runtime-result-registry-envelope.json",
+            "runtime-result-registry.json",
+        ];
+        if materials.len() != names.len()
+            || names.iter().any(|name| materials.get(*name).is_none_or(Vec::is_empty))
+            || materials.values().try_fold(0_usize, |size, raw| size.checked_add(raw.len()))
+                .is_none_or(|size| size > 16 * 1024 * 1024)
+        {
+            return Err(ResultSignerError::Failed);
+        }
+        self.runtime_materials = Some(materials);
+        Ok(self)
     }
 }
 
@@ -865,6 +888,7 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
         let results = Arc::clone(&self.results);
         let artifact_root = self.artifact_root.clone();
         let candidate_capture_enabled = self.candidate_capture_enabled;
+        let runtime_materials = self.runtime_materials.clone();
         Box::pin(async move {
             let result = results.take(evidence.request_sha256())?;
             let bytes =
@@ -881,6 +905,7 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
                     result.verifier_execution_receipt_bytes.as_deref(),
                     result.response_status,
                     result.connection_id,
+                    runtime_materials.as_deref(),
                 )
                 .await
                 .map_err(|_| ResultSignerError::Failed)?;
@@ -977,6 +1002,7 @@ async fn write_production_capture_bundle(
     verifier_execution_receipt_bytes: Option<&[u8]>,
     response_status: u16,
     connection_id: u64,
+    runtime_materials: Option<&BTreeMap<String, Vec<u8>>>,
 ) -> Result<(), std::io::Error> {
     ensure_private_candidate_root(artifact_root).await?;
     let directory = artifact_root.join(presentation.identifier());
@@ -1115,6 +1141,11 @@ async fn write_production_capture_bundle(
             "verifier-execution-receipt.bin",
             receipt_bytes.to_vec(),
         ));
+    }
+    if let Some(materials) = runtime_materials {
+        for (name, raw) in materials {
+            artifacts.push((name.as_str(), raw.clone()));
+        }
     }
     let metadata_bytes = tokio::fs::read(directory.join("metadata.json")).await?;
     let presentation_bytes = tokio::fs::read(directory.join("presentation.bin")).await?;
@@ -1772,7 +1803,7 @@ async fn run_real_exchange(
             &parsed_request.binding,
         )
         .await
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        .map_err(|_| TlsnTransportError::AmbiguousOriginSend)?;
     let raw_response = transport
         .read_response_to_end()
         .await
@@ -2226,6 +2257,7 @@ mod tests {
                 Some(receipt_bytes.as_slice()),
                 200,
                 77,
+                None,
             )
             .await
             .expect_err("invalid device public key must not produce a capture bundle");
@@ -2257,8 +2289,27 @@ mod tests {
             77,
         );
 
+        let runtime_materials: BTreeMap<String, Vec<u8>> = [
+            "runtime-config-envelope.json", "runtime-worker-reference.json",
+            "runtime-origin-inventory.json", "runtime-target-approval.json",
+            "runtime-security-registry-set.json", "runtime-result-registry-envelope.json",
+            "runtime-result-registry.json",
+        ].into_iter().map(|name| (name.to_owned(), format!("{{\"source\":\"{name}\"}}\n").into_bytes())).collect();
+        let store = RemoteWorkerResultStore::new();
+        assert!(RemoteWorkerResultSigner::new(Arc::clone(&store), artifact_root.clone())
+            .with_runtime_config_materials(Arc::new(runtime_materials.clone())).is_ok());
+        for mutated in [
+            BTreeMap::new(),
+            { let mut changed = runtime_materials.clone(); changed.remove("runtime-result-registry.json"); changed },
+            { let mut changed = runtime_materials.clone(); changed.insert("../outside".to_owned(), vec![1]); changed },
+            { let mut changed = runtime_materials.clone(); changed.insert("runtime-result-registry.json".to_owned(), Vec::new()); changed },
+            { let mut changed = runtime_materials.clone(); changed.insert("runtime-result-registry.json".to_owned(), vec![0; 16 * 1024 * 1024 + 1]); changed },
+        ] {
+            assert!(RemoteWorkerResultSigner::new(Arc::clone(&store), artifact_root.clone())
+                .with_runtime_config_materials(Arc::new(mutated)).is_err());
+        }
         write_production_capture_bundle(
-            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9,
+            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9, Some(&runtime_materials),
         )
         .await
         .expect("write candidate proof bundle");
@@ -2345,10 +2396,18 @@ mod tests {
         }
 
         let retry = write_production_capture_bundle(
-            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9,
+            args.0, args.1, args.2, args.3, args.4, args.5, args.6, args.7, args.8, args.9, None,
         )
         .await;
         assert_eq!(retry.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &tokio::fs::read(directory.join("candidate-manifest.json")).await.unwrap(),
+        ).unwrap();
+        for (name, raw) in &runtime_materials {
+            assert_eq!(&tokio::fs::read(directory.join(name)).await.unwrap(), raw);
+            assert_eq!(manifest["artifacts"][name]["size_bytes"], raw.len());
+            assert_eq!(manifest["artifacts"][name]["sha256"], URL_SAFE_NO_PAD.encode(sha256(raw)));
+        }
         assert_eq!(
             tokio::fs::read(directory.join("result-exact.bin"))
                 .await
@@ -3323,7 +3382,6 @@ mod tests {
             synthetic_tlsn::{synthetic_require_info_request, SYNTHETIC_SERVER_IDENTITY},
         };
         use fusou_auth::manager::AuthConfig;
-        use http_body_util::BodyExt;
         use std::{path::PathBuf, time::Instant};
 
         #[derive(serde::Deserialize)]
@@ -3566,12 +3624,7 @@ mod tests {
                 .await
                 .expect("forward synthetic request");
             assert_eq!(response.status(), StatusCode::OK);
-            let response_body = response
-                .into_body()
-                .collect()
-                .await
-                .expect("read synthetic response")
-                .to_bytes();
+            let response_body = response.into_body();
             assert!(String::from_utf8_lossy(&response_body).contains("16189463"));
 
             let deadline = Instant::now() + Duration::from_secs(30);

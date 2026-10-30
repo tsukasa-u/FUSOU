@@ -8,6 +8,7 @@ pub mod experimental_correlation;
 pub mod prover_transport;
 pub mod sparse_result;
 pub mod tlsn_alpha15;
+#[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
 use authenticity_core::ServerIdentity;

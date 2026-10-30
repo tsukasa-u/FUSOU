@@ -372,6 +372,7 @@ pub struct VerifiedRuntimeConfigManifest {
     payload: RuntimeConfigManifestPayload,
     independent_verification: RuntimeConfigIndependentVerificationSummary,
     manifest_sha256: String,
+    evidence_materials: std::sync::Arc<BTreeMap<String, Vec<u8>>>,
 }
 
 impl VerifiedRuntimeConfigManifest {
@@ -406,6 +407,10 @@ impl VerifiedRuntimeConfigManifest {
         &self.manifest_sha256
     }
 
+    pub fn evidence_materials(&self) -> std::sync::Arc<BTreeMap<String, Vec<u8>>> {
+        std::sync::Arc::clone(&self.evidence_materials)
+    }
+
     pub fn epoch(&self) -> &str {
         &self.payload.epoch
     }
@@ -432,10 +437,12 @@ pub fn verify_runtime_config_manifest(
         ))?;
         let independent_verification =
             verify_independent_runtime_config_inputs(&payload, policy, inputs)?;
+        let evidence_materials = runtime_evidence_materials(raw_envelope, &payload, inputs)?;
         Ok(VerifiedRuntimeConfigManifest {
             payload,
             independent_verification,
             manifest_sha256: sha256_base64url(raw_envelope),
+            evidence_materials,
         })
     }
 }
@@ -550,11 +557,39 @@ pub(crate) async fn fetch_and_verify_with_fetcher(
     };
     let independent_verification =
         verify_independent_runtime_config_inputs(&payload, policy, &independent_inputs)?;
+    let evidence_materials =
+        runtime_evidence_materials(&manifest_raw, &payload, &independent_inputs)?;
     Ok(VerifiedRuntimeConfigManifest {
         payload,
         independent_verification,
         manifest_sha256: sha256_base64url(&manifest_raw),
+        evidence_materials,
     })
+}
+
+#[cfg(feature = "tlsn-production")]
+fn runtime_evidence_materials(
+    envelope: &[u8],
+    payload: &RuntimeConfigManifestPayload,
+    inputs: &RuntimeConfigIndependentVerificationInputs<'_>,
+) -> Result<std::sync::Arc<BTreeMap<String, Vec<u8>>>, RuntimeConfigManifestError> {
+    let mut materials = BTreeMap::new();
+    for (name, raw) in [
+        ("runtime-config-envelope.json", Some(envelope)),
+        ("runtime-worker-reference.json", inputs.worker_reference_raw),
+        ("runtime-origin-inventory.json", inputs.origin_inventory_raw),
+        ("runtime-target-approval.json", inputs.target_approval_raw),
+        ("runtime-security-registry-set.json", inputs.security_registry_set_raw),
+        ("runtime-result-registry-envelope.json", inputs.result_registry_envelope_raw),
+        ("runtime-result-registry.json", payload.compile_inputs
+            .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY").map(String::as_bytes)),
+    ] {
+        let raw = raw.ok_or(RuntimeConfigManifestError::Invalid(
+            "verified runtime evidence material is missing",
+        ))?;
+        materials.insert(name.to_owned(), raw.to_vec());
+    }
+    Ok(std::sync::Arc::new(materials))
 }
 
 fn validate_runtime_config_manifest_url(raw: &str) -> Result<Url, RuntimeConfigManifestError> {
@@ -3027,6 +3062,20 @@ mod tests {
         .unwrap();
 
         assert_eq!(verified.payload().epoch, "1");
+        let materials = verified.evidence_materials();
+        assert_eq!(materials.len(), 7);
+        for (name, raw) in [
+            ("runtime-config-envelope.json", fixture.manifest_envelope_utf8.as_bytes()),
+            ("runtime-worker-reference.json", raw_inputs.worker_reference.as_slice()),
+            ("runtime-origin-inventory.json", raw_inputs.origin_inventory.as_slice()),
+            ("runtime-target-approval.json", raw_inputs.target_approval.as_slice()),
+            ("runtime-security-registry-set.json", raw_inputs.security_registry_set.as_slice()),
+            ("runtime-result-registry-envelope.json", raw_inputs.result_registry_envelope.as_slice()),
+            ("runtime-result-registry.json", verified.payload().compile_inputs
+                ["FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY"].as_bytes()),
+        ] {
+            assert_eq!(materials[name], raw);
+        }
         let approved_identity = verified
             .approved_targets()
             .first()

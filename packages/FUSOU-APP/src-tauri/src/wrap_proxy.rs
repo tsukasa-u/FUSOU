@@ -375,7 +375,11 @@ fn build_production_tlsn_dependencies(
     );
     let result_signer = std::sync::Arc::new(
         RemoteWorkerResultSigner::new(worker_results, artifact_root.clone())
-            .with_candidate_capture_enabled(candidate_capture_enabled),
+            .with_candidate_capture_enabled(candidate_capture_enabled)
+            .with_runtime_config_materials(runtime_config.evidence_materials())
+            .map_err(|_| production_configuration_error(
+                "verified Runtime Config capture materials are missing or exceed their bound",
+            ))?,
     );
     Ok(ProductionTlsnDependencies::new(
         origin,
