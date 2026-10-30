@@ -26,6 +26,27 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: Install wasm32-unknown-unknown target
+        run: rustup target add --toolchain 1.98.1 wasm32-unknown-unknown
+
+      - name: Verify pinned wasm-pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(pnpm --dir packages/avro-wasm exec wasm-pack --version)"
+          echo "Using ${version}"
+          test "${version}" = "wasm-pack 0.15.0"
+
+      - name: Build avro-wasm for WEB typecheck
+        run: pnpm --dir packages/avro-wasm run build
+
+      - name: Verify generated avro-wasm module
+        run: test -s packages/avro-wasm/pkg/avro_wasm.js
+
       - name: Verify APP Cargo.lock is committed and not ignored
         shell: bash
         run: |
