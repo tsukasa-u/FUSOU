@@ -28,6 +28,17 @@ function reference(version = version1) {
   return createAppWorkerReference(release, input.deployment, input.version, account, now, customMapping(release));
 }
 
+test("APP build handoff rejects sparse disclosure while the APP Prover reveals full transcripts", () => {
+  const sparse = reference();
+  sparse.disclosure_mode = "sparse";
+  sparse.compile_inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT =
+    "https://production-worker.example.com/verify/tlsn/sparse";
+  assert.throws(
+    () => assertBuildReference(sparse, "a".repeat(40)),
+    /complete disclosure/,
+  );
+});
+
 for (const [label, mutate] of [
   ["a corrupted Result registry envelope signature", (r) => {
     const envelope = JSON.parse(r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE);

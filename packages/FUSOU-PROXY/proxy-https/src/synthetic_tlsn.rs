@@ -313,8 +313,8 @@ async fn run_synthetic_exchange(
     if let Ok(mut timing) = last_timing.lock() {
         *timing = Some(SyntheticAlpha15Timing::default());
     }
-    let sparse_proof = std::env::var("FUSOU_SYNTHETIC_PROOF_MODE")
-        .is_ok_and(|mode| mode == "sparse");
+    let sparse_proof =
+        std::env::var("FUSOU_SYNTHETIC_PROOF_MODE").is_ok_and(|mode| mode == "sparse");
     let prover_root_store = root_store.clone();
     let request_for_prover = request.clone();
     let prover_timing = Arc::clone(&last_timing);
@@ -667,7 +667,8 @@ async fn run_synthetic_exchange(
         update_timing(&proof_timing, |timing| {
             timing.presentation_serialization_latency =
                 Some(presentation_serialization_started.elapsed());
-            timing.memory_after_presentation_serialization = Some(SyntheticAlpha15Memory::current());
+            timing.memory_after_presentation_serialization =
+                Some(SyntheticAlpha15Memory::current());
         });
         if let Ok(mut stored_evidence) = last_evidence.lock() {
             let committed_response_ranges = if sparse_proof {
@@ -677,10 +678,7 @@ async fn run_synthetic_exchange(
                     .map_err(|_| ProofContinuationError::ProverFinalization)?
             };
             let committed_response_bytes = if sparse_proof {
-                sparse_ranges
-                    .iter()
-                    .map(Range::len)
-                    .sum()
+                sparse_ranges.iter().map(Range::len).sum()
             } else {
                 raw_response.len()
             };
@@ -751,11 +749,9 @@ fn server_credentials() -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), TlsnTransportErro
             let key_der = URL_SAFE_NO_PAD
                 .decode(value)
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-            KeyPair::try_from(key_der)
-                .map_err(|_| TlsnTransportError::OriginConnectionFailed)?
+            KeyPair::try_from(key_der).map_err(|_| TlsnTransportError::OriginConnectionFailed)?
         }
-        Err(_) => KeyPair::generate()
-            .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
+        Err(_) => KeyPair::generate().map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
     };
     let root_certificate = root_params
         .self_signed(&root_key_pair)
@@ -801,25 +797,34 @@ async fn serve_synthetic_origin(
         request.extend_from_slice(&buffer[..count]);
         if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
             let header_end = position + 4;
-            let content_length = request[..position]
-                .split(|byte| *byte == b'\n')
-                .find_map(|line| {
-                    let line = line.strip_suffix(b"\r").unwrap_or(line);
-                    let separator = line.iter().position(|byte| *byte == b':')?;
-                    let (name, value_with_separator) = line.split_at(separator);
-                    let value = &value_with_separator[1..];
-                    name.eq_ignore_ascii_case(b"content-length").then(|| {
-                        value
-                            .iter()
-                            .copied()
-                            .skip_while(u8::is_ascii_whitespace)
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .and_then(|value| String::from_utf8(value).ok())
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(0);
-            if request.len() >= header_end + content_length {
+            let mut content_length = None;
+            for line in request[..position].split(|byte| *byte == b'\n') {
+                let line = line.strip_suffix(b"\r").unwrap_or(line);
+                let Some(separator) = line.iter().position(|byte| *byte == b':') else {
+                    continue;
+                };
+                let name = &line[..separator];
+                let value = &line[separator + 1..];
+                if name.eq_ignore_ascii_case(b"transfer-encoding") {
+                    return Err(());
+                }
+                if name.eq_ignore_ascii_case(b"content-length") {
+                    if content_length.is_some() {
+                        return Err(());
+                    }
+                    content_length = Some(value.to_vec());
+                }
+            }
+            let content_length = match content_length {
+                Some(value) => usize::try_from(
+                    authenticity_core::http_framing::parse_http_content_length(&value)
+                        .map_err(|_| ())?,
+                )
+                .map_err(|_| ())?,
+                None => 0,
+            };
+            let complete_request_length = header_end.checked_add(content_length).ok_or(())?;
+            if request.len() >= complete_request_length {
                 break;
             }
         }
@@ -946,11 +951,16 @@ fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, Tl
     }
     let raw_response = Bytes::from(raw_response);
     let body = raw_response.slice(header_end..);
-    if headers
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<usize>().ok())
-        != Some(body.len())
+    let content_lengths = headers.get_all(http::header::CONTENT_LENGTH);
+    if content_lengths.iter().count() != 1
+        || content_lengths
+            .iter()
+            .next()
+            .and_then(|value| {
+                authenticity_core::http_framing::parse_http_content_length(value.as_bytes()).ok()
+            })
+            .and_then(|value| usize::try_from(value).ok())
+            != Some(body.len())
     {
         return Err(TlsnTransportError::ResponseReadFailed);
     }
@@ -1021,7 +1031,10 @@ mod tests {
         assert_eq!(evidence.origin_request, expected_request);
         assert_eq!(evidence.authenticated_request, evidence.origin_request);
         assert_eq!(evidence.authenticated_response, evidence.origin_response);
-        assert_eq!(evidence.committed_request_bytes, evidence.origin_request.len());
+        assert_eq!(
+            evidence.committed_request_bytes,
+            evidence.origin_request.len()
+        );
         if sparse_mode {
             assert!(evidence.committed_response_bytes < evidence.origin_response.len());
             assert_eq!(

@@ -31,11 +31,37 @@ test("current single 100% active deployment supplies a distinct public APP versi
   }
 });
 
-test("Sparse handoff selects only the existing same-origin approved verification route", () => {
-  const sparse = approvedProductionRelease({ ...environment, TLSN_PRODUCTION_DISCLOSURE_MODE: "sparse" }, provenance, manifest);
-  assert.equal(sparse.compile_inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT, "https://production-worker.example.com/verify/tlsn/sparse");
-  assert.deepEqual(sparse.publicBindings, release.publicBindings);
-  assert.throws(() => approvedProductionRelease({ ...environment, TLSN_PRODUCTION_DISCLOSURE_MODE: "arbitrary" }, provenance, manifest), /disclosure mode/);
+test("APP Production release is pinned to complete disclosure because the APP Prover reveals full transcripts", () => {
+  const complete = approvedProductionRelease(
+    { ...environment, TLSN_PRODUCTION_DISCLOSURE_MODE: "complete" },
+    provenance,
+    manifest,
+  );
+  assert.equal(
+    complete.compile_inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT,
+    "https://production-worker.example.com/verify/tlsn",
+  );
+  assert.deepEqual(complete.publicBindings, release.publicBindings);
+  assert.throws(
+    () => approvedProductionRelease({ ...environment, TLSN_PRODUCTION_DISCLOSURE_MODE: "sparse" }, provenance, manifest),
+    /complete disclosure/,
+  );
+  assert.throws(
+    () => approvedProductionRelease({ ...environment, TLSN_PRODUCTION_DISCLOSURE_MODE: "arbitrary" }, provenance, manifest),
+    /complete disclosure/,
+  );
+  const sparseRelease = { ...release, disclosureMode: "sparse" };
+  const input = controls(release);
+  assert.throws(
+    () => createAppWorkerReference(
+      sparseRelease,
+      input.deployment,
+      input.version,
+      account,
+      now,
+    ),
+    /complete disclosure/,
+  );
 });
 
 test("stale historical version cannot supply an active pin; rotation preserves Result and Game Server authorities", () => {

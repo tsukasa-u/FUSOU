@@ -561,6 +561,84 @@ mod tests {
     }
 
     #[test]
+    fn sparse_result_rejects_complete_range_coverage_without_digests() {
+        let mut evidence = evidence();
+        evidence.request_transcript_sha256 = None;
+        evidence.response_transcript_sha256 = None;
+        evidence.request_transcript_size = 4;
+        evidence.response_transcript_size = 4;
+        evidence.revealed_request_ranges = vec![RevealedRange {
+            start: 0,
+            length: 4,
+            bytes: b"POST".to_vec(),
+        }];
+        evidence.revealed_response_ranges = vec![RevealedRange {
+            start: 0,
+            length: 4,
+            bytes: b"HTTP".to_vec(),
+        }];
+
+        assert!(matches!(
+            SparseVerifierResult::from_authenticated(
+                &evidence,
+                [1; 32],
+                "verifier-test".to_owned(),
+                "notary-test".to_owned(),
+                [2; 32],
+                [3; 32],
+                None,
+                None,
+                "11111111-1111-4111-8111-111111111111".to_owned(),
+                "22222222-2222-4222-8222-222222222222".to_owned(),
+                [4; 32],
+                [5; 64],
+            ),
+            Err(VerifierError::InvalidResult(
+                "sparse Result requires at least one incomplete transcript digest"
+            ))
+        ));
+    }
+
+    #[test]
+    fn sparse_result_rejects_fully_revealed_transcripts_without_digests() {
+        let mut evidence = evidence();
+        evidence.request_transcript_sha256 = None;
+        evidence.response_transcript_sha256 = None;
+        evidence.request_transcript_size = 4;
+        evidence.response_transcript_size = 4;
+        evidence.revealed_request_ranges = vec![RevealedRange {
+            start: 0,
+            length: 4,
+            bytes: b"POST".to_vec(),
+        }];
+        evidence.revealed_response_ranges = vec![RevealedRange {
+            start: 0,
+            length: 4,
+            bytes: b"HTTP".to_vec(),
+        }];
+
+        assert!(matches!(
+            SparseVerifierResult::from_authenticated(
+                &evidence,
+                [1; 32],
+                "verifier-test".to_owned(),
+                "notary-test".to_owned(),
+                [2; 32],
+                [3; 32],
+                None,
+                None,
+                "11111111-1111-4111-8111-111111111111".to_owned(),
+                "22222222-2222-4222-8222-222222222222".to_owned(),
+                [4; 32],
+                [5; 64],
+            ),
+            Err(VerifierError::InvalidResult(
+                "sparse Result requires at least one incomplete transcript digest"
+            ))
+        ));
+    }
+
+    #[test]
     fn sparse_result_parser_rejects_noncanonical_or_ambiguous_json() {
         let result = SparseVerifierResult::from_authenticated(
             &evidence(),

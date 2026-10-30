@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+pub mod http_framing;
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum IdentityError {
     #[error("identifier is empty, too long, or contains control characters")]

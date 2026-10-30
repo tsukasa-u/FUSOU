@@ -282,9 +282,9 @@ fn build_production_tlsn_dependencies(
     let result_signer_key_id = input(RuntimeConfigWorkerInput::ResultSignerKeyId);
     let result_signing_key_registry = input(RuntimeConfigWorkerInput::ResultSigningKeyRegistry);
     let disclosure_mode = runtime_config.payload().source.disclosure_mode.clone();
-    if !matches!(disclosure_mode.as_str(), "complete" | "sparse") {
+    if disclosure_mode != "complete" {
         return Err(production_configuration_error(
-            "verified disclosure mode must be complete or sparse",
+            "APP Prover emits complete transcript disclosure; sparse mode is not supported",
         ));
     }
     let artifact_root = std::path::PathBuf::from(artifact_root);
@@ -340,19 +340,11 @@ fn build_production_tlsn_dependencies(
         });
     let worker_results = RemoteWorkerResultStore::new();
     let result_verifier = std::sync::Arc::new(
-        if disclosure_mode == "sparse" {
-            ResultSignatureVerifier::new_sparse(
-                result_public_key_spki,
-                result_signer_key_id,
-                result_signing_key_registry,
-            )
-        } else {
-            ResultSignatureVerifier::new(
-                result_public_key_spki,
-                result_signer_key_id,
-                result_signing_key_registry,
-            )
-        }
+        ResultSignatureVerifier::new(
+            result_public_key_spki,
+            result_signer_key_id,
+            result_signing_key_registry,
+        )
         .and_then(|verifier| {
             let pins = &runtime_config.payload().production_authority_pins;
             verifier.with_production_authority_pins(

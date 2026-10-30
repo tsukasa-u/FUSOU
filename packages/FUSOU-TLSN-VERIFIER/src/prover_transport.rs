@@ -1,10 +1,11 @@
 //! FUSOU-owned request transport boundary for the pinned alpha.15 Prover.
 
 use crate::{
-    parse_require_info_request, validate_server_identity, ParsedBinding, ParserLimits,
-    VerifierError, MAX_HTTP_HEADER_BYTES, MAX_RESPONSE_TRANSCRIPT_BYTES,
+    parse_http_chunk_size, parse_http_content_length, parse_require_info_request,
+    validate_server_identity, ParsedBinding, ParserLimits, VerifierError, MAX_HTTP_HEADER_BYTES,
+    MAX_RESPONSE_TRANSCRIPT_BYTES,
 };
-use futures::io::{AsyncReadExt, AsyncWriteExt};
+use futures::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use thiserror::Error;
 use tlsn::prover::TlsConnection;
 
@@ -74,6 +75,17 @@ impl ProverOwnedTlsTransport {
         server_identity: &str,
         expected_binding: &ParsedBinding,
     ) -> Result<()> {
+        self.send_actual_require_info_with_timing(request, server_identity, expected_binding)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn send_actual_require_info_with_timing(
+        &mut self,
+        request: &[u8],
+        server_identity: &str,
+        expected_binding: &ParsedBinding,
+    ) -> Result<std::time::Duration> {
         if self.request_sent {
             return Err(ProverTransportError::RequestAlreadySent);
         }
@@ -84,9 +96,10 @@ impl ProverOwnedTlsTransport {
             .ok_or(ProverTransportError::ConnectionClosed)?;
 
         self.request_sent = true;
+        let write_started = std::time::Instant::now();
         connection.write_all(request).await?;
         connection.flush().await?;
-        Ok(())
+        Ok(write_started.elapsed())
     }
 
     pub async fn read_response_to_end(&mut self) -> Result<Vec<u8>> {
@@ -148,12 +161,21 @@ impl ProverOwnedTlsTransport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResponseFraming {
+pub enum ResponseFraming {
     ContentLength(usize),
     Chunked,
 }
 
-fn parse_response_framing(headers: &[u8]) -> Result<ResponseFraming> {
+impl ResponseFraming {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ContentLength(_) => "content-length",
+            Self::Chunked => "chunked",
+        }
+    }
+}
+
+pub fn parse_response_framing(headers: &[u8]) -> Result<ResponseFraming> {
     let first_line_end = headers
         .windows(2)
         .position(|window| window == b"\r\n")
@@ -191,12 +213,11 @@ fn parse_response_framing(headers: &[u8]) -> Result<ResponseFraming> {
             chunked = true;
         }
         if name.eq_ignore_ascii_case(b"content-length") {
-            if content_length.is_some() || value.is_empty() {
+            if content_length.is_some() {
                 return Err(ProverTransportError::UnsupportedResponseFraming);
             }
-            let value = std::str::from_utf8(&value)
+            let value = parse_http_content_length(&value)
                 .ok()
-                .and_then(|value| crate::parse_uint64_decimal(value).ok())
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or(ProverTransportError::UnsupportedResponseFraming)?;
             content_length = Some(value);
@@ -209,6 +230,77 @@ fn parse_response_framing(headers: &[u8]) -> Result<ResponseFraming> {
         (Some(length), false) => Ok(ResponseFraming::ContentLength(length)),
         (None, true) => Ok(ResponseFraming::Chunked),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForwardedHttpResponse {
+    pub status_code: u16,
+    pub headers: Vec<(Vec<u8>, Vec<u8>)>,
+    pub body: Vec<u8>,
+    pub raw_response_bytes: Vec<u8>,
+    pub framing: ResponseFraming,
+}
+
+pub fn parse_http_response_for_forwarding(raw: &[u8]) -> crate::Result<ForwardedHttpResponse> {
+    let limits = ParserLimits::default();
+    if raw.len() > limits.response_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("response transcript bytes"));
+    }
+    let header_end = raw
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or(VerifierError::InvalidHttp(
+            "response headers are incomplete",
+        ))?;
+    let status_line_end = raw[..header_end]
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .ok_or(VerifierError::InvalidHttp(
+            "response status line is incomplete",
+        ))?;
+    let status_line = &raw[..status_line_end];
+    let mut status_fields = status_line.splitn(3, |byte| *byte == b' ');
+    if status_fields.next() != Some(b"HTTP/1.1".as_slice()) {
+        return Err(VerifierError::InvalidHttp("unsupported response version"));
+    }
+    let status_bytes = status_fields
+        .next()
+        .filter(|value| value.len() == 3 && value.iter().all(u8::is_ascii_digit))
+        .ok_or(VerifierError::InvalidHttp("invalid response status code"))?;
+    let status_code = std::str::from_utf8(status_bytes)
+        .map_err(|_| VerifierError::InvalidHttp("invalid response status code"))?
+        .parse::<u16>()
+        .map_err(|_| VerifierError::InvalidHttp("invalid response status code"))?;
+    let (headers, body_start) = crate::parse_message_head(raw, status_line, &limits)?;
+    let framing = parse_response_framing(&raw[..body_start])
+        .map_err(|_| VerifierError::InvalidHttp("unsupported or ambiguous response framing"))?;
+    let body = crate::parse_framed_body(
+        &headers,
+        &raw[body_start..],
+        limits.response_transcript_bytes,
+    )?;
+    let mut forwarding_headers = headers
+        .into_iter()
+        .filter(|header| {
+            framing != ResponseFraming::Chunked
+                || (!header.name.eq_ignore_ascii_case(b"transfer-encoding")
+                    && !header.name.eq_ignore_ascii_case(b"trailer"))
+        })
+        .map(|header| (header.name, header.value))
+        .collect::<Vec<_>>();
+    if framing == ResponseFraming::Chunked {
+        forwarding_headers.push((
+            b"content-length".to_vec(),
+            body.len().to_string().into_bytes(),
+        ));
+    }
+    Ok(ForwardedHttpResponse {
+        status_code,
+        headers: forwarding_headers,
+        body,
+        raw_response_bytes: raw.to_vec(),
+        framing,
+    })
 }
 
 fn trim_ows(mut value: &[u8]) -> &[u8] {
@@ -227,21 +319,14 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
     value
 }
 
-async fn read_chunked_body(connection: &mut TlsConnection, response: &mut Vec<u8>) -> Result<()> {
+async fn read_chunked_body<R>(connection: &mut R, response: &mut Vec<u8>) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+{
     loop {
         let size_line = read_crlf_line(connection, response).await?;
-        if size_line.is_empty()
-            || size_line.len() > 16
-            || !size_line.iter().all(u8::is_ascii_hexdigit)
-        {
-            return Err(ProverTransportError::UnsupportedResponseFraming);
-        }
-        let size = usize::from_str_radix(
-            std::str::from_utf8(&size_line)
-                .map_err(|_| ProverTransportError::UnsupportedResponseFraming)?,
-            16,
-        )
-        .map_err(|_| ProverTransportError::UnsupportedResponseFraming)?;
+        let size = parse_http_chunk_size(&size_line)
+            .map_err(|_| ProverTransportError::UnsupportedResponseFraming)?;
         if size == 0 {
             let terminator_end = response
                 .len()
@@ -282,7 +367,10 @@ async fn read_chunked_body(connection: &mut TlsConnection, response: &mut Vec<u8
     }
 }
 
-async fn read_crlf_line(connection: &mut TlsConnection, response: &mut Vec<u8>) -> Result<Vec<u8>> {
+async fn read_crlf_line<R>(connection: &mut R, response: &mut Vec<u8>) -> Result<Vec<u8>>
+where
+    R: AsyncRead + Unpin,
+{
     let line_start = response.len();
     loop {
         if response.len().saturating_sub(line_start) >= 18 {
@@ -317,11 +405,17 @@ mod tests {
     use crate::experimental::{ExperimentalRequireInfoEvidence, ExperimentalRequireInfoProbe};
     use crate::parse_binding_value;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use futures::io::AsyncRead as FuturesAsyncRead;
     use rcgen::{
         BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair,
         KeyUsagePurpose,
     };
     use std::{future::IntoFuture, sync::Arc};
+    use std::{
+        io,
+        pin::Pin,
+        task::{Context, Poll},
+    };
     use tlsn::{
         attestation::{
             presentation::Presentation,
@@ -351,6 +445,49 @@ mod tests {
     use tokio_util::compat::TokioAsyncReadCompatExt;
 
     const SERVER_IDENTITY: &str = "game.example.test";
+
+    struct FragmentedReader {
+        bytes: Vec<u8>,
+        position: usize,
+        max_read: usize,
+    }
+
+    impl FragmentedReader {
+        fn new(bytes: &[u8], max_read: usize) -> Self {
+            Self {
+                bytes: bytes.to_vec(),
+                position: 0,
+                max_read,
+            }
+        }
+    }
+
+    impl FuturesAsyncRead for FragmentedReader {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            output: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            let this = self.get_mut();
+            if output.is_empty() || this.position == this.bytes.len() {
+                return Poll::Ready(Ok(0));
+            }
+            let count = output
+                .len()
+                .min(this.max_read)
+                .min(this.bytes.len() - this.position);
+            output[..count].copy_from_slice(&this.bytes[this.position..this.position + count]);
+            this.position += count;
+            Poll::Ready(Ok(count))
+        }
+    }
+
+    async fn read_chunked_wire(body: &[u8], max_read: usize) -> Result<Vec<u8>> {
+        let mut reader = FragmentedReader::new(body, max_read);
+        let mut response = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        read_chunked_body(&mut reader, &mut response).await?;
+        Ok(response)
+    }
 
     fn binding_value() -> String {
         let session = uuid::Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap();
@@ -432,13 +569,24 @@ mod tests {
             .into_bytes()
         };
         if chunked {
-            response.extend_from_slice(format!("{:x}\r\n", body.len()).as_bytes());
-            response.extend_from_slice(body);
+            let split = body.len() / 2;
+            response.extend_from_slice(format!("{:X}\r\n", split).as_bytes());
+            response.extend_from_slice(&body[..split]);
+            response.extend_from_slice(b"\r\n");
+            response.extend_from_slice(format!("{:x}\r\n", body.len() - split).as_bytes());
+            response.extend_from_slice(&body[split..]);
             response.extend_from_slice(b"\r\n0\r\n\r\n");
         } else {
             response.extend_from_slice(body);
         }
-        stream.write_all(&response).await.unwrap();
+        if chunked {
+            for byte in &response {
+                stream.write_all(std::slice::from_ref(byte)).await.unwrap();
+                stream.flush().await.unwrap();
+            }
+        } else {
+            stream.write_all(&response).await.unwrap();
+        }
         if let Some(release_close) = release_close {
             release_close.await.unwrap();
         }
@@ -447,11 +595,23 @@ mod tests {
     }
 
     #[test]
-    fn response_framing_accepts_content_length_and_chunked_only() {
-        assert!(matches!(
-            parse_response_framing(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"),
-            Ok(ResponseFraming::ContentLength(3))
-        ));
+    fn response_framing_uses_http_content_length_and_accepts_chunked_only() {
+        for (headers, expected) in [
+            (
+                b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".as_slice(),
+                ResponseFraming::ContentLength(0),
+            ),
+            (
+                b"HTTP/1.1 200 OK\r\nContent-Length: \t007 \t\r\n\r\n".as_slice(),
+                ResponseFraming::ContentLength(7),
+            ),
+            (
+                b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\n".as_slice(),
+                ResponseFraming::ContentLength(7),
+            ),
+        ] {
+            assert_eq!(parse_response_framing(headers).unwrap(), expected);
+        }
         assert!(matches!(
             parse_response_framing(b"HTTP/1.1 200 OK\r\n\r\n"),
             Err(ProverTransportError::UnsupportedResponseFraming)
@@ -472,6 +632,189 @@ mod tests {
             ),
             Err(ProverTransportError::UnsupportedResponseFraming)
         ));
+        for headers in [
+            b"HTTP/1.1 200 OK\r\nContent-Length: 18446744073709551616\r\n\r\n".as_slice(),
+            b"HTTP/1.1 200 OK\r\nContent-Length:\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: +7\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: -7\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: \xd9\xa7\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nContent-Length: 7\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
+        ] {
+            assert!(
+                matches!(
+                    parse_response_framing(headers),
+                    Err(ProverTransportError::UnsupportedResponseFraming)
+                ),
+                "{headers:?}"
+            );
+        }
+        for headers in [
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked, chunked\r\n\r\n".as_slice(),
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n",
+        ] {
+            assert!(matches!(
+                parse_response_framing(headers),
+                Err(ProverTransportError::UnsupportedResponseFraming)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn chunked_reader_handles_multiple_fragments_and_preserves_wire_bytes() {
+        let wire_body = b"A\r\n0123456789\r\n2\r\nok\r\n0\r\n\r\n";
+        let response = read_chunked_wire(wire_body, 1).await.unwrap();
+        let header_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+
+        assert_eq!(
+            &response[..header_end],
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        );
+        assert_eq!(&response[header_end..], wire_body);
+        assert_eq!(
+            crate::decode_chunked_http_body(&response[header_end..], 64).unwrap(),
+            b"0123456789ok"
+        );
+        assert_eq!(
+            crate::decode_chunked_http_body(b"0\r\n\r\n", 0).unwrap(),
+            Vec::<u8>::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn chunked_reader_rejects_truncation_invalid_framing_and_extensions() {
+        for wire_body in [
+            b"4\r".as_slice(),
+            b"4\r\nab",
+            b"1\nab\r\n0\r\n\r\n",
+            b"1\r\naXX",
+            b"G\r\n",
+            b"FFFFFFFFFFFFFFFF\r\n",
+            b"1;ext=x\r\na\r\n0\r\n\r\n",
+            b"0\r\nX-Trace: value\r\n\r\n",
+        ] {
+            assert!(
+                read_chunked_wire(wire_body, 2).await.is_err(),
+                "{wire_body:?}"
+            );
+        }
+        assert!(crate::decode_chunked_http_body(b"0\r\n\r\nextra", 64).is_err());
+    }
+
+    #[tokio::test]
+    async fn chunked_reader_enforces_the_existing_response_transcript_limit() {
+        let mut reader = FragmentedReader::new(b"0\r\n\r\n", 1);
+        let mut response = vec![b'x'; MAX_RESPONSE_TRANSCRIPT_BYTES - 3];
+        assert!(matches!(
+            read_chunked_body(&mut reader, &mut response).await,
+            Err(ProverTransportError::ResponseBodyTooLarge)
+        ));
+    }
+
+    #[test]
+    fn forwarding_parser_normalizes_chunked_headers_and_preserves_wire_digest_input() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-Trace\r\n\r\n3\r\npay\r\n4\r\nload\r\n0\r\n\r\n";
+        let parsed = parse_http_response_for_forwarding(raw).unwrap();
+
+        assert_eq!(parsed.status_code, 200);
+        assert_eq!(parsed.framing, ResponseFraming::Chunked);
+        assert_eq!(parsed.body.as_slice(), b"payload");
+        assert_eq!(parsed.raw_response_bytes.as_slice(), raw);
+        assert!(!parsed
+            .headers
+            .iter()
+            .any(|(name, _)| name.as_slice() == b"transfer-encoding"
+                || name.as_slice() == b"trailer"));
+        assert!(parsed
+            .headers
+            .iter()
+            .any(|(name, value)| name.as_slice() == b"content-length" && value.as_slice() == b"7"));
+        assert_ne!(
+            crate::sha256(&parsed.raw_response_bytes),
+            crate::sha256(&parsed.body)
+        );
+    }
+
+    #[test]
+    fn forwarding_parser_accepts_leading_zero_content_length_without_rewriting_wire_bytes() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Length:\t007 \t\r\n\r\npayload";
+        let parsed = parse_http_response_for_forwarding(raw).unwrap();
+
+        assert_eq!(parsed.status_code, 200);
+        assert_eq!(parsed.framing, ResponseFraming::ContentLength(7));
+        assert_eq!(parsed.body.as_slice(), b"payload");
+        assert_eq!(parsed.raw_response_bytes.as_slice(), raw);
+        assert!(parsed.headers.iter().any(
+            |(name, value)| name.as_slice() == b"content-length" && value.as_slice() == b"007"
+        ));
+    }
+
+    #[tokio::test]
+    async fn chunked_body_reader_handles_fragmented_multiple_chunks_and_empty_body() {
+        let wire_body = b"A\r\n0123456789\r\n2\r\nok\r\n0\r\n\r\n";
+        let response = read_chunked_wire(wire_body, 1).await.unwrap();
+        let header_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+
+        assert_eq!(
+            &response[..header_end],
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        );
+        assert_eq!(&response[header_end..], wire_body);
+        assert_eq!(
+            crate::decode_chunked_http_body(&response[header_end..], 64).unwrap(),
+            b"0123456789ok"
+        );
+
+        let empty = read_chunked_wire(b"0\r\n\r\n", 1).await.unwrap();
+        let empty_header_end = empty
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        assert!(
+            crate::decode_chunked_http_body(&empty[empty_header_end..], 0)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn chunked_body_reader_rejects_truncation_and_unsupported_framing() {
+        for wire_body in [
+            b"4\r".as_slice(),
+            b"4\r\nab",
+            b"1\nab\r\n0\r\n\r\n",
+            b"1\r\naXX",
+            b"G\r\n",
+            b"FFFFFFFFFFFFFFFF\r\n",
+            b"1;ext=x\r\na\r\n0\r\n\r\n",
+            b"0\r\nX-Trace: value\r\n\r\n",
+        ] {
+            assert!(
+                read_chunked_wire(wire_body, 2).await.is_err(),
+                "{wire_body:?}"
+            );
+        }
+        assert!(crate::decode_chunked_http_body(b"0\r\n\r\nextra", 64).is_err());
+    }
+
+    #[tokio::test]
+    async fn chunked_body_reader_enforces_the_existing_response_transcript_limit() {
+        let mut reader = FragmentedReader::new(b"0\r\n\r\n", 1);
+        let mut response = vec![b'x'; MAX_RESPONSE_TRANSCRIPT_BYTES - 3];
+        assert!(matches!(
+            read_chunked_body(&mut reader, &mut response).await,
+            Err(ProverTransportError::ResponseBodyTooLarge)
+        ));
     }
 
     #[test]
@@ -490,6 +833,21 @@ mod tests {
             &expected_binding,
         )
         .is_err());
+    }
+
+    #[test]
+    fn actual_request_validation_accepts_http_content_length_ows_and_leading_zeroes() {
+        let binding = binding_value();
+        let expected_binding = parse_binding_value(&binding).unwrap();
+        let request = format!(
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SERVER_IDENTITY}\r\nX-Attestation-Binding: {binding}\r\nContent-Length: \t000\t\r\n\r\n"
+        );
+        validate_actual_require_info_request(
+            request.as_bytes(),
+            SERVER_IDENTITY,
+            &expected_binding,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
@@ -785,6 +1143,36 @@ mod tests {
         presentation_builder.transcript_proof(transcript_proof.build().unwrap());
         let presentation = presentation_builder.build().unwrap();
         let presentation_bytes = bincode::serialize(&presentation).unwrap();
+        let trusted_notary_key = bincode::serialize(presentation.verifying_key()).unwrap();
+        let wasm_result_json = crate::wasm::verify_synthetic_require_info_presentation_with_root(
+            &presentation_bytes,
+            SERVER_IDENTITY,
+            &[0x11_u8; 32],
+            "test-verifier",
+            "test-notary",
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+            &[9_u8; 32],
+            &[],
+            &[],
+            &root_certificate,
+            &trusted_notary_key,
+        )
+        .unwrap();
+        let wasm_wrapper: serde_json::Value = serde_json::from_str(&wasm_result_json).unwrap();
+        let wasm_unsigned_result: serde_json::Value =
+            serde_json::from_str(wasm_wrapper["unsigned_result"].as_str().unwrap()).unwrap();
+        assert_eq!(wasm_unsigned_result["version"], 2);
+        assert_eq!(wasm_unsigned_result["profile_id"], crate::PROFILE_ID);
+        assert_eq!(wasm_unsigned_result["verified_member_id"], "16189463");
+        assert_eq!(
+            wasm_unsigned_result["response_transcript_sha256"],
+            URL_SAFE_NO_PAD.encode(crate::sha256(&origin_response))
+        );
+        assert_eq!(
+            wasm_unsigned_result["presentation_sha256"],
+            URL_SAFE_NO_PAD.encode(crate::sha256(&presentation_bytes))
+        );
         let authenticated = crate::tlsn_alpha15::verify_alpha15_presentation_with_provider(
             &presentation_bytes,
             &provider,

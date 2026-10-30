@@ -23,9 +23,11 @@ use base64::{
 use chrono::{DateTime, Utc};
 use fusou_auth::{AuthManager, DeviceKey, FileStorage};
 use fusou_tlsn_verifier::{
-    decode_chunked_http_body, parse_binding_value, parse_require_info_request,
-    parse_uint64_decimal, prover_transport::ProverOwnedTlsTransport, ParserLimits,
-    MAX_RESPONSE_TRANSCRIPT_BYTES, REQUIRE_INFO_TARGET,
+    parse_binding_value, parse_require_info_request,
+    prover_transport::{
+        parse_http_response_for_forwarding, ProverOwnedTlsTransport, ResponseFraming,
+    },
+    ParserLimits, REQUIRE_INFO_TARGET,
 };
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
@@ -1827,16 +1829,14 @@ async fn run_real_exchange(
     let origin_handshake_elapsed = origin_handshake_started.elapsed();
     let prover_task = spawn_exchange_task(prover.into_future(), &lifecycle);
     let mut transport = ProverOwnedTlsTransport::new(connection);
-    let request_write_started = std::time::Instant::now();
-    transport
-        .send_actual_require_info(
+    let request_write_elapsed = transport
+        .send_actual_require_info_with_timing(
             request.bytes(),
             config.target().server_identity(),
             &parsed_request.binding,
         )
         .await
         .map_err(|_| TlsnTransportError::AmbiguousOriginSend)?;
-    let request_write_elapsed = request_write_started.elapsed();
     let response_read_started = std::time::Instant::now();
     let raw_response = transport
         .read_response_to_end()
@@ -2091,22 +2091,7 @@ struct ParsedHttpResponse {
     headers: HeaderMap,
     body: Bytes,
     raw_response_bytes: Bytes,
-    framing: HttpResponseFraming,
-}
-
-#[derive(Clone, Copy)]
-enum HttpResponseFraming {
-    ContentLength,
-    Chunked,
-}
-
-impl HttpResponseFraming {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::ContentLength => "content-length",
-            Self::Chunked => "chunked",
-        }
-    }
+    framing: ResponseFraming,
 }
 
 fn duration_millis(duration: Duration) -> u64 {
@@ -2117,88 +2102,23 @@ fn duration_millis(duration: Duration) -> u64 {
 }
 
 fn parse_http_response(raw: Vec<u8>) -> Result<ParsedHttpResponse, TlsnTransportError> {
-    let raw = Bytes::from(raw);
-    let header_end = raw
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .ok_or(TlsnTransportError::ResponseReadFailed)?;
-    let head = &raw[..header_end];
-    let wire_body = raw.slice(header_end + 4..);
-    let mut lines = head.split(|byte| *byte == b'\r' || *byte == b'\n');
-    let status_line = lines.next().ok_or(TlsnTransportError::ResponseReadFailed)?;
-    let mut status_fields = status_line.splitn(3, |byte| *byte == b' ');
-    if status_fields.next() != Some(b"HTTP/1.1".as_slice()) {
-        return Err(TlsnTransportError::ResponseReadFailed);
-    }
-    let status_code = status_fields
-        .next()
-        .and_then(|value| std::str::from_utf8(value).ok())
-        .and_then(|value| value.parse::<u16>().ok())
-        .ok_or(TlsnTransportError::ResponseReadFailed)?;
+    let parsed = parse_http_response_for_forwarding(&raw)
+        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
     let mut headers = HeaderMap::new();
-    for line in lines {
-        if line.is_empty() {
-            continue;
-        }
-        let separator = line
-            .iter()
-            .position(|byte| *byte == b':')
-            .ok_or(TlsnTransportError::ResponseReadFailed)?;
-        let (name, value) = line.split_at(separator);
-        let value = &value[1..];
+    for (name, value) in parsed.headers {
         let name =
-            HeaderName::from_bytes(name).map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-        let value = HeaderValue::from_bytes(value.strip_prefix(b" ").unwrap_or(value))
-            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+            HeaderName::from_bytes(&name).map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+        let value =
+            HeaderValue::from_bytes(&value).map_err(|_| TlsnTransportError::ResponseReadFailed)?;
         headers.append(name, value);
     }
-    let content_length_count = headers.get_all(http::header::CONTENT_LENGTH).iter().count();
-    let transfer_encoding_count = headers
-        .get_all(http::header::TRANSFER_ENCODING)
-        .iter()
-        .count();
-    if content_length_count > 1
-        || transfer_encoding_count > 1
-        || (content_length_count > 0 && transfer_encoding_count > 0)
-    {
-        return Err(TlsnTransportError::ResponseReadFailed);
-    }
-    let (framing, body) = if let Some(content_length) = headers.get(http::header::CONTENT_LENGTH) {
-        let expected = content_length
-            .to_str()
-            .ok()
-            .and_then(|value| parse_uint64_decimal(value.trim()).ok())
-            .and_then(|value| usize::try_from(value).ok())
-            .ok_or(TlsnTransportError::ResponseReadFailed)?;
-        if expected != wire_body.len() {
-            return Err(TlsnTransportError::ResponseReadFailed);
-        }
-        (HttpResponseFraming::ContentLength, wire_body)
-    } else if let Some(transfer_encoding) = headers.get(http::header::TRANSFER_ENCODING) {
-        if !transfer_encoding
-            .to_str()
-            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("chunked"))
-        {
-            return Err(TlsnTransportError::ResponseReadFailed);
-        }
-        let decoded = decode_chunked_http_body(wire_body.as_ref(), MAX_RESPONSE_TRANSCRIPT_BYTES)
-            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-        headers.remove(http::header::TRANSFER_ENCODING);
-        headers.remove(HeaderName::from_static("trailer"));
-        let content_length = HeaderValue::from_bytes(decoded.len().to_string().as_bytes())
-            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-        headers.insert(http::header::CONTENT_LENGTH, content_length);
-        (HttpResponseFraming::Chunked, Bytes::from(decoded))
-    } else {
-        return Err(TlsnTransportError::ResponseReadFailed);
-    };
     Ok(ParsedHttpResponse {
-        status: StatusCode::from_u16(status_code)
+        status: StatusCode::from_u16(parsed.status_code)
             .map_err(|_| TlsnTransportError::ResponseReadFailed)?,
         headers,
-        body,
-        raw_response_bytes: raw,
-        framing,
+        body: Bytes::from(parsed.body),
+        raw_response_bytes: Bytes::from(parsed.raw_response_bytes),
+        framing: parsed.framing,
     })
 }
 
@@ -2215,6 +2135,8 @@ mod response_parser_tests {
         assert_eq!(parsed.framing.as_str(), "chunked");
         assert_eq!(parsed.body.as_ref(), b"payload");
         assert_eq!(parsed.raw_response_bytes.as_ref(), raw);
+        assert_eq!(sha256(parsed.raw_response_bytes.as_ref()), sha256(raw));
+        assert_ne!(sha256(parsed.body.as_ref()), sha256(raw));
         assert!(!parsed.headers.contains_key(http::header::TRANSFER_ENCODING));
         assert_eq!(
             parsed.headers[http::header::CONTENT_LENGTH]
@@ -2222,6 +2144,20 @@ mod response_parser_tests {
                 .unwrap(),
             "7"
         );
+    }
+
+    #[test]
+    fn content_length_response_preserves_http_leading_zero_compatibility() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Length:\t007 \t\r\n\r\npayload";
+        let parsed = parse_http_response(raw.to_vec()).unwrap();
+
+        assert_eq!(parsed.framing.as_str(), "content-length");
+        assert_eq!(parsed.body.as_ref(), b"payload");
+        assert_eq!(parsed.raw_response_bytes.as_ref(), raw);
+
+        let empty =
+            parse_http_response(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()).unwrap();
+        assert!(empty.body.is_empty());
     }
 
     #[test]

@@ -69,9 +69,9 @@ post-capture delivery/verification pending, and Production acceptance `BLOCKED`.
 `target_approval: POST_CAPTURE_REQUIRED` refers to evidence of the observed
 identity match, not permission to skip pre-capture runtime Target Approval.
 
-## Stage A source-path and runtime-input follow-up
+## Prior Stage A source-path and runtime-input follow-up (baseline `1877824`)
 
-This source-only follow-up starts from `18778247cb7b5641378e5bed4a153a9cd555531c`.
+This historical source-only follow-up starts from `18778247cb7b5641378e5bed4a153a9cd555531c`.
 The prior hosted candidate run at that baseline passed its two jobs; it does not
 validate the local follow-up or prove a real-game exchange.
 
@@ -83,7 +83,8 @@ Result signing API in the inspected source. This remains `BLOCKED_CODE`; no
 anonymous Worker route, local signer, or synthetic authority was introduced.
 Runtime bootstrap pins, the reviewed target/approval, and Notary endpoint/key
 are also `BLOCKED_EXTERNAL_INPUTS`. Resolving the signer/API trust contract
-requires explicit human approval.
+requires explicit human approval. The e7c0676 audit update below supersedes
+this baseline's profile-routing and response-parser status.
 
 The origin transport now accepts either a single `Content-Length` or the
 existing strict chunked-response profile (hex chunk sizes, no extensions or
@@ -108,10 +109,10 @@ support, not evidence that any stage completed against the real services.
 
 | Input group | Source and consumer | Stage / current handling |
 |---|---|---|
-| `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | Embedded compile-time bootstrap pins consumed by `RuntimeConfigBootstrap` | Public trust inputs; absent or partial registration rejects bootstrap. Current Production manifest validation remains unchanged. |
+| `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | Embedded compile-time bootstrap pins consumed by `RuntimeConfigBootstrap` | Public trust inputs; absent or partial registration rejects bootstrap. At this baseline the APP manifest accepted the broader Production mode; the e7 audit update below narrows the APP route to complete disclosure. |
 | `FUSOU_TLSN_NOTARY_ENDPOINT`, `FUSOU_TLSN_NOTARY_VERIFYING_KEY` | APP compile-time inputs read by `packages/configs/src/configs.rs`; preflight and the alpha.15 transport consume them | Public endpoint/key inputs required for the Notary path; their configured values were not inspected. |
 | `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS`, `FUSOU_TLSN_CLEANUP_TIMEOUT_MS`, `FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES` | Runtime environment parsed by `exchange_lifecycle` | Required explicit limits with range/canonical checks and no defaults; an operator must supply approved values. |
-| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Signed Runtime Config V2 and independently pinned bootstrap | The selected target must come from verified approval and later match the identity observed in the Presentation. The existing Production manifest requires a wider Worker/authority input set; it was not weakened for Stage A. |
+| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Signed Runtime Config V2 and independently pinned bootstrap | The selected target must come from verified approval and later match the identity observed in the Presentation. At this baseline the Production manifest required a wider Worker/authority input set; it was not weakened for Stage A. |
 | `FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI`, `FUSOU_TLSN_RESULT_SIGNER_KEY_ID`, `FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY` | Result signature verifier and current Worker result path | A signed Result needs an independently trusted signer/registry. These public inputs do not supply a Stage A signing endpoint; the existing Worker path remains identity-bound. |
 | `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, `FUSOU_TLSN_EXPECTED_BINDING_MODE`, `FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID`, `FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA`, `FUSOU_TLSN_EXPECTED_WORKER_NAME`, `FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT`, `FUSOU_TLSN_VERIFICATION_ENDPOINT` | Current Worker deployment identity, health and verification endpoint pins | These bind the existing Worker production route; there is no separate approved protocol-only Worker contract. |
 | `FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT`, `FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID`, `FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY` | Session receipt verification and binding prewarm | Stage B identity/session inputs, not intrinsic TLSN Presentation verification inputs. They remain required by the existing APP path and were not bypassed. |
@@ -711,3 +712,147 @@ counted; the actual `runtime_config_transport_gate_tests` filter ran the
 seven tests above. No CI run covers these uncommitted changes. No real TLSN
 Presentation, external receipt, or Production acceptance was established by
 these local checks.
+
+## e7c0676 independent audit update
+
+The audit started at `e7c0676849eaad672e63c79c96c9a3fd6750a1a8` on
+`tlsn-first-testplay-candidate`; the local follow-up is uncommitted.
+
+### APP-to-Result call chain
+
+```text
+wrap_proxy::build_production
+  -> verified Runtime Config target/endpoint/profile
+  -> RealAlpha15OriginTransportFactory::send_once
+  -> real_tlsn::run_real_exchange
+       -> Origin/Notary TCP connections
+       -> alpha.15 Prover owns Origin TLS
+       -> ProverOwnedTlsTransport sends once and reads a framed raw response
+       -> transcript commitment and full disclosure in ProveConfig
+       -> Notary attestation, Presentation serialization, one-use handoff
+  -> PresentationVerifierBoundary
+  -> RemoteWorkerVerificationBackend sends exact Presentation bytes
+  -> Worker /verify/tlsn
+       -> handleTlsnVerification and bound verification callback
+       -> verifyPresentationToPreparedResult
+       -> WASM verify_require_info_presentation
+       -> Alpha15 AuthenticatedTranscript::verify_require_info
+       -> parse_require_info_response_source / parse_framed_body
+       -> unsigned Complete Result v2 and signing bytes
+  -> Worker validates profile/binding, signs and returns the Result
+  -> APP ResultSignatureVerifier verifies it; RemoteWorkerResultSigner
+     persists the exact Result through the local delivery boundary
+```
+
+`run_real_exchange` and `build_presentation` both reveal the complete sent and
+received transcript ranges. The Worker selects its parser from the endpoint
+route, not from `productionInventoryMode`: `/verify/tlsn` is complete and
+`/verify/tlsn/sparse` is sparse. `productionInventoryMode` is true only for the
+production environment/role pair; it changes server-identity selection to the
+observed Presentation identity matched against Inventory and Target Approval,
+but does not choose the parser. Production also rejects the synthetic trust
+root. The separate Worker sparse route remains available to other callers.
+
+The baseline APP Runtime Config accepted sparse mode, but the APP Prover always
+reveals the entire transcript. Sparse v3 Result construction rejects a fully
+covered transcript, and the sparse response parser rejects Transfer-Encoding
+because it does not implement an authenticated chunk-framing scan. Thus an
+APP sparse profile was not a working alternative, even for Content-Length
+responses. The APP Runtime Config, preflight, dependency builder, release
+reference and build handoff now fail closed unless the mode is `complete` and
+the endpoint is `/verify/tlsn`. The sparse parser and its chunked rejection
+were not weakened. APP full disclosure was already the Prover's behavior; the
+change prevents the configuration from misrepresenting it as sparse.
+
+The normal WASM entry verifies the alpha.15 Presentation with the trusted
+Notary key and calls `verify_require_info`; the sparse entry calls
+`verify_require_info_sparse`. Synthetic-root WASM functions are used only by
+non-Production test configurations. A native verifier test now exercises the
+complete WASM wrapper logic on a local TLSN loopback Presentation; the Notary
+key and root in that test are synthetic, not Production trust inputs.
+
+### HTTP framing and evidence bytes
+
+| Path | Accepted framing |
+|---|---|
+| APP complete Production route | One Content-Length, or exactly one `Transfer-Encoding: chunked` with no Content-Length |
+| Generic Worker sparse parser | Content-Length only; any Transfer-Encoding remains rejected pending an authenticated sparse framing scan |
+
+The supported complete chunked profile accepts 1–16 ASCII hexadecimal size
+digits (either case), exact CRLF boundaries, multiple chunks and an exact
+zero-chunk terminator. Chunk extensions, trailers, duplicate or comma-separated
+Transfer-Encoding, Content-Length/Transfer-Encoding ambiguity, close-delimited
+responses and other transfer codings reject. The limits remain unchanged:
+16 MiB response transcript parser ceiling and 4 MiB Prover receive setting.
+The actual Game Server response framing and size distribution remain
+`UNKNOWN`.
+
+HTTP Content-Length now uses the shared
+`authenticity_core::http_framing::parse_http_content_length` byte parser in the
+Verifier and Proxy. Surrounding SP/HTAB OWS is accepted; only ASCII digits are
+accepted; `0`, `007` and ordinary positive values parse correctly; empty
+values, signs, embedded whitespace, non-ASCII digits and overflow reject.
+Duplicate Content-Length and Content-Length plus Transfer-Encoding remain
+rejected. The separate canonical-UInt64 parser used by signed Result fields
+remains canonical.
+
+The shared response-forwarding parser keeps `raw_response_bytes` separate from
+the transfer-decoded body. For chunked forwarding it removes
+`Transfer-Encoding`/`Trailer` and inserts Content-Length for the decoded body.
+The TLSN transcript and response digest use the original raw wire bytes; the
+Worker verifier reads those authenticated transcript bytes from the
+Presentation. The local WASM-wrapper test checks both the raw response digest
+and exact serialized Presentation hash.
+
+### Telemetry timing review
+
+| Metric | Measurement boundary |
+|---|---|
+| Origin TCP connect | Origin `TcpStream::connect` |
+| Notary TCP connect | Separate Notary `TcpStream::connect` interval |
+| Origin TLS handshake | Prover Origin TLS `connect` |
+| Request write | `write_all` plus `flush`, timed after request validation |
+| Response read | Framed reads; response parsing/normalization is outside the interval |
+| Transcript proof | `prover.prove` only |
+| Notary attestation | Serialized request write through response read, deserialize and validation; TCP connect is separate |
+| Presentation serialization/handoff | Presentation build/serialization through one-use handoff publication |
+| Worker verification and signed Result response | End-to-end `verifier.verify` future, including Worker processing, returned signature verification and polling if queued |
+| Worker Result signing | Worker `result_signing` diagnostic interval; recorded only when Worker benchmark timings are enabled |
+| APP Result finalization/delivery | APP Result boundary after Worker signing; local candidate capture and filesystem delivery, not a local signature operation |
+
+The outer proof timer is labelled as an overall proof-pipeline duration.
+Metrics contain sizes, status, framing and elapsed time only; request/response
+bodies, binding, session token, authentication material, keys and proof secrets
+are not logged. Deadlines, cleanup, single-use state and no-retry behavior are
+unchanged.
+
+### Current local validation and evidence status
+
+| Check | Result | Scope |
+|---|---|---|
+| Shared HTTP parser `cargo test --manifest-path packages/authenticity/authenticity-core/Cargo.toml --locked --offline` | **5 passed, 0 failed; exit 0** | Exercises HTTP Content-Length OWS, leading zeros, invalid bytes and overflow. |
+| Verifier `cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked --offline --lib` | **139 passed, 0 failed, 0 ignored; exit 0** | Includes parser/transport boundary tests and a local TLSN loopback Presentation through the complete WASM wrapper logic. Synthetic test evidence only. |
+| Verifier `cargo check --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked --offline --target wasm32-unknown-unknown --lib` | **exit 0**, one pre-existing `unused_mut` warning in finalization | Compiles the WASM target including `wasm.rs`; no packaged Worker artifact was generated. |
+| Worker `pnpm exec tsc --noEmit --pretty false` | **exit 0** | Typecheck only; no Worker source API changed. |
+| APP pre-capture/acceptance and APP handoff/Worker reference/endpoint-mapping Node suites | **46 passed, 0 failed; exit 0** | Synthetic/in-memory contract tests, not service connectivity or deployment validation. |
+| `node --check` on the changed Worker handoff files | **exit 0** | Syntax only. |
+| Rust formatting and scoped `git diff --check` | **exit 0** | Does not typecheck Proxy/APP crates. |
+| Proxy `proxy-https` Cargo tests/check and APP Cargo tests | **NOT_RUN** | Their Cargo dependency graph embeds local configuration. They were not run to avoid a build/test path accessing protected local settings; Proxy wrapper call sites therefore lack full Cargo typecheck coverage here. |
+| Hosted run [#89](https://github.com/tsukasa-u/FUSOU/actions/runs/41067098329) | **success** on baseline e7c0676: `node-contract-tests`, `rust-tlsn-preflight` | It built and provenance-checked the Worker WASM but had no Proxy crate check/test. It does not validate this local follow-up. |
+
+No new Hosted CI run, Worker WASM artifact rebuild, service deployment, real
+Notary session, Game Server connection or real Presentation/Result verification
+was performed.
+The commit-bound Worker `build-wasm.mjs` was not run because this follow-up is
+uncommitted and the script requires a clean source SHA; no build gate was
+bypassed. The wasm32 Cargo check and native WASM-wrapper test are the local
+WASM-source validations reported above.
+
+**Stage A code status:** the complete-profile source path and chunked parser
+passed local synthetic/loopback verification; Proxy/APP crate typecheck remains
+`NOT_CHECKED`. The APP's independent protocol-only signed Result path remains
+`BLOCKED_CODE` because the existing Result service is identity-bound.
+**External status:** Runtime Config pins, selected canonical target, Notary,
+Worker deployment and signer registry remain `BLOCKED_EXTERNAL_INPUTS` /
+`NOT_CHECKED`. Production acceptance and real-game testplay readiness remain
+**BLOCKED**.

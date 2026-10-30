@@ -427,7 +427,7 @@ impl std::fmt::Display for SerializationError {
             Self::TransferEncodingNotSupported => {
                 "Transfer-Encoding cannot be reconstructed after body collection"
             }
-            Self::InvalidContentLength => "Content-Length is not canonical decimal",
+            Self::InvalidContentLength => "Content-Length is not a valid HTTP decimal",
             Self::ContentLengthMismatch => "Content-Length does not match collected body",
             Self::RequestTooLarge => "serialized TLSN HTTP request exceeds the sent-data limit",
             Self::InvalidHeaderValue => "header value cannot be serialized safely",
@@ -552,12 +552,12 @@ impl OriginRequestSerializer for Http1OriginRequestSerializer {
         }
 
         if let Some(content_length) = content_length_values.first() {
-            let value = content_length
-                .to_str()
-                .map_err(|_| SerializationError::InvalidContentLength)?;
-            let parsed = value
-                .parse::<usize>()
-                .map_err(|_| SerializationError::InvalidContentLength)?;
+            let parsed = authenticity_core::http_framing::parse_http_content_length(
+                content_length.as_bytes(),
+            )
+            .ok()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or(SerializationError::InvalidContentLength)?;
             if parsed != body.len() {
                 return Err(SerializationError::ContentLengthMismatch);
             }
@@ -1366,7 +1366,7 @@ impl ExperimentalTlsnForwarder {
                 connection_id,
                 elapsed_ms = elapsed_millis(proof_started),
                 %error,
-                "TLSN presentation generation and Notary stage failed after browser response"
+                "TLSN proof pipeline failed after browser response"
             );
             let next = match error {
                 ProofContinuationError::Cancelled => ExperimentalTlsnRuntimeState::Cancelled,
@@ -1398,7 +1398,7 @@ impl ExperimentalTlsnForwarder {
         tracing::info!(
             connection_id,
             elapsed_ms = elapsed_millis(proof_started),
-            "TLSN presentation generation and Notary stage completed"
+            "TLSN proof pipeline completed"
         );
         if Self::transition_shared(
             &state,
@@ -1427,7 +1427,7 @@ impl ExperimentalTlsnForwarder {
                     connection_id,
                     elapsed_ms = elapsed_millis(verification_started),
                     %error,
-                    "TLSN Presentation or Worker verification failed after browser response"
+                    "TLSN Presentation, Worker verification, or signed Result validation failed after browser response"
                 );
                 let next = match error {
                     VerificationError::PresentationUnavailable
@@ -1459,7 +1459,7 @@ impl ExperimentalTlsnForwarder {
                 tracing::info!(
                     connection_id,
                     elapsed_ms = elapsed_millis(verification_started),
-                    "TLSN Presentation and Worker verification completed"
+                    "TLSN Presentation, Worker verification, and signed Result validation completed"
                 );
                 evidence
             }
@@ -1497,7 +1497,7 @@ impl ExperimentalTlsnForwarder {
                 connection_id,
                 elapsed_ms = elapsed_millis(result_started),
                 %error,
-                "TLSN Result signing or delivery failed after browser response"
+                "TLSN Result finalization or local delivery failed after browser response"
             );
             let next = match error {
                 ResultBoundaryError::SigningUnavailable => {
@@ -1514,7 +1514,7 @@ impl ExperimentalTlsnForwarder {
         tracing::info!(
             connection_id,
             elapsed_ms = elapsed_millis(result_started),
-            "TLSN signed Result delivery completed"
+            "TLSN Result finalization and local delivery completed"
         );
         let _ = Self::transition_shared(
             &state,
@@ -2312,6 +2312,32 @@ mod tests {
         );
         assert!(text.starts_with("POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\n"));
         assert!(text.ends_with("\r\n\r\nabc"));
+    }
+
+    #[test]
+    fn serializer_accepts_leading_zero_content_length_and_rejects_signed_values() {
+        let mut leading_zero_parts = request(None).into_parts().0;
+        leading_zero_parts
+            .headers
+            .insert(CONTENT_LENGTH_HEADER_NAME, HeaderValue::from_static("003"));
+        let serialized = Http1OriginRequestSerializer
+            .serialize(&leading_zero_parts, Bytes::from_static(b"abc"), &binding())
+            .unwrap();
+        assert!(serialized
+            .bytes()
+            .windows(b"content-length: 003\r\n".len())
+            .any(|window| window == b"content-length: 003\r\n"));
+
+        let mut signed_parts = request(None).into_parts().0;
+        signed_parts
+            .headers
+            .insert(CONTENT_LENGTH_HEADER_NAME, HeaderValue::from_static("+3"));
+        assert_eq!(
+            Http1OriginRequestSerializer
+                .serialize(&signed_parts, Bytes::from_static(b"abc"), &binding())
+                .unwrap_err(),
+            SerializationError::InvalidContentLength
+        );
     }
 
     #[test]

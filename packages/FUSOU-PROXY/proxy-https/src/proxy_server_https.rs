@@ -209,10 +209,9 @@ fn tlsn_capture_body_eligible(headers: &http::HeaderMap) -> bool {
     if values.next().is_some() {
         return false;
     }
-    value
-        .to_str()
+    authenticity_core::http_framing::parse_http_content_length(value.as_bytes())
         .ok()
-        .and_then(|value| value.parse::<usize>().ok())
+        .and_then(|length| usize::try_from(length).ok())
         .is_some_and(|length| length <= MAX_TLSN_SENT_DATA_BYTES)
 }
 
@@ -2007,10 +2006,11 @@ fn serve_proxy_impl(
 mod tests {
     use super::rcgen::{CertificateParams, KeyPair};
     use super::{
-        check_ca, create_ca, decode_response_body, parse_content_encodings, ClientStreamHook,
-        ExactWireDirection, ExactWireMetadata, ExperimentalRequireInfoDecision,
-        ExperimentalRequireInfoRoute, HttpContext, LogHandler, RawCaptureHook, RawCaptureMessage,
-        CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
+        check_ca, create_ca, decode_response_body, parse_content_encodings,
+        tlsn_capture_body_eligible, ClientStreamHook, ExactWireDirection, ExactWireMetadata,
+        ExperimentalRequireInfoDecision, ExperimentalRequireInfoRoute, HttpContext, LogHandler,
+        RawCaptureHook, RawCaptureMessage, CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM,
+        CA_KEY_NAME_PEM,
     };
     use crate::experimental_tlsn::test_support::RecordingForwarder;
     #[cfg(feature = "synthetic-tlsn")]
@@ -2034,6 +2034,32 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn tlsn_capture_eligibility_accepts_http_leading_zero_content_length() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from_static("007"),
+        );
+        assert!(tlsn_capture_body_eligible(&headers));
+
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from_static("+7"),
+        );
+        assert!(!tlsn_capture_body_eligible(&headers));
+
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from_static("7"),
+        );
+        headers.append(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from_static("7"),
+        );
+        assert!(!tlsn_capture_body_eligible(&headers));
+    }
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 

@@ -579,10 +579,21 @@ fn runtime_evidence_materials(
         ("runtime-worker-reference.json", inputs.worker_reference_raw),
         ("runtime-origin-inventory.json", inputs.origin_inventory_raw),
         ("runtime-target-approval.json", inputs.target_approval_raw),
-        ("runtime-security-registry-set.json", inputs.security_registry_set_raw),
-        ("runtime-result-registry-envelope.json", inputs.result_registry_envelope_raw),
-        ("runtime-result-registry.json", payload.compile_inputs
-            .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY").map(String::as_bytes)),
+        (
+            "runtime-security-registry-set.json",
+            inputs.security_registry_set_raw,
+        ),
+        (
+            "runtime-result-registry-envelope.json",
+            inputs.result_registry_envelope_raw,
+        ),
+        (
+            "runtime-result-registry.json",
+            payload
+                .compile_inputs
+                .get("FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY")
+                .map(String::as_bytes),
+        ),
     ] {
         let raw = raw.ok_or(RuntimeConfigManifestError::Invalid(
             "verified runtime evidence material is missing",
@@ -1407,13 +1418,14 @@ fn validate_payload(
         || !is_uuid(&payload.source.active_version_id)
         || !is_lower_hex(&payload.source.worker_git_commit_sha, 40)
         || payload.source.logical_deployment_id.trim().is_empty()
-        || !matches!(
-            payload.source.disclosure_mode.as_str(),
-            "complete" | "sparse"
-        )
     {
         return Err(RuntimeConfigManifestError::Invalid(
             "Worker source identity is invalid",
+        ));
+    }
+    if payload.source.disclosure_mode != "complete" {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "APP Prover requires complete transcript disclosure",
         ));
     }
 
@@ -1506,11 +1518,7 @@ fn validate_payload(
             .expect("complete input inventory checked"),
         "/attestation/session",
     )?;
-    let verification_path = if payload.source.disclosure_mode == "complete" {
-        "/verify/tlsn"
-    } else {
-        "/verify/tlsn/sparse"
-    };
+    let verification_path = "/verify/tlsn";
     let verification = validate_https_endpoint(
         inputs
             .get("FUSOU_TLSN_VERIFICATION_ENDPOINT")
@@ -2943,7 +2951,12 @@ mod tests {
             payload.compile_inputs["FUSOU_TLSN_VERIFICATION_ENDPOINT"]
                 .replace("/verify/tlsn", "/verify/tlsn/sparse"),
         );
-        assert_eq!(validate_payload(&sparse_payload, policy.now), Ok(()));
+        assert_eq!(
+            validate_payload(&sparse_payload, policy.now),
+            Err(RuntimeConfigManifestError::Invalid(
+                "APP Prover requires complete transcript disclosure"
+            ))
+        );
 
         for endpoint in [
             "https://user@worker.example.test/health",
@@ -3065,14 +3078,35 @@ mod tests {
         let materials = verified.evidence_materials();
         assert_eq!(materials.len(), 7);
         for (name, raw) in [
-            ("runtime-config-envelope.json", fixture.manifest_envelope_utf8.as_bytes()),
-            ("runtime-worker-reference.json", raw_inputs.worker_reference.as_slice()),
-            ("runtime-origin-inventory.json", raw_inputs.origin_inventory.as_slice()),
-            ("runtime-target-approval.json", raw_inputs.target_approval.as_slice()),
-            ("runtime-security-registry-set.json", raw_inputs.security_registry_set.as_slice()),
-            ("runtime-result-registry-envelope.json", raw_inputs.result_registry_envelope.as_slice()),
-            ("runtime-result-registry.json", verified.payload().compile_inputs
-                ["FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY"].as_bytes()),
+            (
+                "runtime-config-envelope.json",
+                fixture.manifest_envelope_utf8.as_bytes(),
+            ),
+            (
+                "runtime-worker-reference.json",
+                raw_inputs.worker_reference.as_slice(),
+            ),
+            (
+                "runtime-origin-inventory.json",
+                raw_inputs.origin_inventory.as_slice(),
+            ),
+            (
+                "runtime-target-approval.json",
+                raw_inputs.target_approval.as_slice(),
+            ),
+            (
+                "runtime-security-registry-set.json",
+                raw_inputs.security_registry_set.as_slice(),
+            ),
+            (
+                "runtime-result-registry-envelope.json",
+                raw_inputs.result_registry_envelope.as_slice(),
+            ),
+            (
+                "runtime-result-registry.json",
+                verified.payload().compile_inputs["FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY"]
+                    .as_bytes(),
+            ),
         ] {
             assert_eq!(materials[name], raw);
         }

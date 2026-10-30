@@ -174,39 +174,41 @@ function inputs(disclosureMode = "complete", responseMode = "async") {
   };
 }
 
-for (const mode of ["complete", "sparse"]) {
-  for (const response of ["async", "sync"]) {
-    test(`${mode}/${response}: pre-capture gate binds the reference and APP reports without granting gameplay`, () => {
-      const readiness = createPreCaptureReadiness(inputs(mode, response));
+for (const response of ["async", "sync"]) {
+  test(`complete/${response}: pre-capture gate binds the reference and APP reports without granting gameplay`, () => {
+    const readiness = createPreCaptureReadiness(inputs("complete", response));
 
-      assert.equal(readiness.schema_version, 2);
-      assert.equal(readiness.status, "LOCAL_APP_PREFLIGHT_PASS");
-      assert.equal(readiness.active_version_id, version1);
-      assert.equal(readiness.authority_status, "UNVERIFIED");
-      assert.equal(readiness.gameplay_authorized, false);
-      assert.equal(readiness.production_acceptance, "BLOCKED");
-      assert.equal(readiness.acceptance_stages.assessment_scope, "SOURCE_CONTRACT_ONLY");
-      assert.equal(readiness.acceptance_stages.gameplay_authorized, false);
-      for (const stage of ["TLSN_PROTOCOL_TESTPLAY", "IDENTITY_BOUND_TESTPLAY", "PRODUCTION_EVIDENCE_DELIVERY"]) {
-        assert.equal(readiness.acceptance_stages[stage].status, "BLOCKED_CODE");
-      }
-      assert.equal(readiness.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
-      assert.deepEqual(readiness.target_identity, {
-        status: "NOT_YET_OBSERVED",
-        server_identity: null,
-      });
-      assert.equal(readiness.gates.runtime_target_approval, "REQUIRES_APP_RUNTIME");
-      assert.equal(readiness.gates.transport_lifecycle_policy, "EXPLICIT_LOCAL_LIMITS");
-      assert.equal(readiness.gates.notary_attestation_limit, "EXPLICIT_LOCAL_LIMIT");
-      assert.equal(readiness.gates.service_connectivity, "NOT_CHECKED");
-      assert.equal(readiness.gates.evidence_delivery, "POST_CAPTURE_REQUIRED");
-      assert.equal(readiness.gates.independent_evidence_verification, "POST_CAPTURE_REQUIRED");
-      assert.equal(readiness.gates.target_approval, "POST_CAPTURE_REQUIRED");
-      assert.equal(readiness.gates.auth_and_registered_device, "REQUIRES_APP_RUNTIME");
-      assert.equal(readiness.gates.human_gameplay_approval, "REQUIRES_HUMAN_OPERATOR");
+    assert.equal(readiness.schema_version, 2);
+    assert.equal(readiness.status, "LOCAL_APP_PREFLIGHT_PASS");
+    assert.equal(readiness.active_version_id, version1);
+    assert.equal(readiness.authority_status, "UNVERIFIED");
+    assert.equal(readiness.gameplay_authorized, false);
+    assert.equal(readiness.production_acceptance, "BLOCKED");
+    assert.equal(readiness.acceptance_stages.assessment_scope, "SOURCE_CONTRACT_ONLY");
+    assert.equal(readiness.acceptance_stages.gameplay_authorized, false);
+    for (const stage of ["TLSN_PROTOCOL_TESTPLAY", "IDENTITY_BOUND_TESTPLAY", "PRODUCTION_EVIDENCE_DELIVERY"]) {
+      assert.equal(readiness.acceptance_stages[stage].status, "BLOCKED_CODE");
+    }
+    assert.equal(readiness.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
+    assert.deepEqual(readiness.target_identity, {
+      status: "NOT_YET_OBSERVED",
+      server_identity: null,
     });
-  }
+    assert.equal(readiness.gates.runtime_target_approval, "REQUIRES_APP_RUNTIME");
+    assert.equal(readiness.gates.transport_lifecycle_policy, "EXPLICIT_LOCAL_LIMITS");
+    assert.equal(readiness.gates.notary_attestation_limit, "EXPLICIT_LOCAL_LIMIT");
+    assert.equal(readiness.gates.service_connectivity, "NOT_CHECKED");
+    assert.equal(readiness.gates.evidence_delivery, "POST_CAPTURE_REQUIRED");
+    assert.equal(readiness.gates.independent_evidence_verification, "POST_CAPTURE_REQUIRED");
+    assert.equal(readiness.gates.target_approval, "POST_CAPTURE_REQUIRED");
+    assert.equal(readiness.gates.auth_and_registered_device, "REQUIRES_APP_RUNTIME");
+    assert.equal(readiness.gates.human_gameplay_approval, "REQUIRES_HUMAN_OPERATOR");
+  });
 }
+
+test("APP pre-capture reference refuses sparse mode while the Prover reveals full transcripts", () => {
+  assert.throws(() => inputs("sparse"), /complete disclosure/);
+});
 
 test("pre-capture gate rejects a changed reference byte or independent digest", () => {
   const values = inputs();

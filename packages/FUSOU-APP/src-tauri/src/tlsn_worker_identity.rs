@@ -81,12 +81,13 @@ pub fn health_http_client() -> Result<reqwest::Client, reqwest::Error> {
 }
 
 pub fn validate_disclosure_endpoint(mode: &str, endpoint: &str) -> Result<(), String> {
-    let expected_path = match mode {
-        "complete" => "/verify/tlsn",
-        "sparse" => "/verify/tlsn/sparse",
-        _ => return Err("TLSN disclosure mode is invalid".to_owned()),
-    };
-    if worker_url(endpoint)?.path() != expected_path {
+    if mode != "complete" {
+        return Err(
+            "APP Prover emits complete transcript disclosure; sparse mode is unsupported"
+                .to_owned(),
+        );
+    }
+    if worker_url(endpoint)?.path() != "/verify/tlsn" {
         return Err("TLSN disclosure mode does not match the pinned verification route".to_owned());
     }
     Ok(())
@@ -126,23 +127,25 @@ mod tests {
     }
 
     #[test]
-    fn disclosure_mode_must_match_the_pinned_verification_route() {
-        for (mode, path) in [
-            ("complete", "/verify/tlsn"),
-            ("sparse", "/verify/tlsn/sparse"),
-        ] {
-            validate_disclosure_endpoint(mode, &format!("https://worker.example{path}")).unwrap();
-            let wrong = if mode == "complete" {
-                "sparse"
-            } else {
-                "complete"
-            };
-            assert!(
-                validate_disclosure_endpoint(wrong, &format!("https://worker.example{path}"))
-                    .unwrap_err()
-                    .contains("pinned verification route")
-            );
-        }
+    fn app_disclosure_requires_complete_prover_output_and_matching_route() {
+        validate_disclosure_endpoint("complete", "https://worker.example/verify/tlsn").unwrap();
+        assert!(validate_disclosure_endpoint(
+            "complete",
+            "https://worker.example/verify/tlsn/sparse"
+        )
+        .unwrap_err()
+        .contains("pinned verification route"));
+        assert!(validate_disclosure_endpoint(
+            "sparse",
+            "https://worker.example/verify/tlsn/sparse"
+        )
+        .unwrap_err()
+        .contains("complete transcript disclosure"));
+        assert!(
+            validate_disclosure_endpoint("arbitrary", "https://worker.example/verify/tlsn")
+                .unwrap_err()
+                .contains("complete transcript disclosure")
+        );
     }
 
     #[test]

@@ -562,7 +562,7 @@ fn run_preflight_with_origin_inventory(
             Err(detail) => push_check(&mut checks, name, PreflightStatus::Error, detail),
         }
     }
-    let disclosure_mode_valid = matches!(config.disclosure_mode.as_str(), "complete" | "sparse");
+    let disclosure_mode_valid = config.disclosure_mode == "complete";
     push_check(
         &mut checks,
         "tlsn_disclosure_mode",
@@ -574,7 +574,7 @@ fn run_preflight_with_origin_inventory(
         if disclosure_mode_valid {
             config.disclosure_mode.as_str()
         } else {
-            "must be complete or sparse"
+            "APP Prover requires complete disclosure; sparse transcript ranges are not implemented"
         },
     );
     let response_mode_valid = matches!(config.response_mode.as_str(), "async" | "sync");
@@ -592,24 +592,6 @@ fn run_preflight_with_origin_inventory(
             "must be async or sync"
         },
     );
-    if config.disclosure_mode == "sparse"
-        && !config
-            .verification_endpoint
-            .as_deref()
-            .is_some_and(|endpoint| {
-                endpoint
-                    .trim_end_matches('/')
-                    .ends_with("/verify/tlsn/sparse")
-            })
-    {
-        push_check(
-            &mut checks,
-            "tlsn_sparse_endpoint",
-            PreflightStatus::Error,
-            "sparse mode requires a verification endpoint ending in /verify/tlsn/sparse",
-        );
-    }
-
     match config.session_authority_key_id.as_deref() {
         Some(value) if !value.trim().is_empty() => push_check(
             &mut checks,

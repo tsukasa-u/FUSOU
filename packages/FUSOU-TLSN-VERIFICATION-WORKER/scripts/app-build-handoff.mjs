@@ -164,8 +164,10 @@ export function assertBuildReference(reference, expectedWorkerSha) {
   }
   const health = new URL(inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT);
   const verification = new URL(inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT);
-  const path = reference.disclosure_mode === "complete" ? "/verify/tlsn"
-    : reference.disclosure_mode === "sparse" ? "/verify/tlsn/sparse" : null;
+  if (reference.disclosure_mode !== "complete") {
+    throw new Error("APP build reference requires complete disclosure because its Prover reveals the full transcript");
+  }
+  const path = "/verify/tlsn";
   for (const [url, raw, wantedPath] of [
     [health, inputs.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT, "/health"],
     [verification, inputs.FUSOU_TLSN_VERIFICATION_ENDPOINT, path],

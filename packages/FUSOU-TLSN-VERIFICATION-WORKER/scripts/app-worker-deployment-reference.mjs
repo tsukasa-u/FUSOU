@@ -78,12 +78,16 @@ export function approvedProductionRelease(environment, provenance, publicManifes
   const workerUrl = new URL(required(environment, "TLSN_VERIFY_WORKER_URL"));
   const verification = new URL(publicManifest.verification_endpoint);
   const disclosureMode = environment.TLSN_PRODUCTION_DISCLOSURE_MODE ?? "complete";
-  if (!["complete", "sparse"].includes(disclosureMode)) throw new Error("APP handoff disclosure mode must be complete or sparse");
+  if (disclosureMode !== "complete") {
+    throw new Error("APP Production release requires complete disclosure because its Prover reveals the full transcript");
+  }
+  if (verification.pathname !== "/verify/tlsn" || verification.search || verification.hash) {
+    throw new Error("APP complete disclosure requires the existing /verify/tlsn endpoint");
+  }
   if (workerUrl.protocol !== "https:" || workerUrl.href !== `${workerUrl.origin}/` ||
       workerUrl.origin !== verification.origin) {
     throw new Error("approved Worker origin does not match the public Verification endpoint");
   }
-  if (disclosureMode === "sparse") verification.pathname = "/verify/tlsn/sparse";
   const registryRaw = required(environment, "TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY");
   const result = assertResultSigningIdentity({
     registry: registryRaw,
@@ -153,6 +157,9 @@ export function approvedProductionRelease(environment, provenance, publicManifes
 }
 
 export function createAppWorkerReference(release, deploymentPayload, versionPayload, accountId, observedAt, endpointMapping) {
+  if (release.disclosureMode !== "complete") {
+    throw new Error("APP Worker reference requires complete disclosure because its Prover reveals the full transcript");
+  }
   if (!/^[0-9a-f]{32}$/.test(accountId ?? "")) throw new Error("Cloudflare account ID is missing or invalid");
   if (!Number.isFinite(Date.parse(observedAt))) throw new Error("control-plane observation timestamp is invalid");
   const active = activeDeployment(deploymentPayload);

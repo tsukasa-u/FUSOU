@@ -8,7 +8,7 @@ pub mod experimental_correlation;
 pub mod prover_transport;
 pub mod sparse_result;
 pub mod tlsn_alpha15;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 pub mod wasm;
 
 use authenticity_core::ServerIdentity;
@@ -44,6 +44,8 @@ pub enum VerifierError {
     InvalidBase64,
     #[error("invalid canonical UInt64 decimal")]
     InvalidUInt64,
+    #[error("invalid HTTP Content-Length")]
+    InvalidContentLength,
     #[error("resource limit exceeded: {0}")]
     LimitExceeded(&'static str),
     #[error("invalid range: {0}")]
@@ -115,6 +117,23 @@ pub fn parse_uint64_decimal(value: &str) -> Result<u64> {
         return Err(VerifierError::InvalidUInt64);
     }
     value.parse().map_err(|_| VerifierError::InvalidUInt64)
+}
+
+pub fn parse_http_content_length(value: &[u8]) -> Result<u64> {
+    authenticity_core::http_framing::parse_http_content_length(value)
+        .map_err(|_| VerifierError::InvalidContentLength)
+}
+
+pub(crate) fn parse_http_chunk_size(line: &[u8]) -> Result<usize> {
+    if line.is_empty() || line.len() > 16 || !line.iter().all(u8::is_ascii_hexdigit) {
+        return Err(VerifierError::InvalidHttp("invalid chunk size"));
+    }
+    let size = u64::from_str_radix(
+        std::str::from_utf8(line).map_err(|_| VerifierError::InvalidHttp("invalid chunk size"))?,
+        16,
+    )
+    .map_err(|_| VerifierError::InvalidHttp("invalid chunk size"))?;
+    usize::try_from(size).map_err(|_| VerifierError::InvalidHttp("chunk size does not fit usize"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -651,11 +670,6 @@ fn ascii_case_insensitive_eq(left: &[u8], right: &[u8]) -> bool {
             .all(|(left, right)| left.eq_ignore_ascii_case(right))
 }
 
-fn parse_ascii_u64(bytes: &[u8]) -> Result<u64> {
-    let value = std::str::from_utf8(bytes).map_err(|_| VerifierError::InvalidUInt64)?;
-    parse_uint64_decimal(value)
-}
-
 fn parse_framed_body(headers: &[Header], body: &[u8], max_body: usize) -> Result<Vec<u8>> {
     let content_lengths = header_values(headers, b"content-length");
     let transfer_encodings = header_values(headers, b"transfer-encoding");
@@ -668,7 +682,7 @@ fn parse_framed_body(headers: &[Header], body: &[u8], max_body: usize) -> Result
         ));
     }
     if content_lengths.len() == 1 {
-        let length = parse_ascii_u64(&content_lengths[0].value)
+        let length = parse_http_content_length(&content_lengths[0].value)
             .map_err(|_| VerifierError::InvalidHttp("invalid Content-Length"))?;
         let length = usize::try_from(length)
             .map_err(|_| VerifierError::InvalidHttp("Content-Length does not fit usize"))?;
@@ -702,15 +716,8 @@ fn decode_chunked(body: &[u8], max_body: usize) -> Result<Vec<u8>> {
         {
             return Err(VerifierError::InvalidHttp("invalid chunk size"));
         }
-        let size = u64::from_str_radix(
-            std::str::from_utf8(size_line)
-                .map_err(|_| VerifierError::InvalidHttp("invalid chunk size"))?,
-            16,
-        )
-        .map_err(|_| VerifierError::InvalidHttp("invalid chunk size"))?;
         cursor = line_end + 2;
-        let size = usize::try_from(size)
-            .map_err(|_| VerifierError::InvalidHttp("chunk size does not fit usize"))?;
+        let size = parse_http_chunk_size(size_line)?;
         if size == 0 {
             if body.get(cursor..) != Some(b"\r\n") {
                 return Err(VerifierError::InvalidHttp("chunk trailers are not allowed"));
@@ -934,7 +941,7 @@ fn sparse_body_range(
     let Some(content_length) = content_lengths.first() else {
         return Err(VerifierError::InvalidHttp("missing body framing"));
     };
-    let length = parse_ascii_u64(&content_length.value)
+    let length = parse_http_content_length(&content_length.value)
         .map_err(|_| VerifierError::InvalidHttp("invalid Content-Length"))?;
     let length = usize::try_from(length)
         .map_err(|_| VerifierError::InvalidHttp("Content-Length does not fit usize"))?;
@@ -2953,6 +2960,88 @@ mod tests {
         response
     }
 
+    #[test]
+    fn http_content_length_uses_http_decimal_grammar_not_canonical_uint64() {
+        for (value, expected) in [
+            (b"0".as_slice(), 0_u64),
+            (b"007".as_slice(), 7_u64),
+            (b"7".as_slice(), 7_u64),
+            (b" \t007\t ".as_slice(), 7_u64),
+        ] {
+            assert_eq!(parse_http_content_length(value), Ok(expected));
+        }
+
+        for value in [
+            b"".as_slice(),
+            b" \t ",
+            b"18446744073709551616",
+            b"+7",
+            b"-7",
+            b"7 0",
+            b"\xd9\xa7",
+        ] {
+            assert_eq!(
+                parse_http_content_length(value),
+                Err(VerifierError::InvalidContentLength),
+                "{value:?}"
+            );
+        }
+        assert!(parse_uint64_decimal("007").is_err());
+    }
+
+    #[test]
+    fn framed_body_shares_http_content_length_and_rejects_ambiguous_headers() {
+        let content_length = |value: &[u8]| Header {
+            name: b"content-length".to_vec(),
+            value: trim_ows(value).to_vec(),
+            raw_value: value.to_vec(),
+        };
+        let transfer_encoding = Header {
+            name: b"transfer-encoding".to_vec(),
+            value: b"chunked".to_vec(),
+            raw_value: b" chunked".to_vec(),
+        };
+
+        for value in [b"0".as_slice(), b"007".as_slice(), b"7".as_slice()] {
+            let length = usize::try_from(parse_http_content_length(value).unwrap()).unwrap();
+            let body = vec![b'x'; length];
+            assert_eq!(
+                parse_framed_body(&[content_length(value)], &body, 16),
+                Ok(body)
+            );
+        }
+
+        assert!(
+            parse_framed_body(&[content_length(b"1"), content_length(b"1")], b"x", 16).is_err()
+        );
+        assert!(parse_framed_body(&[content_length(b"0"), transfer_encoding], b"", 16).is_err());
+    }
+
+    #[test]
+    fn complete_chunked_parser_accepts_multiple_chunks_and_empty_body() {
+        let body = fs::read("fixtures/require-info-response.http").unwrap();
+        let split = body.len() / 2;
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Encoding: identity\r\n\r\n"
+                .to_vec();
+        response.extend_from_slice(format!("{:X}\r\n", split).as_bytes());
+        response.extend_from_slice(&body[..split]);
+        response.extend_from_slice(b"\r\n");
+        response.extend_from_slice(format!("{:x}\r\n", body.len() - split).as_bytes());
+        response.extend_from_slice(&body[split..]);
+        response.extend_from_slice(b"\r\n0\r\n\r\n");
+        assert_eq!(
+            parse_require_info_response(&response, &default_limits())
+                .unwrap()
+                .verified_member_id,
+            "16189463"
+        );
+        assert_eq!(
+            decode_chunked_http_body(b"0\r\n\r\n", 0).unwrap(),
+            Vec::<u8>::new()
+        );
+    }
+
     fn ranges_excluding_spans(bytes: &[u8], spans: &[Range<usize>]) -> Vec<Range<usize>> {
         let mut ranges = Vec::new();
         let mut cursor = 0;
@@ -3114,6 +3203,10 @@ mod tests {
             })
             .unwrap();
         assert!(parse_require_info_response(&invalid, &default_limits()).is_err());
+        let mut trailer = fixture;
+        trailer.truncate(trailer.len() - b"0\r\n\r\n".len());
+        trailer.extend_from_slice(b"0\r\nX-Trace: value\r\n\r\n");
+        assert!(parse_require_info_response(&trailer, &default_limits()).is_err());
     }
 
     #[test]
@@ -3345,6 +3438,60 @@ mod tests {
         let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
         let parsed = parse_require_info_response_sparse_source(&source, &default_limits()).unwrap();
         assert_eq!(parsed.verified_member_id, "16189463");
+    }
+
+    #[test]
+    fn complete_and_sparse_parsers_accept_leading_zero_content_length() {
+        let body =
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {:04}\r\n\r\n{}",
+            body.len(),
+            std::str::from_utf8(body).unwrap()
+        )
+        .into_bytes();
+
+        assert_eq!(
+            parse_require_info_response(&response, &default_limits())
+                .unwrap()
+                .verified_member_id,
+            "16189463"
+        );
+        let ranges = vec![0..response.len()];
+        let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+        assert_eq!(
+            parse_require_info_response_sparse_source(&source, &default_limits())
+                .unwrap()
+                .verified_member_id,
+            "16189463"
+        );
+        assert!(
+            !plan_require_info_response_sparse_ranges(&response, &default_limits())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn sparse_response_keeps_rejecting_chunked_without_an_authenticated_framing_scan() {
+        let body =
+            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let response = chunked_response(body);
+        let ranges = vec![0..response.len()];
+        let source = AuthenticatedByteSource::new(&response, &ranges).unwrap();
+
+        assert!(matches!(
+            parse_require_info_response_sparse_source(&source, &default_limits()),
+            Err(VerifierError::SparseProfileUnsupported(
+                "chunked transfer encoding requires an authenticated framing scan"
+            ))
+        ));
+        assert!(matches!(
+            plan_require_info_response_sparse_ranges(&response, &default_limits()),
+            Err(VerifierError::SparseProfileUnsupported(
+                "chunked transfer encoding requires an authenticated framing scan"
+            ))
+        ));
     }
 
     #[test]
