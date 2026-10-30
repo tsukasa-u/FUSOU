@@ -27,7 +27,7 @@ Its active mux mapping supersedes the earlier path-patch inventory below:
   removing them without an equivalent is not safe. Rama stays experimental,
   not the APP default.
 * Actual APP GNU check, 64 APP TLSN tests and 129 selected Proxy tests pass;
-  each test set retains one pre-existing ignored external test. Proxy tests
+  each test set retains one pre-existing ignored harness-only test. Proxy tests
   include real **loopback synthetic** MPC/Notary and handler paths, not a real
   Notary/Game Server. WASM/provenance and real service execution were not run.
 

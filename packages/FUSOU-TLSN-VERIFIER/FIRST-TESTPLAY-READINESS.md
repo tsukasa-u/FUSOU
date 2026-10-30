@@ -78,8 +78,8 @@ new local changes. No workflow dispatch, deployment or real service call was mad
 | Check | Current observation |
 |---|---|
 | Actual APP GNU `tlsn-production --locked --offline --lib --bins` | Exit 0; eight pre-existing warnings. Native/WASM entry separation avoids loading the protected WASM bridge. WASM build/provenance NOT_RUN. |
-| APP TLSN library tests (`-- tlsn_`) | 64 PASS, 0 FAIL, 1 pre-existing ignored external test, exit 0. Manifest, epoch, health, configuration fingerprints and preflight included. |
-| Actual Proxy synthetic-feature selected contracts | 129 PASS, 0 FAIL, 1 pre-existing ignored external test, exit 0. Includes loopback TLSN/Notary and actual HTTP handler, not a real game/service run. |
+| APP TLSN library tests (`-- tlsn_`) | 64 PASS, 0 FAIL, 1 pre-existing ignored harness-only test, exit 0. The ignored generated-config/offline-preflight test requires its separate round-trip harness; it is not a real-service test or a PASS. |
+| Actual Proxy synthetic-feature selected contracts | 129 PASS, 0 FAIL, 1 pre-existing ignored harness-only test, exit 0. Loopback TLSN/Notary and actual HTTP handler pass; the separately orchestrated APP/Worker synthetic E2E is not run or counted as PASS. |
 | Independent Bundle/finalization and CLI | 39 + 5 PASS, exit 0; real evidence NOT_RUN. |
 | WEB actual handler/Ed25519/PostgreSQL/Worker consumer | 63 PASS, exit 0, including 24 new cases; local Auth/PostgREST adapters, not deployed Supabase. |
 | Node proof/stages/pre-capture/finalizer/delivery/catalog | 112 PASS, exit 0. |
