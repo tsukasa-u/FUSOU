@@ -21,6 +21,13 @@ test("restored actual source has a parse-only closed import graph; semantics and
   assert.equal(result.runtime_semantics, "NOT_CHECKED");
   assert.equal(result.bundle_status, "NOT_CHECKED");
   assert.ok(result.import_closure.dependencies[`${WORKER_ROOT}/src/index.ts`].includes("hono"));
+  assert.ok(result.import_closure.dependencies[`${WORKER_ROOT}/src/device-proof-client.ts`]
+    .includes("./device-proof-framing.ts"));
+  const framingPath = `${WORKER_ROOT}/src/device-proof-framing.ts`;
+  const framing = files.get(framingPath);
+  files.delete(framingPath);
+  assert.deepEqual(inspectWorkerSource(files, sourceSha).missing_paths, [framingPath]);
+  files.set(framingPath, framing);
   assert.deepEqual(Object.keys(JSON.parse(files.get(`${WORKER_ROOT}/package.json`)).scripts).sort(),
     ["build:wasm", "typecheck", "verify:wasm-provenance"]);
   files.delete(`${WORKER_ROOT}/src/binding_authority.ts`);

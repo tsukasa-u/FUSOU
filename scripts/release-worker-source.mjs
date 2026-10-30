@@ -13,6 +13,7 @@ export const WORKER_SOURCE_PATHS = Object.freeze([
   "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml",
   "packages/configs/tlsn-origin-inventory.json.txt", "packages/configs/tlsn-target-approval.json.txt",
   ...["package.json", "wrangler.toml", "tsconfig.json", "src/index.ts", "src/binding_authority.ts",
+    "src/device-proof-client.ts", "src/device-proof-framing.ts",
     "src/attestation_receipts.ts", "src/direct_verifier.ts", "src/execution_boundary.ts",
     "src/result_archive.ts", "src/verification_jobs.ts", "src/verifier_identity.ts",
     "src/private_key_validation_cache.ts", "src/origin-trust-contract.mjs", "src/origin-trust-contract.d.mts",

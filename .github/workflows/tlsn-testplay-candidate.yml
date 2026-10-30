@@ -63,7 +63,10 @@ jobs:
       - name: Verify bounded Worker proof clients
         run: |
           pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck
-          node --experimental-strip-types --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs
+          node --experimental-strip-types --test \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs \
+            scripts/release-worker-source.test.mjs \
+            scripts/release-worker-integration.test.mjs
 
       - name: Run APP build handoff and Worker reference tests
         run: |
