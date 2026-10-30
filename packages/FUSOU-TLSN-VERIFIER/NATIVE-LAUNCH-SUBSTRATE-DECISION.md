@@ -1076,6 +1076,7 @@ NOT EXECUTED; Production acceptance remains BLOCKED.
 
 ## References
 
+* [Current APP testplay readiness and human/service/evidence boundaries](FIRST-TESTPLAY-READINESS.md).
 * [FD ABI v1](FD-ABI-V1.md), [fixed shared vector](fixtures/offline-fd-v1-vector.json).
 * [nix 0.30.1 execveat](https://docs.rs/nix/0.30.1/nix/unistd/fn.execveat.html),
   [spawn](https://docs.rs/nix/0.30.1/nix/spawn/fn.posix_spawn.html).

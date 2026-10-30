@@ -73,21 +73,28 @@ particular, the local `tlsn-core` transcript/proof implementation differs
 from upstream alpha.15. Independent compatibility, security, and license
 approval is still pending; see
 [`tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md`](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md).
-The updated source review identifies four production-source changes in the
+The earlier source review identifies four production-source changes in the
 local TLSN subset (`tlsn-core` transcript/proof and `tlsn` plaintext
 authentication/verifier plumbing), plus a test-only Attestation API change.
+The later APP ownership follow-up also adds the optional
+`Session::new_with_worker_spawn` callback in the local `tlsn` source. The earlier
+four-change review does not cover that addition; independent source/release
+approval must cover the complete current patch set.
 `Presentation::verify` itself remains the pinned upstream implementation.
 APP and Proxy patch `tlsn-mux` to local resource defaults; the Verifier lockfile
 uses the pinned upstream mux. The source mapping is now evidenced, but
 independent security, wire-contract, license, and release decisions remain
 pending. P0-01 remains `BLOCKED_EXTERNAL_INPUTS`; see the dossier for the
 complete diff, trust-root path, risk, and approval tables.
-The tracked checkout contains the APP transport path, but not a deployed
-Production Worker runtime, Session Authority handler, Notary service, or
-Production evidence collector. Runtime Config bootstrap inputs are unregistered
-and the TLSN Production path therefore remains blocked. Local transport and
-verifier tests do not establish the behavior of those external services or
-Production acceptance.
+The tracked checkout contains the APP transport, Worker verification and
+Session Authority handlers, Result generation and archive implementation.
+Their source availability does not establish a deployed Worker, real Notary
+service, actual archive operation or finalized Production evidence delivery.
+Production Runtime Config signing registration remains closed. Approved real
+bootstrap/target/service inputs were not supplied or exercised in this audit.
+See the [current testplay readiness boundary](FIRST-TESTPLAY-READINESS.md).
+Local transport and verifier tests do not establish external service behavior
+or Production acceptance.
 
 `verify_alpha15_presentation` deserializes an upstream bincode Presentation,
 rejects trailing bytes, calls `Presentation::verify`, and requires complete
@@ -334,19 +341,23 @@ previously reported local corpus tests.
 
 ### First real-game testplay boundary
 
-This checkout provides the offline TLSN and Evidence Bundle verifiers, not a
-tracked Production Worker runtime, Session Authority service handler,
-Result/archive implementation, or Production evidence collector. The APP's
-Result verification and the offline verifier therefore do not prove that an
-external service generated a Result or retained the corresponding archives.
-The external deployment state is UNKNOWN until its source/version and execution
-evidence are independently supplied.
+This checkout provides offline TLSN/Evidence Bundle verifiers and tracked
+Worker verification, Session Authority and Result/archive source. The APP now
+checks signed Complete/Sparse Results against its current Presentation,
+session/device, approved expected target and verified manifest authority pins
+before caching them. This still does not prove that an external deployment ran
+that source, retained archives or delivered an independently verified bundle.
+Deployment/connectivity remain NOT_CHECKED; actual execution remains UNKNOWN.
 
-The first real-game testplay is also blocked before capture by the unset,
-fail-closed APP Runtime Config bootstrap and the runtime requirement that the
+The first real-game testplay remains blocked before capture until approved
+APP Runtime Config bootstrap inputs and a fresh verified manifest are supplied,
+with the runtime requirement that the
 selected target already be in verified Target Approval. The source-level gate
 map and its external-input requirements are in the
 [operator runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md).
+The [current readiness record](FIRST-TESTPLAY-READINESS.md) separates the
+successful actual APP GNU check, local ownership/context-binding regressions,
+human approval, live services and post-capture independent verification.
 P0-10 remains `UNRESOLVED`; the candidate pre-capture helper does not test it,
 and no approved testplay exception was found. A local verifier pass or
 category-3 fixture characterization is not a successful real testplay or
