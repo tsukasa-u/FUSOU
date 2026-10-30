@@ -2,9 +2,42 @@
 
 ## Current dispositions
 
+Latest local continuation starts at `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
+Its active mux mapping supersedes the earlier path-patch inventory below:
+
+* APP and Proxy no longer path-patch `tlsn-mux`; locked native graphs compile
+  exact upstream `tlsn-utils` `64722f7de999cbd41c0cab7312dade306d50ea5f`.
+  The inactive copied directory remains historical, not a dependency.
+* Its only runtime fork delta was defaults of 10,240 streams and a 2.5 GiB
+  receive window versus upstream 512 / 1 GiB. Those **existing** APP/Proxy
+  ceilings are preserved through upstream public setters behind opt-in
+  `tlsn/fusou-large-mux`; standalone Verifier keeps upstream defaults.
+  This does not eagerly allocate that window or establish an RSS bound.
+* The active TLSN fork remains pinned against upstream
+  `47aee45b53e06648c1b2ad3689b367b8c923fdec`. Cached source comparison identifies
+  six changed runtime files: core transcript/proof, client backend notify,
+  Session ownership/configuration, transcript authentication and verifier
+  plumbing; manifests/tests/fixtures also differ. This is not a wholesale
+  upstream fork removal or independent wire/security approval.
+* Active Hudsucker 0.23.0 remains a fork of packaged upstream commit
+  `7774ea8cd241560c1dee64376c0f4a9eaed497f0`: body completion,
+  connection identity, builder hooks, internal handling and proxy lifecycle
+  differ (`src/body.rs`, `src/lib.rs`, three `src/proxy` files), plus lockfile.
+  Plaintext/connection hooks, cancellation and completion have actual callers;
+  removing them without an equivalent is not safe. Rama stays experimental,
+  not the APP default.
+* Actual APP GNU check, 64 APP TLSN tests and 129 selected Proxy tests pass;
+  each test set retains one pre-existing ignored external test. Proxy tests
+  include real **loopback synthetic** MPC/Notary and handler paths, not a real
+  Notary/Game Server. WASM/provenance and real service execution were not run.
+
+P0-01 independent revision/compatibility/security/license approval and P0-10
+normative Claim/receipt JSON/sparse/WASM/Production corpus remain unresolved.
+No previous local result is promoted into real Production acceptance.
+
 | Item | Status | Evidence and remaining condition |
 | --- | --- | --- |
-| P0-01 technical revision mapping | `PASS_EVIDENCE` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The pinned upstream and direct dependency paths are mapped, including all observed TLSN production-source changes and the `tlsn-mux` path patch. Independent compatibility, security, and license approval is still required. |
+| P0-01 technical revision mapping | `PASS_EVIDENCE` for the factual source map; `P0-01` remains `BLOCKED_EXTERNAL_INPUTS` | The pinned upstream and direct dependency paths are mapped, including observed TLSN production-source changes and the now-unpatched, explicitly configured upstream mux. Independent compatibility, security, and license approval is still required. |
 | P0-02 Attestation ID contract | `PASS_LOCAL_TESTS` | The exact upstream type/API, 16-byte length, upstream binary fixture, independently extracted ID, canonical JSON encoding, and Node invocation of the packaged Rust/WASM verifier are covered locally. |
 | P0-10 cross-language determinism | `UNRESOLVED` | A shared local corpus now covers Complete Result v2, Sparse Result v3, Session/consume receipt signing bytes, Result range bytes, and contract-required rejection cases in separate Rust and Node reference tests. The corpus is generated independently of production serializers but is source-derived, test-only, and not an owner-approved normative oracle. This continuation confirmed that the documented 8-field/11-field ClaimBindingBytes layouts have no recorded precedence or supersession, and that receipt JSON canonicalization/unknown-field policy has no approved wire contract. Claim, receipt JSON policy, TLSN sparse Presentation bytes, WASM provenance, and Production-shaped evidence remain unresolved. |
 | Phase 0 runtime gate | `BLOCKED` | The P0-02 local contract evidence does not approve the locally patched TLSN revision or satisfy the other Phase 0 gates. Production acceptance remains `NO-GO`. |

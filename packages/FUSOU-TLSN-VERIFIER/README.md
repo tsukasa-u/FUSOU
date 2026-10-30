@@ -14,6 +14,17 @@ The cross-component guarantees and unresolved acceptance decisions are
 documented in the [Data Authenticity Contract](../../docs/architecture/tlsn-data-authenticity-contract.md)
 and its [implementation roadmap](../../docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md).
 
+Current local follow-up: WEB implements both exact-owner proof paths with an
+atomic PostgreSQL claim; the APP collects seven verified public Runtime Config
+inputs into candidate capture. This does not complete nineteen-role Evidence,
+the retained execution-receipt prerequisite or remote full-Bundle delivery.
+See the [current readiness record](FIRST-TESTPLAY-READINESS.md) and
+[complete data lineage](DEVICE-PROOF-MATERIAL-LINEAGE.md).
+The native library now target-gates the WASM bridge to `wasm32`; native APP,
+Bundle and CLI checks do not load that protected bridge. WASM build/provenance
+was not performed. The active local mux patch has been removed in APP/Proxy;
+the exact pinned upstream mux is configured through existing public setters.
+
 It currently provides:
 
 - strict unpadded base64url and canonical UInt64 decimal parsing;

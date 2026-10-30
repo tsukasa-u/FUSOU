@@ -1,7 +1,10 @@
 # FUSOU TLSN Data Authenticity Implementation Roadmap
 
-**Status:** Release contracts and conservative local delivery policy implemented;
-broader authority/wire semantics and external execution remain blocked.
+**Status:** Exact-owner proof APIs/atomic DB claims, independent origin outcome,
+partial approved-material collector and active mux-fork removal implemented.
+Authority-durable origin attempts, complete Evidence assembly, trusted-time
+coverage and full resource accounting remain `BLOCKED_CODE`; external execution
+and Production acceptance remain blocked.
 **Source baseline:** `tlsn-first-testplay-candidate` at
 `e1d985bf326378346d1cf86b2e5269e3fe03cd95`.
 **Contract:** [`tlsn-data-authenticity-contract.md`](../architecture/tlsn-data-authenticity-contract.md).
@@ -11,15 +14,49 @@ verification, human gameplay, and Production acceptance. It does not authorize
 external operations, select a design for unresolved questions, or claim that
 any later gate has passed.
 
+## Current implementation continuation
+
+The latest continuation starts at `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
+The [current readiness record](../../packages/FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md)
+supersedes historical build restrictions/counts below. Q1-Q5 now have explicit
+user-directed implementation policy; do not ask the user to select it again.
+
+1. **Completed locally:** existing WEB exact-owner proof handler + shared framing
+   + PostgreSQL transaction/audit, concurrency/restart/revocation/rollback tests.
+   No live migration, deployment or new enrollment/transfer authority.
+2. **Completed locally:** immutable raw Runtime Config/registry/Inventory/Approval
+   snapshot -> actual APP signer -> hash/length-indexed candidate files.
+   Nineteen-role completion and all independent pins remain mandatory.
+3. **Completed locally:** separate origin outcomes, explicit ambiguous send and
+   post-response evidence failure tests. No second origin send.
+4. **Next code, highest priority:** replace listener-global capture refusal with
+   authority-durable logical-attempt reservation and a crash-safe APP pre-send
+   journal; bind user/device, session/binding, approved target/profile and exact
+   request digest. Reject concurrent duplicate/restart reuse; do not create a
+   fresh attempt to hide an uncertain write. Preserve normal distinct operations.
+5. **Then:** move approved Session preparation outside the selected request's
+   latency-critical phase, revalidate authority validity immediately before send,
+   and preserve explicit refusal/reconciliation instead of silent auth fallback.
+6. **Then:** connect remaining role producers (owner observation/replay, health,
+   capture metadata, semantic report and subject), using existing approved
+   APIs/verifier derivation and independent external registries. Keep finalizer
+   verification-before-atomic-publication; do not self-compare local auth material.
+7. **Then:** complete trusted-time and whole-process/concurrency/queue budgets;
+   approve and implement Production execution/delivery receipt contracts and
+   full-Bundle remote retention separately. Real testplay/deployment needs human
+   authorization and valid public inputs; it is not granted by these commits.
+
 ## Constraints
 
 - Preserve existing user changes and keep the current branch/source as the
   baseline for each phase.
-- Do not access protected configuration or verifier paths indirectly. Until a
-  safe approved verification route exists, do not run Cargo build, check, test,
-  or Clippy.
-- Do not change the default Hudsucker route, make Rama the APP default, remove
-  the Hudsucker fork, or change TLSN forks as part of this plan.
+- Do not access protected configuration or verifier paths indirectly. Native
+  GNU checking now target-gates the WASM bridge and uses the actual isolated
+  APP graph; do not run protected-source WASM/provenance or configuration tests.
+- Do not change the default Hudsucker route or make Rama the APP default.
+  Active mux path patches are now removed using pinned upstream public setters;
+  remaining sparse/owned-worker TLSN and Hudsucker forks are not approved or
+  replaced by this follow-up.
 - Do not introduce APP process/image authority, TPM, measured boot, privileged
   helpers, or browser integrity as readiness requirements.
 - Do not contact a Production Worker, R2, Notary, or Game Server without

@@ -2,15 +2,19 @@
 
 ## Status and source basis
 
-Branch: `tlsn-first-testplay-candidate`. This investigation starts at
+Branch: `tlsn-first-testplay-candidate`. The earlier investigation started at
 `ec37f88e7be4937dfae49f7ec6917c736992592c`, parent
 `fbafee38f6da832f780bd9c2756651201a8ebf10`. Cached upstream
 `origin/tlsn-first-testplay-candidate` was 0 ahead / 0 behind, with a clean
 scoped index/worktree. No fetch, service operation or actual capture was used.
 
-The HTTP **consumer contract** below is implemented. The proposed owner-service
-implementation is **HUMAN_APPROVAL_REQUIRED**, not an approved or deployed API.
-No proof handler, enrollment authority, DB migration, signer or root is added.
+The subsequent implementation starts at
+`fc29aac29d454bf949510e0d97acbd3cd7e68e5b`. Both owner handlers now exist in
+the WEB lifecycle router. The new
+[proof-consumption migration](../FUSOU-WEB/supabase/migrations/20261030000000_tlsn_device_proofs.sql)
+connects existing ownership to durable, atomic proof consumption. No enrollment
+authority, ownership transfer, signer or root was added. Deployment and
+migration against real Supabase remain **NOT_CHECKED / NOT_RUN**.
 All three stages currently have `BLOCKED_CODE`, plus external-input blockers.
 Local tests do not establish deployment, real proof capture or gameplay approval.
 
@@ -37,7 +41,7 @@ Relevant sources:
 | Stage | Acceptance evidence | Current reachability / status | Not implied |
 |---|---|---|---|
 | A: `TLSN_PROTOCOL_TESTPLAY` | Real Game Server Presentation; trusted Notary signature; observed canonical DNS/Web PKI identity; real signed Result and exact Presentation binding | `BLOCKED_CODE`: no independent APP protocol-only entry. The actual APP always constructs Remote Session Binding and Worker verification. Both proof APIs are needed before this route can finish. Runtime Config/target/keys/services are also external prerequisites. | User/device ownership, a complete Bundle, execution-provider authority, full-Bundle remote retention |
-| B: `IDENTITY_BOUND_TESTPLAY` | A plus authenticated/non-revoked owner/device, Session/Binding signatures, possession/challenge/replay, all 19 roles, local finalization and independent actual-evidence verification | `BLOCKED_CODE`: missing owner proof handlers; real material collection/assembly not connected; candidate receipt gate deliberately retained. Independent roots/registries/identities/approvals also required. | Production delivery, formal builder/provider approval |
+| B: `IDENTITY_BOUND_TESTPLAY` | A plus authenticated/non-revoked owner/device, Session/Binding signatures, possession/challenge/replay, all 19 roles, local finalization and independent actual-evidence verification | `BLOCKED_CODE`: complete real-material assembly is not connected; candidate receipt gate deliberately retained. Owner handlers now exist, but real deployment and exact-owner enrollment remain external prerequisites. | Production delivery, formal builder/provider approval |
 | C: `PRODUCTION_EVIDENCE_DELIVERY` | B plus complete-Bundle remote readback/retention, independently verifiable delivery receipt, approved applicable execution/signer/builder/provider and operational acceptance | `BLOCKED_CODE`: full-Bundle uploader/retention receipt and Production execution-receipt authority contract missing; approval/configuration also outstanding | Nothing is promoted by local status, elapsed time or a successful CLI return |
 
 These are assessments of source contracts. The additive
@@ -67,6 +71,55 @@ That operational dependency can affect A/B through this Worker. It is not
 permission to remove it, nor proof that a complete Bundle was remotely delivered.
 
 ## 2. Implemented HTTP caller contract
+
+### Owner implementation and transaction boundary
+
+The public paths in the table below are now mounted by
+[WEB](../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts), not by the TLSN Worker
+or a new Supabase Edge service. The existing WEB/device/Supabase operators own
+deployment; the responsible individual and live hostname are not inferred.
+The handlers require an independently authenticated, non-anonymous Supabase
+bearer and exact equality with the existing canonical device owner. They never
+register, link, transfer, revive or replace a key. An anonymous registered owner
+does not become a non-anonymous owner by calling these APIs.
+
+Authentication signs the existing HMAC nonce's **UTF-8 text**. Possession uses
+the shared [framing function](../FUSOU-TLSN-VERIFICATION-WORKER/src/device-proof-framing.ts):
+domain `FUSOU-TLSN-DEVICE-PROOF-V1\0`, u16BE-length-prefixed device, session and
+binding UTF-8 bytes, then the length-prefixed raw 32-byte challenge. No receipt
+version is inserted. `replay_digest_hex` is SHA-256 of those message bytes,
+not of the signature.
+
+`rpc_consume_tlsn_device_proof` locks the existing device row, rechecks canonical
+owner/non-anonymous user, raw Ed25519 key and revocation, then consumes the
+nonce/proof in one transaction. Authentication shares existing lifecycle nonce
+uniqueness. Possession has unique device/message and device/session claims.
+Successful audit rows retain canonical owner, public-key snapshot, context
+digests and DB consumption time. RLS and service-role-only grants restrict access.
+Rows survive DB restart; there is no arbitrary TTL reset. Existing device
+deletion cascades remain; Production audit/privacy retention still needs approval.
+
+WEB proves possession of the supplied context; it does **not** independently
+authorize a session/challenge supplied by the caller. Worker Binding Authority
+continues to own issuance, expiry, context equality and consumption. Proofs
+committed before later revocation are not globally/retroactively invalidated.
+WEB commit, DO issuance and receipt signing are not a distributed transaction.
+Later failure never unconsumes the proof or authorizes another origin send.
+
+Success is HTTP 200 with the exact existing response schema. Missing/invalid
+bearer, anonymous user, expired nonce or invalid signature returns 401; owner
+mismatch 403; unknown device 404; revoked/replayed nonce/proof 409; oversized body
+413; infrastructure/DB/schema-snapshot failure 503. These responses are bounded
+and never retried automatically by the Worker client. WEB request bodies retain
+the existing 64 KiB cap; Worker proof responses now have a 16 KiB declared/streamed
+cap and a 10-second fetch timeout. Redirects fail closed. These limits do not
+replace the APP's absolute exchange deadline.
+
+The real Hono handler, Supabase SDK, Ed25519 verification, actual PostgreSQL RPC
+and Worker consumer pass 24 new integration cases, alongside 39 existing cases.
+Auth and PostgREST HTTP are local test adapters, **not** deployed Supabase.
+Eight concurrent DB claims produce one success/seven replay refusals; restart,
+revocation locking, key/owner races and rollback are tested.
 
 ### Actual call chain
 
@@ -158,10 +211,15 @@ expected-digest argument. Separate Worker cached-result logic requires the
 stored subject/session/binding/challenge/Presentation/profile/digest context;
 cached authoritative 200 is not the Bundle's required 409 replay observation.
 
-## 3. Owner API proposal -- HUMAN_APPROVAL_REQUIRED
+## 3. Earlier owner API proposal and remaining policy approvals
 
 No matching owner proof handler was found in the tracked Worker/WEB routes,
 WEB page endpoints, AUTH crate or tracked Supabase function inventory.
+The following investigation/proposal paragraphs describe the earlier baseline,
+not the current absence of handlers. The exact-owner implementation above
+supersedes proposal-only statements; unapproved transfer/enrollment and
+cross-service revocation/recovery policy remains unresolved.
+
 WEB mounts its lifecycle router under `/auth`; public page routing supplies the
 `/api` prefix. Register, pending, devices, challenge, refresh, revoke and deletion
 do not implement either proof contract. Deployment outside this source remains
@@ -231,14 +289,14 @@ Status vocabulary: `IMPLEMENTED_AND_CONNECTED`, `IMPLEMENTED_BUT_NOT_CONNECTED`,
 |---|---|---|---|---|---|---|---|
 | `presentation` | Actual APP prover | Deferred real proof completes | Candidate `presentation.bin`; Worker raw archive | APP writer -> finalizer override | Exact bytes/hash/length, transcript/Notary identity | Actual Presentation cryptography + Web PKI/observed DNS | IMPLEMENTED_AND_CONNECTED |
 | `result` | Worker verifier/signer | Presentation verification/signing; response released after authority commit | APP compact `result.json`; raw **outer** response separately | APP admission -> finalizer override | Inner V2/V3 signature, Presentation hash, Inventory/Approval pair | Canonical parse/signature, registry root, independently re-derived Result | IMPLEMENTED_AND_CONNECTED |
-| `result_registry` | Approved registry publisher | Key publication/rotation | Approved external raw file; material manifest | Operator supplies exact input; APP runtime key registry is not automatic collection | Envelope authorizes exact registry hash; capture-time key window | Root envelope + signer resolution | EXTERNAL_INPUT_REQUIRED |
-| `result_registry_envelope` | Approved independent registry-root signer | Registry publication | Approved external envelope file | No APP collector; external material path | Exact registry digest, root ID/SPKI, schema/domain/signature | Independent evidence-root pin | EXTERNAL_INPUT_REQUIRED |
+| `result_registry` | Approved registry publisher | Manifest independently verified | Candidate `runtime-result-registry.json`, exact raw input | APP verified manifest -> signer capture -> operator material descriptor | Candidate length/hash; envelope authorizes exact registry hash | Independent root envelope + signer resolution; no candidate-root default | IMPLEMENTED_AND_CONNECTED |
+| `result_registry_envelope` | Approved independent registry-root signer | Manifest and envelope independently verified | Candidate `runtime-result-registry-envelope.json` | APP verified manifest -> signer capture -> operator material descriptor | Exact registry digest, root ID/SPKI, schema/domain/signature | Independent evidence-root pin, not a candidate-provided root | IMPLEMENTED_AND_CONNECTED |
 | `notary_registry` | Approved Notary publication owner | Key publication | Approved external raw file | Explicit material and external CLI input | Byte equality, key ID/serialized key, Presentation | Pinned registry and actual Notary signature | EXTERNAL_INPUT_REQUIRED |
 | `health` | Worker `/health` | Actual health observation for this approved service/version | Response not automatically saved as full role; APP metadata keeps a reduced unsigned observation | Existing APP observer is not connected to complete-role material collection | Result/root/Notary/Session/Binding identities and registry hashes | Cross-check against independent pins and verified Result; not a signed receipt | IMPLEMENTED_BUT_NOT_CONNECTED |
 | `session` | Worker Session Authority + DO | Authenticated owner proof accepted, binding issued | APP `session.json` | APP verified binding state -> writer -> finalizer override | Signed user/device/auth nonce/session/binding/challenge/times | External Session registry/key and receipt signature/context | IMPLEMENTED_AND_CONNECTED |
 | `authenticated_user` | Supabase authenticated-user service | Actual non-anonymous bearer validation | Worker observation is not saved as this role | No approved observation-to-material handoff | Externally pinned canonical user equals signed session/Result | Existing verifier checks external pin and signed graph; boolean alone is not independent authority | IMPLEMENTED_BUT_NOT_CONNECTED |
 | `device_identity` | WEB `user_devices` owner service | Approved owner/key/non-revoked observation | DB row; APP local identity explicitly UNVERIFIED | No approved owner observation/export for Bundle | Canonical owner/device, raw key hash, non-revoked state, session/Result | Independent device/user/key pins and proof/receipts | HUMAN_APPROVAL_REQUIRED |
-| `device_authentication` | Owner proof API plus Worker session observation | Nonce signature accepted and HTTP 201 session issued | APP `device-authentication.json` records request/acceptance; external material still required | Matching owner handler absent; finalizer only compares external request with candidate | Nonce/device signature, exact captured request, Session receipt | Device signature and signed session/context; local acceptance JSON is not service proof | OWNER_API_MISSING |
+| `device_authentication` | WEB exact-owner proof API plus Worker session observation | Nonce signature accepted and HTTP 201 session issued | APP `device-authentication.json`; private DB proof audit; external role material still required | Matching handler/DB/consumer connected; complete external role collector still missing; finalizer compares external request with candidate | Nonce/device signature, exact captured request, Session receipt | Device signature and signed session/context; local acceptance JSON is not service proof | IMPLEMENTED_BUT_NOT_CONNECTED |
 | `possession_proof` | Registered device via APP | Current session/binding/device challenge available | APP `possession-proof.json` | APP writer -> finalizer override | Framed signature and both digest encodings | Pinned device key, current Result/session/challenge | IMPLEMENTED_AND_CONNECTED |
 | `consume_receipt` | Worker Binding Authority | Successful verified binding consumption | APP `consume-receipt.json`; outer response | APP writer -> finalizer override | Signed user/device/session/binding/nonce/Presentation hash/use time | External Binding registry/key, signature and context | IMPLEMENTED_AND_CONNECTED |
 | `replay` | Approved negative-observation collector, not implemented | Actual same-proof/context rejection | Required external role not produced by APP polling | No approved actual 409 acquisition/assembly path | Expected 409/error, current context and stored message digest | Canonical proof digests, session/device/binding and allowed rejection | NOT_IMPLEMENTED |
@@ -268,6 +326,20 @@ success or a material generator.
   full manifest/evidence predicates must already exist in approved material.
   Candidate device identity, reduced health metadata, local delivery status or
   semantic assertions cannot be copied into an authoritative role.
+* A new, connected **partial collector** retains seven verified public inputs:
+  signed Runtime Config envelope, Worker reference, Origin Inventory, Target
+  Approval, security registry set, exact Result registry and its signed envelope.
+  `VerifiedRuntimeConfigManifest` retains bytes only after all existing independent
+  checks; `wrap_proxy` passes an immutable snapshot to the actual Result writer.
+  Candidate capture writes the seven `runtime-*.json` files before publishing
+  its manifest, including each exact byte length/hash. No reserialization,
+  new endpoint, secret export or nineteenth-role replacement is used.
+  Capture accepts only those seven names, nonempty files and a 16 MiB aggregate
+  snapshot bound. The finalizer still has **five**, not six, APP overrides:
+  external authentication is not replaced with the same local file it checks.
+  Operators can collect the two registry roles and Inventory/Approval from these
+  snapshots, but independent CLI trust pins and byte equality remain mandatory.
+  These files are not a complete Bundle or an execution/delivery receipt.
 * No duplicate role reuse is implemented: candidate `metadata.json` is not
   `capture_metadata`; APP `device-identity.json` is not authoritative
   `device_identity`; Worker archived outer JSON is not inner `result`.
@@ -366,9 +438,9 @@ lacks full-Bundle transport/retention and formal execution/delivery approval.
 External trust/configuration/services and explicit human gameplay permission
 remain necessary in all applicable stages.
 
-## 8. Validation record
+## 8. Earlier investigation validation record (historical)
 
-Current commands/results are recorded separately from the preceding
+Earlier commands/results are recorded separately from the preceding
 [finalization audit](FIRST-TESTPLAY-READINESS.md#current-finalization-audit-validation).
 No actual APP launch, key generation, owner API/DB integration, Game Server/
 Notary access, real evidence acquisition/cryptographic verification, remote

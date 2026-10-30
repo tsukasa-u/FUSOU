@@ -12,7 +12,9 @@ The [device-proof contract and nineteen-role data lineage](DEVICE-PROOF-MATERIAL
 separates **TLSN_PROTOCOL_TESTPLAY**, **IDENTITY_BOUND_TESTPLAY** and
 **PRODUCTION_EVIDENCE_DELIVERY**. All currently have `BLOCKED_CODE`, for
 different reasons. The APP has no independent protocol-only entry: its current
-route already depends on the missing proof APIs and Session/Binding services.
+route already depends on proof APIs and Session/Binding services. The WEB proof
+handlers now exist; deployment, complete material assembly and candidate receipt
+prerequisites remain unresolved.
 Complete-Bundle remote retention is not required by the local nineteen-role
 verifier. The existing candidate execution-receipt prerequisite is retained by
 the user's explicit decision, not described as an intrinsic TLSN requirement.
@@ -49,13 +51,13 @@ and runtime gates. They do not replace them or create a release policy.
 
 | Stage | Current status | Owner / completion evidence | Refusal / next action |
 |---|---|---|---|
-| CODE_READY | BLOCKED_CODE | Strict local finalizer exists. Current APP protocol path lacks matching proof handlers; identity-bound completion also lacks real-material collection and retains the candidate receipt prerequisite. Production transport/execution approval is a separate stage. | Do not call candidate files a finalized Evidence Bundle or enable a protocol-only bypass. |
+| CODE_READY | BLOCKED_CODE | Strict local finalizer and WEB proof handlers exist. Complete real-material assembly and the retained candidate receipt prerequisite still block identity-bound completion; listener-global one-shot/pre-origin service waits also remain. | Do not call candidate files a finalized Evidence Bundle or enable a protocol-only bypass. |
 | LOCAL_BUILD_READY | VERIFIED, GNU check only | Actual APP `tlsn-production`, its own manifest/lock and library/binary targets checked. | Not a GUI launch, release package, clean candidate handoff or live-bootstrap test. |
 | CONFIG_READY | BLOCKED_EXTERNAL_INPUTS | Trust/release operator supplies approved embedded bootstrap and fresh signed manifest/artifacts; APP independently verifies them. | Missing/expired/mismatched/unregistered inputs reject; no fixture or stale-manifest fallback. |
 | TARGET_APPROVAL_READY | BLOCKED_EXTERNAL_INPUTS | Deployment operator supplies the actual canonical hostname, reviewed Inventory and Approval bound by the manifest. | No real target/approval was admitted in this task. Candidate selection is not observed identity. |
 | SERVICE_CONNECTIVITY_READY | NOT_CHECKED | Operators confirm intended Worker, Session Authority, device-auth, Notary and storage contracts/version. | Local mocks/health JSON are not execution or deployment proof. |
 | CAPTURE_READY | BLOCKED | Existing runtime gates plus explicit human approval and the three local limits below must pass. | No real capture command was run; no gameplay permission follows from a local report. |
-| DEVICE_AUTHENTICATION_READY | NOT_IMPLEMENTED, matching tracked handlers | Worker requires two exact proof APIs; WEB registration/challenge/refresh/revoke are different contracts. | Service/enrollment owners must implement and approve the matching handlers; deployment remains NOT_CHECKED. |
+| DEVICE_AUTHENTICATION_READY | IMPLEMENTED_AND_CONNECTED source; deployment NOT_CHECKED | WEB exact-owner handlers, shared framing, atomic PostgreSQL proof/nonce claims and bounded Worker consumer are locally tested. | Only an existing non-anonymous exact owner is accepted. No anonymous-owner transfer or new enrollment policy is invented. |
 | EVIDENCE_FINALIZATION_READY | PARTIAL | CLI consumes five APP artifacts plus an existing-schema material manifest and independently pinned inputs; all 19 artifacts must pass the real verifier before local publication. | Missing receipt/material or invalid bindings reject. No successful real finalization was run. |
 | EVIDENCE_DELIVERY_READY | PARTIAL locally; remote UNVERIFIED | Private create-only local handoff with byte readback is implemented. Worker separately archives Presentation and exact outer Result before authority commit. | No full-Bundle remote upload/retention receipt or APP-to-collector transport is established. |
 | INDEPENDENT_VERIFICATION_READY | IMPLEMENTED source; real run UNVERIFIED | Independent verifier uses externally pinned roots/registries and real artifacts. | No actual evidence verifier/attestation command was executed. |
@@ -67,7 +69,51 @@ post-capture delivery/verification pending, and Production acceptance `BLOCKED`.
 `target_approval: POST_CAPTURE_REQUIRED` refers to evidence of the observed
 identity match, not permission to skip pre-capture runtime Target Approval.
 
-## Actual APP build and ownership contract
+## Current local implementation validation
+
+Follow-up baseline: `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
+The earlier hosted candidate run at that SHA passed; it is not CI for these
+new local changes. No workflow dispatch, deployment or real service call was made.
+
+| Check | Current observation |
+|---|---|
+| Actual APP GNU `tlsn-production --locked --offline --lib --bins` | Exit 0; eight pre-existing warnings. Native/WASM entry separation avoids loading the protected WASM bridge. WASM build/provenance NOT_RUN. |
+| APP TLSN library tests (`-- tlsn_`) | 64 PASS, 0 FAIL, 1 pre-existing ignored external test, exit 0. Manifest, epoch, health, configuration fingerprints and preflight included. |
+| Actual Proxy synthetic-feature selected contracts | 129 PASS, 0 FAIL, 1 pre-existing ignored external test, exit 0. Includes loopback TLSN/Notary and actual HTTP handler, not a real game/service run. |
+| Independent Bundle/finalization and CLI | 39 + 5 PASS, exit 0; real evidence NOT_RUN. |
+| WEB actual handler/Ed25519/PostgreSQL/Worker consumer | 63 PASS, exit 0, including 24 new cases; local Auth/PostgREST adapters, not deployed Supabase. |
+| Node proof/stages/pre-capture/finalizer/delivery/catalog | 112 PASS, exit 0. |
+| Closed Worker source inventory / release driver regressions | 35 PASS, exit 0; actual parse-only source closure plus in-memory build/WASM/archive adapters, not native/WASM execution or deployment. Both proof client and new framing source are mandatory inventory inputs. |
+| WEB / Worker type checks; frozen offline pnpm lock | Exit 0. No Production bindings or secrets used. |
+
+APP now retains seven independently verified Runtime Config public artifacts
+and sends them to the real candidate writer as immutable exact bytes. This
+partial collector does not complete the nineteen roles. The five existing
+finalizer overrides and independent authentication/registry comparison remain.
+
+The origin transport connects directly to the target, not through the Worker.
+After a complete origin response, proof/Worker/signing/archive failure can no
+longer overwrite the independent `ResponseReceived` origin outcome. Controlled
+tests hold each proof stage, receive the browser response first, then observe
+the exact evidence failure with one origin send. Pre-send refusal is `NotSent`;
+send-start failure is `Unknown`/`AmbiguousOriginSend`, never automatic retry.
+
+**Remaining gameplay code blockers:** Session acquisition still waits for
+auth/Worker before origin send; the listener-global one-shot still refuses later
+matching requests. Durable proof consumption/DO binding is not an authoritative,
+restart-safe origin-attempt reservation. Post-response async success does not
+prove that all Worker delay is absent from gameplay. Do not waive authentication,
+silently fall back or classify a possibly sent operation as a new attempt.
+
+Ingress-only Linux measurement, one test process/thread: eight retained 1 MiB
+bodies, ninth rejected; baseline RSS 16,612 KiB, process high-water 30,380 KiB,
+retained body bytes 8,388,608; growth below the test's 64 MiB ceiling. The
+measurement runs in a dedicated child test process, including when selected
+from a parallel suite, so unrelated tests cannot pollute its high-water metric. This is
+not full TLSN/MPC/proof/process-wide memory accounting. Existing ingress limits
+and the three explicit exchange/cleanup/Notary inputs remain unchanged.
+
+## Earlier APP build and ownership snapshot (historical)
 
 The GNU metadata normal/build closure contains 901 packages, enables proxy
 `alpha15-tlsn` and `tokio-util/rt`, and contains no native-launch crate.

@@ -239,7 +239,27 @@ consumption semantics. The conservative rules are now version-controlled;
 ordinary tags should check their policy version/tests, not solicit the same
 human design decision again.
 
-## Remaining broader decisions Q1-Q5
+## Q1-Q5 implementation follow-up
+
+The current user-directed contract fixes the intended policy: authority-durable
+logical attempts, no resend after uncertain origin I/O, independent origin/evidence
+outcomes, authority-bound expiry and measured resource bounds. The questions below
+are the historical design inventory, **not** a request to choose those policies again.
+This follow-up started at `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
+
+| Requirement | Implemented / verified now | Remaining code, not an approval inferred from tests |
+|---|---|---|
+| Q1 | WEB proof consumption is durable, atomic and device/context unique; existing DO owns session/binding consumption. | Neither constitutes a durable **origin attempt** reservation. Listener-global selection and forwarder-local one-shot still remain. Connect authority-issued attempt context and APP pre-send/restart journal; do not identify attempts by TCP/listener/job alone. |
+| Q2 | Independent `NotSent`, `Unknown`, `ResponseReceived` origin states; real transport reports `AmbiguousOriginSend` after send starts; no origin retry. | Durable restart/reconciliation and authority-correlated operation transitions; no claim that an unknown send was received or not received. |
+| Q3 | Controlled proof/Worker/signing/archive failure tests receive the complete origin response first, preserve `ResponseReceived`, and record distinct evidence failure. | Pre-origin Session/Worker acquisition still blocks; later matching requests are still listener-blocked. Complete archive/readback/Evidence Complete stages are not all connected. |
+| Q4 | Existing signed Session/consume times, DO expiry, nonce window and registry/manifest/Result validity checks remain; audit consumption uses DB time. | The APP still uses local wall time for portions of validation. No new trusted time anchor/skew/restart protocol was implemented; do not claim local monotonic exchange time is authority wall time. |
+| Q5 | Existing 1 MiB / 10 s idle / 30 s completion / 8 collectors unchanged; Worker proof responses capped at 16 KiB, fetch 10 s; Linux ingress peak measurement added. | Full concurrent connection/queue/TLSN/MPC/serializer/archive memory accounting, per-attempt budgets and restart release are not established. Input caps and mux windows are not process RSS guarantees. |
+
+These remaining requirements are `BLOCKED_CODE`, not newly invented human
+policy choices. Existing external signer/root/deployment approvals are separate.
+No new auth fallback, process/image authority, privileged helper or retry was added.
+
+### Historical broader design inventory
 
 The local defaults above settle the consumer's fail-closed behavior. The
 following original questions describe broader issuer, runtime and product

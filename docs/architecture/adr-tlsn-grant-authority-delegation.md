@@ -6,6 +6,15 @@ Basis: `tlsn-first-testplay-candidate` at
 Status: **Proposed recommendation; delegation approval not granted.**
 Runtime authorization/publication/read implementation: **NOT_IMPLEMENTED**.
 
+Implementation follow-up: the WEB exact-owner device-proof handlers and durable
+proof consumption now exist, and the APP collects seven verified public runtime
+artifacts into candidate capture. These establish neither delegated grant
+eligibility nor full-Bundle archive authorization. The current
+[readiness record](../../packages/FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md)
+and [material lineage](../../packages/FUSOU-TLSN-VERIFIER/DEVICE-PROOF-MATERIAL-LINEAGE.md)
+describe that narrower implementation. This ADR's delegation approval, authority
+grant store/protocol and Production delivery gates remain unchanged.
+
 This ADR fixes the recommended allocation of responsibilities and required
 invariants. It does not register a policy, select real Production values,
 define an issued-grant wire schema, or enable acceptance. Every

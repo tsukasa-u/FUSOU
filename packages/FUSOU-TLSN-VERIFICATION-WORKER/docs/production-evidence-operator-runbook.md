@@ -16,7 +16,7 @@ are not current service or gameplay execution results.
 | Inventory / Approval binding; exact outer Result binding; raw-only fail-closed | VERIFIED (local contracts only) | These contracts are covered by local implementation/tests; this does not verify an external Worker deployment. |
 | Consumer negative regression coverage | OBSERVED (historical hosted run) | Both disclosure modes in [Run #70](https://github.com/tsukasa-u/FUSOU/actions/runs/37835901490), exact baseline SHA, both jobs successful; this is not CI for the current HEAD. |
 | Worker verification, Session Authority, Result generation and archive source | OBSERVED (source only) | Tracked in [runtime](../src/index.ts), [job state](../src/verification_jobs.ts) and [archive](../src/result_archive.ts); deployed behavior, archive retrieval and finalized bundle delivery remain NOT_CHECKED / UNVERIFIED. |
-| Actual APP `tlsn-production` GNU library/binary check | VERIFIED (local compile only) | The actual APP manifest and unchanged lockfile passed `--locked --offline --lib --bins`; no GUI, release packaging, live bootstrap or real services were run. |
+| Actual APP `tlsn-production` GNU library/binary check | VERIFIED (local compile only) | The actual APP manifest/locked native graph passed, including upstream mux and the partial material collector; no GUI, release packaging, live bootstrap or real services were run. |
 | Real deployment, real Notary/Game Server interaction, human gameplay, real Presentation/Result/archive | UNVERIFIED | No actual operator deployment records or real evidence are established by this document. |
 | Actual Production URLs, deployed SHA/version and operator-selected public pins | UNKNOWN | Must be supplied and checked by the responsible operators. CI SHA is not deployed SHA. |
 | Production acceptance | BLOCKED | Tests, successful capture and offline CLI exit zero do not promote acceptance. |
@@ -27,7 +27,7 @@ There are existing source-level limits that must not be hidden behind a checklis
 - The APP experiment calls [its health observer](../../FUSOU-APP/src-tauri/src/tlsn_runtime.rs) before starting the proxy. It now requires the independently expected pair `canary + fixed_canary` or `production + random`, with `environment == "production"` in both cases. Root and nested deployment identity, Git SHA, Result authority and the independently pinned active version must match. The [caller](../../FUSOU-APP/src-tauri/src/wrap_proxy.rs) supplies compile-time pins before health observation. Missing pins or incompatible identities still block entry; source/test compatibility is not evidence of an actual Production deployment.
 - The tracked APP helper is [`testplay-pre-capture-readiness.mjs`](../../FUSOU-APP/scripts/testplay-pre-capture-readiness.mjs), not a human gameplay authorization gate. It records a local reference/build/config preflight, leaves `gameplay_authorized` false and the target identity unobserved, and does not fetch/verify the Production Runtime Config manifest or authorize gameplay. No `human-gameplay-preflight.mjs` is tracked in this checkout.
 - [The APP config renderer](../scripts/production-trust-contract.mjs) validates its manifest inputs but emits only `enabled`, disclosure/response mode and artifact output path. Its fragment does not supply all compile-time trust pins, health expectations, endpoints or `candidate_capture_enabled`. Do not assume rendering it completes APP setup.
-- The tracked [`FUSOU-TLSN-VERIFICATION-WORKER/`](..) contains verification/job/Session Authority handlers and Result/archive code, as well as trust contracts and the WASM interface. Source is not deployment evidence. The all-tracked-source proof API investigation found Worker consumers but no matching WEB/Edge handler for its required device-proof or tlsn-device-proof paths. The current [Rust operator finalizer](../../FUSOU-TLSN-VERIFIER/src/evidence_bundle/finalization.rs) has a real CLI caller, but is not an automatic APP/service collector and does not establish remote full-Bundle delivery.
+- The tracked [`FUSOU-TLSN-VERIFICATION-WORKER/`](..) contains verification/job/Session Authority handlers and Result/archive code. Source is not deployment evidence. Matching exact-owner proof handlers now exist in WEB, with a service-role-only atomic PostgreSQL migration and local integration tests; neither deployment nor live ownership/enrollment has been verified. The [Rust operator finalizer](../../FUSOU-TLSN-VERIFIER/src/evidence_bundle/finalization.rs) has a real CLI caller; the APP now collects seven verified public Runtime Config inputs, but complete nineteen-role collection and full-Bundle remote delivery remain missing.
 
 All steps below are conditional operating instructions. Until these stop conditions and the required real inputs are resolved without bypass, do not begin real Production gameplay.
 
@@ -43,7 +43,8 @@ is the current source-contract follow-up. It does not authorize an API or gamepl
 * **B / IDENTITY_BOUND_TESTPLAY:** adds all nineteen materials and independent
   local verification. Full-Bundle remote delivery is not required by this local
   verifier. The existing candidate receipt gate remains unchanged by the user's
-  decision; material collection and proof handlers are still code blockers.
+  decision; complete material collection remains a code blocker. Proof handlers
+  are implemented; their deployment and exact-owner enrollment are not verified.
 * **C / PRODUCTION_EVIDENCE_DELIVERY:** additionally requires full-Bundle remote
   readback/retention, authenticated delivery receipts and formal applicable
   signer/builder/provider/operational approval. Existing Worker raw-object
@@ -62,14 +63,22 @@ bindings, missing endpoint contracts and deadline boundaries. The following
 procedure is conditional; none of its real capture/service/verifier operations
 was performed by this audit.
 
-1. First appoint WEB/device/Supabase and verifier/evidence owners. Implement and
-   approve the Worker's required allowlisted HTTPS paths
+1. Confirm WEB/device/Supabase and verifier/evidence deployment owners. Review the
+   implemented Worker's required allowlisted HTTPS paths
    `/api/auth/anonymous-sync/v2/device-proof` and
    `/api/auth/anonymous-sync/v2/tlsn-device-proof`. They must enforce
    non-anonymous bearer ownership of the registered/non-revoked row, existing
-   Ed25519/framing contracts, challenge expiry and atomic nonce/proof replay
-   prevention. Refresh/revoke or dataset tokens are not substitutes.
+   Ed25519/framing contracts and atomic nonce/proof replay prevention.
+   Review/apply the new proof migration only under a separately approved
+   deployment procedure; it was not applied to any real Supabase here.
+   The existing HMAC helper's current/previous 300-second-bucket acceptance is
+   preserved, not redefined as a strict advertised-expiry cutoff.
+   No transfer from an anonymous canonical owner is implemented or implied.
+   Refresh/revoke or dataset tokens are not substitutes.
    The deployed hostname/operator is not inferred from these consumer paths.
+   Retain independent Session/Binding signer registries; owner responses are not
+   signed receipts. A DB claim followed by DO/signing failure is not automatically
+   undone or retried.
 2. Resolve the real-material collector and the **retained current candidate
    receipt prerequisite**. Current source receipt production is Canary-only;
    the APP marks receipt-missing candidates incomplete and the finalizer rejects
