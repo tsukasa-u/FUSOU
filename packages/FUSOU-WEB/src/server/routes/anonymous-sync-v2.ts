@@ -15,7 +15,10 @@ import {
   UserDeviceRefreshRowSchema,
   PendingSyncCompleteRequestSchema,
   SupabaseAccessTokenUserSchema,
+  DeviceProofRequestSchema,
+  TlsnDeviceProofRequestSchema,
 } from "../schemas/anonymous-sync-v2";
+import { tlsnDeviceProofSigningBytes } from "../../../../FUSOU-TLSN-VERIFICATION-WORKER/src/device-proof-framing";
 import {
   createEnvContext,
   getEnv,
@@ -985,6 +988,133 @@ app.get("/anonymous-sync/v2/challenge", async (c) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 });
+
+for (const kind of ["authentication", "possession"] as const) {
+  const path = kind === "authentication" ? "device-proof" : "tlsn-device-proof";
+  app.post(`/anonymous-sync/v2/${path}`, async (c) => {
+    try {
+      const authorization = c.req.header("Authorization");
+      if (!authorization?.startsWith("Bearer ") || !authorization.slice(7).trim()) {
+        return c.json({ error: "unauthorized" }, 401);
+      }
+      const base = resolveBaseConfig(c);
+      if (!base.ok) return c.json({ error: "service_unavailable" }, 503);
+      const supabaseAdmin = createClient(base.config.supabaseUrl, base.config.serviceRoleKey, {
+        global: {
+          fetch: (input, init) => fetch(input, {
+            ...init,
+            signal: AbortSignal.timeout(10_000),
+            redirect: "error",
+          }),
+        },
+      });
+      const authenticated = await supabaseAdmin.auth.getUser(authorization.slice(7).trim());
+      if (authenticated.error) {
+        const status = authenticated.error.status ?? 0;
+        return c.json({ error: status === 0 || status >= 500 ? "service_unavailable" : "unauthorized" },
+          status === 0 || status >= 500 ? 503 : 401);
+      }
+      const user = authenticated.data.user;
+      if (!user || user.is_anonymous !== false) {
+        return c.json({ error: "unauthorized" }, 401);
+      }
+      const bodyResult = await readJsonBodyWithinLimit(c.req.raw);
+      if (bodyResult.kind === "too_large") return c.json({ error: "request_too_large" }, 413);
+      if (bodyResult.kind === "invalid_json") return c.json({ error: "invalid_json" }, 400);
+      const parsed = kind === "authentication"
+        ? DeviceProofRequestSchema.safeParse(bodyResult.body)
+        : TlsnDeviceProofRequestSchema.safeParse(bodyResult.body);
+      if (!parsed.success) return c.json({ error: "invalid_device_proof" }, 400);
+      const body = parsed.data;
+      const rateOk = await consumeRateLimit({
+        supabaseAdmin,
+        keys: [`${path}:ip:${requestClientKey(c)}`, `${path}:device:${body.device_id}`],
+      });
+      if (!rateOk) return c.json({ error: "service_unavailable" }, 503);
+      const lookup = await supabaseAdmin.from("user_devices")
+        .select("canonical_user_id, public_id, device_pubkey, revoked_at")
+        .eq("device_id", body.device_id).maybeSingle();
+      if (lookup.error) return c.json({ error: "service_unavailable" }, 503);
+      if (!lookup.data) return c.json({ error: "device_unknown" }, 404);
+      const device = UserDeviceRefreshRowSchema.safeParse(lookup.data);
+      if (!device.success) return c.json({ error: "service_unavailable" }, 503);
+      if (device.data.canonical_user_id !== user.id) {
+        return c.json({ error: "device_owner_mismatch" }, 403);
+      }
+      if (device.data.revoked_at) return c.json({ error: "device_revoked" }, 409);
+      const publicKeyB64 = storedPubkeyToBase64(device.data.device_pubkey);
+      if (!publicKeyB64) return c.json({ error: "service_unavailable" }, 503);
+      let message: Uint8Array;
+      let nonce: string | null = null;
+      let sessionId: string | null = null;
+      let bindingDigest: string | null = null;
+      let challengeDigest: string | null = null;
+      const hexDigest = async (value: Uint8Array): Promise<string> => {
+        const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(value));
+        return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      };
+      if ("nonce" in body) {
+        const challengeSecret = resolveChallengeSecret(c);
+        if (!challengeSecret.ok) return c.json({ error: "service_unavailable" }, 503);
+        if (!await verifyChallengeNonce(challengeSecret.secret, body.device_id, body.nonce)) {
+          return c.json({ error: "nonce_invalid_or_expired" }, 401);
+        }
+        nonce = body.nonce;
+        message = new TextEncoder().encode(nonce);
+      } else {
+        const challenge = decodeBase64ToBytes(body.challenge);
+        if (!challenge || challenge.length !== 32 ||
+            encodeBytesToBase64(challenge).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") !== body.challenge) {
+          return c.json({ error: "invalid_challenge" }, 400);
+        }
+        message = tlsnDeviceProofSigningBytes(body, challenge);
+        sessionId = body.session_id;
+        bindingDigest = await hexDigest(new TextEncoder().encode(body.binding_value));
+        challengeDigest = await hexDigest(challenge);
+      }
+      if (!await verifyDeviceSig({ publicKeyB64, message, signatureB64: body.sig })) {
+        return c.json({ error: "signature_invalid" }, 401);
+      }
+      const proofDigest = await hexDigest(message);
+      const consumed = await supabaseAdmin.rpc("rpc_consume_tlsn_device_proof", {
+        p_kind: kind,
+        p_user_id: user.id,
+        p_device_id: body.device_id,
+        p_expected_key: device.data.device_pubkey,
+        p_proof_digest: proofDigest,
+        p_nonce: nonce,
+        p_session_id: sessionId,
+        p_binding_sha256: bindingDigest,
+        p_challenge_sha256: challengeDigest,
+      });
+      if (consumed.error) return c.json({ error: "service_unavailable" }, 503);
+      switch (consumed.data) {
+        case "ok": break;
+        case "device_unknown": return c.json({ error: consumed.data }, 404);
+        case "device_owner_mismatch": return c.json({ error: consumed.data }, 403);
+        case "device_revoked":
+        case "nonce_already_used":
+        case "device_proof_replayed": return c.json({ error: consumed.data }, 409);
+        case "device_key_changed": return c.json({ error: consumed.data }, 401);
+        default: return c.json({ error: "service_unavailable" }, 503);
+      }
+      const response = {
+        authenticated: true as const,
+        canonical_user_id: user.id,
+        device_id: body.device_id,
+      };
+      return c.json(kind === "authentication" ? response : {
+        ...response,
+        replay_digest_hex: proofDigest,
+      });
+    } catch (error) {
+      console.error("[anonymous-sync-v2/device-proof] request failed", {
+        name: error instanceof Error ? error.name : "unknown",
+      });
+      return c.json({ error: "service_unavailable" }, 503);
+    }
+  });
+}
 
 type RefreshCachedResult = {
   status: "ok";

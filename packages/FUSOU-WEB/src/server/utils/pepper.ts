@@ -67,7 +67,7 @@ export function encodeBytesToBase64(bytes: Uint8Array): string {
 /** Verify a domain-separated Ed25519 device signature. */
 export async function verifyDeviceSig(options: {
   publicKeyB64: string;
-  message: string;
+  message: string | Uint8Array;
   signatureB64: string;
 }): Promise<boolean> {
   const publicKey = decodeBase64ToBytes(options.publicKeyB64);
@@ -88,7 +88,9 @@ export async function verifyDeviceSig(options: {
       "Ed25519",
       key,
       toArrayBuffer(signature),
-      utf8(options.message),
+      typeof options.message === "string"
+        ? utf8(options.message)
+        : toArrayBuffer(options.message),
     );
   } catch (error) {
     console.warn("[device-auth] Ed25519 verification failed", error);

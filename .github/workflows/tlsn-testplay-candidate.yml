@@ -45,6 +45,26 @@ jobs:
       - name: Run APP clean-capture tests
         run: pnpm --dir packages/FUSOU-APP run test:clean-capture
 
+      - name: Install isolated proof test database tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16
+
+      - name: Verify owner proof handlers and atomic database consumption
+        working-directory: packages/FUSOU-WEB
+        run: |
+          pnpm exec tsc --noEmit --pretty false
+          pnpm exec vitest run \
+            src/server/routes/__tests__/tlsn-device-proof.integration.test.ts \
+            src/server/routes/__tests__/anonymous-sync-v2-endpoints.test.ts \
+            src/server/routes/__tests__/anonymous-sync-v2.test.ts \
+            src/server/schemas/__tests__/anonymous-sync-v2.test.ts
+
+      - name: Verify bounded Worker proof clients
+        run: |
+          pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck
+          node --experimental-strip-types --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs
+
       - name: Run APP build handoff and Worker reference tests
         run: |
           node --test \

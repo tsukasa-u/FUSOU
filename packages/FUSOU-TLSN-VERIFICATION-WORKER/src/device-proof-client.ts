@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { tlsnDeviceProofSigningBytes } from "./device-proof-framing.ts";
 
 type Subject = { canonicalUserId: string; accessToken: string };
 type DeviceProof = { device_id: string; nonce: string; sig: string };
@@ -48,29 +49,45 @@ const tlsnDeviceProofResponseSchema = deviceProofResponseSchema.extend({
   replay_digest_hex: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
-export function tlsnDeviceProofSigningBytes(
-  proof: Pick<PossessionProof, "device_id" | "session_id" | "binding_value">,
-  challenge: Uint8Array,
-): Uint8Array {
-  if (challenge.length !== 32) throw new Error("device proof challenge must be 32 bytes");
-  const encoder = new TextEncoder();
-  const chunks = [encoder.encode("FUSOU-TLSN-DEVICE-PROOF-V1\0")];
-  for (const value of [
-    encoder.encode(proof.device_id),
-    encoder.encode(proof.session_id),
-    encoder.encode(proof.binding_value),
-    challenge,
-  ]) {
-    if (value.length > 0xffff) throw new Error("device proof field is too large");
-    chunks.push(new Uint8Array([value.length >> 8, value.length & 0xff]), value);
+const MAX_PROOF_RESPONSE_BYTES = 16 * 1024;
+
+async function proofResponse(response: Response): Promise<unknown> {
+  const declared = response.headers.get("Content-Length");
+  if (declared !== null && (!/^\d+$/.test(declared) ||
+      !Number.isSafeInteger(Number(declared)) || Number(declared) > MAX_PROOF_RESPONSE_BYTES)) {
+    await response.body?.cancel();
+    throw new Error("device proof response length exceeds the limit");
   }
-  const message = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.length > MAX_PROOF_RESPONSE_BYTES - length) {
+        await reader.cancel();
+        throw new Error("device proof response exceeds the streamed byte limit");
+      }
+      length += value.length;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) {
-    message.set(chunk, offset);
+    bytes.set(chunk, offset);
     offset += chunk.length;
   }
-  return message;
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
 }
 
 export async function authenticateDeviceProof(
@@ -83,6 +100,7 @@ export async function authenticateDeviceProof(
     const response = await fetcher(endpoint, {
       method: "POST",
       redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${subject.accessToken}`,
@@ -92,7 +110,7 @@ export async function authenticateDeviceProof(
     if (response.status >= 300 && response.status < 400) {
       return { ok: false, status: 503, error: "device_auth_unavailable" };
     }
-    const payload = (await response.json().catch(() => null)) as unknown;
+    const payload = await proofResponse(response);
     if (!response.ok) {
       const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
       if (response.status === 403) {
@@ -142,6 +160,7 @@ export async function authenticateTlsnDeviceProof(
     const response = await fetcher(endpoint, {
       method: "POST",
       redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${subject.accessToken}`,
@@ -151,7 +170,7 @@ export async function authenticateTlsnDeviceProof(
     if (response.status >= 300 && response.status < 400) {
       return { ok: false, status: 503, error: "device_possession_unavailable" };
     }
-    const payload = (await response.json().catch(() => null)) as unknown;
+    const payload = await proofResponse(response);
     if (!response.ok) {
       const error = z.object({ error: z.string() }).safeParse(payload).data?.error;
       if (response.status === 403) {

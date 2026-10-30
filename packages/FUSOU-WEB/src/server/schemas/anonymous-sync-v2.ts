@@ -142,6 +142,26 @@ export const SupabaseAccessTokenUserSchema = z
   })
   .passthrough();
 
+const CanonicalDeviceProofUuidSchema = z.string().regex(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+);
+const DeviceProofSignatureSchema = z.string().min(1).max(256)
+  .regex(/^[A-Za-z0-9+/_=-]+$/);
+
+export const DeviceProofRequestSchema = z.object({
+  device_id: CanonicalDeviceProofUuidSchema,
+  nonce: z.string().regex(/^[a-f0-9]{64}$/),
+  sig: DeviceProofSignatureSchema,
+}).strict();
+
+export const TlsnDeviceProofRequestSchema = z.object({
+  device_id: CanonicalDeviceProofUuidSchema,
+  session_id: CanonicalDeviceProofUuidSchema,
+  binding_value: z.string().min(1).max(512),
+  challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  sig: DeviceProofSignatureSchema,
+}).strict();
+
 export type SupabaseAccessTokenUser = z.infer<
   typeof SupabaseAccessTokenUserSchema
 >;

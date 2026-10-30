@@ -149,3 +149,22 @@ test("proof framing matches the Rust u16 big-endian fields and excludes signatur
   assert.throws(() => tlsnDeviceProofSigningBytes(proof, Buffer.alloc(31)), /32 bytes/);
   assert.throws(() => tlsnDeviceProofSigningBytes({ ...proof, binding_value: "x".repeat(65536) }, fields[3]), /too large/);
 });
+
+test("owner response size is enforced before reading and while streaming, without retry", async () => {
+  for (const declared of [true, false]) {
+    let cancelled = false;
+    let calls = 0;
+    const fetcher = async (_url, init) => {
+      calls++;
+      assert.ok(init.signal instanceof AbortSignal);
+      return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new Uint8Array(16 * 1024 + 1)); },
+        cancel() { cancelled = true; },
+      }), { headers: declared ? { "Content-Length": String(16 * 1024 + 1) } : {} });
+    };
+    assert.equal((await authenticateDeviceProof(subject, authentication, authenticationEndpoint, fetcher)).error,
+      "device_auth_unavailable");
+    assert.equal(calls, 1);
+    assert.equal(cancelled, true);
+  }
+});

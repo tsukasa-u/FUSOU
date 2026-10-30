@@ -121,6 +121,7 @@
     "@r4ai/remark-callout": "^0.6.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/d3-hierarchy": "^3.1.7",
+    "@types/node": "22.20.4",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "astro": "^7.2.8",

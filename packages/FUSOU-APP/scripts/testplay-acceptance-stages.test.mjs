@@ -12,6 +12,9 @@ test("protocol, identity-bound evidence and remote production delivery have sepa
   assert.equal(stages.TLSN_PROTOCOL_TESTPLAY.independent_app_entry_point, "NOT_IMPLEMENTED");
   assert.ok(stages.IDENTITY_BOUND_TESTPLAY.requirements.includes("all_19_roles_and_independent_local_verification"));
   assert.equal(stages.IDENTITY_BOUND_TESTPLAY.full_bundle_remote_delivery_required_by_local_verifier, false);
+  assert.equal(stages.IDENTITY_BOUND_TESTPLAY.device_proof_owner_handlers, "IMPLEMENTED_AND_CONNECTED");
+  assert.equal(stages.IDENTITY_BOUND_TESTPLAY.owner_proof_migration_and_deployment, "NOT_CHECKED");
+  assert.ok(!stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes("owner_device_proof_handlers_missing"));
   assert.ok(stages.PRODUCTION_EVIDENCE_DELIVERY.requirements.includes("independently_verified_delivery_receipt"));
   for (const stage of ["TLSN_PROTOCOL_TESTPLAY", "IDENTITY_BOUND_TESTPLAY", "PRODUCTION_EVIDENCE_DELIVERY"]) {
     assert.equal(stages[stage].status, "BLOCKED_CODE");

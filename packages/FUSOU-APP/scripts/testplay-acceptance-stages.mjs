@@ -33,10 +33,11 @@ export function testplayAcceptanceStages() {
         "all_19_roles_and_independent_local_verification",
       ],
       code_blockers: [
-        "owner_device_proof_handlers_missing",
         "real_material_collection_not_connected",
         "candidate_execution_receipt_gate_retained",
       ],
+      device_proof_owner_handlers: "IMPLEMENTED_AND_CONNECTED",
+      owner_proof_migration_and_deployment: "NOT_CHECKED",
       full_bundle_remote_delivery_required_by_local_verifier: false,
       real_evidence_verification: "NOT_CHECKED",
     },
