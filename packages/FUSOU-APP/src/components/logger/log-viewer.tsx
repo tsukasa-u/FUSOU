@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import "../../css/divider.css";
 import { safeTauriListen } from "../../utility/tauri";
+import { APP_EVENTS } from "../../utility/app_events";
 import { invoke } from "@tauri-apps/api/core";
 import { VList } from "virtua/solid";
 import { createStore } from "solid-js/store";
@@ -331,7 +332,7 @@ export function LogViewerComponent() {
 
   createEffect(() => {
     const unlisten_data = safeTauriListen<MessageVisitor>(
-      "log-event",
+      APP_EVENTS.LogEvent,
       // eslint-disable-next-line solid/reactivity
       (event) => {
         addLogEntry(event.payload);

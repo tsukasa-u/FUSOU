@@ -98,11 +98,12 @@ function App() {
         >
           <For each={TAB_DEFINITIONS}>
             {(tab) => {
-              const isActive = activeTab() === tab.key;
               return (
                 <button
                   role="tab"
-                  class={`tab${isActive ? " tab-active" : ""}`}
+                  class="tab"
+                  classList={{ "tab-active": activeTab() === tab.key }}
+                  aria-selected={activeTab() === tab.key}
                   onClick={() => setActiveTab(tab.key)}
                 >
                   {tab.label}

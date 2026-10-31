@@ -1,5 +1,6 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
+import type { AppEventName } from "./app_events";
 
 /**
  * Returns true if the app is currently running inside Tauri IPC environment.
@@ -20,7 +21,7 @@ export function isTauri(): boolean {
  * Automatically handles race conditions where the component unmounts before listen resolves.
  */
 export function safeTauriListen<T = unknown>(
-  event: string,
+  event: AppEventName,
   handler: (event: { payload: T }) => void,
 ): () => void {
   if (!isTauri()) {
@@ -42,7 +43,7 @@ export function safeTauriListen<T = unknown>(
     })
     .catch((err) => {
       if (import.meta.env.DEV) {
-        console.warn(`Failed to listen to ${event}:`, err);
+          console.warn(`Failed to listen to ${event}:`, err);
       }
     });
 

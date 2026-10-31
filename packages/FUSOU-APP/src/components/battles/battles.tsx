@@ -98,6 +98,13 @@ export function BattlesComponent() {
     return cells.cell_index.length > 0;
   });
 
+  const cellLabel = (cellNo: number): string => {
+    const cell = cells.cells[cellNo];
+    return cell
+      ? (cells.cell_labels?.[String(cell.no)] ?? String(cellNo))
+      : String(cellNo);
+  };
+
   const battle_history = (): JSX.Element[] => {
     if (!show_battle()) return [];
     if (!battle_selected()?.battle_order) return [];
@@ -460,7 +467,7 @@ export function BattlesComponent() {
                           if (import.meta.env.DEV) console.log(cells);
                         }}
                       >
-                        {cells.cell_index[index()]}
+                        {cellLabel(cells.cell_index[index()])}
                       </button>
                     </>
                   )}

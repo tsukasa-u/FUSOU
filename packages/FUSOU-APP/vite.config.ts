@@ -14,8 +14,14 @@ const dirname =
 
 const host = process.env.TAURI_DEV_HOST;
 
-const testDataIpcPath = resolve(dirname, "../../../FUSOU-TESTDATA/storybook/ipc");
-const testDataSharedUiPath = resolve(dirname, "../../../FUSOU-TESTDATA/storybook/shared-ui");
+const testDataIpcPath = resolve(
+  dirname,
+  "../../../FUSOU-TESTDATA/storybook/ipc",
+);
+const testDataSharedUiPath = resolve(
+  dirname,
+  "../../../FUSOU-TESTDATA/storybook/shared-ui",
+);
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
@@ -26,6 +32,14 @@ export default defineConfig(async () => ({
   },
   test: {
     projects: [
+      {
+        extends: false,
+        test: {
+          name: "unit",
+          include: ["src/**/*.test.ts"],
+          setupFiles: [],
+        },
+      },
       {
         extends: true,
         plugins: [
@@ -47,8 +61,7 @@ export default defineConfig(async () => ({
     ],
     exclude: ["stories/**/*.mdx"],
   },
-  optimizeDeps: {
-  },
+  optimizeDeps: {},
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,
@@ -73,10 +86,10 @@ export default defineConfig(async () => ({
       "@fusou-testdata-ipc": fs.existsSync(testDataIpcPath)
         ? testDataIpcPath
         : resolve(dirname, "src/stories"),
-      "ui": resolve(dirname, "src/components/ui/index.tsx"),
+      ui: resolve(dirname, "src/components/ui/index.tsx"),
       "@fusou-testdata-shared-ui": fs.existsSync(testDataSharedUiPath)
         ? testDataSharedUiPath
         : resolve(dirname, "src/stories"),
-    }
+    },
   },
 }));
