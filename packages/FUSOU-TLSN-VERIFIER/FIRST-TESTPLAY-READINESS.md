@@ -1,5 +1,53 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Current status snapshot — 2026-11-01
+
+This snapshot is for runtime-code commit `43ab72e6284deee3ad202be7fb50e3f0199af304`
+on `tlsn-first-testplay-candidate`. At inspection time, the local HEAD, local
+`origin/tlsn-first-testplay-candidate` ref, and GitHub branch head all matched
+that SHA. The two commits immediately before this snapshot are
+`f6c6b951d3ad5f36e2564a1c086a2d81369cdb72` and
+`43ab72e6284deee3ad202be7fb50e3f0199af304`.
+This is a documentation follow-up; Run #93 validates the runtime-code SHA
+above, not this later documentation commit.
+
+### Current verification status
+
+| Area | Status | Evidence and limit |
+|---|---|---|
+| Hosted workflow for `43ab72e` | **HOSTED_CI_VERIFIED** | Run #93 (`41215720970`) completed `success` with `head_sha` exactly `43ab72e...`. This is the only GitHub Actions workflow run returned for that SHA. |
+| `node-contract-tests` | **PASS** | All job steps, including APP clean-capture tests, proof-handler tests, Worker WASM build/provenance checks, typecheck, and APP handoff/Runtime Config tests, completed successfully. |
+| `rust-tlsn-preflight` | **PASS** | The locked APP TLSN preflight test step completed successfully. |
+| Cloudflare `Workers Builds` check-runs | **PASS — build only** | `fusou`, `fusou-url-shorter`, and `fusou-workflow` reported successful build check-runs for this commit. These are not proof of Production runtime behavior, active deployment correctness, or Production acceptance. |
+| CodeFlow | **ANALYSIS_REPORTED, NOT A TEST PASS** | The latest status for this SHA is `success`, with the description `191 errors and 5368 warnings`. The older `pending` status is superseded. The CodeFlow result page was not readable through the available unauthenticated interface, so individual findings and severity classifications are **NOT_CHECKED**. |
+| Branch protection / required checks | **NOT ENFORCED** | GitHub reports the branch as `protected: false` and repository rulesets as empty. The detailed branch-protection endpoint requires authentication, but no effective branch protection or ruleset was reported. Candidate required checks are `node-contract-tests` and `rust-tlsn-preflight`; CodeFlow remains a separate static-analysis result. |
+| Deployment verification | **NOT_VERIFIED** | No Production Worker binding, Runtime Config endpoint, signer, or R2 publication was verified by this run. Worker build check-runs are not deployment acceptance evidence. |
+| Real-game evidence | **NOT_VERIFIED** | No real Game Server, Notary, gameplay, Presentation, or Production Result was used. |
+
+The GitHub Actions run had two jobs and no failed step: `node-contract-tests`
+and `rust-tlsn-preflight` both completed successfully. No failed-job log exists
+for this run. The older checks and CodeFlow result attached to PR #231 refer to
+a different head commit and are not evidence for `43ab72e`.
+
+### Current readiness summary
+
+| Property | Current status |
+|---|---|
+| Runtime Config source contract | **SOURCE_VERIFIED** at the inspected source revision; local and Hosted CI tests cover their stated synthetic/code scope. |
+| Production Bootstrap values | **NOT_REGISTERED**; no production values were inferred or supplied. |
+| Production signer provider and manifest endpoint | **NOT_CONFIGURED / NOT_REGISTERED** in the publisher registration contract. |
+| APP–Proxy target policy | **SOURCE_VERIFIED / TEST_VERIFIED** for the current unique-hostname, port-443 contract; no real target was observed. |
+| APP–Worker Result Registry trust | **SOURCE_VERIFIED / TEST_VERIFIED** for independent source and local synthetic tests; deployed Worker bindings are **NOT_CHECKED**. |
+| Fresh-client Manifest replay protection | **BLOCKED / NOT_IMPLEMENTED**. The design proposal is in [runtime-config-freshness-protocol.md](./docs/runtime-config-freshness-protocol.md); it is not an implemented protocol. |
+| `TLSN_PROTOCOL_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** |
+| `IDENTITY_BOUND_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** |
+| `PRODUCTION_EVIDENCE_DELIVERY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** |
+
+The historical `NOT_RUN` and `NOT_CHECKED` entries below describe their
+individual earlier audit snapshots; they are retained as history and must not
+be read as the current result. The current snapshot does not promote
+`DEPLOYMENT_VERIFIED`, `REAL_GAME_EVIDENCE_VERIFIED`, or Production acceptance.
+
 ## Scope and evidence
 
 Testplay decision: **BLOCKED_CODE**, with additional **BLOCKED_EXTERNAL_INPUTS**.
