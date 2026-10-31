@@ -4929,6 +4929,89 @@ mod tests {
     }
 
     #[test]
+    fn result_registry_not_after_is_inclusive_at_capture_time() {
+        let corpus = p010_corpus();
+        let (registry, _, mut manifest, _, capture_time) = p010_registry_and_manifest(&corpus);
+        let signer_key_id = manifest["result_identity"]["result_signer_key_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut registry_with_expiry = registry;
+        let registry_keys = registry_with_expiry["keys"].as_array_mut().unwrap();
+        let signer = registry_keys
+            .iter_mut()
+            .find(|key| key["key_id"].as_str() == Some(signer_key_id.as_str()))
+            .unwrap();
+        signer["not_after"] = corpus["capture_time"].clone();
+
+        let registry_raw = serde_json::to_vec(&registry_with_expiry).unwrap();
+        let registry_hash = sha256_base64url(&registry_raw);
+        manifest["result_identity"]["result_key_registry_sha256"] =
+            Value::String(registry_hash.clone());
+        let keys = validate_result_registry(&registry_with_expiry).unwrap();
+        let vector = corpus["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|vector| vector["contract"] == "complete-result-v2")
+            .unwrap();
+        let raw_result = vector["input"]["result_json_utf8"]
+            .as_str()
+            .unwrap()
+            .as_bytes();
+        let result = parse_result_profile(raw_result).unwrap();
+
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &result,
+            &keys,
+            &registry_hash,
+            capture_time
+        )
+        .is_ok());
+        assert!(p010_verify_result_signature(
+            &manifest,
+            &result,
+            &keys,
+            &registry_hash,
+            capture_time + 1
+        )
+        .is_err());
+
+        let mut registry_with_start = registry_with_expiry;
+        let signer = registry_with_start["keys"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|key| key["key_id"].as_str() == Some(signer_key_id.as_str()))
+            .unwrap();
+        signer["not_before"] = corpus["capture_time"].clone();
+        signer["not_after"] = Value::Null;
+        let start_registry_raw = serde_json::to_vec(&registry_with_start).unwrap();
+        let start_registry_hash = sha256_base64url(&start_registry_raw);
+        let mut start_manifest = manifest.clone();
+        start_manifest["result_identity"]["result_key_registry_sha256"] =
+            Value::String(start_registry_hash.clone());
+        let start_keys = validate_result_registry(&registry_with_start).unwrap();
+        assert!(p010_verify_result_signature(
+            &start_manifest,
+            &result,
+            &start_keys,
+            &start_registry_hash,
+            capture_time
+        )
+        .is_ok());
+        assert!(p010_verify_result_signature(
+            &start_manifest,
+            &result,
+            &start_keys,
+            &start_registry_hash,
+            capture_time - 1
+        )
+        .is_err());
+    }
+
+    #[test]
     fn result_signature_rejects_payload_signature_key_and_manifest_mutations() {
         let corpus = p010_corpus();
         let (_registry, keys, manifest, registry_hash, capture_time) =

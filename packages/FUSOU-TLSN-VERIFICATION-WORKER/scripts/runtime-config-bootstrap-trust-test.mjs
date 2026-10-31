@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign, webcrypto } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { canonicalJson } from "../src/origin-trust-contract.mjs";
+import { canonicalJson, parseOriginInventory } from "../src/origin-trust-contract.mjs";
 import {
   hasActiveResultSigningKey,
   selectProductionResultRegistryBindings,
   verifySignedResultRegistryEnvelope,
 } from "../src/result-registry-contract.mjs";
+import { assertSigningKeyRegistry } from "./signing-key-registry.mjs";
 
 globalThis.crypto ??= webcrypto;
 
@@ -72,6 +73,18 @@ function createRegistryEnvelope() {
   };
 }
 
+function validOriginInventory() {
+  return {
+    schema_version: 1,
+    source: "packages/configs/configs.toml:[app.connect_kc_server.server_list]",
+    targets: Array.from({ length: 20 }, (_, index) => ({
+      server_index: index + 1,
+      server_identity: `server-${index + 1}.example.test`,
+      port: 443,
+    })),
+  };
+}
+
 test("Worker verifies the exact Result registry bytes using its own root binding", async () => {
   const fixture = createRegistryEnvelope();
   assert.equal(await verifySignedResultRegistryEnvelope({
@@ -80,6 +93,21 @@ test("Worker verifies the exact Result registry bytes using its own root binding
     trustedRootKeyId: fixture.rootKeyId,
     trustedRootPublicKeySpki: fixture.rootPublicKeySpki,
   }), true);
+});
+
+test("Origin inventory rejects duplicate hostname identities, including multiple ports", () => {
+  const inventory = validOriginInventory();
+  assert.equal(parseOriginInventory(JSON.stringify(inventory)).targets.length, 20);
+  for (const port of [443, 8443]) {
+    const duplicate = structuredClone(inventory);
+    duplicate.targets[1].server_identity = duplicate.targets[0].server_identity;
+    duplicate.targets[1].port = port;
+    assert.throws(
+      () => parseOriginInventory(JSON.stringify(duplicate)),
+      /invalid, unordered, or duplicate target/,
+      `duplicate hostname on port ${port}`,
+    );
+  }
 });
 
 test("Worker selects separate Production and Canary registry roots without cross-role fallback", async () => {
@@ -132,6 +160,41 @@ test("Worker accepts only the configured ACTIVE Result signer within its validit
   const nowMs = Date.parse("2026-10-24T00:00:00.000Z");
   const valid = structuredClone(fixture.registry);
   assert.equal(hasActiveResultSigningKey(valid, signerKeyId, signerPublicKeySpki, nowMs), true);
+
+  const exactStart = structuredClone(fixture.registry);
+  exactStart.keys[0].not_before = new Date(nowMs).toISOString();
+  assert.equal(
+    hasActiveResultSigningKey(exactStart, signerKeyId, signerPublicKeySpki, nowMs),
+    true,
+    "the established Result Registry contract includes not_before",
+  );
+  assert.doesNotThrow(() => assertSigningKeyRegistry(exactStart, {
+    currentKeyId: signerKeyId,
+    currentPublicKeySpki: signerPublicKeySpki,
+    now: new Date(nowMs),
+  }));
+
+  const exactExpiry = structuredClone(fixture.registry);
+  exactExpiry.keys[0].not_after = new Date(nowMs).toISOString();
+  assert.equal(
+    hasActiveResultSigningKey(exactExpiry, signerKeyId, signerPublicKeySpki, nowMs),
+    true,
+    "the established Result Registry contract includes not_after",
+  );
+  assert.doesNotThrow(() => assertSigningKeyRegistry(exactExpiry, {
+    currentKeyId: signerKeyId,
+    currentPublicKeySpki: signerPublicKeySpki,
+    now: new Date(nowMs),
+  }));
+  assert.equal(
+    hasActiveResultSigningKey(exactExpiry, signerKeyId, signerPublicKeySpki, nowMs + 1),
+    false,
+  );
+  assert.throws(() => assertSigningKeyRegistry(exactExpiry, {
+    currentKeyId: signerKeyId,
+    currentPublicKeySpki: signerPublicKeySpki,
+    now: new Date(nowMs + 1),
+  }), /outside its validity window/);
 
   assert.equal(hasActiveResultSigningKey(valid, "missing-result-key", signerPublicKeySpki, nowMs), false);
   assert.equal(hasActiveResultSigningKey(valid, signerKeyId, "another-public-key", nowMs), false);

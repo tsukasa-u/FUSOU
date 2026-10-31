@@ -2799,6 +2799,38 @@ mod tests {
                 "Result signer is not ACTIVE and valid at verification time"
             ))
         );
+
+        let mut boundary_inputs = payload.compile_inputs.clone();
+        let mut boundary_registry: Value =
+            serde_json::from_str(boundary_inputs.get(registry_input).unwrap()).unwrap();
+        let boundary_not_before = validation_time - chrono::Duration::seconds(1);
+        boundary_registry["keys"][0]["not_before"] =
+            Value::String(boundary_not_before.to_rfc3339_opts(SecondsFormat::Millis, true));
+        boundary_registry["keys"][0]["not_after"] =
+            Value::String(validation_time.to_rfc3339_opts(SecondsFormat::Millis, true));
+        boundary_inputs.insert(
+            registry_input.to_owned(),
+            serde_json::to_string(&boundary_registry).unwrap(),
+        );
+        assert_eq!(
+            validate_result_registry(&boundary_inputs, validation_time),
+            Ok(())
+        );
+
+        let mut start_boundary_inputs = payload.compile_inputs.clone();
+        let mut start_boundary_registry: Value =
+            serde_json::from_str(start_boundary_inputs.get(registry_input).unwrap()).unwrap();
+        start_boundary_registry["keys"][0]["not_before"] =
+            Value::String(validation_time.to_rfc3339_opts(SecondsFormat::Millis, true));
+        start_boundary_registry["keys"][0]["not_after"] = Value::Null;
+        start_boundary_inputs.insert(
+            registry_input.to_owned(),
+            serde_json::to_string(&start_boundary_registry).unwrap(),
+        );
+        assert_eq!(
+            validate_result_registry(&start_boundary_inputs, validation_time),
+            Ok(())
+        );
     }
 
     #[cfg(not(feature = "tlsn-production"))]
@@ -3155,6 +3187,25 @@ mod tests {
             .expect("verified Target Approval contains targets")
             .server_identity();
         assert!(verified.approved_target(approved_identity).is_some());
+        assert_eq!(
+            verified.approved_target(approved_identity).unwrap().port(),
+            443
+        );
+        let approved_pairs = verified
+            .approved_targets()
+            .iter()
+            .map(|target| (target.server_identity().to_owned(), target.port()))
+            .collect::<Vec<_>>();
+        let proxy_policy =
+            proxy_https::production_tlsn::ServerIdentityPolicy::from_approved_targets(
+                approved_pairs.clone(),
+            )
+            .unwrap();
+        let approved_identities = approved_pairs
+            .iter()
+            .map(|(identity, _)| identity.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(proxy_policy.identities(), approved_identities.as_slice());
         assert!(verified
             .approved_target(&approved_identity.to_ascii_uppercase())
             .is_none());
@@ -3233,6 +3284,44 @@ mod tests {
                     "Origin Inventory targets are invalid, unordered, or duplicated"
                 ))
             ));
+        }
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn production_inventory_rejects_one_hostname_on_multiple_ports() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let payload = verify_signed_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+        )
+        .unwrap();
+        let original_inventory: Value =
+            serde_json::from_slice(&raw_inputs.origin_inventory).unwrap();
+        let duplicate_identity = original_inventory["targets"][0]["server_identity"].clone();
+
+        for port in [443, 8443] {
+            let mut inventory = original_inventory.clone();
+            inventory["targets"][1]["server_identity"] = duplicate_identity.clone();
+            inventory["targets"][1]["port"] = Value::from(port);
+            let raw_inventory = serde_json::to_vec(&inventory).unwrap();
+            assert_eq!(
+                validate_authority_artifacts(
+                    &payload,
+                    &raw_inventory,
+                    &raw_inputs.target_approval,
+                    &raw_inputs.security_registry_set,
+                    &payload.production_authority_pins.origin_inventory_sha256,
+                    &payload
+                        .production_authority_pins
+                        .target_approval_artifact_sha256,
+                ),
+                Err(RuntimeConfigManifestError::Invalid(
+                    "Origin Inventory targets are invalid, unordered, or duplicated"
+                )),
+                "duplicate hostname on port {port}"
+            );
         }
     }
 

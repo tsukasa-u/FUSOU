@@ -529,10 +529,14 @@ The verifier authenticates the exact raw Result registry bytes with the
 Evidence Root-signed registry envelope, derives the Result signer by testing
 the signed Result bytes against registry entries, and rejects ambiguous,
 revoked, expired, and future keys. `ACTIVE`, `VERIFY_ONLY`, and `RETIRED` keys
-are accepted when their validity window contains the manifest's
-`capture_finished_at`; `REVOKED` keys are always rejected. This uses capture
-time rather than the verifier's current clock, so historical evidence remains
-verifiable after a rotation.
+are accepted when their inclusive validity window satisfies
+`not_before <= capture_finished_at <= not_after`; `not_after: null` has no upper
+bound. `REVOKED` keys are always rejected. APP, Worker and Proxy current-key
+checks use the same inclusive end boundary. This preserves the existing
+cross-language Result Registry contract and uses capture time rather than the
+verifier's current clock, so historical evidence remains verifiable after a
+rotation. A future switch to a half-open end boundary would require a
+coordinated contract migration and explicit handling of rotation boundaries.
 
 The Result schema currently does not carry a separate `signer_key_id` field.
 The Rust verifier therefore derives the signer ID cryptographically from the

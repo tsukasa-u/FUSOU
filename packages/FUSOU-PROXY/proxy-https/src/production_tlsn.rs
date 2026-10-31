@@ -11,7 +11,7 @@ use crate::experimental_tlsn::{
 use authenticity_core::ServerIdentity;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs::{self, OpenOptions},
     future::Future,
     io::{self, Write},
@@ -34,6 +34,7 @@ pub enum OriginConfigurationError {
     InvalidPort,
     NativeTrustStoreUnavailable,
     EmptyIdentityPolicy,
+    DuplicateServerIdentity,
     ServerIdentityNotAllowed,
     ExperimentalDisabled,
 }
@@ -49,6 +50,9 @@ impl std::fmt::Display for OriginConfigurationError {
                 "platform TLS trust store is unavailable or invalid"
             }
             Self::EmptyIdentityPolicy => "origin server identity policy is empty",
+            Self::DuplicateServerIdentity => {
+                "origin server identity policy contains a duplicate identity"
+            }
             Self::ServerIdentityNotAllowed => "origin server identity is not allowlisted",
             Self::ExperimentalDisabled => "Experimental TLSN is disabled in the origin config",
         };
@@ -155,14 +159,17 @@ impl ServerIdentityPolicy {
         if approved_targets.is_empty() {
             return Err(OriginConfigurationError::EmptyIdentityPolicy);
         }
-        if approved_targets.iter().any(|(_, port)| *port == 0) {
-            return Err(OriginConfigurationError::InvalidPort);
-        }
-        if approved_targets
-            .iter()
-            .any(|(identity, _)| ServerIdentity::new(identity.as_str()).is_err())
-        {
-            return Err(OriginConfigurationError::InvalidServerIdentity);
+        let mut seen_identities = BTreeSet::new();
+        for (identity, port) in &approved_targets {
+            if *port == 0 {
+                return Err(OriginConfigurationError::InvalidPort);
+            }
+            if ServerIdentity::new(identity.as_str()).is_err() {
+                return Err(OriginConfigurationError::InvalidServerIdentity);
+            }
+            if !seen_identities.insert(identity.as_str()) {
+                return Err(OriginConfigurationError::DuplicateServerIdentity);
+            }
         }
         let allowlisted_identities = approved_targets
             .iter()
@@ -2218,6 +2225,18 @@ mod tests {
         assert_eq!(
             config.validate_for_experimental(),
             Err(OriginConfigurationError::ServerIdentityNotAllowed)
+        );
+    }
+
+    #[test]
+    fn production_origin_policy_rejects_one_identity_with_multiple_ports() {
+        let identity = "game.example.test";
+        assert_eq!(
+            ServerIdentityPolicy::from_approved_targets(vec![
+                (identity.to_owned(), 443),
+                (identity.to_owned(), 8443),
+            ]),
+            Err(OriginConfigurationError::DuplicateServerIdentity)
         );
     }
 

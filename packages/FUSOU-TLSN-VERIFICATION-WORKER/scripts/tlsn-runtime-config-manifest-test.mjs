@@ -254,6 +254,31 @@ function signedRawPayloadBytes(payloadBytes) {
   });
 }
 
+test("Manifest Result Registry contract treats not_after as inclusive", () => {
+  const prepared = preparedOptions();
+  const validationTime = policy(prepared).now_ms;
+  const payload = structuredClone(prepared.payload);
+  const registryInput = "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY";
+  const registry = JSON.parse(payload.compile_inputs[registryInput]);
+  registry.keys[0].not_before = new Date(validationTime - 1000).toISOString();
+  registry.keys[0].not_after = new Date(validationTime).toISOString();
+  const registryRaw = JSON.stringify(registry);
+  payload.compile_inputs[registryInput] = registryRaw;
+  payload.result_registry_pins.result_registry_sha256 = createHash("sha256")
+    .update(registryRaw, "utf8")
+    .digest("base64url");
+  const envelope = signedRawPayloadBytes(Buffer.from(canonicalJson(payload), "utf8"));
+
+  assert.doesNotThrow(() => verifyTlsnRuntimeConfigEnvelope(envelope, {
+    trustedSigner,
+    policy: policy(prepared, { now_ms: validationTime }),
+  }));
+  assert.throws(() => verifyTlsnRuntimeConfigEnvelope(envelope, {
+    trustedSigner,
+    policy: policy(prepared, { now_ms: validationTime + 1 }),
+  }), /outside its validity window/);
+});
+
 test("manifest preparation binds the exact approved Worker reference and mandatory Production authority pair", () => {
   const rawReference = referenceRaw();
   const prepared = preparedOptions(rawReference);

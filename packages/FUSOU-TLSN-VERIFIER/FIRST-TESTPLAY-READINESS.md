@@ -112,7 +112,7 @@ support, not evidence that any stage completed against the real services.
 | `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | The only TLSN operational values embedded by the APP build; consumed by `RuntimeConfigBootstrap` | Public Bootstrap locator and initial Ed25519 trust anchor. All three are required together; compiled reports distinguish `UNREGISTERED` from `EMBEDDED_UNVERIFIED`. They do not prove Manifest verification or APP integrity. |
 | `FUSOU_TLSN_NOTARY_ENDPOINT`, `FUSOU_TLSN_NOTARY_VERIFYING_KEY` | Signed Runtime Config Manifest V2 `compile_inputs`; APP reads them from `VerifiedRuntimeConfigManifest` | Not APP build inputs. The APP uses these values only after local Manifest verification; the Worker uses its own Notary registry and key binding. Production values remain unregistered/unverified. |
 | `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS`, `FUSOU_TLSN_CLEANUP_TIMEOUT_MS`, `FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES` | Runtime environment parsed by `exchange_lifecycle` | Required explicit limits with range/canonical checks and no defaults; an operator must supply approved values. |
-| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Manifest-pinned raw artifacts for APP preflight; Worker-owned shipped artifacts and bindings for verification | APP verifies artifact digests and derives its local Proxy identity/port policy from the Manifest-approved targets. The Worker independently checks its own inventory, approval, Notary registry set, and observed Presentation identity. |
+| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Manifest-pinned raw artifacts for APP preflight; Worker-owned shipped artifacts and bindings for verification | APP verifies artifact digests and derives its local Proxy identity/port policy from the Manifest-approved targets. The current Production inventory contract requires exactly 20 unique canonical hostnames on port 443, so same-host multiple-port entries are rejected. The Worker independently checks its own inventory, approval, Notary registry set, and observed Presentation identity. |
 | `FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI`, `FUSOU_TLSN_RESULT_SIGNER_KEY_ID`, `FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY` | Signed Runtime Config V2 for APP Result verification; Worker-owned signer bindings for result generation | The Manifest signer may update the APP-side Result Registry pin, but cannot update Worker bindings. The Worker verifies the Result Registry envelope against its own root before accepting production configuration. |
 | `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, `FUSOU_TLSN_EXPECTED_BINDING_MODE`, `FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID`, `FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA`, `FUSOU_TLSN_EXPECTED_WORKER_NAME`, `FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT`, `FUSOU_TLSN_VERIFICATION_ENDPOINT` | Signed Runtime Config V2 `compile_inputs`, derived from the operator-approved Worker reference | Fetched and verified at APP runtime; these values are no longer supplied to the APP build environment or emitted in its compiled Bootstrap report. |
 | `FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT`, `FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID`, `FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY` | Session receipt verification and binding prewarm | Stage B identity/session inputs, not intrinsic TLSN Presentation verification inputs. They remain required by the existing APP path and were not bypassed. |
@@ -972,6 +972,33 @@ constrained by the Manifest expiry and the 600-second Worker-reference age
 limit, but is not globally excluded if an endpoint serves a still-current
 older pointer. Pointer-loss recovery authority also remains unregistered.
 
+Replay design options were compared without adding a new root or endpoint:
+
+- `no-store`, short expiry and the existing 600-second Worker-reference age
+  limit reduce ordinary cache-staleness exposure, but do not cryptographically
+  prevent a server from returning an older still-valid Manifest.
+- A fresh HTTPS latest-pointer query makes the endpoint/control plane the
+  freshness authority; TLS and deployment integrity then become part of the
+  guarantee.
+- A nonce-bound latest-epoch response signed by the existing Bootstrap signer
+  can prevent replay to a fresh APP without a new root hierarchy, but requires
+  a versioned challenge protocol, an online signing/response authority, and
+  separate availability and key-custody approval.
+
+No option was implemented because the endpoint, signer service and authority
+are not registered. Fresh-client replay protection remains **BLOCKED** pending
+that design and external registration.
+
+The existing cross-language Result Registry contract uses inclusive
+`not_before` and `not_after` bounds: `not_before <= validation_time <=
+not_after`; `not_after: null` is unbounded. Worker, APP Manifest, Proxy and
+offline verifier implementations already use those comparisons. The boundary
+is now tested at equality and immediately after expiry. This preserves current
+behavior; changing to a half-open end would require coordinated producer,
+Manifest, Worker, APP/Proxy and offline-verifier migration. A registry
+rotation should account for the fact that adjacent inclusive windows may
+overlap at a shared boundary.
+
 | Independent audit check | Result | Scope |
 |---|---|---|
 | Runtime Config, APP handoff/pre-capture and R2 store Node suites | **105 passed, 0 failed, 0 skipped** | Includes synthetic root mismatch, Production/Canary root selection, missing root binding, signer lookup/status/validity-window checks, publisher rollback and APP Manifest-approved Origin policy source contract. |
@@ -990,3 +1017,117 @@ source/typecheck/synthetic-test level, but deployed binding values
 **NOT_CHECKED**; Production external inputs and Stage A/B/C acceptance remain
 **BLOCKED**. No real Worker, Notary, R2, Game Server or gameplay operation was
 performed.
+
+### Remaining boundary and Cargo verification (base `2ab34ff2`)
+
+**APP/Proxy target policy:** The accepted Production inventory is an ordered
+20-entry list of unique canonical hostnames, each on port 443. Target Approval
+is a unique ordered hostname set. Thus the current Manifest contract rejects
+the same hostname on multiple ports before APP selection; Worker parsing
+applies the same constraint. The APP's `approved_target(hostname)` is
+unambiguous under this invariant. Proxy policy construction now also rejects
+duplicate hostnames and validates the exact approved `(identity, port)` pair.
+Tests exercise the actual APP artifact validator, verified-target-to-Proxy
+policy construction, Worker Inventory parser and Proxy policy validator.
+
+**Result Registry time semantics:** Existing Registry producers and consumers
+in JavaScript, APP Rust, Proxy Rust, Worker and offline Evidence verification
+consistently treat both ends as inclusive: `not_before <= time <= not_after`;
+`not_after: null` means no upper bound. This audit retains that version-1
+contract rather than changing only one consumer to a half-open interval.
+Fixed-time tests cover equality at each bound and just outside the end. A
+rotation that gives adjacent keys a shared boundary may make both eligible at
+that instant; the issuer should avoid unintended overlap.
+
+**Fresh-APP replay:** A first-install APP has no persisted epoch and can accept
+an older signed Manifest while its expiry and 600-second Worker-reference
+freshness checks still pass if the endpoint serves it. Publisher monotonicity,
+signed pointer verification, CAS and `no-store` reduce publisher/cache
+rollback; they do not prove the latest epoch to a new client if the serving
+endpoint itself replays an older valid object. A nonce-bound latest-epoch
+response signed by the existing Bootstrap signer is the preferred future
+option without a new root hierarchy, but it requires a versioned online
+freshness protocol, signer/service availability and external approval.
+No such protocol or new authority was introduced; fresh-client replay
+protection remains **BLOCKED**.
+
+**Cargo and local tests:** The APP check, targeted APP tests, Proxy feature
+checks/tests and offline verifier boundary test were run `--locked --offline`.
+The standalone `configs` crate test suite was not run; it includes the
+pre-existing user roaming config fixture. The modified `justfile` was read to
+confirm it contains cleanup/license recipes but no test recipe; no clean
+recipe was executed. Existing edits to `justfile` and the roaming user config
+were not staged or committed.
+
+| Follow-up validation | Result | Scope |
+|---|---|---|
+| Runtime Config, APP handoff/pre-capture, publisher/R2 and trust Node suites | **107 passed, 0 failed, 0 skipped** | Includes actual Manifest/Worker parser/policy helper tests and fixed-time Registry boundary tests; synthetic data only. |
+| Worker TypeScript typecheck | **PASS** | Current Worker bindings, selector and helper declarations. |
+| Worker release source closure | **11 passed, 0 failed** | Local source/recipe fixtures. |
+| `node --check` on changed MJS tests | **PASS** | Syntax only. |
+| APP `tlsn-production` Cargo check (`--lib --bins`) | **PASS** | `--locked --offline`; 8 compiler warnings, no lockfile update. |
+| APP Manifest/Runtime Config Rust tests | **25 passed, 0 failed** | `tlsn_runtime_config_manifest` and `tlsn_runtime_config_runtime` filters. |
+| APP preflight Rust tests | **22 passed, 0 failed, 1 ignored** | `tlsn_preflight` filter; generated-config roundtrip remains ignored unless explicitly supplied. |
+| Proxy `alpha15-tlsn` check and policy tests | **PASS; 4 passed** | `--locked --offline`; unique-host, approved-port and mismatch cases. |
+| Proxy Result signature tests and inclusive boundary test | **7 passed, 0 failed** | `--locked --offline`. |
+| Proxy ordinary non-TLSN check | **PASS** | `--locked --offline`; one existing dead-code warning. |
+| Offline Result verifier boundary test | **1 passed, 0 failed** | Synthetic cross-language Result vector. |
+| Rustfmt | **PASS** for modified APP/Proxy modules; **NOT CLEAN** for the full `evidence_bundle.rs` file due unrelated pre-existing formatting hunks; the new boundary-test hunk has no formatter diff. |
+| `git diff --check` | **PASS** | Explicit changed-path allowlist. |
+| Hosted CI at base SHA `2ab34ff2` | **PASS** | Run #92 (`41201483438`): `node-contract-tests` and `rust-tlsn-preflight` succeeded. It predates the follow-up changes. |
+| GitHub check-runs at base SHA `2ab34ff2` | **PASS with caveat** | Five check-runs report success, including three `Workers Builds` statuses. The separate CodeFlow status is `success` but reports 191 errors and 5,368 warnings; it is not a test result. |
+| Branch protection / required-check policy | **NOT_CHECKED** | GitHub API returned HTTP 401 for the protection endpoint. |
+
+No Hosted CI run exists for the follow-up commit because it was not pushed.
+No Production Worker Binding change, R2 write, deployment, Notary/Game Server
+connection or gameplay was performed. Bootstrap registration, fresh-client
+replay protection and Stage A/B/C acceptance remain **BLOCKED**.
+
+### Follow-up audit for base `2ab34ff2`
+
+The current Production Origin Inventory contract is not a multi-port contract:
+APP Manifest validation requires 20 ordered targets, port 443 and unique
+canonical hostnames; the Worker parser independently applies the same
+one-host/one-port rule. Target Approval contains hostnames, so the APP's
+hostname selection is deterministic only because the verified Inventory
+rejects duplicates. Proxy policy construction now rejects duplicate hostname
+entries even when their ports differ. Tests cover Manifest rejection of a
+same-host multi-port Inventory, Worker parser rejection, verified Manifest
+target-to-Proxy policy construction, and Proxy rejection of duplicate
+identities and an unapproved port.
+
+Result Registry validity retains the existing inclusive boundary contract:
+`not_before <= time <= not_after`, with `null` `not_after` unbounded. The
+shared JavaScript registry validator, Worker helper, APP Manifest validator,
+Proxy Result verifier and offline Evidence verifier all implement this
+behavior. Fixed-time tests assert acceptance at exact equality and rejection
+immediately after expiry. This is a compatibility choice, not a half-open
+interval; registry rotation should account for possible overlap at a shared
+inclusive boundary.
+
+The local Cargo path was reviewed from the manifests and build scripts. The
+APP and Proxy `alpha15-tlsn` paths were tested with `--locked --offline`;
+the current modified `justfile` contains cleanup/license recipes but no test
+recipe, and cleanup recipes were not run. The existing user edits to
+`justfile` and the APP roaming config were preserved and excluded from the
+commit.
+
+| Follow-up validation | Result | Scope |
+|---|---|---|
+| Runtime Config, handoff/pre-capture, publisher/R2 and trust Node suites | **107 passed, 0 failed, 0 skipped** | Includes duplicate-host/port and fixed-time Result Registry boundary tests; synthetic fixtures only. |
+| Worker TypeScript typecheck | **PASS** | Current bindings and declarations. |
+| APP `tlsn-production` Cargo check (`--lib --bins`) | **PASS** | `--locked --offline`; 8 compiler warnings, no lockfile update. |
+| APP Manifest / Runtime Config Rust tests | **20 + 5 passed, 0 failed** | `tlsn_runtime_config_manifest` and `tlsn_runtime_config_runtime` filters. |
+| APP preflight Rust tests | **22 passed, 0 failed, 1 ignored** | `tlsn_preflight` filter; generated-config roundtrip remains ignored unless explicitly supplied. |
+| Proxy `alpha15-tlsn` Cargo check and Origin policy tests | **PASS; 4 passed** | `--locked --offline`; fixed port/duplicate identity behavior. |
+| Proxy Result signature tests and boundary test | **6 + 1 passed, 0 failed** | `--locked --offline`; inclusive `not_after` boundary. |
+| Offline Result verifier boundary test | **1 passed, 0 failed** | Synthetic cross-language Result vector at `capture_time`. |
+| Proxy ordinary non-TLSN Cargo check | **PASS** | `--locked --offline`; one existing dead-code warning. |
+| Hosted CI at base SHA `2ab34ff2` | **PASS** | Run #92 (`41201483438`): `node-contract-tests` and `rust-tlsn-preflight` succeeded. This run predates the follow-up changes. |
+| GitHub commit check-runs at base SHA `2ab34ff2` | **PASS with caveat** | Five check-runs report success, including three `Workers Builds` checks. The separate CodeFlow status is `success` but reports 191 errors and 5,368 warnings; this is not treated as a test pass. |
+| Branch protection / required-check policy | **NOT_CHECKED** | GitHub API returned HTTP 401 for the protection endpoint. |
+
+No Hosted CI run exists for the follow-up commit because it was not pushed.
+No Worker deployment, binding update, R2 write, Notary/Game Server connection
+or testplay was performed. Fresh-client replay protection and all acceptance
+stages remain **BLOCKED**.

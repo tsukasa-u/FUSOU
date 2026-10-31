@@ -91,6 +91,14 @@ pub struct ResultSignatureVerifier {
     authority_digests: Option<([u8; 32], [u8; 32])>,
 }
 
+fn result_signer_validity_window_contains(
+    not_before: &DateTime<Utc>,
+    not_after: Option<&DateTime<Utc>>,
+    at: &DateTime<Utc>,
+) -> bool {
+    not_before <= at && not_after.map_or(true, |end| at <= end)
+}
+
 struct ResultExchangeContext<'a> {
     session: &'a SessionBindingContext,
     presentation: &'a TlsnPresentation,
@@ -197,8 +205,7 @@ impl ResultSignatureVerifier {
         let now = Utc::now();
         if status != "ACTIVE"
             || registry_public_key != public_key
-            || not_before > now
-            || not_after.is_some_and(|value| value < now)
+            || !result_signer_validity_window_contains(&not_before, not_after.as_ref(), &now)
         {
             return Err(TlsnTransportError::Unavailable);
         }
@@ -281,7 +288,8 @@ impl ResultSignatureVerifier {
 
     fn verify(&self, payload: &serde_json::Value) -> Result<VerifiedMemberId, VerificationError> {
         let now = Utc::now();
-        if self.not_before > now || self.not_after.is_some_and(|value| value < now) {
+        if !result_signer_validity_window_contains(&self.not_before, self.not_after.as_ref(), &now)
+        {
             return Err(VerificationError::WorkerRejected);
         }
         if payload.get("signature_algorithm")
@@ -3027,12 +3035,37 @@ mod tests {
             )
             .is_err());
         }
+
         assert!(ResultSignatureVerifier::new(
             public_key_spki,
             "result-signer-2026".to_owned(),
             "{}".to_owned(),
         )
         .is_err());
+    }
+
+    #[test]
+    fn result_registry_not_after_is_inclusive_at_the_boundary() {
+        let not_before = DateTime::parse_from_rfc3339("2026-10-23T23:59:59.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let not_after = DateTime::parse_from_rfc3339("2026-10-24T00:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(result_signer_validity_window_contains(
+            &not_before,
+            Some(&not_after),
+            &not_after,
+        ));
+        assert!(result_signer_validity_window_contains(
+            &not_after, None, &not_after
+        ));
+        let after_expiry = not_after + chrono::Duration::nanoseconds(1);
+        assert!(!result_signer_validity_window_contains(
+            &not_before,
+            Some(&not_after),
+            &after_expiry,
+        ));
     }
 
     #[test]
