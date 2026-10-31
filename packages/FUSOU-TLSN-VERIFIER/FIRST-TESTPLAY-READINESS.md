@@ -1,6 +1,61 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Current status snapshot — `a0cb49250df53132ee8df42ca02fbce91e10c7d2` (2026-11-01)
+## Current status snapshot — `254967c4fb77d279a608da91b8836b5b9d8f551e` (2026-11-01)
+
+The inspected branch is `tlsn-first-testplay-candidate`; local HEAD, local
+tracking ref, and GitHub branch head are
+`254967c4fb77d279a608da91b8836b5b9d8f551e`. Its parent is
+`3c2b5b2d8fcb1f78c4c2a43cb89c3842ca944a36`. The runtime-source baseline
+remains `43ab72e6284deee3ad202be7fb50e3f0199af304`; the scoped APP/Worker
+Runtime Config source-path comparison found no source changes from that
+baseline. At task start, the worktree had only the pre-existing
+[justfile](/home/ogu-h/Documents/GitHub/FUSOU/justfile) and APP roaming
+config edit, with an empty index; both were preserved.
+
+### Current verification status
+
+| Area | Status | Evidence and limit |
+|---|---|---|
+| Hosted workflow for `254967c` | **HOSTED_CI_VERIFIED** | Run #95 (`41245477137`) completed `success` with `head_sha` exactly `254967c...`; it is the only Actions run returned for that SHA. |
+| `node-contract-tests` / `rust-tlsn-preflight` | **PASS** | Both jobs completed successfully. These validate the workflow's selected Node/WASM/APP handoff tests and APP preflight target, not Freshness protocol code. |
+| Cloudflare `Workers Builds` check-runs | **PASS — build only** | `fusou`, `fusou-url-shorter`, and `fusou-workflow` reported successful build check-runs; not Production runtime or binding verification. |
+| CodeFlow | **ANALYSIS_REPORTED, NOT A TEST PASS** | Latest commit status is `success`, description `191 errors and 5368 warnings`. Per-finding details were not available from the status API and are **NOT_CHECKED**. |
+| Branch protection / required checks | **NOT ENFORCED** | GitHub reports `protected: false` and zero rulesets. `node-contract-tests` and `rust-tlsn-preflight` remain candidate required checks; CodeFlow is separate static analysis. |
+| Existing Runtime Config Node tests run during this audit | **58 passed, 0 failed, 0 skipped** | Worker Bootstrap/Result Registry, Manifest/publisher, fake R2 store and publisher-readiness suites. Existing code only; no Freshness implementation. |
+| APP Rust Runtime Config-specific local tests | **NOT_RUN in this Phase 0 audit** | The Hosted Rust job is `rust-tlsn-preflight`; this task made no APP source changes. |
+| APP Bootstrap source readiness | **SOURCE_VERIFIED / COMPILED_VALUES_NOT_CHECKED** | Source has only the three Manifest URL/signer ID/SPKI pins; all absent is unregistered and partial input fails. No actual Production values or compiled APP artifact were registered/verified here. |
+| Runtime Config signature verification readiness | **MANIFEST_V2_SOURCE_VERIFIED / FRESHNESS_NOT_IMPLEMENTED** | Existing Rust/JS Manifest v2 signing domain and checks are unchanged; the proposed delegation/commit-record/Freshness verification chain has no implementation. Production signer registration remains blocked. |
+| Worker independent trust readiness | **NOT_REVALIDATED_IN_THIS_DESIGN_PASS** | No Worker source was changed; the Freshness protocol does not make an APP freshness claim Worker authority. Existing Worker verification is not a new Production acceptance result from this documentation-only task. |
+| Freshness design | **DESIGN_SPECIFIED** | Option B / `LATEST_AT_ISSUANCE` is specified in [runtime-config-freshness-protocol.md](./docs/runtime-config-freshness-protocol.md). |
+| Freshness source implementation | **NOT_IMPLEMENTED** | No APP/Worker code, delegation verifier, Release Authority, Journal, signer or binding was added. |
+| Freshness-specific unit/integration tests | **NOT_RUN / NOT_IMPLEMENTED** | No Freshness code exists to test; no live R2, key, endpoint, or service integration was used. |
+| Freshness HTTP/deadline implementation | **NOT_IMPLEMENTED** | Current Manifest fetch remains 5-second connect / 15-second total timeout; the separate Freshness client and end-to-end monotonic deadline through final state commit are not in source. |
+| Production registration | **NOT_REGISTERED / NOT_CHECKED** | Bootstrap values, HSM key providers, Release Journal/retention, DO namespace and Worker bindings, scoped operation credentials, endpoints and deployed services remain unregistered or unverified. |
+| Stage A — protocol-only `TLSN_PROTOCOL_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No new protocol-only testplay was implemented or performed; required inputs remain unapproved. |
+| Stage B — identity-bound `IDENTITY_BOUND_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No identity-bound testplay or real Notary/Game Server verification was performed. |
+| Stage C — `PRODUCTION_EVIDENCE_DELIVERY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | Production Freshness, signer/Journal registration and evidence delivery remain unimplemented/unregistered. |
+| Deployment / real-game evidence | **NOT_VERIFIED** | No deployment validation, real Notary, Game Server, gameplay, Presentation, or Production Result was performed. |
+
+With an honest signer, issue-lease serialization and the end-to-end APP
+deadline bound post-issuance staleness to under 10 seconds. A compromised
+Freshness signer is different: for one fixed Manifest, APP source requires
+`expires_at > app_now - 30s` and
+`app_now - source.observed_at <= 600s`; with an APP clock at most 30 seconds
+slow, its true-time bound is
+`min(expires_at + 60s, source.observed_at + 630s)`. The worst fixed-Manifest
+limit is 660 seconds from a current publisher policy time because the source
+permits `observed_at` up to 30 seconds ahead. The source does not attest that
+`policy.now` is the actual wall clock, so this is not an absolute deployed
+bound. If releases continue, a compromised signer can roll back to successive
+recent Manifests until its delegated key expires (maximum 24 hours). The
+10-second deadline does not limit signer compromise; Fresh-client immediate
+delegation revocation is unavailable.
+
+Run #95 validates this starting HEAD, not the later uncommitted
+documentation-only edits from this Phase 0 task. No push or new Hosted CI run
+is part of this task.
+
+## Historical status snapshot — `a0cb49250df53132ee8df42ca02fbce91e10c7d2` (2026-11-01)
 
 The inspected branch is `tlsn-first-testplay-candidate`; local HEAD, local
 tracking ref, and GitHub branch head are `a0cb49250df53132ee8df42ca02fbce91e10c7d2`.
@@ -12,7 +67,7 @@ the index was empty and those edits remain uncommitted.
 Run #94 validates `a0cb492...`, not this later documentation-only commit; no
 push or new Hosted CI run is part of this Phase 0 task.
 
-### Current verification status
+### Verification status at this historical snapshot
 
 | Area | Status | Evidence and limit |
 |---|---|---|
@@ -27,6 +82,7 @@ push or new Hosted CI run is part of this Phase 0 task.
 | Freshness protocol design | **DESIGN_SPECIFIED** | The selected design is Option B / `LATEST_AT_ISSUANCE`; see [runtime-config-freshness-protocol.md](./docs/runtime-config-freshness-protocol.md). Bootstrap-root delegations, Release Authority records, journal, signer, and APP verifier are **NOT_IMPLEMENTED**. |
 | Freshness source implementation | **NOT_IMPLEMENTED** | No APP/Worker source code or bindings changed. |
 | Freshness unit/integration tests | **NOT_RUN / NOT_IMPLEMENTED** | No Freshness response, delegation, commit-record, or replay-protection code exists to test. No live R2 or service integration was run. |
+| APP Freshness HTTP/deadline behavior | **NOT_IMPLEMENTED** | Existing Manifest fetcher remains 5-second connect / 15-second request timeout. The specified separate Freshness client and end-to-end 10-second deadline through final atomic state commit are not in source. |
 | Production registration | **NOT_REGISTERED / NOT_CHECKED** | Bootstrap values, signer providers, endpoint, Release Authority, journal and deployed bindings are not registered or verified here. |
 | `TLSN_PROTOCOL_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No authorization change. |
 | `IDENTITY_BOUND_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No authorization change. |
@@ -46,6 +102,27 @@ snapshot also proposed direct online use of the Bootstrap signer; that proposal
 is superseded by the delegated-key design below and was never implemented.
 The current result does not promote Production acceptance.
 
+With an honest signer, the issue lease holds the current committed generation
+through response signing and the APP's 10-second monotonic deadline is checked
+again before final state persistence. A release after signing may be ahead at
+APP acceptance for less than 10 seconds. A compromised Freshness signer is
+different: it can sign a fresh nonce response for an older still-valid
+root-signed Manifest. For one fixed Manifest, APP source requires both
+`expires_at > app_now - 30s` and
+`app_now - source.observed_at <= 600s`; with an APP clock at most 30 seconds
+slow, the true-time bound is
+`min(expires_at + 60s, source.observed_at + 630s)`. The source permits
+`source.observed_at` up to 30 seconds ahead of the publisher verification
+time, so under a current `policy.now` the maximum fixed-Manifest window is
+660 seconds from that policy time; the reference-age condition is tighter
+than the one-hour Manifest lifetime. The source does not attest that
+`policy.now` is the actual wall clock, so this is not an absolute deployed
+bound. If releases continue, a compromised signer can roll back to successive
+recent Manifests until its delegation expires (maximum 24 hours); renewing a
+compromised key extends that exposure and is forbidden. Local delegation
+generation high-water helps existing installs, but fresh-client immediate
+revocation is unavailable without an APP Bootstrap-root rotation.
+
 ## Historical status snapshot — runtime-code SHA `43ab72e` (2026-11-01, earlier)
 
 This snapshot was for runtime-code commit `43ab72e6284deee3ad202be7fb50e3f0199af304`
@@ -57,7 +134,7 @@ that SHA. The two commits immediately before this snapshot are
 This is a documentation follow-up; Run #93 validates the runtime-code SHA
 above, not this later documentation commit.
 
-### Current verification status
+### Verification status recorded for runtime-code SHA `43ab72e`
 
 | Area | Status | Evidence and limit |
 |---|---|---|
@@ -75,7 +152,7 @@ and `rust-tlsn-preflight` both completed successfully. No failed-job log exists
 for this run. The older checks and CodeFlow result attached to PR #231 refer to
 a different head commit and are not evidence for `43ab72e`.
 
-### Current readiness summary
+### Readiness summary recorded for runtime-code SHA `43ab72e`
 
 | Property | Current status |
 |---|---|

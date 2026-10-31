@@ -2,15 +2,19 @@
 
 - **Status:** Specification selected; implementation and approval pending
 - **Updated:** 2026-11-01
-- **Repository HEAD:** `a0cb49250df53132ee8df42ca02fbce91e10c7d2`
+- **Repository HEAD at review start:** `254967c4fb77d279a608da91b8836b5b9d8f551e`
 - **Runtime-source baseline:** `43ab72e6284deee3ad202be7fb50e3f0199af304`
+- **Historical design snapshot:** `a0cb49250df53132ee8df42ca02fbce91e10c7d2`
 - **Readiness record:** [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md)
 
 This is the Phase 0 protocol specification. It changes no APP, Worker, Rust,
 TypeScript, JavaScript, build, binding, or deployment source. It creates no key,
 contacts no Production service, and writes nothing to R2. The source baseline
-was independently inspected; HEAD `a0cb492...` only adds documentation after
-that runtime-code baseline.
+was independently inspected. At review start, the APP/Worker Runtime Config
+source paths compared in Section 2 were unchanged from runtime-source baseline
+`43ab72e...`; the older design snapshot `a0cb492...` is historical, not the
+current repository HEAD.
+The edits made for this Phase 0 review are documentation-only.
 
 The protocol is **not implemented**. Root and delegated keys, the Release
 Journal, the authority state machine, endpoint, and Production registration
@@ -24,11 +28,13 @@ readiness is implied by this specification.
    R2 pointer and immutable Manifest snapshot, and compare them with the
    environment's Durable Object ledger. This is Option B. It is not enough to
    trust values supplied by the HTTP endpoint.
-2. **Do not place the Bootstrap root private key online.** The existing root
-   remains the APP's trust anchor and the direct Manifest v2 signer. It signs
-   Manifest v2 releases and root-signed delegations offline. A separate,
-   offline delegated Release Authority key signs commit records. A separate,
-   narrowly scoped online Freshness key signs only Freshness responses.
+2. **Do not place the Bootstrap root private key online.** The existing public
+   pin remains the APP's trust anchor and direct Manifest v2 signer. Under
+   this selected design, Manifest v2 signing and root delegation signing stay
+   offline. Actual private-key custody/provider is NOT_REGISTERED and
+   NOT_VERIFIED. A separate, delegated Release Authority key is held
+   non-exportably in an online HSM signer service and signs only commit
+   records. A second delegated key signs only Freshness responses.
 3. **Use `LATEST_AT_ISSUANCE`.** `issued_at` is captured while a short
    per-environment issue lease is active, after the Freshness signer has
    verified the signed Release Journal head, DO ledger, R2 pointer, Manifest
@@ -76,8 +82,9 @@ property.
 | Time policy | Current APP policy is 3,600 seconds maximum Manifest lifetime, 30 seconds wall-clock skew, and 600 seconds Worker-reference age. | These limit some replay, but not replay inside the valid window. The proposed 10-second monotonic challenge deadline is an additional protocol rule. |
 | Manifest signature bytes | Manifest v2 uses Ed25519 and domain `FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0`, followed by `u16_be(key_id length)`, ASCII key ID, and canonical payload bytes. JS and Rust implement the same contract. See [Worker signer bytes](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L404) and [APP signer bytes](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L1940). | The new signatures must use distinct domains; no change to these v2 bytes is specified. |
 | Manifest publisher | The Node publisher signs and locally verifies the candidate, checks the current pointer and the supplied epoch policy, writes content-addressed artifacts with create-only semantics/readback, revalidates the Worker reference, then conditionally updates the pointer and reads it back. See [`publishTlsnRuntimeConfigWithMode`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-release.mjs#L178). | `policy.last_accepted_epoch` is supplied to the publisher; it is not a registered durable online high-water authority. |
+| Publisher pointer-loss / rollback behavior | If the pointer is absent and the supplied policy epoch is nonzero, the publisher fails closed. If both pointer and supplied high-water are absent/reset to `0`, it permits a newly signed candidate with any epoch greater than `0`. The API signs a `prepared.payload`; it does not accept a previously signed envelope as raw input. | It can re-sign a still-valid old candidate if the caller and signer provide that payload; current code has no independent durable latest epoch. Fresh APPs likewise have no latestness proof and can accept an old Manifest still within existing time/reference limits. Production signing is currently unregistered. |
 | R2 pointer | `tlsn/runtime-config/v2/manifest.json` is the mutable pointer and is itself the signed Manifest envelope. Existing S3 `PutObject` uses `If-None-Match: *` for creation and `If-Match: <ETag>` for updates; ambiguous outcomes are reconciled without automatic retry. See [`compareAndSwapManifest`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs#L415). | ETag is an opaque CAS token, not a cryptographic digest. The current allowlist and publication objects do not include an immutable Manifest snapshot. |
-| R2 artifacts | Worker reference, Inventory, Target Approval, Security Registry set, and Result Registry envelope are content-addressed artifacts. The mutable Manifest object uses `no-store`; artifacts use immutable cache metadata. See [`createTlsnRuntimeConfigPublicationObjects`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L722). | Recovery of a deleted mutable Manifest pointer is not possible from the current namespace alone. Phase 1 must add immutable exact Manifest snapshots. |
+| R2 artifacts | Worker reference, Inventory, Target Approval, Security Registry set, and Result Registry envelope are content-addressed artifacts. The mutable Manifest object uses `no-store`; artifacts use immutable cache metadata. See [`createTlsnRuntimeConfigPublicationObjects`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L722). | The current namespace has no immutable exact Manifest snapshot from which to restore a deleted pointer. A newly signed publication depends on the external epoch policy; it is not authoritative recovery. Phase 1 adds immutable snapshots. |
 | Production registration | The signer provider, independent signer pin, APP root, Manifest endpoint, and recovery authority are not registered; Production publishing remains blocked. See [production registration](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-production-registration.mjs) and [publisher readiness](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-publisher-readiness.mjs). | No production endpoint, private signer, R2 permissions, ledger, journal, or recovery authority can be presumed. |
 | Existing Worker Durable Object | `TlsnBindingAuthorityDurableObject` and `TLSN_BINDINGS` coordinate proof/session/binding state, not Runtime Config. See [the class](../../FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts#L647) and [Worker config](../../FUSOU-TLSN-VERIFICATION-WORKER/wrangler.toml). | Do not reuse the proof/session authority namespace for the Release Journal or Freshness. A separate class/namespace and least-privilege service boundaries are required. |
 | Freshness code/tests | No Freshness endpoint, delegated key, commit record, response schema, or APP response verifier was found in the inspected APP/Worker source or Runtime Config tests. | The 58 existing Node tests run during this audit cover existing Bootstrap/Manifest/publisher/fake-R2 behavior only; they are not Freshness protocol tests. |
@@ -142,9 +149,9 @@ behavior is BLOCKED until an independently authorized recovery.
 
 | Role | Key and custody | Allowed operation | Explicitly not allowed |
 |---|---|---|---|
-| Bootstrap root / current Manifest v2 signer | Existing APP-pinned Ed25519 key; private key remains offline. In the current source this same pin directly verifies/signs Manifest v2; there is no separate Manifest-signer delegation today. | Sign Manifest v2 releases offline and issue root-signed delegations for the Release Authority and Freshness keys. | No online Freshness endpoint, Worker binding, general online signing RPC, or chat-disclosed key. |
-| Release Authority | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable offline release ceremony/HSM operation. | Sign only `release-commit-record-v1` after the signing workflow independently reads and checks the committed pointer, DO state, Journal head and Manifest snapshot. | No Manifest, Result, Notary, or Freshness-response signature. No R2 write credential. |
-| Freshness signer | Separate Ed25519 child key delegated by the Bootstrap root; online in a dedicated Freshness service or managed signer. | Sign only the fixed `freshness-response-v1` preimage after independently validating the Release Journal, DO ledger, R2 pointer/snapshot and Manifest signature. | No Manifest/Result/Notary signing, R2 write, ledger write, pointer update, or generic `sign(bytes)` API. |
+| Bootstrap root / current Manifest v2 signer | Existing APP-pinned Ed25519 public key. The private key must remain offline; actual custody/provider is **NOT_REGISTERED / NOT_VERIFIED**. In current source this pin directly verifies Manifest v2; there is no separate Manifest-signer delegation today. | Under the selected design, sign Manifest v2 releases offline and issue root-signed delegations for the Release Authority and Freshness keys. | No online Freshness endpoint, Worker binding, general online signing RPC, or chat-disclosed key. |
+| Release Authority | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable in an online HSM or equivalent managed signing service. | Sign only `release-commit-record-v1` after the signer service independently reads and checks the committed pointer, DO state, Journal head and Manifest snapshot. The API accepts a typed commit operation, never arbitrary bytes. | No Manifest, Result, Notary, or Freshness-response signature. No R2 pointer-write credential or arbitrary Journal update/delete permission. |
+| Freshness signer | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable in an online HSM/managed signing service used only by the dedicated Freshness Signer Worker. | Sign only the fixed `freshness-response-v1` preimage after independently validating the Release Journal, DO ledger, R2 pointer/snapshot and Manifest signature. | No Manifest/Result/Notary signing, R2 write, release-ledger mutation, pointer update, or generic `sign(bytes)` API. |
 
 This adds delegated purposes under the already embedded Bootstrap root, not a
 new independent root. The current Manifest v2 direct-root contract is
@@ -182,8 +189,9 @@ key ID/SPKI. Example payload shape:
 For `freshness-response-v1`, `audience` is the base64url SHA-256 of the exact
 canonical embedded Manifest URL. For `release-commit-record-v1`, it is the
 fixed ASCII scope `fusou-tlsn-runtime-config-v2:<environment>`. The
-Freshness delegation has a maximum validity of 24 hours; the offline Release
-Authority delegation has a maximum validity of 30 days. These are maximum
+Freshness delegation has a maximum validity of 24 hours; the Release Authority
+delegation issued by the offline Bootstrap root has a maximum validity of 30
+days. These are maximum
 caps, not registered certificate dates.
 
 The root-signed delegation envelope has exact fields
@@ -216,9 +224,11 @@ release-state DO directly and requires all three views to agree.
 
 The current publisher policy and R2 ETag CAS are not a durable release
 authority. A DO by itself is also insufficient as the anti-rollback witness:
-SQLite-backed DO state supports point-in-time recovery, so restoring that DO
-to an earlier database could restore an older high-water. The separate
-append-only Release Journal is therefore required for the selected design.
+as documented in Section 2, SQLite-backed DO storage supports point-in-time
+recovery to any point in the preceding 30 days. Restoring that DO can
+therefore restore an older high-water. The separate append-only Release
+Journal is required for the selected design; it is not in the DO or R2
+restore domain.
 It must be in a separately administered retention-locked store/service,
 outside the R2 bucket used for the mutable Manifest pointer. Its operator and
 provider are **NOT_REGISTERED** and require human approval before Phase 1.
@@ -236,33 +246,69 @@ provider are **NOT_REGISTERED** and require human approval before Phase 1.
    `TLSN_BINDINGS` session/proof DO. One DO instance per environment is the
    coordination atom for that environment's single current Manifest. It
    persists `PREPARED`, `POINTER_COMMITTED`, and `COMMITTED` state and tracks
-   expiring Freshness issue leases. It has no signing private key.
-3. **Offline Release Authority signer:** validates the prepared attempt,
-   direct current pointer, exact snapshot, DO state and current Journal head
-   before signing the commit record. Its private key is non-exportable and is
-   not available to the publisher, Freshness service, or verifier Worker.
-   The signing operation has authenticated read-only access to those sources;
-   it never signs a bundle of caller-supplied epoch/digest claims.
-4. **Append-only Release Journal:** stores each signed commit record
-   create-once, with monotonic per-environment generation and previous-record
-   hash. Its authenticated, linearizable latest-head API is the authority for
-   which record is newest. Records cannot be replaced or deleted through the
-   normal writer role.
+   expiring Freshness issue leases. It has no signing private key. Signer
+   Workers bind directly to this same namespace for their typed read/lease
+   RPCs; they do not obtain DO state from the Authority Worker's HTTP route.
+3. **Online Release Authority signer service:** a managed HSM signer with a
+   non-exportable Release Authority child key and a separately deployed
+   signer Worker/adapter. The adapter directly binds to the same DO namespace
+   and calls the typed `getPreparedRelease` RPC; it independently reads the
+   current R2 pointer/snapshot and prior Journal head before invoking the
+   HSM. It accepts a typed commit operation, not arbitrary bytes or
+   endpoint-supplied epoch/digest claims. It has no R2 pointer-write
+   credential, cannot update/delete Journal records, and cannot sign Manifest,
+   Result, Notary or Freshness-response payloads.
+4. **Append-only Release Journal:** stores each Release Authority signed
+   commit record and its exact root-signed Release Authority delegation
+   envelope create-once, with monotonic per-environment generation and
+   previous-record hash. Only the authenticated Authority Worker commit
+   transaction can append after verifying the record/delegation and matching
+   the prepared DO attempt. The Journal verifier uses an independently
+   provisioned copy of the approved Bootstrap public key, never a caller- or
+   APP-supplied root. Journal append is atomic compare-and-append:
+   require the record's previous generation and hash to equal the current
+   head, require generation `head + 1` and a strictly greater Manifest epoch,
+   then create the record and delegation sidecar once. An exact same-byte
+   retry is idempotent; a different record at that generation rejects. No
+   general update/delete API exists. Its authenticated, linearizable
+   latest-head API returns the exact record and delegation bytes and is the
+   authority for which record is newest.
 5. **Freshness Gateway:** owns the public same-origin POST route but has no
    signer key, R2 access, DO namespace, or Release Journal credentials. It
    validates request size/shape and passes only protocol version, environment,
    audience and nonce to the signer using a private service binding.
 6. **Freshness Signer Worker:** has the delegated Freshness key, read-only R2
-   and Journal access, and a private service binding to the Authority Worker's
-   restricted `getCurrentCommitted` / issue-lease interface. It has no direct
-   DO namespace or R2 writer credential. It independently fetches and
-   verifies all latest-state material; it accepts no endpoint-supplied
-   epoch/digest/URI/state. It cannot mutate release ledger state or the R2
-   pointer. It does not reuse the existing verification Worker's
+   and Journal access, and a direct binding to the same DO namespace for
+   `getCurrentCommitted` and the bounded issue-lease RPCs. It has no R2
+   writer credential or release-mutation capability. It independently
+   fetches and verifies all latest-state material; it accepts no
+   endpoint-supplied epoch/digest/URI/state. It does not reuse the existing
+   verification Worker's
    `TLSN_BINDINGS` or `TLSN_PRESENTATIONS` bindings.
 7. **APP:** verifies both delegations, the Release Authority commit record,
    the Freshness response, the exact immutable Manifest bytes, and then the
    entire existing Manifest v2/artifact contract.
+
+The Authority Worker is the only service with mutable R2 pointer-write and
+Release Journal append capabilities. Its `commitRelease` operation accepts
+only a Release Authority-signed record matching the current
+`POINTER_COMMITTED` DO attempt, expected generation/previous-record digest,
+environment and exact R2 readback, with no active issue lease. Journal append
+is create-once and cannot update or delete records; an exact idempotent replay
+is accepted only for the same record bytes. The Release Authority signer
+returns a signature but has no Journal write capability. The Freshness signer
+has read-only Journal access plus direct DO read/issue-lease RPCs.
+
+Cloudflare does not provide per-method Durable Object ACLs: a namespace
+binding is Worker-level reachability, not an operation-level permission
+([Durable Objects roles and permissions](https://developers.cloudflare.com/workers/authorization/durable-objects/)).
+Therefore the DO RPC contract must authenticate each internal caller and
+enforce distinct Release Authority read, Freshness read/lease, and Authority
+mutation operations. Signer Workers receive no release-mutation credential;
+the Authority Worker receives no HSM key and cannot invoke generic signing.
+Worker deployment permissions and these service credentials remain external
+approval items. A binding alone is never treated as proof of method-level
+least privilege.
 
 The Gateway can deny or delay a challenge but cannot forge a signed response.
 The Freshness signer is the online currentness authority; if that signer is
@@ -290,16 +336,15 @@ For every request, the signer itself:
 
 1. validates the pending challenge, canonical audience and Production scope;
 2. acquires an at-most-8-second issue lease for the current environment
-   generation through the Authority Worker's restricted service binding. The
-   Authority denies it if a release is pending or waiting to publish;
+   generation through the DO's authenticated issue-lease RPC. The DO denies
+   it if a release is pending or waiting to publish;
 3. queries the Release Journal's authenticated current head directly;
 4. fetches the corresponding signed commit record and verifies its
    Release-Authority signature/delegation, generation, previous-record hash,
    environment and `COMMITTED` state;
-5. queries `getCurrentCommitted` through the restricted Authority Worker
-   service binding and requires its DO record's generation, epoch, digest,
-   commit ID and record digest to equal the Journal head, with no pending
-   transaction;
+5. queries `getCurrentCommitted` directly from the same DO namespace and
+   requires its stored generation, epoch, digest, commit ID and record digest
+   to equal the Journal head, with no pending transaction;
 6. reads `manifest.json` directly from the R2 S3 API using read-only access,
    obtains its opaque ETag and exact raw bytes, and verifies the bytes match
    the commit record's digest and pointer ETag;
@@ -311,7 +356,7 @@ For every request, the signer itself:
 9. checks all observed values again against the request environment/audience,
    captures `issued_at` while the lease is still valid, and signs the response
    with the Freshness delegated key;
-10. releases the issue lease through its restricted service binding after
+10. releases the issue lease through the authenticated DO RPC after
     signing and returns the signed response. If the lease expired or the
     signer cannot confirm it before signing, it discards the signature and
     returns an error.
@@ -340,7 +385,13 @@ The per-environment SQLite DO stores:
 
 The append-only Release Journal stores the exact signed
 `ReleaseCommitRecordV1` bytes at a create-once generation/commit-ID key,
-including the previous record hash. The current head operation is part of
+including the previous record hash, and the matching root-signed Release
+Authority delegation envelope as an immutable sidecar. Before append, the
+Authority Worker verifies both signatures and the prepared attempt. The
+Journal atomically compares the record's previous generation/hash and
+strictly increasing Manifest epoch against its current head before creating
+the next record; it does not trust a caller's head assertion. The current
+head operation returns the exact record and delegation bytes and is part of
 the Journal trust contract. The pointer ETag is recorded as an opaque
 conditional-write token; the SHA-256 of exact Manifest bytes is the
 cryptographic identifier.
@@ -378,7 +429,7 @@ interpreted as permission to initialize epoch `0`.
 | State | Meaning and durable data | Allowed transition and CAS | Signer may respond? |
 |---|---|---|---|
 | `PREPARED` | Candidate Manifest/artifact/snapshot bytes were validated and written immutably. DO records candidate epoch/digest/ref, attempt ID, expected previous generation/digest/ETag, and pointer-write flag. No commit is yet authoritative. | `beginRelease` requires no active issue lease and a matching current head. `PREPARED -> POINTER_COMMITTED` only after Authority Worker performs R2 `If-Match` on the expected previous ETag (or `If-None-Match: *` for authorized genesis) and directly reads back exact bytes. A same attempt/same bytes retry is idempotent; same generation with different bytes rejects. | **No.** Any pending attempt blocks Freshness. |
-| `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot both contain the exact candidate bytes; the actual ETag is recorded. Release Journal still has no committed record. | `POINTER_COMMITTED -> COMMITTED` only after the offline Release Authority validates the direct R2/DO readback, signs the record, the append-only Journal accepts and reads back exact bytes, and the DO atomically advances its current generation. | **No.** A pointer without an archived commit record is not a committed release. |
+| `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot both contain the exact candidate bytes; the actual ETag is recorded. Release Journal still has no committed record. | `POINTER_COMMITTED -> COMMITTED` only after the online Release Authority HSM service validates the direct R2/DO readback, signs the record, the Authority Worker's single commit transaction appends/reads back those exact bytes in the Journal, and the DO atomically advances its current generation. No active issue lease or other pending transaction is allowed. | **No.** A pointer without an archived commit record is not a committed release. |
 | `COMMITTED` | DO current row, Journal head/record, R2 pointer, immutable Manifest snapshot and Manifest signature agree at the same environment, generation, epoch, digest and commit ID. | Next release must be generation `current+1`, Manifest epoch strictly greater than current, expected previous digest/generation equal current, and CAS against current ETag. Same epoch/different bytes always rejects. | **Yes**, only after the signer freshly rechecks every source in Section 5.3 and sees no pending attempt. |
 | `ABORTED` (terminal attempt) | A pre-pointer attempt was cancelled after proving the pointer write was never started and the old pointer is unchanged. Record attempt ID and reason; never lower current generation. | A new attempt starts with a new attempt ID and current generation. An ambiguous/in-flight write cannot be aborted automatically. | Only if the current `COMMITTED` head and all sources still agree. |
 
@@ -410,6 +461,18 @@ monotonic response deadline is longer than the signer's bounded lease work
 budget; the signer must discard a response if its lease expires before
 signature creation. The DO never holds a storage transaction across R2,
 Journal, or signer I/O.
+
+The Authority Worker's single `commitRelease` path checks the lease table and
+writer-pending attempt before pointer write, Journal append, or DO commit.
+Only that path has the Journal append credential; the Release Authority HSM
+can sign a typed record but cannot append/update/delete it, and the Freshness
+Signer can only read Journal state and acquire/release its scoped lease.
+Therefore no legitimate pointer or Journal-head update can interleave between
+the signer's final consistency read and response signature. Recovery has no
+lease-bypass path: first disable Freshness issuance through the separately
+controlled kill switch, wait for active leases to finish/expire, then perform
+two-person recovery. Re-enable Freshness only after Journal, DO, R2 pointer
+and snapshot agree.
 
 `POINTER_COMMITTED` is provisional coordination state, not a Freshness
 authorization. A publisher report alone cannot advance the DO to
@@ -635,10 +698,11 @@ For each TLSN capture/readiness refresh, APP performs these steps in order:
 1. Load and validate all three embedded Bootstrap values. Missing/incomplete
    input rejects. Do not fall back to a build-time operational endpoint,
    cached unverified Manifest, or local epoch `0`.
-2. Construct the exact same-origin Freshness URL and start a monotonic timer.
-   Generate 32 CSPRNG bytes; hold the nonce only in the pending request state.
+2. Construct the exact same-origin Freshness URL and generate 32 CSPRNG bytes.
+   Immediately before sending the challenge, start one monotonic 10-second
+   deadline and retain the nonce only in pending request state.
 3. Send one bounded HTTPS POST. No redirects, GET query nonce, auto retry, or
-   request replay. Reject if a response does not arrive before 10 seconds.
+   request replay. Reject if a response does not arrive before the deadline.
 4. Parse the exact response envelope and reject unknown/duplicate fields,
    noncanonical JSON, wrong version/scope, environment, URL audience, or
    invalid base64url.
@@ -655,13 +719,15 @@ For each TLSN capture/readiness refresh, APP performs these steps in order:
    The response key ID and delegation ID/digest must match exactly.
 9. Require exact nonce equality with the outstanding one-use challenge,
    `LATEST_AT_ISSUANCE`, correct audience/environment, and bounded issue/
-   expiry times. Consume/discard the nonce on every outcome. Require the
-   monotonic elapsed time to be below 10 seconds even if wall time is
-   incorrect.
-10. Fetch `manifest_ref` from the same origin's immutable snapshot path. Hash
-    the exact bytes before parsing; require equality with `manifest_sha256`
-    and the Release Commit Record. Do not fetch/re-serialize JSON to compute
-    this digest.
+   expiry times. Consume/discard the nonce on every outcome. Check the same
+   monotonic deadline; do not start a new timeout for any following fetch.
+10. Fetch `manifest_ref` from the same origin's immutable snapshot path and
+    fetch every referenced artifact using the remaining portion of that same
+    deadline. Hash each exact response body before parsing; the Manifest bytes
+    must equal `manifest_sha256` and the Release Commit Record. Do not
+    fetch/re-serialize JSON to compute these digests. Recheck the monotonic
+    deadline after the snapshot and each artifact fetch/hash; abort the
+    verification as soon as the shared deadline expires.
 11. Run the existing full Manifest v2 verification unchanged: root signer
     key ID/signature, schema/scope, expiry, 30-second clock policy,
     600-second Worker reference, all independent artifact digest checks,
@@ -672,10 +738,31 @@ For each TLSN capture/readiness refresh, APP performs these steps in order:
     same Manifest digest and commit generation/record digest; reject a lower
     delegation generation. A fresh client with no state still requires every
     online proof above.
-14. Only after every check succeeds, atomically persist the new epoch,
-    exact Manifest digest, commit generation, commit record digest,
-    delegation generations/digests, and last signed server time in one
-    versioned APP state record. Failure at any earlier step writes nothing.
+14. Prepare the versioned state in a uniquely named temporary file, write all
+    bytes and `fsync` that file without changing the current canonical state.
+    Immediately before the atomic rename, check the same monotonic deadline
+    again; perform no `await` or unrelated I/O between this check and rename.
+    If elapsed time is 10 seconds or more, remove the temporary file, discard
+    the verified result, and do not change epoch, digest, commit generation,
+    record digest, delegation generation, or last signed time. Otherwise,
+    atomically rename the complete state file and then sync the parent
+    directory for durability. The rename is the acceptance/persistence
+    linearization point.
+
+Receiving a response before the deadline is not acceptance. The response
+receipt time is distinct from the final acceptance time: all immutable
+Manifest/artifact fetches and verification must finish, and the final
+monotonic check must pass, before the atomic state rename can accept the
+Runtime Config.
+
+The current [`HttpRuntimeConfigObjectFetcher`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L456)
+uses a 5-second connect timeout and 15-second request timeout. Do not change
+that existing fetcher as part of this design. Phase 3 adds a separate
+Freshness-scoped client with redirects disabled, a 2-second connect limit,
+and a per-request timeout no greater than 10 seconds. One shared monotonic
+deadline starts immediately before the Freshness POST and is passed through
+the POST, immutable Manifest fetch, all artifact fetches, verification and
+the final state commit; per-request timeouts never reset it.
 
 The existing state file schema is v1 and stores only epoch/digest. Phase 3
 must migrate to a strict v2 state atomically while preserving v1 high-water.
@@ -716,13 +803,104 @@ failure or an ambiguous game-network write.
 
 ## 11. Adversarial security analysis
 
+### 11.1 Normal signer versus compromised Freshness signer
+
+The 10-second bound applies only while the Freshness signer and its
+currentness checks are honest: the issue lease holds the committed generation
+through response signing, and APP's monotonic deadline limits acceptance after
+the signature. It is **not** a bound on a compromised Freshness signer.
+
+A compromised Freshness signer can answer a fresh nonce with an older,
+previously root-signed Manifest and its valid Release Commit Record. APP cannot
+independently query the Journal's current head; it trusts the delegated
+Freshness signer for that claim. It still verifies the original Manifest
+signature and all existing time/reference constraints, so the child key
+cannot invent new Manifest bytes or new trust pins.
+
+The current source enforces these limits:
+
+- Manifest lifetime: `expires_at - not_before <= 3,600s`.
+- APP clock skew: at most `30s`; expiry is accepted only while
+  `expires_at > app_now - 30s`.
+- Worker reference age: `app_now - source.observed_at <= 600s`, and
+  `source.observed_at <= app_now + 30s`.
+- The source does **not** require `source.observed_at <= issued_at`; nor does
+  it prove that a supplied publisher `policy.now` is the actual signing wall
+  clock.
+
+For one fixed Manifest, let `E=expires_at` and
+`O=source.observed_at`. The source-level APP acceptance conditions imply:
+
+- On the APP clock, it must satisfy both `E > app_now - 30s` and
+  `app_now - O <= 600s`.
+- If the APP wall clock is at most 30 seconds slow, the corresponding
+  true-time upper bound is
+  `min(E + 60s, O + 630s)`. The Worker-reference age is therefore the tighter
+  per-Manifest limit when `O` is within the allowed release-time skew.
+- At publisher verification time `T0`, the code permits
+  `not_before <= T0 + 30s`, `E - not_before <= 3,600s`, and
+  `O <= T0 + 30s`. Thus the expiry path is at most `T0 + 3,690s`, while the
+  Worker-reference path is at most `T0 + 660s`; the latter is the maximum
+  fixed-Manifest window under those assumptions.
+
+The `660s` value is conditional on `policy.now` representing current release
+time and an APP clock within the configured skew. The code does not enforce
+`source.observed_at <= issued_at`, and `policy.now` is an input to the
+publisher verifier rather than an independently attested clock. Therefore
+the robust per-Manifest statement is the `min(E + 60s, O + 630s)` formula;
+without the clock assumptions, no absolute wall-time bound can be claimed.
+The one-hour Manifest lifetime is not a 10-second freshness guarantee.
+
+The fixed-Manifest window is **not** a total exposure bound for a compromised
+Freshness signer. The signer can answer each new nonce with a succession of
+previous root-signed Manifests whose Worker references remain fresh. If
+releases continue, that rolling downgrade can persist until the current
+Freshness delegation expires (maximum 24 hours), or the service is disabled.
+Response TTL and the APP's 10-second deadline do not bound this attack because
+the compromised signer can issue a new response for each request. Local
+delegation-generation high-water can reject an older key for an installation
+that stored a higher generation; a fresh APP has no such history. Immediate
+remote revocation for a fresh APP is not available under this offline-root
+design. Emergency response requires disabling the signer and an approved
+Bootstrap-root rotation/APP release.
+
+### 11.2 Key-compromise response
+
+1. **Freshness HSM/service compromise:** immediately disable its signing
+   operation and the Freshness route; readiness becomes BLOCKED. Do not renew
+   the compromised delegation. Generate/approve a different Freshness key
+   outside this repository, have the offline Bootstrap root issue a
+   higher-generation Freshness delegation, and deploy only after the new
+   signer/journal checks pass. An extracted old key remains usable by an
+   attacker until its delegation expires; a fresh APP cannot remotely learn
+   an untrusted revocation statement. The 24-hour delegation cap is the
+   maximum exposure absent successful service-key disable.
+2. **Release Authority HSM/service compromise:** freeze releases and Journal
+   commit operations. The online key is non-exportable but can still be
+   misused through its signing service; confirm that no arbitrary signing
+   path exists, rotate to a new root-delegated Release Authority key, and
+   verify the Journal/DO/R2 head before resuming. Do not renew the old
+   delegation; an extracted key remains cryptographically authorized until
+   its 30-day delegation expires, and a fresh APP cannot accept an
+   untrusted revocation claim. Never delete or rewrite old commit records or
+   lower the generation.
+3. **Bootstrap root compromise:** stop Manifest publication, delegations and
+   Freshness. Existing APPs cannot remotely revoke their embedded root. Root
+   rotation requires a separately approved APP release and trust migration;
+   until affected clients use the new root, Production acceptance remains
+   BLOCKED.
+4. **After any signer incident:** keep the issue-lease and signer circuit
+   breakers closed until the current Release Journal head, DO state, pointer,
+   immutable snapshot, delegations and APP verifier agree. Preserve the
+   highest known generation and offsite checkpoint; never reset to zero.
+
 | Scenario / attacker capability | Detection and required behavior | Maximum impact if assumptions hold |
 |---|---|---|
 | Freshness endpoint compromised, signer key not compromised | Endpoint can deny, delay, cache or alter bytes; APP signature/nonce/audience/digest checks reject. Signer obtains data independently, not endpoint-supplied epoch/digest. | TLSN availability loss only. |
 | Manifest publisher compromised | It may attempt pointer rollback or publish partial objects. It lacks Bootstrap root and Release Authority keys; DO/journal/pointer mismatch blocks Freshness. | DoS/orphan objects; cannot create a new valid Manifest. |
 | Bootstrap-root/Manifest signer compromised | Attacker can sign a malicious Manifest and malicious delegations because current Manifest v2 trusts this key directly. | Full APP Runtime Config trust compromise, including APP-side Notary/Registry pins. Requires new Bootstrap root in an APP release; no remote revocation of old APP pins. |
-| Release Authority private key compromised | It can forge commit records, but Freshness signer also requires the current DO record, append-only Journal head, R2 pointer ETag/digest, and root-signed Manifest to match. | May cause release-authority denial/forged receipts; combined compromise of DO/journal controls is broader. It cannot sign a Manifest or Freshness response. |
-| Freshness delegated key compromised | Attacker can sign nonce-bound Freshness responses and claim a previously root-signed Manifest/commit is latest. APP still verifies the original Manifest and Release Commit Record. | Can replay an older still-valid config or deny readiness; cannot create new Manifest, Result, Notary, or Registry signatures. Bound by Manifest expiry/reference age, 10-second request acceptance window, and delegation expiry. |
+| Release Authority HSM key/service compromised | A non-exportable key can still be misused through its online signing interface. The typed service must re-read the pending DO attempt, pointer/snapshot and prior Journal head before signing; Journal compare-and-append and the Authority Worker's commit path independently recheck the signed record and expected generation/epoch. | The signer alone can create commit-record signatures but cannot write the pointer, DO ledger or Journal, and cannot create a Freshness response. The delegated signature authority expires within 30 days; an untrusted revocation is not available to a fresh APP. If combined with Authority Worker compromise it can cause malformed commits or availability loss; APP and Freshness still require the original root-signed Manifest v2 and monotonic Journal head, so no Manifest/Notary/Result trust can be forged. |
+| Freshness delegated key compromised | Attacker can sign a response to each fresh nonce and replay any still-valid root-signed Manifest/Release Commit Record as latest. APP verifies those originals but cannot independently know Journal head. | Latestness guarantee is compromised. A fixed Manifest is bounded by `min(expires_at + 60s, observed_at + 630s)` under the clock assumption; with continuing releases, rollback may persist until the delegation expires (maximum 24 hours). The 10-second request deadline does not limit this attack. The child cannot create new Manifest, Result, Notary or Registry signatures. |
 | Delegation issuance authority compromised | Root can issue replacement child keys or alter allowed purposes. | Equivalent to Bootstrap-root compromise; offline custody and APP root rotation are required. |
 | R2 object bytes modified | Exact Manifest/snapshot digest, root signature, artifact hashes and commit record do not match. | Freshness/Manifest acceptance blocked. |
 | R2 mutable pointer rolled back | Current DO generation/ETag and Release Journal head exceed or differ from pointer. | No response; recovery uses exact current snapshot, not the old pointer. |
@@ -755,6 +933,9 @@ requires explicit approval for a disposable bucket.
 | Freshness delegation expired/revoked by expiry | Reject even if response signature is otherwise valid. | APP unit |
 | Release Authority record signature invalid, wrong key/delegation, wrong scope/env/state | Journal entry not committed; signer and APP reject. | Release Authority + signer unit |
 | Release record wrong epoch/digest/ref/ETag/generation/commit ID or previous record hash | Reject; do not advance DO or Journal head. | DO + Release Authority unit |
+| Journal append has a stale previous head, repeated generation with different bytes, or non-increasing Manifest epoch | Reject atomically; preserve current Journal head. | Journal compare-and-append integration |
+| Release/Freshness signer uses the wrong DO operation credential or attempts a release mutation | Reject; no pointer, DO release state or Journal change. | DO RPC authorization integration |
+| Release signer receives forged DO/pointer/Journal claims from its caller | Ignore caller state and independently read its DO binding, R2 and Journal; do not sign on mismatch. | Release signer integration |
 | Root-signed Manifest modified after record creation | Exact digest/signature mismatch; no Freshness response. | Signer unit |
 | Publish attempt starts while an issue lease is active | DO denies pointer preparation/CAS until leases end; no pointer mutation occurs. | DO concurrency test |
 | Freshness request starts after a release is pending | DO refuses a new lease; no response signature. | DO + signer integration |
@@ -777,7 +958,7 @@ requires explicit approval for a disposable bucket.
 | R2 pointer CAS races with same ETag | One publisher wins; one conflict; no two commit records. | Publisher unit + disposable R2 |
 | Crash after PREPARED before pointer CAS | No Freshness signature; safe abort only if write never began and old pointer remains exact. | DO state-machine test |
 | Crash after pointer CAS before POINTER_COMMITTED | Direct readback advances only if exact candidate; otherwise pending/block. | DO + fake R2 |
-| Crash after POINTER_COMMITTED before signed Journal append | Signer blocks; offline Release Authority may complete the exact prepared record. | Release Authority integration |
+| Crash after POINTER_COMMITTED before signed Journal append | Signer blocks; Release Authority HSM service may complete the exact prepared record after revalidating all current state. | Release Authority integration |
 | Crash after Journal append before DO COMMITTED | Recovery validates exact Journal record and pointer before advancing DO; no new generation. | DO + Journal integration |
 | Partial artifact/snapshot writes | Pointer remains unchanged; no commit record or Freshness signature. | Publisher unit |
 | Missing pointer with nonzero DO/Journal state | Never treat as first install; restore exact latest snapshot or remain blocked. | Signer/recovery integration |
@@ -785,6 +966,11 @@ requires explicit approval for a disposable bucket.
 | All current sources disagree or Journal lost | No signature, no epoch-zero fallback, manual recovery required. | Recovery/runbook exercise |
 | CDN supplies cached old response or old Manifest | Nonce or exact raw digest mismatch rejects. | APP/Worker integration |
 | Freshness endpoint/signer/Journal/DO unavailable | TLSN readiness blocks, local state unchanged, normal proxy traffic still succeeds. | APP integration |
+| Freshness response arrives before 10 seconds but Manifest/artifact verification finishes at/after the shared deadline | Reject; do not persist epoch, digest, commit or delegation state. | APP integration with delayed fake fetcher |
+| Deadline expires immediately before atomic state rename | Remove the temporary state file; the prior canonical state is unchanged. | APP state-store unit test with monotonic clock |
+| POST, snapshot and artifact requests attempt to restart their own timeout | Reject at the original 10-second operation deadline; each request receives only the remaining time. | Freshness client unit/integration |
+| Release tries to update R2 or append Journal while an issue lease is active | Authority blocks mutation until lease end/expiry; no commit is visible during the signature interval. | DO + Authority Worker concurrency test |
+| Recovery tries to bypass an active issue lease | Recovery remains blocked until issue leases expire and Freshness is disabled by the controlled kill switch. | Recovery/Authority integration |
 | APP ordinary game request has ambiguous network outcome | No resend due to freshness failure or runtime configuration retry. | APP proxy integration |
 | Freshness key attempts to sign Manifest/Result/Notary payload | APP Manifest verifier and Worker Result/Notary verifiers reject the child key/domain. | Cross-language + Worker contract |
 | Freshness Worker receives caller-supplied epoch/digest/URI/ledger state | Strict request schema rejects; signer derives them independently. | Worker security test |
@@ -806,7 +992,8 @@ started.
   no Freshness tests or signing calls.
 - **Fail/complete:** no design ambiguity for code implementation; human
   approval remains required for root custody, child-key custody, Journal
-  operator/retention, and service registration. **Specification written;
+  operator/retention, Worker deployment identities/bindings, scoped DO
+  operation credentials, and service registration. **Specification written;
   trust approval NOT_GRANTED.**
 - **External inputs:** no secret/key values in chat or source.
 
@@ -821,13 +1008,18 @@ started.
   `packages/FUSOU-TLSN-RUNTIME-CONFIG-AUTHORITY/` Worker with
   `src/index.ts`, `src/release-authority.ts`, `src/journal-client.ts`,
   `wrangler.toml`, generated binding types, and SQLite Durable Object
-  migration; `scripts/tlsn-runtime-config-release-commit.mjs` and commit
-  record fixtures/tests.
+  migration; a separately deployed
+  `packages/FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-SIGNER/` adapter Worker with
+  `src/index.ts`, `src/commit-verifier.ts`, its HSM client and binding types;
+  plus `scripts/tlsn-runtime-config-release-commit.mjs` and commit-record
+  fixtures/tests.
 - **API/schema:** Release Authority DO methods
   `prepareRelease`, `markPointerWriteStarted`, `observePointerCommitted`,
-  `commitRelease`, `acquireFreshnessIssueLease`,
+  `commitRelease`, `getPreparedRelease`, `acquireFreshnessIssueLease`,
   `releaseFreshnessIssueLease`, `getCurrentCommitted`, and recovery-only
-  methods with strict roles. The release CLI calls an authenticated internal
+  methods with role-checked operations. Both signer Workers bind to this same
+  DO namespace and query the stored state directly; they do not consume state
+  synthesized by the Authority Worker's HTTP handler. The release CLI calls an authenticated internal
   `POST /internal/v1/releases/prepare` with the exact signed Manifest bytes;
   Authority code verifies the root signature and derives the candidate
   epoch/digest itself. The route authenticates the protected release-pipeline
@@ -835,23 +1027,26 @@ started.
   proof. The CLI has no R2 writer credential after migration.
   The Authority Worker is the only Runtime Config pointer writer;
   `observePointerCommitted(attempt_id)` reads R2 directly and accepts no
-  publisher-supplied ETag/digest as proof. `getCurrentCommitted` and issue
-  leases are exposed to the signer through a private service binding; the
-  signer has no release-mutation capability. Add immutable Manifest snapshot key
+  publisher-supplied ETag/digest as proof. The Release Authority signer uses
+  `getPreparedRelease`; the Freshness signer uses `getCurrentCommitted` and
+  the two issue-lease calls. Signers have no release-mutation credentials.
+  Add immutable Manifest snapshot key
   `tlsn/runtime-config/v2/manifests/<manifest_sha256>`, `R2` allowlist,
   cache metadata and exact readback. Add `ReleaseCommitRecordV1` and an
-  append-only Journal interface with create-once `append(record)` and
-  authenticated linearizable `getHead(environment)`.
+  append-only Journal interface whose atomic `append(record)` verifies the
+  signature/delegation, compares previous head hash/generation and increasing
+  Manifest epoch, then creates the record once; `getHead(environment)` is
+  authenticated and linearizable.
 - **Order:** prepare/verify Manifest and artifacts; write artifacts and
   snapshot create-only; DO records PREPARED; the Authority Worker sets the
   pointer-write-started bit and performs the existing R2 `If-Match` /
   `If-None-Match: *` CAS only when no issue lease is active; Authority
   directly reads the pointer/snapshot and records provisional
-  POINTER_COMMITTED; the offline Release Authority signer independently
-  rereads R2/DO/Journal and signs the exact commit record; Journal appends
-  and reads back the create-once record; DO verifies it and transitions to
-  COMMITTED. No endpoint-supplied release values are trusted in these
-  transitions.
+  POINTER_COMMITTED; the online Release Authority HSM service independently
+  rereads R2/DO/Journal and signs the exact commit record; Journal
+  compare-and-appends against its current head and reads back the create-once
+  record; DO verifies it and transitions to COMMITTED. No endpoint-supplied
+  release values are trusted in these transitions.
 - **Tests:** all state transitions, CAS, concurrent release, generation and
   epoch rules, crash recovery, missing snapshot, Journal head mismatch,
   R2 restore, and no secret output. Run live R2 only against a separately
@@ -859,8 +1054,9 @@ started.
 - **Fail/complete:** no Freshness response until all committed state sources
   agree. Any lost state blocks; no zero reset.
 - **External input:** approve Journal provider/retention/account, DO
-  namespace, Release Authority offline key custody, authorized release
-  operators, and R2 permissions. No user supplies secrets in chat.
+  namespace and scoped Worker bindings, Release Authority non-exportable HSM
+  provider/key custody, per-service DO operation credentials, authorized
+  release operators, and R2 permissions. No user supplies secrets in chat.
 
 ### Phase 2 — Root delegations and Freshness signer service
 
@@ -870,10 +1066,10 @@ started.
   its own `src/index.ts`, `wrangler.toml`, generated types and tests. The
   Gateway owns the same-origin APP route and a private Service Binding to
   the Signer. The Signer owns the delegated Freshness secret, read-only R2
-  and Journal access, and a private service binding exposing only committed
-  state/issue-lease methods from the Authority Worker. It has no direct DO
-  namespace or release-mutation capability. Do not add either role to
-  `FUSOU-TLSN-VERIFICATION-WORKER`.
+  and Journal access, and a direct binding to the same DO namespace for
+  committed-state reads and issue-lease calls. Its DO interface is
+  role-checked and contains no release-mutation credential. Do not add either
+  role to `FUSOU-TLSN-VERIFICATION-WORKER`.
 - **Existing files:** add production readiness checks to Runtime Config
   registration/publisher diagnostics and type/vector tests.
 - **API/schema:** strict POST request/response, root delegation verifier,
@@ -882,9 +1078,9 @@ started.
   There is no arbitrary `sign(bytes)` endpoint and no caller-supplied release
   state.
 - **Order:** obtain approved root-signed delegations offline; provision
-  read-only R2/Journal/committed-state access, a narrowly scoped issue-lease
-  capability, and the Freshness private key through the approved
-  secret/HSM provider; only then enable the endpoint. The Freshness signer
+  read-only R2/Journal access, the direct DO read/issue-lease binding, and a
+  non-exportable Freshness key in the approved managed HSM; only then enable
+  the endpoint. The Freshness signer
   acquires an issue lease before checking state, signs while the lease is
   active, and releases it after signing. The Gateway never receives the
   signing key. Bootstrap root material never enters either Worker.
@@ -975,7 +1171,8 @@ The following are external trust/operations inputs, not coding questions:
    retaining the root offline and continuing the current direct-root Manifest
    v2 signature contract.
 2. Release Authority key custody/approval and the independently administered
-   append-only Journal provider, account, retention, access roles and
+   append-only Journal provider, account, retention, access roles,
+   independently provisioned Bootstrap public-key pin/rotation process and
    current-head guarantee.
 3. Freshness key custody provider and its 24-hour maximum delegation policy.
    No private key or token is to be pasted into chat.
@@ -988,6 +1185,11 @@ The following are external trust/operations inputs, not coding questions:
    serialization design rather than weakening checks.
 7. Production endpoint/domain, R2 roles, signer registration, APP release
    and external service access. All remain unregistered/not checked.
+8. Worker deployment identities, direct DO namespace bindings, and separate
+   operation credentials for Authority mutation versus Release Authority
+   reads and Freshness reads/leases. Cloudflare namespace bindings are not
+   method-level ACLs; the deployed DO RPC authorization must be reviewed.
+   These permissions are not registered or verified.
 
 **Phase 0 result:** Option B and `LATEST_AT_ISSUANCE` are specified with
 bounded semantics, delegated keys, a signed commit record, an independent
