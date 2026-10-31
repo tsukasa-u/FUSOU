@@ -1,9 +1,9 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Current status snapshot — `254967c4fb77d279a608da91b8836b5b9d8f551e` (2026-11-01)
+## Source/readiness snapshot at review start — baseline `254967c4fb77d279a608da91b8836b5b9d8f551e` (2026-11-01)
 
-The inspected branch is `tlsn-first-testplay-candidate`; local HEAD, local
-tracking ref, and GitHub branch head are
+At review start, the inspected branch was `tlsn-first-testplay-candidate`;
+local HEAD, local tracking ref, and GitHub branch head were
 `254967c4fb77d279a608da91b8836b5b9d8f551e`. Its parent is
 `3c2b5b2d8fcb1f78c4c2a43cb89c3842ca944a36`. The runtime-source baseline
 remains `43ab72e6284deee3ad202be7fb50e3f0199af304`; the scoped APP/Worker
@@ -51,9 +51,9 @@ recent Manifests until its delegated key expires (maximum 24 hours). The
 10-second deadline does not limit signer compromise; Fresh-client immediate
 delegation revocation is unavailable.
 
-Run #95 validates this starting HEAD, not the later uncommitted
-documentation-only edits from this Phase 0 task. No push or new Hosted CI run
-is part of this task.
+Run #95 validates this review-start source HEAD, not the subsequent
+documentation-only changes from this Phase 0 review. No push or new Hosted CI
+run is part of this task.
 
 ## Historical status snapshot — `a0cb49250df53132ee8df42ca02fbce91e10c7d2` (2026-11-01)
 
