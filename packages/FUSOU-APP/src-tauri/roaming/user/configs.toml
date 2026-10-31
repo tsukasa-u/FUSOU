@@ -181,6 +181,11 @@ save_file_location = ""
     custom_image_url = "https://avatars.githubusercontent.com/u/68815462?v=4"
 
 
+    [app.map_cell_labels]
+    # URL of the FUSOU-WEB map cell label bundle used by FUSOU-APP
+    bundle_url = " https://fusou.dev/battle-maps/cell_labels.json"
+
+
     [app.database]
     # Whether to save KanColle data to the cloud
     # this feature can be enabled with user authentication

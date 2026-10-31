@@ -201,6 +201,20 @@ fn get_visible_external_window(app: &AppHandle) -> Option<tauri::WebviewWindow> 
     }
 }
 
+pub fn is_external_window_focused(app: &AppHandle) -> bool {
+    let Some(external) = get_visible_external_window(app) else {
+        return false;
+    };
+
+    match external.is_focused() {
+        Ok(is_focused) => is_focused,
+        Err(error) => {
+            tracing::warn!("failed to determine external window focus: {}", error);
+            false
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn eval_external_script_with_callback(
     external: &tauri::WebviewWindow,
@@ -267,7 +281,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
 
                 if key == gdk::keys::constants::F5 {
                     tracing::warn!("linux webview key fallback pressed: F5 (external reload)");
-                    reload_focused_external_window(&app_handle);
+                    handle_external_reload_shortcut(&app_handle);
                     return webkit2gtk::glib::Propagation::Stop;
                 }
 
@@ -276,7 +290,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                     tracing::warn!(
                         "linux webview key fallback pressed: Ctrl/Super+R (external force refresh)"
                     );
-                    force_refresh_focused_external_window(&app_handle);
+                    handle_external_force_refresh_shortcut(&app_handle);
                     return webkit2gtk::glib::Propagation::Stop;
                 }
 
@@ -285,7 +299,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                     tracing::warn!(
                         "linux webview key fallback pressed: Ctrl/Super+S (external screenshot)"
                     );
-                    capture_focused_external_window_screenshot(&app_handle);
+                    handle_external_screenshot_shortcut(&app_handle);
                     return webkit2gtk::glib::Propagation::Stop;
                 }
 
@@ -369,7 +383,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                     VK_LWIN | VK_RWIN => win_down = true,
                     VK_F5 => {
                         tracing::warn!("windows webview key fallback pressed: F5 (external reload)");
-                        reload_focused_external_window(&app_handle);
+                        handle_external_reload_shortcut(&app_handle);
                         unsafe {
                             let _ = args.SetHandled(true);
                         }
@@ -378,7 +392,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                         tracing::warn!(
                             "windows webview key fallback pressed: Ctrl/Super+R (external force refresh)"
                         );
-                        force_refresh_focused_external_window(&app_handle);
+                        handle_external_force_refresh_shortcut(&app_handle);
                         unsafe {
                             let _ = args.SetHandled(true);
                         }
@@ -387,7 +401,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                         tracing::warn!(
                             "windows webview key fallback pressed: Ctrl/Super+S (external screenshot)"
                         );
-                        capture_focused_external_window_screenshot(&app_handle);
+                        handle_external_screenshot_shortcut(&app_handle);
                         unsafe {
                             let _ = args.SetHandled(true);
                         }
@@ -475,23 +489,27 @@ fn nudge_external_window_size(external: &tauri::WebviewWindow) {
     }
 }
 
-pub fn reload_focused_external_window(app: &AppHandle) {
+pub fn reload_focused_external_window(app: &AppHandle) -> bool {
     let Some(external) = get_visible_external_window(app) else {
         tracing::debug!("skip external reload: external window not found or not visible");
-        return;
+        return false;
     };
 
     tracing::warn!("trigger external reload");
 
-    if let Err(e) = external.reload() {
-        tracing::warn!("failed to reload external window: {}", e);
+    match external.reload() {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!("failed to reload external window: {}", error);
+            false
+        }
     }
 }
 
-pub fn force_refresh_focused_external_window(app: &AppHandle) {
+pub fn force_refresh_focused_external_window(app: &AppHandle) -> bool {
     let Some(external) = get_visible_external_window(app) else {
         tracing::debug!("skip external force refresh: external window not found or not visible");
-        return;
+        return false;
     };
 
     tracing::warn!("trigger external force refresh");
@@ -506,6 +524,7 @@ pub fn force_refresh_focused_external_window(app: &AppHandle) {
 
     // Fallback repaint path that does not depend on page JS responsiveness.
     nudge_external_window_size(&external);
+    true
 }
 
 pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<PathBuf> {
@@ -706,6 +725,62 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
         );
         None
     }
+}
+
+pub fn handle_external_reload_shortcut(app: &AppHandle) {
+    if !is_external_window_focused(app) || !reload_focused_external_window(app) {
+        return;
+    }
+
+    crate::notify::show(app, "External window", "Reload started.");
+}
+
+pub fn handle_external_force_refresh_shortcut(app: &AppHandle) {
+    if !is_external_window_focused(app) || !force_refresh_focused_external_window(app) {
+        return;
+    }
+
+    crate::notify::show(app, "External window", "Refresh requested.");
+}
+
+pub fn handle_external_screenshot_shortcut(app: &AppHandle) {
+    if !is_external_window_focused(app) {
+        return;
+    }
+
+    let Some(path) = capture_focused_external_window_screenshot(app) else {
+        return;
+    };
+
+    crate::notify::show(
+        app,
+        "External window",
+        &format!("Screenshot capture started. Target: {}", path.display()),
+    );
+}
+
+#[tauri::command]
+pub fn external_window_shortcut(
+    window: tauri::WebviewWindow,
+    action: String,
+) -> Result<(), String> {
+    if window.label() != "external" {
+        return Err("shortcut actions are only available to the external window".to_string());
+    }
+
+    let app = window.app_handle();
+    if !is_external_window_focused(&app) {
+        return Ok(());
+    }
+
+    match action.as_str() {
+        "reload" => handle_external_reload_shortcut(&app),
+        "force-refresh" => handle_external_force_refresh_shortcut(&app),
+        "screenshot" => handle_external_screenshot_shortcut(&app),
+        _ => return Err(format!("unsupported external shortcut action: {action}")),
+    }
+
+    Ok(())
 }
 
 pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {

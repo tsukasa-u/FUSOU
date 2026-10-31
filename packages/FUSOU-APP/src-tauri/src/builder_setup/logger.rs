@@ -94,7 +94,7 @@ where
             }
         }
 
-        self.app_handle.emit("log-event", visitor).ok();
+        self.app_handle.emit(crate::events::LOG_EVENT, visitor).ok();
     }
 }
 

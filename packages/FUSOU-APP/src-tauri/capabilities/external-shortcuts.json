@@ -1,0 +1,13 @@
+{
+  "identifier": "external-shortcuts",
+  "description": "Allows the game window to request its limited shortcut actions.",
+  "local": false,
+  "remote": {
+    "urls": [
+      "http://www.dmm.com/**",
+      "https://www.dmm.com/**"
+    ]
+  },
+  "windows": ["external"],
+  "permissions": ["allow-external-window-shortcut"]
+}

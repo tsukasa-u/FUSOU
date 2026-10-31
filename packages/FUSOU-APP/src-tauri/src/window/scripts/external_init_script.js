@@ -101,13 +101,23 @@ const stopKeyEvent = (event) => {
   }
 };
 
+const requestNativeShortcut = (action) => {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== "function") {
+    console.error("Native shortcut handler is unavailable.");
+    return;
+  }
+
+  invoke("external_window_shortcut", { action }).catch((error) => {
+    console.error(`Failed to handle external ${action} shortcut:`, error);
+  });
+};
+
 const shortcutActions = [
   {
     id: "reload",
-    match: (event) => event.key === "F5" && !event.ctrlKey && !event.metaKey,
-    run: () => {
-      window.location.reload();
-    },
+    match: (event) => event.key === "F5",
+    run: () => requestNativeShortcut("reload"),
   },
   {
     id: "force-refresh",
@@ -115,7 +125,7 @@ const shortcutActions = [
       const key = event.key?.toLowerCase();
       return key === "r" && (event.ctrlKey || event.metaKey);
     },
-    run: forceRenderRefresh,
+    run: () => requestNativeShortcut("force-refresh"),
   },
   {
     id: "screenshot",
@@ -123,9 +133,7 @@ const shortcutActions = [
       const key = event.key?.toLowerCase();
       return key === "s" && (event.ctrlKey || event.metaKey);
     },
-    run: () => {
-      // Native shortcut handler captures the screenshot.
-    },
+    run: () => requestNativeShortcut("screenshot"),
   },
 ];
 

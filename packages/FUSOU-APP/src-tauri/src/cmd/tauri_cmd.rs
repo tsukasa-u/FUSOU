@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
 use crate::builder_setup::logger::MessageVisitor;
+use crate::events;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -33,7 +34,7 @@ pub async fn get_mst_ships(window: tauri::Window) {
     let data = MstShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-ships", data);
+        .emit_to("main", events::SET_KCS_MST_SHIPS, data);
 }
 
 #[tauri::command]
@@ -41,7 +42,7 @@ pub async fn get_mst_slot_items(window: tauri::Window) {
     let data = MstSlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-slot-items", data);
+        .emit_to("main", events::SET_KCS_MST_SLOT_ITEMS, data);
 }
 
 #[tauri::command]
@@ -49,7 +50,7 @@ pub async fn get_slot_items(window: tauri::Window) {
     let data = SlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-slot-items", data);
+        .emit_to("main", events::SET_KCS_SLOT_ITEMS, data);
 }
 
 #[tauri::command]
@@ -57,7 +58,7 @@ pub async fn get_mst_equip_exslot_ships(window: tauri::Window) {
     let data = MstEquipExslotShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
+        .emit_to("main", events::SET_KCS_MST_EQUIP_EXSLOT_SHIPS, data);
 }
 
 #[tauri::command]
@@ -65,7 +66,7 @@ pub async fn get_mst_slotitem_equip_types(window: tauri::Window) {
     let data = MstSlotItemEquipTypes::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
+        .emit_to("main", events::SET_KCS_MST_SLOT_ITEM_EQUIP_TYPES, data);
 }
 
 #[tauri::command]
@@ -73,7 +74,7 @@ pub async fn get_mst_equip_ships(window: tauri::Window) {
     let data = MstEquipShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-ships", data);
+        .emit_to("main", events::SET_KCS_MST_EQUIP_SHIPS, data);
 }
 
 #[tauri::command]
@@ -81,7 +82,7 @@ pub async fn get_mst_stypes(window: tauri::Window) {
     let data = MstStypes::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-stypes", data);
+        .emit_to("main", events::SET_KCS_MST_STYPES, data);
 }
 
 #[tauri::command]
@@ -89,7 +90,7 @@ pub async fn get_mst_useitems(window: tauri::Window) {
     let data = MstUseItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-use-items", data);
+        .emit_to("main", events::SET_KCS_MST_USE_ITEMS, data);
 }
 
 #[allow(dead_code)]
@@ -217,7 +218,7 @@ pub async fn force_local_sign_out(
     // Tell frontend to drop tokens immediately.
     let _ = window.app_handle().emit_to(
         "main",
-        "set-supabase-tokens",
+        events::SET_SUPABASE_TOKENS,
         vec![String::new(), String::new()],
     );
 
@@ -357,7 +358,7 @@ pub async fn get_kc_server_name(_window: tauri::Window) -> Result<String, ()> {
 //--------------------------------------------------------------
 
 pub fn set_update_page(app: &AppHandle) {
-    let _ = app.emit_to("main", "set-main-page-update", ());
+    let _ = app.emit_to("main", events::SET_MAIN_PAGE_UPDATE, ());
 }
 
 #[tauri::command]

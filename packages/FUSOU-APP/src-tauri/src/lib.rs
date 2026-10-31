@@ -16,7 +16,9 @@ use tauri::AppHandle;
 mod auth;
 mod builder_setup;
 mod cmd;
+mod events;
 mod integration;
+mod map_cell_labels;
 mod notify;
 mod scheduler;
 mod senders;
@@ -145,7 +147,6 @@ pub async fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(
             move |app: &tauri::AppHandle, argv: Vec<String>, _cwd| {
                 builder_setup::single_instance::single_instance_init(app, argv)
@@ -192,6 +193,7 @@ pub async fn run() {
             cmd::tauri_cmd::close_debug_window,
             #[cfg(dev)]
             cmd::tauri_cmd::read_emit_file,
+            window::external::external_window_shortcut,
         ])
         .setup(move |app: &mut tauri::App| {
             // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
@@ -289,13 +291,30 @@ pub async fn run() {
 
             // Run remaining setup (logger, tray, schedulers, etc.) so that logging is available
             // before we perform token fetch below.
+            let cached_map_labels = crate::map_cell_labels::load_cached_labels();
             builder_setup::setup::setup_init(app)?;
+            if let Err(error) = cached_map_labels {
+                tracing::warn!(error = %error, "failed to load cached map cell labels");
+            }
 
             // Fetch tokens and emit to frontend (after logger is initialized inside setup_init)
             let app_handle = app.handle().clone();
             let app_handle_for_notification = app.handle().clone();
             let storage_for_bootstrap = storage.clone();
             let auth_manager_for_bootstrap = auth_manager.clone();
+            let map_labels_bundle_url = configs::get_user_configs_for_app()
+                .map_cell_labels
+                .get_bundle_url();
+
+            let app_handle_for_map_labels = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let Some(bundle_url) = map_labels_bundle_url else {
+                    tracing::warn!("map cell label bundle URL is not configured");
+                    return;
+                };
+                crate::map_cell_labels::refresh_from_web(app_handle_for_map_labels, bundle_url)
+                    .await;
+            });
 
             tauri::async_runtime::spawn(async move {
                 bootstrap_tokens_on_startup(
