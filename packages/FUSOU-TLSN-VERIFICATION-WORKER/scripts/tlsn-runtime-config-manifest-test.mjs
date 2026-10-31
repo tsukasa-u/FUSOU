@@ -880,6 +880,90 @@ test("Runtime Config publisher reads back immutable artifacts before atomic mani
   );
 });
 
+test("Runtime Config publisher refuses a signed epoch rollback against the current server pointer", async () => {
+  const inputs = currentIndependentInputs();
+  const store = new FakeRuntimeConfigObjectStore();
+  const publish = (epoch) => {
+    const prepared = preparedOptions(inputs.worker_reference_raw, release, epoch);
+    return publishTlsnRuntimeConfigForTest({
+      prepared,
+      signerProvider: testSignerProvider(),
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+      workerReferenceRevalidation: workerReferenceRevalidation(),
+      objectStore: store,
+    });
+  };
+
+  await publish("2");
+  const currentManifest = Buffer.from(store.manifestBody);
+  const eventCount = store.events.length;
+  await assert.rejects(() => publish("1"), /cannot roll back or replace the current epoch/);
+  assert.deepEqual(store.manifestBody, currentManifest);
+  assert.equal(store.events.slice(eventCount).some((event) => event.startsWith("put:")), false);
+  assert.equal(store.events.slice(eventCount).includes("manifest-cas"), false);
+});
+
+test("Runtime Config publisher fails closed when a nonzero epoch high-water has no server pointer", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "2");
+  const store = new FakeRuntimeConfigObjectStore();
+  await assert.rejects(
+    () => publishTlsnRuntimeConfigForTest({
+      prepared,
+      signerProvider: testSignerProvider(),
+      trustedSigner,
+      policy: policy(prepared, {
+        last_accepted_epoch: "1",
+        last_accepted_manifest_sha256: "A".repeat(43),
+      }),
+      independentInputs: inputs,
+      workerReferenceRevalidation: workerReferenceRevalidation(),
+      objectStore: store,
+    }),
+    /server Runtime Config manifest pointer is missing despite a nonzero epoch high-water/,
+  );
+  assert.equal(store.events.some((event) => event.startsWith("put:")), false);
+  assert.equal(store.events.includes("manifest-cas"), false);
+});
+
+test("Runtime Config publisher refuses different manifest bytes at the current server epoch", async () => {
+  const inputs = currentIndependentInputs();
+  const store = new FakeRuntimeConfigObjectStore();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "2");
+  const options = {
+    signerProvider: testSignerProvider(),
+    trustedSigner,
+    policy: policy(prepared),
+    independentInputs: inputs,
+    workerReferenceRevalidation: workerReferenceRevalidation(),
+    objectStore: store,
+  };
+  await publishTlsnRuntimeConfigForTest({ ...options, prepared });
+  const currentManifest = Buffer.from(store.manifestBody);
+  const issuedAt = new Date(Date.parse(prepared.payload.issued_at) + 1000).toISOString();
+  const alteredPayload = {
+    ...prepared.payload,
+    issued_at: issuedAt,
+    not_before: issuedAt,
+    expires_at: new Date(Date.parse(issuedAt) + 30 * 60 * 1000).toISOString(),
+  };
+  const sameEpochDifferentManifest = {
+    ...prepared,
+    payload: alteredPayload,
+    payload_base64url: Buffer.from(canonicalJson(alteredPayload), "utf8").toString("base64url"),
+  };
+  const eventCount = store.events.length;
+  await assert.rejects(
+    () => publishTlsnRuntimeConfigForTest({ ...options, prepared: sameEpochDifferentManifest }),
+    /cannot roll back or replace the current epoch/,
+  );
+  assert.deepEqual(store.manifestBody, currentManifest);
+  assert.equal(store.events.slice(eventCount).some((event) => event.startsWith("put:")), false);
+  assert.equal(store.events.slice(eventCount).includes("manifest-cas"), false);
+});
+
 test("Runtime Config publisher refuses a bad artifact readback or a raced manifest pointer", async () => {
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");

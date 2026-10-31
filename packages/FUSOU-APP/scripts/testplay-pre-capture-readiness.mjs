@@ -3,6 +3,7 @@ import { testplayAcceptanceStages } from "./testplay-acceptance-stages.mjs";
 import {
   assertBuildReference,
   assertCompiledReport,
+  runtimeConfigBootstrapSha256,
   sha256,
 } from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
 import {
@@ -43,6 +44,7 @@ function assertAppPreflight(report, { configPath, buildProfile, reference }) {
     "config_source",
     "tlsn_enabled",
     "tlsn_runtime_config_bootstrap",
+    "tlsn_runtime_config_manifest",
     "tlsn_transport_lifecycle_policy",
     "tlsn_notary_attestation_limit",
     "tlsn_notary_endpoint",
@@ -76,6 +78,17 @@ function assertAppPreflight(report, { configPath, buildProfile, reference }) {
   const responseMode = checks.get("tlsn_response_mode").detail;
   if (disclosureMode !== reference.disclosure_mode || !["async", "sync"].includes(responseMode)) {
     throw new Error("actual APP preflight disclosure/response mode does not match the candidate contract");
+  }
+  if (
+    report.runtime_config_manifest_verification_status !== "APP_LOCAL_VERIFIED" ||
+    !digestPattern.test(report.runtime_config_manifest_sha256 ?? "") ||
+    !/^[1-9][0-9]{0,19}$/.test(report.runtime_config_manifest_epoch ?? "") ||
+    report.runtime_config_authority_status !== "UNVERIFIED" ||
+    report.runtime_config_bootstrap_report?.registration_status !== "EMBEDDED_UNVERIFIED" ||
+    report.runtime_config_bootstrap_sha256 !==
+      runtimeConfigBootstrapSha256(report.runtime_config_bootstrap_report)
+  ) {
+    throw new Error("APP Runtime Config trust observation is incomplete or improperly elevated");
   }
   const fingerprints = verifyAppConfigurationFingerprint(report.public_configuration_fingerprints);
   const pins = reference.compile_inputs;
@@ -135,10 +148,10 @@ export function createPreCaptureReadiness({
     parseReference(workerReferenceBytes),
     expectedWorkerSha,
   );
-  if (!appBuildRecord || appBuildRecord.schema_version !== 3 ||
+  if (!appBuildRecord || appBuildRecord.schema_version !== 4 ||
       appBuildRecord.scope !== "fusou-tlsn-app-operator-build-record" ||
       appBuildRecord.authority_status !== "UNVERIFIED" ||
-      appBuildRecord.compiled_input_comparison !== "VERIFIED" ||
+      appBuildRecord.worker_reference_validation !== "VERIFIED" ||
       appBuildRecord.runtime_config_bootstrap_comparison !== "VERIFIED" ||
       appBuildRecord.public_app_configuration_comparison !== "VERIFIED" ||
       appBuildRecord.reference_sha256 !== expectedReferenceSha256 ||
@@ -146,7 +159,8 @@ export function createPreCaptureReadiness({
       appBuildRecord.app_source_sha !== expectedAppSha ||
       appBuildRecord.active_version_id !== reference.cloudflare.version_id ||
       appBuildRecord.disclosure_mode !== reference.disclosure_mode ||
-      appBuildRecord.entry_input_sha256 !== appBuildRecord.compiled_report?.entry_input_sha256 ||
+      appBuildRecord.runtime_config_bootstrap_sha256 !==
+        runtimeConfigBootstrapSha256(appBuildRecord.runtime_config_bootstrap) ||
       appBuildRecord.build_profile !== buildProfile ||
       appBuildRecord.runtime_config_bootstrap?.registration_status !== "EMBEDDED_UNVERIFIED" ||
       !digestPattern.test(appBuildRecord.artifact?.sha256 ?? "") ||
@@ -156,15 +170,20 @@ export function createPreCaptureReadiness({
   }
   assertCompiledReport(
     appBuildRecord.compiled_report,
-    reference,
     expectedAppSha,
     buildProfile,
     appBuildRecord.runtime_config_bootstrap,
   );
+  if (
+    appPreflightReport.runtime_config_bootstrap_sha256 !==
+    appBuildRecord.runtime_config_bootstrap_sha256
+  ) {
+    throw new Error("APP preflight Bootstrap digest does not match the reviewed build report");
+  }
   assertAppPreflight(appPreflightReport, { configPath, buildProfile, reference });
 
   return {
-    schema_version: 2,
+    schema_version: 3,
     scope: "fusou-tlsn-testplay-pre-capture-readiness",
     created_at: createdAt,
     status: "LOCAL_APP_PREFLIGHT_PASS",
@@ -181,6 +200,14 @@ export function createPreCaptureReadiness({
     app_public_configuration_fingerprints:
       appPreflightReport.public_configuration_fingerprints,
     runtime_config_bootstrap: appBuildRecord.runtime_config_bootstrap,
+    runtime_config_trust: {
+      bootstrap_sha256: appPreflightReport.runtime_config_bootstrap_sha256,
+      bootstrap_status: appPreflightReport.runtime_config_bootstrap_report.registration_status,
+      manifest_verification_status: appPreflightReport.runtime_config_manifest_verification_status,
+      manifest_sha256: appPreflightReport.runtime_config_manifest_sha256,
+      manifest_epoch: appPreflightReport.runtime_config_manifest_epoch,
+      authority_status: appPreflightReport.runtime_config_authority_status,
+    },
     app_preflight_checks: appPreflightReport.checks,
     gates: {
       approved_worker_reference: "VERIFIED",
@@ -197,6 +224,7 @@ export function createPreCaptureReadiness({
       auth_and_registered_device: "REQUIRES_APP_RUNTIME",
       human_gameplay_approval: "REQUIRES_HUMAN_OPERATOR",
       target_identity: "NOT_YET_OBSERVED",
+      runtime_config_manifest: appPreflightReport.runtime_config_manifest_verification_status,
       runtime_target_approval: "REQUIRES_APP_RUNTIME",
       target_approval: "POST_CAPTURE_REQUIRED",
       gameplay_authorization: "NOT_GRANTED",

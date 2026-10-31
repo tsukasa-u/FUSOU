@@ -556,14 +556,13 @@ export function createTlsnRuntimeConfigEnvelopeRaw({
   });
 }
 
-export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, policy } = {}) {
+function verifySignedRuntimeConfigEnvelopeBytes(rawEnvelope, trustedSigner, maxEnvelopeBytes) {
   assertTrustedSigner(trustedSigner);
-  assertPolicy(policy);
   if (!(typeof rawEnvelope === "string" || rawEnvelope instanceof Uint8Array)) {
     throw new Error("raw signed runtime configuration envelope bytes are required");
   }
   const envelopeBytes = Buffer.from(rawEnvelope);
-  if (envelopeBytes.length > policy.max_envelope_bytes) {
+  if (envelopeBytes.length > maxEnvelopeBytes) {
     throw new Error("runtime configuration envelope exceeds the supplied byte limit");
   }
   let envelope;
@@ -608,6 +607,17 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
   if (canonicalJson(payload) !== payloadBytes.toString("utf8")) {
     throw new Error("runtime configuration payload is not canonical JSON");
   }
+  return { payload, envelopeBytes };
+}
+
+export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, policy } = {}) {
+  assertTrustedSigner(trustedSigner);
+  assertPolicy(policy);
+  const { payload, envelopeBytes } = verifySignedRuntimeConfigEnvelopeBytes(
+    rawEnvelope,
+    trustedSigner,
+    policy.max_envelope_bytes,
+  );
   assertManifestPayload(payload, new Date(policy.now_ms));
 
   const epoch = assertEpoch(payload.epoch, "manifest epoch");
@@ -645,6 +655,39 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
     throw new Error("runtime configuration Worker reference is not fresh");
   }
   return payload;
+}
+
+export function verifyTlsnRuntimeConfigEpochPointer(rawEnvelope, {
+  trustedSigner,
+  maxEnvelopeBytes = 1_048_576,
+} = {}) {
+  if (!Number.isSafeInteger(maxEnvelopeBytes) || maxEnvelopeBytes < 1) {
+    throw new Error("Runtime Config epoch pointer byte limit must be a positive safe integer");
+  }
+  const { payload, envelopeBytes } = verifySignedRuntimeConfigEnvelopeBytes(
+    rawEnvelope,
+    trustedSigner,
+    maxEnvelopeBytes,
+  );
+  assertExactKeys(payload, MANIFEST_FIELDS, "runtime configuration manifest");
+  if (
+    payload.schema_version !== TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION ||
+    payload.scope !== TLSN_RUNTIME_CONFIG_MANIFEST_SCOPE ||
+    payload.environment !== "production"
+  ) {
+    throw new Error("Runtime Config epoch pointer manifest schema is invalid");
+  }
+  const issuedAt = assertCanonicalUtc(payload.issued_at, "manifest issued_at");
+  const notBefore = assertCanonicalUtc(payload.not_before, "manifest not_before");
+  const expiresAt = assertCanonicalUtc(payload.expires_at, "manifest expires_at");
+  if (issuedAt > notBefore || notBefore >= expiresAt) {
+    throw new Error("Runtime Config epoch pointer validity timestamps are invalid");
+  }
+  const epoch = assertEpoch(payload.epoch, "manifest epoch");
+  return Object.freeze({
+    epoch: epoch.toString(),
+    manifest_sha256: createHash("sha256").update(envelopeBytes).digest("base64url"),
+  });
 }
 
 function deepFreeze(value) {

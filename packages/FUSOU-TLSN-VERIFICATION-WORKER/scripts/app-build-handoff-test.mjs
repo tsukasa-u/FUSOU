@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   assertBuildReference, buildApprovedApp, entryInputSha256, ENTRY_INPUT_CONTRACT, runPublicBuildCommand, runtimeConfigBootstrapInputs,
-  runtimeConfigBootstrapReport, RUNTIME_CONFIG_BOOTSTRAP_INPUTS, sha256,
+  runtimeConfigBootstrapReport, runtimeConfigBootstrapSha256, RUNTIME_CONFIG_BOOTSTRAP_INPUTS, sha256,
 } from "./app-build-handoff.mjs";
 import { createAppWorkerReference } from "./app-worker-deployment-reference.mjs";
 import { account, controls, customMapping, key, now, release, version1, version2 } from "./app-worker-reference-fixture.mjs";
@@ -140,13 +140,9 @@ async function withBuild(action, initialReference = reference()) {
         if (state.changePublicReport) state.changePublicReport(report);
         return JSON.stringify(report);
       }
-      const inputs = Object.fromEntries(ENTRY_INPUT_CONTRACT.compile_inputs.map((name) => [name, context.env[name]]));
       const bootstrapInputs = runtimeConfigBootstrapInputs(context.env);
       const report = {
-        schema_version: 2, scope: "fusou-tlsn-app-compiled-worker-entry-report",
-        entry_input_sha256: entryInputSha256(inputs),
-        worker_source_sha: context.env.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA,
-        active_version_id: context.env.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID,
+        schema_version: 1, scope: "fusou-tlsn-app-compiled-bootstrap-report-v1",
         app_source_sha: context.env.FUSOU_APP_BUILD_SOURCE_SHA,
         build_profile: "debug", tlsn_production_feature: true, custom_protocol_feature: true, authority_status: "UNVERIFIED",
         runtime_config_bootstrap: runtimeConfigBootstrapReport(bootstrapInputs),
@@ -178,11 +174,11 @@ test("entry digest rotates with the active pin while historical v2 fixed project
   }
 });
 
-test("test-only Worker and bootstrap inputs populate the isolated environment and bind the binary report to an immutable record", async () => {
+test("APP build embeds only the public Bootstrap pins and records Worker reference separately", async () => {
   await withBuild(async ({ options, reference, commands, build }) => {
     const result = await build();
     const actual = JSON.parse(await readFile(result.recordPath, "utf8"));
-    assert.equal(actual.compiled_input_comparison, "VERIFIED");
+    assert.equal(actual.worker_reference_validation, "VERIFIED");
     assert.equal(actual.runtime_config_bootstrap_comparison, "VERIFIED");
     assert.equal(actual.authority_status, "UNVERIFIED");
     assert.equal(actual.reference_sha256, options.expectedReferenceSha256);
@@ -190,19 +186,39 @@ test("test-only Worker and bootstrap inputs populate the isolated environment an
     assert.equal(actual.app_source_sha, options.expectedAppSha);
     assert.notEqual(actual.worker_source_sha, actual.app_source_sha);
     assert.equal(actual.active_version_id, version1);
-    assert.equal(actual.entry_input_sha256, entryInputSha256(reference.compile_inputs));
+    assert.equal(actual.schema_version, 4);
+    assert.equal("entry_input_sha256" in actual, false);
     assert.equal(actual.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
+    assert.equal(
+      actual.runtime_config_bootstrap_sha256,
+      runtimeConfigBootstrapSha256(actual.runtime_config_bootstrap),
+    );
     assert.equal(actual.runtime_config_bootstrap.manifest_url, testBootstrapEnvironment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL);
     assert.equal(actual.runtime_config_bootstrap.signer_key_id, testBootstrapEnvironment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID);
     assert.equal(actual.cargo_lock_sha256, sha256(Buffer.from("locked-public-dependencies")));
     assert.equal(actual.rust_toolchain, options.toolchain);
     const buildCommand = commands.find((entry) => entry.command === "pnpm");
-    for (const [name, value] of Object.entries(reference.compile_inputs)) assert.equal(buildCommand.env[name], value, name);
+    const compiledReportCommand = commands.find((entry) => entry.command === result.artifactPath);
+    assert.equal(compiledReportCommand.args[0], "--tlsn-compiled-bootstrap");
+    for (const name of ENTRY_INPUT_CONTRACT.compile_inputs) {
+      assert.equal(buildCommand.env[name], undefined, name);
+    }
     for (const name of RUNTIME_CONFIG_BOOTSTRAP_INPUTS) {
       assert.equal(buildCommand.env[name], testBootstrapEnvironment[name], name);
     }
+    assert.equal(actual.compiled_report.worker_source_sha, undefined);
+    assert.equal(actual.compiled_report.active_version_id, undefined);
+    assert.equal(actual.compiled_report.entry_input_sha256, undefined);
     assert.equal(actual.artifact.sha256, sha256(await readFile(result.artifactPath)));
     await assert.rejects(build(), /EEXIST/);
+  });
+});
+
+test("APP build refuses inherited Worker operational TLSN inputs", async () => {
+  await withBuild(async (state) => {
+    state.options.environment.FUSOU_TLSN_NOTARY_ENDPOINT = "notary.example.test:7047";
+    await assert.rejects(state.build(), /cannot embed Worker operational TLSN inputs/);
+    assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
   });
 });
 
@@ -212,6 +228,22 @@ test("Production APP handoff rejects missing, partial, or malformed bootstrap in
     await assert.rejects(state.build(), /requires registered Runtime Config bootstrap inputs/);
     assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
   });
+  for (const names of [
+    [RUNTIME_CONFIG_BOOTSTRAP_INPUTS[0]],
+    [RUNTIME_CONFIG_BOOTSTRAP_INPUTS[1]],
+    [RUNTIME_CONFIG_BOOTSTRAP_INPUTS[2]],
+    [RUNTIME_CONFIG_BOOTSTRAP_INPUTS[0], RUNTIME_CONFIG_BOOTSTRAP_INPUTS[1]],
+    [RUNTIME_CONFIG_BOOTSTRAP_INPUTS[0], RUNTIME_CONFIG_BOOTSTRAP_INPUTS[2]],
+    [RUNTIME_CONFIG_BOOTSTRAP_INPUTS[1], RUNTIME_CONFIG_BOOTSTRAP_INPUTS[2]],
+  ]) {
+    await withBuild(async (state) => {
+      state.options.environment = Object.fromEntries(
+        names.map((name) => [name, testBootstrapEnvironment[name]]),
+      );
+      await assert.rejects(state.build(), /complete non-empty set/);
+      assert.ok(!state.commands.some((entry) => entry.command === "pnpm"));
+    });
+  }
   for (const mutate of [
     (environment) => { delete environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID; },
     (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL = ""; },
@@ -222,6 +254,22 @@ test("Production APP handoff rejects missing, partial, or malformed bootstrap in
     (environment) => {
       environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
         "https://runtime-config.example.org:443/tlsn/runtime-config/v2/manifest.json";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://user:password@runtime-config.example.org/tlsn/runtime-config/v2/manifest.json";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json?latest";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json#latest";
+    },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
+        "https://RUNTIME-CONFIG.example.org/tlsn/runtime-config/v2/manifest.json";
     },
     (environment) => {
       environment.FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL =
@@ -237,8 +285,13 @@ test("Production APP handoff rejects missing, partial, or malformed bootstrap in
     },
     (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID = "bad key"; },
     (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID = ""; },
+    (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID = "k".repeat(129); },
     (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI = "not-base64url"; },
     (environment) => { environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI = ""; },
+    (environment) => {
+      environment.FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI =
+        Buffer.alloc(32, 7).toString("base64url");
+    },
   ]) {
     await withBuild(async (state) => {
       mutate(state.options.environment);
@@ -297,21 +350,21 @@ test("independent hash rejects an old/substituted reference and absent/partial/m
 test("stale/injected build pins, compiler wrappers, intermediate overrides and missing/wrong compiled inputs fail closed", async () => {
   await withBuild(async ({ options, build }) => {
     options.environment.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID = version2;
-    await assert.rejects(build(), /inherited TLSN compile input/);
+    await assert.rejects(build(), /cannot embed Worker operational TLSN inputs/);
   });
   await withBuild(async (state) => {
     state.duringBuild = (env) => { env.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID = version2; };
-    await assert.rejects(state.build(), /actual APP binary/);
+    await assert.rejects(state.build(), /APP binary\/build environment changed/);
   });
   for (const [name, value] of [
     ["active_version_id", version2], ["entry_input_sha256", "a".repeat(43)],
     ["worker_source_sha", "c".repeat(40)], ["app_source_sha", "c".repeat(40)],
     ["build_profile", "release"], ["tlsn_production_feature", false], ["custom_protocol_feature", false],
-    ["active_version_id", undefined],
+    ["app_source_sha", undefined],
   ]) {
     await withBuild(async (state) => {
       state.changeReport = (report) => { report[name] = value; };
-      await assert.rejects(state.build(), /compiled APP report|actual APP binary/);
+      await assert.rejects(state.build(), /compiled APP bootstrap report|actual APP binary/);
       await assert.rejects(readFile(join(state.options.outputDirectory, "app-build-record.json")), /ENOENT/);
     });
   }

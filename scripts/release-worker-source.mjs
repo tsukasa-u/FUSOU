@@ -17,6 +17,7 @@ export const WORKER_SOURCE_PATHS = Object.freeze([
     "src/attestation_receipts.ts", "src/direct_verifier.ts", "src/execution_boundary.ts",
     "src/result_archive.ts", "src/verification_jobs.ts", "src/verifier_identity.ts",
     "src/private_key_validation_cache.ts", "src/origin-trust-contract.mjs", "src/origin-trust-contract.d.mts",
+    "src/result-registry-contract.mjs", "src/result-registry-contract.d.mts",
     "src/production-result-contract.mjs", "src/production-result-contract.d.mts", "src/text-module.d.ts",
     "src/archive-readback.mjs", "src/archive-readback.d.mts",
     "src/archive-catalog.mjs", "src/archive-catalog.d.mts",

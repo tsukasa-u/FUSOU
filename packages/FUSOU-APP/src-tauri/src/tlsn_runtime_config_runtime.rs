@@ -636,6 +636,19 @@ mod tests {
             &config_path,
         );
         assert_eq!(
+            report.runtime_config_manifest_verification_status,
+            "APP_LOCAL_VERIFIED"
+        );
+        assert_eq!(
+            report.runtime_config_manifest_sha256.as_deref(),
+            Some(verified.manifest_sha256())
+        );
+        assert_eq!(
+            report.runtime_config_manifest_epoch.as_deref(),
+            Some(verified.epoch())
+        );
+        assert_eq!(report.runtime_config_authority_status, "UNVERIFIED");
+        assert_eq!(
             report
                 .checks
                 .iter()

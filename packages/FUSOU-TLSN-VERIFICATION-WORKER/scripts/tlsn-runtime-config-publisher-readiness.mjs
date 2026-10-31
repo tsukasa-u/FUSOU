@@ -28,6 +28,8 @@ export function getTlsnRuntimeConfigPublisherReadiness(env = process.env) {
     { requirement: "R2 credentials have sufficient bucket-scoped permissions", state: "NOT_CHECKED" },
     { requirement: "Live R2 read, write, and exact readback", state: "NOT_RUN" },
     { requirement: "Live R2 conditional create and pointer CAS", state: "NOT_RUN" },
+    { requirement: "Server-side signed epoch monotonicity on the current manifest pointer", state: "IMPLEMENTED_WITH_CONDITIONAL_CAS" },
+    { requirement: "Independent recovery authority if the server manifest pointer is lost", state: "NOT_REGISTERED" },
     {
       requirement: "Production manifest endpoint registration",
       state: RUNTIME_CONFIG_PRODUCTION_SIGNING_REGISTRATION.manifest_endpoint,

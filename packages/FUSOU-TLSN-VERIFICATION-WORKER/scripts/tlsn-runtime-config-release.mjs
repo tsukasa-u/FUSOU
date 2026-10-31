@@ -4,6 +4,7 @@ import {
   createTlsnRuntimeConfigEnvelopeRaw,
   createTlsnRuntimeConfigPublicationObjects,
   tlsnRuntimeConfigSigningBytes,
+  verifyTlsnRuntimeConfigEpochPointer,
   verifyTlsnRuntimeConfigEnvelope,
   verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
@@ -184,7 +185,7 @@ async function publishTlsnRuntimeConfigWithMode({
   objectStore,
 }, { signManifest, resultState }) {
   assertObjectStore(objectStore);
-  const { raw_envelope: rawEnvelope } = await signManifest({
+  const { raw_envelope: rawEnvelope, verification: signedVerification } = await signManifest({
       prepared,
       signerProvider,
       trustedSigner,
@@ -198,6 +199,7 @@ async function publishTlsnRuntimeConfigWithMode({
   });
   const manifest = objects.at(-1);
   const expectedManifestBytes = Buffer.from(manifest.body);
+  const nextEpoch = BigInt(signedVerification.payload.epoch);
   const initialPointer = await objectStore.getManifestState();
   if (initialPointer !== null) {
     asBytes(initialPointer?.body, "current Runtime Config manifest");
@@ -208,6 +210,36 @@ async function publishTlsnRuntimeConfigWithMode({
   const expectedETag = initialPointer?.etag ?? null;
   if (expectedETag !== null && (typeof expectedETag !== "string" || !expectedETag)) {
     throw new Error("Runtime Config manifest pointer ETag is invalid");
+  }
+  const policyEpoch = BigInt(policy.last_accepted_epoch);
+  if (initialPointer === null) {
+    if (policyEpoch !== 0n) {
+      throw new Error("server Runtime Config manifest pointer is missing despite a nonzero epoch high-water");
+    }
+    if (nextEpoch <= policyEpoch) {
+      throw new Error("initial Runtime Config manifest must advance the server epoch high-water");
+    }
+  } else {
+    const currentPointer = verifyTlsnRuntimeConfigEpochPointer(initialPointer.body, {
+      trustedSigner,
+      maxEnvelopeBytes: policy.max_envelope_bytes,
+    });
+    const currentEpoch = BigInt(currentPointer.epoch);
+    if (
+      currentEpoch < policyEpoch ||
+      (currentEpoch === policyEpoch &&
+        policy.last_accepted_manifest_sha256 !== currentPointer.manifest_sha256)
+    ) {
+      throw new Error("server Runtime Config manifest pointer is behind the configured epoch high-water");
+    }
+    if (
+      nextEpoch < currentEpoch ||
+      (nextEpoch === currentEpoch &&
+        createHash("sha256").update(expectedManifestBytes).digest("base64url") !==
+          currentPointer.manifest_sha256)
+    ) {
+      throw new Error("Runtime Config publication cannot roll back or replace the current epoch");
+    }
   }
 
   for (const object of objects.slice(0, -1)) {

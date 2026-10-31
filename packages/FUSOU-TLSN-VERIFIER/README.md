@@ -6,20 +6,32 @@ backend. Its Prover-owned TLS transport is wired into the APP's feature-gated
 `tlsn-production` origin path through
 [`wrap_proxy.rs`](../FUSOU-APP/src-tauri/src/wrap_proxy.rs) and
 [`real_tlsn.rs`](../FUSOU-PROXY/proxy-https/src/real_tlsn.rs). This is source
-wiring only: the embedded Runtime Config URL and signer pins are currently
-unregistered, so enabling `proxy.tlsn.enabled` fails closed before the proxy
-listener starts. The default-disabled ordinary proxy path is unaffected.
+wiring only: the checked-in Production signing-registration gate reports the
+Runtime Config signer pin, APP Bootstrap root and Manifest endpoint as
+`NOT_REGISTERED`. No release APP was built and no external build-time values
+were inspected. Missing or partial Bootstrap inputs fail closed before the
+proxy listener starts. The source and handoff contract limit TLSN Runtime
+Config values in the APP build to the three public Bootstrap values; Worker,
+Notary, Origin/Target Approval and Result Registry operational values come
+from the signed Runtime Config Manifest at runtime. The default-disabled
+ordinary proxy path is unaffected.
 
 The cross-component guarantees and unresolved acceptance decisions are
 documented in the [Data Authenticity Contract](../../docs/architecture/tlsn-data-authenticity-contract.md)
 and its [implementation roadmap](../../docs/implementation-plans/tlsn-data-authenticity-roadmap-2026-10-23.md).
 
 Current local follow-up: WEB implements both exact-owner proof paths with an
-atomic PostgreSQL claim; the APP collects seven verified public Runtime Config
-inputs into candidate capture. This does not complete nineteen-role Evidence,
+atomic PostgreSQL claim; the APP consumes Runtime Config values only after its
+local Manifest verification and records the Manifest digest/epoch separately
+from the embedded Bootstrap report. This does not make the APP a trust
+authority or complete nineteen-role Evidence,
 the retained execution-receipt prerequisite or remote full-Bundle delivery.
 See the [current readiness record](FIRST-TESTPLAY-READINESS.md) and
 [complete data lineage](DEVICE-PROOF-MATERIAL-LINEAGE.md).
+The APP can be modified by its user, so its Bootstrap pin, Manifest verdict,
+and report are not Worker trust roots. The Worker independently uses its own
+Notary, Origin, Approval and Result Registry configuration when verifying a
+Presentation and signing a Result.
 The native library now target-gates the WASM bridge to `wasm32`; native APP,
 Bundle and CLI checks do not load that protected bridge. WASM build/provenance
 was not performed. The active local mux patch has been removed in APP/Proxy;
@@ -62,9 +74,10 @@ FUSOU-PROXY also contains a default-off request-selection gate controlled by
 `proxy.tlsn.enabled`. With the APP built using `tlsn-production`, the APP
 validates Runtime Config, the selected Target Approval and Worker health before
 starting the proxy, then supplies the production forwarder for the first actual
-ordinary-play `POST /kcsapi/api_get_member/require_info` request. The embedded
-Runtime Config bootstrap is not registered in this checkout, so this route
-cannot currently be started from it. If the gate is reached without a usable
+ordinary-play `POST /kcsapi/api_get_member/require_info` request. The checked-in Runtime Config Production registration gate is not registered,
+and no approved Bootstrap values or signed production Manifest were supplied
+or checked in this task. A build with absent/partial Bootstrap values and any
+runtime path without a locally verified Manifest fail closed. If the gate is reached without a usable
 forwarder, the selected request fails closed with `503`; it is not retried or
 sent through a fallback. With TLSN enabled, request ingress for target and
 non-target requests is bounded to 1 MiB, 10 s idle, 30 s absolute collection
@@ -1156,9 +1169,10 @@ cargo +1.95.0 run --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.t
 
 The experimental probe is distinct from the APP's feature-gated production
 `ProverOwnedTlsTransport` path. The APP path validates Runtime Config, Target
-Approval, and Worker identity/health before serving; because its embedded
-bootstrap URL and signer pins are currently `None`, this checkout cannot start
-that route. When all runtime gates are provisioned, the FUSOU-PROXY gate uses
+Approval, and Worker identity/health before serving. The checked-in Production
+registration gate reports the Bootstrap root and Manifest endpoint as
+`NOT_REGISTERED`; no release APP or external Bootstrap values were inspected
+in this task. When all runtime gates are provisioned, the FUSOU-PROXY gate uses
 the normal MITM handler's actual request metadata and forwards the selected
 request through the supplied one-shot transport; it does not generate a
 standalone `require_info` request. If no forwarder is available, it returns

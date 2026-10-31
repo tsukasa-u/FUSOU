@@ -1,4 +1,3 @@
-use authenticity_core::ServerIdentity;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use proxy_https::exchange_lifecycle::{
     ExchangePolicy, NotaryAttestationLimit, CLEANUP_TIMEOUT_ENV, EXCHANGE_TIMEOUT_ENV,
@@ -17,7 +16,8 @@ use std::{
 use url::Url;
 
 use crate::tlsn_runtime_config_manifest::{
-    RuntimeConfigBootstrap, RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+    parse_epoch, validate_digest, RuntimeConfigBootstrap, RuntimeConfigBootstrapBuildReport,
+    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
 };
 
 #[cfg(feature = "tlsn-production")]
@@ -66,6 +66,10 @@ pub struct TlsnPreflightConfig {
     pub experiment_enabled: bool,
     pub candidate_capture_enabled: bool,
     pub runtime_config_bootstrap_error: Option<String>,
+    pub runtime_config_bootstrap_report: Option<RuntimeConfigBootstrapBuildReport>,
+    pub runtime_config_manifest_verification_status: &'static str,
+    pub runtime_config_manifest_sha256: Option<String>,
+    pub runtime_config_manifest_epoch: Option<String>,
     pub notary_endpoint: Option<String>,
     pub session_authority_endpoint: Option<String>,
     pub session_authority_key_id: Option<String>,
@@ -96,23 +100,27 @@ impl TlsnPreflightConfig {
             runtime_config_bootstrap_error: RuntimeConfigBootstrap::from_embedded()
                 .err()
                 .map(|error| error.to_string()),
-            notary_endpoint: proxy.get_tlsn_notary_endpoint(),
-            session_authority_endpoint: proxy.get_tlsn_session_authority_endpoint(),
-            session_authority_key_id: proxy.get_tlsn_session_authority_key_id(),
-            session_authority_public_key: proxy.get_tlsn_session_authority_public_key(),
-            result_public_key_spki: proxy.get_tlsn_result_public_key_spki(),
-            result_signer_key_id: proxy.get_tlsn_result_signer_key_id(),
-            result_signing_key_registry: proxy.get_tlsn_result_signing_key_registry(),
-            verification_endpoint: proxy.get_tlsn_verification_endpoint(),
-            worker_health_endpoint: proxy.get_tlsn_worker_health_endpoint(),
-            expected_deployment_id: proxy.get_tlsn_expected_deployment_id(),
-            expected_worker_name: proxy.get_tlsn_expected_worker_name(),
-            expected_git_commit_sha: proxy.get_tlsn_expected_git_commit_sha(),
-            expected_binding_mode: proxy.get_tlsn_expected_binding_mode(),
-            expected_active_version_id: proxy.get_tlsn_expected_active_version_id(),
-            disclosure_mode: proxy.get_tlsn_disclosure_mode(),
+            runtime_config_bootstrap_report: RuntimeConfigBootstrap::compiled_build_report().ok(),
+            runtime_config_manifest_verification_status: "NOT_VERIFIED",
+            runtime_config_manifest_sha256: None,
+            runtime_config_manifest_epoch: None,
+            notary_endpoint: None,
+            session_authority_endpoint: None,
+            session_authority_key_id: None,
+            session_authority_public_key: None,
+            result_public_key_spki: None,
+            result_signer_key_id: None,
+            result_signing_key_registry: None,
+            verification_endpoint: None,
+            worker_health_endpoint: None,
+            expected_deployment_id: None,
+            expected_worker_name: None,
+            expected_git_commit_sha: None,
+            expected_binding_mode: String::new(),
+            expected_active_version_id: None,
+            disclosure_mode: String::new(),
             response_mode: proxy.get_tlsn_response_mode(),
-            notary_verifying_key: proxy.get_tlsn_notary_verifying_key(),
+            notary_verifying_key: None,
             artifact_output_path: proxy.get_tlsn_artifact_output_path(),
         }
     }
@@ -128,6 +136,10 @@ impl TlsnPreflightConfig {
             experiment_enabled: proxy.get_tlsn_experiment_enabled(),
             candidate_capture_enabled: proxy.get_tlsn_candidate_capture_enabled(),
             runtime_config_bootstrap_error: None,
+            runtime_config_bootstrap_report: RuntimeConfigBootstrap::compiled_build_report().ok(),
+            runtime_config_manifest_verification_status: "APP_LOCAL_VERIFIED",
+            runtime_config_manifest_sha256: Some(verified.manifest_sha256().to_owned()),
+            runtime_config_manifest_epoch: Some(verified.epoch().to_owned()),
             notary_endpoint: input(RuntimeConfigWorkerInput::NotaryEndpoint),
             session_authority_endpoint: input(RuntimeConfigWorkerInput::SessionAuthorityEndpoint),
             session_authority_key_id: input(RuntimeConfigWorkerInput::SessionAuthorityKeyId),
@@ -205,6 +217,12 @@ pub struct TlsnPreflightReport {
     pub feature_enabled: bool,
     pub build_profile: String,
     pub config_path: String,
+    pub runtime_config_bootstrap_report: Option<RuntimeConfigBootstrapBuildReport>,
+    pub runtime_config_bootstrap_sha256: Option<String>,
+    pub runtime_config_manifest_verification_status: &'static str,
+    pub runtime_config_manifest_sha256: Option<String>,
+    pub runtime_config_manifest_epoch: Option<String>,
+    pub runtime_config_authority_status: &'static str,
     pub public_configuration_fingerprints: TlsnPublicConfigurationFingerprints,
     pub ready: bool,
     pub checks: Vec<PreflightCheck>,
@@ -226,6 +244,18 @@ impl TlsnPreflightReport {
             "TLSN experiment preflight\nfeature_enabled={}\nbuild_profile={}\nconfig_path={}\nready={}\n",
             self.feature_enabled, self.build_profile, self.config_path, self.ready
         );
+        output.push_str(&format!(
+            "runtime_config.bootstrap_status={}\nruntime_config.bootstrap_sha256={}\nruntime_config.manifest_verification_status={}\nruntime_config.manifest_sha256={}\nruntime_config.manifest_epoch={}\nruntime_config.authority_status={}\n",
+            self.runtime_config_bootstrap_report
+                .as_ref()
+                .map(|report| report.registration_status)
+                .unwrap_or("INVALID"),
+            self.runtime_config_bootstrap_sha256.as_deref().unwrap_or("NOT_AVAILABLE"),
+            self.runtime_config_manifest_verification_status,
+            self.runtime_config_manifest_sha256.as_deref().unwrap_or("NOT_AVAILABLE"),
+            self.runtime_config_manifest_epoch.as_deref().unwrap_or("NOT_AVAILABLE"),
+            self.runtime_config_authority_status,
+        ));
         output.push_str(&format!(
             "public_configuration_fingerprints.scope={}\npublic_configuration_fingerprints.compile_time_sha256={}\npublic_configuration_fingerprints.runtime_sha256={}\npublic_configuration_fingerprints.combined_sha256={}\npublic_configuration_fingerprints.candidate_binding_status={}\n",
             self.public_configuration_fingerprints.scope,
@@ -266,6 +296,38 @@ pub fn run_current_config_preflight() -> TlsnPreflightReport {
             .join("configs.toml")
     });
     run_loaded_config_preflight(&config_path)
+}
+
+fn runtime_config_bootstrap_sha256(
+    report: Option<&RuntimeConfigBootstrapBuildReport>,
+) -> Option<String> {
+    let report = report?;
+    if report.registration_status != "EMBEDDED_UNVERIFIED" {
+        return None;
+    }
+    Some(canonical_sha256(&serde_json::json!({
+        "schema_version": 1,
+        "scope": "fusou-tlsn-runtime-config-bootstrap-observation-v1",
+        "manifest_url": report.manifest_url.as_deref(),
+        "signer_key_id": report.signer_key_id.as_deref(),
+        "signer_public_key_spki": report.signer_public_key_spki.as_deref(),
+    })))
+}
+
+fn app_verified_runtime_config(config: &TlsnPreflightConfig) -> Option<(&str, &str)> {
+    if config.runtime_config_manifest_verification_status != "APP_LOCAL_VERIFIED" {
+        return None;
+    }
+    let (Some(manifest_sha256), Some(epoch)) = (
+        config.runtime_config_manifest_sha256.as_deref(),
+        config.runtime_config_manifest_epoch.as_deref(),
+    ) else {
+        return None;
+    };
+    if validate_digest(manifest_sha256).is_err() || parse_epoch(epoch, false).is_err() {
+        return None;
+    }
+    Some((epoch, manifest_sha256))
 }
 
 pub fn run_verified_runtime_preflight(
@@ -382,15 +444,10 @@ pub(crate) fn mark_candidate_app_started() -> std::io::Result<()> {
 }
 
 pub fn run_preflight(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPreflightReport {
-    let inventory = configs::get_tlsn_origin_inventory();
-    run_preflight_with_origin_inventory(config, config_path, &inventory)
+    run_preflight_inner(config, config_path)
 }
 
-fn run_preflight_with_origin_inventory(
-    config: &TlsnPreflightConfig,
-    config_path: &Path,
-    inventory: &configs::TlsnOriginInventory,
-) -> TlsnPreflightReport {
+fn run_preflight_inner(config: &TlsnPreflightConfig, config_path: &Path) -> TlsnPreflightReport {
     let mut checks = Vec::new();
     let public_configuration_fingerprints = public_configuration_fingerprints(config);
     let feature_enabled = cfg!(feature = "tlsn-production");
@@ -488,6 +545,32 @@ fn run_preflight_with_origin_inventory(
         "tlsn_runtime_config_bootstrap",
         bootstrap_status,
         bootstrap_detail,
+    );
+    let (manifest_status, manifest_detail) = if bootstrap_required {
+        match app_verified_runtime_config(config) {
+            Some((epoch, manifest_sha256)) => (
+                PreflightStatus::Pass,
+                format!(
+                    "APP locally verified Runtime Config manifest epoch={epoch} sha256={manifest_sha256}; this APP report is not an independent authority"
+                ),
+            ),
+            None => (
+                PreflightStatus::Error,
+                "a signed Runtime Config manifest has not been verified by this APP runtime"
+                    .to_owned(),
+            ),
+        }
+    } else {
+        (
+            PreflightStatus::Warning,
+            "not required because the Production TLSN execution path is disabled".to_owned(),
+        )
+    };
+    push_check(
+        &mut checks,
+        "tlsn_runtime_config_manifest",
+        manifest_status,
+        manifest_detail,
     );
 
     match config.notary_endpoint.as_deref() {
@@ -632,7 +715,7 @@ fn run_preflight_with_origin_inventory(
     check_notary_verifying_key(&mut checks, config.notary_verifying_key.as_deref());
     check_platform_trust_store(&mut checks);
 
-    checks.push(check_origin_inventory(inventory));
+    checks.push(check_origin_inventory(config, bootstrap_required));
 
     match config.artifact_output_path.as_deref() {
         Some(value) => match validate_artifact_output_path(value) {
@@ -668,6 +751,15 @@ fn run_preflight_with_origin_inventory(
             "release".to_owned()
         },
         config_path: config_path.display().to_string(),
+        runtime_config_bootstrap_report: config.runtime_config_bootstrap_report.clone(),
+        runtime_config_bootstrap_sha256: runtime_config_bootstrap_sha256(
+            config.runtime_config_bootstrap_report.as_ref(),
+        ),
+        runtime_config_manifest_verification_status: config
+            .runtime_config_manifest_verification_status,
+        runtime_config_manifest_sha256: config.runtime_config_manifest_sha256.clone(),
+        runtime_config_manifest_epoch: config.runtime_config_manifest_epoch.clone(),
+        runtime_config_authority_status: "UNVERIFIED",
         public_configuration_fingerprints,
         ready,
         checks,
@@ -1356,32 +1448,27 @@ fn check_platform_trust_store(checks: &mut Vec<PreflightCheck>) {
     }
 }
 
-fn check_origin_inventory(inventory: &configs::TlsnOriginInventory) -> PreflightCheck {
-    let mut indices = std::collections::HashSet::new();
-    let mut identities = std::collections::HashSet::new();
-    let valid = inventory.schema_version == 1
-        && inventory.targets.len() == 20
-        && inventory.targets.iter().all(|target| {
-            target.port == 443
-                && ServerIdentity::new(target.server_identity.as_str()).is_ok()
-                && indices.insert(target.server_index)
-                && identities.insert(target.server_identity.clone())
-        });
-    let (status, detail) = if valid {
+fn check_origin_inventory(config: &TlsnPreflightConfig, required: bool) -> PreflightCheck {
+    let (status, detail) = if !required {
+        (
+            PreflightStatus::Warning,
+            "not required while Production TLSN is disabled".to_owned(),
+        )
+    } else if app_verified_runtime_config(config).is_some() {
         (
             PreflightStatus::Pass,
-            "20 shipped Origin identities are unique on port 443; each request selects its target from this inventory",
+            "APP reports that Origin Inventory and Target Approval artifacts passed signed Runtime Config Manifest verification; the Worker independently checks its own policy".to_owned(),
         )
     } else {
         (
             PreflightStatus::Error,
-            "embedded inventory is malformed; expected 20 unique DNS identities on port 443",
+            "Origin Inventory and Target Approval require a locally verified Runtime Config Manifest".to_owned(),
         )
     };
     PreflightCheck {
         name: "tlsn_origin_inventory".to_owned(),
         status,
-        detail: detail.to_owned(),
+        detail,
     }
 }
 
@@ -1511,6 +1598,8 @@ mod tests {
             data: hex::decode("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f")
                 .unwrap(),
         };
+        let mut bootstrap_spki = ED25519_SPKI_PREFIX.to_vec();
+        bootstrap_spki.extend_from_slice(&[0x42; 32]);
 
         Fixture {
             root,
@@ -1520,6 +1609,18 @@ mod tests {
                 experiment_enabled: true,
                 candidate_capture_enabled: false,
                 runtime_config_bootstrap_error: None,
+                runtime_config_bootstrap_report: Some(RuntimeConfigBootstrapBuildReport {
+                    registration_status: "EMBEDDED_UNVERIFIED",
+                    manifest_url: Some(
+                        "https://runtime-config.example.test/tlsn/runtime-config/v2/manifest.json"
+                            .to_owned(),
+                    ),
+                    signer_key_id: Some("runtime-config-fixture-root".to_owned()),
+                    signer_public_key_spki: Some(URL_SAFE_NO_PAD.encode(bootstrap_spki)),
+                }),
+                runtime_config_manifest_verification_status: "APP_LOCAL_VERIFIED",
+                runtime_config_manifest_sha256: Some(URL_SAFE_NO_PAD.encode([0_u8; 32])),
+                runtime_config_manifest_epoch: Some("1".to_owned()),
                 disclosure_mode: "complete".to_owned(),
                 response_mode: "async".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
@@ -1562,36 +1663,11 @@ mod tests {
         );
     }
 
-    fn valid_origin_inventory() -> configs::TlsnOriginInventory {
-        configs::TlsnOriginInventory {
-            schema_version: 1,
-            source: "test-only inventory".to_owned(),
-            targets: (1..=20)
-                .map(|server_index| configs::TlsnOriginTarget {
-                    server_index,
-                    server_identity: format!("server-{server_index}.example.test"),
-                    port: 443,
-                })
-                .collect(),
-        }
-    }
-
-    fn assert_origin_inventory_error(inventory: &configs::TlsnOriginInventory) {
-        let fixture = fixture();
-        let report =
-            run_preflight_with_origin_inventory(&fixture.config, &fixture.config_path, inventory);
-        assert_error(&report, "tlsn_origin_inventory");
-        assert!(!report.ready, "{}", report.text());
-    }
-
     #[test]
-    fn origin_inventory_preflight_check_accepts_twenty_canonical_targets() {
+    fn valid_configuration_passes_offline_preflight() {
         let fixture = fixture();
-        let report = run_preflight_with_origin_inventory(
-            &fixture.config,
-            &fixture.config_path,
-            &valid_origin_inventory(),
-        );
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert!(report.feature_enabled);
         assert!(report.ready, "{}", report.text());
         assert_eq!(
             report
@@ -1601,54 +1677,6 @@ mod tests {
                 .map(|check| check.status),
             Some(PreflightStatus::Pass)
         );
-    }
-
-    #[test]
-    fn origin_inventory_preflight_check_rejects_wrong_count_and_port() {
-        let mut wrong_count = valid_origin_inventory();
-        wrong_count.targets.pop();
-        assert_origin_inventory_error(&wrong_count);
-
-        let mut wrong_port = valid_origin_inventory();
-        wrong_port.targets[0].port = 8443;
-        assert_origin_inventory_error(&wrong_port);
-    }
-
-    #[test]
-    fn origin_inventory_preflight_check_rejects_noncanonical_server_identities() {
-        for invalid_identity in [
-            "SERVER-1.example.test",
-            "192.0.2.1",
-            "https://server-1.example.test",
-            "localhost",
-            "server-1.123",
-            "server..example.test",
-            "server.example.test.",
-        ] {
-            let mut inventory = valid_origin_inventory();
-            inventory.targets[0].server_identity = invalid_identity.to_owned();
-            assert_origin_inventory_error(&inventory);
-        }
-    }
-
-    #[test]
-    fn origin_inventory_preflight_check_rejects_duplicate_indices_and_identities() {
-        let mut duplicate_index = valid_origin_inventory();
-        duplicate_index.targets[1].server_index = duplicate_index.targets[0].server_index;
-        assert_origin_inventory_error(&duplicate_index);
-
-        let mut duplicate_identity = valid_origin_inventory();
-        duplicate_identity.targets[1].server_identity =
-            duplicate_identity.targets[0].server_identity.clone();
-        assert_origin_inventory_error(&duplicate_identity);
-    }
-
-    #[test]
-    fn valid_configuration_passes_offline_preflight() {
-        let fixture = fixture();
-        let report = run_preflight(&fixture.config, &fixture.config_path);
-        assert!(report.feature_enabled);
-        assert!(report.ready, "{}", report.text());
         assert_eq!(
             report.public_configuration_fingerprints.schema_version,
             app_configuration_fingerprint_contract().schema_version
@@ -1718,6 +1746,45 @@ mod tests {
                 .map(|check| check.status),
             Some(PreflightStatus::Warning)
         );
+    }
+
+    #[test]
+    fn active_preflight_requires_a_separately_verified_runtime_manifest() {
+        let mut fixture = fixture();
+        fixture.config.runtime_config_manifest_verification_status = "NOT_VERIFIED";
+        fixture.config.runtime_config_manifest_sha256 = None;
+        fixture.config.runtime_config_manifest_epoch = None;
+
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_error(&report, "tlsn_runtime_config_manifest");
+        assert!(!report.ready);
+        assert_eq!(
+            report
+                .runtime_config_bootstrap_report
+                .as_ref()
+                .map(|bootstrap| bootstrap.registration_status),
+            Some("EMBEDDED_UNVERIFIED")
+        );
+        assert!(report.runtime_config_bootstrap_sha256.is_some());
+        assert_eq!(report.runtime_config_manifest_sha256, None);
+        assert_eq!(report.runtime_config_authority_status, "UNVERIFIED");
+    }
+
+    #[test]
+    fn preflight_reports_bootstrap_and_verified_manifest_digests_separately() {
+        let fixture = fixture();
+        let report = run_preflight(&fixture.config, &fixture.config_path);
+        assert_eq!(
+            report.runtime_config_manifest_verification_status,
+            "APP_LOCAL_VERIFIED"
+        );
+        assert_eq!(
+            report.runtime_config_manifest_sha256,
+            fixture.config.runtime_config_manifest_sha256
+        );
+        assert_eq!(report.runtime_config_manifest_epoch, Some("1".to_owned()));
+        assert!(report.runtime_config_bootstrap_sha256.is_some());
+        assert_eq!(report.runtime_config_authority_status, "UNVERIFIED");
     }
 
     #[test]

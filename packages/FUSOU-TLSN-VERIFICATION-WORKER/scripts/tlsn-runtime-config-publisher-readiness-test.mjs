@@ -22,6 +22,12 @@ test("publisher readiness is a no-network diagnostic and never promotes unregist
   assert(readiness.checks.some(({ requirement, state }) =>
     requirement === "Live R2 conditional create and pointer CAS" && state === "NOT_RUN"));
   assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "Server-side signed epoch monotonicity on the current manifest pointer" &&
+    state === "IMPLEMENTED_WITH_CONDITIONAL_CAS"));
+  assert(readiness.checks.some(({ requirement, state }) =>
+    requirement === "Independent recovery authority if the server manifest pointer is lost" &&
+    state === "NOT_REGISTERED"));
+  assert(readiness.checks.some(({ requirement, state }) =>
     requirement === "R2 credentials have sufficient bucket-scoped permissions" && state === "NOT_CHECKED"));
 });
 

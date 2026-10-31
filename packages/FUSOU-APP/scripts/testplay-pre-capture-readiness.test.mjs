@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   assertCompiledReport,
-  entryInputSha256,
   runtimeConfigBootstrapInputs,
   runtimeConfigBootstrapReport,
+  runtimeConfigBootstrapSha256,
   sha256,
 } from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff.mjs";
 import {
@@ -42,6 +42,7 @@ const requiredPreflightCheckNames = [
   "config_source",
   "tlsn_enabled",
   "tlsn_runtime_config_bootstrap",
+  "tlsn_runtime_config_manifest",
   "tlsn_transport_lifecycle_policy",
   "tlsn_notary_attestation_limit",
   "tlsn_notary_endpoint",
@@ -117,11 +118,8 @@ function inputs(disclosureMode = "complete", responseMode = "async") {
   };
   fingerprints.combined_sha256 = recomputeAppConfigurationCombinedSha256(fingerprints);
   const compiledReport = {
-    schema_version: 2,
-    scope: "fusou-tlsn-app-compiled-worker-entry-report",
-    entry_input_sha256: entryInputSha256(workerReference.compile_inputs),
-    worker_source_sha: expectedWorkerSha,
-    active_version_id: version1,
+    schema_version: 1,
+    scope: "fusou-tlsn-app-compiled-bootstrap-report-v1",
     app_source_sha: expectedAppSha,
     build_profile: buildProfile,
     tlsn_production_feature: true,
@@ -130,10 +128,10 @@ function inputs(disclosureMode = "complete", responseMode = "async") {
     authority_status: "UNVERIFIED",
   };
   const appBuildRecord = {
-    schema_version: 3,
+    schema_version: 4,
     scope: "fusou-tlsn-app-operator-build-record",
     authority_status: "UNVERIFIED",
-    compiled_input_comparison: "VERIFIED",
+    worker_reference_validation: "VERIFIED",
     runtime_config_bootstrap_comparison: "VERIFIED",
     public_app_configuration_comparison: "VERIFIED",
     reference_sha256: expectedReferenceSha256,
@@ -141,17 +139,23 @@ function inputs(disclosureMode = "complete", responseMode = "async") {
     app_source_sha: expectedAppSha,
     active_version_id: version1,
     disclosure_mode: workerReference.disclosure_mode,
-    entry_input_sha256: compiledReport.entry_input_sha256,
     runtime_config_bootstrap: bootstrapReport,
+    runtime_config_bootstrap_sha256: runtimeConfigBootstrapSha256(bootstrapReport),
     build_profile: buildProfile,
     artifact: { sha256: "c".repeat(43), byte_length: 128 },
     compiled_report: compiledReport,
   };
-  assertCompiledReport(compiledReport, workerReference, expectedAppSha, buildProfile, bootstrapReport);
+  assertCompiledReport(compiledReport, expectedAppSha, buildProfile, bootstrapReport);
   const appPreflightReport = {
     feature_enabled: true,
     build_profile: buildProfile,
     config_path: configPath,
+    runtime_config_bootstrap_report: bootstrapReport,
+    runtime_config_bootstrap_sha256: runtimeConfigBootstrapSha256(bootstrapReport),
+    runtime_config_manifest_verification_status: "APP_LOCAL_VERIFIED",
+    runtime_config_manifest_sha256: "A".repeat(43),
+    runtime_config_manifest_epoch: "1",
+    runtime_config_authority_status: "UNVERIFIED",
     public_configuration_fingerprints: fingerprints,
     ready: true,
     checks: requiredPreflightCheckNames.map((name) => ({
@@ -178,7 +182,7 @@ for (const response of ["async", "sync"]) {
   test(`complete/${response}: pre-capture gate binds the reference and APP reports without granting gameplay`, () => {
     const readiness = createPreCaptureReadiness(inputs("complete", response));
 
-    assert.equal(readiness.schema_version, 2);
+    assert.equal(readiness.schema_version, 3);
     assert.equal(readiness.status, "LOCAL_APP_PREFLIGHT_PASS");
     assert.equal(readiness.active_version_id, version1);
     assert.equal(readiness.authority_status, "UNVERIFIED");
@@ -190,11 +194,20 @@ for (const response of ["async", "sync"]) {
       assert.equal(readiness.acceptance_stages[stage].status, "BLOCKED_CODE");
     }
     assert.equal(readiness.runtime_config_bootstrap.registration_status, "EMBEDDED_UNVERIFIED");
+    assert.deepEqual(readiness.runtime_config_trust, {
+      bootstrap_sha256: runtimeConfigBootstrapSha256(bootstrapReport),
+      bootstrap_status: "EMBEDDED_UNVERIFIED",
+      manifest_verification_status: "APP_LOCAL_VERIFIED",
+      manifest_sha256: "A".repeat(43),
+      manifest_epoch: "1",
+      authority_status: "UNVERIFIED",
+    });
     assert.deepEqual(readiness.target_identity, {
       status: "NOT_YET_OBSERVED",
       server_identity: null,
     });
     assert.equal(readiness.gates.runtime_target_approval, "REQUIRES_APP_RUNTIME");
+    assert.equal(readiness.gates.runtime_config_manifest, "APP_LOCAL_VERIFIED");
     assert.equal(readiness.gates.transport_lifecycle_policy, "EXPLICIT_LOCAL_LIMITS");
     assert.equal(readiness.gates.notary_attestation_limit, "EXPLICIT_LOCAL_LIMIT");
     assert.equal(readiness.gates.service_connectivity, "NOT_CHECKED");
@@ -239,7 +252,7 @@ test("pre-capture gate rejects compiled binary and local APP preflight mismatche
   const badBinary = inputs();
   badBinary.appBuildRecord.compiled_report.active_version_id =
     "5b064508-1cdb-453c-826b-bdea36a8b1e5";
-  assert.throws(() => createPreCaptureReadiness(badBinary), /actual APP binary/);
+  assert.throws(() => createPreCaptureReadiness(badBinary), /compiled APP bootstrap report|actual APP binary/);
 
   const badPreflight = inputs();
   badPreflight.appPreflightReport.checks.find(
@@ -277,6 +290,22 @@ test("pre-capture gate blocks an APP preflight without a valid embedded Runtime 
   assert.throws(() => createPreCaptureReadiness(values), /did not pass the candidate pre-capture preflight/);
   values.appPreflightReport.ready = true;
   assert.throws(() => createPreCaptureReadiness(values), /tlsn_runtime_config_bootstrap/);
+});
+
+test("pre-capture gate rejects missing or elevated Runtime Config verification observations", () => {
+  const missingManifestVerification = inputs();
+  missingManifestVerification.appPreflightReport.runtime_config_manifest_verification_status = "NOT_VERIFIED";
+  assert.throws(
+    () => createPreCaptureReadiness(missingManifestVerification),
+    /APP Runtime Config trust observation/,
+  );
+
+  const elevatedAuthorityClaim = inputs();
+  elevatedAuthorityClaim.appPreflightReport.runtime_config_authority_status = "VERIFIED";
+  assert.throws(
+    () => createPreCaptureReadiness(elevatedAuthorityClaim),
+    /APP Runtime Config trust observation/,
+  );
 });
 
 test("pre-capture gate rejects inconsistent or unrelated APP configuration fingerprints", () => {

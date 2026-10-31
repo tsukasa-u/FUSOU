@@ -109,12 +109,12 @@ support, not evidence that any stage completed against the real services.
 
 | Input group | Source and consumer | Stage / current handling |
 |---|---|---|
-| `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | Embedded compile-time bootstrap pins consumed by `RuntimeConfigBootstrap` | Public trust inputs; absent or partial registration rejects bootstrap. At this baseline the APP manifest accepted the broader Production mode; the e7 audit update below narrows the APP route to complete disclosure. |
-| `FUSOU_TLSN_NOTARY_ENDPOINT`, `FUSOU_TLSN_NOTARY_VERIFYING_KEY` | APP compile-time inputs read by `packages/configs/src/configs.rs`; preflight and the alpha.15 transport consume them | Public endpoint/key inputs required for the Notary path; their configured values were not inspected. |
+| `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | The only TLSN operational values embedded by the APP build; consumed by `RuntimeConfigBootstrap` | Public Bootstrap locator and initial Ed25519 trust anchor. All three are required together; compiled reports distinguish `UNREGISTERED` from `EMBEDDED_UNVERIFIED`. They do not prove Manifest verification or APP integrity. |
+| `FUSOU_TLSN_NOTARY_ENDPOINT`, `FUSOU_TLSN_NOTARY_VERIFYING_KEY` | Signed Runtime Config Manifest V2 `compile_inputs`; APP reads them from `VerifiedRuntimeConfigManifest` | Not APP build inputs. The APP uses these values only after local Manifest verification; the Worker uses its own Notary registry and key binding. Production values remain unregistered/unverified. |
 | `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS`, `FUSOU_TLSN_CLEANUP_TIMEOUT_MS`, `FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES` | Runtime environment parsed by `exchange_lifecycle` | Required explicit limits with range/canonical checks and no defaults; an operator must supply approved values. |
-| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Signed Runtime Config V2 and independently pinned bootstrap | The selected target must come from verified approval and later match the identity observed in the Presentation. At this baseline the Production manifest required a wider Worker/authority input set; it was not weakened for Stage A. |
-| `FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI`, `FUSOU_TLSN_RESULT_SIGNER_KEY_ID`, `FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY` | Result signature verifier and current Worker result path | A signed Result needs an independently trusted signer/registry. These public inputs do not supply a Stage A signing endpoint; the existing Worker path remains identity-bound. |
-| `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, `FUSOU_TLSN_EXPECTED_BINDING_MODE`, `FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID`, `FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA`, `FUSOU_TLSN_EXPECTED_WORKER_NAME`, `FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT`, `FUSOU_TLSN_VERIFICATION_ENDPOINT` | Current Worker deployment identity, health and verification endpoint pins | These bind the existing Worker production route; there is no separate approved protocol-only Worker contract. |
+| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Manifest-pinned raw artifacts for APP preflight; Worker-owned shipped artifacts and bindings for verification | APP verifies artifact digests and approval before local use. The Worker independently checks its own inventory, approval, Notary registry set, and observed Presentation identity. |
+| `FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI`, `FUSOU_TLSN_RESULT_SIGNER_KEY_ID`, `FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY` | Signed Runtime Config V2 for APP Result verification; Worker-owned signer bindings for result generation | The Manifest signer may update the APP-side Result Registry pin, but cannot update Worker bindings. The Worker verifies the Result Registry envelope against its own root before accepting production configuration. |
+| `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, `FUSOU_TLSN_EXPECTED_BINDING_MODE`, `FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID`, `FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA`, `FUSOU_TLSN_EXPECTED_WORKER_NAME`, `FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT`, `FUSOU_TLSN_VERIFICATION_ENDPOINT` | Signed Runtime Config V2 `compile_inputs`, derived from the operator-approved Worker reference | Fetched and verified at APP runtime; these values are no longer supplied to the APP build environment or emitted in its compiled Bootstrap report. |
 | `FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT`, `FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID`, `FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY` | Session receipt verification and binding prewarm | Stage B identity/session inputs, not intrinsic TLSN Presentation verification inputs. They remain required by the existing APP path and were not bypassed. |
 | APP E2E variables, `FUSOU_TLSN_EVIDENCE_BUNDLE`, and `FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH` | Test harnesses and evidence CLI only | Test/CLI inputs, not production runtime configuration and not proof of real service readiness. No values were inspected. |
 | `artifact_output_path` and capture toggles | APP user configuration and local filesystem sink | Local path/behavior inputs; protected user configuration values were not inspected. No real artifact path or output was created. |
@@ -856,3 +856,92 @@ passed local synthetic/loopback verification; Proxy/APP crate typecheck remains
 Worker deployment and signer registry remain `BLOCKED_EXTERNAL_INPUTS` /
 `NOT_CHECKED`. Production acceptance and real-game testplay readiness remain
 **BLOCKED**.
+
+## Runtime Config Bootstrap trust boundary
+
+The APP has exactly three TLSN Runtime Config `option_env!` inputs:
+
+- `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`
+- `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`
+- `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI`
+
+They are public Bootstrap data, not secrets. The URL is restricted to the
+canonical HTTPS DNS endpoint `/tlsn/runtime-config/v2/manifest.json`; the
+signer ID and canonical Ed25519 SPKI are validated. All three absent produces
+`UNREGISTERED`; a partial set is rejected; a valid set reports
+`EMBEDDED_UNVERIFIED`. The compiled APP report exposes those public values for
+release comparison and never marks them as an independently approved trust
+authority. The APP build handoff no longer passes Worker deployment inputs,
+Notary keys, authority keys or Result Registry inputs into the APP build.
+
+The Bootstrap key authenticates only the Runtime Config Manifest V2 envelope:
+scope `fusou-tlsn-runtime-config-signing-root-v2`, Ed25519, and the
+domain-separated `FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2` signing bytes. The
+Manifest payload has a strict V2 schema and canonical envelope/payload
+encoding, time bounds, epoch policy, digest-pinned Worker reference and
+authority artifacts, plus the 15 Worker `compile_inputs`. The Manifest has no
+field that can replace the APP's embedded Manifest signer. Its signer can
+change signed operational values for the APP, including the APP-side Result
+Registry root pin; that pin is a distinct Result Registry key/scope, but its
+replacement is transitively authorized by the Manifest signer for APP-side
+checks.
+
+The Manifest signer can also change the APP-side Notary endpoint/verifying-key
+inputs in its signed payload. The Worker selects its Notary key from its own
+`TLSN_PRODUCTION_NOTARY_REGISTRY` and `TLSN_CANDIDATE_NOTARY_KEY_ID` bindings
+and verifies the Presentation against that key. This repository does not add a
+separate cryptographic Notary-registry root; the Worker deployment/control
+plane is the trust source for those bindings.
+
+The Worker does not consume APP Bootstrap values, APP worker-identity claims,
+or APP-supplied inventory/result-root assertions as trust roots. It reads
+Notary, Origin Inventory, Target Approval, and Result Registry inputs from its
+own bindings/shipped artifacts. The APP's selected target and origin transport
+policy now come from the verified Manifest Inventory/Target Approval rather
+than a second APP-shipped inventory. Production Worker verification derives
+the server identity from the actual Presentation and matches it against the
+Worker's own Inventory and Approval. The Worker now verifies the Result Registry envelope,
+exact registry bytes, root key ID/SPKI and Ed25519 signature from Worker-owned
+bindings before production configuration is accepted. An APP preflight report
+labels the Manifest digest/epoch as locally verified but keeps
+`authority_status=UNVERIFIED`; a modified APP can alter that report or its
+Bootstrap checks.
+
+The APP's persisted epoch is an atomic local high-water mark and only an
+auxiliary rollback defense. It is not a server freshness authority and is
+modifiable with the client. The publisher now checks the signed current R2
+manifest pointer, enforces nondecreasing exact-epoch bytes/strict advancement
+and uses conditional CAS. The Manifest object uses `no-store`. Independent
+recovery authority after loss of the server pointer is not registered, so
+Production publishing remains blocked rather than trusting a client-local
+epoch.
+
+Runtime Config signer rotation, overlap and online revocation are not
+implemented. The current APP accepts one embedded signer. Replacing it
+requires an independently approved APP release with new Bootstrap pins; old
+APP binaries do not automatically learn the new key or reject the old key.
+A future overlap/online rotation requires a versioned schema and an explicitly
+reviewed Bootstrap-root-signed signer registry or equivalent migration; no
+new root hierarchy is introduced here.
+
+The repository's Production signing registration still reports
+`NOT_CONFIGURED` / `NOT_REGISTERED` for the signer provider, independent pin,
+APP Bootstrap root and Manifest endpoint. No Production URL/key was supplied
+or invented for this work, and no signer, R2 write, Worker deployment,
+Notary session or Game Server connection was attempted.
+
+### Local validation for this Bootstrap change
+
+| Check | Result | Scope |
+|---|---|---|
+| Targeted APP/Worker Runtime Config and handoff Node suites (`node --test --test-reporter=tap` over the Bootstrap trust, Manifest/publisher, APP handoff/dotenvx, Worker reference/endpoint and APP pre-capture tests) | **92 passed, 0 failed, 0 skipped** | Synthetic public keys, fixtures and in-memory object store; no external service. |
+| Worker TypeScript `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck` | **PASS** | Includes Worker-owned Result Registry root/envelope verification. |
+| `node --check` on changed JavaScript/MJS files | **PASS** | Syntax only. |
+| `rustfmt --check` on changed Rust sources excluding `packages/configs/src/configs.rs` and `packages/FUSOU-APP/src-tauri/src/main.rs` | **PASS** | A full-file check reports pre-existing formatting differences outside this task's hunks in those two files; no APP typecheck was run. |
+| Full APP/config Cargo tests/build | **NOT_RUN** | The dependency graph can compile embedded local configuration; protected local configuration was not opened or used for validation. |
+| Hosted CI for this change | **NOT_CHECKED** | No push or workflow run. |
+
+These are source/unit checks only. Bootstrap registration, Production signing,
+Manifest publication, Worker binding values, external freshness/recovery
+authority, and all live acceptance stages remain `BLOCKED_EXTERNAL_INPUTS` or
+`NOT_CHECKED`; no readiness state is promoted by the local passes above.

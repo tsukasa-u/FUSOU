@@ -78,6 +78,7 @@ import {
   securityRegistrySetPayload,
   sha256Base64Url,
 } from "./origin-trust-contract.mjs";
+import { verifySignedResultRegistryEnvelope } from "./result-registry-contract.mjs";
 
 const originInventory = parseOriginInventory(originInventoryRaw);
 export type Bindings = {
@@ -427,6 +428,9 @@ const configSchema = z.object({
   resultPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
   resultSignerKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
   resultSigningKeyRegistry: z.string().min(1).optional(),
+  resultSigningKeyRegistryEnvelope: z.string().min(1).max(65_536).optional(),
+  resultRegistryRootKeyId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
+  resultRegistryRootPublicKeySpki: z.string().regex(/^[A-Za-z0-9_-]{59}$/).optional(),
 });
 
 const resultSigningKeyEntrySchema = z.object({
@@ -1419,6 +1423,15 @@ async function readConfig(
   const resultSigningKeyRegistry = production
     ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
     : env.TLSN_RESULT_SIGNING_KEY_REGISTRY;
+  const resultSigningKeyRegistryEnvelope = production
+    ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE
+    : undefined;
+  const resultRegistryRootKeyId = production
+    ? canary ? env.TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID : env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID
+    : undefined;
+  const resultRegistryRootPublicKeySpki = production
+    ? canary ? env.TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI
+    : undefined;
   const schemaValidationStartedAt = onTiming ? performance.now() : undefined;
   const parsed = configSchema.safeParse({
     environment: env.TLSN_ENVIRONMENT,
@@ -1448,6 +1461,9 @@ async function readConfig(
     resultPublicKeySpki,
     resultSignerKeyId,
     resultSigningKeyRegistry,
+    resultSigningKeyRegistryEnvelope,
+    resultRegistryRootKeyId,
+    resultRegistryRootPublicKeySpki,
   });
   if (schemaValidationStartedAt !== undefined) {
     onTiming?.("schema_validation", performance.now() - schemaValidationStartedAt);
@@ -1548,6 +1564,12 @@ async function readConfig(
     const resultIdentityConfigured = Boolean(
       parsed.data.resultPublicKeySpki || parsed.data.resultSignerKeyId || parsed.data.resultSigningKeyRegistry,
     );
+    const resultRegistryTrustConfigured = Boolean(
+      parsed.data.resultSigningKeyRegistryEnvelope ||
+      parsed.data.resultRegistryRootKeyId ||
+      parsed.data.resultRegistryRootPublicKeySpki,
+    );
+    if (production && !resultIdentityConfigured) return null;
     if (resultIdentityConfigured) {
       if (!isPublicKeyBase64Url(parsed.data.resultPublicKeySpki) || !parsed.data.resultSignerKeyId || !parsed.data.resultSigningKeyRegistry) {
         return null;
@@ -1572,6 +1594,23 @@ async function readConfig(
         onTiming?.("registry_lookup", performance.now() - resultRegistryLookupStartedAt);
       }
       if (resultRegistryInvalid) return null;
+    }
+    if (production || resultRegistryTrustConfigured) {
+      if (
+        !resultIdentityConfigured ||
+        !parsed.data.resultSigningKeyRegistry ||
+        !parsed.data.resultSigningKeyRegistryEnvelope ||
+        !parsed.data.resultRegistryRootKeyId ||
+        !parsed.data.resultRegistryRootPublicKeySpki
+      ) {
+        return null;
+      }
+      await verifySignedResultRegistryEnvelope({
+        registryRaw: parsed.data.resultSigningKeyRegistry,
+        registryEnvelopeRaw: parsed.data.resultSigningKeyRegistryEnvelope,
+        trustedRootKeyId: parsed.data.resultRegistryRootKeyId,
+        trustedRootPublicKeySpki: parsed.data.resultRegistryRootPublicKeySpki,
+      });
     }
     const authorityRegistryParsingStartedAt = onTiming ? performance.now() : undefined;
     const sessionRegistry = authorityKeyRegistrySchema.safeParse(JSON.parse(parsed.data.sessionAuthorityKeyRegistry));
@@ -3617,6 +3656,7 @@ app.get("/health", async (c) => {
   let productionTrustIdentity: Awaited<ReturnType<typeof productionRuntimeTrustIdentity>> | null = null;
   let productionTrustIdentityValid = false;
   let canaryTrustIdentity: Awaited<ReturnType<typeof canaryRuntimeTrustIdentity>> | null = null;
+  let canaryRuntimeConfigValid = false;
   if (production && !canary) {
     try {
       productionTrustIdentity = await productionRuntimeTrustIdentity(c.env);
@@ -3628,6 +3668,7 @@ app.get("/health", async (c) => {
   if (canary) {
     try {
       canaryTrustIdentity = await canaryRuntimeTrustIdentity(c.env);
+      canaryRuntimeConfigValid = await readConfig(c.env) !== null;
     } catch {
       canaryTrustIdentity = null;
     }
@@ -3727,7 +3768,11 @@ app.get("/health", async (c) => {
         : "sync";
   const healthPayload = {
     schema_version: 3,
-    ok: production && !canary ? productionTrustIdentityValid : true,
+    ok: production
+      ? canary
+        ? canaryTrustIdentity !== null && canaryRuntimeConfigValid
+        : productionTrustIdentityValid
+      : true,
     verifier: "tlsn-alpha15-wasm",
     environment: c.env.TLSN_ENVIRONMENT,
     auth_mode: syntheticAuthConfigured(c.env) ? "test-token" : "supabase",
@@ -3781,7 +3826,9 @@ app.get("/health", async (c) => {
       } : {}),
       notary_registry_sha256: productionTrustIdentity?.notary_registry_sha256 ?? notaryRegistrySha256,
       trust_contract_valid: production
-        ? (canary ? canaryTrustIdentity !== null : productionTrustIdentityValid)
+        ? (canary
+          ? canaryTrustIdentity !== null && canaryRuntimeConfigValid
+          : productionTrustIdentityValid)
         : null,
       binding_authority: "durable-single-use",
       session_authority_key_id: sessionAuthorityKeyId ?? null,
@@ -3838,7 +3885,10 @@ app.get("/health", async (c) => {
       },
     },
   };
-  return c.json(healthPayload, production && !canary && !productionTrustIdentityValid ? 503 : 200);
+  return c.json(
+    healthPayload,
+    production && !healthPayload.ok ? 503 : 200,
+  );
 });
 
 app.post("/attestation/session", async (c) => {

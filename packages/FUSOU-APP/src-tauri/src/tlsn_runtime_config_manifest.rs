@@ -163,7 +163,7 @@ const EMBEDDED_RUNTIME_CONFIG_SIGNER_KEY_ID: Option<&str> =
 const EMBEDDED_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI: Option<&str> =
     option_env!("FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI");
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct RuntimeConfigBootstrapBuildReport {
     pub registration_status: &'static str,
     pub manifest_url: Option<String>,
@@ -2223,6 +2223,27 @@ mod tests {
             .unwrap(),
             payload
         );
+        let mut substituted_signer = bootstrap.trusted_signer.clone();
+        substituted_signer.public_key_spki = payload
+            .result_registry_pins
+            .result_registry_root_public_key_spki
+            .clone();
+        assert_ne!(
+            substituted_signer.public_key_spki,
+            bootstrap.trusted_signer.public_key_spki
+        );
+        assert_eq!(
+            verify_signed_runtime_config_manifest(&raw, &substituted_signer, &policy_for(&payload),),
+            Err(RuntimeConfigManifestError::InvalidSignature)
+        );
+        let mut substituted_key_id = bootstrap.trusted_signer.clone();
+        substituted_key_id.key_id = "another-runtime-config-signer".to_owned();
+        assert_eq!(
+            verify_signed_runtime_config_manifest(&raw, &substituted_key_id, &policy_for(&payload),),
+            Err(RuntimeConfigManifestError::Invalid(
+                "signer key ID does not match the external trust pin"
+            ))
+        );
 
         assert_eq!(
             RuntimeConfigBootstrap::build_report_from_values(None, None, None).unwrap(),
@@ -2233,13 +2254,31 @@ mod tests {
                 signer_public_key_spki: None,
             }
         );
-        assert_eq!(
-            RuntimeConfigBootstrap::from_release_values(Some(manifest_url), None, None)
-                .unwrap_err(),
-            RuntimeConfigManifestError::Invalid(
-                "Production Runtime Config bootstrap is incomplete"
-            )
-        );
+        let partial_bootstrap_inputs = [
+            (
+                Some(manifest_url),
+                None,
+                Some(signer.public_key_spki.as_str()),
+            ),
+            (Some(manifest_url), Some(signer.key_id.as_str()), None),
+            (
+                None,
+                Some(signer.key_id.as_str()),
+                Some(signer.public_key_spki.as_str()),
+            ),
+            (Some(manifest_url), None, None),
+            (None, Some(signer.key_id.as_str()), None),
+            (None, None, Some(signer.public_key_spki.as_str())),
+        ];
+        for inputs in partial_bootstrap_inputs {
+            assert_eq!(
+                RuntimeConfigBootstrap::from_release_values(inputs.0, inputs.1, inputs.2)
+                    .unwrap_err(),
+                RuntimeConfigManifestError::Invalid(
+                    "Production Runtime Config bootstrap is incomplete"
+                )
+            );
+        }
         assert_eq!(
             RuntimeConfigBootstrap::from_release_values(
                 Some(manifest_url),

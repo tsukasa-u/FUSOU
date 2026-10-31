@@ -9,7 +9,6 @@ import {
 } from "./app-public-configuration.mjs";
 import { approvedBuildEnvironment, runPublicBuildCommand } from "./app-build-handoff.mjs";
 import { dotenvxCliPath, fixtureSecrets, publicFixtureInputs, writeDotenvxFixture } from "./app-dotenvx-fixture.mjs";
-import { release } from "./app-worker-reference-fixture.mjs";
 
 async function fixture(action, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "fusou-app-dotenvx-test-"));
@@ -37,9 +36,10 @@ test("canonical dotenvx engine decrypts both files and preserves normal --overlo
     ], { cwd: app, env: { ...publicToolEnvironment(process.env), ...ambient } }));
     assert.deepEqual(loaded.inputs, normal);
     assert.match(await readFile(join(app, "src-tauri/.env"), "utf8"), /encrypted:/);
-    const buildEnv = approvedBuildEnvironment(ambient, { compile_inputs: release.compile_inputs }, "a".repeat(40), "/public/target", loaded.inputs);
+    const buildEnv = approvedBuildEnvironment(ambient, "a".repeat(40), "/public/target", loaded.inputs);
     for (const name of Object.keys(fixtureSecrets)) assert.equal(buildEnv[name], undefined);
     assert.equal(buildEnv.DOTENV_PRIVATE_KEY, undefined);
+    assert.equal(Object.keys(buildEnv).some((name) => name.startsWith("FUSOU_TLSN_")), false);
     assert.equal(Object.keys(publicAppEnvironment(loaded.inputs)).length, 3);
     assert.ok(!JSON.stringify(loaded.reference).includes(loaded.inputs.PUBLIC_SUPABASE_URL));
   }, { encrypted: true });

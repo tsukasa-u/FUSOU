@@ -103,6 +103,18 @@ export function runtimeConfigBootstrapReport(inputs) {
   return runtimeConfigBootstrapReportFromInputs(validated);
 }
 
+export function runtimeConfigBootstrapSha256(report) {
+  const validated = assertRuntimeConfigBootstrapReport(report);
+  if (validated.registration_status !== "EMBEDDED_UNVERIFIED") return null;
+  return sha256(canonicalJson({
+    schema_version: 1,
+    scope: "fusou-tlsn-runtime-config-bootstrap-observation-v1",
+    manifest_url: validated.manifest_url,
+    signer_key_id: validated.signer_key_id,
+    signer_public_key_spki: validated.signer_public_key_spki,
+  }));
+}
+
 export function assertRuntimeConfigBootstrapReport(report) {
   exactFields(report, [
     "registration_status", "manifest_url", "signer_key_id", "signer_public_key_spki",
@@ -211,27 +223,29 @@ export function assertBuildReference(reference, expectedWorkerSha) {
 }
 
 export function approvedBuildEnvironment(
-  environment, reference, appSourceSha, targetDirectory, publicInputs, bootstrapInputs,
+  environment, appSourceSha, targetDirectory, publicInputs, bootstrapInputs,
 ) {
   const result = publicToolEnvironment(environment);
-  const workerInputNames = new Set(ENTRY_INPUT_CONTRACT.compile_inputs);
   const bootstrapInputNames = new Set(RUNTIME_CONFIG_BOOTSTRAP_INPUTS);
   // Do not inherit dotenv overloads, compiler wrappers/flags or credential-bearing environments.
   for (const name of Object.keys(environment)) {
-    if (name.startsWith("FUSOU_TLSN_") &&
-        (!workerInputNames.has(name) && !bootstrapInputNames.has(name) ||
-          workerInputNames.has(name) && environment[name] !== reference.compile_inputs[name])) {
-      throw new Error("inherited TLSN compile input conflicts with the approved reference");
+    if (name.startsWith("FUSOU_TLSN_") && !bootstrapInputNames.has(name)) {
+      throw new Error("APP build cannot embed Worker operational TLSN inputs");
     }
   }
   if (environment.FUSOU_APP_BUILD_SOURCE_SHA !== undefined && environment.FUSOU_APP_BUILD_SOURCE_SHA !== appSourceSha) {
     throw new Error("inherited APP source pin conflicts with the approved source");
   }
-  return {
-    ...result, ...publicAppEnvironment(publicInputs), ...reference.compile_inputs, ...(bootstrapInputs ?? {}),
+  const buildEnvironment = {
+    ...result, ...publicAppEnvironment(publicInputs), ...(bootstrapInputs ?? {}),
     FUSOU_APP_BUILD_SOURCE_SHA: appSourceSha,
     CARGO_TARGET_DIR: targetDirectory,
   };
+  if (Object.keys(buildEnvironment).some((name) =>
+    name.startsWith("FUSOU_TLSN_") && !bootstrapInputNames.has(name))) {
+    throw new Error("APP build environment contains Worker operational TLSN inputs");
+  }
+  return buildEnvironment;
 }
 
 export function runPublicBuildCommand(command, args, options) {
@@ -271,17 +285,22 @@ async function inspectSource(repository, expectedSha, run, env) {
   if (head !== expectedSha || changes) throw new Error("APP source must be the independently approved clean checkout");
 }
 
-export function assertCompiledReport(report, reference, appSourceSha, profile, expectedBootstrapReport) {
-  exactFields(report, ["schema_version", "scope", "entry_input_sha256", "worker_source_sha", "active_version_id",
-    "app_source_sha", "build_profile", "tlsn_production_feature", "custom_protocol_feature",
-    "runtime_config_bootstrap", "authority_status"], "compiled APP report");
+export function assertCompiledReport(report, appSourceSha, profile, expectedBootstrapReport) {
+  exactFields(report, [
+    "schema_version",
+    "scope",
+    "app_source_sha",
+    "build_profile",
+    "tlsn_production_feature",
+    "custom_protocol_feature",
+    "runtime_config_bootstrap",
+    "authority_status",
+  ], "compiled APP bootstrap report");
   const expectedBootstrap = assertRuntimeConfigBootstrapReport(expectedBootstrapReport);
   assertRuntimeConfigBootstrapReport(report.runtime_config_bootstrap);
   for (const [name, expected] of Object.entries({
-    schema_version: 2, scope: "fusou-tlsn-app-compiled-worker-entry-report",
-    entry_input_sha256: entryInputSha256(reference.compile_inputs),
-    worker_source_sha: reference.compile_inputs.FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA,
-    active_version_id: reference.cloudflare.version_id, app_source_sha: appSourceSha,
+    schema_version: 1, scope: "fusou-tlsn-app-compiled-bootstrap-report-v1",
+    app_source_sha: appSourceSha,
     build_profile: profile, tlsn_production_feature: true, custom_protocol_feature: true, authority_status: "UNVERIFIED",
   })) {
     if (report[name] !== expected) {
@@ -334,7 +353,7 @@ export async function buildApprovedApp({
   const targetDirectory = join(outputDirectory, "cargo-target");
   const env = {
     ...approvedBuildEnvironment(
-      environment, reference, expectedAppSha, targetDirectory, publicInputs, bootstrapInputs,
+      environment, expectedAppSha, targetDirectory, publicInputs, bootstrapInputs,
     ),
     RUSTUP_TOOLCHAIN: toolchain,
   };
@@ -371,9 +390,9 @@ export async function buildApprovedApp({
   const artifactStat = await lstat(artifactPath);
   if (!artifactStat.isFile() || artifactStat.isSymbolicLink()) throw new Error("built APP artifact is not a regular file");
   const artifactBytes = await readFile(artifactPath);
-  const compiledReport = parseJson(run(artifactPath, ["--tlsn-compiled-worker-entry"], { cwd: appDirectory, env }), "compiled APP report");
+  const compiledReport = parseJson(run(artifactPath, ["--tlsn-compiled-bootstrap"], { cwd: appDirectory, env }), "compiled APP bootstrap report");
   const expectedBootstrapReport = runtimeConfigBootstrapReport(bootstrapInputs);
-  assertCompiledReport(compiledReport, reference, expectedAppSha, profile, expectedBootstrapReport);
+  assertCompiledReport(compiledReport, expectedAppSha, profile, expectedBootstrapReport);
   const compiledPublicConfiguration = parseJson(run(artifactPath, ["--app-compiled-public-configuration"],
     { cwd: appDirectory, env }), "compiled APP public configuration report");
   assertCompiledPublicConfiguration(compiledPublicConfiguration, publicInputs);
@@ -384,12 +403,13 @@ export async function buildApprovedApp({
     throw new Error("APP build artifact/lock/config changed during handoff verification");
   }
   const record = {
-    schema_version: 3, scope: "fusou-tlsn-app-operator-build-record", created_at: new Date().toISOString(),
-    authority_status: "UNVERIFIED", compiled_input_comparison: "VERIFIED",
+    schema_version: 4, scope: "fusou-tlsn-app-operator-build-record", created_at: new Date().toISOString(),
+    authority_status: "UNVERIFIED", worker_reference_validation: "VERIFIED",
     runtime_config_bootstrap_comparison: "VERIFIED",
+    runtime_config_bootstrap_sha256: runtimeConfigBootstrapSha256(expectedBootstrapReport),
     reference_sha256: expectedReferenceSha256, worker_source_sha: expectedWorkerSha,
     app_source_sha: expectedAppSha, active_version_id: reference.cloudflare.version_id,
-    entry_input_sha256: compiledReport.entry_input_sha256, disclosure_mode: reference.disclosure_mode,
+    disclosure_mode: reference.disclosure_mode,
     runtime_config_bootstrap: expectedBootstrapReport,
     public_app_build_inputs_sha256: sha256(canonicalJson(publicAppEnvironment(publicInputs))),
     public_app_configuration_sha256: publicAppConfigurationSha256(publicInputs),
