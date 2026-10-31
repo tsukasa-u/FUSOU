@@ -1,613 +1,983 @@
-# Runtime Config Freshness Protocol — Phase 0 Design
+# Runtime Config Freshness Protocol — Phase 0 Specification
 
-- **Status:** Design proposal only; not approved or implemented
+- **Status:** Specification selected; implementation and approval pending
 - **Updated:** 2026-11-01
-- **Runtime-code basis:** `43ab72e6284deee3ad202be7fb50e3f0199af304`
+- **Repository HEAD:** `a0cb49250df53132ee8df42ca02fbce91e10c7d2`
+- **Runtime-source baseline:** `43ab72e6284deee3ad202be7fb50e3f0199af304`
 - **Readiness record:** [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md)
 
-This document designs protection against replaying an older, still-valid
-Runtime Config Manifest to an APP with no persisted epoch. It does not change
-Manifest v2, create or register a key, publish a Worker, write R2, or authorize
-a testplay. Phases 1–6 below are a roadmap, not work started.
+This is the Phase 0 protocol specification. It changes no APP, Worker, Rust,
+TypeScript, JavaScript, build, binding, or deployment source. It creates no key,
+contacts no Production service, and writes nothing to R2. The source baseline
+was independently inspected; HEAD `a0cb492...` only adds documentation after
+that runtime-code baseline.
 
-## 1. Decision summary
+The protocol is **not implemented**. Root and delegated keys, the Release
+Journal, the authority state machine, endpoint, and Production registration
+are all absent or unregistered. No Freshness, deployment, or real-game
+readiness is implied by this specification.
 
-The current APP can reject an epoch below its locally persisted high-water
-mark, but a first-install APP starts at epoch `0`. It can therefore accept any
-otherwise-valid signed Manifest served during its time window. `no-store`,
-publisher CAS, and ordinary endpoint freshness do not give that new client a
-cryptographic proof that the served Manifest is the latest one.
+## 1. Normative decisions
 
-**Option C is the only compared option that can give the APP a nonce-bound,
-signature-verified latest-pointer assertion without adding a separate trust
-root.** It remains blocked until its signer and pointer authority are approved.
-The literal design has the existing Bootstrap-pinned signer sign a narrowly
-typed response. This makes that signing key an online availability and
-security dependency. It must not be exposed as a general signing API or
-Worker binding. If a reviewed signer service cannot enforce the typed
-operation, do not deploy Option C; keep freshness blocked rather than silently
-falling back to A or B.
+1. **Use a Bootstrap-root-delegated Release Authority commit record.** The
+   Freshness signer must verify that record, independently read the current
+   R2 pointer and immutable Manifest snapshot, and compare them with the
+   environment's Durable Object ledger. This is Option B. It is not enough to
+   trust values supplied by the HTTP endpoint.
+2. **Do not place the Bootstrap root private key online.** The existing root
+   remains the APP's trust anchor and the direct Manifest v2 signer. It signs
+   Manifest v2 releases and root-signed delegations offline. A separate,
+   offline delegated Release Authority key signs commit records. A separate,
+   narrowly scoped online Freshness key signs only Freshness responses.
+3. **Use `LATEST_AT_ISSUANCE`.** `issued_at` is captured while a short
+   per-environment issue lease is active, after the Freshness signer has
+   verified the signed Release Journal head, DO ledger, R2 pointer, Manifest
+   snapshot, and Manifest signature. The lease prevents a pointer commit
+   between that final verification and response signing.
+4. **Bound post-issuance staleness by the APP challenge deadline.** APP starts
+   a 10-second monotonic deadline when it sends a fresh challenge and accepts
+   no response after that deadline. The DO issue lease is at most 8 seconds.
+   The response itself has a maximum 30-second validity interval and the
+   existing 30-second wall-clock skew check. A
+   release may commit after the response is issued and before APP acceptance;
+   this is allowed for `LATEST_AT_ISSUANCE`, but it can make the response
+   stale for less than 10 seconds. The number of later epochs is not bounded
+   if multiple releases occur in that interval.
+5. **Do not claim `LATEST_AT_ACCEPTANCE`.** The client cannot be atomically
+   serialized with a future release after the signer's final snapshot without
+   holding a distributed release lock through client verification. That
+   would make acceptance dependent on a long-lived lock and add avoidable
+   availability risk. This protocol does not provide that guarantee.
+6. **Keep the Manifest v2 contract unchanged.** The new delegation, commit
+   record, and response have separate v1 scopes and signature domains. The
+   APP must still verify the complete original Manifest and every referenced
+   artifact.
+7. **Freshness failure blocks TLSN capture/readiness only.** It must not
+   disable normal APP-to-Game-Server proxying or cause a game request retry.
 
-The response means “this was the latest committed Manifest observed at
-`issued_at`,” not “no higher epoch can be committed after the response.” A
-release racing after the read is a bounded time-of-check/time-of-use window.
-The proposed short response lifetime limits that window; eliminating it
-entirely would require publication/issuance serialization and a separate
-availability decision.
+Option A (signer reads only the R2 pointer and a local/current ledger) is
+insufficient as the sole rollback witness: the current implementation has no
+registered independent ledger, and restoring a ledger with a pointer could
+make both appear current. Option C (Bootstrap root signing each online
+response) is rejected because it puts the broad Manifest trust key online.
+The selected Option B adds a root-delegated Release Authority key and a
+separately administered append-only journal; this is a new online trust
+assumption and is an explicit human-approval item, not an already existing
+property.
 
-## 2. Current protocol and source-confirmed boundary
+## 2. Source-confirmed current implementation
 
-| Component | Current behavior | Security boundary |
+| Area | Verified source behavior | Limit relevant to Freshness |
 |---|---|---|
-| APP Bootstrap | Three `option_env!` values pin the Manifest HTTPS URL, signer key ID, and signer SPKI. The URL is restricted to the canonical `/tlsn/runtime-config/v2/manifest.json` path. All three absent means unregistered; partial configuration rejects. See [Bootstrap and URL validation](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L156) and [URL validation](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L606). | The embedded public key is a trust anchor for local Manifest verification, not APP integrity or Worker authority. A local owner can alter the APP and its local state. |
-| APP fetch and verify | APP fetches the exact Manifest object and its referenced artifacts; it rejects noncanonical envelopes/payloads, signer mismatch, invalid signature, invalid time window, stale Worker reference, and artifact digest mismatch. The Manager persists an epoch only after verification. See [`fetch_and_verify_with_fetcher`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L483), [`verify_signed_runtime_config_manifest`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L706), and [`RuntimeConfigManager::refresh_with_fetcher_at`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L58). | Full content authenticity is verified, but a valid older Manifest is still valid content. These checks do not prove it is latest to a new client. |
-| Manifest signature | Manifest v2 uses Ed25519 and a dedicated `FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0` domain. Signing bytes are domain, 16-bit big-endian key-ID length, ASCII key ID, and canonical payload bytes. JS and Rust implement the same shape. See [Worker signing bytes](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L404) and [APP signature message](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L1940). | A new response must use a separate domain and scope; it must not reuse Manifest signing bytes or weaken Manifest verification. |
-| APP local high-water | A missing state file produces epoch `0`; the accepted epoch and exact Manifest digest are then persisted atomically with restrictive local permissions. See [state read and initial state](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L115), [accept](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L171), and [initial state](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L247). | Useful against accidental rollback while state survives. It is not server-side authority and can be reset by a hostile local owner. |
-| Time checks | APP allows at most 3,600 seconds of Manifest lifetime, 30 seconds of clock skew, and 600 seconds of Worker-reference age. | Expiry bounds replay duration; it does not prevent replay inside the valid interval. |
-| Publisher | Release code validates the current signed Manifest, compares its epoch/digest to the supplied release policy, rejects missing pointer with a nonzero policy high-water, writes immutable artifacts, uses conditional pointer CAS, and verifies readback. Ambiguous writes are reconciled without automatic retry. See [`publishTlsnRuntimeConfigWithMode`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-release.mjs#L178) and [R2 pointer CAS](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs#L415). | CAS serializes competing writes; it does not give a new APP a signed statement of the publisher's current high-water. The policy high-water is an input to the publisher, not a registered independent recovery authority. |
-| R2 objects | Mutable pointer object: `tlsn/runtime-config/v2/manifest.json`; immutable content-addressed artifacts: `tlsn/runtime-config/v2/artifacts/<kind>/<sha256>`. The Manifest object uses `Cache-Control: no-store`; artifacts use long-lived immutable cache metadata. See [publication objects](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L722). | The mutable pointer is itself the signed Manifest envelope; there is no separate signed pointer object. The current publisher does not create an immutable Manifest snapshot. Recovery therefore needs an external exact-byte copy or a future snapshot/ledger design. |
-| Registration / endpoint | Publisher readiness marks the Production signer provider, APP root, Manifest endpoint, and recovery authority unregistered; Production publish is blocked. No Runtime Config freshness route was found in Worker runtime source. See [registration](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-production-registration.mjs) and [publisher readiness](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-publisher-readiness.mjs). | There is no current online freshness signer or endpoint to rely on. Do not infer one from a successful Worker build. |
-| Worker trust | The Worker independently validates Presentation identity, Inventory, Target Approval, and Result Registry trust. | APP freshness proof is only an APP configuration-readiness input; it must never become Worker evidence authority. |
+| APP Bootstrap | `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, signer key ID, and signer SPKI are the three embedded `option_env!` values. All missing is `UNREGISTERED`; partial registration fails. The embedded SPKI directly verifies Manifest v2. See [Bootstrap construction](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L156) and [URL validation](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L606). | There is no existing delegation registry or Freshness key verifier. The APP's pinned key is the direct Manifest signer for the current v2 contract, not merely a root that currently certifies another Manifest key. |
+| APP HTTP fetch | The current reqwest client has redirects disabled, a 5-second connect timeout, and a 15-second request timeout. The response URL must exactly equal the requested URL. See [HTTP fetcher](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L457). | The interface currently fetches objects with GET; no nonce POST or Freshness route is implemented. |
+| APP Manifest verification | The APP requires the envelope key ID to match the embedded key ID, checks canonical envelope/payload JSON, verifies the Ed25519 signature, then checks schema, time, source freshness and independent artifact bindings. See [`verify_signed_runtime_config_manifest`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L706). | A correctly signed, in-window old Manifest remains a valid Manifest; signature validity alone is not latestness. |
+| APP local state | A missing epoch file starts at `0`; a malformed or unsafe existing file errors. After full Manifest and independent artifact verification, APP rejects a lower epoch and same-epoch/different-digest, then atomically persists the new epoch/digest. See [`RuntimeConfigManager::refresh_with_fetcher_at`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L58), [state read](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L104), and [state acceptance](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L171). | It protects only the surviving APP installation's prior state. State loss resets the local comparison to zero; state is not a global latest-epoch authority and is modifiable by the local owner. |
+| Time policy | Current APP policy is 3,600 seconds maximum Manifest lifetime, 30 seconds wall-clock skew, and 600 seconds Worker-reference age. | These limit some replay, but not replay inside the valid window. The proposed 10-second monotonic challenge deadline is an additional protocol rule. |
+| Manifest signature bytes | Manifest v2 uses Ed25519 and domain `FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0`, followed by `u16_be(key_id length)`, ASCII key ID, and canonical payload bytes. JS and Rust implement the same contract. See [Worker signer bytes](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L404) and [APP signer bytes](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L1940). | The new signatures must use distinct domains; no change to these v2 bytes is specified. |
+| Manifest publisher | The Node publisher signs and locally verifies the candidate, checks the current pointer and the supplied epoch policy, writes content-addressed artifacts with create-only semantics/readback, revalidates the Worker reference, then conditionally updates the pointer and reads it back. See [`publishTlsnRuntimeConfigWithMode`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-release.mjs#L178). | `policy.last_accepted_epoch` is supplied to the publisher; it is not a registered durable online high-water authority. |
+| R2 pointer | `tlsn/runtime-config/v2/manifest.json` is the mutable pointer and is itself the signed Manifest envelope. Existing S3 `PutObject` uses `If-None-Match: *` for creation and `If-Match: <ETag>` for updates; ambiguous outcomes are reconciled without automatic retry. See [`compareAndSwapManifest`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs#L415). | ETag is an opaque CAS token, not a cryptographic digest. The current allowlist and publication objects do not include an immutable Manifest snapshot. |
+| R2 artifacts | Worker reference, Inventory, Target Approval, Security Registry set, and Result Registry envelope are content-addressed artifacts. The mutable Manifest object uses `no-store`; artifacts use immutable cache metadata. See [`createTlsnRuntimeConfigPublicationObjects`](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs#L722). | Recovery of a deleted mutable Manifest pointer is not possible from the current namespace alone. Phase 1 must add immutable exact Manifest snapshots. |
+| Production registration | The signer provider, independent signer pin, APP root, Manifest endpoint, and recovery authority are not registered; Production publishing remains blocked. See [production registration](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-production-registration.mjs) and [publisher readiness](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-publisher-readiness.mjs). | No production endpoint, private signer, R2 permissions, ledger, journal, or recovery authority can be presumed. |
+| Existing Worker Durable Object | `TlsnBindingAuthorityDurableObject` and `TLSN_BINDINGS` coordinate proof/session/binding state, not Runtime Config. See [the class](../../FUSOU-TLSN-VERIFICATION-WORKER/src/binding_authority.ts#L647) and [Worker config](../../FUSOU-TLSN-VERIFICATION-WORKER/wrangler.toml). | Do not reuse the proof/session authority namespace for the Release Journal or Freshness. A separate class/namespace and least-privilege service boundaries are required. |
+| Freshness code/tests | No Freshness endpoint, delegated key, commit record, response schema, or APP response verifier was found in the inspected APP/Worker source or Runtime Config tests. | The 58 existing Node tests run during this audit cover existing Bootstrap/Manifest/publisher/fake-R2 behavior only; they are not Freshness protocol tests. |
 
-R2 documents strong global consistency for object reads/writes and atomic
-`If-Match` / `If-None-Match` conditional `PutObject`. The same documentation
-warns that serving a custom R2 domain with caching relaxes the consistency
-observed through that cached domain. A freshness endpoint must read the R2
-object directly (binding or S3 API), not treat a CDN response as authoritative.
-Strong consistency prevents stale R2 reads after a completed write; it does not
-make an HTTP cache or an endpoint's own stale state cryptographic evidence.
-See Cloudflare's [R2 consistency model](https://developers.cloudflare.com/r2/reference/consistency/)
-and [S3 conditional operations](https://developers.cloudflare.com/r2/api/s3/extensions/#conditional-operations-in-putobject).
+Cloudflare documents SQLite-backed Durable Object storage as transactional
+and strongly consistent, with point-in-time recovery to database contents
+from up to 30 days earlier. This makes a dedicated DO suitable for serialized
+per-environment release transitions, but PITR is itself a possible ledger
+rollback; the independent Release Journal remains necessary. The current
+`TLSN_BINDINGS` DO is not that authority. See [Durable Object rules](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/index.md)
+and [SQLite storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/index.md).
 
-## 3. Threat model
+R2 provides strong consistency after a completed operation and atomic S3
+conditional `PutObject` writes. Serving the mutable pointer through a caching
+custom domain can relax the observed consistency. The signer therefore reads
+the R2 S3 API directly with read-only credentials, never a public CDN URL or
+Worker Cache API. A `no-store` header is defense in depth, not proof.
+See [R2 consistency](https://developers.cloudflare.com/r2/reference/consistency/)
+and [R2 conditional `PutObject`](https://developers.cloudflare.com/r2/api/s3/extensions/#conditional-operations-in-putobject).
 
-### Protected properties
+## 3. Threat model and guarantees
 
-1. A new APP must not accept a lower epoch merely because its local high-water
-   starts at zero.
-2. The latest assertion must bind to the exact raw signed Manifest envelope,
-   not an APP-supplied digest or parsed/re-serialized JSON.
-3. A captured signed freshness response must not be reusable for a new APP
-   request, another environment, another Manifest URL, or another nonce.
-4. Existing Manifest v2 signature, schema, time, independent artifact, and
-   digest checks remain mandatory.
-5. Worker-side Origin Inventory, Target Approval, Notary, and Result Registry
-   trust remains independent of APP claims.
-6. Freshness service failure must disable TLSN capture/readiness only; it must
-   not stop ordinary APP-to-Game-Server proxy communication.
+### 3.1 Protected
 
-### Adversary and limits
+- A fresh APP with no local state accepts a Manifest only after a challenge
+  response binds it to a currently committed Release Journal record.
+- The signed response binds environment, audience, fresh nonce, issuance/expiry
+  times, epoch, exact raw Manifest bytes, immutable Manifest reference,
+  commit generation/ID, both delegated key identities, and semantics.
+- The Freshness signer does not trust epoch, digest, URI, pointer generation,
+  release state, or ledger values supplied by the HTTP endpoint or APP.
+- R2 pointer, DO state, Release Journal head, signed commit record, Manifest
+  envelope and immutable snapshot must all agree.
+- Root, Release Authority, and Freshness keys have separate signing purposes.
+- The Worker still independently verifies the actual TLSN Presentation,
+  observed server identity, Origin Inventory, Target Approval, Notary and
+  Result Registry. APP freshness is never Worker authority.
+- A freshness failure blocks TLSN capture/readiness only; ordinary game
+  traffic and its no-retry behavior remain unchanged.
 
-The design assumes an attacker may replay an older signed Manifest through a
-network path, cache, or endpoint; may race publication; and may cause a
-service outage. It does not protect a user who can replace their APP and its
-embedded pin, nor does it make that APP trustworthy to the Worker. It also
-cannot protect against compromise of the Bootstrap signing authority or the
-authoritative release ledger. Those remain explicit trust assumptions.
+### 3.2 Trust assumptions and excluded guarantees
 
-Current expiry (maximum one hour) and Worker-reference freshness (maximum ten
-minutes) bound some stale data but leave a window for a valid old Manifest.
-The `no-store` metadata is operational cache control, not a cryptographic
-freshness proof.
+The embedded Bootstrap public key is part of the trust basis for an
+unmodified APP, but the APP binary, process, OS and local state are not a
+trust boundary. A hostile local owner can replace the APP or alter/delete its
+state. The protocol is a network/server replay defense, not process
+attestation, Browser integrity, or proof that the user played a game.
 
-## 4. Option comparison
+The Release Journal's authenticated latest-head service and its retention/
+administration are new external trust assumptions. A signature authenticates
+a record; it cannot prove that a service has shown the newest record. The
+Freshness signer trusts the Journal's latest-head operation, cross-checks its
+result against the independent DO ledger and R2 pointer, and refuses on any
+disagreement. If the Bootstrap root, Release Journal control plane, and
+independent recovery records are all compromised or jointly rolled back, no
+protocol in this design can prove the former latest state. The only safe
+behavior is BLOCKED until an independently authorized recovery.
 
-| Option | Security against fresh-client replay | Availability | Operational cost | Added trust assumption |
-|---|---|---|---|---|
-| **A. Cache policy and endpoint freshness** | Helpful against accidental caching only. `no-store`, CDN bypass, and fetching the current pointer reduce stale responses. A misconfigured/compromised endpoint can still serve an old signed Manifest; a new APP cannot prove it is latest. | Highest; uses the existing GET path and does not require an online signing service. | Low to moderate: cache rules, endpoint pointer reads, monitoring. | Trust that the HTTPS endpoint/CDN path is serving the current object. Not cryptographic. |
-| **B. Endpoint as independent freshness authority** | Better only if the endpoint has a monotonic authoritative epoch and is authenticated. If its authority can roll back or is compromised, it can attest an old epoch. | Medium: the endpoint becomes required for fresh bootstrap; endpoint outage blocks new TLSN capture. | High: separate authority, durable state, service operation and recovery. | Adds trust in endpoint operator/runtime and its server-side state. If authenticated only by HTTPS, adds reliance on Web PKI and the endpoint domain/control plane; if pinned by a new key, adds a new root. |
-| **C. Bootstrap-signer nonce response** | Strongest of these without a separate root: a fresh nonce and signature bind the assertion to the existing pinned signer and exact Manifest digest. It does not prove the signer read the true latest pointer if the signer or its authority is compromised. | Lower than A: the signer and freshness endpoint must be reachable for a new TLSN capture. | High: online signer isolation, endpoint, high-water authority, key custody and recovery. | Trusts the existing Bootstrap signer to assert the latest committed epoch. It makes that authority an online availability/security dependency. |
+## 4. Selected trust model — delegated keys and Option B
 
-**Recommendation:** use Option C only after approval of the online signer
-boundary and durable high-water/recovery authority. Option A is a useful
-defense-in-depth measure, not a fix. Option B adds another authority and does
-not improve on C unless its independent monotonic state and compromise model
-are explicitly accepted.
+### 4.1 Key roles
 
-The currently registered signer provider is `NOT_CONFIGURED`; Production
-signing, Bootstrap root, endpoint, and recovery authority are
-`NOT_REGISTERED`. The existing code supplies a release-time `signerProvider`
-to the publisher; it does not establish that the private key is online or
-available to a Worker. Do not move it into Worker bindings or assume a custody
-model. The literal C design below requires a separate, human-approved signing
-service. If the Bootstrap key must remain strictly offline, a future
-root-authorized, purpose-limited child key could be considered, but that is a
-new delegation contract and is not silently included in this proposal.
+| Role | Key and custody | Allowed operation | Explicitly not allowed |
+|---|---|---|---|
+| Bootstrap root / current Manifest v2 signer | Existing APP-pinned Ed25519 key; private key remains offline. In the current source this same pin directly verifies/signs Manifest v2; there is no separate Manifest-signer delegation today. | Sign Manifest v2 releases offline and issue root-signed delegations for the Release Authority and Freshness keys. | No online Freshness endpoint, Worker binding, general online signing RPC, or chat-disclosed key. |
+| Release Authority | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable offline release ceremony/HSM operation. | Sign only `release-commit-record-v1` after the signing workflow independently reads and checks the committed pointer, DO state, Journal head and Manifest snapshot. | No Manifest, Result, Notary, or Freshness-response signature. No R2 write credential. |
+| Freshness signer | Separate Ed25519 child key delegated by the Bootstrap root; online in a dedicated Freshness service or managed signer. | Sign only the fixed `freshness-response-v1` preimage after independently validating the Release Journal, DO ledger, R2 pointer/snapshot and Manifest signature. | No Manifest/Result/Notary signing, R2 write, ledger write, pointer update, or generic `sign(bytes)` API. |
 
-## 5. Option C protocol proposal
+This adds delegated purposes under the already embedded Bootstrap root, not a
+new independent root. The current Manifest v2 direct-root contract is
+preserved. The root must remain offline; it may sign Manifest releases and
+delegations during an approved release ceremony. An APP release is required
+to change the embedded root. No key is created or registered in Phase 0.
 
-### 5.1 Flow
+### 4.2 Delegation certificate
 
-1. APP creates a fresh 32-byte cryptographic nonce and records it as the sole
-   pending challenge for this refresh attempt.
-2. APP sends a bounded `POST` to a proposed same-origin route,
-   `/tlsn/runtime-config/v2/freshness`. The route is derived from the embedded
-   Manifest URL; no fourth build-time endpoint or new trust root is proposed.
-   The route does not redirect.
-3. The endpoint accepts only the protocol version, scope, audience binding,
-   and nonce. It does not accept a client-supplied epoch, Manifest digest,
-   signer key ID, or arbitrary signing bytes.
-4. The endpoint reads `tlsn/runtime-config/v2/manifest.json` directly from R2,
-   bypassing CDN and Cache API. It verifies the exact signed Manifest envelope
-   using the configured Bootstrap signer pin and checks that epoch and exact
-   digest match the committed server-side high-water record.
-5. Only after those checks does the typed signer operation sign the
-   nonce-bound response. On a missing pointer, stale pointer, mismatch, invalid
-   signature, unresolved CAS, pending publication, or unavailable high-water
-   authority, it returns an error without a signature.
-6. APP verifies the response envelope and signature using its embedded
-   Bootstrap pin, then checks scope, version, environment, audience, pending
-   nonce, times, epoch, and digest.
-7. APP fetches the Manifest from its existing pinned URL. SHA-256 over the
-   exact raw response bytes must equal the signed response digest. APP then
-   performs all existing Manifest v2 checks, requires its payload epoch to
-   equal the signed `latest_epoch`, and fetches/verifies every referenced
-   artifact. Only after the complete existing verification succeeds does it
-   persist the accepted epoch/digest.
-8. The Worker does not consume an APP claim of “freshness verified” as trust.
-   Its independent Presentation and Result verification remains unchanged.
+The response carries two root-signed delegation envelopes: one for the
+Release Authority key and one for the Freshness signer key. Both use a strict
+exact-field schema, Ed25519 only, and the existing embedded Bootstrap root
+key ID/SPKI. Example payload shape:
 
-The assertion is explicitly “latest committed state observed by the
-authoritative endpoint at `issued_at`.” A newer publication may commit after
-the pointer read and before APP acceptance. With a 60-second response
-validity ceiling, that race is bounded, not eliminated. If product policy
-requires linearizable “latest at APP acceptance,” publication and response
-issuance must be serialized by the same authority; this is an unresolved
-availability/design decision.
+```json
+{
+  "schema_version": 1,
+  "scope": "fusou-tlsn-runtime-config-delegation-v1",
+  "delegation_id": "lowercase-canonical-uuid",
+  "delegation_generation": "7",
+  "environment": "production",
+  "purpose": "freshness-response-v1",
+  "key_id": "<delegated-key-id>",
+  "public_key_spki": "<base64url-unpadded-ed25519-spki>",
+  "signature_algorithm": "Ed25519",
+  "audience": "<audience value defined below>",
+  "not_before": "<canonical-utc>",
+  "not_after": "<canonical-utc>",
+  "max_validity_seconds": 86400,
+  "revocation_mode": "expiry-only-v1",
+  "previous_delegation_sha256": "<base64url-sha256-or-null>"
+}
+```
 
-### 5.2 Message shape
+For `freshness-response-v1`, `audience` is the base64url SHA-256 of the exact
+canonical embedded Manifest URL. For `release-commit-record-v1`, it is the
+fixed ASCII scope `fusou-tlsn-runtime-config-v2:<environment>`. The
+Freshness delegation has a maximum validity of 24 hours; the offline Release
+Authority delegation has a maximum validity of 30 days. These are maximum
+caps, not registered certificate dates.
 
-Illustrative request (strict exact field set; no release authority values):
+The root-signed delegation envelope has exact fields
+`schema_version`, `scope`, `signature_algorithm`, `root_key_id`,
+`payload_base64url`, and `signature_base64url`; it uses Ed25519 and a
+dedicated `FUSOU-TLSN-RUNTIME-CONFIG-DELEGATION-V1\0` signature domain.
+The signing preimage is domain, `u16_be(root_key_id byte length)`, ASCII root
+key ID, and canonical payload bytes. The APP and Freshness signer both verify
+the root signature, delegation ID/generation, purpose, environment, audience,
+algorithm, key ID/SPKI, validity, and previous-delegation link. Unknown
+purpose, algorithm, environment, fields or version reject.
+
+Revocation is **expiry-bounded**, not instantaneous for stateless clients.
+APP persists the highest accepted delegation generation and rejects a lower
+one while that state survives. A fresh APP has no such value and must accept
+an unexpired root-signed delegation presented in a nonce-bound response.
+Consequently, a compromised delegated key may be used until its delegation
+expires unless the Bootstrap root is rotated in a new APP release. A
+root-signed revocation object served only by the compromised Freshness signer
+cannot provide immediate revocation to a fresh client. Do not claim otherwise.
+
+## 5. Release Authority, journal and Freshness signer
+
+### 5.1 Selected verification method
+
+**Option B is selected:** a separate Release Authority key signs a commit
+record, and the Freshness signer verifies that record using a root-verified
+Release Authority delegation. The signer also reads the R2 pointer and the
+release-state DO directly and requires all three views to agree.
+
+The current publisher policy and R2 ETag CAS are not a durable release
+authority. A DO by itself is also insufficient as the anti-rollback witness:
+SQLite-backed DO state supports point-in-time recovery, so restoring that DO
+to an earlier database could restore an older high-water. The separate
+append-only Release Journal is therefore required for the selected design.
+It must be in a separately administered retention-locked store/service,
+outside the R2 bucket used for the mutable Manifest pointer. Its operator and
+provider are **NOT_REGISTERED** and require human approval before Phase 1.
+
+### 5.2 Components and permissions
+
+1. **Manifest release preparation:** the protected release workflow validates
+   inputs and obtains the v2 Manifest signature through the offline Bootstrap
+   signing ceremony. After Phase 1 it submits the exact signed envelope and
+   artifact bytes to the Authority Worker; it has no R2 pointer write
+   credential.
+2. **Runtime Config Authority Worker + DO:** a new Worker owns the only
+   Runtime Config R2 writer capability and serializes pointer updates through
+   a new SQLite-backed Durable Object namespace, separate from the existing
+   `TLSN_BINDINGS` session/proof DO. One DO instance per environment is the
+   coordination atom for that environment's single current Manifest. It
+   persists `PREPARED`, `POINTER_COMMITTED`, and `COMMITTED` state and tracks
+   expiring Freshness issue leases. It has no signing private key.
+3. **Offline Release Authority signer:** validates the prepared attempt,
+   direct current pointer, exact snapshot, DO state and current Journal head
+   before signing the commit record. Its private key is non-exportable and is
+   not available to the publisher, Freshness service, or verifier Worker.
+   The signing operation has authenticated read-only access to those sources;
+   it never signs a bundle of caller-supplied epoch/digest claims.
+4. **Append-only Release Journal:** stores each signed commit record
+   create-once, with monotonic per-environment generation and previous-record
+   hash. Its authenticated, linearizable latest-head API is the authority for
+   which record is newest. Records cannot be replaced or deleted through the
+   normal writer role.
+5. **Freshness Gateway:** owns the public same-origin POST route but has no
+   signer key, R2 access, DO namespace, or Release Journal credentials. It
+   validates request size/shape and passes only protocol version, environment,
+   audience and nonce to the signer using a private service binding.
+6. **Freshness Signer Worker:** has the delegated Freshness key and separate
+   read-only access to R2, the release-state DO, and the Journal. It
+   independently fetches and verifies all latest-state material; it accepts
+   no endpoint-supplied epoch/digest/URI/state. It may acquire/release only a
+   scoped, expiring DO issue lease; it cannot mutate release ledger state or
+   the R2 pointer. It does not reuse the existing verification Worker's
+   `TLSN_BINDINGS` or `TLSN_PRESENTATIONS` bindings.
+7. **APP:** verifies both delegations, the Release Authority commit record,
+   the Freshness response, the exact immutable Manifest bytes, and then the
+   entire existing Manifest v2/artifact contract.
+
+The Gateway can deny or delay a challenge but cannot forge a signed response.
+The Freshness signer is the online currentness authority; if that signer is
+compromised, the stale-Manifest risk in Section 11 applies. The Release
+Journal's `getHead` must be a live, authenticated, linearizable operation;
+if it is unavailable or cannot distinguish its current head from a stale
+head, the signer returns unavailable.
+
+The per-environment DO is used only for Runtime Config release coordination
+and Freshness snapshots, not game requests. It is a serialized coordination
+point and therefore needs a concurrency/latency test. The current verification
+Worker's Wrangler config has a `2026-09-07` compatibility date and no explicit
+Logs/Traces settings; any new production Worker must review its compatibility
+date against the then-current schema and configure structured Logs and
+Traces. No Wrangler config is changed in this task.
+
+### 5.3 Freshness signer validation procedure
+
+The signer accepts only `schema_version`, `scope`, `environment`,
+`audience_manifest_url_sha256`, and `request_nonce`. It rejects extra fields
+and never accepts `latest_epoch`, `manifest_sha256`, Manifest URI, pointer
+version, commit state, journal head, or raw signing bytes from the endpoint.
+
+For every request, the signer itself:
+
+1. validates the pending challenge, canonical audience and Production scope;
+2. acquires an at-most-8-second issue lease for the current environment
+   generation. The DO rejects a lease if a release is pending or waiting to
+   publish;
+3. queries the Release Journal's authenticated current head directly;
+4. fetches the corresponding signed commit record and verifies its
+   Release-Authority signature/delegation, generation, previous-record hash,
+   environment and `COMMITTED` state;
+5. queries the Release Authority DO directly and requires its committed
+   generation, epoch, digest, commit ID and record digest to equal the Journal
+   head, with no pending transaction;
+6. reads `manifest.json` directly from the R2 S3 API using read-only access,
+   obtains its opaque ETag and exact raw bytes, and verifies the bytes match
+   the commit record's digest and pointer ETag;
+7. reads `manifest_ref` from the immutable snapshot namespace and requires
+   byte-for-byte equality with the mutable pointer;
+8. verifies the Manifest v2 envelope signature with the Bootstrap public key,
+   then checks the exact Production schema, epoch, scope and referenced
+   metadata against the commit record;
+9. checks all observed values again against the request environment/audience,
+   captures `issued_at` while the lease is still valid, and signs the response
+   with the Freshness delegated key;
+10. releases the issue lease after signing and returns the signed response. If
+    the lease expired or the signer cannot confirm it before signing, it
+    discards the signature and returns an error.
+
+If any read is missing, slow, contradictory, stale, unverified or
+unauthorized, the signer returns a non-success response without a signature.
+It does not serve a cache fallback. The signer signs no endpoint-provided
+state and has no path to modify R2, the DO ledger, Journal, Manifest, Worker
+bindings, Result Registry or Notary trust.
+
+## 6. Release record state machine and crash recovery
+
+### 6.1 Durable records
+
+The per-environment SQLite DO stores:
+
+- current committed `commit_generation`, Manifest epoch/digest/ref, R2 ETag,
+  commit ID, Release Journal record digest and previous-record digest;
+- at most one pending attempt with candidate generation, epoch, exact
+  Manifest digest/ref, expected previous generation/digest/ETag, attempt ID,
+  state, and whether the pointer write was started;
+- active issue leases keyed by a CSPRNG UUID, containing environment,
+  committed generation, acquisition time and expiry (maximum 8 seconds), plus
+  a writer-pending flag. Leases do not alter the committed release head.
+- no private keys, endpoint-supplied "latest" claims, or APP state.
+
+The append-only Release Journal stores the exact signed
+`ReleaseCommitRecordV1` bytes at a create-once generation/commit-ID key,
+including the previous record hash. The current head operation is part of
+the Journal trust contract. The pointer ETag is recorded as an opaque
+conditional-write token; the SHA-256 of exact Manifest bytes is the
+cryptographic identifier.
+
+The signed record payload is:
+
+```json
+{
+  "schema_version": 1,
+  "scope": "fusou-tlsn-runtime-config-release-commit-v1",
+  "environment": "production",
+  "commit_state": "COMMITTED",
+  "commit_generation": "18",
+  "release_commit_id": "lowercase-canonical-uuid",
+  "manifest_schema_version": 2,
+  "manifest_epoch": "43",
+  "manifest_sha256": "<base64url-sha256-of-exact-envelope>",
+  "manifest_ref": "tlsn/runtime-config/v2/manifests/<same-digest>",
+  "pointer_etag": "<opaque-exact-r2-etag>",
+  "previous_commit_generation": "17",
+  "previous_commit_record_sha256": "<base64url-sha256>",
+  "committed_at": "2026-11-01T00:00:00.000Z",
+  "release_authority_delegation_id": "lowercase-canonical-uuid",
+  "release_authority_delegation_sha256": "<base64url-sha256>"
+}
+```
+
+For genesis, generation is `1`, Manifest epoch is positive, and both
+previous-generation fields are `null`; genesis requires an explicit
+root-approved authorization. A missing DO record or R2 pointer is never
+interpreted as permission to initialize epoch `0`.
+
+### 6.2 State transitions
+
+| State | Meaning and durable data | Allowed transition and CAS | Signer may respond? |
+|---|---|---|---|
+| `PREPARED` | Candidate Manifest/artifact/snapshot bytes were validated and written immutably. DO records candidate epoch/digest/ref, attempt ID, expected previous generation/digest/ETag, and pointer-write flag. No commit is yet authoritative. | `beginRelease` requires no active issue lease and a matching current head. `PREPARED -> POINTER_COMMITTED` only after Authority Worker performs R2 `If-Match` on the expected previous ETag (or `If-None-Match: *` for authorized genesis) and directly reads back exact bytes. A same attempt/same bytes retry is idempotent; same generation with different bytes rejects. | **No.** Any pending attempt blocks Freshness. |
+| `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot both contain the exact candidate bytes; the actual ETag is recorded. Release Journal still has no committed record. | `POINTER_COMMITTED -> COMMITTED` only after the offline Release Authority validates the direct R2/DO readback, signs the record, the append-only Journal accepts and reads back exact bytes, and the DO atomically advances its current generation. | **No.** A pointer without an archived commit record is not a committed release. |
+| `COMMITTED` | DO current row, Journal head/record, R2 pointer, immutable Manifest snapshot and Manifest signature agree at the same environment, generation, epoch, digest and commit ID. | Next release must be generation `current+1`, Manifest epoch strictly greater than current, expected previous digest/generation equal current, and CAS against current ETag. Same epoch/different bytes always rejects. | **Yes**, only after the signer freshly rechecks every source in Section 5.3 and sees no pending attempt. |
+| `ABORTED` (terminal attempt) | A pre-pointer attempt was cancelled after proving the pointer write was never started and the old pointer is unchanged. Record attempt ID and reason; never lower current generation. | A new attempt starts with a new attempt ID and current generation. An ambiguous/in-flight write cannot be aborted automatically. | Only if the current `COMMITTED` head and all sources still agree. |
+
+DO state updates use one SQLite transaction per state transition. R2, Journal,
+or signer I/O must occur outside that transaction; after external I/O, the DO
+rechecks the expected attempt/generation in a transaction before advancing.
+No transaction waits on network I/O. `PREPARED` sets `pointer_write_started`
+before the publisher begins CAS. ETags are exact CAS values; body digests are
+recomputed from bytes.
+
+Freshness issue leases are separate from release states and expire after at
+most 8 seconds. The DO allows multiple bounded read leases for the same
+committed generation, but blocks a new `PREPARED` release and all pointer CAS
+while any valid lease exists. A release request sets a writer-pending flag so
+new leases are refused; existing leases drain or expire before the release
+begins. The Gateway enforces a finite in-flight limit and returns unavailable
+above it. The signer acquires a lease before its final Journal/DO/R2 checks
+and keeps it through signature creation. It releases the lease after signing
+or lets its bounded expiry release it after failure. The APP's 10-second
+monotonic response deadline is longer than the signer's bounded lease work
+budget; the signer must discard a response if its lease expires before
+signature creation. The DO never holds a storage transaction across R2,
+Journal, or signer I/O.
+
+`POINTER_COMMITTED` is provisional coordination state, not a Freshness
+authorization. A publisher report alone cannot advance the DO to
+`COMMITTED`: the Release Authority signer must independently verify R2 and
+DO state, sign the exact commit record, and append/read it back from the
+Journal. The Freshness signer then independently re-reads all sources.
+
+### 6.3 Required crash and recovery behavior
+
+| Failure | Detection | Required action |
+|---|---|---|
+| 1. Stop after `PREPARED`, before pointer write | `pointer_write_started=false`; pointer remains the recorded previous ETag/digest. | Abort the attempt or retry the exact candidate after readback. No Freshness response while pending. |
+| 2. Stop after pointer CAS, before `POINTER_COMMITTED`/`COMMITTED` | DO has `PREPARED`; direct R2 pointer may equal the exact candidate. | If exact pointer/snapshot match, advance to `POINTER_COMMITTED`, then require the Release Authority signature and Journal append. If not exact or outcome is unknown, stay blocked. |
+| 3. DO ledger and R2 pointer disagree | Generation, epoch, digest, ETag or commit ID mismatch. | No signature; freeze publishing; reconcile from signed Journal record and immutable snapshot. |
+| 4. Pointer returns to an older generation | Journal/DO head exceeds pointer generation/epoch/digest. | Reject as rollback. Restore exact latest snapshot under approved recovery or publish a strictly higher epoch; never accept the older pointer. |
+| 5. Same epoch has another Manifest digest | Release record/DO current epoch has a different digest. | Reject; correct forward with a strictly higher Manifest epoch. |
+| 6. Only some immutable artifacts/snapshot exist | Publisher has no matching `COMMITTED` record; exact snapshot/readback or input digest fails. | Do not move pointer or sign. Leave immutable orphans for retention-controlled cleanup. |
+| 7. Signer reads while commit is in progress | DO state is pending, Journal head is old/new but not matching, or R2 pointer has moved before `COMMITTED`. | Return unavailable without signature. Retry requires a new APP nonce after the release resolves. |
+| 8. DO ledger is lost, R2 pointer remains | No current DO state; Journal retains signed commit chain/head. | Freshness stays blocked. Restore DO only from a verified Journal chain plus pointer/snapshot readback; do not initialize at zero. |
+| 9. R2 pointer is lost, ledger/journal remain | Missing mutable `manifest.json`; current generation remains nonzero. | Freshness stays blocked. Restore the exact content-addressed snapshot with conditional create, verify ETag/body, then re-enable only after all three sources agree. |
+| 10. R2 backup restore makes an old pointer visible | DO/Journal head has greater generation/digest. | Detect mismatch and block. A restore of DO or Journal state too must be treated as an authority incident; compare the independent WORM checkpoint. If every independent source has been rolled back, no automatic cryptographic recovery exists. |
+
+An ambiguous R2 write is never silently retried by the current publisher.
+R2 documentation warns that a negative read does not prove an earlier
+in-flight write failed. The transition remains pending until the exact outcome
+is reconciled. The WORM Journal must not be in the R2 bucket being restored.
+If the Journal itself is missing, corrupted or returns a head inconsistent
+with the signed chain/DO/pointer, Freshness is BLOCKED. Recovery requires an
+independently retained signed checkpoint and two-person approval (Release
+Authority custodian plus Bootstrap Trust custodian). Without a trustworthy
+checkpoint, the system must remain blocked or undergo an explicitly approved
+new APP trust-root release; it must never reset the sequence to zero.
+
+## 7. Freshness wire protocol
+
+### 7.1 Request
+
+The APP sends a body no larger than 1 KiB to the derived HTTPS route
+`/tlsn/runtime-config/v2/freshness/v1`:
 
 ```json
 {
   "schema_version": 1,
   "scope": "fusou-tlsn-runtime-config-freshness-request-v1",
-  "audience_manifest_url_sha256": "<base64url-sha256-of-canonical-embedded-manifest-url>",
+  "environment": "production",
+  "audience_manifest_url_sha256": "<base64url-sha256>",
   "request_nonce": "<base64url-of-32-random-bytes>"
 }
 ```
 
-Illustrative response envelope:
+The request is not a signing authority. It contains no epoch, digest, URI,
+ETag, pointer generation, release state, commit record or raw signing bytes.
+The endpoint returns `Cache-Control: no-store`; CDN and Cache API are bypassed.
+Redirects, query parameters, extra JSON fields, oversized bodies and unknown
+environments reject.
+
+### 7.2 Response envelope and payload
+
+The response carries the two root-signed delegations and the exact signed
+Release Commit Record as base64url sidecars. Their exact-byte SHA-256 hashes
+are inside the signed payload, so sidecar replacement is detected.
 
 ```json
 {
   "schema_version": 1,
   "scope": "fusou-tlsn-runtime-config-freshness-envelope-v1",
   "signature_algorithm": "Ed25519",
-  "signer_key_id": "<pinned-bootstrap-key-id>",
+  "signer_key_id": "<freshness-child-key-id>",
+  "freshness_delegation_base64url": "<root-signed-delegation>",
+  "release_authority_delegation_base64url": "<root-signed-delegation>",
+  "release_commit_record_base64url": "<release-authority-signed-record>",
   "payload_base64url": "<base64url-of-canonical-payload>",
   "signature_base64url": "<base64url-ed25519-signature>"
 }
 ```
 
-Illustrative signed payload:
+Signed response payload:
 
 ```json
 {
   "schema_version": 1,
   "scope": "fusou-tlsn-runtime-config-freshness-response-v1",
+  "freshness_semantics": "LATEST_AT_ISSUANCE",
   "environment": "production",
-  "audience_manifest_url_sha256": "<same-url-digest>",
+  "audience_manifest_url_sha256": "<base64url-sha256>",
   "request_nonce": "<exact-request-nonce>",
-  "latest_epoch": "<canonical-unsigned-decimal>",
+  "issued_at": "2026-11-01T00:00:00.000Z",
+  "expires_at": "2026-11-01T00:00:30.000Z",
+  "latest_epoch": "43",
   "manifest_schema_version": 2,
-  "manifest_sha256": "<base64url-sha256-of-exact-manifest-envelope-bytes>",
-  "issued_at": "<canonical-UTC-timestamp>",
-  "expires_at": "<canonical-UTC-timestamp>"
+  "manifest_sha256": "<base64url-sha256-of-exact-envelope>",
+  "manifest_ref": "tlsn/runtime-config/v2/manifests/<same-digest>",
+  "pointer_generation": "18",
+  "release_commit_id": "lowercase-canonical-uuid",
+  "release_commit_record_sha256": "<base64url-sha256-of-exact-record-envelope>",
+  "freshness_signer_key_id": "<freshness-child-key-id>",
+  "freshness_delegation_id": "lowercase-canonical-uuid",
+  "freshness_delegation_sha256": "<base64url-sha256-of-exact-delegation>",
+  "release_authority_key_id": "<release-child-key-id>",
+  "release_authority_delegation_id": "lowercase-canonical-uuid",
+  "release_authority_delegation_sha256": "<base64url-sha256-of-exact-delegation>"
 }
 ```
 
-The fields have the following purpose:
+### 7.3 Field contract
 
-| Field | Required reason |
-|---|---|
-| `schema_version` and `scope` | Reject downgrade, cross-protocol use and unknown protocol roles. Exact-key validation rejects extensions until a versioned change. |
-| `environment` | Prevent Production/Canary response substitution. The Production APP accepts only `production`. |
-| `audience_manifest_url_sha256` | Bind the response to the exact canonical embedded Manifest URL without accepting a server-selected URL. |
-| `request_nonce` | Bind the response to this pending APP challenge; defeats cached or captured response replay to a fresh challenge. |
-| `latest_epoch` | Provide the high-water value that must not be below the APP's persisted epoch. |
-| `manifest_schema_version` | Make the expected Manifest version explicit; the digest also commits to it, but the explicit check makes version mismatch fail visibly. |
-| `manifest_sha256` | Bind the assertion to SHA-256 of the exact raw signed Manifest envelope bytes. The APP must not hash reserialized JSON or only the payload. |
-| `issued_at` / `expires_at` | Bound response replay and server clock claims. Proposed maximum validity is 60 seconds; acceptance uses the existing 30-second clock-skew policy unless a separately approved policy changes it. |
-| Envelope `signer_key_id` | Select the pinned signer and bind its identity into the signature preimage, as the current Manifest contract does. |
+Every payload field is covered by the Freshness response signature. Sidecar
+bytes are covered by their digest fields. Unknown or missing fields reject.
 
-There is currently no distinct signed pointer object: the R2
-`manifest.json` object is the Manifest envelope. Therefore a separate
-`pointer_sha256` would duplicate `manifest_sha256` in v1. If a separate pointer
-format is introduced later, a new protocol version must bind both pointer
-bytes and exact Manifest bytes.
+| Field | Type/canonical form | Source and validation | Security purpose |
+|---|---|---|---|
+| `schema_version`, `scope` | JSON integer `1`; exact ASCII scope string | APP requires exact values. | Prevent downgrade and cross-protocol use. |
+| `freshness_semantics` | Exact ASCII enum `LATEST_AT_ISSUANCE` | Must match the selected guarantee. | Prevent claiming a stronger guarantee. |
+| `environment` | Exact lowercase enum `production` (current APP) | Must match APP bootstrap and both delegations. | Prevent Production/Canary substitution. |
+| `audience_manifest_url_sha256` | 32-byte SHA-256, canonical base64url without padding (43 chars) | Recomputed from exact canonical embedded Manifest URL bytes. | Prevent cross-origin/manifest-endpoint replay. |
+| `request_nonce` | 32 random bytes, canonical base64url without padding | Exact equality with the one outstanding APP challenge. | Bind this response to one attempt. |
+| `issued_at`, `expires_at` | UTC RFC3339 with exactly millisecond precision and `Z` | Signer time; APP enforces ordering, <=30-second skew, <=30-second response TTL and 10-second monotonic challenge deadline. | Limit replay and detect clock/expiry errors. |
+| `latest_epoch` | Canonical unsigned decimal string, no leading zero, in Manifest v2 UInt64 range | From Release Journal head and must equal commit record and Manifest payload. | Bind current release epoch. |
+| `manifest_schema_version` | JSON integer `2` | Must equal the fetched Manifest v2 schema. | Prevent schema confusion. |
+| `manifest_sha256` | SHA-256 of exact raw signed Manifest envelope, base64url without padding | Recomputed from the immutable snapshot bytes. | Prevent body substitution/whitespace reserialization. |
+| `manifest_ref` | Exact relative key `tlsn/runtime-config/v2/manifests/<manifest_sha256>` | Must match digest and fixed namespace; no URL accepted from caller. | Identifies recoverable immutable bytes. |
+| `pointer_generation` | Canonical unsigned decimal string, no leading zero | Must equal Release Journal generation and DO committed generation. | Bind the R2 pointer transition, not just Manifest epoch. |
+| `release_commit_id` | Lowercase canonical UUIDv4 | Must equal signed commit record. | Uniquely bind this commit attempt. |
+| `release_commit_record_sha256` | SHA-256 of exact signed record envelope, base64url without padding | Recomputed from response sidecar. | Bind the independently signed commit authorization. |
+| `freshness_signer_key_id` | Existing key-ID grammar `[A-Za-z0-9._-]{1,128}` | Must equal envelope key ID and Freshness delegation. | Select the purpose-limited response key. |
+| Freshness delegation ID/digest | UUID plus exact-envelope SHA-256 | Recompute and verify root signature, purpose, audience, generation and validity. | Bind the delegated response signer. |
+| Release Authority key ID/delegation ID/digest | Key ID, UUID, exact-envelope SHA-256 | Recompute and verify root signature and `release-commit-record-v1` purpose. | Bind the independent commit-record signer. |
 
-### 5.3 Canonical bytes and signature
+The Release Commit Record sidecar must contain `commit_state=COMMITTED`,
+environment, generation, Manifest epoch/schema/digest/ref, pointer ETag,
+release commit ID, previous generation/record digest, commit time, Release
+Authority key ID and delegation digest. Its exact bytes are hashed above and
+its signature is verified with the Release Authority key certified by the
+Bootstrap root.
 
-The new response must not reuse the Manifest v2 domain. The proposed v1
-preimage is:
+## 8. Canonicalization and signature bytes
+
+### 8.1 URL and audience
+
+The existing APP bootstrap URL validator remains authoritative:
+
+- HTTPS only; a DNS hostname accepted by `ServerIdentity`; no username,
+  password, explicit port, query, or fragment.
+- Exact path `/tlsn/runtime-config/v2/manifest.json`; no trailing slash,
+  alternate path, path percent-encoding, or path normalization.
+- `Url::as_str()` must equal the original input. Scheme/hostname variants that
+  the parser would normalize are rejected; host is canonical lowercase ASCII
+  DNS. Raw Unicode hostnames are rejected; use an accepted ASCII DNS name.
+- Default port 443 is implicit and must not be written explicitly. No
+  hostname alias is accepted unless it is the embedded URL.
+- Query order/duplicates have no representation because any query is
+  forbidden.
+
+`audience_manifest_url_sha256` is
+`base64url_no_pad(SHA256(UTF8(exact_validated_manifest_url_string)))`.
+The APP derives the Freshness route by replacing only the fixed final
+`manifest.json` path component with `freshness/v1` on the same origin; no
+fourth build-time locator is introduced. It does not accept a URL from a
+response or request.
+
+### 8.2 JSON and byte encodings
+
+- Reuse the repository's JS `canonicalJson` and Rust `canonical_json_bytes`
+  implementations and cross-language golden vectors; do not use a generic
+  “JSON looks equivalent” rule.
+- The protocol schema contains only exact ASCII property names and ASCII
+  string values (base64url, UUID, key ID, enums, decimal strings, timestamps,
+  object keys). No floats, arbitrary Unicode, arrays, duplicate keys,
+  unknown fields, BOM, or insignificant whitespace are accepted.
+- Serialize object keys using the existing canonical helper, compact UTF-8
+  JSON; require `canonical_json(parsed) == raw_bytes`. The same schema/vector
+  is verified in APP Rust and Worker JavaScript.
+- Epoch, generation and pointer generation are decimal strings with no
+  leading zero except the value `"0"` where explicitly permitted for
+  previous-generation fields. Manifest epoch and committed generation are
+  positive.
+- SHA-256 values are 32 bytes encoded as unpadded base64url, exactly 43 ASCII
+  characters. SPKI is DER Ed25519 SubjectPublicKeyInfo encoded as unpadded
+  base64url. Signature is exactly 64 bytes encoded the same way.
+- Timestamps are exactly `YYYY-MM-DDTHH:MM:SS.sssZ`; alternate offsets,
+  missing milliseconds, extra precision, and noncanonical strings reject.
+
+### 8.3 Domain-separated signatures
+
+Keep current Manifest v2 signing bytes unchanged:
 
 ```text
-ASCII("FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-RESPONSE-V1\0")
-|| uint16_be(length(ASCII(signer_key_id)))
-|| ASCII(signer_key_id)
-|| canonical_json(payload)_utf8
+ASCII("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0")
+|| uint16_be(key_id_ascii_length) || ASCII(key_id)
+|| canonical_manifest_payload_utf8
 ```
 
-This mirrors the existing domain-separated Manifest layout while using a
-separate purpose string and strict response schema. Implementation must call
-the existing JS/Rust canonical JSON helpers and add shared known-answer
-vectors; it must not introduce a second ad-hoc JSON encoding. The payload is
-canonical JSON, base64url without padding. The envelope is also canonical
-JSON, has exact known fields, rejects unknown fields, and carries a 64-byte
-Ed25519 signature. APP verifies the envelope's key ID against the embedded
-Bootstrap key ID and uses the pinned SPKI. A new response scope/domain and
-compatibility tests are required; current Manifest v2 signing bytes remain
-unchanged.
+New signatures each use a distinct domain and purpose:
 
-### 5.4 Nonce and expiry rules
+```text
+Bootstrap delegation:
+ASCII("FUSOU-TLSN-RUNTIME-CONFIG-DELEGATION-V1\0")
+|| uint16_be(root_key_id_ascii_length) || ASCII(root_key_id)
+|| canonical_delegation_payload_utf8
 
-- Generate 32 bytes using the OS/runtime cryptographic RNG for every new
-  refresh attempt. Do not use timestamps, `Math.random`, job IDs, or a
-  persistent counter.
-- Keep the nonce only in the pending in-memory refresh operation. Accept a
-  response only when it exactly matches that pending nonce and consume the
-  pending challenge once. After success, timeout, cancellation, or error, a
-  later operation must use a new nonce.
-- Retries after an ambiguous transport failure should start a new challenge.
-  The endpoint need not maintain a global nonce database; APP pending-state
-  and cryptographic uniqueness prevent cross-request replay. A duplicate HTTP
-  request may produce the same response, but it cannot be accepted by a
-  different or completed APP challenge.
-- Reject malformed/noncanonical base64url, wrong nonce length, nonce mismatch,
-  duplicate/consumed challenge, audience mismatch, and Production/Canary
-  mismatch.
-- Require canonical UTC time strings; reject a response issued more than the
-  approved clock skew in the future, expired responses, and a validity interval
-  longer than the approved ceiling (proposed 60 seconds).
-- `latest_epoch` is canonical decimal and must be at least the APP's local
-  epoch. If equal, `manifest_sha256` must equal the locally persisted digest.
-- After fetching and fully verifying the Manifest, its payload epoch must
-  exactly equal the response's `latest_epoch`.
-- A response never makes an expired Manifest valid. The existing Manifest
-  expiry and Worker-reference freshness checks still run independently.
+Release commit:
+ASCII("FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-COMMIT-V1\0")
+|| uint16_be(release_authority_key_id_ascii_length)
+|| ASCII(release_authority_key_id)
+|| canonical_release_commit_payload_utf8
 
-### 5.5 Publisher, pointer authority, endpoint and signer responsibilities
+Freshness response:
+ASCII("FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-RESPONSE-V1\0")
+|| uint16_be(freshness_key_id_ascii_length) || ASCII(freshness_key_id)
+|| canonical_freshness_payload_utf8
+```
 
-**Publisher**
+Every component adds a fixed scope string and exact-field validation. A key
+valid for one domain is never accepted in another domain. Shared test vectors
+must prove identical JS/Rust bytes, including boundary key-ID lengths,
+timestamp spelling, payload digest, envelope canonicality and malformed
+duplicate-field rejection.
 
-- Validates the candidate Manifest and all independent artifacts before
-  publication, as today.
-- Advances epoch strictly and serializes releases with conditional CAS.
-- Writes exact immutable artifact bytes and an immutable Manifest snapshot
-  before changing the mutable current pointer.
-- Records a committed `(environment, epoch, exact_manifest_sha256,
-  previous_epoch, previous_manifest_sha256, approval_id, signer_key_id)`
-  in an independently protected monotonic release ledger.
-- Does not lower the high-water mark to recover from a missing pointer.
+## 9. APP verification and local state algorithm
 
-**Freshness endpoint**
+For each TLSN capture/readiness refresh, APP performs these steps in order:
 
-- Reads the mutable `manifest.json` directly from R2, not from a public
-  custom-domain cache.
-- Verifies the Manifest signature with the configured Bootstrap trust pin,
-  and checks that the pointer bytes, epoch and digest exactly match the latest
-  committed ledger record. It rejects a pending publication or any mismatch.
-- Accepts only a bounded typed challenge; never accepts a caller-selected
-  epoch, digest, key ID, Manifest URL, or raw message to sign.
-- Is read-only with respect to the Manifest and release ledger. It cannot
-  publish, roll back, change Inventory/Approval, alter Worker bindings, or
-  create Result Registry trust.
+1. Load and validate all three embedded Bootstrap values. Missing/incomplete
+   input rejects. Do not fall back to a build-time operational endpoint,
+   cached unverified Manifest, or local epoch `0`.
+2. Construct the exact same-origin Freshness URL and start a monotonic timer.
+   Generate 32 CSPRNG bytes; hold the nonce only in the pending request state.
+3. Send one bounded HTTPS POST. No redirects, GET query nonce, auto retry, or
+   request replay. Reject if a response does not arrive before 10 seconds.
+4. Parse the exact response envelope and reject unknown/duplicate fields,
+   noncanonical JSON, wrong version/scope, environment, URL audience, or
+   invalid base64url.
+5. Verify the Release Authority delegation with the embedded Bootstrap root;
+   verify its key ID, Ed25519 purpose, Production scope, audience,
+   generation, expiry and previous-delegation link.
+6. Verify the signed Release Commit Record with that delegated Release
+   Authority key. Require exact `COMMITTED`, environment, generation,
+   Manifest schema/epoch/digest/ref, ETag, commit ID and previous-record link.
+7. Verify the Freshness delegation with the same embedded Bootstrap root;
+   require its purpose to be only `freshness-response-v1`, correct
+   environment/audience/key ID, valid period and delegation generation.
+8. Verify the response signature with the delegated Freshness public key.
+   The response key ID and delegation ID/digest must match exactly.
+9. Require exact nonce equality with the outstanding one-use challenge,
+   `LATEST_AT_ISSUANCE`, correct audience/environment, and bounded issue/
+   expiry times. Consume/discard the nonce on every outcome. Require the
+   monotonic elapsed time to be below 10 seconds even if wall time is
+   incorrect.
+10. Fetch `manifest_ref` from the same origin's immutable snapshot path. Hash
+    the exact bytes before parsing; require equality with `manifest_sha256`
+    and the Release Commit Record. Do not fetch/re-serialize JSON to compute
+    this digest.
+11. Run the existing full Manifest v2 verification unchanged: root signer
+    key ID/signature, schema/scope, expiry, 30-second clock policy,
+    600-second Worker reference, all independent artifact digest checks,
+    Notary/config Registry validation and Production target pins.
+12. Require Manifest payload epoch to equal both `latest_epoch` and the
+    Release Commit Record epoch. Require `manifest_schema_version=2`.
+13. Compare to local state: reject a lower epoch; at equal epoch require the
+    same Manifest digest and commit generation/record digest; reject a lower
+    delegation generation. A fresh client with no state still requires every
+    online proof above.
+14. Only after every check succeeds, atomically persist the new epoch,
+    exact Manifest digest, commit generation, commit record digest,
+    delegation generations/digests, and last signed server time in one
+    versioned APP state record. Failure at any earlier step writes nothing.
 
-**Signer**
+The existing state file schema is v1 and stores only epoch/digest. Phase 3
+must migrate to a strict v2 state atomically while preserving v1 high-water.
+If the state is absent after first install/reinstall/data loss, use the online
+Freshness/Release Authority proof and then persist the current record. If the
+state is malformed or corrupt, do not silently initialize `0`; block TLSN,
+obtain a successful current challenge and full Manifest validation, then
+replace the corrupt state atomically. If the authority is unavailable, remain
+blocked. A state value above the server head indicates rollback/authority
+recovery trouble; never lower it automatically.
 
-- Exposes only a typed `signFreshnessResponse` operation after endpoint
-  validation. No generic `sign(bytes)` HTTP API and no Worker proof route.
-- The literal design requires the existing Bootstrap signer key online. Keep
-  it in an approved HSM/signing service with access restricted to the
-  freshness operation, rate limits, audit records, and two-person operational
-  controls. The endpoint supplies validated typed fields; the signer or its
-  policy reconstructs the fixed v1 preimage.
-- The existing repository does not establish an online key custody
-  implementation. If the signer cannot enforce this purpose-limited boundary,
-  direct online use is not approved by this design.
-- Any future delegated freshness key is a separate approved protocol
-  extension rooted in the existing Bootstrap pin, not a new trust root
-  silently introduced here.
+An OS backup that restores an older local state is safe only while the
+server-side Release Journal and pointer are current: APP still requires a
+fresh proof of the current committed record. A high-water state greater than
+the current Journal head blocks. A large wall-clock rollback is rejected by
+the persisted signed server-time high-water and 30-second skew bound; a
+state-less client still relies on the fresh nonce and monotonic timeout.
+Long-offline or expired Manifest has no grace path for TLSN capture.
 
-**Worker**
+## 10. Failure behavior and ordinary game traffic
 
-- Does not accept the APP response as proof of Worker, Notary, Origin,
-  Target Approval, or Result trust.
-- Continues to derive server identity from the actual Presentation and
-  independently verify its configured registries and approved target policy.
-- Must not share its Result-signing or Notary authority with the freshness
-  endpoint.
-
-### 5.6 R2 high-water and pointer-loss recovery
-
-Current behavior is intentionally fail-closed in some cases: publisher
-publication rejects a missing pointer when the supplied epoch high-water is
-nonzero, and the R2 adapter does not automatically retry ambiguous writes.
-However, the current publisher readiness records the independent recovery
-authority as `NOT_REGISTERED`. The `policy.last_accepted_epoch` is supplied to
-the publisher; the inspected code does not establish a separate durable
-online high-water authority. Also, current publication stores content-addressed
-artifacts but only the Manifest at the mutable `manifest.json` key; it does
-not persist an immutable Manifest snapshot. Thus the current R2 namespace
-alone cannot reconstruct a lost Manifest pointer.
-
-Proposed future release ledger and snapshots:
-
-1. Store exact signed Manifest bytes at an immutable key such as
-   `tlsn/runtime-config/v2/manifests/<manifest_sha256>` and verify readback.
-2. Maintain an append-only/monotonic authority record independent of the
-   mutable pointer. It records committed epoch and digest plus approval and
-   prior-record linkage. A storage technology and its control-plane owner
-   require human approval; do not assume eventual-consistency storage is
-   sufficient.
-3. Serialize publication states (`PREPARED`, `POINTER_COMMITTED`,
-   `COMMITTED`). The endpoint signs only when the authoritative record is
-   `COMMITTED` and the R2 pointer matches exactly. Any split-state, timeout,
-   stale pointer, or unknown write outcome fails closed.
-4. If the pointer is missing but the ledger and immutable snapshot agree on
-   the latest committed `(epoch, digest)`, two authorized custodians may
-   restore those exact bytes with conditional create. This is restoration of
-   the same epoch and digest, not a rollback.
-5. If the latest snapshot or ledger is missing, corrupt, or contradictory,
-   freeze publication and freshness responses. Do not reset the epoch to zero
-   or choose the highest-looking R2 object automatically.
-6. If repair requires new bytes, issue a new Manifest at an epoch strictly
-   above the last independently verified high-water. Correct a bad release
-   forward; never republish different bytes at the same epoch.
-7. If both online ledger and snapshots are lost, recovery requires an
-   independently retained signed release log and explicit two-person
-   approval: a Runtime Config Release Owner and a Bootstrap Trust/Key
-   Custodian. If no trustworthy record survives, a new APP release with an
-   approved Bootstrap trust change may be required. No such recovery
-   authority is currently registered.
-
-Signer revocation is also not a normal Runtime Config operation. The APP pins
-one Bootstrap key at build time; a compromised root cannot be remotely revoked
-for an old APP that only trusts that root. Recovery requires approved root
-rotation and an APP release. A new Manifest epoch does not revoke a trusted
-signing key.
-
-R2 strong consistency does not remove the need for this recovery authority.
-Cloudflare notes that a negative read does not prove an earlier in-flight
-write failed. A freshness endpoint must treat missing pointer plus nonzero
-ledger state, an unresolved write, or any mismatch as unavailable, never as a
-new installation.
-
-### 5.7 Outage and cache behavior
-
-| Condition | APP/TLSN behavior | Ordinary Game Server communication |
+| Failure | TLSN behavior | Normal APP/Game Server behavior |
 |---|---|---|
-| New APP, endpoint/signer unavailable | No verified latest assertion; TLSN capture and evidence readiness stay blocked. | Continues through the ordinary proxy path. |
-| Existing APP update, endpoint unavailable | Keep local high-water unchanged; do not silently downgrade or treat cached data as freshly checked. Under the recommended strict policy, do not start a new TLSN capture until freshness succeeds. | Continues. |
-| Existing Manifest still within expiry but no fresh response | It remains previously verified local data, not a current-latest assertion. Strict policy blocks new capture; any offline grace would need separate human approval and must be labeled stale/unverified. | Continues. |
-| Only an expired Manifest is available | Reject it; no build-time operational fallback or expired-config grace. TLSN capture blocked. | Continues. |
-| Worker reference is older than 600 seconds | Existing Manifest verification rejects it; publish a fresh approved Manifest/reference. Do not bypass the freshness check. | Continues. |
-| Pointer missing, stale, invalid, or disagrees with ledger | Endpoint returns unavailable without a signature; no fallback to the last cached Manifest. | Continues. |
-| Freshness endpoint outage | Mark Runtime Config freshness unavailable; do not disable ordinary proxying. | Continues. |
-| Bootstrap signer unavailable | No response signature; TLSN capture blocked. | Continues. |
+| Freshness route, signer, Release Journal or DO unavailable | Report a stable `TLSN_FRESHNESS_UNAVAILABLE` readiness error; no Manifest acceptance/capture. Keep local state unchanged. | Ordinary proxy path continues; do not add a synchronous Freshness call to each game request. |
+| Invalid signature/delegation/commit record | `TLSN_FRESHNESS_INVALID` and no high-water update. | Unchanged. |
+| Expired or revoked-by-expiry delegation | `TLSN_FRESHNESS_SIGNER_EXPIRED`; no capture. | Unchanged. |
+| Pointer, snapshot, DO and journal mismatch/pending state | `TLSN_RELEASE_STATE_UNCOMMITTED`; no response signature. | Unchanged. |
+| Manifest or artifact digest/registry validation fails | Existing Runtime Config validation error; no state update or capture. | Unchanged. |
+| APP local state corrupt or high-water above authority | `TLSN_RUNTIME_CONFIG_STATE_INVALID`; require online validated recovery or operator diagnosis. No reset-to-zero fallback. | Unchanged. |
+| Response timeout (>10 seconds) | `TLSN_FRESHNESS_TIMEOUT`; discard nonce; a later attempt gets a new nonce. | Unchanged. |
 
-For both request and response, use HTTPS, `POST`, bounded bodies, and
-`Cache-Control: no-store, private`; configure the CDN route to bypass caching
-and disable Worker Cache API use for this endpoint. Do not place the nonce in
-a GET URL or rely on it as a cache key. The Manifest object already has
-`no-store`, but a CDN/custom-domain configuration can still alter observed
-freshness; cache headers are not a security proof. A stale cached response
-must fail the nonce check; a stale cached Manifest must fail the exact digest
-check.
+Logs/diagnostics use fixed error codes, operation phase, environment and
+elapsed duration. Do not log request nonces, full responses/Manifest bodies,
+delegated private keys, secret bindings, credentials, or raw signer requests.
+Freshness failures must never be shown as “Manifest valid” or “TLSN ready”.
+The APP must not retry or replay any Game Server request due to a freshness
+failure or an ambiguous game-network write.
 
-## 6. Compatibility and trust boundary
+## 11. Adversarial security analysis
 
-- Keep Runtime Config Manifest schema v2 and its existing signature bytes
-  unchanged. Freshness is a separate v1 protocol with new scope/domain and
-  cross-language vectors.
-- The existing three APP Bootstrap inputs remain the only static locator/pin
-  inputs for the direct-key proposal. Derive the freshness path from the
-  canonical Manifest URL on the same origin. If deployment requires another
-  host or key, stop for trust-model approval rather than adding an implicit
-  fourth input.
-- An APP that does not implement this protocol cannot claim fresh-client
-  replay protection. Rollout requires an APP release containing the new
-  verifier; old clients remain bounded only by expiry/local high-water.
-- Worker Production/Canary bindings and Result Registry/Notary/Origin trust
-  remain independent. No Worker may treat the APP's response as its trust
-  root.
-- The APP pin and its local epoch are modifiable by a hostile APP owner.
-  This protocol reduces network/server replay under the stated signer and
-  ledger assumptions; it does not prove APP binary, process, OS, Browser, or
-  gameplay integrity.
-
-## 7. Adversarial test plan
-
-These are future tests, not tests run in this design task. No production R2
-bucket or live service is to be used. R2 integration tests require an
-explicitly disposable test bucket and separate approval.
-
-| Test | Expected result | Test layer |
+| Scenario / attacker capability | Detection and required behavior | Maximum impact if assumptions hold |
 |---|---|---|
-| Correct signed response, pending random nonce and exact Manifest bytes | Accept response, then pass existing full Manifest/artifact verification; persist epoch only after full success. | APP unit + cross-language vector |
-| Nonce mismatch or wrong nonce length | Reject before accepting Manifest or changing high-water. | APP unit |
-| Response replay after challenge consumed; response for another APP nonce | Reject; no second acceptance. | APP unit/integration |
-| Response expiry | Reject an expired response and leave persisted epoch/digest unchanged. | APP unit |
-| `issued_at` too far in future or `expires_at <= issued_at` / TTL too long | Reject. | APP unit |
-| Wrong audience URL digest | Reject, even if signature is otherwise valid. | APP unit |
-| Wrong scope, environment, or protocol/schema version | Reject; Production never accepts Canary. | APP unit |
-| Wrong signer key ID, unknown key, invalid signature, malformed SPKI | Reject. | APP unit |
-| Unknown field, duplicate JSON key, noncanonical envelope/payload, padded or malformed base64url | Reject. | APP + shared JS/Rust vectors |
-| Freshness response epoch below APP local high-water | Reject. | APP unit |
-| Same epoch with a different Manifest digest | Reject. | APP unit + publisher unit |
-| Fetched Manifest bytes differ from signed response digest by one byte/whitespace | Reject before config acceptance. | APP integration |
-| Response points at Manifest with wrong schema/scope or invalid original Manifest signature | Reject; freshness response does not bypass Manifest v2 verification. | APP integration |
-| Pointer signature invalid or signed pointer wrong environment | Endpoint returns no signed freshness response. | Endpoint/Worker unit |
-| Pointer and exact Manifest digest mismatch | Endpoint rejects; APP also rejects any fetched-byte mismatch. | Endpoint + APP integration |
-| Mock stale R2 pointer below independent ledger high-water | Endpoint fails closed and emits no signature. | Endpoint unit |
-| R2 read-after-acknowledged-write through direct API | Reads exact committed pointer; test uses only an approved disposable bucket. | R2 integration |
-| Publisher CAS race, stale ETag, same epoch/different bytes | One writer wins; conflicting release fails; no two success receipts. | Publisher unit + disposable R2 integration |
-| Missing pointer with ledger high-water > 0 | No “first install” fallback; no signed freshness response. | Publisher + endpoint integration |
-| Pointer missing with pending/ambiguous write | Remain unavailable until readback/reconciliation; no blind retry or epoch reset. | Publisher + endpoint unit |
-| Pointer-loss restore using ledger and exact immutable snapshot | Only exact previously committed bytes restore via conditional create; epoch/digest unchanged. | Recovery integration/runbook exercise |
-| Pointer-loss with missing/corrupt ledger or snapshot | Freeze and require two-person recovery; no auto-selected object or reset to zero. | Recovery integration/runbook exercise |
-| CDN returns a previously cached response with old nonce | APP rejects nonce mismatch. | Endpoint/APP integration |
-| CDN returns old Manifest bytes after a valid response | APP rejects exact digest mismatch. | APP integration |
-| Endpoint outage or timeout | Freshness/capture readiness fails closed; high-water is unchanged. | APP integration |
-| Signer outage or signing error | No success-shaped response; TLSN capture blocked. | Endpoint + APP integration |
-| Production/Canary endpoint, signer, or pointer crossed | Reject due role/audience/independent signer policy. | Endpoint + APP + Worker tests |
-| APP sends a self-asserted epoch/digest or arbitrary signing bytes | Endpoint schema rejects; signer interface has no generic signing operation. | Endpoint security test |
-| Freshness endpoint unavailable during ordinary proxy traffic | Ordinary Game Server request/response remains functional; only TLSN capture/readiness is denied. | APP integration |
-| Worker receives APP claim that freshness was verified | Worker still independently checks observed Presentation identity, Inventory, Approval, and Result Registry. | Worker contract test |
+| Freshness endpoint compromised, signer key not compromised | Endpoint can deny, delay, cache or alter bytes; APP signature/nonce/audience/digest checks reject. Signer obtains data independently, not endpoint-supplied epoch/digest. | TLSN availability loss only. |
+| Manifest publisher compromised | It may attempt pointer rollback or publish partial objects. It lacks Bootstrap root and Release Authority keys; DO/journal/pointer mismatch blocks Freshness. | DoS/orphan objects; cannot create a new valid Manifest. |
+| Bootstrap-root/Manifest signer compromised | Attacker can sign a malicious Manifest and malicious delegations because current Manifest v2 trusts this key directly. | Full APP Runtime Config trust compromise, including APP-side Notary/Registry pins. Requires new Bootstrap root in an APP release; no remote revocation of old APP pins. |
+| Release Authority private key compromised | It can forge commit records, but Freshness signer also requires the current DO record, append-only Journal head, R2 pointer ETag/digest, and root-signed Manifest to match. | May cause release-authority denial/forged receipts; combined compromise of DO/journal controls is broader. It cannot sign a Manifest or Freshness response. |
+| Freshness delegated key compromised | Attacker can sign nonce-bound Freshness responses and claim a previously root-signed Manifest/commit is latest. APP still verifies the original Manifest and Release Commit Record. | Can replay an older still-valid config or deny readiness; cannot create new Manifest, Result, Notary, or Registry signatures. Bound by Manifest expiry/reference age, 10-second request acceptance window, and delegation expiry. |
+| Delegation issuance authority compromised | Root can issue replacement child keys or alter allowed purposes. | Equivalent to Bootstrap-root compromise; offline custody and APP root rotation are required. |
+| R2 object bytes modified | Exact Manifest/snapshot digest, root signature, artifact hashes and commit record do not match. | Freshness/Manifest acceptance blocked. |
+| R2 mutable pointer rolled back | Current DO generation/ETag and Release Journal head exceed or differ from pointer. | No response; recovery uses exact current snapshot, not the old pointer. |
+| DO ledger rolled back/PITR restored | Release Journal head and signed record generation are higher/different. | Freshness blocked until the DO is reconstructed from the signed journal chain. |
+| Release Journal rolled back or unavailable | DO current state and pointer disagree with journal head, or the Journal cannot prove a current head. | Freshness blocked. If Journal, DO and R2 are all jointly rolled back, latestness is unknowable without an offsite checkpoint; remain blocked. |
+| Endpoint and Freshness signer collude | They can issue a response for a stale but valid root-signed Manifest; the signer has the designated Freshness authority. | Stale-config acceptance within the Manifest's remaining validity window; no new Manifest signature or Worker evidence authority. |
+| Old response replay | Fresh random nonce, one pending request, consumed-challenge state and monotonic 10-second deadline fail. | No cross-request acceptance. |
+| Cross-environment response/delegation | Environment, scope, audience and root-signed delegation mismatch. | Rejected before config acceptance. |
+| Nonce reused or leaked | APP nonce generator/pending-state tests detect reuse; a leaked nonce can only retrieve/relay a response for that exact pending challenge. | Same-attempt response relay; no ability to alter manifest or satisfy another nonce. |
+| APP local state deleted or lowered | Fresh nonce and signed current Release Journal/commit record establish the online current snapshot; offline fallback is forbidden. | A hostile owner can still patch APP (out of scope); a network replay alone fails. |
+| APP local state tampered to a higher epoch | Fresh server head is lower; APP refuses downgrade and reports recovery issue. | Local denial of TLSN only. |
+| OS clock moved backwards | Monotonic request deadline, wall-clock skew and persisted last signed server time reject large rollback. | Availability denial; no silent stale fallback. |
+| Network partition | No valid challenge response; TLSN readiness/capture blocks. | Ordinary game traffic continues. |
+| Release stopped during commit | Pending DO state, absent journal record or mismatched pointer makes signer refuse. | Temporary TLSN outage until exact recovery. |
+| R2 backup restore to an old pointer | Separate DO and Release Journal remain newer; digest/generation mismatch rejects. | Freshness blocked until pointer restored to the exact latest snapshot. |
+| R2, DO and Release Journal all restored/controlled by one attacker | All current sources can present a coherent old history. | No self-contained protocol can know a deleted external history. Require independently retained checkpoint/root-owner intervention or remain blocked. |
 
-## 8. Implementation roadmap
+## 12. Adversarial test plan
 
-Only Phase 0 design/documentation is in scope here. Every later phase requires
-its own approval and validation; no code from Phases 1–6 was started.
+These are future tests, not tests run for this protocol. The 58 existing Node
+tests run during Phase 0 cover current source only. No live R2 bucket, signer,
+Production endpoint, Notary or Game Server is used. Any R2 integration test
+requires explicit approval for a disposable bucket.
 
-### Phase 0 — Protocol / trust-model approval
+| Test | Expected result | Layer |
+|---|---|---|
+| Root-signed Release and Freshness delegations with exact Production scope | Accept only after verifying root signature, key ID, algorithm, purpose, audience and validity. | APP unit + JS/Rust golden vector |
+| Delegation wrong root key, key ID, purpose, env, audience, algorithm, version, unknown field or malformed SPKI | Reject. | APP + Freshness Worker unit |
+| Delegation not-before, not-after, generation rollback, previous digest mismatch | Reject; no response accepted. | APP unit |
+| Freshness delegation expired/revoked by expiry | Reject even if response signature is otherwise valid. | APP unit |
+| Release Authority record signature invalid, wrong key/delegation, wrong scope/env/state | Journal entry not committed; signer and APP reject. | Release Authority + signer unit |
+| Release record wrong epoch/digest/ref/ETag/generation/commit ID or previous record hash | Reject; do not advance DO or Journal head. | DO + Release Authority unit |
+| Root-signed Manifest modified after record creation | Exact digest/signature mismatch; no Freshness response. | Signer unit |
+| Publish attempt starts while an issue lease is active | DO denies pointer preparation/CAS until leases end; no pointer mutation occurs. | DO concurrency test |
+| Freshness request starts after a release is pending | DO refuses a new lease; no response signature. | DO + signer integration |
+| Issue lease expires before response signature | Signer discards any produced signature; no response; release may proceed after lease expiry. | Signer/DO fault-injection test |
+| Concurrent Freshness readers with a waiting release | Existing leases can finish; writer-pending rejects new leases and then proceeds. | DO concurrency test |
+| Valid nonce-bound response with current record and exact immutable Manifest snapshot | APP accepts after all existing Manifest/artifact checks and persists state once. | APP unit + integration |
+| Nonce mismatch, invalid length, duplicate/consumed nonce, or response from another APP request | Reject and do not update persistent state. | APP unit |
+| Response replay with a previously valid response and fresh nonce | Reject nonce mismatch. | APP integration |
+| Wrong audience, environment, scope or protocol version | Reject; Production/Canary never cross. | APP + signer unit |
+| Wrong signer key ID, unknown delegated key, bad Freshness signature | Reject. | APP unit |
+| Response `issued_at` >30 seconds in the future, expiry, >30-second validity, or monotonic request deadline >=10 seconds | Reject; no acceptance. | APP unit |
+| Freshness `latest_epoch` differs from commit record or Manifest payload | Reject before state persistence. | APP integration |
+| Same Manifest epoch with different exact bytes/digest | Reject. | APP + publisher unit |
+| Same Manifest bytes with older commit generation or lower epoch | Reject as rollback. | APP + DO + signer unit |
+| `manifest_ref` is outside fixed snapshot prefix or digest suffix mismatches bytes | Reject; no URL/path supplied by endpoint is trusted. | APP + signer unit |
+| R2 pointer signature invalid, ETag/digest wrong, or pointer not equal snapshot | Signer emits no response. | Freshness Worker integration |
+| Stale pointer below DO/Journal head | Signer emits no response. | Freshness Worker + fake R2/journal |
+| Stale/rollback Release Journal head while DO is newer | Signer emits no response and raises integrity alert. | Signer + Journal integration |
+| DO PITR restore to old generation while Journal remains current | Signer detects mismatch and blocks. | DO recovery integration |
+| R2 pointer CAS races with same ETag | One publisher wins; one conflict; no two commit records. | Publisher unit + disposable R2 |
+| Crash after PREPARED before pointer CAS | No Freshness signature; safe abort only if write never began and old pointer remains exact. | DO state-machine test |
+| Crash after pointer CAS before POINTER_COMMITTED | Direct readback advances only if exact candidate; otherwise pending/block. | DO + fake R2 |
+| Crash after POINTER_COMMITTED before signed Journal append | Signer blocks; offline Release Authority may complete the exact prepared record. | Release Authority integration |
+| Crash after Journal append before DO COMMITTED | Recovery validates exact Journal record and pointer before advancing DO; no new generation. | DO + Journal integration |
+| Partial artifact/snapshot writes | Pointer remains unchanged; no commit record or Freshness signature. | Publisher unit |
+| Missing pointer with nonzero DO/Journal state | Never treat as first install; restore exact latest snapshot or remain blocked. | Signer/recovery integration |
+| Pointer-only restore from R2 backup | DO/Journal higher generation forces rejection. | Recovery integration |
+| All current sources disagree or Journal lost | No signature, no epoch-zero fallback, manual recovery required. | Recovery/runbook exercise |
+| CDN supplies cached old response or old Manifest | Nonce or exact raw digest mismatch rejects. | APP/Worker integration |
+| Freshness endpoint/signer/Journal/DO unavailable | TLSN readiness blocks, local state unchanged, normal proxy traffic still succeeds. | APP integration |
+| APP ordinary game request has ambiguous network outcome | No resend due to freshness failure or runtime configuration retry. | APP proxy integration |
+| Freshness key attempts to sign Manifest/Result/Notary payload | APP Manifest verifier and Worker Result/Notary verifiers reject the child key/domain. | Cross-language + Worker contract |
+| Freshness Worker receives caller-supplied epoch/digest/URI/ledger state | Strict request schema rejects; signer derives them independently. | Worker security test |
 
-- **Files:** this document; [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md).
-- **API/types:** approve the v1 request/response schema, domain separation,
-  same-origin route, exact “latest as of issued_at” semantics, nonce/TTL, and
-  fail-closed behavior.
-- **Depends on:** none.
-- **Success:** designated human owners approve the trust model, key custody,
-  high-water/recovery authority, outage policy, and test environment. Design
-  status is recorded as approved or rejected.
-- **Security tests:** review test matrix; no runtime test or signing operation.
-- **Human approval / external inputs:** required. No secrets or Production
-  values are needed for Phase 0.
-- **Current result:** proposal documented; approval **NOT_GRANTED**.
+## 13. Implementation roadmap
 
-### Phase 1 — Publisher / pointer authority
+Phase 0 is the only current phase. No source changes from Phases 1–6 were
+started.
 
-- **Files:** `scripts/tlsn-runtime-config-release.mjs`,
-  `scripts/tlsn-runtime-config-manifest.mjs`,
+### Phase 0 — Specification and trust approval
+
+- **Files changed:** this document and
+  [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md) only.
+- **APIs/schema:** select Option B, `LATEST_AT_ISSUANCE`, the two delegated
+  child purposes, response/delegation/commit-record canonical forms,
+  10-second APP deadline, and failure policy.
+- **Order/dependency:** complete before implementation.
+- **Tests:** source inspection and current existing Node contract tests only;
+  no Freshness tests or signing calls.
+- **Fail/complete:** no design ambiguity for code implementation; human
+  approval remains required for root custody, child-key custody, Journal
+  operator/retention, and service registration. **Specification written;
+  trust approval NOT_GRANTED.**
+- **External inputs:** no secret/key values in chat or source.
+
+### Phase 1 — Release Authority ledger, R2 snapshots and Journal
+
+- **Existing files:** `scripts/tlsn-runtime-config-manifest.mjs`,
   `scripts/tlsn-runtime-config-r2-store.mjs`,
-  publisher/R2 tests, plus a new monotonic release-ledger module and schema.
-- **API/types:** immutable Manifest snapshot, high-water ledger record,
-  serialized prepared/committed states, recovery receipt, and an API that
-  atomically advances a committed ledger version under conditional CAS.
-- **Depends on:** Phase 0. Storage selection must be approved; no production
-  R2 write in this phase without a separate authorization.
-- **Success:** exact snapshots and artifacts read back by digest; no epoch
-  rollback; one CAS winner; missing/corrupt state fails closed; recovery can
-  restore only exact committed bytes.
-- **Security tests:** CAS race, ambiguous outcome, pointer loss, ledger loss,
-  same-epoch mutation, corrupt snapshot, and recovery approval tests.
-- **Human approval / external inputs:** choose and authorize the authoritative
-  ledger, independent custodians, retention and restore controls. Production
-  R2 credentials are not needed for local tests.
+  `scripts/tlsn-runtime-config-release.mjs`,
+  `scripts/tlsn-runtime-config-production-registration.mjs`,
+  `scripts/tlsn-runtime-config-publisher-readiness.mjs`, and their tests.
+- **New files:** a dedicated
+  `packages/FUSOU-TLSN-RUNTIME-CONFIG-AUTHORITY/` Worker with
+  `src/index.ts`, `src/release-authority.ts`, `src/journal-client.ts`,
+  `wrangler.toml`, generated binding types, and SQLite Durable Object
+  migration; `scripts/tlsn-runtime-config-release-commit.mjs` and commit
+  record fixtures/tests.
+- **API/schema:** Release Authority DO methods
+  `prepareRelease`, `markPointerWriteStarted`, `observePointerCommitted`,
+  `commitRelease`, `acquireFreshnessIssueLease`,
+  `releaseFreshnessIssueLease`, `getCurrentCommitted`, and recovery-only
+  methods with strict roles. The release CLI calls an authenticated internal
+  `POST /internal/v1/releases/prepare` with the exact signed Manifest bytes;
+  Authority code verifies the root signature and derives the candidate
+  epoch/digest itself. The route authenticates the protected release-pipeline
+  identity; that access only authorizes submission and is not a latest-state
+  proof. The CLI has no R2 writer credential after migration.
+  The Authority Worker is the only Runtime Config pointer writer;
+  `observePointerCommitted(attempt_id)` reads R2 directly and accepts no
+  publisher-supplied ETag/digest as proof. `getCurrentCommitted` and issue
+  leases are exposed to the signer through a private service binding; the
+  signer has no release-mutation capability. Add immutable Manifest snapshot key
+  `tlsn/runtime-config/v2/manifests/<manifest_sha256>`, `R2` allowlist,
+  cache metadata and exact readback. Add `ReleaseCommitRecordV1` and an
+  append-only Journal interface with create-once `append(record)` and
+  authenticated linearizable `getHead(environment)`.
+- **Order:** prepare/verify Manifest and artifacts; write artifacts and
+  snapshot create-only; DO records PREPARED; the Authority Worker sets the
+  pointer-write-started bit and performs the existing R2 `If-Match` /
+  `If-None-Match: *` CAS only when no issue lease is active; Authority
+  directly reads the pointer/snapshot and records provisional
+  POINTER_COMMITTED; the offline Release Authority signer independently
+  rereads R2/DO/Journal and signs the exact commit record; Journal appends
+  and reads back the create-once record; DO verifies it and transitions to
+  COMMITTED. No endpoint-supplied release values are trusted in these
+  transitions.
+- **Tests:** all state transitions, CAS, concurrent release, generation and
+  epoch rules, crash recovery, missing snapshot, Journal head mismatch,
+  R2 restore, and no secret output. Run live R2 only against a separately
+  authorized disposable bucket.
+- **Fail/complete:** no Freshness response until all committed state sources
+  agree. Any lost state blocks; no zero reset.
+- **External input:** approve Journal provider/retention/account, DO
+  namespace, Release Authority offline key custody, authorized release
+  operators, and R2 permissions. No user supplies secrets in chat.
 
-### Phase 2 — Freshness signer / endpoint
+### Phase 2 — Root delegations and Freshness signer service
 
-- **Files:** a new route module under
-  `packages/FUSOU-TLSN-VERIFICATION-WORKER/src/` and its `src/index.ts`
-  wiring, endpoint tests, generated binding/schema declarations only if the
-  approved design requires them.
-- **API/types:** bounded challenge parser, direct R2/ledger read, exact
-  pointer verifier, typed `signFreshnessResponse`, strict v1 response
-  envelope, no-cache headers and explicit 503 refusal states.
-- **Depends on:** Phase 0 and Phase 1.
-- **Success:** signs only the committed pointer for the pending nonce; accepts
-  no caller-supplied epoch/digest/message; no Worker Result/Notary authority
-  is shared; Production/Canary are isolated.
-- **Security tests:** invalid/stale pointer, cache, nonce, role, audience,
-  signer outage, R2/ledger mismatch and arbitrary-signing request tests.
-- **Human approval / external inputs:** signer custody and endpoint ownership
-  approval are mandatory. Do not place the signing key in ordinary Worker
-  bindings. Any HSM/provider integration is external and secret-bearing.
+- **New files:** separate
+  `packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/` and
+  `packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-SIGNER/` Workers, each with
+  its own `src/index.ts`, `wrangler.toml`, generated types and tests. The
+  Gateway owns the same-origin APP route and a private Service Binding to
+  the Signer. The Signer owns the delegated Freshness secret and
+  read-only R2/DO/Journal access. Do not add either role to
+  `FUSOU-TLSN-VERIFICATION-WORKER`.
+- **Existing files:** add production readiness checks to Runtime Config
+  registration/publisher diagnostics and type/vector tests.
+- **API/schema:** strict POST request/response, root delegation verifier,
+  Release Authority record verifier, Freshness signer, and read-only
+  R2/DO/Journal adapters. The Gateway passes only the validated challenge.
+  There is no arbitrary `sign(bytes)` endpoint and no caller-supplied release
+  state.
+- **Order:** obtain approved root-signed delegations offline; provision
+  read-only R2/Journal/committed-state access, a narrowly scoped issue-lease
+  capability, and the Freshness private key through the approved
+  secret/HSM provider; only then enable the endpoint. The Freshness signer
+  acquires an issue lease before checking state, signs while the lease is
+  active, and releases it after signing. The Gateway never receives the
+  signing key. Bootstrap root material never enters either Worker.
+- **Tests:** signer reads actual test pointer/DO/Journal rather than request
+  claims; invalid/stale state fails; key purpose isolation; Production/Canary
+  isolation; outage and cache tests.
+- **Fail/complete:** response only for a current Journal head matching
+  DO/R2/snapshot. Any unavailable authority returns explicit non-success.
+- **External input:** delegated keys, provider, domain/route, read-only R2
+  access, journal authentication and operator registration. These are not
+  present now.
 
-### Phase 3 — APP verifier / persistence
+### Phase 3 — APP verifier and persistent state
 
-- **Files:** `src-tauri/src/tlsn_runtime_config_manifest.rs`,
-  `src-tauri/src/tlsn_runtime_config_runtime.rs`, Rust tests and shared
-  cross-language known-answer fixtures.
-- **API/types:** one-time pending challenge, bounded POST fetcher, strict
-  response parser/verifier, exact URL audience derivation, exact-byte digest
-  comparison, and atomic high-water update after complete Manifest and
-  artifact verification.
-- **Depends on:** approved Phase 0 schema and a Phase 2 endpoint contract.
-- **Success:** new APP rejects replay/rollback and preserves current Manifest
-  verification; endpoint failure blocks TLSN capture without stopping normal
-  proxy traffic.
-- **Security tests:** APP cases in Section 7, local state corruption,
-  process restart, cancellation and repeated response.
-- **Human approval / external inputs:** approved policy for response TTL,
-  time skew and existing APP behavior during endpoint outage. Release values
-  and signing secrets are not added to source.
+- **Existing files:** `src-tauri/src/tlsn_runtime_config_manifest.rs`,
+  `src-tauri/src/tlsn_runtime_config_runtime.rs`, `wrap_proxy.rs`, Rust unit
+  tests, JS/Rust golden vectors and relevant APP pre-capture tests.
+- **API/schema:** new Rust types for Delegation, ReleaseCommitRecord,
+  Freshness envelope/payload; new domain-separated verifiers; bounded POST
+  fetch method; immutable Manifest snapshot fetch; APP state v2 with
+  epoch/digest/generation/record/delegation high-waters and atomic migration.
+- **Order:** challenge -> verify both delegations -> verify commit record ->
+  verify response -> nonce/time/deadline -> fetch exact snapshot -> existing
+  full Manifest/artifact verification -> compare local state -> one atomic
+  state update.
+- **Tests:** all APP and canonicalization cases in Section 12, state loss,
+  corruption, OS restore, clock rollback and monotonic deadline.
+- **Fail/complete:** no state mutation until all checks pass; offline or bad
+  Freshness blocks TLSN, not the ordinary proxy.
+- **External input:** approved trust/certificate schemas, TTL and outage
+  policy; no Production URL or key is guessed.
 
-### Phase 4 — Worker consistency / independent verification
+### Phase 4 — Worker and trust-boundary consistency
 
-- **Files:** Worker config/route tests, `src/index.ts` only if a reviewed
-  interface is needed, and Runtime Config/Result Registry contract tests.
-- **API/types:** no APP “verified” claim is accepted as Worker authority. If
-  the Worker needs a release identifier, it must come from its own approved
-  Binding or verified source, not the APP body.
-- **Depends on:** Phases 1–3; existing trust checks remain in force.
-- **Success:** Production and Canary authority remain separate; observed
-  Presentation identity, Inventory, Target Approval and Result Registry
-  verification are unchanged and independently enforced.
-- **Security tests:** cross-environment substitution, APP claim forgery,
-  mismatched release and existing Worker negative tests.
-- **Human approval / external inputs:** any new Worker Binding or role change
-  requires separate approval; not needed if existing independent checks
-  suffice.
+- **Existing files:** Worker `src/index.ts`, `src/binding_authority.ts`,
+  Result Registry helpers, Production/Canary schema tests, and current
+  worker-source tests. Modify only if an actual interface gap is shown.
+- **API/schema:** Worker continues to reject APP-asserted trust; any release
+  identifier used by Worker comes from its own Binding or independently
+  verified source. No app-provided Freshness result becomes Worker authority.
+- **Order/dependency:** after Phases 1–3.
+- **Tests:** APP claim forgery, Production/Canary substitution, observed
+  Presentation identity, Inventory/Approval/Notary/Result Registry remain
+  independently verified.
+- **Fail/complete:** no Worker acceptance based solely on a freshness response.
+- **External input:** any new Worker Binding requires explicit approval; no
+  Binding change is part of Phase 0.
 
-### Phase 5 — Integration / adversarial tests
+### Phase 5 — Cross-component and adversarial validation
 
-- **Files:** APP/Worker integration tests, fixtures, cross-language protocol
-  vectors, and `.github/workflows/tlsn-testplay-candidate.yml` only if the
-  approved required-check set is changed.
-- **API/types:** test-only endpoint/signer adapters and deterministic clock /
-  R2 fakes; a disposable R2 integration adapter if separately approved.
-- **Depends on:** Phases 1–4.
-- **Success:** all Section 7 tests pass, including the ordinary-proxy
-  availability property. Tests explicitly distinguish source, unit,
-  integration and live-service evidence.
-- **Security tests:** complete matrix, concurrency/fault injection, cache
-  replay and recovery exercise.
-- **Human approval / external inputs:** disposable R2 test bucket authorization
-  required for live storage integration. No Production bucket, Game Server or
-  Notary is used.
+- **Files:** APP/Authority/Freshness Worker tests, shared fixtures, release
+  Journal adapter tests, optional CI selectors in
+  `.github/workflows/tlsn-testplay-candidate.yml`.
+- **API/schema:** test-only clock, signer and R2/Journal adapters; no
+  Production credentials.
+- **Tests:** full Section 12 matrix, DO restart/PITR scenarios, WORM recovery,
+  CAS concurrency, signer compromise boundaries, endpoint outage with normal
+  game traffic, and cross-language vectors.
+- **Fail/complete:** require unit, Worker runtime, APP integration, and
+  disposable R2/Journal integration evidence as separate labels. No test
+  skip or weakened assertion.
+- **External input:** explicit authorization for any disposable R2 or
+  external Journal integration environment.
 
 ### Phase 6 — Deployment preparation
 
-- **Files:** deployment/readiness runbook, approved Worker route/config and
-  APP release handoff only after the prior phases are accepted.
-- **API/types:** registered same-origin route, role-separated signer access,
-  read-only pointer/ledger access for endpoint, cache bypass, structured
-  observability and alerting.
-- **Depends on:** Phases 0–5, separate operator sign-off, and successful
-  non-Production rehearsal.
-- **Success:** registration readiness reports actual approved states without
-  printing secrets; rollback/recovery drills pass; APP release and endpoint
-  are reviewed as a coordinated versioned rollout.
-- **Security tests:** access-control review, cache-bypass verification,
-  signer audit, pointer-loss rehearsal, outage monitoring, and release
-  rollback exercise.
-- **Human approval / external inputs:** exact Bootstrap registration, signer
-  custody, endpoint domain/route, ledger owner, CDN policy, secrets, and APP
-  release approval. No deploy is implied by completion of this document.
+- **Files:** production readiness/runbook, new Worker `wrangler.toml`,
+  registration controls and coordinated APP release handoff.
+- **Order:** only after Phase 5; register the real Bootstrap root and
+  delegations, Release Authority key, Freshness key, Journal and exact
+  endpoint; then review CDN bypass, role separation, recovery, observability
+  and current compatibility date.
+- **Tests:** configuration/readiness must show registered state without
+  printing secret values; recovery/outage rehearsal and deployment review.
+- **Fail/complete:** any missing root/delegation/journal/pointer/endpoint
+  remains BLOCKED; successful build is not deployment or real-game proof.
+- **External input:** human trust-owner and release-operator approvals,
+  key provisioning through approved systems, scoped R2 permissions, Journal
+  retention, domain and APP release. Review compatibility dates against the
+  then-current Wrangler schema and enable structured Workers Logs and Traces
+  for the new services. No deploy is implied here.
 
-## 9. Required human decisions and residual risk
+## 14. Decisions still requiring human authority
 
-1. Approve or reject Option C and the fact that its signer must be available
-   online. Decide whether same-key direct signing is acceptable or whether a
-   separate root-authorized purpose key is required.
-2. Select the authoritative monotonic release ledger and its independent
-   custodian(s); define two-person pointer/high-water recovery authority.
-3. Approve the exact route/audience, response TTL (60 seconds proposed),
-   allowed clock skew, retry semantics and strict outage policy.
-4. Approve immutable Manifest snapshot retention and recovery-log retention.
-5. Define signer compromise response, revocation and APP root-rotation
-   process. Current APPs cannot remotely revoke their sole embedded root.
-6. Decide if the guarantee is “latest at signed `issued_at`” (proposed) or
-   requires serialization against concurrent publication.
-7. Establish the non-Production integration environment and whether a
-   disposable R2 test bucket may be used.
+The following are external trust/operations inputs, not coding questions:
 
-Residual risks remain: a compromised Bootstrap signer can issue valid
-assertions and Manifests; a compromised authoritative ledger can lie about
-latest state; endpoint outage blocks fresh TLSN capture; an APP owner can
-change its own pin and local state; and a signed response only proves what the
-signer asserted. None of these risks changes Worker-side independent evidence
-verification or creates Browser/process integrity guarantees.
+1. Bootstrap Trust Custodian approval to issue two child delegations while
+   retaining the root offline and continuing the current direct-root Manifest
+   v2 signature contract.
+2. Release Authority key custody/approval and the independently administered
+   append-only Journal provider, account, retention, access roles and
+   current-head guarantee.
+3. Freshness key custody provider and its 24-hour maximum delegation policy.
+   No private key or token is to be pasted into chat.
+4. Release Journal/DO/R2 data retention, backup restore permissions,
+   two-person recovery owners, and signed offsite checkpoint retention.
+5. Approval of the 10-second request deadline, 30-second response maximum,
+   30-second clock skew, and strict outage behavior.
+6. Availability/latency load test for one Release Authority coordination
+   object per environment; if it is inadequate, stop and re-approve a new
+   serialization design rather than weakening checks.
+7. Production endpoint/domain, R2 roles, signer registration, APP release
+   and external service access. All remain unregistered/not checked.
+
+**Phase 0 result:** Option B and `LATEST_AT_ISSUANCE` are specified with
+bounded semantics, delegated keys, a signed commit record, an independent
+Journal, DO state transitions, APP verification and failure handling.
+The Freshness protocol remains **NOT_IMPLEMENTED**, registrations remain
+**BLOCKED**, and Production/Stage A/B/C acceptance remains **BLOCKED**.

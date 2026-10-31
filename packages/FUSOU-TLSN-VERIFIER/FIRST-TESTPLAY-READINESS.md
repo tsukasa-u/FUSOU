@@ -1,8 +1,54 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Current status snapshot — 2026-11-01
+## Current status snapshot — `a0cb49250df53132ee8df42ca02fbce91e10c7d2` (2026-11-01)
 
-This snapshot is for runtime-code commit `43ab72e6284deee3ad202be7fb50e3f0199af304`
+The inspected branch is `tlsn-first-testplay-candidate`; local HEAD, local
+tracking ref, and GitHub branch head are `a0cb49250df53132ee8df42ca02fbce91e10c7d2`.
+Its parent is `8820ec1877f4c4552005ae03fc717a233a8b036c`. The changes since the
+runtime-source baseline `43ab72e6284deee3ad202be7fb50e3f0199af304` are
+documentation-only; no APP or Worker source changed. At task start the only
+worktree changes were the pre-existing `justfile` and APP roaming config edits;
+the index was empty and those edits remain uncommitted.
+Run #94 validates `a0cb492...`, not this later documentation-only commit; no
+push or new Hosted CI run is part of this Phase 0 task.
+
+### Current verification status
+
+| Area | Status | Evidence and limit |
+|---|---|---|
+| Hosted workflow for `a0cb492` | **HOSTED_CI_VERIFIED** | Run #94 (`41225866303`) completed `success` with `head_sha` exactly `a0cb492...`; it is the only Actions workflow run returned for that SHA. |
+| `node-contract-tests` | **PASS** | Job completed successfully. Its pass covers the workflow's selected Node/WASM/APP handoff tests, not the new Freshness protocol, which is not implemented. |
+| `rust-tlsn-preflight` | **PASS** | Job completed successfully; this is the workflow's APP preflight target, not a Freshness delegation verifier test. |
+| Cloudflare `Workers Builds` check-runs | **PASS — build only** | `fusou`, `fusou-url-shorter`, and `fusou-workflow` reported successful build check-runs. This is not Production runtime, binding, or acceptance evidence. |
+| CodeFlow | **ANALYSIS_REPORTED, NOT A TEST PASS** | Latest status for this SHA is `success`, with `191 errors and 5368 warnings`. The individual analysis findings were not retrievable through the available interface and are **NOT_CHECKED**. |
+| Branch protection / required checks | **NOT ENFORCED** | GitHub reports `protected: false` and zero repository rulesets. Candidate required checks are `node-contract-tests` and `rust-tlsn-preflight`; CodeFlow is separate static analysis. |
+| Existing Runtime Config Node tests run during this audit | **58 passed, 0 failed, 0 skipped** | Worker Bootstrap/Result Registry, Manifest/publisher, fake R2 store and publisher-readiness suites. These exercise existing code only; they do not implement or test Freshness delegation. |
+| APP Rust Runtime Config-specific local tests | **NOT_RUN in this Phase 0 audit** | The Hosted Rust job is `rust-tlsn-preflight`; the selected local run was the existing Node suite. |
+| Freshness protocol design | **DESIGN_SPECIFIED** | The selected design is Option B / `LATEST_AT_ISSUANCE`; see [runtime-config-freshness-protocol.md](./docs/runtime-config-freshness-protocol.md). Bootstrap-root delegations, Release Authority records, journal, signer, and APP verifier are **NOT_IMPLEMENTED**. |
+| Freshness source implementation | **NOT_IMPLEMENTED** | No APP/Worker source code or bindings changed. |
+| Freshness unit/integration tests | **NOT_RUN / NOT_IMPLEMENTED** | No Freshness response, delegation, commit-record, or replay-protection code exists to test. No live R2 or service integration was run. |
+| Production registration | **NOT_REGISTERED / NOT_CHECKED** | Bootstrap values, signer providers, endpoint, Release Authority, journal and deployed bindings are not registered or verified here. |
+| `TLSN_PROTOCOL_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No authorization change. |
+| `IDENTITY_BOUND_TESTPLAY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No authorization change. |
+| `PRODUCTION_EVIDENCE_DELIVERY` | **BLOCKED_CODE / BLOCKED_EXTERNAL_INPUTS** | No authorization change. |
+| Deployment / real-game evidence | **NOT_VERIFIED** | No deployment validation, real Notary, Game Server, gameplay, Presentation, or Production Result was performed. |
+
+Evidence tiers are intentionally distinct: the Freshness protocol is
+**DESIGN_SPECIFIED**; its source implementation and protocol-specific unit
+tests are **NOT_IMPLEMENTED**; integration tests are **NOT_RUN**; external
+root/delegation/Journal/service registration is **NOT_REGISTERED**; Production
+demonstration and real-game evidence are **NOT_VERIFIED**.
+
+Run #94 had two successful jobs and no failed steps. The Runtime Config source
+and test inventory below is historical and remains useful, but its earlier
+`NOT_RUN` / `NOT_CHECKED` entries describe their named snapshots. The older
+snapshot also proposed direct online use of the Bootstrap signer; that proposal
+is superseded by the delegated-key design below and was never implemented.
+The current result does not promote Production acceptance.
+
+## Historical status snapshot — runtime-code SHA `43ab72e` (2026-11-01, earlier)
+
+This snapshot was for runtime-code commit `43ab72e6284deee3ad202be7fb50e3f0199af304`
 on `tlsn-first-testplay-candidate`. At inspection time, the local HEAD, local
 `origin/tlsn-first-testplay-candidate` ref, and GitHub branch head all matched
 that SHA. The two commits immediately before this snapshot are
