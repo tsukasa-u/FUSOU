@@ -191,7 +191,26 @@ impl ConfigsProxyNetwork {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppConnectKcServer {
     kc_server_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_server_list")]
     server_list: Option<std::collections::HashMap<i32, String>>,
+}
+
+fn deserialize_server_list<'de, D>(
+    deserializer: D,
+) -> Result<Option<std::collections::HashMap<i32, String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = std::collections::HashMap::<String, String>::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .map(|(key, value)| {
+            key.parse::<i32>()
+                .map(|index| (index, value))
+                .map_err(serde::de::Error::custom)
+        })
+        .collect::<Result<std::collections::HashMap<_, _>, _>>()
+        .map(Some)
 }
 
 impl ConfigsAppConnectKcServer {
@@ -998,6 +1017,31 @@ impl ConfigsAppRemodelSender {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppMapCellLabels {
+    bundle_url: Option<String>,
+}
+
+impl ConfigsAppMapCellLabels {
+    pub fn get_bundle_url(&self) -> Option<String> {
+        self.bundle_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                get_default_configs()
+                    .app
+                    .map_cell_labels
+                    .bundle_url
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+            })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
@@ -1008,6 +1052,8 @@ pub struct ConfigsApp {
     pub discord: ConfigsAppDiscord,
     pub database: ConfigsAppDatabase,
     pub asset_sync: ConfigsAppAssetSync,
+    #[serde(default)]
+    pub map_cell_labels: ConfigsAppMapCellLabels,
     pub auth: ConfigsAppAuth,
     pub kc_window: ConfigsAppWindow,
     pub quest_tree_sender: ConfigsAppQuestTreeSender,
@@ -1304,11 +1350,48 @@ mod tests {
 
     #[test]
     fn test_bundled_app_config_is_valid() {
-        let config_content =
-            include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
+        let config_content = include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
 
         toml::from_str::<Configs>(config_content)
             .expect("bundled FUSOU-APP configs.toml must match Configs");
+    }
+
+    #[test]
+    fn map_cell_labels_url_comes_from_config_and_old_configs_still_parse() {
+        let default_url = get_default_configs()
+            .app
+            .map_cell_labels
+            .get_bundle_url()
+            .expect("default map label bundle URL should be configured");
+
+        assert_eq!(
+            default_url,
+            "https://fusou.dev/battle-maps/cell_labels.json"
+        );
+
+        let custom = ConfigsAppMapCellLabels {
+            bundle_url: Some("https://maps.example.test/labels.json".to_string()),
+        };
+        assert_eq!(
+            custom.get_bundle_url().as_deref(),
+            Some("https://maps.example.test/labels.json")
+        );
+
+        let mut old_config: toml::Value =
+            toml::from_str(include_str!("../configs.toml")).expect("default TOML should parse");
+        old_config
+            .get_mut("app")
+            .and_then(toml::Value::as_table_mut)
+            .expect("app config table should exist")
+            .remove("map_cell_labels");
+        let old_config: Configs = old_config
+            .try_into()
+            .expect("configs without map_cell_labels should remain compatible");
+
+        assert_eq!(
+            old_config.app.map_cell_labels.get_bundle_url(),
+            Some(default_url)
+        );
     }
 
     #[test]
@@ -1449,7 +1532,10 @@ mod tests {
 
         assert_eq!(
             empty_browser.get_external_screenshot_directory(),
-            default_configs.app.browser.get_external_screenshot_directory(),
+            default_configs
+                .app
+                .browser
+                .get_external_screenshot_directory(),
             "browser external_screenshot_directory getter should return configs.toml default"
         );
 

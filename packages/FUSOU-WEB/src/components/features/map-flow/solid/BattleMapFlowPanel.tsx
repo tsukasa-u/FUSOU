@@ -12,19 +12,14 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import {
-  type BattleMapTheme,
-  getBattleMapAsset,
-  resolveBattleMapSpriteUrl,
-} from "@/data/battleMapAssets";
+import { getBattleMapAsset } from "@/data/battleMapAssets";
 import type { SharedDashboardState } from "../../battles/solid/types";
 
 import type {
   CurvedRouteData,
   BattleRecord,
-  MapFrameMeta,
+  BattleMapTheme,
   MapSpot,
-  OfficialMapThemeMode,
   OverlayMarker,
   ResolvedRouteOverlay,
   SelectedCellDetails,
@@ -68,7 +63,6 @@ import {
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
-import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
 import {
   resolveMapAreaName,
   resolveMapInfoName,
@@ -114,9 +108,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     createSignal<SelectedCellFilter | null>(null);
   const [metadataWarnings, setMetadataWarnings] = createSignal<string[]>([]);
   const [showWarnings, setShowWarnings] = createSignal(false);
-  const [showOfficialMapAssets, setShowOfficialMapAssets] = createSignal(true);
-  const [officialMapThemeMode, setOfficialMapThemeMode] =
-    createSignal<OfficialMapThemeMode>("auto");
   const getDocTheme = (): BattleMapTheme => {
     if (typeof document === "undefined") return "light";
     const attr = document.documentElement.getAttribute("data-theme");
@@ -141,8 +132,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     onCleanup(() => observer.disconnect());
   });
 
-  let displaySettingsModalRef!: HTMLDialogElement;
-
   // ── Data signals ────────────────────────────────────────────────────────────
   const [mapSpotsByKey, setMapSpotsByKey] = createSignal<
     Record<string, MapSpot[]>
@@ -155,9 +144,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   >({});
   const [mapLabelsByKey, setMapLabelsByKey] = createSignal<
     Record<string, Record<number, string>>
-  >({});
-  const [mapFrameMetaByKey, setMapFrameMetaByKey] = createSignal<
-    Record<string, MapFrameMeta>
   >({});
   const [mapMetadataLoadingKey, setMapMetadataLoadingKey] = createSignal<string | null>(null);
   const [mapMetadataFailedKey, setMapMetadataFailedKey] = createSignal<string | null>(null);
@@ -179,9 +165,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       .then((payload: unknown) => setMstMapinfos(recordsMatching(payload, isMapInfoRecord)))
       .catch(() => {});
 
-    const openSettings = () => displaySettingsModalRef.showModal();
-    window.addEventListener("map-flow-open-display-settings", openSettings);
-    onCleanup(() => window.removeEventListener("map-flow-open-display-settings", openSettings));
   });
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
@@ -233,7 +216,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       setMapMetadataLoadingKey(null);
       return;
     }
-    if (mapSpotsByKey()[mapKey] && (!asset.routesUrl || mapRoutesByKey()[mapKey])) {
+    if (mapSpotsByKey()[mapKey] && mapRoutesByKey()[mapKey]) {
       setMapMetadataFailedKey(null);
       setMapMetadataLoadingKey(null);
       return;
@@ -253,9 +236,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     const request = (async () => {
       try {
-        const targetUrl = asset.dataUrl || asset.infoUrl;
-        if (!targetUrl) return;
-        const response = await fetch(targetUrl, { signal });
+        const response = await fetch(asset.dataUrl, { signal });
         if (signal.aborted) return;
         if (!response.ok) {
           addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
@@ -266,18 +247,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         const rawData = await response.json();
         const data = isJsonRecord(rawData) ? rawData : {};
 
-        // 1. Frame metadata
-        setMapFrameMetaByKey((prev) => ({
-          ...prev,
-          [mapKey]: {
-            spriteSheetSize: { width: 1200, height: 720 },
-            routeLayoutFrame: { x: 0, y: 0, width: 1200, height: 720 },
-            seaMapFrame: { x: 0, y: 0, width: 1200, height: 720 },
-            routeFrames: {},
-          },
-        }));
-
-        // 2. Spots
+        // Spots
         const rawSpots = Array.isArray(data["spots"]) ? data["spots"] : [];
         const spots = rawSpots
           .map((spot): MapSpot | null => {
@@ -868,11 +838,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     return getBattleMapAsset(key);
   });
 
-  const resolvedOfficialMapTheme = createMemo<BattleMapTheme>(() => {
-    const mode = officialMapThemeMode();
-    return mode === "auto" ? detectedTheme() : mode;
-  });
-
   // ── Overlay computation ─────────────────────────────────────────────────────
 
   const selectedRouteOverlay = createMemo((): ResolvedRouteOverlay | null => {
@@ -880,21 +845,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     if (!asset) return null;
     // selected が null のケース(データなしマスを選択中)ではマップを表示継続し markers を空にする
     const selected = selectedSortieRoute();
-    const frameMeta = mapFrameMetaByKey()[asset.mapKey];
-    const hasStandaloneThemeSprite = !!asset.spriteUrls;
-    const resolvedAsset = {
-      ...asset,
-      spriteUrl: resolveBattleMapSpriteUrl(asset, resolvedOfficialMapTheme()),
-      spriteSheetSize: hasStandaloneThemeSprite
-        ? asset.spriteSheetSize
-        : (frameMeta?.spriteSheetSize ?? asset.spriteSheetSize),
-      routeLayoutFrame: hasStandaloneThemeSprite
-        ? asset.routeLayoutFrame
-        : (frameMeta?.routeLayoutFrame ?? asset.routeLayoutFrame),
-      seaMapFrame: hasStandaloneThemeSprite
-        ? asset.seaMapFrame
-        : (frameMeta?.seaMapFrame ?? asset.seaMapFrame),
-    };
     const spots = mapSpotsByKey()[asset.mapKey] || [];
     if (spots.length === 0) return null;
 
@@ -927,8 +877,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         const to = spotByCellId.get(transition.to);
         if (!from || !to) return null;
         const badgePosition = computeTransitionBadgePosition(from, to, spots, {
-          width: resolvedAsset.routeLayoutFrame.width,
-          height: resolvedAsset.routeLayoutFrame.height,
+          width: asset.routeLayoutFrame.width,
+          height: asset.routeLayoutFrame.height,
         });
         return {
           ...transition,
@@ -964,7 +914,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     const inferredRoutes = inferRouteOverlays(
       spots,
-      frameMeta?.routeFrames,
+      undefined,
       analysis().transitions,
       mapRoutesByKey()[asset.mapKey],
     );
@@ -1055,8 +1005,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       labelAnchors,
       new Map(labelAnchors.map((anchor) => [anchor.key, anchor.label])),
       {
-        width: resolvedAsset.routeLayoutFrame.width,
-        height: resolvedAsset.routeLayoutFrame.height,
+        width: asset.routeLayoutFrame.width,
+        height: asset.routeLayoutFrame.height,
       },
       labelObstacles,
     );
@@ -1073,13 +1023,12 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       ...analysis().stats.map((stat) => stat.passCount),
     );
     const viewportHeight =
-      resolvedAsset.routeLayoutFrame.height *
-      (DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT / 100);
+      asset.routeLayoutFrame.height * (DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT / 100);
     const viewportOffsetY =
-      (resolvedAsset.routeLayoutFrame.height - viewportHeight) / 2;
+      (asset.routeLayoutFrame.height - viewportHeight) / 2;
 
     return {
-      asset: resolvedAsset,
+      asset,
       inferredRoutes,
       markers,
       transitions,
@@ -1290,8 +1239,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                     overlay={overlay()}
                     selectedCellFilter={selectedCellFilter}
                     toggleCellFilter={toggleCellFilter}
-                    showOfficialMapAssets={showOfficialMapAssets}
-                    theme={resolvedOfficialMapTheme}
+                    theme={detectedTheme}
                   />
                 </div>
 
@@ -1300,7 +1248,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                   <div class="rounded-box bg-base-200 p-3 text-sm">
                     <div class="font-bold mb-1">見方</div>
                     <div class="text-xs text-base-content/70">
-                      表示設定から海域背景画像の表示を切り替えできます
+                      背景画像は使わず、保存されたセル・航路情報を表示します
                     </div>
                     <div class="text-xs text-base-content/70">
                       緑の点線: マップ上の接続ルート
@@ -1463,17 +1411,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       </div>
       </Show>
 
-      {/* Display settings modal */}
-      <DisplaySettingsModal
-        ref={(el) => {
-          displaySettingsModalRef = el;
-        }}
-        showOfficialMapAssets={showOfficialMapAssets}
-        setShowOfficialMapAssets={setShowOfficialMapAssets}
-        officialMapThemeMode={officialMapThemeMode}
-        setOfficialMapThemeMode={setOfficialMapThemeMode}
-        resolvedOfficialMapTheme={resolvedOfficialMapTheme}
-      />
     </>
   );
 }

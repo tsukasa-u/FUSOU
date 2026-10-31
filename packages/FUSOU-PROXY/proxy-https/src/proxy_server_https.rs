@@ -51,6 +51,33 @@ fn parse_content_encodings(content_encoding: &str) -> Vec<String> {
         .collect()
 }
 
+fn is_kcs2_map_info_path(uri_path: &str) -> bool {
+    let Some(relative_path) = uri_path.strip_prefix("/kcs2/resources/map/") else {
+        return false;
+    };
+    let Some((area_id, file_name)) = relative_path.split_once('/') else {
+        return false;
+    };
+    if file_name.contains('/') {
+        return false;
+    }
+
+    let Some(file_stem) = file_name.strip_suffix(".json") else {
+        return false;
+    };
+    let Some((map_info_no, variant)) = file_stem.split_once("_info") else {
+        return false;
+    };
+    if !variant.chars().all(|character| character.is_ascii_digit()) {
+        return false;
+    }
+
+    area_id.parse::<u32>().is_ok_and(|area_id| area_id > 0)
+        && map_info_no
+            .parse::<u32>()
+            .is_ok_and(|map_info_no| map_info_no > 0)
+}
+
 fn decode_body_with_encoding(body: &[u8], encoding: &str) -> Result<Vec<u8>, String> {
     match encoding {
         "" | "identity" => Ok(body.to_vec()),
@@ -161,6 +188,7 @@ fn log_response(
 
     let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
     let uri_path = re_uri.replace(uri.path(), "").to_string();
+    let is_success = parts.status.is_success();
     let status = parts.status.to_string();
 
     let pass: bool = match content_type.as_str() {
@@ -178,6 +206,8 @@ fn log_response(
     let is_json_by_path = uri_path.ends_with(".json");
     let is_js_by_path = uri_path.ends_with(".js");
     let is_main_js = uri_path.ends_with("/main.js");
+    let is_map_info_json =
+        is_success && content_type == "application/json" && is_kcs2_map_info_path(&uri_path);
 
     let save: bool = if is_js_by_path {
         // JS is not persisted by default. Only allow main.js when explicitly enabled.
@@ -203,7 +233,7 @@ fn log_response(
 
     tracing::info!(status = %status, uri = %uri_path, content_type = %content_type);
 
-    if save || !pass {
+    if save || !pass || is_map_info_json {
         if body.is_empty() {
             return;
         }
@@ -228,6 +258,26 @@ fn log_response(
                 Vec::new()
             };
 
+            let buffer_for_json = if is_map_info_json
+                || (save && (content_type.eq("application/json") || is_json_by_path))
+            {
+                let body_clone = body.clone();
+                let content_encodings_clone = content_encodings.clone();
+                match tokio::task::spawn_blocking(move || {
+                    decode_response_body(body_clone, &content_encodings_clone, true)
+                })
+                .await
+                {
+                    Ok(buf) => buf,
+                    Err(e) => {
+                        tracing::error!("spawn_blocking JSON decompression failed: {}", e);
+                        body.clone()
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+
             if !pass && content_type.eq("text/plain") {
                 if let Ok(buffer_string) = String::from_utf8(buffer_for_text.clone()) {
                     let mes = bidirectional_channel::StatusInfo::RESPONSE {
@@ -238,6 +288,32 @@ fn log_response(
                     let _ = tx_proxy_log.send(mes).await;
                 } else {
                     tracing::warn!("Failed to convert buffer to string");
+                }
+            }
+
+            if is_map_info_json {
+                match String::from_utf8(buffer_for_json.clone()) {
+                    Ok(content) => {
+                        let mes = bidirectional_channel::StatusInfo::RESPONSE {
+                            path: uri_path.clone(),
+                            content_type: raw_content_type.clone(),
+                            content,
+                        };
+                        if let Err(error) = tx_proxy_log.send(mes).await {
+                            tracing::warn!(
+                                path = %uri_path,
+                                error = %error,
+                                "failed to forward KCS2 map info response"
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            path = %uri_path,
+                            error = %error,
+                            "KCS2 map info response is not valid UTF-8"
+                        );
+                    }
                 }
             }
 
@@ -292,23 +368,8 @@ fn log_response(
                     let file_log_path_for_sync = file_log_path.clone();
 
                     if content_type.eq("application/json") || is_json_by_path {
-                        // Phase 4: Decompress JSON using spawn_blocking
-                        let body_clone = body.clone();
-                        let content_encodings_clone = content_encodings.clone();
-                        let json_buffer = match tokio::task::spawn_blocking(move || {
-                            decode_response_body(body_clone, &content_encodings_clone, true)
-                        })
-                        .await
-                        {
-                            Ok(buf) => buf,
-                            Err(e) => {
-                                tracing::error!("spawn_blocking JSON decompression failed: {}", e);
-                                body.clone()
-                            }
-                        };
-
                         // Phase 3: Use async file I/O (non-blocking)
-                        if let Err(e) = tokio::fs::write(&file_log_path, json_buffer).await {
+                        if let Err(e) = tokio::fs::write(&file_log_path, buffer_for_json).await {
                             tracing::error!("Failed to write json file: {}", e);
                         }
                     } else if is_main_js && allow_save_main_js_local {
@@ -883,11 +944,11 @@ pub fn serve_proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        check_ca, create_ca, decode_response_body, parse_content_encodings, CA_CERT_NAME_CRT,
-        CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
-    };
     use super::rcgen::{CertificateParams, KeyPair};
+    use super::{
+        check_ca, create_ca, decode_response_body, is_kcs2_map_info_path, parse_content_encodings,
+        CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
+    };
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
@@ -924,6 +985,26 @@ mod tests {
     fn parse_content_encoding_list() {
         let parsed = parse_content_encodings("gzip, br");
         assert_eq!(parsed, vec!["gzip".to_string(), "br".to_string()]);
+    }
+
+    #[test]
+    fn identifies_only_kcs2_map_info_json_paths() {
+        assert!(is_kcs2_map_info_path(
+            "/kcs2/resources/map/001/05_info.json"
+        ));
+        assert!(is_kcs2_map_info_path(
+            "/kcs2/resources/map/062/01_info18.json"
+        ));
+        assert!(!is_kcs2_map_info_path("/kcs2/resources/map/001/05.json"));
+        assert!(!is_kcs2_map_info_path(
+            "/kcs2/resources/ship/001/05_info.json"
+        ));
+        assert!(!is_kcs2_map_info_path(
+            "/kcs2/resources/map/001/05_info.json/extra"
+        ));
+        assert!(!is_kcs2_map_info_path(
+            "/kcs2/resources/map/001/05_info_invalid.json"
+        ));
     }
 
     #[test]

@@ -466,6 +466,16 @@
   ],
   "resourceSpots": [],
   "resourceLabels": [],
+  "maelstromLabels": [],
+  "nothingLabels": [],
+  "airLabels": [
+    "G",
+    "H"
+  ],
+  "nightLabels": [],
+  "activeBranchLabels": [],
+  "landingLabels": [],
+  "reconLabels": [],
   "airbases": [
     {
       "x": 197,
@@ -487,15 +497,5 @@
     "K": 5,
     "L": 5,
     "M": 5
-  },
-  "maelstromLabels": [],
-  "nothingLabels": [],
-  "airLabels": [
-    "G",
-    "H"
-  ],
-  "nightLabels": [],
-  "activeBranchLabels": [],
-  "landingLabels": [],
-  "reconLabels": []
+  }
 }

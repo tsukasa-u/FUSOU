@@ -4,9 +4,6 @@
     "areaId": 1,
     "infoNo": 1,
     "suffix": "01",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/1-1/1-1_orig.png",
-    "mapUrl": "/battle-maps/1-1/1-1_map.png",
     "dataUrl": "/battle-maps/1-1/data.json"
   },
   {
@@ -14,9 +11,6 @@
     "areaId": 1,
     "infoNo": 2,
     "suffix": "02",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/1-2/1-2_orig.png",
-    "mapUrl": "/battle-maps/1-2/1-2_map.png",
     "dataUrl": "/battle-maps/1-2/data.json"
   },
   {
@@ -24,9 +18,6 @@
     "areaId": 1,
     "infoNo": 3,
     "suffix": "03",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/1-3/1-3_orig.png",
-    "mapUrl": "/battle-maps/1-3/1-3_map.png",
     "dataUrl": "/battle-maps/1-3/data.json"
   },
   {
@@ -34,9 +25,6 @@
     "areaId": 1,
     "infoNo": 4,
     "suffix": "04",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/1-4/1-4_orig.png",
-    "mapUrl": "/battle-maps/1-4/1-4_map.png",
     "dataUrl": "/battle-maps/1-4/data.json"
   },
   {
@@ -44,9 +32,6 @@
     "areaId": 1,
     "infoNo": 5,
     "suffix": "05",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/1-5/1-5_orig.png",
-    "mapUrl": "/battle-maps/1-5/1-5_map.png",
     "dataUrl": "/battle-maps/1-5/data.json"
   },
   {
@@ -54,9 +39,6 @@
     "areaId": 1,
     "infoNo": 6,
     "suffix": "06",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/1-6/1-6_orig.png",
-    "mapUrl": "/battle-maps/1-6/1-6_map.png",
     "dataUrl": "/battle-maps/1-6/data.json"
   },
   {
@@ -64,9 +46,6 @@
     "areaId": 2,
     "infoNo": 1,
     "suffix": "01",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/2-1/2-1_orig.png",
-    "mapUrl": "/battle-maps/2-1/2-1_map.png",
     "dataUrl": "/battle-maps/2-1/data.json"
   },
   {
@@ -74,9 +53,6 @@
     "areaId": 2,
     "infoNo": 2,
     "suffix": "02",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/2-2/2-2_orig.png",
-    "mapUrl": "/battle-maps/2-2/2-2_map.png",
     "dataUrl": "/battle-maps/2-2/data.json"
   },
   {
@@ -84,9 +60,6 @@
     "areaId": 2,
     "infoNo": 3,
     "suffix": "03",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/2-3/2-3_orig.png",
-    "mapUrl": "/battle-maps/2-3/2-3_map.png",
     "dataUrl": "/battle-maps/2-3/data.json"
   },
   {
@@ -94,9 +67,6 @@
     "areaId": 2,
     "infoNo": 4,
     "suffix": "04",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/2-4/2-4_orig.png",
-    "mapUrl": "/battle-maps/2-4/2-4_map.png",
     "dataUrl": "/battle-maps/2-4/data.json"
   },
   {
@@ -104,9 +74,6 @@
     "areaId": 2,
     "infoNo": 5,
     "suffix": "05",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/2-5/2-5_orig.png",
-    "mapUrl": "/battle-maps/2-5/2-5_map.png",
     "dataUrl": "/battle-maps/2-5/data.json"
   },
   {
@@ -114,9 +81,6 @@
     "areaId": 3,
     "infoNo": 1,
     "suffix": "01",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/3-1/3-1_orig.png",
-    "mapUrl": "/battle-maps/3-1/3-1_map.png",
     "dataUrl": "/battle-maps/3-1/data.json"
   },
   {
@@ -124,9 +88,6 @@
     "areaId": 3,
     "infoNo": 2,
     "suffix": "02",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/3-2/3-2_orig.png",
-    "mapUrl": "/battle-maps/3-2/3-2_map.png",
     "dataUrl": "/battle-maps/3-2/data.json"
   },
   {
@@ -134,19 +95,34 @@
     "areaId": 3,
     "infoNo": 5,
     "suffix": "05",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/3-5/3-5_orig.png",
-    "mapUrl": "",
     "dataUrl": "/battle-maps/3-5/data.json"
+  },
+  {
+    "key": "4-2",
+    "areaId": 4,
+    "infoNo": 2,
+    "suffix": "02",
+    "dataUrl": "/battle-maps/4-2/data.json"
+  },
+  {
+    "key": "4-3",
+    "areaId": 4,
+    "infoNo": 3,
+    "suffix": "03",
+    "dataUrl": "/battle-maps/4-3/data.json"
+  },
+  {
+    "key": "4-4",
+    "areaId": 4,
+    "infoNo": 4,
+    "suffix": "04",
+    "dataUrl": "/battle-maps/4-4/data.json"
   },
   {
     "key": "4-5",
     "areaId": 4,
     "infoNo": 5,
     "suffix": "05",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/4-5/4-5_orig.png",
-    "mapUrl": "/battle-maps/4-5/4-5_map.png",
     "dataUrl": "/battle-maps/4-5/data.json"
   },
   {
@@ -154,9 +130,6 @@
     "areaId": 5,
     "infoNo": 1,
     "suffix": "01",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/5-1/5-1_orig.png",
-    "mapUrl": "/battle-maps/5-1/5-1_map.png",
     "dataUrl": "/battle-maps/5-1/data.json"
   },
   {
@@ -164,9 +137,6 @@
     "areaId": 5,
     "infoNo": 2,
     "suffix": "02",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/5-2/5-2_orig.png",
-    "mapUrl": "/battle-maps/5-2/5-2_map.png",
     "dataUrl": "/battle-maps/5-2/data.json"
   },
   {
@@ -174,9 +144,6 @@
     "areaId": 5,
     "infoNo": 3,
     "suffix": "03",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/5-3/5-3_orig.png",
-    "mapUrl": "/battle-maps/5-3/5-3_map.png",
     "dataUrl": "/battle-maps/5-3/data.json"
   },
   {
@@ -184,9 +151,6 @@
     "areaId": 5,
     "infoNo": 4,
     "suffix": "04",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/5-4/5-4_orig.png",
-    "mapUrl": "/battle-maps/5-4/5-4_map.png",
     "dataUrl": "/battle-maps/5-4/data.json"
   },
   {
@@ -194,9 +158,6 @@
     "areaId": 5,
     "infoNo": 5,
     "suffix": "05",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/5-5/5-5_orig.png",
-    "mapUrl": "/battle-maps/5-5/5-5_map.png",
     "dataUrl": "/battle-maps/5-5/data.json"
   },
   {
@@ -204,9 +165,6 @@
     "areaId": 5,
     "infoNo": 6,
     "suffix": "06",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/5-6/5-6_orig.png",
-    "mapUrl": "/battle-maps/5-6/5-6_map.png",
     "dataUrl": "/battle-maps/5-6/data.json"
   },
   {
@@ -214,9 +172,6 @@
     "areaId": 6,
     "infoNo": 3,
     "suffix": "03",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/6-3/6-3_orig.png",
-    "mapUrl": "",
     "dataUrl": "/battle-maps/6-3/data.json"
   },
   {
@@ -224,9 +179,6 @@
     "areaId": 6,
     "infoNo": 4,
     "suffix": "04",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/6-4/6-4_orig.png",
-    "mapUrl": "",
     "dataUrl": "/battle-maps/6-4/data.json"
   },
   {
@@ -234,9 +186,6 @@
     "areaId": 6,
     "infoNo": 5,
     "suffix": "05",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/6-5/6-5_orig.png",
-    "mapUrl": "/battle-maps/6-5/6-5_map.png",
     "dataUrl": "/battle-maps/6-5/data.json"
   },
   {
@@ -244,9 +193,6 @@
     "areaId": 7,
     "infoNo": 4,
     "suffix": "04",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/7-4/7-4_orig.png",
-    "mapUrl": "/battle-maps/7-4/7-4_map.png",
     "dataUrl": "/battle-maps/7-4/data.json"
   },
   {
@@ -254,9 +200,6 @@
     "areaId": 62,
     "infoNo": 1,
     "suffix": "01",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/62-1/62-1_orig.png",
-    "mapUrl": "/battle-maps/62-1/62-1_map.png",
     "dataUrl": "/battle-maps/62-1/data.json"
   },
   {
@@ -264,9 +207,6 @@
     "areaId": 62,
     "infoNo": 2,
     "suffix": "02",
-    "hasLabels": true,
-    "origUrl": "/src/assets/map/62-2/62-2_orig.png",
-    "mapUrl": "/battle-maps/62-2/62-2_map.png",
     "dataUrl": "/battle-maps/62-2/data.json"
   }
 ]

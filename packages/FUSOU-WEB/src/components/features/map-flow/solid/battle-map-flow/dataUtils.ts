@@ -2,7 +2,6 @@ import { type CellType } from "./constants";
 import type {
   MapLabelsPayload,
   MapSpot,
-  OfficialMapThemeMode,
   CurvedRouteData,
 } from "./types";
 
@@ -36,10 +35,6 @@ export function formatTimestamp(ts: number | string | null | undefined): string 
   const ms = normalizeEpochMs(ts);
   if (ms === null) return "-";
   return new Date(ms).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-}
-
-export function parseOfficialMapThemeMode(raw: unknown): OfficialMapThemeMode {
-  return raw === "light" || raw === "dark" || raw === "auto" ? raw : "auto";
 }
 
 export function mapKeyOf(

@@ -1,22 +1,8 @@
 import os
-import sys
 import json
 import re
 import cv2
 import numpy as np
-
-THEMES = {
-    "dark": {
-        "rand_color": (95, 144, 122),   # #7A905F (BGR)
-        "bound_color": (81, 82, 84),    # #545251
-        "sea_color": (69, 69, 69),      # #454545
-    },
-    "light": {
-        "rand_color": (95, 144, 122),   # #7A905F
-        "bound_color": (81, 82, 84),    # #545251
-        "sea_color": (241, 245, 249),   # #f1f5f9
-    },
-}
 
 def load_all_image_sheets(area_dir):
     sheets = {}
@@ -35,41 +21,6 @@ def load_all_image_sheets(area_dir):
                 except Exception as e:
                     print(f'  Warning loading sheet {base}: {e}')
     return sheets
-
-def find_base_map_image(area_dir, area_tag, image_sheets):
-    digits = re.findall(r"\d+", area_tag)
-    tag_clean = "".join(digits)
-    suffix = f"map{area_tag}"
-
-    for base, (frames, img_sheet) in image_sheets.items():
-        for k, v in frames.items():
-            if "point" in k.lower():
-                continue
-            if k.endswith("_" + suffix) or k.endswith(suffix):
-                mf = v["frame"]
-                x, y, w, h = mf["x"], mf["y"], mf["w"], mf["h"]
-                return img_sheet[y:y+h, x:x+w]
-
-        for k, v in frames.items():
-            if "point" in k.lower():
-                continue
-            mf = v["frame"]
-            if mf["w"] >= 800 and mf["h"] >= 500:
-                if "map" in k.lower() and (area_tag in k or (tag_clean and tag_clean in k)):
-                    x, y, w, h = mf["x"], mf["y"], mf["w"], mf["h"]
-                    return img_sheet[y:y+h, x:x+w]
-
-        candidates = [
-            (k, v["frame"]) for k, v in frames.items()
-            if "point" not in k.lower() and v["frame"]["w"] >= 800 and v["frame"]["h"] >= 500
-        ]
-        if candidates:
-            candidates.sort(key=lambda c: c[1]["w"] * c[1]["h"], reverse=True)
-            mf = candidates[0][1]
-            x, y, w, h = mf["x"], mf["y"], mf["w"], mf["h"]
-            return img_sheet[y:y+h, x:x+w]
-
-    return None
 
 def load_merged_map_data(area_dir):
     info_files = sorted([
@@ -109,160 +60,6 @@ def load_merged_map_data(area_dir):
         'airraids': merged_airraids,
         'info_files': info_files
     }
-
-def remove_grid_lines(img_bgr):
-    h, w = img_bgr.shape[:2]
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    gx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)).mean(axis=0)
-    gy = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)).mean(axis=1)
-
-    period = 47
-    best_x, best_y = 0, 0
-    best_xs, best_ys = 0, 0
-    for x0 in range(period):
-        s = gx[np.arange(x0, w, period)].mean()
-        if s > best_xs:
-            best_xs, best_x = s, x0
-    for y0 in range(period):
-        s = gy[np.arange(y0, h, period)].mean()
-        if s > best_ys:
-            best_ys, best_y = s, y0
-
-    grid_mask = np.zeros((h, w), dtype=np.uint8)
-    for x in range(best_x, w, period):
-        cv2.line(grid_mask, (x, 0), (x, h), 255, 2)
-    for y in range(best_y, h, period):
-        cv2.line(grid_mask, (0, y), (w, y), 255, 2)
-
-    return cv2.inpaint(img_bgr, grid_mask, 3, cv2.INPAINT_TELEA)
-
-def extract_land_mask(region, spots, area_tag):
-    h, w = region.shape[:2]
-    alpha_chan = region[:, :, 3] if region.shape[2] == 4 else np.full((h, w), 255, dtype=np.uint8)
-    opaque = (alpha_chan == 255)
-
-    # 1. 47px 格子線・高周波ノイズの除去 (3x3 メディアンブラー)
-    bgr_raw = region[:, :, :3]
-    bgr = cv2.medianBlur(bgr_raw, 3)
-
-    bx, by = 34, 36
-    bottom_border = 58
-    inner = np.zeros((h, w), dtype=bool)
-    inner[by:h - bottom_border, bx:w - bx] = True
-
-    b = bgr[:, :, 0].astype(float)
-    g = bgr[:, :, 1].astype(float)
-    r = bgr[:, :, 2].astype(float)
-
-    # 2. 赤いグラデーション海域の完全な剥がし（Red-Excess Unblending）
-    # R > B のピクセルについて、赤色過剰分を青色成分に変換して海面を完全青化
-    red_excess = np.maximum(0.0, r - b)
-    unred_b = np.clip(b + red_excess, 0, 255)
-    unred_r = np.clip(r - red_excess, 0, 255)
-    unred_g = g
-
-    unred = cv2.merge([unred_b.astype(np.uint8), unred_g.astype(np.uint8), unred_r.astype(np.uint8)])
-
-    # 3. 復元海図上での精密な島抽出（青い海の実績ある高精度ロジック）
-    ub = unred[:, :, 0].astype(float)
-    ug = unred[:, :, 1].astype(float)
-    ur = unred[:, :, 2].astype(float)
-    uhsv = cv2.cvtColor(unred, cv2.COLOR_BGR2HSV)
-    uH = uhsv[:, :, 0]
-    uS = uhsv[:, :, 1]
-    uV = uhsv[:, :, 2]
-
-    # 青い海（画像全体が一様な青海になっているためシンプルかつ確実に除外）
-    blue_sea = (ub > ug) & (ub > ur + 10) & (ub > 40)
-    deep_blue = (ub > ur) & (ub > ug - 8) & (ub < 48) & (ur < 38)
-    all_sea = blue_sea | deep_blue
-
-    # 真正な島の判定
-    # 緑の山林・森林: H in 22..95, G優位
-    green_island = (uH >= 22) & (uH <= 95) & (ug > ub - 12) & (ug > ur - 15) & (uV > 30)
-    # 白い砂浜・岩礁・海岸線・雪山
-    bright_beach = (uV > 90) & (uS < 75) & (ub < 165) & ~all_sea
-    # 茶色・黄土色の岩肌・土壌
-    brown_island = (uH >= 10) & (uH <= 30) & (ur > ub + 5) & (ug > ub - 10) & (uV > 45) & ~all_sea
-
-    # 統合陸地マスク（島を細切れ・散り散りにせず、しっかりした塊として抽出）
-    land = (green_island | bright_beach | brown_island | (~all_sea & (ug > ur - 5))) & inner & ~all_sea
-
-    # モルフォロジー閉演算（4x4楕円カーネルで島の穴あきや隙間を結合）
-    k4 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 4))
-    land_u8 = cv2.morphologyEx(land.astype(np.uint8) * 255, cv2.MORPH_CLOSE, k4)
-
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(land_u8)
-    clean_land = np.zeros_like(land_u8)
-
-    for i in range(1, num_labels):
-        sz = stats[i, cv2.CC_STAT_AREA]
-        cw = stats[i, cv2.CC_STAT_WIDTH]
-        ch = stats[i, cv2.CC_STAT_HEIGHT]
-        cx = stats[i, cv2.CC_STAT_LEFT]
-        cy = stats[i, cv2.CC_STAT_TOP]
-
-        if sz < 8 or cw > 960 or ch > 590:
-            continue
-        # コンパスローズ（左上）除外
-        if cx < 220 and cy < 220 and 0.8 < float(cw) / max(1, ch) < 1.2 and sz > 800:
-            continue
-        # 右上・右端の枠線残り除外
-        if cx > 900 and cy < 75:
-            continue
-        if cx > 1140:
-            continue
-
-        clean_land[labels == i] = 255
-
-    clean_land = clean_land & (opaque.astype(np.uint8) * 255)
-    return clean_land
-
-def process_map_images(area_dir, area_tag, map_region, spots, output_dir, public_dir, dist_client_dir):
-    if map_region is None:
-        return
-    h, w = map_region.shape[:2]
-    custom_mask_path = os.path.join(area_dir, "land_mask.png")
-    if os.path.exists(custom_mask_path):
-        clean_mask = cv2.imread(custom_mask_path, cv2.IMREAD_GRAYSCALE)
-        if clean_mask.shape[:2] != (h, w):
-            clean_mask = cv2.resize(clean_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-        print(f"  Map {area_tag}: Using custom land_mask.png")
-    else:
-        clean_mask = extract_land_mask(map_region, spots, area_tag)
-    contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    land_pixels = np.count_nonzero(clean_mask)
-    pct = (land_pixels / (w * h)) * 100
-    print(f"  Map {area_tag}: Land={land_pixels} px ({pct:.2f}%)")
-
-    target_dirs = []
-    if output_dir:
-        target_dirs.append(output_dir)
-    if public_dir:
-        target_dirs.append(os.path.join(public_dir, area_tag))
-    if dist_client_dir and os.path.exists(dist_client_dir):
-        target_dirs.append(os.path.join(dist_client_dir, area_tag))
-
-    for td in target_dirs:
-        os.makedirs(td, exist_ok=True)
-
-    # 兼用マップ画像 (BGRA): 海はAlpha=0の完全透過、島と輪郭線のみ描画
-    map_img = np.zeros((h, w, 4), dtype=np.uint8)
-    island_bgr = (95, 144, 122) # #7A905F
-    bound_bgr = (81, 82, 84)    # #545251
-
-    for cnt in contours:
-        cv2.drawContours(map_img, [cnt], 0, (*island_bgr, 255), -1)
-    cv2.drawContours(map_img, contours, -1, (*bound_bgr, 255), 2)
-
-    for td in target_dirs:
-        # 兼用海図画像 (海透過PNGのみ出力)
-        cv2.imwrite(os.path.join(td, f"{area_tag}_map.png"), map_img)
-
-    # 開発ツール下敷き用の元画像 (ローカル作業ディレクトリ area_dir のみに保存、publicには出さない)
-    orig_out = map_region[:, :, :3] if map_region.shape[2] == 4 else map_region
-    cv2.imwrite(os.path.join(area_dir, f"{area_tag}_orig.png"), orig_out)
 
 def process_map_routes(area_dir, area_tag, spots, image_sheets, public_dir, dist_client_dir):
     canonical_map = {}
@@ -537,6 +334,32 @@ def sync_unified_map_data(area_dir, area_tag, map_data, routes, labels, ports, p
         with open(os.path.join(td, "data.json"), "w", encoding="utf-8") as f:
             json.dump(unified_data, f, indent=2, ensure_ascii=False)
 
+def clean_generated_map_images(map_source_dir, public_dir, dist_client_dir):
+    removed = 0
+
+    for area_tag in os.listdir(map_source_dir):
+        area_dir = os.path.join(map_source_dir, area_tag)
+        if not os.path.isdir(area_dir) or not re.fullmatch(r"\d+-\d+", area_tag):
+            continue
+        original_path = os.path.join(area_dir, f"{area_tag}_orig.png")
+        if os.path.isfile(original_path):
+            os.remove(original_path)
+            removed += 1
+
+    for base in [public_dir, dist_client_dir]:
+        if not base or not os.path.isdir(base):
+            continue
+        for area_tag in os.listdir(base):
+            area_dir = os.path.join(base, area_tag)
+            if not os.path.isdir(area_dir) or not re.fullmatch(r"\d+-\d+", area_tag):
+                continue
+            image_path = os.path.join(area_dir, f"{area_tag}_map.png")
+            if os.path.isfile(image_path):
+                os.remove(image_path)
+                removed += 1
+
+    return removed
+
 def clean_legacy_files(area_tag, public_dir, dist_client_dir):
     parts = area_tag.split('-')
     suffix = f"{int(parts[1]):02d}"
@@ -545,6 +368,7 @@ def clean_legacy_files(area_tag, public_dir, dist_client_dir):
         f"{area_tag}_light.png",
         f"{area_tag}_orig.png",
         f"{area_tag}_unred.png",
+        f"{area_tag}_map.png",
         f"{suffix}_info.json",
         f"{suffix}_image.json",
         "cell_labels.json",
@@ -569,7 +393,6 @@ def generate_maps_metadata(map_source_dir, public_dir, dist_client_dir):
     ], key=lambda x: [int(v) for v in x.split("-")])
 
     for area in areas:
-        area_dir = os.path.join(map_source_dir, area)
         parts = [int(v) for v in area.split("-")]
         area_id = parts[0]
         info_no = parts[1]
@@ -580,9 +403,6 @@ def generate_maps_metadata(map_source_dir, public_dir, dist_client_dir):
             "areaId": area_id,
             "infoNo": info_no,
             "suffix": suffix,
-            "hasLabels": True,
-            "origUrl": f"/src/assets/map/{area}/{area}_orig.png",
-            "mapUrl": f"/battle-maps/{area}/{area}_map.png",
             "dataUrl": f"/battle-maps/{area}/data.json"
         }
         metadata_list.append(entry)
@@ -600,11 +420,41 @@ def generate_maps_metadata(map_source_dir, public_dir, dist_client_dir):
 
     print(f"Generated maps_metadata.json with {len(metadata_list)} map entries.")
 
+def generate_cell_labels_bundle(map_source_dir, public_dir, dist_client_dir):
+    areas = sorted([
+        d for d in os.listdir(map_source_dir)
+        if os.path.isdir(os.path.join(map_source_dir, d)) and re.fullmatch(r"\d+-\d+", d)
+    ], key=lambda x: [int(v) for v in x.split("-")])
+
+    bundle = {}
+    for area in areas:
+        data_path = os.path.join(map_source_dir, area, "data.json")
+        with open(data_path, "r", encoding="utf-8") as f:
+            map_data = json.load(f)
+
+        labels = map_data.get("labels")
+        if not isinstance(labels, dict) or not labels:
+            raise ValueError(f"{data_path} has no generated cell labels")
+
+        bundle[area] = {"labels": labels}
+
+    target_dirs = []
+    if public_dir:
+        target_dirs.append(public_dir)
+    if dist_client_dir and os.path.exists(dist_client_dir):
+        target_dirs.append(dist_client_dir)
+
+    for target_dir in target_dirs:
+        os.makedirs(target_dir, exist_ok=True)
+        with open(os.path.join(target_dir, "cell_labels.json"), "w", encoding="utf-8") as f:
+            json.dump(bundle, f, indent=2, ensure_ascii=False)
+
+    print(f"Generated cell_labels.json with {len(bundle)} map entries.")
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
-    map_source_dir = os.path.join(repo_root, "packages", "FUSOU-WEB", "src", "assets", "map")
-    output_dir = None
+    map_source_dir = os.path.join(repo_root, "packages", "kcs-script-tools", "output", "map-resources")
     public_dir = os.path.join(repo_root, "packages", "FUSOU-WEB", "public", "battle-maps")
     dist_client_dir = os.path.join(repo_root, "packages", "FUSOU-WEB", "dist", "client", "battle-maps")
 
@@ -613,7 +463,9 @@ if __name__ == "__main__":
         if os.path.isdir(os.path.join(map_source_dir, d)) and re.match(r"^\d+-\d+$", d)
     ], key=lambda x: [int(v) for v in x.split("-")])
 
-    print(f"Starting complete reprocessing of {len(areas)} sea areas...")
+    removed_images = clean_generated_map_images(map_source_dir, public_dir, dist_client_dir)
+    print(f"Removed {removed_images} generated map images.")
+    print(f"Starting map data regeneration for {len(areas)} sea areas...")
     total_routes_all = 0
 
     for area in areas:
@@ -621,9 +473,7 @@ if __name__ == "__main__":
         print(f"Processing {area}...")
         map_data = load_merged_map_data(area_dir)
         image_sheets = load_all_image_sheets(area_dir)
-        map_region = find_base_map_image(area_dir, area, image_sheets)
 
-        process_map_images(area_dir, area, map_region, map_data["spots"], output_dir, public_dir, dist_client_dir)
         routes = process_map_routes(area_dir, area, map_data["spots"], image_sheets, public_dir, dist_client_dir)
         labels, ports = process_map_labels(area_dir, area, map_data["spots"], map_data["official_labels"], routes, public_dir, dist_client_dir)
         sync_unified_map_data(area_dir, area, map_data, routes, labels, ports, public_dir, dist_client_dir)
@@ -632,4 +482,5 @@ if __name__ == "__main__":
         print(f"  {area}: {len(map_data['spots'])} spots, {len(routes)} routes, {len(labels)} labels generated.")
 
     generate_maps_metadata(map_source_dir, public_dir, dist_client_dir)
+    generate_cell_labels_bundle(map_source_dir, public_dir, dist_client_dir)
     print(f"\nFinished! Processed {len(areas)} maps and extracted {total_routes_all} routes total.")

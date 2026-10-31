@@ -44,11 +44,10 @@ export function ensureMapLabels(mapKey: string | null | undefined): void {
   if (labelStore()[mapKey] || pendingLoads.has(mapKey)) return;
   if (typeof fetch === "undefined") return;
   const asset = getBattleMapAsset(mapKey);
-  const url = asset?.dataUrl || asset?.infoUrl;
-  if (!url) return;
+  if (!asset) return;
 
   pendingLoads.add(mapKey);
-  fetch(url)
+  fetch(asset.dataUrl)
     .then((res) => (res.ok ? res.json() : null))
     .then((payload: unknown) => parseMapLabelEntry(payload))
     .catch((): MapLabelEntry => ({ labels: {}, ports: [] }))

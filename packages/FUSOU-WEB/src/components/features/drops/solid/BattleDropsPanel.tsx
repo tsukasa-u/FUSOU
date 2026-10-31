@@ -4,7 +4,7 @@ import { LoadingState } from "@/components/common/solid/LoadingState";
 import { MapAreaGrid } from "@/components/common/solid/MapAreaGrid";
 import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
+import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { mapKeyOf, cellLabel as pureCellLabel, parseMapRoutesPayload, resolveCellType, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
 import { ensureMapLabelsFor, resolveMapCellLabel } from "../../map-flow/solid/battle-map-flow/mapLabelCache";
@@ -118,8 +118,6 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   const [selectedCellId, setSelectedCellId] = createSignal<number | null>(null);
   const [mapDataLoading, setMapDataLoading] = createSignal<boolean>(false);
   const [mapDataFailed, setMapDataFailed] = createSignal<boolean>(false);
-  const [imageLoaded, setImageLoaded] = createSignal<boolean>(false);
-  const [imageFailed, setImageFailed] = createSignal<boolean>(false);
 
   const [mstMapareas, setMstMapareas] = createSignal<MapAreaRecord[]>([]);
   const [mstMapinfos, setMstMapinfos] = createSignal<MapInfoRecord[]>([]);
@@ -153,15 +151,13 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   };
 
   createEffect(() => {
-    // Reset selection and image states when map changes
+    // Reset the selected cell when the map changes.
     setSelectedCellId(null);
-    setImageLoaded(false);
-    setImageFailed(false);
     const mapKey = d.mapFilter();
     if (!mapKey) {
       setMapSpots([]);
       setMapLabels({});
-            setMapRoutes([]);
+      setMapRoutes([]);
       setMapPorts([]);
       setMapDataLoading(false);
       setMapDataFailed(false);
@@ -171,7 +167,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     if (!asset) {
       setMapSpots([]);
       setMapLabels({});
-            setMapRoutes([]);
+      setMapRoutes([]);
       setMapPorts([]);
       setMapDataLoading(false);
       setMapDataFailed(true);
@@ -181,12 +177,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     setMapDataLoading(true);
     setMapDataFailed(false);
 
-    const targetUrl = asset.dataUrl || asset.infoUrl;
-    if (!targetUrl) {
-      setMapDataLoading(false);
-      return;
-    }
-    fetch(targetUrl)
+    fetch(asset.dataUrl)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -419,12 +410,6 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     if (spots.length === 0) return [];
     return inferRouteOverlays(spots, undefined, [], routes);
   });
-  const resolvedSpriteUrl = createMemo(() => {
-    const asset = mapAsset();
-    if (!asset) return null;
-    return resolveBattleMapSpriteUrl(asset, "light"); // Simplified theme logic
-  });
-
   const selectedSpot = createMemo(() => {
     const cid = selectedCellId();
     if (cid === null) return null;
@@ -741,54 +726,6 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                           height={asset().routeLayoutFrame.height}
                           fill={isDark() ? MAP_SEA_BG_DARK : MAP_SEA_BG_LIGHT}
                         />
-                        <Show when={resolvedSpriteUrl()}>
-                          <image
-                            href={resolvedSpriteUrl()!}
-                            x={-asset().seaMapFrame.x}
-                            y={-asset().seaMapFrame.y}
-                            width={asset().spriteSheetSize.width}
-                            height={asset().spriteSheetSize.height}
-                            preserveAspectRatio="none"
-                            style={{
-                              opacity: imageLoaded() ? "0.96" : "0",
-                              transition: "opacity 0.3s ease-in",
-                            }}
-                            onLoad={() => {
-                              setImageLoaded(true);
-                              setImageFailed(false);
-                            }}
-                            onError={() => {
-                              setImageLoaded(false);
-                              setImageFailed(true);
-                            }}
-                          />
-                        </Show>
-
-                        <Show when={imageFailed()}>
-                          <g>
-                            <rect
-                              x="20"
-                              y="20"
-                              width="348"
-                              height="30"
-                              rx="8"
-                              fill="#eff6ff"
-                              opacity="0.95"
-                              stroke="#93c5fd"
-                              stroke-width="1.5"
-                            />
-                            <text
-                              x="32"
-                              y="35"
-                              fill="#1d4ed8"
-                              font-size="12"
-                              font-weight="700"
-                              dominant-baseline="middle"
-                            >
-                              海域画像を読み込めませんでした。
-                            </text>
-                          </g>
-                        </Show>
 
                         {/* 公式準拠の破線矢印による進行経路候補（曲線パス対応） */}
                         <For each={inferredRoutes()}>

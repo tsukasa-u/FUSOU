@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FUSOU 海域マップデータ確認</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+        background: #0b1220;
+        color: #e2e8f0;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      header,
+      section {
+        margin-bottom: 20px;
+        padding: 18px;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        background: #111827;
+      }
+
+      h1,
+      h2 {
+        margin-top: 0;
+      }
+
+      p {
+        color: #94a3b8;
+      }
+
+      .controls,
+      .summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+
+      select,
+      button {
+        padding: 8px 12px;
+        border: 1px solid #475569;
+        border-radius: 6px;
+        background: #1e293b;
+        color: inherit;
+        font: inherit;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      #status {
+        min-height: 1.5em;
+      }
+
+      .table-container {
+        max-height: 480px;
+        overflow: auto;
+        border: 1px solid #334155;
+        border-radius: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #334155;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        position: sticky;
+        top: 0;
+        background: #172033;
+        color: #cbd5e1;
+      }
+
+      .summary-item {
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #1e293b;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>海域マップデータ確認</h1>
+        <p>背景画像は読み込まず、生成済みJSONのセル座標・ラベル値・航路を確認します。</p>
+        <div class="controls">
+          <button id="previous" type="button" disabled>前へ</button>
+          <select id="map-select" aria-label="海域"></select>
+          <button id="next" type="button" disabled>次へ</button>
+        </div>
+        <p id="status" role="status">マップデータを読み込んでいます。</p>
+        <div id="summary" class="summary"></div>
+      </header>
+
+      <section>
+        <h2>セル情報</h2>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>セル番号</th>
+                <th>保存ラベル</th>
+                <th>座標</th>
+                <th>港</th>
+              </tr>
+            </thead>
+            <tbody id="cells"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>航路情報</h2>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>To</th>
+                <th>始点</th>
+                <th>制御点</th>
+                <th>終点</th>
+                <th>矢印</th>
+              </tr>
+            </thead>
+            <tbody id="routes"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const mapSelect = document.querySelector("#map-select");
+      const previousButton = document.querySelector("#previous");
+      const nextButton = document.querySelector("#next");
+      const status = document.querySelector("#status");
+      const summary = document.querySelector("#summary");
+      const cellsBody = document.querySelector("#cells");
+      const routesBody = document.querySelector("#routes");
+
+      let maps = [];
+      let selectedIndex = -1;
+
+      function setStatus(message) {
+        status.textContent = message;
+      }
+
+      function addSummary(label, value) {
+        const item = document.createElement("span");
+        item.className = "summary-item";
+        item.textContent = `${label}: ${value}`;
+        summary.append(item);
+      }
+
+      function appendRow(tableBody, values) {
+        const row = document.createElement("tr");
+        for (const value of values) {
+          const cell = document.createElement("td");
+          cell.textContent = String(value);
+          row.append(cell);
+        }
+        tableBody.append(row);
+      }
+
+      function renderMapData(map, data) {
+        const spots = Array.isArray(data.spots) ? data.spots : [];
+        const routes = Array.isArray(data.routes) ? data.routes : [];
+        const labels =
+          data.labels && typeof data.labels === "object" && !Array.isArray(data.labels)
+            ? data.labels
+            : {};
+        const ports = new Set(Array.isArray(data.ports) ? data.ports : []);
+
+        cellsBody.replaceChildren();
+        for (const spot of spots) {
+          const cellId = spot?.no ?? "-";
+          appendRow(cellsBody, [
+            cellId,
+            labels[String(cellId)] ?? "-",
+            `(${spot?.x ?? "-"}, ${spot?.y ?? "-"})`,
+            spot?.isPort || ports.has(cellId) ? "はい" : "いいえ",
+          ]);
+        }
+        if (spots.length === 0) appendRow(cellsBody, ["-", "セルデータなし", "-", "-"]);
+
+        routesBody.replaceChildren();
+        for (const route of routes) {
+          appendRow(routesBody, [
+            route?.from ?? "-",
+            route?.to ?? "-",
+            `(${route?.startX ?? "-"}, ${route?.startY ?? "-"})`,
+            `(${route?.ctrlX ?? "-"}, ${route?.ctrlY ?? "-"})`,
+            `(${route?.endX ?? "-"}, ${route?.endY ?? "-"})`,
+            route?.isArrow ? "あり" : "なし",
+          ]);
+        }
+        if (routes.length === 0) appendRow(routesBody, ["-", "-", "-", "-", "-", "航路データなし"]);
+
+        summary.replaceChildren();
+        addSummary("海域", map.key);
+        addSummary("セル", spots.length);
+        addSummary("ラベル", Object.keys(labels).length);
+        addSummary("航路", routes.length);
+      }
+
+      async function selectMap(index) {
+        if (index < 0 || index >= maps.length) return;
+        selectedIndex = index;
+        mapSelect.value = String(index);
+        previousButton.disabled = index === 0;
+        nextButton.disabled = index === maps.length - 1;
+        const map = maps[index];
+        setStatus(`${map.key} のJSONを読み込んでいます。`);
+        summary.replaceChildren();
+        cellsBody.replaceChildren();
+        routesBody.replaceChildren();
+
+        try {
+          const response = await fetch(map.dataUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${map.dataUrl}`);
+          }
+          const data = await response.json();
+          if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw new Error(`${map.dataUrl} の形式が不正です。`);
+          }
+          renderMapData(map, data);
+          setStatus(`${map.key} のマップデータを表示しています。`);
+        } catch (error) {
+          console.error("Failed to load map data", error);
+          setStatus(`${map.key} のマップデータを読み込めませんでした。`);
+        }
+      }
+
+      async function initialize() {
+        try {
+          const response = await fetch("/battle-maps/maps_metadata.json");
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: maps_metadata.json`);
+          }
+          const payload = await response.json();
+          if (!Array.isArray(payload)) {
+            throw new Error("maps_metadata.json の形式が不正です。");
+          }
+          maps = payload.filter(
+            (map) =>
+              map &&
+              typeof map.key === "string" &&
+              typeof map.dataUrl === "string",
+          );
+          if (maps.length === 0) {
+            throw new Error("表示できるマップデータがありません。");
+          }
+
+          mapSelect.replaceChildren();
+          maps.forEach((map, index) => {
+            const option = document.createElement("option");
+            option.value = String(index);
+            option.textContent = map.key;
+            mapSelect.append(option);
+          });
+          mapSelect.addEventListener("change", () =>
+            selectMap(Number(mapSelect.value)),
+          );
+          previousButton.addEventListener("click", () =>
+            selectMap(selectedIndex - 1),
+          );
+          nextButton.addEventListener("click", () =>
+            selectMap(selectedIndex + 1),
+          );
+          const defaultIndex = maps.findIndex((map) => map.key === "5-3");
+          await selectMap(defaultIndex >= 0 ? defaultIndex : 0);
+        } catch (error) {
+          console.error("Failed to initialize map data viewer", error);
+          setStatus("マップ一覧を読み込めませんでした。");
+        }
+      }
+
+      initialize();
+    </script>
+  </body>
+</html>

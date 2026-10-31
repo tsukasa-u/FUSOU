@@ -4,8 +4,8 @@
 #![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_req_map@start.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_req_map/start)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
-use serde::{Deserialize, Serialize};
 use crate::common::custom_type::DuoType;
+use serde::{Deserialize, Serialize};
 
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
@@ -145,6 +145,7 @@ mod tests {
     use register_trait::simple_root_test;
 
     use super::*;
+
     #[test]
     fn test_deserialize() {
         dotenv().expect(".env file not found");

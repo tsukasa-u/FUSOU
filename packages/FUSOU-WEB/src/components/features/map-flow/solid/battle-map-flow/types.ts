@@ -1,6 +1,7 @@
-﻿import type { BattleMapAsset, BattleMapTheme } from "@/data/battleMapAssets";
+import type { BattleMapAsset } from "@/data/battleMapAssets";
 
-export type { BattleMapAsset, BattleMapTheme };
+export type { BattleMapAsset };
+export type BattleMapTheme = "light" | "dark";
 
 export type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
 
@@ -261,35 +262,6 @@ export type MapInfoPayload = {
 export type MapLabelsPayload = Record<string, string>;
 
 export type MapRoutesPayload = CurvedRouteData[];
-
-export type MapFrameMeta = {
-  spriteSheetSize: { width: number; height: number };
-  routeLayoutFrame: FrameRect;
-  seaMapFrame: FrameRect;
-  routeFrames: Record<number, RouteSpriteFrame>;
-};
-
-export type MapImageMetaPayload = {
-  frames?: Record<
-    string,
-    {
-      frame?: {
-        x?: number;
-        y?: number;
-        w?: number;
-        h?: number;
-      };
-    }
-  >;
-  meta?: {
-    size?: {
-      w?: number;
-      h?: number;
-    };
-  };
-};
-
-export type OfficialMapThemeMode = "auto" | BattleMapTheme;
 
 // Overlay marker: a route step with screen coordinates and badge position.
 export type OverlayMarker = RouteStep & {

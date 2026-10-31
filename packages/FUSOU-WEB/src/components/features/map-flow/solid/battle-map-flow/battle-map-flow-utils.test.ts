@@ -1,8 +1,8 @@
 /**
  * Unit tests for battle-map-flow pure utility functions.
- * Run with: node --test --import tsx/esm test/battle-map-flow-utils.test.ts
+ * Run with: pnpm exec vitest run src\components\features\map-flow\solid\battle-map-flow\battle-map-flow-utils.test.ts
  */
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 
 // ── dataUtils ────────────────────────────────────────────────────────────────
@@ -11,36 +11,35 @@ import {
   cellOverlayLabel,
   mapKeyOf,
   normalizeEpochMs,
-  parseOfficialMapThemeMode,
   resolveRouteCellsWithPort,
-} from "../src/components/features/map-flow/solid/battle-map-flow/dataUtils.ts";
+} from "./dataUtils.ts";
 
 // ── geometry ─────────────────────────────────────────────────────────────────
 import {
   circleIntersectsRect,
   rectsOverlap,
-} from "../src/components/features/map-flow/solid/battle-map-flow/geometry.ts";
+} from "./geometry.ts";
 
 // ── labelLayout ───────────────────────────────────────────────────────────────
-import { estimateLabelWidth } from "../src/components/features/map-flow/solid/battle-map-flow/labelLayout.ts";
+import { estimateLabelWidth } from "./labelLayout.ts";
 
 // ── constants ─────────────────────────────────────────────────────────────────
-import { WIN_RANK_BADGES } from "../src/components/features/map-flow/solid/battle-map-flow/constants.ts";
+import { WIN_RANK_BADGES } from "./constants.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("mapKeyOf", () => {
-  it("returns 0-0 when maparea_id is missing", () => {
-    assert.equal(mapKeyOf({}), "0-0");
+  it("returns unknown when maparea_id is missing", () => {
+    assert.equal(mapKeyOf({}), "unknown");
   });
-  it("returns 0-0 when mapinfo_no is missing", () => {
-    assert.equal(mapKeyOf({ maparea_id: 1 }), "0-0");
+  it("returns unknown when mapinfo_no is missing", () => {
+    assert.equal(mapKeyOf({ maparea_id: 1 }), "unknown");
   });
   it("returns formatted key", () => {
     assert.equal(mapKeyOf({ maparea_id: 3, mapinfo_no: 4 }), "3-4");
   });
-  it("handles null values", () => {
-    assert.equal(mapKeyOf({ maparea_id: null, mapinfo_no: null }), "0-0");
+  it("returns unknown for null values", () => {
+    assert.equal(mapKeyOf({ maparea_id: null, mapinfo_no: null }), "unknown");
   });
 });
 
@@ -64,30 +63,9 @@ describe("normalizeEpochMs", () => {
   });
 });
 
-describe("parseOfficialMapThemeMode", () => {
-  it("accepts 'light'", () => {
-    assert.equal(parseOfficialMapThemeMode("light"), "light");
-  });
-  it("accepts 'dark'", () => {
-    assert.equal(parseOfficialMapThemeMode("dark"), "dark");
-  });
-  it("accepts 'auto'", () => {
-    assert.equal(parseOfficialMapThemeMode("auto"), "auto");
-  });
-  it("defaults unknown strings to 'auto'", () => {
-    assert.equal(parseOfficialMapThemeMode("neon"), "auto");
-  });
-  it("defaults null to 'auto'", () => {
-    assert.equal(parseOfficialMapThemeMode(null), "auto");
-  });
-  it("defaults undefined to 'auto'", () => {
-    assert.equal(parseOfficialMapThemeMode(undefined), "auto");
-  });
-});
-
 describe("cellLabel", () => {
-  it("returns '港' for cell 0 with no labels", () => {
-    assert.equal(cellLabel(0, undefined), "港");
+  it("returns the first port label for cell 0 with no labels", () => {
+    assert.equal(cellLabel(0, undefined), "1");
   });
   it("returns fallback text for non-zero cell with no labels", () => {
     assert.equal(cellLabel(3, undefined), "C");
@@ -104,8 +82,8 @@ describe("cellLabel", () => {
 });
 
 describe("cellOverlayLabel", () => {
-  it("returns '港' for cell 0 with no labels", () => {
-    assert.equal(cellOverlayLabel(0, undefined), "港");
+  it("returns the first port label for cell 0 with no labels", () => {
+    assert.equal(cellOverlayLabel(0, undefined), "1");
   });
   it("returns cell id as string for non-zero cells without labels", () => {
     assert.equal(cellOverlayLabel(5, undefined), "E");

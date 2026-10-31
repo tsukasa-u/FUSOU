@@ -257,6 +257,39 @@ test.describe("browser-local AVRO source", () => {
     await expect(page.getByText(/索引を作成中/)).toHaveCount(0);
   });
 
+  test("recreates the dashboard and renders map data after switching to local AVRO", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "showDirectoryPicker", {
+        configurable: true,
+        value: undefined,
+      });
+    });
+    await page.goto("/battles?source=r2", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "データ設定" }).click();
+    await page.getByRole("button", { name: "ローカル (AVRO)" }).click();
+
+    const chooserPromise = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "ディレクトリを選択" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles(resolve(process.cwd(), "../FUSOU-DATABASE/fusou"));
+
+    await expect(page.getByRole("heading", { name: "戦闘一覧" })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText("R2 の戦闘データ読込に失敗しました。")).toHaveCount(0);
+    await page.getByRole("tab", { name: "マップ進行" }).click();
+
+    const mapChoice = page.getByRole("button", { name: /^1-1/ });
+    await expect(mapChoice).toBeVisible({ timeout: 30_000 });
+    await mapChoice.click();
+
+    const mapCanvas = page.locator('svg[viewBox="80 80 1040 560"]');
+    await expect(mapCanvas).toBeVisible();
+    const labels = await mapCanvas.locator("text").allTextContents();
+    expect(labels).toEqual(expect.arrayContaining(["A", "B", "C"]));
+    await expect(mapCanvas.locator("g path").first()).toBeVisible();
+  });
+
   test("orders latest 6-5 battles by cell traversal order", async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window, "showDirectoryPicker", {

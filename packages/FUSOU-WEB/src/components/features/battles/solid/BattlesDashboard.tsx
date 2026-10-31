@@ -794,7 +794,6 @@ export default function BattlesDashboard(props: {
 
   onCleanup(() => {
     loadDataAbortController?.abort();
-    void repository.dispose();
   });
 
   // URL Sync
@@ -930,17 +929,6 @@ export default function BattlesDashboard(props: {
           title="戦闘データ"
           subtitle="記録された戦闘ログの分析・集計機能"
           actions={<>
-            <Show when={activeTab() === "map-flow"}>
-              <button
-                class="fusou-btn-secondary gap-1.5"
-                type="button"
-                onClick={() => window.dispatchEvent(new CustomEvent("map-flow-open-display-settings"))}
-              >
-                <SettingsIcon class="h-4 w-4" />
-                <span class="hidden sm:inline">表示設定</span>
-              </button>
-            </Show>
-
             <Show when={activeTab() === "detail"}>
               <button
                 id="battle-detail-display-settings-btn"

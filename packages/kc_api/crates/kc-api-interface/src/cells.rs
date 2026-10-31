@@ -16,6 +16,7 @@ pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
         bosscomp: 0,
         cells: HashMap::new(),
         cell_index: Vec::new(),
+        cell_labels: Some(HashMap::new()),
         event_map: None,
         cell_data: Vec::new(),
         battles: HashMap::new(),
@@ -31,6 +32,9 @@ pub struct Cells {
     pub bosscomp: i64,
     pub cells: HashMap<i64, Cell>,
     pub cell_index: Vec<i64>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub cell_labels: Option<HashMap<String, String>>,
     pub event_map: Option<Eventmap>,
     pub cell_data: Vec<CellData>,
     pub battles: HashMap<i64, Battle>,
@@ -51,6 +55,7 @@ impl Cells {
         let mut cells = KCS_CELLS.lock().unwrap();
         cells.cells.clear();
         cells.cell_index.clear();
+        cells.cell_labels = Some(HashMap::new());
         cells.event_map = None;
         cells.cell_data.clear();
         cells.battles.clear();

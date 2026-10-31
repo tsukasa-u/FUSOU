@@ -1,0 +1,393 @@
+{
+  "ports": [
+    0
+  ],
+  "spots": [
+    {
+      "no": 0,
+      "x": 958,
+      "y": 367,
+      "isPort": true,
+      "color": 0
+    },
+    {
+      "no": 1,
+      "x": 812,
+      "y": 230,
+      "line": {
+        "x": 16,
+        "y": 14
+      },
+      "color": 4
+    },
+    {
+      "no": 2,
+      "x": 768,
+      "y": 475,
+      "line": {
+        "x": 20,
+        "y": -85
+      },
+      "color": 4
+    },
+    {
+      "no": 3,
+      "x": 603,
+      "y": 334,
+      "line": {
+        "x": 17,
+        "y": -96
+      },
+      "color": 4
+    },
+    {
+      "no": 4,
+      "x": 555,
+      "y": 512,
+      "line": {
+        "x": 23,
+        "y": -35
+      },
+      "color": 4
+    },
+    {
+      "no": 5,
+      "x": 555,
+      "y": 158,
+      "line": {
+        "x": 20,
+        "y": 2
+      },
+      "color": 4
+    },
+    {
+      "no": 6,
+      "x": 364,
+      "y": 166,
+      "line": {
+        "x": -16,
+        "y": 22
+      },
+      "color": 4
+    },
+    {
+      "no": 7,
+      "x": 347,
+      "y": 278,
+      "line": {
+        "x": 19,
+        "y": 0
+      },
+      "color": 4
+    },
+    {
+      "no": 8,
+      "x": 314,
+      "y": 450,
+      "line": {
+        "x": 23,
+        "y": 6
+      },
+      "color": 4
+    },
+    {
+      "no": 9,
+      "x": 227,
+      "y": 301,
+      "line": {
+        "x": 20,
+        "y": -23
+      },
+      "color": 4
+    },
+    {
+      "no": 10,
+      "x": 203,
+      "y": 201,
+      "line": {
+        "x": 26,
+        "y": -31
+      },
+      "color": 2
+    },
+    {
+      "no": 11,
+      "x": 167,
+      "y": 358,
+      "line": {
+        "x": 18,
+        "y": 12
+      },
+      "color": 2
+    },
+    {
+      "no": 12,
+      "x": 417,
+      "y": 367,
+      "line": {
+        "x": 39,
+        "y": -25
+      },
+      "color": 5
+    },
+    {
+      "no": 13,
+      "x": 603,
+      "y": 334,
+      "line": {
+        "x": -44,
+        "y": 18
+      },
+      "color": 4
+    },
+    {
+      "no": 14,
+      "x": 347,
+      "y": 278,
+      "line": {
+        "x": 19,
+        "y": -114
+      },
+      "color": 4
+    },
+    {
+      "no": 15,
+      "x": 347,
+      "y": 278,
+      "line": {
+        "x": -32,
+        "y": 27
+      },
+      "color": 4
+    },
+    {
+      "no": 16,
+      "x": 417,
+      "y": 367,
+      "line": {
+        "x": -62,
+        "y": -71
+      },
+      "color": 5
+    }
+  ],
+  "labels": {
+    "0": "1",
+    "1": "A",
+    "2": "B",
+    "3": "C",
+    "4": "D",
+    "5": "E",
+    "6": "F",
+    "7": "G",
+    "8": "H",
+    "9": "I",
+    "10": "J",
+    "11": "K",
+    "12": "L",
+    "13": "C",
+    "14": "G",
+    "15": "G",
+    "16": "L"
+  },
+  "routes": [
+    {
+      "from": 0,
+      "to": 1,
+      "startX": 912.1,
+      "startY": 324.2,
+      "ctrlX": 872.6,
+      "ctrlY": 286.9,
+      "endX": 833,
+      "endY": 249.6,
+      "isArrow": false
+    },
+    {
+      "from": 0,
+      "to": 2,
+      "startX": 909.2,
+      "startY": 394.9,
+      "ctrlX": 851.8,
+      "ctrlY": 428.2,
+      "endX": 794.4,
+      "endY": 461.5,
+      "isArrow": false
+    },
+    {
+      "from": 1,
+      "to": 3,
+      "startX": 788.4,
+      "startY": 243.6,
+      "ctrlX": 708.4,
+      "ctrlY": 283.8,
+      "endX": 628.5,
+      "endY": 324,
+      "isArrow": false
+    },
+    {
+      "from": 2,
+      "to": 4,
+      "startX": 737.6,
+      "startY": 480.6,
+      "ctrlX": 661.1,
+      "ctrlY": 494.1,
+      "endX": 584.5,
+      "endY": 507.5,
+      "isArrow": false
+    },
+    {
+      "from": 1,
+      "to": 5,
+      "startX": 779.4,
+      "startY": 222.5,
+      "ctrlX": 681.2,
+      "ctrlY": 193.7,
+      "endX": 583,
+      "endY": 164.8,
+      "isArrow": false
+    },
+    {
+      "from": 7,
+      "to": 6,
+      "startX": 350.8,
+      "startY": 251.8,
+      "ctrlX": 354.9,
+      "ctrlY": 221.3,
+      "endX": 359,
+      "endY": 190.9,
+      "isArrow": false
+    },
+    {
+      "from": 3,
+      "to": 7,
+      "startX": 573.5,
+      "startY": 327.8,
+      "ctrlX": 474,
+      "ctrlY": 305.2,
+      "endX": 374.5,
+      "endY": 282.6,
+      "isArrow": false
+    },
+    {
+      "from": 4,
+      "to": 8,
+      "startX": 518.5,
+      "startY": 505.7,
+      "ctrlX": 431.9,
+      "ctrlY": 483.1,
+      "endX": 345.4,
+      "endY": 460.6,
+      "isArrow": false
+    },
+    {
+      "from": 7,
+      "to": 9,
+      "startX": 322.2,
+      "startY": 282.2,
+      "ctrlX": 283.8,
+      "ctrlY": 289.7,
+      "endX": 250.8,
+      "endY": 296.1,
+      "isArrow": false
+    },
+    {
+      "from": 6,
+      "to": 10,
+      "startX": 333.9,
+      "startY": 173.3,
+      "ctrlX": 280.5,
+      "ctrlY": 184.6,
+      "endX": 234.4,
+      "endY": 194.1,
+      "isArrow": false
+    },
+    {
+      "from": 8,
+      "to": 11,
+      "startX": 287.9,
+      "startY": 437.4,
+      "ctrlX": 235.9,
+      "ctrlY": 403.3,
+      "endX": 190.4,
+      "endY": 373.4,
+      "isArrow": false
+    },
+    {
+      "from": 3,
+      "to": 12,
+      "startX": 577.3,
+      "startY": 345.2,
+      "ctrlX": 516.2,
+      "ctrlY": 354.9,
+      "endX": 462.3,
+      "endY": 363.2,
+      "isArrow": false
+    },
+    {
+      "from": 4,
+      "to": 3,
+      "startX": 562.8,
+      "startY": 486.5,
+      "ctrlX": 579.4,
+      "ctrlY": 422.5,
+      "endX": 596,
+      "endY": 358.4,
+      "isArrow": false
+    },
+    {
+      "from": 5,
+      "to": 7,
+      "startX": 527.5,
+      "startY": 170,
+      "ctrlX": 450.6,
+      "ctrlY": 216.1,
+      "endX": 373.7,
+      "endY": 262.2,
+      "isArrow": false
+    },
+    {
+      "from": 8,
+      "to": 7,
+      "startX": 318.4,
+      "startY": 416.6,
+      "ctrlX": 329.3,
+      "ctrlY": 363.5,
+      "endX": 340.2,
+      "endY": 310.4,
+      "isArrow": false
+    },
+    {
+      "from": 7,
+      "to": 12,
+      "startX": 360.8,
+      "startY": 298.2,
+      "ctrlX": 370.8,
+      "ctrlY": 311,
+      "endX": 381.1,
+      "endY": 323.9,
+      "isArrow": false
+    }
+  ],
+  "bossSpots": [
+    12,
+    16
+  ],
+  "bossLabels": [
+    "L"
+  ],
+  "resourceSpots": [
+    10,
+    11
+  ],
+  "resourceLabels": [
+    "J",
+    "K"
+  ],
+  "maelstromLabels": [],
+  "nothingLabels": [],
+  "airLabels": [],
+  "nightLabels": [],
+  "activeBranchLabels": [],
+  "landingLabels": [],
+  "reconLabels": []
+}

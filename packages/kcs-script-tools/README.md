@@ -339,30 +339,26 @@ pnpm run upload:remote
 - `webcrack is not installed`
   - `pnpm install` を実行して依存関係をインストールしてください。
 
-## マップ比較・輪郭マスク編集ツール (GUI Tools)
+## マップデータ確認ツール
 
-海域マップ画像の輪郭マスク編集および抽出結果の比較を行うためのローカル Web ツールです。
+背景画像を使わず、生成済みのマップJSONに含まれるセル座標・ラベル値・航路を確認するローカルWebツールです。
 
-### 1. ツールの起動方法
-
-`packages/kcs-script-tools` ディレクトリにて、以下のいずれかのコマンドでサーバーを起動します（ポート `8085` で起動）:
+`packages/kcs-script-tools` で次のコマンドを実行し、`http://localhost:8085/` を開きます。
 
 ```bash
-# pnpm スクリプトから起動
 pnpm run tools:server
-
-# または Python で直接起動
-python scripts/mask_server.py
 ```
 
-### 2. ブラウザからのアクセス
+このツールは `FUSOU-WEB/public/battle-maps/maps_metadata.json` と各海域の `data.json` のみを読み込みます。マップ背景画像は生成・配信しません。Proxy由来のマップ定義・スプライトシートは `kcs-script-tools/output/map-resources/` にキャッシュし、航路ベクターとラベルJSONの生成にだけ使用します。旧 `FUSOU-WEB/src/assets/map/` がある場合、最初の `sync:maps` 実行時にこのキャッシュへ移動します。
 
-サーバー起動後、ブラウザで以下の URL を開きます:
+公式ラベルはProxyの `_info*.json` にある `labels` と、対応する `_image*.json` のスプライトフレームから取得します。公式ラベルがないセルはWEB用のローカル `cell_labels.json` の補正値、さらにそれもない場合はセル番号からのアルファベット推定値を使用します。後者はサーバー提供ラベルではありません。FUSOU-APPは独自にセルラベルを補完せず、このWEB生成結果をまとめた `battle-maps/cell_labels.json` を起動時に取得し、前回取得分は通信失敗時のキャッシュとして利用します。
 
-- **マップ比較ツール**:
-  `http://localhost:8085/map-compare.html`
-  - 元画像（`_orig.png`）と抽出された陸地マスク・海図画像を重ね合わせて視覚的に比較・確認できます。
+## マップデータの再生成
 
-- **輪郭マスク編集ツール**:
-  `http://localhost:8085/map-mask-editor.html`
-  - 各海域の島・陸地の輪郭（`land_mask.png`）を手動描画および閾値調整で直接編集・保存できます。
+`pnpm run sync:maps` はセル・ラベル・航路のJSONと、FUSOU-APPが起動時に一度で取得する全海域分の `FUSOU-WEB/public/battle-maps/cell_labels.json` を再生成します。Python依存関係は初回に次のコマンドでインストールしてください。
+
+FUSOU-APPが取得するURLは `packages/configs/configs.toml` の `[app.map_cell_labels].bundle_url` で設定します。
+
+```bash
+python -m pip install -r scripts/requirements-maps.txt
+```

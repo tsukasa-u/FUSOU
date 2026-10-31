@@ -7,6 +7,7 @@ export const default_cells: Cells = {
   bosscomp: 0,
   cells: {},
   cell_index: [],
+  cell_labels: {},
   cell_data: [],
   battles: {},
   event_map: null,

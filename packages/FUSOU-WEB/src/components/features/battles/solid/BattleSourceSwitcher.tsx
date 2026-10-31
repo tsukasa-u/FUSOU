@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import {
   clearStoredLocalDirectoryHandle,
   loadStoredLocalDirectoryHandle,
@@ -101,10 +101,9 @@ export default function BattleSourceSwitcher() {
 
   const replaceRepository = (nextRepository: BattleDataRepository) => {
     const previousRepository = repository();
-    if (previousRepository && previousRepository !== nextRepository) {
-      void previousRepository.dispose();
-    }
+    if (previousRepository === nextRepository) return;
     setRepository(nextRepository);
+    if (previousRepository) void previousRepository.dispose();
   };
 
   const clearBattlePreview = () => {
@@ -366,26 +365,30 @@ export default function BattleSourceSwitcher() {
   });
 
   return (
-    <BattlesDashboard
-      repository={repository()}
-      source={source()}
-      localStatus={localStatus()}
-      localDirectoryName={() => storedHandle()?.name ?? null}
-      permission={permission}
-      scanResult={scanResult}
-      scanProgress={scanProgress}
-      localError={error}
-      hasStoredHandle={() => storedHandle() !== null}
-      localLimits={localLimits()}
-      rememberSource={rememberSource()}
-      onSourceChange={selectSource}
-      onPickLocalDirectory={usePicker}
-      onRequestLocalPermission={requestStoredPermission}
-      onRescanLocalDirectory={rescanStoredHandle}
-      onReleaseLocalAccess={releaseLocalAccess}
-      onRefreshDataSource={refreshDataSource}
-      onRememberSourceChange={setSourcePreference}
-      onLocalLimitsChange={applyLocalLimits}
-    />
+    <Show when={repository()} keyed>
+      {(activeRepository) => (
+        <BattlesDashboard
+          repository={activeRepository}
+          source={source()}
+          localStatus={localStatus()}
+          localDirectoryName={() => storedHandle()?.name ?? null}
+          permission={permission}
+          scanResult={scanResult}
+          scanProgress={scanProgress}
+          localError={error}
+          hasStoredHandle={() => storedHandle() !== null}
+          localLimits={localLimits()}
+          rememberSource={rememberSource()}
+          onSourceChange={selectSource}
+          onPickLocalDirectory={usePicker}
+          onRequestLocalPermission={requestStoredPermission}
+          onRescanLocalDirectory={rescanStoredHandle}
+          onReleaseLocalAccess={releaseLocalAccess}
+          onRefreshDataSource={refreshDataSource}
+          onRememberSourceChange={setSourcePreference}
+          onLocalLimitsChange={applyLocalLimits}
+        />
+      )}
+    </Show>
   );
 }

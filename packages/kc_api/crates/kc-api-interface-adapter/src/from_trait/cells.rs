@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use kc_api_dto::common::custom_type::DuoType;
+use std::collections::HashMap;
 
 use chrono::Local;
 
@@ -330,6 +330,7 @@ impl From<kcapi_main::api_req_map::start::ApiData> for InterfaceWrapper<Cells> {
             bosscomp: cells.api_bosscomp,
             cells: vec![(cell.no, cell.clone())].into_iter().collect(),
             cell_index: vec![cell.no],
+            cell_labels: Some(HashMap::new()),
             event_map: cells
                 .api_eventmap
                 .map(|eventmap| InterfaceWrapper::<Eventmap>::from(eventmap).unwrap()),
