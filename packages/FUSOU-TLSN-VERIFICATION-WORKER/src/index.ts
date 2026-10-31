@@ -78,7 +78,11 @@ import {
   securityRegistrySetPayload,
   sha256Base64Url,
 } from "./origin-trust-contract.mjs";
-import { verifySignedResultRegistryEnvelope } from "./result-registry-contract.mjs";
+import {
+  hasActiveResultSigningKey,
+  selectProductionResultRegistryBindings,
+  verifySignedResultRegistryEnvelope,
+} from "./result-registry-contract.mjs";
 
 const originInventory = parseOriginInventory(originInventoryRaw);
 export type Bindings = {
@@ -1414,24 +1418,39 @@ async function readConfig(
     ? canary ? env.TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY : env.TLSN_PRODUCTION_BINDING_AUTHORITY_KEY_REGISTRY
     : env.TLSN_BINDING_AUTHORITY_KEY_REGISTRY;
   const trustRootCertificateDer = production ? undefined : env.TLSN_TRUST_ROOT_CERTIFICATE_DER;
-  const resultPublicKeySpki = production
-    ? canary ? env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI
-    : env.TLSN_RESULT_PUBLIC_KEY_SPKI;
-  const resultSignerKeyId = production
-    ? canary ? env.TLSN_CANARY_RESULT_SIGNER_KEY_ID : env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID
-    : env.TLSN_RESULT_SIGNER_KEY_ID;
-  const resultSigningKeyRegistry = production
-    ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY
-    : env.TLSN_RESULT_SIGNING_KEY_REGISTRY;
-  const resultSigningKeyRegistryEnvelope = production
-    ? canary ? env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE : env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE
-    : undefined;
-  const resultRegistryRootKeyId = production
-    ? canary ? env.TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID : env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID
-    : undefined;
-  const resultRegistryRootPublicKeySpki = production
-    ? canary ? env.TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI : env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI
-    : undefined;
+  const resultRegistryBindings = production
+    ? selectProductionResultRegistryBindings({
+        production: {
+          publicKeySpki: env.TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI,
+          signerKeyId: env.TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID,
+          registryRaw: env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY,
+          registryEnvelopeRaw: env.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE,
+          rootKeyId: env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID,
+          rootPublicKeySpki: env.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI,
+        },
+        canary: {
+          publicKeySpki: env.TLSN_CANARY_RESULT_PUBLIC_KEY_SPKI,
+          signerKeyId: env.TLSN_CANARY_RESULT_SIGNER_KEY_ID,
+          registryRaw: env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY,
+          registryEnvelopeRaw: env.TLSN_CANARY_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE,
+          rootKeyId: env.TLSN_CANARY_RESULT_REGISTRY_ROOT_KEY_ID,
+          rootPublicKeySpki: env.TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI,
+        },
+      }, canary ? "canary" : "production")
+    : {
+        publicKeySpki: env.TLSN_RESULT_PUBLIC_KEY_SPKI,
+        signerKeyId: env.TLSN_RESULT_SIGNER_KEY_ID,
+        registryRaw: env.TLSN_RESULT_SIGNING_KEY_REGISTRY,
+        registryEnvelopeRaw: undefined,
+        rootKeyId: undefined,
+        rootPublicKeySpki: undefined,
+      };
+  const resultPublicKeySpki = resultRegistryBindings.publicKeySpki;
+  const resultSignerKeyId = resultRegistryBindings.signerKeyId;
+  const resultSigningKeyRegistry = resultRegistryBindings.registryRaw;
+  const resultSigningKeyRegistryEnvelope = resultRegistryBindings.registryEnvelopeRaw;
+  const resultRegistryRootKeyId = resultRegistryBindings.rootKeyId;
+  const resultRegistryRootPublicKeySpki = resultRegistryBindings.rootPublicKeySpki;
   const schemaValidationStartedAt = onTiming ? performance.now() : undefined;
   const parsed = configSchema.safeParse({
     environment: env.TLSN_ENVIRONMENT,
@@ -1581,14 +1600,11 @@ async function readConfig(
       }
       if (!resultRegistry.success) return null;
       const resultRegistryLookupStartedAt = onTiming ? performance.now() : undefined;
-      const currentResultKey = resultRegistry.data.keys.find((key) => key.key_id === parsed.data.resultSignerKeyId);
-      const now = Date.now();
-      const resultRegistryInvalid = Boolean(
-        !currentResultKey ||
-        currentResultKey.public_key_spki !== parsed.data.resultPublicKeySpki ||
-        currentResultKey.status !== "ACTIVE" ||
-        Date.parse(currentResultKey.not_before) > now ||
-        (currentResultKey.not_after !== null && Date.parse(currentResultKey.not_after) < now)
+      const resultRegistryInvalid = !hasActiveResultSigningKey(
+        resultRegistry.data,
+        parsed.data.resultSignerKeyId,
+        parsed.data.resultPublicKeySpki,
+        Date.now(),
       );
       if (resultRegistryLookupStartedAt !== undefined) {
         onTiming?.("registry_lookup", performance.now() - resultRegistryLookupStartedAt);

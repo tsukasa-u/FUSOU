@@ -112,7 +112,7 @@ support, not evidence that any stage completed against the real services.
 | `FUSOU_TLSN_RUNTIME_CONFIG_MANIFEST_URL`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID`, `FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI` | The only TLSN operational values embedded by the APP build; consumed by `RuntimeConfigBootstrap` | Public Bootstrap locator and initial Ed25519 trust anchor. All three are required together; compiled reports distinguish `UNREGISTERED` from `EMBEDDED_UNVERIFIED`. They do not prove Manifest verification or APP integrity. |
 | `FUSOU_TLSN_NOTARY_ENDPOINT`, `FUSOU_TLSN_NOTARY_VERIFYING_KEY` | Signed Runtime Config Manifest V2 `compile_inputs`; APP reads them from `VerifiedRuntimeConfigManifest` | Not APP build inputs. The APP uses these values only after local Manifest verification; the Worker uses its own Notary registry and key binding. Production values remain unregistered/unverified. |
 | `FUSOU_TLSN_EXCHANGE_TIMEOUT_MS`, `FUSOU_TLSN_CLEANUP_TIMEOUT_MS`, `FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES` | Runtime environment parsed by `exchange_lifecycle` | Required explicit limits with range/canonical checks and no defaults; an operator must supply approved values. |
-| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Manifest-pinned raw artifacts for APP preflight; Worker-owned shipped artifacts and bindings for verification | APP verifies artifact digests and approval before local use. The Worker independently checks its own inventory, approval, Notary registry set, and observed Presentation identity. |
+| Origin Inventory, Target Approval, Web PKI trust roots, and signed Runtime Config artifacts | Manifest-pinned raw artifacts for APP preflight; Worker-owned shipped artifacts and bindings for verification | APP verifies artifact digests and derives its local Proxy identity/port policy from the Manifest-approved targets. The Worker independently checks its own inventory, approval, Notary registry set, and observed Presentation identity. |
 | `FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI`, `FUSOU_TLSN_RESULT_SIGNER_KEY_ID`, `FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY` | Signed Runtime Config V2 for APP Result verification; Worker-owned signer bindings for result generation | The Manifest signer may update the APP-side Result Registry pin, but cannot update Worker bindings. The Worker verifies the Result Registry envelope against its own root before accepting production configuration. |
 | `FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID`, `FUSOU_TLSN_EXPECTED_BINDING_MODE`, `FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID`, `FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA`, `FUSOU_TLSN_EXPECTED_WORKER_NAME`, `FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT`, `FUSOU_TLSN_VERIFICATION_ENDPOINT` | Signed Runtime Config V2 `compile_inputs`, derived from the operator-approved Worker reference | Fetched and verified at APP runtime; these values are no longer supplied to the APP build environment or emitted in its compiled Bootstrap report. |
 | `FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT`, `FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID`, `FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY` | Session receipt verification and binding prewarm | Stage B identity/session inputs, not intrinsic TLSN Presentation verification inputs. They remain required by the existing APP path and were not bypassed. |
@@ -946,3 +946,47 @@ These are source/unit checks only. Bootstrap registration, Production signing,
 Manifest publication, Worker binding values, external freshness/recovery
 authority, and all live acceptance stages remain `BLOCKED_EXTERNAL_INPUTS` or
 `NOT_CHECKED`; no readiness state is promoted by the local passes above.
+
+### Independent audit follow-up at `3e9f361e430cb14f71ba92fa92c3e1147d1172da`
+
+The independent source trace found that `ProductionTlsnDependencies::build_forwarder`
+still reached `OriginTransportConfig::validate_for_experimental`, which checked
+the target against a second Origin Inventory embedded by the `configs` crate.
+Consequently, a target admitted by the freshly verified Runtime Config could
+pass APP preflight but fail while constructing the production forwarder, and
+the APP path retained a static inventory dependency.
+
+The current working-tree fix makes the APP construct its Proxy policy from the
+verified Manifest's exact `(server_identity, port)` targets. The Proxy validates
+that pair and no longer consults `configs::get_tlsn_origin_inventory`; the
+unused `configs` crate inventory API/embed was removed. The Worker keeps its
+independent inventory, Target Approval and Notary checks. The APP's local
+Manifest result remains an untrusted client-side decision, and the Manifest
+signer still cannot replace the Worker's Result Registry root binding.
+
+Publisher rollback checks the current signed pointer, requires monotonic epoch
+advancement (or byte-identical same-epoch publication), and uses conditional
+CAS. A fresh APP still starts with local epoch zero and has no independent
+server-side latest-epoch pin. Its acceptance of an older signed Manifest is
+constrained by the Manifest expiry and the 600-second Worker-reference age
+limit, but is not globally excluded if an endpoint serves a still-current
+older pointer. Pointer-loss recovery authority also remains unregistered.
+
+| Independent audit check | Result | Scope |
+|---|---|---|
+| Runtime Config, APP handoff/pre-capture and R2 store Node suites | **105 passed, 0 failed, 0 skipped** | Includes synthetic root mismatch, Production/Canary root selection, missing root binding, signer lookup/status/validity-window checks, publisher rollback and APP Manifest-approved Origin policy source contract. |
+| Worker TypeScript `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck` | **PASS** | Checks Worker binding selection and Result Registry helper declarations. |
+| Worker source-release closure `node --experimental-strip-types --test scripts/release-worker-source.test.mjs` | **11 passed, 0 failed** | Local source/recipe fixtures only; no deployment or API call. |
+| `node --check` on the changed MJS sources | **PASS** | Syntax only. |
+| `rustfmt --check` for `production_tlsn.rs`, `wrap_proxy.rs`, and `configs/src/lib.rs` | **PASS** | `configs/src/configs.rs` full-file formatting remains non-clean in unrelated existing sections; the changed removal hunk is formatted. |
+| `git diff --check` on the explicit changed-path allowlist | **PASS** | No whitespace errors. |
+| APP `tlsn-production` and Proxy `alpha15-tlsn` Cargo check/tests | **NOT_RUN** | Both paths depend on `configs`, whose compiled source contains `include_str!("../configs.toml")`; Cargo would read the protected configuration. The new Proxy Rust regression tests are present but unexecuted. No Cargo compile/test command was run. |
+| Hosted CI | **NOT_CHECKED** | No workflow was dispatched. |
+
+Readiness remains: Bootstrap source shape **VERIFIED** by source and synthetic
+contract tests, but real Bootstrap values **NOT_REGISTERED**; APP Rust
+Manifest execution **NOT_CHECKED**; Worker independent trust **VERIFIED** at
+source/typecheck/synthetic-test level, but deployed binding values
+**NOT_CHECKED**; Production external inputs and Stage A/B/C acceptance remain
+**BLOCKED**. No real Worker, Notary, R2, Game Server or gameplay operation was
+performed.

@@ -3,24 +3,6 @@ extern crate toml;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TlsnOriginTarget {
-    pub server_index: i32,
-    pub server_identity: String,
-    pub port: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TlsnOriginInventory {
-    pub schema_version: u8,
-    pub source: String,
-    pub targets: Vec<TlsnOriginTarget>,
-}
-
-pub fn get_tlsn_origin_inventory() -> TlsnOriginInventory {
-    serde_json::from_str(include_str!("../tlsn-origin-inventory.json"))
-        .expect("embedded TLSN Origin inventory must be valid")
-}
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -2089,32 +2071,5 @@ mod tests {
             all_servers, expected_servers,
             "All servers should come from configs.toml"
         );
-    }
-
-    #[test]
-    fn tlsn_origin_inventory_matches_the_shipped_server_map() {
-        let inventory = get_tlsn_origin_inventory();
-        let shipped_servers = get_default_configs()
-            .app
-            .connect_kc_server
-            .get_all_servers();
-
-        assert_eq!(inventory.schema_version, 1);
-        assert_eq!(inventory.targets.len(), 20);
-        assert_eq!(inventory.targets.len(), shipped_servers.len());
-
-        let mut indices = std::collections::HashSet::new();
-        let mut identities = std::collections::HashSet::new();
-        for (index, target) in inventory.targets.into_iter().enumerate() {
-            assert_eq!(target.port, 443);
-            assert_eq!(target.server_index, index as i32 + 1, "inventory order must match server indices");
-            assert!(indices.insert(target.server_index));
-            assert!(identities.insert(target.server_identity.clone()));
-            assert_eq!(
-                shipped_servers.get(&target.server_index),
-                Some(&target.server_identity),
-                "inventory target must match embedded default server map"
-            );
-        }
     }
 }

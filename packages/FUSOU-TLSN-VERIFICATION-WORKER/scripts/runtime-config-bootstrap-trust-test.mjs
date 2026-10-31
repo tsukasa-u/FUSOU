@@ -3,7 +3,11 @@ import { createHash, generateKeyPairSync, sign, webcrypto } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { canonicalJson } from "../src/origin-trust-contract.mjs";
-import { verifySignedResultRegistryEnvelope } from "../src/result-registry-contract.mjs";
+import {
+  hasActiveResultSigningKey,
+  selectProductionResultRegistryBindings,
+  verifySignedResultRegistryEnvelope,
+} from "../src/result-registry-contract.mjs";
 
 globalThis.crypto ??= webcrypto;
 
@@ -11,6 +15,7 @@ const manifestSourcePath = new URL("../../FUSOU-APP/src-tauri/src/tlsn_runtime_c
 const appBuildReportPath = new URL("../../FUSOU-APP/src-tauri/src/tlsn_build_handoff.rs", import.meta.url);
 const appPreflightSourcePath = new URL("../../FUSOU-APP/src-tauri/src/tlsn_preflight.rs", import.meta.url);
 const appProxySourcePath = new URL("../../FUSOU-APP/src-tauri/src/wrap_proxy.rs", import.meta.url);
+const proxyTlsnSourcePath = new URL("../../FUSOU-PROXY/proxy-https/src/production_tlsn.rs", import.meta.url);
 const configsSourcePath = new URL("../../configs/src/configs.rs", import.meta.url);
 const configsLibraryPath = new URL("../../configs/src/lib.rs", import.meta.url);
 const handoffSourcePath = new URL("./app-build-handoff.mjs", import.meta.url);
@@ -77,6 +82,75 @@ test("Worker verifies the exact Result registry bytes using its own root binding
   }), true);
 });
 
+test("Worker selects separate Production and Canary registry roots without cross-role fallback", async () => {
+  const production = createRegistryEnvelope();
+  const canary = createRegistryEnvelope();
+  const selected = (fixture) => ({
+    publicKeySpki: fixture.registry.keys[0].public_key_spki,
+    signerKeyId: fixture.registry.keys[0].key_id,
+    registryRaw: fixture.registryRaw,
+    registryEnvelopeRaw: JSON.stringify(fixture.envelope),
+    rootKeyId: fixture.rootKeyId,
+    rootPublicKeySpki: fixture.rootPublicKeySpki,
+  });
+  const bindings = {
+    production: selected(production),
+    canary: selected(canary),
+  };
+  const productionBindings = selectProductionResultRegistryBindings(bindings, "production");
+  const canaryBindings = selectProductionResultRegistryBindings(bindings, "canary");
+  assert.deepEqual(productionBindings, bindings.production);
+  assert.deepEqual(canaryBindings, bindings.canary);
+  assert.equal(await verifySignedResultRegistryEnvelope({
+    registryRaw: productionBindings.registryRaw,
+    registryEnvelopeRaw: productionBindings.registryEnvelopeRaw,
+    trustedRootKeyId: productionBindings.rootKeyId,
+    trustedRootPublicKeySpki: productionBindings.rootPublicKeySpki,
+  }), true);
+  await assert.rejects(() => verifySignedResultRegistryEnvelope({
+    registryRaw: productionBindings.registryRaw,
+    registryEnvelopeRaw: productionBindings.registryEnvelopeRaw,
+    trustedRootKeyId: canaryBindings.rootKeyId,
+    trustedRootPublicKeySpki: canaryBindings.rootPublicKeySpki,
+  }));
+  const missingRoot = selectProductionResultRegistryBindings({
+    ...bindings,
+    production: { ...bindings.production, rootKeyId: undefined, rootPublicKeySpki: undefined },
+  }, "production");
+  await assert.rejects(() => verifySignedResultRegistryEnvelope({
+    registryRaw: missingRoot.registryRaw,
+    registryEnvelopeRaw: missingRoot.registryEnvelopeRaw,
+    trustedRootKeyId: missingRoot.rootKeyId,
+    trustedRootPublicKeySpki: missingRoot.rootPublicKeySpki,
+  }));
+});
+
+test("Worker accepts only the configured ACTIVE Result signer within its validity window", () => {
+  const fixture = createRegistryEnvelope();
+  const signerKeyId = fixture.registry.keys[0].key_id;
+  const signerPublicKeySpki = fixture.registry.keys[0].public_key_spki;
+  const nowMs = Date.parse("2026-10-24T00:00:00.000Z");
+  const valid = structuredClone(fixture.registry);
+  assert.equal(hasActiveResultSigningKey(valid, signerKeyId, signerPublicKeySpki, nowMs), true);
+
+  assert.equal(hasActiveResultSigningKey(valid, "missing-result-key", signerPublicKeySpki, nowMs), false);
+  assert.equal(hasActiveResultSigningKey(valid, signerKeyId, "another-public-key", nowMs), false);
+  for (const [label, mutate] of [
+    ["REVOKED", (key) => { key.status = "REVOKED"; }],
+    ["VERIFY_ONLY", (key) => { key.status = "VERIFY_ONLY"; }],
+    ["not yet valid", (key) => { key.not_before = "2026-10-25T00:00:00.000Z"; }],
+    ["expired", (key) => { key.not_after = "2026-10-23T23:59:59.999Z"; }],
+  ]) {
+    const registry = structuredClone(fixture.registry);
+    mutate(registry.keys[0]);
+    assert.equal(
+      hasActiveResultSigningKey(registry, signerKeyId, signerPublicKeySpki, nowMs),
+      false,
+      label,
+    );
+  }
+});
+
 for (const [label, mutate, overrides] of [
   ["the registry bytes", (fixture) => { fixture.registryRaw += "\n"; }, {}],
   ["the envelope signature", (fixture) => {
@@ -121,8 +195,8 @@ for (const [label, mutate, overrides] of [
   });
 }
 
-test("APP build source contains only the three Runtime Config Bootstrap TLSN option_env pins", async () => {
-  const [manifestSource, configsSource, configsLibrary, buildReportSource, handoffSource, appPreflightSource, appProxySource] = await Promise.all([
+test("APP build source contains only Bootstrap pins and uses Manifest-approved Origin targets", async () => {
+  const [manifestSource, configsSource, configsLibrary, buildReportSource, handoffSource, appPreflightSource, appProxySource, proxyTlsnSource] = await Promise.all([
     readFile(manifestSourcePath, "utf8"),
     readFile(configsSourcePath, "utf8"),
     readFile(configsLibraryPath, "utf8"),
@@ -130,6 +204,7 @@ test("APP build source contains only the three Runtime Config Bootstrap TLSN opt
     readFile(handoffSourcePath, "utf8"),
     readFile(appPreflightSourcePath, "utf8"),
     readFile(appProxySourcePath, "utf8"),
+    readFile(proxyTlsnSourcePath, "utf8"),
   ]);
   const pins = [...manifestSource.matchAll(/option_env!\("([^"]+)"\)/g)]
     .map((match) => match[1])
@@ -139,6 +214,8 @@ test("APP build source contains only the three Runtime Config Bootstrap TLSN opt
     "FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_KEY_ID",
     "FUSOU_TLSN_RUNTIME_CONFIG_SIGNER_PUBLIC_KEY_SPKI",
   ]);
+  assert.doesNotMatch(configsSource, /get_tlsn_origin_inventory|TlsnOriginInventory|tlsn-origin-inventory\.json/);
+  assert.doesNotMatch(configsLibrary, /get_tlsn_origin_inventory|TlsnOriginInventory|TlsnOriginTarget/);
   assert.doesNotMatch(configsSource, /option_env!\("FUSOU_TLSN_/);
   assert.doesNotMatch(configsLibrary, /get_tlsn_compile_inputs/);
   assert.doesNotMatch(buildReportSource, /get_tlsn_compile_inputs|worker_source_sha|active_version_id|entry_input_sha256/);
@@ -146,7 +223,10 @@ test("APP build source contains only the three Runtime Config Bootstrap TLSN opt
   assert.doesNotMatch(appPreflightSource, /get_tlsn_(?:notary_endpoint|verification_endpoint|worker_health_endpoint)/);
   assert.doesNotMatch(appPreflightSource, /get_tlsn_origin_inventory/);
   assert.doesNotMatch(appProxySource, /ServerIdentityPolicy::from_shipped_inventory/);
-  assert.match(appProxySource, /ServerIdentityPolicy::new\([\s\S]*runtime_config[\s\S]*approved_targets\(\)/);
+  assert.match(appProxySource, /ServerIdentityPolicy::from_approved_targets\([\s\S]*approved_targets\(\)[\s\S]*approved\.port\(\)/);
+  assert.doesNotMatch(proxyTlsnSource, /get_tlsn_origin_inventory|from_shipped_inventory/);
+  assert.match(proxyTlsnSource, /pub fn from_approved_targets\([\s\S]*Vec<\(String, u16\)>/);
+  assert.match(proxyTlsnSource, /server_identity_policy\.allows_target\(&self\.target\)/);
 });
 
 test("Worker reads its Result registry root from bindings, not from APP request fields", async () => {
@@ -160,6 +240,9 @@ test("Worker reads its Result registry root from bindings, not from APP request 
   const externalRequestSchema = requestSchema.slice(requestStart, statusSchemaStart);
   assert.match(workerSource, /TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE\?: string/);
   assert.match(workerSource, /TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI\?: string/);
+  assert.match(workerSource, /TLSN_CANARY_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI\?: string/);
+  assert.match(workerSource, /selectProductionResultRegistryBindings\(/);
+  assert.match(workerSource, /hasActiveResultSigningKey\(/);
   assert.match(workerSource, /verifySignedResultRegistryEnvelope\(/);
   assert.match(workerSource, /if \(production && !resultIdentityConfigured\) return null/);
   assert.match(workerSource, /if \(production \|\| resultRegistryTrustConfigured\)/);

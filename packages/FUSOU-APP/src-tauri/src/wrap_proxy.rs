@@ -303,11 +303,11 @@ fn build_production_tlsn_dependencies(
     let origin = OriginTransportConfig::new(
         target.clone(),
         OriginTlsConfig::new().map_err(production_configuration_error)?,
-        ServerIdentityPolicy::new(
+        ServerIdentityPolicy::from_approved_targets(
             runtime_config
                 .approved_targets()
                 .iter()
-                .map(|approved| approved.server_identity().to_owned())
+                .map(|approved| (approved.server_identity().to_owned(), approved.port()))
                 .collect(),
         )
         .map_err(production_configuration_error)?,

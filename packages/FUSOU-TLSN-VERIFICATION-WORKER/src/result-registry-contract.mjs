@@ -73,6 +73,55 @@ function assertExactFields(value, fields, label) {
   }
 }
 
+export function selectProductionResultRegistryBindings(bindings, role) {
+  if (role !== "production" && role !== "canary") {
+    throw new Error("Production Result registry role is invalid");
+  }
+  const selected = bindings?.[role];
+  if (!selected || typeof selected !== "object") {
+    throw new Error("Production Result registry bindings are missing");
+  }
+  return Object.freeze({
+    publicKeySpki: selected.publicKeySpki,
+    signerKeyId: selected.signerKeyId,
+    registryRaw: selected.registryRaw,
+    registryEnvelopeRaw: selected.registryEnvelopeRaw,
+    rootKeyId: selected.rootKeyId,
+    rootPublicKeySpki: selected.rootPublicKeySpki,
+  });
+}
+
+export function hasActiveResultSigningKey(registry, signerKeyId, signerPublicKeySpki, nowMs = Date.now()) {
+  if (
+    !registry ||
+    !Array.isArray(registry.keys) ||
+    typeof signerKeyId !== "string" ||
+    typeof signerPublicKeySpki !== "string" ||
+    !Number.isFinite(nowMs)
+  ) {
+    return false;
+  }
+  const current = registry.keys.find((key) => key?.key_id === signerKeyId);
+  if (
+    !current ||
+    current.public_key_spki !== signerPublicKeySpki ||
+    current.status !== "ACTIVE"
+  ) {
+    return false;
+  }
+  const notBefore = Date.parse(current.not_before);
+  if (!Number.isFinite(notBefore) || notBefore > nowMs) {
+    return false;
+  }
+  if (current.not_after !== null) {
+    const notAfter = Date.parse(current.not_after);
+    if (!Number.isFinite(notAfter) || notAfter < nowMs) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function verifySignedResultRegistryEnvelope({
   registryRaw,
   registryEnvelopeRaw,

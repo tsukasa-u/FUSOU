@@ -136,31 +136,42 @@ impl OriginTlsConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerIdentityPolicy {
     allowlisted_identities: Vec<String>,
+    approved_targets: Vec<(String, u16)>,
 }
 
 impl ServerIdentityPolicy {
+    /// Builds an identity policy for the standard HTTPS port.
     pub fn new(allowlisted_identities: Vec<String>) -> Result<Self, OriginConfigurationError> {
-        if allowlisted_identities.is_empty() {
+        let approved_targets = allowlisted_identities
+            .into_iter()
+            .map(|identity| (identity, 443))
+            .collect();
+        Self::from_approved_targets(approved_targets)
+    }
+
+    pub fn from_approved_targets(
+        approved_targets: Vec<(String, u16)>,
+    ) -> Result<Self, OriginConfigurationError> {
+        if approved_targets.is_empty() {
             return Err(OriginConfigurationError::EmptyIdentityPolicy);
         }
-        if allowlisted_identities
+        if approved_targets.iter().any(|(_, port)| *port == 0) {
+            return Err(OriginConfigurationError::InvalidPort);
+        }
+        if approved_targets
             .iter()
-            .any(|identity| ServerIdentity::new(identity.as_str()).is_err())
+            .any(|(identity, _)| ServerIdentity::new(identity.as_str()).is_err())
         {
             return Err(OriginConfigurationError::InvalidServerIdentity);
         }
+        let allowlisted_identities = approved_targets
+            .iter()
+            .map(|(identity, _)| identity.clone())
+            .collect();
         Ok(Self {
             allowlisted_identities,
+            approved_targets,
         })
-    }
-
-    pub fn from_shipped_inventory() -> Result<Self, OriginConfigurationError> {
-        let identities = configs::get_tlsn_origin_inventory()
-            .targets
-            .into_iter()
-            .map(|target| target.server_identity)
-            .collect();
-        Self::new(identities)
     }
 
     pub fn allows(&self, server_identity: &str) -> bool {
@@ -170,6 +181,13 @@ impl ServerIdentityPolicy {
         self.allowlisted_identities
             .iter()
             .any(|identity| identity == server_identity)
+    }
+
+    fn allows_target(&self, target: &OriginTarget) -> bool {
+        self.allows(target.server_identity())
+            && self.approved_targets.iter().any(|(identity, port)| {
+                identity == target.server_identity() && *port == target.port()
+            })
     }
 
     pub fn identities(&self) -> &[String] {
@@ -204,22 +222,7 @@ impl OriginTransportConfig {
         if !self.experimental_enabled {
             return Err(OriginConfigurationError::ExperimentalDisabled);
         }
-        let inventory_allows_target =
-            configs::get_tlsn_origin_inventory()
-                .targets
-                .iter()
-                .any(|target| {
-                    target.port == self.target.port()
-                        && target.server_identity == self.target.server_identity()
-                });
-        #[cfg(test)]
-        let inventory_allows_target = inventory_allows_target
-            || (self.target.port() == 443 && self.target.server_identity() == "game.example.test");
-        if !inventory_allows_target
-            || !self
-                .server_identity_policy
-                .allows(self.target.server_identity())
-        {
+        if !self.server_identity_policy.allows_target(&self.target) {
             return Err(OriginConfigurationError::ServerIdentityNotAllowed);
         }
         Ok(())
@@ -2192,12 +2195,24 @@ mod tests {
     }
 
     #[test]
-    fn production_origin_rejects_identity_outside_inventory_even_if_policy_allows_it() {
-        let identity = "not-in-inventory.example.test";
+    fn production_origin_accepts_a_manifest_approved_identity_outside_the_old_shipped_inventory() {
+        let identity = "new-approved.example.net";
         let config = OriginTransportConfig::new(
             OriginTarget::new(identity.to_owned(), 443, identity.to_owned()).unwrap(),
             OriginTlsConfig::new().unwrap(),
-            ServerIdentityPolicy::new(vec![identity.to_owned()]).unwrap(),
+            ServerIdentityPolicy::from_approved_targets(vec![(identity.to_owned(), 443)]).unwrap(),
+            true,
+        );
+        assert!(config.validate_for_experimental().is_ok());
+    }
+
+    #[test]
+    fn production_origin_rejects_a_port_not_bound_by_the_approved_target() {
+        let identity = "game.example.test";
+        let config = OriginTransportConfig::new(
+            OriginTarget::new(identity.to_owned(), 443, identity.to_owned()).unwrap(),
+            OriginTlsConfig::new().unwrap(),
+            ServerIdentityPolicy::from_approved_targets(vec![(identity.to_owned(), 8443)]).unwrap(),
             true,
         );
         assert_eq!(
