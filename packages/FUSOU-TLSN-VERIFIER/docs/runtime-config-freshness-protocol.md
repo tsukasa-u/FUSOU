@@ -140,9 +140,10 @@ new delegation contract and is not silently included in this proposal.
    nonce, times, epoch, and digest.
 7. APP fetches the Manifest from its existing pinned URL. SHA-256 over the
    exact raw response bytes must equal the signed response digest. APP then
-   performs all existing Manifest v2 checks and fetches/verifies every
-   referenced artifact. Only after the complete existing verification
-   succeeds does it persist the accepted epoch/digest.
+   performs all existing Manifest v2 checks, requires its payload epoch to
+   equal the signed `latest_epoch`, and fetches/verifies every referenced
+   artifact. Only after the complete existing verification succeeds does it
+   persist the accepted epoch/digest.
 8. The Worker does not consume an APP claim of “freshness verified” as trust.
    Its independent Presentation and Result verification remains unchanged.
 
@@ -262,6 +263,8 @@ unchanged.
   longer than the approved ceiling (proposed 60 seconds).
 - `latest_epoch` is canonical decimal and must be at least the APP's local
   epoch. If equal, `manifest_sha256` must equal the locally persisted digest.
+- After fetching and fully verifying the Manifest, its payload epoch must
+  exactly equal the response's `latest_epoch`.
 - A response never makes an expired Manifest valid. The existing Manifest
   expiry and Worker-reference freshness checks still run independently.
 
