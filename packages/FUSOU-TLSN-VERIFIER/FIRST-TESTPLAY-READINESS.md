@@ -935,6 +935,7 @@ Notary session or Game Server connection was attempted.
 | Check | Result | Scope |
 |---|---|---|
 | Targeted APP/Worker Runtime Config and handoff Node suites (`node --test --test-reporter=tap` over the Bootstrap trust, Manifest/publisher, APP handoff/dotenvx, Worker reference/endpoint and APP pre-capture tests) | **92 passed, 0 failed, 0 skipped** | Synthetic public keys, fixtures and in-memory object store; no external service. |
+| Worker device-proof and release-source/integration suites (`node --experimental-strip-types --test`) | **64 passed, 0 failed, 0 skipped** | Source closure and mocked release/client contracts; no deployment or Cloudflare API operation. |
 | Worker TypeScript `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck` | **PASS** | Includes Worker-owned Result Registry root/envelope verification. |
 | `node --check` on changed JavaScript/MJS files | **PASS** | Syntax only. |
 | `rustfmt --check` on changed Rust sources excluding `packages/configs/src/configs.rs` and `packages/FUSOU-APP/src-tauri/src/main.rs` | **PASS** | A full-file check reports pre-existing formatting differences outside this task's hunks in those two files; no APP typecheck was run. |
