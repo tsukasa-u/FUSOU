@@ -252,12 +252,13 @@ provider are **NOT_REGISTERED** and require human approval before Phase 1.
    signer key, R2 access, DO namespace, or Release Journal credentials. It
    validates request size/shape and passes only protocol version, environment,
    audience and nonce to the signer using a private service binding.
-6. **Freshness Signer Worker:** has the delegated Freshness key and separate
-   read-only access to R2, the release-state DO, and the Journal. It
-   independently fetches and verifies all latest-state material; it accepts
-   no endpoint-supplied epoch/digest/URI/state. It may acquire/release only a
-   scoped, expiring DO issue lease; it cannot mutate release ledger state or
-   the R2 pointer. It does not reuse the existing verification Worker's
+6. **Freshness Signer Worker:** has the delegated Freshness key, read-only R2
+   and Journal access, and a private service binding to the Authority Worker's
+   restricted `getCurrentCommitted` / issue-lease interface. It has no direct
+   DO namespace or R2 writer credential. It independently fetches and
+   verifies all latest-state material; it accepts no endpoint-supplied
+   epoch/digest/URI/state. It cannot mutate release ledger state or the R2
+   pointer. It does not reuse the existing verification Worker's
    `TLSN_BINDINGS` or `TLSN_PRESENTATIONS` bindings.
 7. **APP:** verifies both delegations, the Release Authority commit record,
    the Freshness response, the exact immutable Manifest bytes, and then the
@@ -289,15 +290,16 @@ For every request, the signer itself:
 
 1. validates the pending challenge, canonical audience and Production scope;
 2. acquires an at-most-8-second issue lease for the current environment
-   generation. The DO rejects a lease if a release is pending or waiting to
-   publish;
+   generation through the Authority Worker's restricted service binding. The
+   Authority denies it if a release is pending or waiting to publish;
 3. queries the Release Journal's authenticated current head directly;
 4. fetches the corresponding signed commit record and verifies its
    Release-Authority signature/delegation, generation, previous-record hash,
    environment and `COMMITTED` state;
-5. queries the Release Authority DO directly and requires its committed
-   generation, epoch, digest, commit ID and record digest to equal the Journal
-   head, with no pending transaction;
+5. queries `getCurrentCommitted` through the restricted Authority Worker
+   service binding and requires its DO record's generation, epoch, digest,
+   commit ID and record digest to equal the Journal head, with no pending
+   transaction;
 6. reads `manifest.json` directly from the R2 S3 API using read-only access,
    obtains its opaque ETag and exact raw bytes, and verifies the bytes match
    the commit record's digest and pointer ETag;
@@ -309,9 +311,10 @@ For every request, the signer itself:
 9. checks all observed values again against the request environment/audience,
    captures `issued_at` while the lease is still valid, and signs the response
    with the Freshness delegated key;
-10. releases the issue lease after signing and returns the signed response. If
-    the lease expired or the signer cannot confirm it before signing, it
-    discards the signature and returns an error.
+10. releases the issue lease through its restricted service binding after
+    signing and returns the signed response. If the lease expired or the
+    signer cannot confirm it before signing, it discards the signature and
+    returns an error.
 
 If any read is missing, slow, contradictory, stale, unverified or
 unauthorized, the signer returns a non-success response without a signature.
@@ -378,6 +381,14 @@ interpreted as permission to initialize epoch `0`.
 | `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot both contain the exact candidate bytes; the actual ETag is recorded. Release Journal still has no committed record. | `POINTER_COMMITTED -> COMMITTED` only after the offline Release Authority validates the direct R2/DO readback, signs the record, the append-only Journal accepts and reads back exact bytes, and the DO atomically advances its current generation. | **No.** A pointer without an archived commit record is not a committed release. |
 | `COMMITTED` | DO current row, Journal head/record, R2 pointer, immutable Manifest snapshot and Manifest signature agree at the same environment, generation, epoch, digest and commit ID. | Next release must be generation `current+1`, Manifest epoch strictly greater than current, expected previous digest/generation equal current, and CAS against current ETag. Same epoch/different bytes always rejects. | **Yes**, only after the signer freshly rechecks every source in Section 5.3 and sees no pending attempt. |
 | `ABORTED` (terminal attempt) | A pre-pointer attempt was cancelled after proving the pointer write was never started and the old pointer is unchanged. Record attempt ID and reason; never lower current generation. | A new attempt starts with a new attempt ID and current generation. An ambiguous/in-flight write cannot be aborted automatically. | Only if the current `COMMITTED` head and all sources still agree. |
+
+If `beginRelease` arrives while issue leases exist, the DO enters a bounded
+`WAITING_FOR_LEASES` admission substate: it marks a writer pending, blocks new
+leases, and performs no pointer write. After the existing leases finish or
+expire, the caller retries the same attempt ID; the DO revalidates the
+committed generation, digest and ETag before creating `PREPARED`. The wait
+expires after 10 seconds; expiry before `pointer_write_started` aborts only
+that attempt and leaves immutable objects as uncommitted orphans.
 
 DO state updates use one SQLite transaction per state transition. R2, Journal,
 or signer I/O must occur outside that transaction; after external I/O, the DO
@@ -858,8 +869,10 @@ started.
   `packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-SIGNER/` Workers, each with
   its own `src/index.ts`, `wrangler.toml`, generated types and tests. The
   Gateway owns the same-origin APP route and a private Service Binding to
-  the Signer. The Signer owns the delegated Freshness secret and
-  read-only R2/DO/Journal access. Do not add either role to
+  the Signer. The Signer owns the delegated Freshness secret, read-only R2
+  and Journal access, and a private service binding exposing only committed
+  state/issue-lease methods from the Authority Worker. It has no direct DO
+  namespace or release-mutation capability. Do not add either role to
   `FUSOU-TLSN-VERIFICATION-WORKER`.
 - **Existing files:** add production readiness checks to Runtime Config
   registration/publisher diagnostics and type/vector tests.
