@@ -9,8 +9,10 @@ import {
   TLSN_RUNTIME_CONFIG_FRESHNESS as C,
   createRuntimeConfigFreshnessRequest,
   runtimeConfigFreshnessSigningBytes,
+  verifyRuntimeConfigDelegation,
   verifyRuntimeConfigFreshnessRequest,
   verifyRuntimeConfigFreshnessResponse,
+  verifyRuntimeConfigReleaseCommitRecord,
 } from "./tlsn-runtime-config-freshness.mjs";
 import {
   createTestDelegationPayload,
@@ -70,6 +72,68 @@ function signManifest(payload, signer) {
 
 function freshManifest(signer, epoch) {
   return signManifest({ ...VECTOR_PAYLOAD, epoch }, signer);
+}
+
+function releaseRecordPayload(recordRaw) {
+  const recordBytes = Buffer.isBuffer(recordRaw)
+    ? Buffer.from(recordRaw)
+    : Buffer.from(recordRaw, "base64url");
+  const envelope = JSON.parse(recordBytes.toString("utf8"));
+  return JSON.parse(
+    Buffer.from(envelope.payload_base64url, "base64url").toString("utf8"),
+  );
+}
+
+function resignReleaseRecord(recordRaw, setup, changes) {
+  const recordBytes = Buffer.isBuffer(recordRaw)
+    ? Buffer.from(recordRaw)
+    : Buffer.from(recordRaw, "base64url");
+  const envelope = JSON.parse(recordBytes.toString("utf8"));
+  const payload = releaseRecordPayload(recordRaw);
+  Object.assign(payload, changes);
+  const payloadBytes = Buffer.from(canonicalJson(payload), "utf8");
+  envelope.payload_base64url = payloadBytes.toString("base64url");
+  envelope.signature_base64url = sign(
+    null,
+    runtimeConfigFreshnessSigningBytes(
+      C.releaseDomain,
+      envelope.signer_key_id,
+      payloadBytes,
+    ),
+    setup.releaseSigner.private_key,
+  ).toString("base64url");
+  return Buffer.from(canonicalJson(envelope), "utf8");
+}
+
+function verifyJournalEntryRecord(entry, setup) {
+  return verifyRuntimeConfigReleaseCommitRecord(
+    Buffer.from(entry.record_base64url, "base64url"),
+    {
+      rootSigner: setup.rootSigner,
+      environment: "production",
+      releaseDelegationRaw: Buffer.from(
+        entry.release_delegation_base64url,
+        "base64url",
+      ),
+      appendedAt: entry.appended_at,
+    },
+  );
+}
+
+function replaceWithResignedRecord(entry, setup, changes) {
+  const recordRaw = resignReleaseRecord(entry.record_base64url, setup, changes);
+  const verified = verifyRuntimeConfigReleaseCommitRecord(recordRaw, {
+    rootSigner: setup.rootSigner,
+    environment: "production",
+    releaseDelegationRaw: Buffer.from(
+      entry.release_delegation_base64url,
+      "base64url",
+    ),
+    appendedAt: entry.appended_at,
+  });
+  entry.record_base64url = recordRaw.toString("base64url");
+  entry.record_sha256 = hash(recordRaw);
+  return verified;
 }
 
 function resignFreshnessPayload(responseRaw, setup, changes) {
@@ -257,6 +321,19 @@ function restartAuthority(setup, overrides = {}) {
   });
 }
 
+async function threeGenerationJournal() {
+  const setup = makeHarness();
+  for (const epoch of ["1", "2", "3"]) {
+    await setup.authority.commitRelease(
+      freshManifest(setup.manifestSigner, epoch),
+    );
+  }
+  return {
+    setup,
+    snapshot: setup.authority.journal.snapshot(),
+  };
+}
+
 test("Manifest V2, Journal commit, DO state, R2 snapshot, and Freshness response agree", async () => {
   const setup = await committedHarness();
   const response = await setup.authority.issueFreshness(setup.request.raw);
@@ -277,6 +354,155 @@ test("Manifest V2, Journal commit, DO state, R2 snapshot, and Freshness response
   assert.equal(verified.payload.manifest_sha256, hash(setup.manifestRaw));
   assert.equal(appResult.raw_manifest.equals(setup.manifestRaw), true);
   assert.equal(setup.authority.coordination.activeLeaseCount(), 0);
+});
+
+test("three-generation Journal snapshot reload preserves the complete signed chain", async () => {
+  const { setup, snapshot } = await threeGenerationJournal();
+  assert.equal(snapshot.entries.length, 3);
+
+  const restarted = restartAuthority(setup, { journalSnapshot: snapshot });
+  assert.deepEqual(restarted.journal.getHead(), setup.authority.journal.getHead());
+  assert.deepEqual(restarted.journal.entries, snapshot.entries);
+
+  for (const [index, entry] of restarted.journal.entries.entries()) {
+    const generation = BigInt(index + 1).toString();
+    const previous = index === 0 ? null : restarted.journal.entries[index - 1];
+    const verified = verifyJournalEntryRecord(entry, setup);
+    assert.equal(entry.generation, generation);
+    assert.equal(entry.manifest_epoch, generation);
+    assert.equal(entry.record_sha256, hash(Buffer.from(entry.record_base64url, "base64url")));
+    assert.equal(verified.payload.commit_generation, generation);
+    assert.equal(verified.payload.manifest_epoch, generation);
+    assert.equal(
+      verified.payload.previous_commit_generation,
+      previous?.generation ?? null,
+    );
+    assert.equal(
+      verified.payload.previous_commit_record_sha256,
+      previous?.record_sha256 ?? null,
+    );
+  }
+});
+
+test("three-generation Journal reload rejects independent generation-2 chain corruption", async (t) => {
+  const { setup, snapshot: validSnapshot } = await threeGenerationJournal();
+  const cloneSnapshot = () => JSON.parse(JSON.stringify(validSnapshot));
+  const scenarios = [
+    {
+      name: "validly re-signed generation 2 with a different previous record digest",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        const verified = replaceWithResignedRecord(entry, setup, {
+          previous_commit_record_sha256: hash(Buffer.from("alternate parent record")),
+        });
+        assert.equal(
+          verified.payload.previous_commit_record_sha256,
+          hash(Buffer.from("alternate parent record")),
+        );
+      },
+      expected: /snapshot chain verification failed/,
+    },
+    {
+      name: "signed generation 2 with an invalid previous generation fails record verification",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        const recordRaw = resignReleaseRecord(entry.record_base64url, setup, {
+          previous_commit_generation: "9",
+        });
+        entry.record_base64url = recordRaw.toString("base64url");
+        entry.record_sha256 = hash(recordRaw);
+        assert.throws(
+          () => verifyJournalEntryRecord(entry, setup),
+          /generation is not contiguous/,
+        );
+      },
+      expected: /generation is not contiguous/,
+    },
+    {
+      name: "valid signed generation 3 substituted at generation-2 position is rejected",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        const verified = replaceWithResignedRecord(entry, setup, {
+          commit_generation: "3",
+          previous_commit_generation: "2",
+        });
+        entry.generation = verified.payload.commit_generation;
+        assert.equal(verified.payload.commit_generation, "3");
+      },
+      expected: /snapshot chain verification failed/,
+    },
+    {
+      name: "validly re-signed generation 2 with a Manifest epoch rollback",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        const verified = replaceWithResignedRecord(entry, setup, {
+          manifest_epoch: "1",
+        });
+        entry.manifest_epoch = verified.payload.manifest_epoch;
+        assert.equal(verified.payload.manifest_epoch, "1");
+      },
+      expected: /snapshot chain verification failed/,
+    },
+    {
+      name: "record digest metadata differs from the verified signed record",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        assert.doesNotThrow(() => verifyJournalEntryRecord(entry, setup));
+        entry.record_sha256 = hash(Buffer.from("incorrect journal record digest"));
+      },
+      expected: /snapshot chain verification failed/,
+    },
+    {
+      name: "Manifest epoch metadata differs from the verified signed record",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        const verified = verifyJournalEntryRecord(entry, setup);
+        assert.equal(verified.payload.manifest_epoch, "2");
+        entry.manifest_epoch = "99";
+      },
+      expected: /snapshot chain verification failed/,
+    },
+    {
+      name: "a different root-signed Release Delegation cannot verify generation 2",
+      mutate(snapshot) {
+        const entry = snapshot.entries[1];
+        const alternatePair = createTestEd25519KeyPair();
+        const issuedAt = new Date(setup.sharedClock.now() - 60_000).toISOString();
+        const alternateDelegation = createTestRuntimeConfigDelegation({
+          rootPrivateKey: setup.rootPair.privateKey,
+          rootKeyId: setup.rootSigner.key_id,
+          payload: createTestDelegationPayload({
+            delegationId: "00000000-0000-4000-8000-000000000105",
+            purpose: "release-commit-record-v1",
+            keyId: setup.releaseSigner.key_id,
+            publicKeySpki: alternatePair.publicKeySpki,
+            audience: `${C.releaseAudiencePrefix}production`,
+            issuedAt,
+            notBefore: issuedAt,
+          }),
+        });
+        assert.doesNotThrow(() => verifyRuntimeConfigDelegation(alternateDelegation, {
+          rootSigner: setup.rootSigner,
+          expectedPurpose: "release-commit-record-v1",
+          expectedEnvironment: "production",
+          expectedAudience: `${C.releaseAudiencePrefix}production`,
+        }));
+        entry.release_delegation_base64url = alternateDelegation.toString("base64url");
+      },
+      expected: /signature|delegation|fields/i,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, () => {
+      const snapshot = cloneSnapshot();
+      scenario.mutate(snapshot);
+      assert.throws(
+        () => restartAuthority(setup, { journalSnapshot: snapshot }),
+        scenario.expected,
+      );
+    });
+  }
 });
 
 test("HSM authorization and Journal append do not independently make a release COMMITTED", async () => {
