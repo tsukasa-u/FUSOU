@@ -10,6 +10,12 @@ normative protocol specification; this document maps that design to the
 currently checked-in APP and Worker code and records the implementation
 boundaries that are still absent.
 
+For the later P2 design-only review of DO lease clocks, RPC replay, and PITR
+rollback, see [Runtime Config Freshness DO Coordination — P2 Design](./runtime-config-freshness-do-coordination-design.md).
+That review does not implement or register Production services and records
+the eight-second lease-expiry assumption as unresolved pending a safe clock
+and signer-cancellation contract.
+
 The source of truth for this review was the checked-out source at the baseline
 below, not commit-message wording or historical audit summaries. No secret
 values or environment-variable values were read.
