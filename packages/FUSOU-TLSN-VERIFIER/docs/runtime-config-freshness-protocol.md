@@ -2,7 +2,9 @@
 
 - **Status:** Specification selected; implementation and approval pending
 - **Updated:** 2026-11-01
-- **Repository HEAD at review start:** `254967c4fb77d279a608da91b8836b5b9d8f551e`
+- **Repository HEAD at review start:** `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`
+- **Parent at review start:** `891ec66a729da4dc832cb70fbd6ff5cd3e620cae`
+- **Previous Phase 0 review snapshot:** `254967c4fb77d279a608da91b8836b5b9d8f551e`
 - **Runtime-source baseline:** `43ab72e6284deee3ad202be7fb50e3f0199af304`
 - **Historical design snapshot:** `a0cb49250df53132ee8df42ca02fbce91e10c7d2`
 - **Readiness record:** [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md)
@@ -26,8 +28,12 @@ readiness is implied by this specification.
 1. **Use a Bootstrap-root-delegated Release Authority commit record.** The
    Freshness signer must verify that record, independently read the current
    R2 pointer and immutable Manifest snapshot, and compare them with the
-   environment's Durable Object ledger. This is Option B. It is not enough to
-   trust values supplied by the HTTP endpoint.
+   environment's Durable Object ledger. This is Option B. The HSM signature
+   authorizes a specific attempt but does not commit it: the Journal's
+   atomic compare-and-append is the release commit linearization point. The
+   DO `COMMITTED` row is post-commit coordination state. Freshness requires
+   both the current Journal record and matching DO `COMMITTED` state; it is
+   not enough to trust values supplied by the HTTP endpoint.
 2. **Do not place the Bootstrap root private key online.** The existing public
    pin remains the APP's trust anchor and direct Manifest v2 signer. Under
    this selected design, Manifest v2 signing and root delegation signing stay
@@ -132,6 +138,13 @@ unmodified APP, but the APP binary, process, OS and local state are not a
 trust boundary. A hostile local owner can replace the APP or alter/delete its
 state. The protocol is a network/server replay defense, not process
 attestation, Browser integrity, or proof that the user played a game.
+APP delegation-expiry enforcement uses the local OS wall clock with a
+conservative ±30-second safety margin; the APP cannot attest that clock's
+accuracy. The 24-hour true-time acceptance bound therefore applies only while
+the clock remains within that bound. A hostile local owner can alter the
+clock or patch the APP, so no absolute client-side expiry guarantee exists
+under that excluded threat model. This does not make APP freshness a Worker
+trust root.
 
 The Release Journal's authenticated latest-head service and its retention/
 administration are new external trust assumptions. A signature authenticates
@@ -150,7 +163,7 @@ behavior is BLOCKED until an independently authorized recovery.
 | Role | Key and custody | Allowed operation | Explicitly not allowed |
 |---|---|---|---|
 | Bootstrap root / current Manifest v2 signer | Existing APP-pinned Ed25519 public key. The private key must remain offline; actual custody/provider is **NOT_REGISTERED / NOT_VERIFIED**. In current source this pin directly verifies Manifest v2; there is no separate Manifest-signer delegation today. | Under the selected design, sign Manifest v2 releases offline and issue root-signed delegations for the Release Authority and Freshness keys. | No online Freshness endpoint, Worker binding, general online signing RPC, or chat-disclosed key. |
-| Release Authority | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable in an online HSM or equivalent managed signing service. | Sign only `release-commit-record-v1` after the signer service independently reads and checks the committed pointer, DO state, Journal head and Manifest snapshot. The API accepts a typed commit operation, never arbitrary bytes. | No Manifest, Result, Notary, or Freshness-response signature. No R2 pointer-write credential or arbitrary Journal update/delete permission. |
+| Release Authority | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable in an online HSM or equivalent managed signing service. | Sign only a typed authorization for the exact `POINTER_COMMITTED` attempt after the signer service independently reads and checks DO state, R2 pointer/snapshot and prior Journal head. | No Manifest, Result, Notary, or Freshness-response signature. No R2 pointer-write credential or Journal append/update/delete permission. |
 | Freshness signer | Separate Ed25519 child key delegated by the Bootstrap root; non-exportable in an online HSM/managed signing service used only by the dedicated Freshness Signer Worker. | Sign only the fixed `freshness-response-v1` preimage after independently validating the Release Journal, DO ledger, R2 pointer/snapshot and Manifest signature. | No Manifest/Result/Notary signing, R2 write, release-ledger mutation, pointer update, or generic `sign(bytes)` API. |
 
 This adds delegated purposes under the already embedded Bootstrap root, not a
@@ -178,6 +191,7 @@ key ID/SPKI. Example payload shape:
   "public_key_spki": "<base64url-unpadded-ed25519-spki>",
   "signature_algorithm": "Ed25519",
   "audience": "<audience value defined below>",
+  "issued_at": "<canonical-utc-root-issuance-time>",
   "not_before": "<canonical-utc>",
   "not_after": "<canonical-utc>",
   "max_validity_seconds": 86400,
@@ -190,9 +204,53 @@ For `freshness-response-v1`, `audience` is the base64url SHA-256 of the exact
 canonical embedded Manifest URL. For `release-commit-record-v1`, it is the
 fixed ASCII scope `fusou-tlsn-runtime-config-v2:<environment>`. The
 Freshness delegation has a maximum validity of 24 hours; the Release Authority
-delegation issued by the offline Bootstrap root has a maximum validity of 30
-days. These are maximum
-caps, not registered certificate dates.
+delegation has a maximum validity of 30 days. Each cap is measured from the
+root-signed `issued_at` to exclusive `not_after`, not from first use or
+`not_before`. `issued_at` is the approved offline Bootstrap ceremony's UTC
+time, not an independent timestamp proof. Require
+`issued_at <= not_before < not_after` and
+`not_after - issued_at <= max_validity_seconds`; the signed field must be
+exactly `86400` for Freshness or `2592000` for Release Authority. No future
+`not_before` may extend the cap.
+
+Delegation validity is the half-open interval
+`not_before <= signer_now < not_after`. The signer and Journal use their
+trusted UTC clock with no Manifest clock-skew grace. APP also checks the
+Freshness delegation at final acceptance using a conservative 30-second clock
+uncertainty margin:
+`app_now - 30s >= not_before` and `app_now + 30s < not_after`. This is not a
+permissive skew grace: it shrinks the usable interval so a client whose clock
+is within ±30 seconds does not accept before activation or after expiry. The
+signed response `issued_at` must also lie in the delegation and
+`expires_at <= not_after`. The existing 30-second APP response-time skew
+check applies separately to response `issued_at`/`expires_at`; it never
+extends delegation validity. A Release Authority delegation is checked at
+its signed `authorized_at` and at Journal append time; an already committed
+Journal record remains verifiable after that delegation expires.
+
+Assuming the offline root ceremony timestamp is trusted and APP clock error
+is bounded by ±30 seconds, the conservative Freshness delegation check means
+true-time acceptance never extends beyond `not_after`. The maximum true-time
+Freshness-key acceptance window is therefore 24 hours from root-signed
+delegation `issued_at`, and Release Authority Journal appends are capped at
+30 days from its `issued_at`. The conservative margin
+can reject a still-valid delegation by up to 60 seconds at either boundary
+(up to 120 seconds of the usable interval in the worst case). This
+availability cost is intentional; the Manifest's permissive ±30-second rule
+is not reused. If the root ceremony timestamp is untrusted, or the local clock can be wrong
+by more than 30 seconds or deliberately changed, no absolute wall-time bound
+is claimed; local APP integrity is not a trust root. The monotonic 10-second deadline does not add
+to the delegation limit because the strict-safe delegation window is checked
+again at the final rename.
+
+These are new delegation checks, not a change to the existing Manifest v2
+time policy: its 3,600-second lifetime, 30-second skew, and 600-second
+Worker-reference age remain unchanged. The current APP Result Registry has
+its own inclusive `not_after` boundary (`not_after == validation_time` is
+accepted; see [the existing validator](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_manifest.rs#L1727)).
+That unrelated contract is unchanged and is not reused for delegations.
+Freshness certificates use the explicitly defined half-open interval and
+conservative APP clock window above.
 
 The root-signed delegation envelope has exact fields
 `schema_version`, `scope`, `signature_algorithm`, `root_key_id`,
@@ -212,6 +270,13 @@ Consequently, a compromised delegated key may be used until its delegation
 expires unless the Bootstrap root is rotated in a new APP release. A
 root-signed revocation object served only by the compromised Freshness signer
 cannot provide immediate revocation to a fresh client. Do not claim otherwise.
+Renewal must therefore be planned before expiry: an offline-root-signed
+successor must link the prior delegation digest and increase generation.
+Because the lifetime cap starts at delegation `issued_at`, a future
+`not_before` consumes part of that cap. If no valid Freshness delegation is
+available at response signing time, Freshness blocks with no expiry grace.
+A Release Authority delegation that expires prevents new Journal appends;
+it does not invalidate a previously appended current record.
 
 ## 5. Release Authority, journal and Freshness signer
 
@@ -254,25 +319,33 @@ provider are **NOT_REGISTERED** and require human approval before Phase 1.
    signer Worker/adapter. The adapter directly binds to the same DO namespace
    and calls the typed `getPreparedRelease` RPC; it independently reads the
    current R2 pointer/snapshot and prior Journal head before invoking the
-   HSM. It accepts a typed commit operation, not arbitrary bytes or
-   endpoint-supplied epoch/digest claims. It has no R2 pointer-write
-   credential, cannot update/delete Journal records, and cannot sign Manifest,
-   Result, Notary or Freshness-response payloads.
+   HSM. The HSM accepts a typed `authorizeCommit` operation for that exact
+   `POINTER_COMMITTED` attempt, not arbitrary bytes or endpoint-supplied
+   epoch/digest claims. It has no R2 pointer-write credential, cannot
+   update/delete Journal records, and cannot sign Manifest, Result, Notary or
+   Freshness-response payloads.
 4. **Append-only Release Journal:** stores each Release Authority signed
    commit record and its exact root-signed Release Authority delegation
    envelope create-once, with monotonic per-environment generation and
-   previous-record hash. Only the authenticated Authority Worker commit
-   transaction can append after verifying the record/delegation and matching
-   the prepared DO attempt. The Journal verifier uses an independently
+   previous-record hash. Only the Authority Worker's authenticated
+   `commitRelease` operation may call append after matching the
+   `POINTER_COMMITTED` DO attempt and durably storing the exact HSM-signed
+   authorization in that pending DO attempt. The Journal verifier uses an independently
    provisioned copy of the approved Bootstrap public key, never a caller- or
-   APP-supplied root. Journal append is atomic compare-and-append:
+   APP-supplied root. Before append it verifies the authorization signature,
+   delegated purpose, `authorized_at`, and requires
+   `authorized_at <= appended_at` with Journal's own append time inside the
+   Release Authority delegation. Journal append is atomic
+   compare-and-append:
    require the record's previous generation and hash to equal the current
    head, require generation `head + 1` and a strictly greater Manifest epoch,
    then create the record and delegation sidecar once. An exact same-byte
-   retry is idempotent; a different record at that generation rejects. No
-   general update/delete API exists. Its authenticated, linearizable
-   latest-head API returns the exact record and delegation bytes and is the
-   authority for which record is newest.
+   retry is idempotent; a different record at that generation rejects. The
+   Journal records its append time as authenticated entry metadata; that time
+   is not part of the pre-append HSM-signed payload. No general update/delete
+   API exists. Its authenticated, linearizable latest-head API returns the
+   exact record, delegation bytes and append metadata and is the authority
+   for which record is newest.
 5. **Freshness Gateway:** owns the public same-origin POST route but has no
    signer key, R2 access, DO namespace, or Release Journal credentials. It
    validates request size/shape and passes only protocol version, environment,
@@ -291,13 +364,23 @@ provider are **NOT_REGISTERED** and require human approval before Phase 1.
 
 The Authority Worker is the only service with mutable R2 pointer-write and
 Release Journal append capabilities. Its `commitRelease` operation accepts
-only a Release Authority-signed record matching the current
+only a Release Authority-signed authorization matching the current
 `POINTER_COMMITTED` DO attempt, expected generation/previous-record digest,
-environment and exact R2 readback, with no active issue lease. Journal append
-is create-once and cannot update or delete records; an exact idempotent replay
-is accepted only for the same record bytes. The Release Authority signer
-returns a signature but has no Journal write capability. The Freshness signer
-has read-only Journal access plus direct DO read/issue-lease RPCs.
+environment and exact R2 readback, with no active issue lease. The HSM
+signature alone is not a commit. The Authority Worker stores the exact signed
+authorization bytes and digest in the pending DO row before attempting
+Journal append, so ambiguous outcomes can be reconciled byte-for-byte.
+Journal append is create-once and cannot update or delete records; an exact
+idempotent replay is accepted only for the same record bytes. The Release
+Authority signer returns an authorization but has no Journal write
+capability. The Freshness signer has read-only Journal access plus direct DO
+read/issue-lease RPCs.
+
+This is a distributed commit protocol, not a cross-service ACID transaction.
+R2 CAS, Journal append, and each DO SQLite state transition are separate
+linearizable operations with explicit recovery between them. The Journal
+append is the release commit point; DO `COMMITTED` records completion of the
+coordination state after that point.
 
 Cloudflare does not provide per-method Durable Object ACLs: a namespace
 binding is Worker-level reachability, not an operation-level permission
@@ -339,12 +422,15 @@ For every request, the signer itself:
    generation through the DO's authenticated issue-lease RPC. The DO denies
    it if a release is pending or waiting to publish;
 3. queries the Release Journal's authenticated current head directly;
-4. fetches the corresponding signed commit record and verifies its
-   Release-Authority signature/delegation, generation, previous-record hash,
-   environment and `COMMITTED` state;
+4. fetches the exact authorization record, its delegation sidecar and
+   authenticated `appended_at` metadata from that head. It verifies
+   `commit_authorization=AUTHORIZE_JOURNAL_APPEND`, the Release Authority
+   signature,    `authorized_at <= appended_at`, generation, previous-record hash
+   and environment. Both signed authorization time and Journal append time
+   must be within the Release Authority delegation;
 5. queries `getCurrentCommitted` directly from the same DO namespace and
-   requires its stored generation, epoch, digest, commit ID and record digest
-   to equal the Journal head, with no pending transaction;
+   requires its state to be `COMMITTED`; generation, epoch, digest, commit ID
+   and record digest must equal the Journal head, with no pending attempt;
 6. reads `manifest.json` directly from the R2 S3 API using read-only access,
    obtains its opaque ETag and exact raw bytes, and verifies the bytes match
    the commit record's digest and pointer ETag;
@@ -353,13 +439,21 @@ For every request, the signer itself:
 8. verifies the Manifest v2 envelope signature with the Bootstrap public key,
    then checks the exact Production schema, epoch, scope and referenced
    metadata against the commit record;
-9. checks all observed values again against the request environment/audience,
-   captures `issued_at` while the lease is still valid, and signs the response
-   with the Freshness delegated key;
-10. releases the issue lease through the authenticated DO RPC after
-    signing and returns the signed response. If the lease expired or the
-    signer cannot confirm it before signing, it discards the signature and
-    returns an error.
+9. checks all observed values again against the request environment/audience
+   and Freshness delegation. Capture `issued_at` immediately after the final
+   state checks while the lease is valid; this sample is the `LATEST_AT_ISSUANCE`
+   currentness point. Require
+   `authorized_at <= release_commit_record_appended_at <= issued_at`. Set
+   `expires_at = min(issued_at + 30s, freshness_delegation.not_after)`. Refuse
+   to sign if the remaining delegation validity is nonpositive;
+10. signs the exact response with the Freshness delegated key, then confirms
+    the same issue lease is still valid and the signer clock remains in the
+    half-open Freshness delegation interval before returning. Because the
+    lease prevents a release commit between the `issued_at` sample and
+    signature completion, both observe the same head. Release the lease
+    through the authenticated DO RPC after signing. If the lease or
+    delegation expires during signing, or cannot be confirmed, discard the
+    signature and return an error.
 
 If any read is missing, slow, contradictory, stale, unverified or
 unauthorized, the signer returns a non-success response without a signature.
@@ -377,10 +471,14 @@ The per-environment SQLite DO stores:
   commit ID, Release Journal record digest and previous-record digest;
 - at most one pending attempt with candidate generation, epoch, exact
   Manifest digest/ref, expected previous generation/digest/ETag, attempt ID,
-  state, and whether the pointer write was started;
+  state, whether the pointer write was started, and (after HSM authorization)
+  the exact signed authorization bytes and digest. These bytes are retry
+  material, not proof of commit;
 - active issue leases keyed by a CSPRNG UUID, containing environment,
   committed generation, acquisition time and expiry (maximum 8 seconds), plus
-  a writer-pending flag. Leases do not alter the committed release head.
+  writer-pending and recovery-pending gates. Leases do not alter the
+  committed release head; recovery has an attempt ID and expected head so its
+  external work can be finalized by a DO compare-and-set.
 - no private keys, endpoint-supplied "latest" claims, or APP state.
 
 The append-only Release Journal stores the exact signed
@@ -390,11 +488,22 @@ Authority delegation envelope as an immutable sidecar. Before append, the
 Authority Worker verifies both signatures and the prepared attempt. The
 Journal atomically compares the record's previous generation/hash and
 strictly increasing Manifest epoch against its current head before creating
-the next record; it does not trust a caller's head assertion. The current
-head operation returns the exact record and delegation bytes and is part of
-the Journal trust contract. The pointer ETag is recorded as an opaque
-conditional-write token; the SHA-256 of exact Manifest bytes is the
-cryptographic identifier.
+the next record; it does not trust a caller's head assertion. It also checks
+the exact authorization bytes, Release Authority delegation validity at its
+own append clock, and requires `authorized_at <= appended_at` with no clock
+skew grace. It records authenticated `appended_at` metadata that is not part
+of the pre-append HSM signature. The current-head operation returns
+the exact record, delegation and append metadata and is part of the Journal
+trust contract. The pointer ETag is recorded as an opaque conditional-write
+token; the SHA-256 of exact Manifest bytes is the cryptographic identifier.
+
+`ReleaseCommitRecordV1` is an HSM-signed authorization certificate, not a
+statement that a distributed release has already committed.
+`commit_authorization` authorizes only the Journal append for the identified
+attempt. The record is a committed release only after its exact bytes are
+successfully appended to the canonical Journal chain. The Journal's
+authenticated append time is metadata created at that append; it cannot be
+pre-signed into the HSM record.
 
 The signed record payload is:
 
@@ -403,7 +512,7 @@ The signed record payload is:
   "schema_version": 1,
   "scope": "fusou-tlsn-runtime-config-release-commit-v1",
   "environment": "production",
-  "commit_state": "COMMITTED",
+  "commit_authorization": "AUTHORIZE_JOURNAL_APPEND",
   "commit_generation": "18",
   "release_commit_id": "lowercase-canonical-uuid",
   "manifest_schema_version": 2,
@@ -413,11 +522,21 @@ The signed record payload is:
   "pointer_etag": "<opaque-exact-r2-etag>",
   "previous_commit_generation": "17",
   "previous_commit_record_sha256": "<base64url-sha256>",
-  "committed_at": "2026-11-01T00:00:00.000Z",
+  "authorized_at": "2026-11-01T00:00:00.000Z",
   "release_authority_delegation_id": "lowercase-canonical-uuid",
   "release_authority_delegation_sha256": "<base64url-sha256>"
 }
 ```
+
+`authorized_at` is included in the Release Authority signature and must fall
+inside the delegated key's half-open validity interval. The Journal records
+its own authenticated `appended_at` metadata and accepts the authorization
+only while its own clock is also inside that interval. An unappended signed
+authorization is an orphan, never a COMMITTED record and never APP input.
+`commit_state` is intentionally absent from this pre-implementation v1 schema;
+the prior draft field name is not a legacy format to accept. If any prototype
+has already emitted the old shape, reject it or explicitly version that
+prototype rather than treating an HSM signature as COMMITTED.
 
 For genesis, generation is `1`, Manifest epoch is positive, and both
 previous-generation fields are `null`; genesis requires an explicit
@@ -428,57 +547,92 @@ interpreted as permission to initialize epoch `0`.
 
 | State | Meaning and durable data | Allowed transition and CAS | Signer may respond? |
 |---|---|---|---|
-| `PREPARED` | Candidate Manifest/artifact/snapshot bytes were validated and written immutably. DO records candidate epoch/digest/ref, attempt ID, expected previous generation/digest/ETag, and pointer-write flag. No commit is yet authoritative. | `beginRelease` requires no active issue lease and a matching current head. `PREPARED -> POINTER_COMMITTED` only after Authority Worker performs R2 `If-Match` on the expected previous ETag (or `If-None-Match: *` for authorized genesis) and directly reads back exact bytes. A same attempt/same bytes retry is idempotent; same generation with different bytes rejects. | **No.** Any pending attempt blocks Freshness. |
-| `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot both contain the exact candidate bytes; the actual ETag is recorded. Release Journal still has no committed record. | `POINTER_COMMITTED -> COMMITTED` only after the online Release Authority HSM service validates the direct R2/DO readback, signs the record, the Authority Worker's single commit transaction appends/reads back those exact bytes in the Journal, and the DO atomically advances its current generation. No active issue lease or other pending transaction is allowed. | **No.** A pointer without an archived commit record is not a committed release. |
-| `COMMITTED` | DO current row, Journal head/record, R2 pointer, immutable Manifest snapshot and Manifest signature agree at the same environment, generation, epoch, digest and commit ID. | Next release must be generation `current+1`, Manifest epoch strictly greater than current, expected previous digest/generation equal current, and CAS against current ETag. Same epoch/different bytes always rejects. | **Yes**, only after the signer freshly rechecks every source in Section 5.3 and sees no pending attempt. |
+| `PREPARED` | Candidate Manifest/artifact/snapshot bytes were validated and written immutably. DO records candidate epoch/digest/ref, attempt ID, expected previous generation/digest/ETag, and `pointer_write_started=false`. No commit is authoritative. | `beginRelease` compares the current head and lease table in a DO transaction. If no lease exists, that transaction admits the attempt as `PREPARED`; if a lease exists, it sets writer-pending/`WAITING_FOR_LEASES` and the same attempt is retried after leases drain, where a DO transaction changes it to `PREPARED`. `PREPARED -> POINTER_COMMITTED` requires R2 `If-Match` on the expected ETag (or authorized genesis `If-None-Match: *`) and exact pointer/snapshot readback. | **No.** Any pending attempt blocks Freshness. |
+| `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot contain the exact candidate bytes; actual ETag is recorded. Journal does not yet contain this release. | The Release Authority signer may issue an HSM-signed `AUTHORIZE_JOURNAL_APPEND` authorization only after direct DO/R2/prior-Journal checks. Journal append is a separate operation and the release commit point. After a successful append/readback, DO verifies the exact current Journal record and R2 state, then separately CASes this row to `COMMITTED`. | **No.** A signed authorization or pointer without a canonical Journal append is not a committed release. |
+| `COMMITTED` | DO coordination row agrees with the current Journal head/record, authenticated Journal append metadata, R2 pointer, immutable Manifest snapshot and Manifest signature at the same environment, generation, epoch, digest and commit ID. The Journal append already committed the release. | Next release requires generation `current+1`, strictly greater Manifest epoch, matching previous digest/generation and CAS against current ETag. Same epoch/different bytes rejects. | **Yes**, only after the Freshness signer sees the current Journal record and matching DO `COMMITTED` state, plus all Section 5.3 R2/snapshot checks. |
 | `ABORTED` (terminal attempt) | A pre-pointer attempt was cancelled after proving the pointer write was never started and the old pointer is unchanged. Record attempt ID and reason; never lower current generation. | A new attempt starts with a new attempt ID and current generation. An ambiguous/in-flight write cannot be aborted automatically. | Only if the current `COMMITTED` head and all sources still agree. |
+
+No operation below is a cross-service ACID transaction. DO transactions
+linearize only DO state; R2 conditional writes and Journal compare-and-append
+have their own independent linearization points.
+
+| Operation | Start condition | Success and linearization point | Failure/crash result |
+|---|---|---|---|
+| `beginRelease` | Immutable artifacts and Manifest snapshot have been create-only written and byte-readback verified; attempt ID and expected prior head are fixed. | A DO transaction sets `writer_pending`. If leases exist, it records `WAITING_FOR_LEASES`; otherwise the same transaction also creates `PREPARED`. Its commit is the admission point. | No pointer or Journal change. If waiting, retry the same attempt after leases drain; if the head changed, reject and leave only immutable orphans. |
+| `PREPARED` | `writer_pending` is set, no valid issue lease remains, and the expected generation/digest/ETag still equal the DO current head. | A DO transaction stores the exact candidate, prior-head fields, and `pointer_write_started=false`; on a waiting attempt this is the retry transaction. Its commit is the `PREPARED` point. | If the transaction does not commit, there is no PREPARED attempt; immutable objects remain uncommitted orphans. |
+| R2 pointer CAS | `PREPARED`; a DO transaction first sets `pointer_write_started=true`; no lease can be active. | The successful conditional `PutObject` (`If-Match` or authorized genesis `If-None-Match: *`) is the R2 pointer linearization point. | A conflict is not retried against a new head. On an ambiguous result, keep the attempt pending and read back; do not assume failure. |
+| `POINTER_COMMITTED` | R2 CAS may have succeeded; Authority Worker directly reads pointer and snapshot. | After exact bytes, digest and actual ETag match, a DO transaction records the observation. That transaction commit is the coordination-state point, not the release commit. | A crash after R2 CAS leaves `PREPARED`; recovery re-reads R2 and advances only on exact match. Mismatch/unknown stays blocked. |
+| Release Authority HSM signing | `POINTER_COMMITTED`; signer directly checks pending DO attempt, pointer/snapshot, prior Journal head and delegation validity. | HSM signature creation is an authorization artifact only. It has no release-commit linearization point. | A returned but unappended signature is an orphan authorization. Do not send it to APP or mark DO `COMMITTED`. |
+| Persist signed authorization | HSM returned a valid authorization; the DO attempt and writer-pending gate still match. | The Authority Worker invokes `storeCommitAuthorization`; a DO transaction stores the exact authorization bytes and digest in the pending attempt. This is durable retry material only, not a commit point. | If persistence fails, the HSM signature remains an orphan; do not append it or expose it to APP. Reauthorize only after revalidating the same attempt and Journal head. |
+| Journal compare-and-append | Exact signed authorization bytes are read from DO and verify; Journal head still equals the authorization's previous generation/hash; generation and Manifest epoch advance; append time is within the delegation. | The Journal's atomic successful append of exact record and delegation bytes is the **release commit linearization point**. Journal position plus authenticated append metadata establishes canonical membership. | On an ambiguous result, query the linearizable head. Exact bytes at the expected position mean append succeeded; unchanged prior head permits retrying only the exact stored bytes; conflicting head blocks for recovery. A signature alone never commits. |
+| DO `COMMITTED` | Journal confirms the exact authorization is the canonical committed record; R2 pointer/snapshot and expected attempt match it. | A DO compare-and-set transaction stores the Journal record digest and clears the pending attempt. This is post-commit coordination completion, not a second or replacement commit point. | If the process crashes or the transaction fails after Journal append, Freshness remains blocked. Recovery reconstructs this DO row from the exact Journal record/delegation and R2 readback without allocating a new generation. |
+| Freshness issue lease acquisition | No writer-pending release, pending attempt, recovery gate, or stale state. | One DO transaction verifies the current `COMMITTED` generation and inserts the bounded lease. Its commit is the lease grant point. | If release/recovery gate won first, reject. If lease won first, release/recovery must wait; no R2 CAS or Journal append is allowed. |
+| Freshness response signing | Active lease; signer has verified the Journal's current head, DO `COMMITTED` row, R2 pointer/snapshot, Manifest signature and active Freshness delegation. | Sampling `issued_at` immediately after those checks is the `LATEST_AT_ISSUANCE` currentness linearization point. The HSM must return the signature while the same lease and delegation remain valid; no release commit can interleave between the sample and signature. | If signing fails, the lease/delegation expires, or state mismatches, discard the signature and return no response. A process crash before HTTP delivery leaves no APP acceptance; the lease is released explicitly or expires. |
+| Issue lease release | A lease exists for the exact request. | A DO transaction deletes that lease after response signing; its commit releases the serialization guard. | If the release RPC fails or the process crashes, expiry removes the guard; a release writer must still revalidate all expected head values. |
+| Recovery admission | Freshness issuance is disabled by the controlled kill switch. | A DO transaction sets a recovery/writer-pending gate only when no valid lease exists; that transaction is the recovery admission point. Recovery then performs external reads/writes outside SQLite transactions and finalizes each DO change with an expected-head CAS. | If a lease exists, recovery waits or fails closed; it cannot bypass or delete the lease. A Journal-absent authorization can never be promoted to `COMMITTED`. |
 
 If `beginRelease` arrives while issue leases exist, the DO enters a bounded
 `WAITING_FOR_LEASES` admission substate: it marks a writer pending, blocks new
 leases, and performs no pointer write. After the existing leases finish or
 expire, the caller retries the same attempt ID; the DO revalidates the
-committed generation, digest and ETag before creating `PREPARED`. The wait
-expires after 10 seconds; expiry before `pointer_write_started` aborts only
-that attempt and leaves immutable objects as uncommitted orphans.
+committed generation, digest and ETag before creating `PREPARED`. The wait expires after 10 seconds; if `pointer_write_started=false` and no
+valid issue lease remains, expiry atomically marks only that attempt `ABORTED`
+and clears its writer-pending gate, leaving immutable objects as uncommitted
+orphans. If a valid lease remains, keep the gate and wait/fail closed. If
+pointer writing started, the attempt cannot be auto-aborted; direct R2
+readback/recovery remains required.
 
-DO state updates use one SQLite transaction per state transition. R2, Journal,
-or signer I/O must occur outside that transaction; after external I/O, the DO
-rechecks the expected attempt/generation in a transaction before advancing.
-No transaction waits on network I/O. `PREPARED` sets `pointer_write_started`
-before the publisher begins CAS. ETags are exact CAS values; body digests are
+Each DO state transition is one synchronous SQLite transaction or conditional
+SQL operation that checks the expected head/attempt and commits its state
+change atomically. Do not `await` between related SQL writes, and fully consume
+SQL cursors before any `await`; Cloudflare documents that a cursor held across
+an `await` is not a stable snapshot. R2, Journal, and HSM I/O always occur
+outside DO transactions. After that external I/O, the DO rechecks the expected
+attempt/generation in a new transaction before advancing. There is no
+cross-service ACID transaction. `PREPARED` records
+`pointer_write_started=false`; a separate DO transaction sets it to `true`
+immediately before the R2 CAS. ETags are exact CAS values; body digests are
 recomputed from bytes.
 
 Freshness issue leases are separate from release states and expire after at
-most 8 seconds. The DO allows multiple bounded read leases for the same
-committed generation, but blocks a new `PREPARED` release and all pointer CAS
-while any valid lease exists. A release request sets a writer-pending flag so
-new leases are refused; existing leases drain or expire before the release
-begins. The Gateway enforces a finite in-flight limit and returns unavailable
-above it. The signer acquires a lease before its final Journal/DO/R2 checks
-and keeps it through signature creation. It releases the lease after signing
-or lets its bounded expiry release it after failure. The APP's 10-second
-monotonic response deadline is longer than the signer's bounded lease work
-budget; the signer must discard a response if its lease expires before
-signature creation. The DO never holds a storage transaction across R2,
+most 8 seconds. Lease acquisition and `beginRelease`/recovery gates use
+transactions on the same per-environment DO, so they are totally ordered:
+if lease acquisition commits first, `beginRelease` sets writer-pending,
+refuses later leases and waits for that lease to finish/expire; if
+writer-pending commits first, lease acquisition rejects. The same rule applies
+to recovery. The DO allows multiple bounded readers of one committed
+generation, but no pointer CAS or Journal append while any valid lease exists.
+The Gateway enforces a finite in-flight limit and returns unavailable above it.
+The signer acquires the lease before its final Journal/DO/R2 checks and keeps
+it through response signing. It releases the lease after successful signing
+or lets bounded expiry release it after failure. It checks the lease again
+after the HSM returns and discards the signature if the lease expired during
+signing. The APP's 10-second monotonic response deadline is longer than the
+signer's bounded lease budget. No DO storage transaction is held across R2,
 Journal, or signer I/O.
 
-The Authority Worker's single `commitRelease` path checks the lease table and
-writer-pending attempt before pointer write, Journal append, or DO commit.
-Only that path has the Journal append credential; the Release Authority HSM
-can sign a typed record but cannot append/update/delete it, and the Freshness
-Signer can only read Journal state and acquire/release its scoped lease.
-Therefore no legitimate pointer or Journal-head update can interleave between
-the signer's final consistency read and response signature. Recovery has no
-lease-bypass path: first disable Freshness issuance through the separately
-controlled kill switch, wait for active leases to finish/expire, then perform
-two-person recovery. Re-enable Freshness only after Journal, DO, R2 pointer
-and snapshot agree.
+The Authority Worker's sole `commitRelease` operation checks the lease table
+and writer-pending attempt before R2 CAS, Journal append, and the later DO
+`COMMITTED` update. It is an orchestrator for separate operations, not one
+transaction spanning those services. Only this operation has the Journal
+append credential; the Release Authority HSM returns an authorization but
+cannot append/update/delete. The Authority Worker persists the exact signed
+bytes in the pending DO attempt before calling Journal append. The Freshness
+signer can only read Journal state and acquire/release its lease. While that
+lease remains valid, no authorized pointer or Journal-head update can commit
+between its final consistency read and response signing. If the lease expires
+while the HSM call is in flight, a release may proceed, but the signer
+discards the signature after the post-call lease check and emits no response.
 
-`POINTER_COMMITTED` is provisional coordination state, not a Freshness
-authorization. A publisher report alone cannot advance the DO to
-`COMMITTED`: the Release Authority signer must independently verify R2 and
-DO state, sign the exact commit record, and append/read it back from the
-Journal. The Freshness signer then independently re-reads all sources.
+Recovery enters the same DO serialization gate: disable new Freshness
+issuance, atomically set `recovery_pending`/writer-pending only when no valid
+lease exists, and wait rather than bypassing an active lease. Perform recovery
+I/O outside the DO transaction, then finalize with an expected-head CAS.
+Re-enable Freshness only after Journal, DO, R2 pointer and snapshot agree.
+`POINTER_COMMITTED` is provisional and cannot authorize Freshness. The
+Release Authority signature alone is not a commit; Journal append is the
+commit point, and the subsequent DO `COMMITTED` update is required before a
+Freshness response.
 
 ### 6.3 Required crash and recovery behavior
 
@@ -491,9 +645,13 @@ Journal. The Freshness signer then independently re-reads all sources.
 | 5. Same epoch has another Manifest digest | Release record/DO current epoch has a different digest. | Reject; correct forward with a strictly higher Manifest epoch. |
 | 6. Only some immutable artifacts/snapshot exist | Publisher has no matching `COMMITTED` record; exact snapshot/readback or input digest fails. | Do not move pointer or sign. Leave immutable orphans for retention-controlled cleanup. |
 | 7. Signer reads while commit is in progress | DO state is pending, Journal head is old/new but not matching, or R2 pointer has moved before `COMMITTED`. | Return unavailable without signature. Retry requires a new APP nonce after the release resolves. |
-| 8. DO ledger is lost, R2 pointer remains | No current DO state; Journal retains signed commit chain/head. | Freshness stays blocked. Restore DO only from a verified Journal chain plus pointer/snapshot readback; do not initialize at zero. |
-| 9. R2 pointer is lost, ledger/journal remain | Missing mutable `manifest.json`; current generation remains nonzero. | Freshness stays blocked. Restore the exact content-addressed snapshot with conditional create, verify ETag/body, then re-enable only after all three sources agree. |
-| 10. R2 backup restore makes an old pointer visible | DO/Journal head has greater generation/digest. | Detect mismatch and block. A restore of DO or Journal state too must be treated as an authority incident; compare the independent WORM checkpoint. If every independent source has been rolled back, no automatic cryptographic recovery exists. |
+| 8. HSM authorization succeeds, then the process crashes or Journal append fails | If the authorization was not stored in the pending DO attempt, it is an orphan; if stored, it remains pending and uncommitted. | Never return it to APP. Keep Freshness blocked. If stored, retry only the exact bytes after revalidating the attempt and unchanged prior Journal head; if not stored, reauthorize only after the same revalidation. |
+| 9. Process crashes immediately before/after Journal append or append outcome is ambiguous | Query the Journal's linearizable head by environment/generation/commit ID. | Exact same bytes at the expected next position means append committed; unchanged prior head means it did not and permits only exact-byte retry; any competing/mismatched head remains BLOCKED. |
+| 10. Journal append succeeds, then DO `COMMITTED` update fails or crashes | Journal contains the canonical commit, while DO is still `POINTER_COMMITTED`/pending. | No Freshness response. Recovery verifies Journal entry, delegation, append metadata, pointer and snapshot, then repairs the DO to `COMMITTED` at the same generation; never append a second generation. |
+| 11. Recovery races an active Freshness lease | The DO transaction observes a valid lease or a pre-existing recovery/writer-pending gate. | Recovery cannot bypass the lease. Disable issuance, wait for release/expiry, then re-read all authorities before recovery admission. |
+| 12. DO ledger is lost, R2 pointer remains | No current DO state; Journal retains the signed commit chain/head. | Freshness stays blocked. Restore DO only from a verified Journal chain plus pointer/snapshot readback; do not initialize at zero. |
+| 13. R2 pointer is lost, ledger/Journal remain | Missing mutable `manifest.json`; current generation remains nonzero. | Freshness stays blocked. Restore the exact content-addressed snapshot with conditional create, verify ETag/body, then re-enable only after all sources agree. |
+| 14. R2 backup restore makes an old pointer visible | DO/Journal head has greater generation/digest. | Detect mismatch and block. A restore of DO or Journal state too must be treated as an authority incident; compare the independent WORM checkpoint. If every independent source has been rolled back, no automatic cryptographic recovery exists. |
 
 An ambiguous R2 write is never silently retried by the current publisher.
 R2 documentation warns that a negative read does not prove an earlier
@@ -568,6 +726,7 @@ Signed response payload:
   "pointer_generation": "18",
   "release_commit_id": "lowercase-canonical-uuid",
   "release_commit_record_sha256": "<base64url-sha256-of-exact-record-envelope>",
+  "release_commit_record_appended_at": "2026-11-01T00:00:00.000Z",
   "freshness_signer_key_id": "<freshness-child-key-id>",
   "freshness_delegation_id": "lowercase-canonical-uuid",
   "freshness_delegation_sha256": "<base64url-sha256-of-exact-delegation>",
@@ -589,7 +748,7 @@ bytes are covered by their digest fields. Unknown or missing fields reject.
 | `environment` | Exact lowercase enum `production` (current APP) | Must match APP bootstrap and both delegations. | Prevent Production/Canary substitution. |
 | `audience_manifest_url_sha256` | 32-byte SHA-256, canonical base64url without padding (43 chars) | Recomputed from exact canonical embedded Manifest URL bytes. | Prevent cross-origin/manifest-endpoint replay. |
 | `request_nonce` | 32 random bytes, canonical base64url without padding | Exact equality with the one outstanding APP challenge. | Bind this response to one attempt. |
-| `issued_at`, `expires_at` | UTC RFC3339 with exactly millisecond precision and `Z` | Signer time; APP enforces ordering, <=30-second skew, <=30-second response TTL and 10-second monotonic challenge deadline. | Limit replay and detect clock/expiry errors. |
+| `issued_at`, `expires_at` | UTC RFC3339 with exactly millisecond precision and `Z` | Signer time; APP applies the separate <=30-second response-time skew and <=30-second TTL. `expires_at` is never later than Freshness delegation `not_after`; APP checks the conservative delegation window again at final rename. The monotonic deadline is independent. | Limit replay and detect clock/expiry errors without extending delegation validity. |
 | `latest_epoch` | Canonical unsigned decimal string, no leading zero, in Manifest v2 UInt64 range | From Release Journal head and must equal commit record and Manifest payload. | Bind current release epoch. |
 | `manifest_schema_version` | JSON integer `2` | Must equal the fetched Manifest v2 schema. | Prevent schema confusion. |
 | `manifest_sha256` | SHA-256 of exact raw signed Manifest envelope, base64url without padding | Recomputed from the immutable snapshot bytes. | Prevent body substitution/whitespace reserialization. |
@@ -597,16 +756,21 @@ bytes are covered by their digest fields. Unknown or missing fields reject.
 | `pointer_generation` | Canonical unsigned decimal string, no leading zero | Must equal Release Journal generation and DO committed generation. | Bind the R2 pointer transition, not just Manifest epoch. |
 | `release_commit_id` | Lowercase canonical UUIDv4 | Must equal signed commit record. | Uniquely bind this commit attempt. |
 | `release_commit_record_sha256` | SHA-256 of exact signed record envelope, base64url without padding | Recomputed from response sidecar. | Bind the independently signed commit authorization. |
+| `release_commit_record_appended_at` | Canonical UTC millisecond timestamp from the authenticated Journal head entry | Freshness signer verifies it is the append metadata for the exact current-head record, satisfies `authorized_at <= appended_at`, falls inside the Release Authority delegation, and is no later than response `issued_at`. | Bind the record's canonical Journal commit time and show the authorization entered the chain while its signing delegation was active. |
 | `freshness_signer_key_id` | Existing key-ID grammar `[A-Za-z0-9._-]{1,128}` | Must equal envelope key ID and Freshness delegation. | Select the purpose-limited response key. |
-| Freshness delegation ID/digest | UUID plus exact-envelope SHA-256 | Recompute and verify root signature, purpose, audience, generation and validity. | Bind the delegated response signer. |
-| Release Authority key ID/delegation ID/digest | Key ID, UUID, exact-envelope SHA-256 | Recompute and verify root signature and `release-commit-record-v1` purpose. | Bind the independent commit-record signer. |
+| Freshness delegation ID/digest | UUID plus exact-envelope SHA-256 | Recompute and verify root signature, purpose, audience, issuance cap and generation; enforce the conservative APP validity window without Manifest skew. | Bind the delegated response signer and bound its acceptance lifetime. |
+| Release Authority key ID/delegation ID/digest | Key ID, UUID, exact-envelope SHA-256 | Recompute and verify root signature, `release-commit-record-v1` purpose, `authorized_at` and the Freshness-signed Journal `appended_at` against the half-open interval. | Bind the independent commit authorization; expiry does not invalidate already appended valid records. |
 
-The Release Commit Record sidecar must contain `commit_state=COMMITTED`,
-environment, generation, Manifest epoch/schema/digest/ref, pointer ETag,
-release commit ID, previous generation/record digest, commit time, Release
-Authority key ID and delegation digest. Its exact bytes are hashed above and
-its signature is verified with the Release Authority key certified by the
-Bootstrap root.
+The Release Commit Record sidecar contains
+`commit_authorization=AUTHORIZE_JOURNAL_APPEND`, environment, generation,
+Manifest epoch/schema/digest/ref, pointer ETag, release commit ID, previous
+generation/record digest, `authorized_at`, Release Authority key ID and
+delegation digest. Its exact bytes are hashed above and its signature is
+verified with the Release Authority key certified by the Bootstrap root.
+The signed record does not contain `committed_at`: only authenticated Journal
+append metadata establishes when it entered the canonical chain. The Freshness
+signer includes that metadata in its own signed response after confirming the
+record is the current Journal head and the DO is `COMMITTED`.
 
 ## 8. Canonicalization and signature bytes
 
@@ -707,20 +871,39 @@ For each TLSN capture/readiness refresh, APP performs these steps in order:
    noncanonical JSON, wrong version/scope, environment, URL audience, or
    invalid base64url.
 5. Verify the Release Authority delegation with the embedded Bootstrap root;
-   verify its key ID, Ed25519 purpose, Production scope, audience,
-   generation, expiry and previous-delegation link.
-6. Verify the signed Release Commit Record with that delegated Release
-   Authority key. Require exact `COMMITTED`, environment, generation,
+   verify its signed `issued_at`, purpose-specific 30-day cap, key ID,
+   Production scope, audience, generation and previous-delegation link.
+   Do not require this historical Release Authority delegation to remain
+   active at response acceptance.
+6. Verify the exact Release Commit Record authorization signature and
+   `commit_authorization=AUTHORIZE_JOURNAL_APPEND`, environment, generation,
    Manifest schema/epoch/digest/ref, ETag, commit ID and previous-record link.
+   Require its signed `authorized_at` to lie inside the Release Authority
+   delegation's half-open validity interval.
+   Recompute its exact-byte digest and require it to equal the signed
+   Freshness payload. The record's signature alone is not proof of commit:
+   APP accepts it only inside a Freshness response whose signer attests that
+   it is the current Journal head and the DO is `COMMITTED`.
 7. Verify the Freshness delegation with the same embedded Bootstrap root;
-   require its purpose to be only `freshness-response-v1`, correct
-   environment/audience/key ID, valid period and delegation generation.
+   require its signed issuance time, 24-hour cap, purpose
+   `freshness-response-v1`, correct environment/audience/key ID, generation,
+   and the conservative clock-safety window
+   `app_now - 30s >= not_before` and `app_now + 30s < not_after`. This is an
+   early-reject margin, not a 30-second acceptance grace.
 8. Verify the response signature with the delegated Freshness public key.
    The response key ID and delegation ID/digest must match exactly.
 9. Require exact nonce equality with the outstanding one-use challenge,
-   `LATEST_AT_ISSUANCE`, correct audience/environment, and bounded issue/
-   expiry times. Consume/discard the nonce on every outcome. Check the same
-   monotonic deadline; do not start a new timeout for any following fetch.
+   `LATEST_AT_ISSUANCE`, correct audience/environment, and response times
+   within the separate 30-second response clock-skew rule and 30-second
+   maximum TTL. Require
+   `authorized_at <= release_commit_record_appended_at <= issued_at`.
+   Validate the Freshness-signed append time against the Release Authority
+   delegation; the Freshness signature attests that it came from the exact
+   current Journal head. Require response `issued_at` inside the Freshness
+   delegation and `expires_at <= freshness_delegation.not_after`.
+   The response skew never relaxes delegation validity. Consume/discard the
+   nonce on every outcome. Check the same monotonic deadline; do not start a
+   new timeout for any following fetch.
 10. Fetch `manifest_ref` from the same origin's immutable snapshot path and
     fetch every referenced artifact using the remaining portion of that same
     deadline. Hash each exact response body before parsing; the Manifest bytes
@@ -741,13 +924,23 @@ For each TLSN capture/readiness refresh, APP performs these steps in order:
 14. Prepare the versioned state in a uniquely named temporary file, write all
     bytes and `fsync` that file without changing the current canonical state.
     Immediately before the atomic rename, check the same monotonic deadline
-    again; perform no `await` or unrelated I/O between this check and rename.
-    If elapsed time is 10 seconds or more, remove the temporary file, discard
-    the verified result, and do not change epoch, digest, commit generation,
+    again and sample fresh UTC `app_now` (not the earlier Manifest
+    `policy.now`). Require the Freshness delegation still inside its
+    conservative clock-safety window and recheck the separate response-time
+    rule. Perform no `await` or unrelated I/O between these checks and rename.
+    If the deadline is 10 seconds or more, the response expired, or the
+    delegation is no longer active, remove the temporary file, discard the
+    verified result, and do not change epoch, digest, commit generation,
     record digest, delegation generation, or last signed time. Otherwise,
     atomically rename the complete state file and then sync the parent
-    directory for durability. The rename is the acceptance/persistence
-    linearization point.
+    directory for durability.
+    The rename is the acceptance/persistence linearization point.
+
+If the parent-directory sync fails after rename, return an explicit state
+durability error and do not expose the verified Runtime Config for capture.
+The canonical path may already contain the new high-water because rename has
+linearized; the next attempt must read that state and reconcile it with a
+fresh server proof, never roll it back automatically.
 
 Receiving a response before the deadline is not acceptance. The response
 receipt time is distinct from the final acceptance time: all immutable
@@ -763,6 +956,18 @@ and a per-request timeout no greater than 10 seconds. One shared monotonic
 deadline starts immediately before the Freshness POST and is passed through
 the POST, immutable Manifest fetch, all artifact fetches, verification and
 the final state commit; per-request timeouts never reset it.
+
+The current [`RuntimeConfigEpochStateStore::write_atomic`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L200)
+and [`replace_state_file`](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs#L265)
+are synchronous Rust functions: the temporary file is written and `fsync`ed,
+then the OS atomic replace (`fs::rename` on non-Windows and synchronous
+`MoveFileExW` on Windows) occurs before parent-directory sync. The Freshness
+implementation must keep temporary-file writes/fsync before the last check,
+then call a synchronous atomic replace with no async yield between check and
+rename. If an async filesystem API is used for preparation, complete and
+`fsync` its temporary file before the check; the final rename still must be a
+synchronous operation. If that cannot be guaranteed on a target platform,
+fail closed rather than moving the deadline check earlier.
 
 The existing state file schema is v1 and stores only epoch/digest. Phase 3
 must migrate to a strict v2 state atomically while preserving v1 high-water.
@@ -854,10 +1059,17 @@ The one-hour Manifest lifetime is not a 10-second freshness guarantee.
 The fixed-Manifest window is **not** a total exposure bound for a compromised
 Freshness signer. The signer can answer each new nonce with a succession of
 previous root-signed Manifests whose Worker references remain fresh. If
-releases continue, that rolling downgrade can persist until the current
-Freshness delegation expires (maximum 24 hours), or the service is disabled.
-Response TTL and the APP's 10-second deadline do not bound this attack because
-the compromised signer can issue a new response for each request. Local
+releases continue, that rolling downgrade can persist until the Freshness
+delegation's `not_after`. The root-signed interval is capped at 24 hours from
+delegation `issued_at`; assuming the offline root ceremony timestamp is
+trusted, the APP's conservative clock-safety window ensures true-time
+acceptance does not extend past `not_after` when its wall clock is within
+±30 seconds. Thus maximum true-time acceptance is 24 hours from delegation
+issuance, and the remaining window from compromise cannot exceed that. The
+30-second response clock-skew rule and 10-second challenge deadline
+do not extend a delegation; the attacker can sign each fresh challenge until
+the certificate boundary. If the APP clock is manipulated or outside the
+±30-second assumption, no absolute wall-time bound is claimed. Local
 delegation-generation high-water can reject an older key for an installation
 that stored a higher generation; a fresh APP has no such history. Immediate
 remote revocation for a fresh APP is not available under this offline-root
@@ -871,10 +1083,13 @@ Bootstrap-root rotation/APP release.
    the compromised delegation. Generate/approve a different Freshness key
    outside this repository, have the offline Bootstrap root issue a
    higher-generation Freshness delegation, and deploy only after the new
-   signer/journal checks pass. An extracted old key remains usable by an
-   attacker until its delegation expires; a fresh APP cannot remotely learn
-   an untrusted revocation statement. The 24-hour delegation cap is the
-   maximum exposure absent successful service-key disable.
+   signer/Journal checks pass. An extracted old key can still make signatures
+   after expiry, but an APP within the ±30-second clock assumption rejects
+   them at    the conservative `not_after` boundary. With a trusted root ceremony
+   timestamp and APP clock error bounded by ±30 seconds, the maximum
+   acceptance window is 24 hours from delegation `issued_at`; a fresh APP
+   cannot learn an untrusted revocation statement. If either clock is
+   untrusted or unbounded, no absolute wall-time exposure limit is claimed.
 2. **Release Authority HSM/service compromise:** freeze releases and Journal
    commit operations. The online key is non-exportable but can still be
    misused through its signing service; confirm that no arbitrary signing
@@ -899,8 +1114,8 @@ Bootstrap-root rotation/APP release.
 | Freshness endpoint compromised, signer key not compromised | Endpoint can deny, delay, cache or alter bytes; APP signature/nonce/audience/digest checks reject. Signer obtains data independently, not endpoint-supplied epoch/digest. | TLSN availability loss only. |
 | Manifest publisher compromised | It may attempt pointer rollback or publish partial objects. It lacks Bootstrap root and Release Authority keys; DO/journal/pointer mismatch blocks Freshness. | DoS/orphan objects; cannot create a new valid Manifest. |
 | Bootstrap-root/Manifest signer compromised | Attacker can sign a malicious Manifest and malicious delegations because current Manifest v2 trusts this key directly. | Full APP Runtime Config trust compromise, including APP-side Notary/Registry pins. Requires new Bootstrap root in an APP release; no remote revocation of old APP pins. |
-| Release Authority HSM key/service compromised | A non-exportable key can still be misused through its online signing interface. The typed service must re-read the pending DO attempt, pointer/snapshot and prior Journal head before signing; Journal compare-and-append and the Authority Worker's commit path independently recheck the signed record and expected generation/epoch. | The signer alone can create commit-record signatures but cannot write the pointer, DO ledger or Journal, and cannot create a Freshness response. The delegated signature authority expires within 30 days; an untrusted revocation is not available to a fresh APP. If combined with Authority Worker compromise it can cause malformed commits or availability loss; APP and Freshness still require the original root-signed Manifest v2 and monotonic Journal head, so no Manifest/Notary/Result trust can be forged. |
-| Freshness delegated key compromised | Attacker can sign a response to each fresh nonce and replay any still-valid root-signed Manifest/Release Commit Record as latest. APP verifies those originals but cannot independently know Journal head. | Latestness guarantee is compromised. A fixed Manifest is bounded by `min(expires_at + 60s, observed_at + 630s)` under the clock assumption; with continuing releases, rollback may persist until the delegation expires (maximum 24 hours). The 10-second request deadline does not limit this attack. The child cannot create new Manifest, Result, Notary or Registry signatures. |
+| Release Authority HSM key/service compromised | A non-exportable key can still be misused through its online signing interface. The typed service must re-read the pending DO attempt, pointer/snapshot and prior Journal head before signing; Journal compare-and-append and the Authority Worker's commit path independently recheck the authorization and expected generation/epoch. | The signer alone can create authorization signatures but cannot write the pointer, DO ledger or Journal. New Journal commits are limited to the 30-day root-signed delegation interval because Journal checks append time strictly; previously appended valid records remain verifiable after expiry. It cannot create a Freshness response or forge Manifest/Notary/Result trust. |
+| Freshness delegated key compromised | Attacker can sign a response to each fresh nonce and replay any still-valid root-signed Manifest/Journal record as latest. APP verifies those originals but cannot independently know Journal head. | Latestness guarantee is compromised. A fixed Manifest retains the bound `min(expires_at + 60s, observed_at + 630s)` under the clock assumption; rolling rollback can continue until delegation `not_after`. With a trusted root ceremony timestamp and bounded ±30-second APP clock, the conservative expiry check caps true-time key acceptance at 24 hours from delegation `issued_at`. The response skew and 10-second deadline do not extend it. If either clock is untrusted/unbounded, no absolute wall-time bound exists. The child cannot create new Manifest, Result, Notary or Registry signatures. |
 | Delegation issuance authority compromised | Root can issue replacement child keys or alter allowed purposes. | Equivalent to Bootstrap-root compromise; offline custody and APP root rotation are required. |
 | R2 object bytes modified | Exact Manifest/snapshot digest, root signature, artifact hashes and commit record do not match. | Freshness/Manifest acceptance blocked. |
 | R2 mutable pointer rolled back | Current DO generation/ETag and Release Journal head exceed or differ from pointer. | No response; recovery uses exact current snapshot, not the old pointer. |
@@ -929,16 +1144,27 @@ requires explicit approval for a disposable bucket.
 |---|---|---|
 | Root-signed Release and Freshness delegations with exact Production scope | Accept only after verifying root signature, key ID, algorithm, purpose, audience and validity. | APP unit + JS/Rust golden vector |
 | Delegation wrong root key, key ID, purpose, env, audience, algorithm, version, unknown field or malformed SPKI | Reject. | APP + Freshness Worker unit |
-| Delegation not-before, not-after, generation rollback, previous digest mismatch | Reject; no response accepted. | APP unit |
+| Delegation `not_before` inclusive start, `not_after` exclusive end, generation rollback or previous digest mismatch | Accept only inside the defined interval; reject at/after `not_after` and for every invalid chain. | APP + signer unit |
+| Delegation validity duration or future `not_before` attempts to extend the cap | Reject when `not_after - issued_at` exceeds 24h/30d or `not_before < issued_at`; validity cap remains anchored to signed issuance. | Root delegation verifier |
+| APP fast/slow clock at delegation boundaries | Accept only when `app_now - 30s >= not_before` and `app_now + 30s < not_after`; reject the conservative boundary margins and every time outside the certificate interval. Manifest/response skew is not a delegation grace. | APP clock-injected unit |
+| Freshness response issued just before delegation expiry | Clamp `expires_at` to `not_after`; reject at final rename once APP safe window closes; no response-TTL grace extends the delegation. | Signer + APP time-boundary integration |
+| Release Authority signature created in validity but Journal append occurs at/after `not_after` | Journal refuses append; the authorization remains orphaned and cannot become committed. | Journal clock-injected integration |
+| Valid Journal-committed Release record is observed after its Release Authority delegation expires | Verify `authorized_at` and authenticated `appended_at` inside the delegation; accept the historical record only when it remains the current Journal head and DO is COMMITTED. | Freshness signer + APP unit |
 | Freshness delegation expired/revoked by expiry | Reject even if response signature is otherwise valid. | APP unit |
-| Release Authority record signature invalid, wrong key/delegation, wrong scope/env/state | Journal entry not committed; signer and APP reject. | Release Authority + signer unit |
+| Release Authority authorization signature invalid, wrong key/delegation, wrong scope/env/authorization | Journal entry not committed; signer and APP reject. | Release Authority + signer unit |
 | Release record wrong epoch/digest/ref/ETag/generation/commit ID or previous record hash | Reject; do not advance DO or Journal head. | DO + Release Authority unit |
+| HSM-signed authorization exists but Journal has no corresponding canonical entry | No Freshness response and no APP input; DO never treats the HSM signature alone as COMMITTED. | Authority + Journal + Freshness integration |
+| Crash after exact HSM authorization bytes are stored in the pending DO attempt but before Journal append | Recovery revalidates the same attempt/head and retries only the stored exact bytes; no Freshness response until Journal append and DO COMMITTED. | DO + Journal recovery integration |
+| Journal append succeeds but DO remains POINTER_COMMITTED | Freshness remains blocked until recovery verifies the exact current Journal entry and repairs DO at the same generation. | Recovery integration |
 | Journal append has a stale previous head, repeated generation with different bytes, or non-increasing Manifest epoch | Reject atomically; preserve current Journal head. | Journal compare-and-append integration |
+| Journal append response is lost immediately before/after its linearization point | Resolve from linearizable `getHead`; exact stored bytes mean committed, unchanged prior head permits exact-byte retry, any conflicting head blocks. | Journal crash/ambiguous-response integration |
 | Release/Freshness signer uses the wrong DO operation credential or attempts a release mutation | Reject; no pointer, DO release state or Journal change. | DO RPC authorization integration |
 | Release signer receives forged DO/pointer/Journal claims from its caller | Ignore caller state and independently read its DO binding, R2 and Journal; do not sign on mismatch. | Release signer integration |
 | Root-signed Manifest modified after record creation | Exact digest/signature mismatch; no Freshness response. | Signer unit |
 | Publish attempt starts while an issue lease is active | DO denies pointer preparation/CAS until leases end; no pointer mutation occurs. | DO concurrency test |
 | Freshness request starts after a release is pending | DO refuses a new lease; no response signature. | DO + signer integration |
+| `beginRelease` and issue-lease acquisition race in both serialization orders | If lease wins, release sets writer-pending and waits; if writer-pending wins, lease is rejected. No pointer CAS/Journal append overlaps a valid lease. | DO concurrency test |
+| Recovery admission races with issue-lease acquisition | The same DO transaction order decides the winner; recovery waits/rejects if a lease exists and cannot bypass it. | DO recovery concurrency test |
 | Issue lease expires before response signature | Signer discards any produced signature; no response; release may proceed after lease expiry. | Signer/DO fault-injection test |
 | Concurrent Freshness readers with a waiting release | Existing leases can finish; writer-pending rejects new leases and then proceeds. | DO concurrency test |
 | Valid nonce-bound response with current record and exact immutable Manifest snapshot | APP accepts after all existing Manifest/artifact checks and persists state once. | APP unit + integration |
@@ -958,8 +1184,8 @@ requires explicit approval for a disposable bucket.
 | R2 pointer CAS races with same ETag | One publisher wins; one conflict; no two commit records. | Publisher unit + disposable R2 |
 | Crash after PREPARED before pointer CAS | No Freshness signature; safe abort only if write never began and old pointer remains exact. | DO state-machine test |
 | Crash after pointer CAS before POINTER_COMMITTED | Direct readback advances only if exact candidate; otherwise pending/block. | DO + fake R2 |
-| Crash after POINTER_COMMITTED before signed Journal append | Signer blocks; Release Authority HSM service may complete the exact prepared record after revalidating all current state. | Release Authority integration |
-| Crash after Journal append before DO COMMITTED | Recovery validates exact Journal record and pointer before advancing DO; no new generation. | DO + Journal integration |
+| Crash after POINTER_COMMITTED before signed Journal append | Signer blocks. HSM may issue an authorization only after revalidating the exact attempt; an unappended authorization remains non-committed and is never APP input. | Release Authority integration |
+| Crash after Journal append before DO COMMITTED | Journal append remains the release commit; Freshness stays blocked until recovery verifies exact Journal record/append metadata and R2 pointer/snapshot, then repairs DO at the same generation. | DO + Journal recovery integration |
 | Partial artifact/snapshot writes | Pointer remains unchanged; no commit record or Freshness signature. | Publisher unit |
 | Missing pointer with nonzero DO/Journal state | Never treat as first install; restore exact latest snapshot or remain blocked. | Signer/recovery integration |
 | Pointer-only restore from R2 backup | DO/Journal higher generation forces rejection. | Recovery integration |
@@ -968,6 +1194,7 @@ requires explicit approval for a disposable bucket.
 | Freshness endpoint/signer/Journal/DO unavailable | TLSN readiness blocks, local state unchanged, normal proxy traffic still succeeds. | APP integration |
 | Freshness response arrives before 10 seconds but Manifest/artifact verification finishes at/after the shared deadline | Reject; do not persist epoch, digest, commit or delegation state. | APP integration with delayed fake fetcher |
 | Deadline expires immediately before atomic state rename | Remove the temporary state file; the prior canonical state is unchanged. | APP state-store unit test with monotonic clock |
+| Parent-directory `fsync` fails after rename | Return a state durability error and do not expose readiness/capture; next refresh reads the canonical file and reconciles with a fresh authority proof without rollback. | APP state-store fault-injection test |
 | POST, snapshot and artifact requests attempt to restart their own timeout | Reject at the original 10-second operation deadline; each request receives only the remaining time. | Freshness client unit/integration |
 | Release tries to update R2 or append Journal while an issue lease is active | Authority blocks mutation until lease end/expiry; no commit is visible during the signature interval. | DO + Authority Worker concurrency test |
 | Recovery tries to bypass an active issue lease | Recovery remains blocked until issue leases expire and Freshness is disabled by the controlled kill switch. | Recovery/Authority integration |
@@ -986,10 +1213,13 @@ started.
   [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md) only.
 - **APIs/schema:** select Option B, `LATEST_AT_ISSUANCE`, the two delegated
   child purposes, response/delegation/commit-record canonical forms,
-  10-second APP deadline, and failure policy.
+  HSM commit authorization versus Journal commit semantics, per-operation
+  linearization points, delegation clock rules, 10-second APP deadline, and
+  failure policy.
 - **Order/dependency:** complete before implementation.
-- **Tests:** source inspection and current existing Node contract tests only;
-  no Freshness tests or signing calls.
+- **Tests:** source reinspection and documentation checks in this final
+  consistency pass; the 58 existing Runtime Config Node tests were run in the
+  prior source audit. No Freshness tests or signing calls were run.
 - **Fail/complete:** no design ambiguity for code implementation; human
   approval remains required for root custody, child-key custody, Journal
   operator/retention, Worker deployment identities/bindings, scoped DO
@@ -1015,7 +1245,8 @@ started.
   fixtures/tests.
 - **API/schema:** Release Authority DO methods
   `prepareRelease`, `markPointerWriteStarted`, `observePointerCommitted`,
-  `commitRelease`, `getPreparedRelease`, `acquireFreshnessIssueLease`,
+  `commitRelease`, `getPreparedRelease`, `storeCommitAuthorization`,
+  `acquireFreshnessIssueLease`,
   `releaseFreshnessIssueLease`, `getCurrentCommitted`, and recovery-only
   methods with role-checked operations. Both signer Workers bind to this same
   DO namespace and query the stored state directly; they do not consume state
@@ -1034,27 +1265,34 @@ started.
   `tlsn/runtime-config/v2/manifests/<manifest_sha256>`, `R2` allowlist,
   cache metadata and exact readback. Add `ReleaseCommitRecordV1` and an
   append-only Journal interface whose atomic `append(record)` verifies the
-  signature/delegation, compares previous head hash/generation and increasing
-  Manifest epoch, then creates the record once; `getHead(environment)` is
-  authenticated and linearizable.
+  signature/delegation and authorized/append times, compares previous head
+  hash/generation and increasing Manifest epoch, then creates the record
+  once and returns authenticated `appended_at` metadata;
+  `getHead(environment)` is authenticated and linearizable.
 - **Order:** prepare/verify Manifest and artifacts; write artifacts and
   snapshot create-only; DO records PREPARED; the Authority Worker sets the
   pointer-write-started bit and performs the existing R2 `If-Match` /
   `If-None-Match: *` CAS only when no issue lease is active; Authority
   directly reads the pointer/snapshot and records provisional
   POINTER_COMMITTED; the online Release Authority HSM service independently
-  rereads R2/DO/Journal and signs the exact commit record; Journal
-  compare-and-appends against its current head and reads back the create-once
-  record; DO verifies it and transitions to COMMITTED. No endpoint-supplied
-  release values are trusted in these transitions.
-- **Tests:** all state transitions, CAS, concurrent release, generation and
-  epoch rules, crash recovery, missing snapshot, Journal head mismatch,
-  R2 restore, and no secret output. Run live R2 only against a separately
-  authorized disposable bucket.
+  rereads R2/DO/Journal and signs the exact `AUTHORIZE_JOURNAL_APPEND` record;
+  the Authority Worker stores those signed bytes in the pending DO attempt;
+  Journal compare-and-appends against its current head (the release commit
+  linearization point) and reads back the create-once record; DO then verifies
+  it and transitions to `COMMITTED` as post-commit coordination state. These
+  are separate operations, not a distributed ACID transaction. No
+  endpoint-supplied release values are trusted in these transitions.
+- **Tests:** all DO transitions and race orderings, R2 CAS, HSM authorization
+  without Journal append, exact authorization persistence, Journal
+  compare-and-append, crash/ambiguous outcomes before and after append,
+  Journal-append/DO-update recovery, generation/epoch rules, missing snapshot,
+  Journal head mismatch, R2 restore, and no secret output. Run live R2 only
+  against a separately authorized disposable bucket.
 - **Fail/complete:** no Freshness response until all committed state sources
   agree. Any lost state blocks; no zero reset.
-- **External input:** approve Journal provider/retention/account, DO
-  namespace and scoped Worker bindings, Release Authority non-exportable HSM
+- **External input:** approve Journal provider/retention/account, linearizable
+  append-time clock, DO namespace and scoped Worker bindings, Release
+  Authority non-exportable HSM
   provider/key custody, per-service DO operation credentials, authorized
   release operators, and R2 permissions. No user supplies secrets in chat.
 
@@ -1100,14 +1338,17 @@ started.
   tests, JS/Rust golden vectors and relevant APP pre-capture tests.
 - **API/schema:** new Rust types for Delegation, ReleaseCommitRecord,
   Freshness envelope/payload; new domain-separated verifiers; bounded POST
-  fetch method; immutable Manifest snapshot fetch; APP state v2 with
-  epoch/digest/generation/record/delegation high-waters and atomic migration.
+  fetch method; strict half-open delegation validity with the conservative
+  APP clock-safety window, separate response skew, immutable Manifest snapshot
+  fetch; APP state v2 with epoch/digest/generation/record/delegation
+  high-waters and atomic migration.
 - **Order:** challenge -> verify both delegations -> verify commit record ->
   verify response -> nonce/time/deadline -> fetch exact snapshot -> existing
   full Manifest/artifact verification -> compare local state -> one atomic
   state update.
-- **Tests:** all APP and canonicalization cases in Section 12, state loss,
-  corruption, OS restore, clock rollback and monotonic deadline.
+- **Tests:** all APP, delegation-boundary, historical Release Authority
+  record, response-expiry and canonicalization cases in Section 12, state
+  loss, corruption, OS restore, clock rollback and monotonic deadline.
 - **Fail/complete:** no state mutation until all checks pass; offline or bad
   Freshness blocks TLSN, not the ordinary proxy.
 - **External input:** approved trust/certificate schemas, TTL and outage
@@ -1138,7 +1379,10 @@ started.
   Production credentials.
 - **Tests:** full Section 12 matrix, DO restart/PITR scenarios, WORM recovery,
   CAS concurrency, signer compromise boundaries, endpoint outage with normal
-  game traffic, and cross-language vectors.
+  game traffic, cross-language vectors, and worst-case signer/state-read
+  latency proving the whole lease-held validation/signing path fits within
+  8 seconds. If it does not, remain BLOCKED and re-approve a new serialization
+  design; never weaken the lease or APP deadline.
 - **Fail/complete:** require unit, Worker runtime, APP integration, and
   disposable R2/Journal integration evidence as separate labels. No test
   skip or weakened assertion.
@@ -1169,30 +1413,34 @@ The following are external trust/operations inputs, not coding questions:
 
 1. Bootstrap Trust Custodian approval to issue two child delegations while
    retaining the root offline and continuing the current direct-root Manifest
-   v2 signature contract.
+   v2 signature contract, including the trusted UTC source used for root-signed
+   delegation `issued_at`.
 2. Release Authority key custody/approval and the independently administered
    append-only Journal provider, account, retention, access roles,
-   independently provisioned Bootstrap public-key pin/rotation process and
-   current-head guarantee.
-3. Freshness key custody provider and its 24-hour maximum delegation policy.
-   No private key or token is to be pasted into chat.
+   independently provisioned Bootstrap public-key pin/rotation process,
+   atomic compare-and-append/current-head guarantee, and trusted append-time
+   clock with strict `authorized_at <= appended_at` ordering (no skew grace).
+3. Freshness key custody provider and renewal operation for the 24-hour
+   maximum measured from root-signed delegation `issued_at`; Release Authority
+   keys are capped at 30 days. Approve the trusted-clock assumption, the APP
+   ±30-second clock-error bound and its conservative delegation-boundary
+   margin. No private key or token is to be pasted into chat.
 4. Release Journal/DO/R2 data retention, backup restore permissions,
    two-person recovery owners, and signed offsite checkpoint retention.
 5. Approval of the 10-second request deadline, 30-second response maximum,
-   30-second clock skew, and strict outage behavior.
-6. Availability/latency load test for one Release Authority coordination
-   object per environment; if it is inadequate, stop and re-approve a new
-   serialization design rather than weakening checks.
-7. Production endpoint/domain, R2 roles, signer registration, APP release
+   response-only 30-second skew, strict delegation validity, conservative
+   APP clock-safety window, and strict outage behavior.
+6. Production endpoint/domain, R2 roles, signer registration, APP release
    and external service access. All remain unregistered/not checked.
-8. Worker deployment identities, direct DO namespace bindings, and separate
+7. Worker deployment identities, direct DO namespace bindings, and separate
    operation credentials for Authority mutation versus Release Authority
    reads and Freshness reads/leases. Cloudflare namespace bindings are not
    method-level ACLs; the deployed DO RPC authorization must be reviewed.
    These permissions are not registered or verified.
 
 **Phase 0 result:** Option B and `LATEST_AT_ISSUANCE` are specified with
-bounded semantics, delegated keys, a signed commit record, an independent
-Journal, DO state transitions, APP verification and failure handling.
+bounded semantics, delegated keys, HSM authorization versus Journal commit
+semantics, per-operation linearization points, expiry/clock rules, DO state
+transitions, APP verification and failure handling.
 The Freshness protocol remains **NOT_IMPLEMENTED**, registrations remain
 **BLOCKED**, and Production/Stage A/B/C acceptance remains **BLOCKED**.

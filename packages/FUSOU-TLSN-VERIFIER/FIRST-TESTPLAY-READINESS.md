@@ -1,12 +1,13 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Source/readiness snapshot at review start — baseline `254967c4fb77d279a608da91b8836b5b9d8f551e` (2026-11-01)
+## Source/readiness snapshot at review start — HEAD `42bd255bb128bef97b1d6e01fb3dbcf323437fd6` (2026-11-01)
 
 At review start, the inspected branch was `tlsn-first-testplay-candidate`;
-local HEAD, local tracking ref, and GitHub branch head were
-`254967c4fb77d279a608da91b8836b5b9d8f551e`. Its parent is
-`3c2b5b2d8fcb1f78c4c2a43cb89c3842ca944a36`. The runtime-source baseline
-remains `43ab72e6284deee3ad202be7fb50e3f0199af304`; the scoped APP/Worker
+local HEAD was `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`, with parent
+`891ec66a729da4dc832cb70fbd6ff5cd3e620cae`. This is a local documentation
+follow-up to the previous Phase 0 review snapshot `254967c4fb77d279a608da91b8836b5b9d8f551e`;
+it has not been pushed. The runtime-source baseline remains
+`43ab72e6284deee3ad202be7fb50e3f0199af304`; the scoped APP/Worker
 Runtime Config source-path comparison found no source changes from that
 baseline. At task start, the worktree had only the pre-existing
 [justfile](/home/ogu-h/Documents/GitHub/FUSOU/justfile) and APP roaming
@@ -16,17 +17,18 @@ config edit, with an empty index; both were preserved.
 
 | Area | Status | Evidence and limit |
 |---|---|---|
-| Hosted workflow for `254967c` | **HOSTED_CI_VERIFIED** | Run #95 (`41245477137`) completed `success` with `head_sha` exactly `254967c...`; it is the only Actions run returned for that SHA. |
-| `node-contract-tests` / `rust-tlsn-preflight` | **PASS** | Both jobs completed successfully. These validate the workflow's selected Node/WASM/APP handoff tests and APP preflight target, not Freshness protocol code. |
-| Cloudflare `Workers Builds` check-runs | **PASS — build only** | `fusou`, `fusou-url-shorter`, and `fusou-workflow` reported successful build check-runs; not Production runtime or binding verification. |
-| CodeFlow | **ANALYSIS_REPORTED, NOT A TEST PASS** | Latest commit status is `success`, description `191 errors and 5368 warnings`. Per-finding details were not available from the status API and are **NOT_CHECKED**. |
-| Branch protection / required checks | **NOT ENFORCED** | GitHub reports `protected: false` and zero rulesets. `node-contract-tests` and `rust-tlsn-preflight` remain candidate required checks; CodeFlow is separate static analysis. |
-| Existing Runtime Config Node tests run during this audit | **58 passed, 0 failed, 0 skipped** | Worker Bootstrap/Result Registry, Manifest/publisher, fake R2 store and publisher-readiness suites. Existing code only; no Freshness implementation. |
-| APP Rust Runtime Config-specific local tests | **NOT_RUN in this Phase 0 audit** | The Hosted Rust job is `rust-tlsn-preflight`; this task made no APP source changes. |
+| Hosted workflow for previous source baseline `254967c` | **HOSTED_CI_VERIFIED** | Run #95 (`41245477137`) completed `success` with `head_sha` exactly `254967c...`; it does not validate the later documentation review commits or Freshness implementation. |
+| `node-contract-tests` / `rust-tlsn-preflight` for `254967c` | **PASS** | Both Run #95 jobs completed successfully. They cover selected Node/WASM/APP handoff contracts and APP preflight, not Freshness protocol code. |
+| Cloudflare `Workers Builds` check-runs for `254967c` | **PASS — build only** | `fusou`, `fusou-url-shorter`, and `fusou-workflow` reported successful build check-runs; not Production runtime or binding verification. |
+| CodeFlow for `254967c` | **ANALYSIS_REPORTED, NOT A TEST PASS** | Reported `191 errors and 5368 warnings`; individual findings are **NOT_CHECKED**. |
+| Branch protection / required checks | **PREVIOUSLY_OBSERVED NOT ENFORCED** | The previous source-snapshot review reported `protected: false` and zero rulesets; it was not rechecked in this design review. |
+| Existing Runtime Config Node tests from the previous source review | **58 passed, 0 failed, 0 skipped** | Bootstrap/Result Registry, Manifest/publisher, fake R2 store and publisher-readiness suites. Existing code only; not Freshness tests. |
+| APP Rust Runtime Config-specific local tests | **NOT_RUN in this documentation review** | No APP source changed; the prior Hosted Rust job was the `rust-tlsn-preflight` target. |
+| Human trust-owner approval | **NOT_GRANTED** | Root/delegation authority, HSM custody and Journal operation approvals remain external prerequisites. |
 | APP Bootstrap source readiness | **SOURCE_VERIFIED / COMPILED_VALUES_NOT_CHECKED** | Source has only the three Manifest URL/signer ID/SPKI pins; all absent is unregistered and partial input fails. No actual Production values or compiled APP artifact were registered/verified here. |
 | Runtime Config signature verification readiness | **MANIFEST_V2_SOURCE_VERIFIED / FRESHNESS_NOT_IMPLEMENTED** | Existing Rust/JS Manifest v2 signing domain and checks are unchanged; the proposed delegation/commit-record/Freshness verification chain has no implementation. Production signer registration remains blocked. |
 | Worker independent trust readiness | **NOT_REVALIDATED_IN_THIS_DESIGN_PASS** | No Worker source was changed; the Freshness protocol does not make an APP freshness claim Worker authority. Existing Worker verification is not a new Production acceptance result from this documentation-only task. |
-| Freshness design | **DESIGN_SPECIFIED** | Option B / `LATEST_AT_ISSUANCE` is specified in [runtime-config-freshness-protocol.md](./docs/runtime-config-freshness-protocol.md). |
+| Freshness design | **DESIGN_SPECIFIED / TRUST_APPROVAL_PENDING** | Option B / `LATEST_AT_ISSUANCE`, authorization-versus-commit semantics, Journal linearization, DO lease ordering, and delegation expiry rules are specified in [runtime-config-freshness-protocol.md](./docs/runtime-config-freshness-protocol.md). |
 | Freshness source implementation | **NOT_IMPLEMENTED** | No APP/Worker code, delegation verifier, Release Authority, Journal, signer or binding was added. |
 | Freshness-specific unit/integration tests | **NOT_RUN / NOT_IMPLEMENTED** | No Freshness code exists to test; no live R2, key, endpoint, or service integration was used. |
 | Freshness HTTP/deadline implementation | **NOT_IMPLEMENTED** | Current Manifest fetch remains 5-second connect / 15-second total timeout; the separate Freshness client and end-to-end monotonic deadline through final state commit are not in source. |
@@ -47,12 +49,17 @@ limit is 660 seconds from a current publisher policy time because the source
 permits `observed_at` up to 30 seconds ahead. The source does not attest that
 `policy.now` is the actual wall clock, so this is not an absolute deployed
 bound. If releases continue, a compromised signer can roll back to successive
-recent Manifests until its delegated key expires (maximum 24 hours). The
-10-second deadline does not limit signer compromise; Fresh-client immediate
+recent Manifests until the Freshness delegation's `not_after`. The root-signed
+validity is capped at 24 hours from delegation `issued_at`; assuming the
+offline root ceremony timestamp is trusted, the APP's conservative 30-second
+clock-safety window keeps true-time acceptance within that cap when the APP
+clock error is bounded by ±30 seconds. An untrusted root timestamp, unbounded
+or deliberately changed APP clock removes any absolute wall-time bound. The
+10-second deadline does not limit signer compromise; fresh-client immediate
 delegation revocation is unavailable.
 
-Run #95 validates this review-start source HEAD, not the subsequent
-documentation-only changes from this Phase 0 review. No push or new Hosted CI
+Run #95 validates previous source baseline `254967c...`, not review-start HEAD
+`42bd255...` or the current documentation changes. No push or new Hosted CI
 run is part of this task.
 
 ## Historical status snapshot — `a0cb49250df53132ee8df42ca02fbce91e10c7d2` (2026-11-01)
