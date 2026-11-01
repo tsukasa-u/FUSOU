@@ -421,6 +421,7 @@ function EquipSlotRow(props: EquipSlotRowProps): JSX.Element {
 
   return (
     <div
+      data-testid="simulator-equip-slot"
       class={`group/slot flex items-center gap-1.5 px-2 h-7 text-xs cursor-pointer transition-colors ${
         props.disabled
           ? "opacity-40 select-none cursor-default"

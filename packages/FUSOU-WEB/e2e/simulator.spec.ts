@@ -87,7 +87,7 @@ async function openEquipModalFromFleet1FirstEquipSlot(
 ): Promise<void> {
   await expect(page.locator("#fleet-1-slots")).toBeVisible();
   const equipSlot = page
-    .locator("#fleet-1-slots [class*='group/equip']")
+    .locator("#fleet-1-slots [data-testid='simulator-equip-slot']")
     .first();
   await expect(equipSlot).toBeVisible();
 
