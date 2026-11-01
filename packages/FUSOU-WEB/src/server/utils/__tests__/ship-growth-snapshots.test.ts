@@ -181,7 +181,7 @@ describe("ship-growth-snapshots utility", () => {
     const mockR2Obj = {
       body: new ReadableStream(),
       httpEtag: '"mock-etag"',
-      arrayBuffer: async () => compressed.buffer,
+      arrayBuffer: async () => compressed.slice().buffer,
     } as any;
 
     const mockContext = {
