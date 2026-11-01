@@ -1,7 +1,7 @@
 use crate::tlsn_runtime_config_manifest::{
-    fetch_and_verify_with_fetcher, parse_epoch, validate_digest, HttpRuntimeConfigObjectFetcher,
-    RuntimeConfigBootstrap, RuntimeConfigManifestError, RuntimeConfigObjectFetcher,
-    RuntimeConfigVerificationPolicy, VerifiedRuntimeConfigManifest,
+    fetch_and_verify_with_fetcher, parse_epoch, validate_digest, RuntimeConfigBootstrap,
+    RuntimeConfigManifestError, RuntimeConfigObjectFetcher, RuntimeConfigVerificationPolicy,
+    VerifiedRuntimeConfigManifest,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,10 +16,10 @@ use tokio::sync::Mutex;
 const EPOCH_STATE_SCHEMA_VERSION: u32 = 1;
 const EPOCH_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v1";
 const EPOCH_STATE_MAX_BYTES: u64 = 1024;
-const MAX_MANIFEST_LIFETIME_SECONDS: u64 = 3600;
-const MAX_CLOCK_SKEW_SECONDS: u64 = 30;
-const MAX_WORKER_REFERENCE_AGE_SECONDS: u64 = 600;
-const MAX_MANIFEST_ENVELOPE_BYTES: usize = 65_536;
+pub(crate) const MAX_MANIFEST_LIFETIME_SECONDS: u64 = 3600;
+pub(crate) const MAX_CLOCK_SKEW_SECONDS: u64 = 30;
+pub(crate) const MAX_WORKER_REFERENCE_AGE_SECONDS: u64 = 600;
+pub(crate) const MAX_MANIFEST_ENVELOPE_BYTES: usize = 65_536;
 
 #[derive(Clone)]
 pub(crate) struct RuntimeConfigManager {
@@ -38,9 +38,9 @@ impl RuntimeConfigManager {
     pub(crate) async fn refresh(
         &self,
     ) -> Result<VerifiedRuntimeConfigManifest, RuntimeConfigManifestError> {
+        let _guard = self.refresh_lock.lock().await;
         let bootstrap = RuntimeConfigBootstrap::from_embedded()?;
-        let fetcher = HttpRuntimeConfigObjectFetcher::new()?;
-        self.refresh_with_fetcher_at(&bootstrap, &fetcher, Utc::now())
+        crate::tlsn_runtime_config_manifest::freshness::refresh(&bootstrap, &self.epoch_state.path)
             .await
     }
 
@@ -198,39 +198,57 @@ impl RuntimeConfigEpochStateStore {
     }
 
     fn write_atomic(&self, state: &PersistedEpochState) -> Result<(), RuntimeConfigManifestError> {
-        let parent = self.path.parent().ok_or(RuntimeConfigManifestError::State(
-            "state path has no parent directory",
-        ))?;
         let bytes = serde_json::to_vec(state)
             .map_err(|_| RuntimeConfigManifestError::State("epoch state serialization failed"))?;
-        let temporary = parent.join(format!(
-            ".fusou-runtime-config-epoch-{}.tmp",
-            uuid::Uuid::new_v4()
-        ));
-        let write_result = (|| {
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&temporary)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            drop(file);
-            replace_state_file(&temporary, &self.path)?;
-            sync_parent_directory(parent)?;
-            Ok::<(), std::io::Error>(())
-        })();
-        if write_result.is_err() {
-            let _ = fs::remove_file(&temporary);
-            return Err(RuntimeConfigManifestError::State(
-                "epoch state could not be atomically persisted",
-            ));
-        }
-        Ok(())
+        write_state_atomic_bytes(
+            &self.path,
+            &bytes,
+            || Ok(()),
+            "epoch state could not be atomically persisted",
+        )
     }
+}
+
+pub(crate) fn write_state_atomic_bytes(
+    path: &Path,
+    bytes: &[u8],
+    before_replace: impl FnOnce() -> Result<(), RuntimeConfigManifestError>,
+    failure_reason: &'static str,
+) -> Result<(), RuntimeConfigManifestError> {
+    let parent = path.parent().ok_or(RuntimeConfigManifestError::State(
+        "state path has no parent directory",
+    ))?;
+    let temporary = parent.join(format!(
+        ".fusou-runtime-config-state-{}.tmp",
+        uuid::Uuid::new_v4()
+    ));
+    let result = (|| {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temporary)
+            .map_err(|_| RuntimeConfigManifestError::State(failure_reason))?;
+        file.write_all(bytes)
+            .map_err(|_| RuntimeConfigManifestError::State(failure_reason))?;
+        file.sync_all()
+            .map_err(|_| RuntimeConfigManifestError::State(failure_reason))?;
+        drop(file);
+        before_replace()?;
+        replace_state_file(&temporary, path)
+            .map_err(|_| RuntimeConfigManifestError::State(failure_reason))?;
+        sync_parent_directory(parent)
+            .map_err(|_| RuntimeConfigManifestError::State(failure_reason))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 #[derive(Debug, Deserialize, Serialize)]

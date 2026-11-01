@@ -15,6 +15,10 @@ use std::time::Duration;
 use std::{future::Future, pin::Pin};
 use url::{Host, Url};
 
+#[cfg(feature = "tlsn-production")]
+#[path = "tlsn_runtime_config_freshness.rs"]
+pub(crate) mod freshness;
+
 const MANIFEST_SCHEMA_VERSION: u32 = 2;
 const MANIFEST_SCOPE: &str = "fusou-tlsn-runtime-config-manifest-v2";
 const ENVELOPE_SCOPE: &str = "fusou-tlsn-runtime-config-envelope-v2";

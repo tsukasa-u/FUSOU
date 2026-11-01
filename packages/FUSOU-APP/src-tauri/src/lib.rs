@@ -32,7 +32,7 @@ pub mod tlsn_runtime_config_manifest;
 #[cfg(feature = "tlsn-production")]
 mod tlsn_runtime;
 #[cfg(feature = "tlsn-production")]
-mod tlsn_runtime_config_runtime;
+pub(crate) mod tlsn_runtime_config_runtime;
 mod tlsn_worker_identity;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
