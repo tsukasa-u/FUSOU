@@ -32,7 +32,7 @@ export default {
     store_data_set_param_ship: (x: number) =>
       get_data_set_param_ship(
         get_battle_selected(x),
-        get_cell_selected(x)?.destruction_battle
+        get_cell_selected(x)?.destruction_battle,
       ),
     area_id: cells_6_5.maparea_id,
   },

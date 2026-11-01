@@ -55,7 +55,9 @@ supabase/.branches/
 
 packages/FUSOU-WORKFLOW/worker-configuration.d.ts
 
-packages/FUSOU-WORKFLOW/test/
+packages/FUSOU-WORKFLOW/test/*
+!packages/FUSOU-WORKFLOW/test/*.test.ts
+!packages/FUSOU-WORKFLOW/test/*-fixture.ts
 
 # Python
 __pycache__/

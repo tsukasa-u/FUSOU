@@ -13,9 +13,7 @@ export const WithDecorator = {
   args: {},
   decorators: [
     (Story: any, context: any) => {
-      return (
-        <Story {...context.args} />
-      );
+      return <Story {...context.args} />;
     },
   ],
 };

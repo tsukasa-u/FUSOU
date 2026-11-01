@@ -1,4 +1,5 @@
-import { Component, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { Show } from "solid-js";
 
 export interface IconShipProps {
   ship_stype: number;
@@ -55,17 +56,15 @@ const class_size = {
   none: "",
 };
 
-const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(
-  (i) => (
-    <path
-      d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
-      stroke="#303030"
-      stroke-width="0.5"
-      fill="none"
-      fill-rule="evenodd"
-    ></path>
-  )
-);
+const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((i) => (
+  <path
+    d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
+    stroke="#303030"
+    stroke-width="0.5"
+    fill="none"
+    fill-rule="evenodd"
+  />
+));
 
 const get_secondary_color = (color_prop: string) => {
   let color = icon_list[color_prop ?? ""];
@@ -90,10 +89,7 @@ export const IconShip: Component<IconShipProps> = (props) => {
       xmlns="http://www.w3.org/2000/svg"
       xmlns:xlink="http://www.w3.org/1999/xlink"
       overflow="hidden"
-      class={[
-        "cursor-inherit",
-        class_size[size()],
-      ].join(" ")}
+      class={["cursor-inherit", class_size[size()]].join(" ")}
     >
       <Show when={!props.empty_flag}>
         <text

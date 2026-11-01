@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.5.0"
+version = "0.6.0"
 description = "A Tauri App for proxy KanColle data"
 authors = ["Hideyuki Oguri"]
 license = "MIT/Apache-2.0"
@@ -14,6 +14,7 @@ build = "build.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+serde_json = "1.0"
 
 [dependencies]
 dirs = "5.0.1"
@@ -31,7 +32,6 @@ tauri-plugin-fs = "2.4.2"
 tauri-plugin-opener = "2.5.0"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-notification = "2.3.3"
-tauri-plugin-global-shortcut = "2.3.1"
 tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
 kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api", default-features = false, features = ["full", "graphviz", "schema_v0_6_0"] }

@@ -1,6 +1,5 @@
-﻿/** @jsxImportSource solid-js */
-import { For, Show, createEffect, createSignal } from "solid-js";
-import { isSafeImageUrl } from "@/utils/security";
+/** @jsxImportSource solid-js */
+import { For, Show } from "solid-js";
 import type { ResolvedRouteOverlay, SelectedCellFilter } from "./types";
 import {
   MAP_TRIM_PADDING,
@@ -54,30 +53,12 @@ type Props = {
   overlay: ResolvedRouteOverlay;
   selectedCellFilter: () => SelectedCellFilter | null;
   toggleCellFilter: (filter: SelectedCellFilter) => void;
-  showOfficialMapAssets: () => boolean;
   theme?: () => "dark" | "light";
 };
 
 export default function MapSvgCanvas(props: Props) {
   const o = () => props.overlay;
   const isDark = () => (props.theme ? props.theme() === "dark" : false);
-  const seaFrame = () => o().asset.seaMapFrame;
-  const hasOfficialBackgroundImage = () =>
-    o().asset.spriteUrl.length > 0 && isSafeImageUrl(o().asset.spriteUrl);
-  const [, setOfficialImageLoaded] = createSignal(false);
-
-  let prevSpriteUrl = "";
-  createEffect(() => {
-    const useOfficialAssets = props.showOfficialMapAssets();
-    const spriteUrl = o().asset.spriteUrl;
-    if (spriteUrl === prevSpriteUrl) return;
-    prevSpriteUrl = spriteUrl;
-    if (!useOfficialAssets || !spriteUrl || !hasOfficialBackgroundImage()) {
-      setOfficialImageLoaded(false);
-      return;
-    }
-    setOfficialImageLoaded(false);
-  });
 
   return (
     <div
@@ -112,54 +93,16 @@ export default function MapSvgCanvas(props: Props) {
           >
             <path d="M 2 2 L 16 8 L 2 14 L 6 8 Z" fill={CANDIDATE_ROUTE_COLOR} />
           </marker>
-          <clipPath id="map-sea-clip">
-            <rect
-              x="0"
-              y="0"
-              width={o().asset.routeLayoutFrame.width}
-              height={o().asset.routeLayoutFrame.height}
-            />
-          </clipPath>
         </defs>
 
-        {/* 背景（海の本来の表示を活かすため透明化） */}
-
         <g>
-          {/* 海域キャンバス背景 (海のベース色: 画像の有無にかかわらず常に下地に敷く) */}
-          <g clip-path="url(#map-sea-clip)">
-            <rect
-              x="0"
-              y="0"
-              width={o().asset.routeLayoutFrame.width}
-              height={o().asset.routeLayoutFrame.height}
-              fill={isDark() ? MAP_SEA_BG_DARK : MAP_SEA_BG_LIGHT}
-            />
-            {/* マップ画像 (陸地・島等: 画像が存在する場合のみ下地の上に表示) */}
-            <Show
-              when={props.showOfficialMapAssets() && hasOfficialBackgroundImage()}
-            >
-              <image
-                href={o().asset.spriteUrl}
-                x={-seaFrame().x}
-                y={-seaFrame().y}
-                width={o().asset.spriteSheetSize.width}
-                height={o().asset.spriteSheetSize.height}
-                preserveAspectRatio="none"
-                style={{
-                  filter: "brightness(1.04) saturate(0.98) contrast(1.01)",
-                  opacity: "0",
-                  transition: "opacity 0.3s ease-in",
-                }}
-                onLoad={(e) => {
-                  setOfficialImageLoaded(true);
-                  (e.currentTarget as SVGImageElement).style.opacity = "0.96";
-                }}
-                onError={() => {
-                  setOfficialImageLoaded(false);
-                }}
-              />
-            </Show>
-          </g>
+          <rect
+            x="0"
+            y="0"
+            width={o().asset.routeLayoutFrame.width}
+            height={o().asset.routeLayoutFrame.height}
+            fill={isDark() ? MAP_SEA_BG_DARK : MAP_SEA_BG_LIGHT}
+          />
 
           {/* 経路線（曲率付きベジェ曲線パス & 進行方向矢印：被り線・濁り影を排除したクリアな描画） */}
           <For each={o().inferredRoutes}>
@@ -210,6 +153,7 @@ export default function MapSvgCanvas(props: Props) {
             {(marker, i) => {
               const next = o().markers[i() + 1];
               if (!next) return null;
+              if (Math.hypot(next.x - marker.x, next.y - marker.y) < 1e-3) return null;
 
               // セルIDまたは座標（許容誤差18px以内：エイリアスセル対応）で候補ルートを完全一致検索
               const matchedRoute = o().inferredRoutes.find((r) => {
@@ -317,7 +261,7 @@ export default function MapSvgCanvas(props: Props) {
                   spot.cellIds,
                   spot.passCount,
                   spot.battleCount,
-                  undefined,
+                  props.overlay.ports,
                   spot.isPort,
                 );
               const theme = () => CELL_COLOR_THEMES[cellType()];
@@ -348,6 +292,7 @@ export default function MapSvgCanvas(props: Props) {
                       mapKey: props.overlay.asset.mapKey,
                       label: spot.label,
                       cellIds: spot.cellIds,
+                      isPort: spot.isPort,
                     })
                   }
                 >
@@ -368,11 +313,10 @@ export default function MapSvgCanvas(props: Props) {
                   {(() => {
                     const displayLabel = () => {
                       const lbl = spot.label;
-                      if (cellType() === "port" || spot.isPort || lbl.includes("港")) {
-                        const m = lbl.match(/\d+/);
-                        return m ? m[0] : "1";
+                      if (cellType() === "port" || spot.isPort) {
+                        return lbl || "1";
                       }
-                      return lbl;
+                      return lbl || "-";
                     };
                     return (
                       <text
@@ -404,7 +348,7 @@ export default function MapSvgCanvas(props: Props) {
                   spot.cellIds,
                   undefined,
                   undefined,
-                  undefined,
+                  props.overlay.ports,
                   spot.isPort,
                 );
               const isSelected = () => props.selectedCellFilter()?.key === spot.key;

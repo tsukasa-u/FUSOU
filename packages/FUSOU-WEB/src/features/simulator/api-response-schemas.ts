@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+export type MasterDataJsonResponse = z.infer<typeof MasterDataJsonResponseSchema>;
 export const MasterDataJsonResponseSchema = z
   .object({
     records: z.array(z.record(z.unknown())).optional(),

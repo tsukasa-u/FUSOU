@@ -1,4 +1,4 @@
-// ── Centralized simulator state mutations ──
+﻿// ── Centralized simulator state mutations ──
 
 import { markSimulatorStateDirty, simulatorReadOnly, simulatorCombinedFleetType, simulatorDisplayRevision, state } from "./state";
 import { AIRCRAFT_TYPES } from "./constants";
@@ -324,7 +324,7 @@ export function consumeEquipModalCallback(selection: EquipSelection): boolean {
 
 export function resetAllFleets(): void {
   [state.fleet1, state.fleet2, state.fleet3, state.fleet4].forEach((fleet) => {
-    for (let i = 0; i < 6; i++) fleet[i] = emptyFleetSlot();
+    for (let i = 0; i < fleet.length; i++) fleet[i] = emptyFleetSlot();
   });
   markSimulatorStateDirty("fleet");
 }

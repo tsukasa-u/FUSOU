@@ -12,19 +12,14 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import {
-  type BattleMapTheme,
-  getBattleMapAsset,
-  resolveBattleMapSpriteUrl,
-} from "@/data/battleMapAssets";
+import { getBattleMapAsset } from "@/data/battleMapAssets";
 import type { SharedDashboardState } from "../../battles/solid/types";
 
 import type {
   CurvedRouteData,
   BattleRecord,
-  MapFrameMeta,
+  BattleMapTheme,
   MapSpot,
-  OfficialMapThemeMode,
   OverlayMarker,
   ResolvedRouteOverlay,
   SelectedCellDetails,
@@ -51,6 +46,7 @@ import {
 import { buildAutoLabelLayouts } from "./battle-map-flow/labelLayout";
 import { inferRouteOverlays } from "./battle-map-flow/routeInference";
 import { buildEnemyDeckResolver } from "./battle-map-flow/enemyResolver";
+import { battleResultOf as battleResultOfRecord } from "./battle-map-flow/recordParsers";
 import {
   cellLabel as pureCellLabel,
   cellOverlayLabel as pureCellOverlayLabel,
@@ -60,11 +56,13 @@ import {
   parseMapLabelsPayload,
   parseMapRoutesPayload,
   resolveRouteCellsWithPort,
+  isWithinDateRange,
+  buildAliasCellMap,
+  findBattleForCell,
 } from "./battle-map-flow/dataUtils";
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
-import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
 import {
   resolveMapAreaName,
   resolveMapInfoName,
@@ -110,9 +108,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     createSignal<SelectedCellFilter | null>(null);
   const [metadataWarnings, setMetadataWarnings] = createSignal<string[]>([]);
   const [showWarnings, setShowWarnings] = createSignal(false);
-  const [showOfficialMapAssets, setShowOfficialMapAssets] = createSignal(true);
-  const [officialMapThemeMode, setOfficialMapThemeMode] =
-    createSignal<OfficialMapThemeMode>("auto");
   const getDocTheme = (): BattleMapTheme => {
     if (typeof document === "undefined") return "light";
     const attr = document.documentElement.getAttribute("data-theme");
@@ -137,8 +132,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     onCleanup(() => observer.disconnect());
   });
 
-  let displaySettingsModalRef!: HTMLDialogElement;
-
   // ── Data signals ────────────────────────────────────────────────────────────
   const [mapSpotsByKey, setMapSpotsByKey] = createSignal<
     Record<string, MapSpot[]>
@@ -151,9 +144,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   >({});
   const [mapLabelsByKey, setMapLabelsByKey] = createSignal<
     Record<string, Record<number, string>>
-  >({});
-  const [mapFrameMetaByKey, setMapFrameMetaByKey] = createSignal<
-    Record<string, MapFrameMeta>
   >({});
   const [mapMetadataLoadingKey, setMapMetadataLoadingKey] = createSignal<string | null>(null);
   const [mapMetadataFailedKey, setMapMetadataFailedKey] = createSignal<string | null>(null);
@@ -175,9 +165,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       .then((payload: unknown) => setMstMapinfos(recordsMatching(payload, isMapInfoRecord)))
       .catch(() => {});
 
-    const openSettings = () => displaySettingsModalRef.showModal();
-    window.addEventListener("map-flow-open-display-settings", openSettings);
-    onCleanup(() => window.removeEventListener("map-flow-open-display-settings", openSettings));
   });
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
@@ -196,7 +183,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     });
   }
 
-  /** Returns the display label for a cell (e.g. "港(0)", "D(4)"). */
+  /** Returns the display label for a cell (e.g. "1", "D"). */
   function cellLabel(cellId: number, mapKey?: string): string {
     const key = mapKey ?? selectedSortieRoute()?.mapKey;
     return pureCellLabel(
@@ -206,7 +193,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     );
   }
 
-  /** Returns the short overlay label for a cell (e.g. "港", "D"). */
+  /** Returns the short overlay label for a cell (e.g. "1", "D"). */
   function cellOverlayLabel(cellId: number, mapKey: string): string {
     return pureCellOverlayLabel(
       cellId,
@@ -229,7 +216,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       setMapMetadataLoadingKey(null);
       return;
     }
-    if (mapSpotsByKey()[mapKey] && (!asset.routesUrl || mapRoutesByKey()[mapKey])) {
+    if (mapSpotsByKey()[mapKey] && mapRoutesByKey()[mapKey]) {
       setMapMetadataFailedKey(null);
       setMapMetadataLoadingKey(null);
       return;
@@ -249,9 +236,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     const request = (async () => {
       try {
-        const targetUrl = asset.dataUrl || asset.infoUrl;
-        if (!targetUrl) return;
-        const response = await fetch(targetUrl, { signal });
+        const response = await fetch(asset.dataUrl, { signal });
         if (signal.aborted) return;
         if (!response.ok) {
           addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
@@ -262,18 +247,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         const rawData = await response.json();
         const data = isJsonRecord(rawData) ? rawData : {};
 
-        // 1. Frame metadata
-        setMapFrameMetaByKey((prev) => ({
-          ...prev,
-          [mapKey]: {
-            spriteSheetSize: { width: 1200, height: 720 },
-            routeLayoutFrame: { x: 0, y: 0, width: 1200, height: 720 },
-            seaMapFrame: { x: 0, y: 0, width: 1200, height: 720 },
-            routeFrames: {},
-          },
-        }));
-
-        // 2. Spots
+        // Spots
         const rawSpots = Array.isArray(data["spots"]) ? data["spots"] : [];
         const spots = rawSpots
           .map((spot): MapSpot | null => {
@@ -389,13 +363,18 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const values = new Set<string>();
     for (const rec of d.battleRecords()) {
       const key = mapKeyOf(rec);
-      if (key !== "unknown") values.add(key);
+      if (key !== "unknown" && key !== "-") values.add(key);
     }
     for (const rec of d.cellRecords()) {
       const key = mapKeyOf(rec);
-      if (key !== "unknown") values.add(key);
+      if (key !== "unknown" && key !== "-") values.add(key);
     }
-    return [...values].sort((a, b) => a.localeCompare(b, "ja"));
+    return [...values].sort((a, b) => {
+      const [aArea, aNo] = a.split("-").map(Number);
+      const [bArea, bNo] = b.split("-").map(Number);
+      if (aArea !== bArea) return (aArea || 0) - (bArea || 0);
+      return (aNo || 0) - (bNo || 0);
+    });
   });
 
   function getAreaName(areaIdStr: string): string {
@@ -448,37 +427,211 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     }
   });
 
+  const mapKeyLookup = createMemo(() => {
+    const b2m = new Map<string, string>();
+    const e2m = new Map<string, string>();
+    for (const c of d.cellRecords()) {
+      const mk = mapKeyOf(c);
+      if (mk === "unknown" || mk === "-") continue;
+      if (c.env_uuid) {
+        e2m.set(c.env_uuid, mk);
+      }
+      if (c.battles) {
+        if (Array.isArray(c.battles)) {
+          c.battles.forEach((u: string) => b2m.set(u, mk));
+        } else if (typeof c.battles === "string") {
+          b2m.set(c.battles, mk);
+        }
+      }
+    }
+    return { battleToMap: b2m, envToMap: e2m };
+  });
+
+  const resolveBattleMapKey = (b: BattleRecord): string => {
+    const direct = mapKeyOf(b);
+    if (direct !== "unknown" && direct !== "-") return direct;
+    const { battleToMap, envToMap } = mapKeyLookup();
+    const byBattle = b.uuid ? battleToMap.get(b.uuid) : undefined;
+    if (byBattle) return byBattle;
+    const byEnv = b.env_uuid ? envToMap.get(b.env_uuid) : undefined;
+    if (byEnv) return byEnv;
+    return "unknown";
+  };
+
   const filteredBattles = createMemo(() => {
     const selected = d.mapFilter();
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    const resultF = d.resultFilter();
     return d.battleRecords()
-      .filter((r) => !selected || mapKeyOf(r) === selected)
+      .filter((r) => {
+        if (selected && resolveBattleMapKey(r) !== selected) return false;
+        if (resultF && battleResultOfRecord(r)?.win_rank !== resultF) return false;
+        if ((start || end) && !isWithinDateRange(r.timestamp, start, end)) return false;
+        return true;
+      })
       .sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
   });
 
-  const filteredCellRecords = createMemo(() => {
-    const selected = d.mapFilter();
-    return d.cellRecords().filter((r) => !selected || mapKeyOf(r) === selected);
-  });
-
-  const battleGroupsByUuid = createMemo(() => {
-    const groups = new Map<string, BattleRecord[]>();
-    for (const battle of filteredBattles()) {
-      if (!battle.uuid) continue;
-      const list = groups.get(battle.uuid);
-      if (list) {
+  // 全戦闘データ（フィルタ前）からの出撃紐付けルックアップ
+  // 出撃（cellRecord）のタイムスタンプ特定に使用
+  const allBattleGroups = createMemo(() => {
+    const byUuid = new Map<string, BattleRecord[]>();
+    const byEnv = new Map<string, BattleRecord[]>();
+    for (const battle of d.battleRecords()) {
+      if (battle.uuid) {
+        let list = byUuid.get(battle.uuid);
+        if (!list) {
+          list = [];
+          byUuid.set(battle.uuid, list);
+        }
         list.push(battle);
-      } else {
-        groups.set(battle.uuid, [battle]);
+      }
+      const env = battle.env_uuid || battle.__sortie_id;
+      if (env) {
+        let list = byEnv.get(env);
+        if (!list) {
+          list = [];
+          byEnv.set(env, list);
+        }
+        list.push(battle);
       }
     }
-    for (const list of groups.values()) {
+    for (const list of byUuid.values()) {
       list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
     }
-    return groups;
+    for (const list of byEnv.values()) {
+      list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
+    }
+    return {
+      get: (ref: unknown): BattleRecord[] => {
+        if (!ref) return [];
+        if (Array.isArray(ref)) {
+          const res: BattleRecord[] = [];
+          const seen = new Set<string>();
+          for (const item of ref) {
+            if (typeof item === "string" && item && !seen.has(item)) {
+              seen.add(item);
+              res.push(...(byUuid.get(item) || []));
+            }
+          }
+          return res;
+        }
+        if (typeof ref === "string") {
+          return byUuid.get(ref) || [];
+        }
+        return [];
+      },
+      getByEnv: (env?: string | null): BattleRecord[] => {
+        if (!env) return [];
+        return byEnv.get(env) || [];
+      },
+    };
   });
 
-  const allSortieRoutes = createMemo(() => {
-    const allRoutes = filteredCellRecords()
+  const getCellRecordTimestamp = (cellRecord: Record<string, unknown>): number | null => {
+    const raw = cellRecord["timestamp"];
+    if (raw != null) {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    let battles = cellRecord["battles"]
+      ? allBattleGroups().get(cellRecord["battles"])
+      : [];
+    if (battles.length === 0 && cellRecord["env_uuid"]) {
+      battles = allBattleGroups().getByEnv(cellRecord["env_uuid"] as string);
+    }
+    const timestamps = battles
+      .map((b) => Number(b.timestamp ?? NaN))
+      .filter((t) => Number.isFinite(t) && t > 0);
+    return timestamps.length > 0 ? Math.max(...timestamps) : null;
+  };
+
+  const filteredCellRecords = createMemo(() => {
+    const selected = d.mapFilter();
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    return d.cellRecords().filter((r) => {
+      if (selected && mapKeyOf(r) !== selected) return false;
+      if (start || end) {
+        const ts = getCellRecordTimestamp(r as Record<string, unknown>);
+        if (ts === null) return false;
+        if (!isWithinDateRange(ts, start, end)) return false;
+      }
+      return true;
+    });
+  });
+
+  const battleGroups = createMemo(() => {
+    const byUuid = new Map<string, BattleRecord[]>();
+    const byEnv = new Map<string, BattleRecord[]>();
+    for (const battle of filteredBattles()) {
+      if (battle.uuid) {
+        let list = byUuid.get(battle.uuid);
+        if (!list) {
+          list = [];
+          byUuid.set(battle.uuid, list);
+        }
+        list.push(battle);
+      }
+      const env = battle.env_uuid || battle.__sortie_id;
+      if (env) {
+        let list = byEnv.get(env);
+        if (!list) {
+          list = [];
+          byEnv.set(env, list);
+        }
+        list.push(battle);
+      }
+    }
+    for (const list of byUuid.values()) {
+      list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
+    }
+    for (const list of byEnv.values()) {
+      list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
+    }
+    return {
+      get: (ref: unknown): BattleRecord[] => {
+        if (!ref) return [];
+        if (Array.isArray(ref)) {
+          const res: BattleRecord[] = [];
+          const seen = new Set<string>();
+          for (const item of ref) {
+            if (typeof item === "string" && item && !seen.has(item)) {
+              seen.add(item);
+              res.push(...(byUuid.get(item) || []));
+            }
+          }
+          return res;
+        }
+        if (typeof ref === "string") {
+          return byUuid.get(ref) || [];
+        }
+        return [];
+      },
+      getByEnv: (env?: string | null): BattleRecord[] => {
+        if (!env) return [];
+        return byEnv.get(env) || [];
+      },
+    };
+  });
+
+  const aliasCellIdsByMapKey = createMemo(() => {
+    const allSpots = mapSpotsByKey();
+    const res: Record<string, Map<number, number[]>> = {};
+    for (const [mapKey, spots] of Object.entries(allSpots)) {
+      res[mapKey] = buildAliasCellMap(spots);
+    }
+    return res;
+  });
+
+  const rawSortieRoutes = createMemo(() => {
+    const aliasMapByKey = aliasCellIdsByMapKey();
+    const portsByKey = mapPortsByKey();
+    const spotsByKey = mapSpotsByKey();
+    const routesByKey = mapRoutesByKey();
+
+    return filteredCellRecords()
       .map((cellRecord) => {
         const mapKey = mapKeyOf(cellRecord);
         const cells = (cellRecord.cell_index || [])
@@ -486,14 +639,17 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           .filter((cellId: number) => Number.isFinite(cellId));
         if (cells.length === 0) return null;
 
-        const ports = mapPortsByKey()[mapKey] || [];
-        const spots = mapSpotsByKey()[mapKey] || [];
-        const routes = mapRoutesByKey()[mapKey] || [];
+        const ports = portsByKey[mapKey] || [];
+        const spots = spotsByKey[mapKey] || [];
+        const routes = routesByKey[mapKey] || [];
         const routeCells = resolveRouteCellsWithPort(cells, ports, spots, routes);
 
-        const battles = cellRecord.battles
-          ? [...(battleGroupsByUuid().get(cellRecord.battles) || [])]
+        let battles = cellRecord.battles
+          ? [...battleGroups().get(cellRecord.battles)]
           : [];
+        if (battles.length === 0 && cellRecord.env_uuid) {
+          battles = [...battleGroups().getByEnv(cellRecord.env_uuid)];
+        }
         const battlesByCell = new Map<number, BattleRecord[]>();
         for (const battle of battles) {
           const cellId = Number(battle.cell_id ?? NaN);
@@ -506,9 +662,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           }
         }
 
+        const aliasMap = aliasMapByKey[mapKey];
         const steps = routeCells.map((cellId, idx) => {
-          const matches = battlesByCell.get(cellId) || [];
-          const battle = matches.shift();
+          const battle = findBattleForCell(cellId, battlesByCell, aliasMap);
           return {
             stepNo: idx + 1,
             cellId,
@@ -517,19 +673,20 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           };
         });
 
-        const timestamps = battles
-          .map((battle) => battle.timestamp)
-          .filter((ts): ts is number => ts !== null && Number.isFinite(ts));
-        const routeTimestamp =
-          timestamps.length > 0
-            ? Math.max(...timestamps)
-            : Number.MIN_SAFE_INTEGER;
+        const ts = getCellRecordTimestamp(cellRecord as Record<string, unknown>);
+        const routeTimestamp = ts !== null ? ts : Number.MIN_SAFE_INTEGER;
+
+        const battleKey = Array.isArray(cellRecord.battles) && cellRecord.battles.length > 0
+          ? cellRecord.battles.join(",")
+          : typeof cellRecord.battles === "string" && cellRecord.battles
+            ? cellRecord.battles
+            : "";
 
         const sortieId =
           cellRecord.uuid ||
-          cellRecord.battles ||
           cellRecord.env_uuid ||
-          `${mapKey}:${routeCells.join("-")}`;
+          battleKey ||
+          `${mapKey}:${routeCells.join("-")}:${cellRecord["timestamp"] ?? Math.random().toString(36).slice(2, 8)}`;
 
         return {
           sortieId,
@@ -541,13 +698,15 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           steps,
           battleCount: steps.filter((step) => step.hasBattle).length,
           sortTimestamp: routeTimestamp,
-        };
+        } satisfies SortieRoute;
       })
-      .filter((route): route is NonNullable<typeof route> => !!route);
+      .filter((route): route is SortieRoute => route !== null);
+  });
 
+  const allSortieRoutes = createMemo(() => {
     // 同じセルパスを持つルートをマージ（最新のタイムスタンプを保持）
     // 帰港（港への帰還）は、ルート末尾の0（港）を無視して比較
-    const routeMap = allRoutes.reduce((map, route) => {
+    const routeMap = rawSortieRoutes().reduce((map, route) => {
       // 末尾が港（0）の場合は除去してキーを生成
       const normalizedCells =
         route.cells.at(-1) === 0 ? route.cells.slice(0, -1) : route.cells;
@@ -606,33 +765,11 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         enemyCounts: Map<string, number>;
       }
     >();
-    const battleGroups = battleGroupsByUuid();
 
-    for (const route of filteredCellRecords()) {
-      const cells = (route.cell_index || [])
-        .map((cellId: unknown) => Number(cellId ?? NaN))
-        .filter((cellId: number) => Number.isFinite(cellId));
-      if (cells.length === 0) continue;
-
-      const mapKey = mapKeyOf(route);
-      const ports = mapPortsByKey()[mapKey] || [];
-      const spots = mapSpotsByKey()[mapKey] || [];
-      const routes = mapRoutesByKey()[mapKey] || [];
-      const routeCells = resolveRouteCellsWithPort(cells, ports, spots, routes);
-
-      const battles = route.battles
-        ? [...(battleGroups.get(route.battles) || [])]
-        : [];
-      const battlesByCell = new Map<number, BattleRecord[]>();
-      for (const battle of battles) {
-        const list = battlesByCell.get(battle.cell_id);
-        if (list) {
-          list.push(battle);
-        } else {
-          battlesByCell.set(battle.cell_id, [battle]);
-        }
-      }
-
+    // フィルタ適用済みの全出撃（rawSortieRoutes）から集計することで、
+    // マップ上の通過・分岐回数が日付・海域フィルタと100%整合し、重複計算も解消
+    for (const sortie of rawSortieRoutes()) {
+      const routeCells = sortie.cells;
       for (let i = 0; i < routeCells.length; i++) {
         const currentCell = routeCells[i];
         if (currentCell === undefined) continue;
@@ -650,13 +787,12 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
         stat.passCount++;
 
-        const battle = (battlesByCell.get(currentCell) || []).shift();
-        if (battle) {
+        const step = sortie.steps[i];
+        if (step && step.hasBattle) {
           stat.battleCount++;
-          const enemyLabel = describeEnemy(battle);
           stat.enemyCounts.set(
-            enemyLabel,
-            (stat.enemyCounts.get(enemyLabel) ?? 0) + 1,
+            step.enemy,
+            (stat.enemyCounts.get(step.enemy) ?? 0) + 1,
           );
         }
 
@@ -702,11 +838,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     return getBattleMapAsset(key);
   });
 
-  const resolvedOfficialMapTheme = createMemo<BattleMapTheme>(() => {
-    const mode = officialMapThemeMode();
-    return mode === "auto" ? detectedTheme() : mode;
-  });
-
   // ── Overlay computation ─────────────────────────────────────────────────────
 
   const selectedRouteOverlay = createMemo((): ResolvedRouteOverlay | null => {
@@ -714,21 +845,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     if (!asset) return null;
     // selected が null のケース(データなしマスを選択中)ではマップを表示継続し markers を空にする
     const selected = selectedSortieRoute();
-    const frameMeta = mapFrameMetaByKey()[asset.mapKey];
-    const hasStandaloneThemeSprite = !!asset.spriteUrls;
-    const resolvedAsset = {
-      ...asset,
-      spriteUrl: resolveBattleMapSpriteUrl(asset, resolvedOfficialMapTheme()),
-      spriteSheetSize: hasStandaloneThemeSprite
-        ? asset.spriteSheetSize
-        : (frameMeta?.spriteSheetSize ?? asset.spriteSheetSize),
-      routeLayoutFrame: hasStandaloneThemeSprite
-        ? asset.routeLayoutFrame
-        : (frameMeta?.routeLayoutFrame ?? asset.routeLayoutFrame),
-      seaMapFrame: hasStandaloneThemeSprite
-        ? asset.seaMapFrame
-        : (frameMeta?.seaMapFrame ?? asset.seaMapFrame),
-    };
     const spots = mapSpotsByKey()[asset.mapKey] || [];
     if (spots.length === 0) return null;
 
@@ -761,8 +877,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         const to = spotByCellId.get(transition.to);
         if (!from || !to) return null;
         const badgePosition = computeTransitionBadgePosition(from, to, spots, {
-          width: resolvedAsset.routeLayoutFrame.width,
-          height: resolvedAsset.routeLayoutFrame.height,
+          width: asset.routeLayoutFrame.width,
+          height: asset.routeLayoutFrame.height,
         });
         return {
           ...transition,
@@ -798,7 +914,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     const inferredRoutes = inferRouteOverlays(
       spots,
-      frameMeta?.routeFrames,
+      undefined,
       analysis().transitions,
       mapRoutesByKey()[asset.mapKey],
     );
@@ -889,8 +1005,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       labelAnchors,
       new Map(labelAnchors.map((anchor) => [anchor.key, anchor.label])),
       {
-        width: resolvedAsset.routeLayoutFrame.width,
-        height: resolvedAsset.routeLayoutFrame.height,
+        width: asset.routeLayoutFrame.width,
+        height: asset.routeLayoutFrame.height,
       },
       labelObstacles,
     );
@@ -907,13 +1023,12 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       ...analysis().stats.map((stat) => stat.passCount),
     );
     const viewportHeight =
-      resolvedAsset.routeLayoutFrame.height *
-      (DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT / 100);
+      asset.routeLayoutFrame.height * (DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT / 100);
     const viewportOffsetY =
-      (resolvedAsset.routeLayoutFrame.height - viewportHeight) / 2;
+      (asset.routeLayoutFrame.height - viewportHeight) / 2;
 
     return {
-      asset: resolvedAsset,
+      asset,
       inferredRoutes,
       markers,
       transitions,
@@ -924,6 +1039,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       maxPassCount,
       viewportHeight,
       viewportOffsetY,
+      ports,
     };
   });
 
@@ -934,7 +1050,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     if (!filter) return null;
 
     const cellIdSet = new Set(filter.cellIds);
-    const matchingRoutes = allSortieRoutes().filter(
+    // 実際の全出撃（rawSortieRoutes）から該当セルを通った出撃を抽出
+    const matchingSorties = rawSortieRoutes().filter(
       (route) =>
         route.mapKey === filter.mapKey &&
         route.cells.some((cellId) => cellIdSet.has(cellId)),
@@ -942,7 +1059,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const matchingBattles = filteredBattles()
       .filter(
         (battle) =>
-          mapKeyOf(battle) === filter.mapKey && cellIdSet.has(battle.cell_id),
+          resolveBattleMapKey(battle) === filter.mapKey &&
+          cellIdSet.has(Number(battle.cell_id ?? NaN)),
       )
       .sort((a, b) =>
         compareNullableTimestamps(a.timestamp, b.timestamp, "desc"),
@@ -954,7 +1072,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const outgoingCounts = new Map<string, number>();
 
     let passCount = 0;
-    for (const route of matchingRoutes) {
+    for (const route of matchingSorties) {
       route.steps.forEach((step, index) => {
         if (!cellIdSet.has(step.cellId)) return;
         passCount++;
@@ -983,7 +1101,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         );
       }
       if (result?.drop_ship_id) {
-        const dropName = result.drop_ship_name ?? `艦ID:${result.drop_ship_id}`;
+        const sid = Number(result.drop_ship_id);
+        const mstName = d.mstShips().find((s) => s.id === sid)?.name;
+        const dropName = result.drop_ship_name ?? mstName ?? `艦ID:${result.drop_ship_id}`;
         dropCounts.set(dropName, (dropCounts.get(dropName) ?? 0) + 1);
       }
     }
@@ -991,7 +1111,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     return {
       ...filter,
       passCount,
-      routeCount: matchingRoutes.length,
+      routeCount: matchingSorties.length,
       battleCount: matchingBattles.length,
       topEnemyLabels: [...enemyLabelCounts.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -1119,8 +1239,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                     overlay={overlay()}
                     selectedCellFilter={selectedCellFilter}
                     toggleCellFilter={toggleCellFilter}
-                    showOfficialMapAssets={showOfficialMapAssets}
-                    theme={resolvedOfficialMapTheme}
+                    theme={detectedTheme}
                   />
                 </div>
 
@@ -1129,7 +1248,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                   <div class="rounded-box bg-base-200 p-3 text-sm">
                     <div class="font-bold mb-1">見方</div>
                     <div class="text-xs text-base-content/70">
-                      表示設定から海域背景画像の表示を切り替えできます
+                      背景画像は使わず、保存されたセル・航路情報を表示します
                     </div>
                     <div class="text-xs text-base-content/70">
                       緑の点線: マップ上の接続ルート
@@ -1292,17 +1411,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       </div>
       </Show>
 
-      {/* Display settings modal */}
-      <DisplaySettingsModal
-        ref={(el) => {
-          displaySettingsModalRef = el;
-        }}
-        showOfficialMapAssets={showOfficialMapAssets}
-        setShowOfficialMapAssets={setShowOfficialMapAssets}
-        officialMapThemeMode={officialMapThemeMode}
-        setOfficialMapThemeMode={setOfficialMapThemeMode}
-        resolvedOfficialMapTheme={resolvedOfficialMapTheme}
-      />
     </>
   );
 }

@@ -1,3 +1,24 @@
+export function parseDeckShipIds(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((id): id is string => typeof id === "string" && id.length > 0);
+  }
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((id): id is string => typeof id === "string" && id.length > 0);
+        }
+      } catch {
+        // ignore and fallback
+      }
+    }
+    return [trimmed];
+  }
+  return [];
+}
+
 import type {
   EnemyDeckRecord,
   EnemyShipRecord,
@@ -59,18 +80,8 @@ export function buildEnemyDeckResolver(
     if (!deck?.ship_ids) return "敵艦隊";
 
     const names: string[] = [];
-    if (Array.isArray(deck.ship_ids)) {
-      for (const shipUuid of deck.ship_ids) {
-        if (!shipUuid) continue;
-        const groupShips = shipsByGroupId.get(shipUuid) || [];
-        for (const ship of groupShips) {
-          const mstId = ship?.mst_ship_id;
-          if (!mstId) continue;
-          names.push(mstById.get(mstId) ?? `艦ID:${mstId}`);
-        }
-      }
-    } else if (typeof deck.ship_ids === "string" && deck.ship_ids) {
-      const groupShips = shipsByGroupId.get(deck.ship_ids) || [];
+    for (const shipUuid of parseDeckShipIds(deck.ship_ids)) {
+      const groupShips = shipsByGroupId.get(shipUuid) || [];
       for (const ship of groupShips) {
         const mstId = ship?.mst_ship_id;
         if (!mstId) continue;
@@ -124,17 +135,7 @@ export function buildEnemyFleetResolver(
   }
   const mstSlotItemById = new Map(mstSlotItems.map((item) => [item.id, item]));
 
-  const toGroupIds = (deckShipIds: EnemyDeckRecord["ship_ids"]): string[] => {
-    if (Array.isArray(deckShipIds)) {
-      return deckShipIds.filter(
-        (id): id is string => typeof id === "string" && id.length > 0,
-      );
-    }
-    if (typeof deckShipIds === "string" && deckShipIds.length > 0) {
-      return [deckShipIds];
-    }
-    return [];
-  };
+
 
   const signatureOf = (ships: EnemyFleetDetails["ships"]): string =>
     ships
@@ -177,7 +178,7 @@ export function buildEnemyFleetResolver(
     }
 
     const ships: EnemyFleetDetails["ships"] = [];
-    for (const shipGroupId of toGroupIds(deck.ship_ids)) {
+    for (const shipGroupId of parseDeckShipIds(deck.ship_ids)) {
       const groupShips = shipsByGroupId.get(shipGroupId) || [];
       for (const shipData of groupShips) {
         const mstId = shipData.mst_ship_id ?? null;

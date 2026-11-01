@@ -36,6 +36,7 @@ const MIN_OBS_PAIR = 6;
 const MIN_CONF_SINGLE = 0.55;
 const MIN_CONF_PAIR = 0.65;
 const MAX_TASK_RETRY_COUNT = 8;
+const STALE_TASK_MS = 30 * 60 * 1000;
 
 function nowMs(): number {
   return Date.now();
@@ -90,9 +91,11 @@ async function getCompletedAndRecentSets(
   const rows = ((await db
     .prepare(
       `SELECT quest_id, event_type, timestamp_ms, collection_session_id
-       FROM quest_state_events
-       WHERE dataset_id = ?
-         AND timestamp_ms <= ?
+       FROM (
+         SELECT quest_id, event_type, timestamp_ms, collection_session_id,
+                ROW_NUMBER() OVER (PARTITION BY quest_id ORDER BY timestamp_ms DESC, id DESC) AS position
+         FROM quest_state_events WHERE dataset_id = ? AND timestamp_ms <= ?
+       ) WHERE position = 1
        ORDER BY timestamp_ms ASC`
     )
     .bind(datasetId, atMs)
@@ -337,8 +340,6 @@ async function recomputeRulesForTarget(
     );
   }
 
-  // Batch 1: DELETEs + candidate INSERTs (100-stmt D1 limit enforced)
-  // DELETEs come first so the old data is cleared before new rows land.
   const deletePlusCandidates = [
     db
       .prepare(
@@ -354,9 +355,6 @@ async function recomputeRulesForTarget(
       .bind(targetQuestId, periodTag, tableVersion),
     ...candidateInsertStmts,
   ];
-  for (let i = 0; i < deletePlusCandidates.length; i += 100) {
-    await db.batch(deletePlusCandidates.slice(i, i + 100));
-  }
 
   let primaryPairHash: string | null = null;
   let primarySingleHash: string | null = null;
@@ -445,10 +443,8 @@ async function recomputeRulesForTarget(
     );
   }
 
-  // Batch 2: edge INSERTs
-  for (let i = 0; i < edgeInsertStmts.length; i += 100) {
-    await db.batch(edgeInsertStmts.slice(i, i + 100));
-  }
+  // Publish a target's candidates and edges in one D1 transaction.
+  await db.batch([...deletePlusCandidates, ...edgeInsertStmts]);
 }
 
 async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<void> {
@@ -471,16 +467,6 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
   for (const appearance of appearances) {
     const occurrenceId = `${appearance.collection_session_id}:${appearance.target_quest_id}:${appearance.appeared_at_ms}`;
 
-    const existing = (await db
-      .prepare(`SELECT occurrence_id FROM quest_occurrence_contexts WHERE occurrence_id = ? LIMIT 1`)
-      .bind(occurrenceId)
-      .first<{ occurrence_id?: string }>());
-
-    if (existing?.occurrence_id) {
-      touchedTargets.add(`${appearance.target_quest_id}:${appearance.period_tag}:${appearance.table_version}`);
-      continue;
-    }
-
     const sets = await getCompletedAndRecentSets(
       db,
       appearance.dataset_id,
@@ -488,7 +474,7 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
       appearance.appeared_at_ms,
     );
 
-    await db
+    const occurrenceStatements = [db
       .prepare(
         `INSERT INTO quest_occurrence_contexts (
            occurrence_id,
@@ -501,7 +487,8 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
            is_bootstrap_unknown,
            has_cross_session_inference,
            created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(occurrence_id) DO NOTHING`
       )
       .bind(
         occurrenceId,
@@ -515,10 +502,13 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
         sets.hasCrossSessionInference ? 1 : 0,
         nowMs(),
       )
-      .run();
+    ];
+    occurrenceStatements.push(db.prepare(
+      "DELETE FROM quest_occurrence_prerequisites WHERE occurrence_id = ?",
+    ).bind(occurrenceId));
 
     for (const questId of sets.completed) {
-      await db
+      occurrenceStatements.push(db
         .prepare(
           `INSERT OR IGNORE INTO quest_occurrence_prerequisites (
              occurrence_id,
@@ -529,8 +519,9 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
            ) VALUES (?, ?, ?, 1, ?)`
         )
         .bind(occurrenceId, questId, sets.recent.includes(questId) ? 1 : 0, nowMs())
-        .run();
+      );
     }
+    await db.batch(occurrenceStatements);
 
     touchedTargets.add(`${appearance.target_quest_id}:${appearance.period_tag}:${appearance.table_version}`);
   }
@@ -557,6 +548,13 @@ export async function runQuestInferenceTasks(
   const limit = Math.max(1, Math.min(200, options?.limit ?? 100));
 
   const now = nowMs();
+  const recovered = await db.prepare(`
+    UPDATE quest_inference_tasks
+    SET status = 'failed', retry_count = retry_count + 1,
+        error_message = 'Recovered stale running task', updated_at = ?
+    WHERE status = 'running' AND updated_at < ?
+  `).bind(now, now - STALE_TASK_MS).run();
+  if (recovered.meta.changes) console.warn("[QuestInference] Recovered stale tasks", recovered.meta.changes);
   let tasks: InferenceTask[];
   if (datasetId) {
     const result = await db

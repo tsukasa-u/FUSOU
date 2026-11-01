@@ -48,24 +48,34 @@ function encodeValueBySchema(type: unknown, value: unknown): Uint8Array {
   if (Array.isArray(type)) {
     if (value === null || value === undefined) {
       const nullIndex = type.findIndex((branch) => branch === "null");
-      return encodeLong(nullIndex >= 0 ? nullIndex : 0);
+      if (nullIndex < 0) throw new Error("Null value has no matching Avro union branch");
+      return encodeLong(nullIndex);
     }
-    const branchIndex = type.findIndex((branch) => branch !== "null");
-    if (branchIndex < 0) throw new Error("Invalid union schema");
-    return concatBytes([
-      encodeLong(branchIndex),
-      encodeValueBySchema(type[branchIndex], value),
-    ]);
+    for (let branchIndex = 0; branchIndex < type.length; branchIndex++) {
+      if (type[branchIndex] === "null") continue;
+      try {
+        return concatBytes([encodeLong(branchIndex), encodeValueBySchema(type[branchIndex], value)]);
+      } catch {
+        // A union branch may reject the value; try the remaining declared branches.
+      }
+    }
+    throw new Error("Value has no matching Avro union branch");
   }
 
   if (typeof type === "object" && type !== null) {
     const objectType = type as Partial<ArraySchema> & { type?: unknown };
     if (objectType.type === "array") {
-      const items = Array.isArray(value) ? value : [];
+      if (!Array.isArray(value)) throw new Error("Avro array requires an array");
+      const items = value;
+      if (!items.length) return encodeLong(0);
       const payload = concatBytes(
         items.map((item) => encodeValueBySchema(objectType.items, item)),
       );
       return concatBytes([encodeLong(items.length), payload, encodeLong(0)]);
+    }
+    if (objectType.type === "record") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Avro record requires an object");
+      return encodeRecordWithSchema(type as AvroSchemaInput, value as AvroRecord);
     }
     if (objectType.type !== undefined) {
       return encodeValueBySchema(objectType.type, value);
@@ -74,13 +84,21 @@ function encodeValueBySchema(type: unknown, value: unknown): Uint8Array {
 
   switch (type) {
     case "null":
+      if (value !== null && value !== undefined) throw new Error("Avro null requires null");
       return new Uint8Array(0);
     case "boolean":
+      if (typeof value !== "boolean") throw new Error("Avro boolean requires a boolean");
       return Uint8Array.of(value ? 1 : 0);
     case "int":
+      if (typeof value !== "number" || !Number.isInteger(value) || value < -2147483648 || value > 2147483647) {
+        throw new Error("Avro int requires a signed 32-bit integer");
+      }
+      return encodeLong(value);
     case "long":
-      return encodeLong(typeof value === "number" ? value : Number(value ?? 0));
+      if (typeof value !== "number") throw new Error("Avro long requires a number");
+      return encodeLong(value);
     case "float": {
+      if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Invalid Avro float");
       const output = new Uint8Array(4);
       new DataView(output.buffer).setFloat32(
         0,
@@ -90,6 +108,7 @@ function encodeValueBySchema(type: unknown, value: unknown): Uint8Array {
       return output;
     }
     case "double": {
+      if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Invalid Avro double");
       const output = new Uint8Array(8);
       new DataView(output.buffer).setFloat64(
         0,
@@ -99,15 +118,21 @@ function encodeValueBySchema(type: unknown, value: unknown): Uint8Array {
       return output;
     }
     case "bytes":
-      return encodeBytes(value instanceof Uint8Array ? value : new Uint8Array(0));
+      if (!(value instanceof Uint8Array)) throw new Error("Avro bytes requires Uint8Array");
+      return encodeBytes(value);
     case "string":
+      if (typeof value !== "string") throw new Error("Avro string requires a string");
+      return encodeString(value);
     default:
-      return encodeString(String(value ?? ""));
+      throw new Error(`Unsupported Avro schema type: ${String(type)}`);
   }
 }
 
 function normalizeSyncMarker(syncMarker?: Uint8Array): Uint8Array {
-  if (syncMarker?.length === 16) return syncMarker;
+  if (syncMarker !== undefined) {
+    if (syncMarker.length !== 16) throw new Error("Avro sync marker must be 16 bytes");
+    return syncMarker;
+  }
   const output = new Uint8Array(16);
   crypto.getRandomValues(output);
   return output;
@@ -127,8 +152,9 @@ export function encodeRecordWithSchema(
   schema: AvroSchemaInput,
   record: AvroRecord,
 ): Uint8Array {
+  if (!Array.isArray(schema.fields)) throw new Error("Avro record schema requires fields");
   return concatBytes(
-    (schema.fields ?? []).map((field) =>
+    schema.fields.map((field) =>
       encodeValueBySchema(field.type, record[field.name]),
     ),
   );
@@ -160,6 +186,7 @@ export function buildNullBlock(
   records: AvroRecord[],
   syncMarker: Uint8Array,
 ): Uint8Array {
+  if (!records.length) return new Uint8Array(0);
   const payload = concatBytes(
     records.map((record) => encodeRecordWithSchema(schema, record)),
   );
@@ -172,29 +199,9 @@ export function buildNullBlock(
 }
 
 async function deflateRawAsync(input: Uint8Array): Promise<Uint8Array> {
-  const stream = new CompressionStream("deflate-raw");
-  const writer = stream.writable.getWriter();
-  const reader = stream.readable.getReader();
-  const buffer = new ArrayBuffer(input.byteLength);
-  new Uint8Array(buffer).set(input);
-  await writer.write(new Uint8Array(buffer));
-  await writer.close();
-
-  const chunks: Uint8Array[] = [];
-  let totalLength = 0;
-  while (true) {
-    const result = await reader.read();
-    if (result.done) break;
-    chunks.push(result.value);
-    totalLength += result.value.length;
-  }
-  const output = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return output;
+  const { promisify } = await import("node:util");
+  const { deflateRaw } = await import("node:zlib");
+  return promisify(deflateRaw)(input);
 }
 
 export async function buildOCFWithSchema(
@@ -205,6 +212,7 @@ export async function buildOCFWithSchema(
 ): Promise<Uint8Array> {
   const sync = normalizeSyncMarker();
   const header = buildHeaderWithSchema(schema, codec, sync);
+  if (!records.length) return header;
   if (codec === "null") {
     return concatBytes([header, buildNullBlock(schema, records, sync)]);
   }

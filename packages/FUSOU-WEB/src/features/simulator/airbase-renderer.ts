@@ -1,4 +1,4 @@
-// ── Air Base Rendering / Fleet Section UI ──
+﻿// ── Air Base Rendering / Fleet Section UI ──
 
 import {
   setAirbaseSectionVisible,
@@ -40,16 +40,8 @@ type DisplaySettings = {
   combinedFleetType: 0 | 1 | 2 | 3;
 };
 
-const SLOT_LAYOUT_3X2_MIN_WIDTH_PX = 1200;
 export function getEffectiveFleetSlotLayout(): "2x3" | "3x2" {
-  if (
-    getFleetSlotLayoutMode() === "3x2" &&
-    typeof window !== "undefined" &&
-    window.innerWidth < SLOT_LAYOUT_3X2_MIN_WIDTH_PX
-  ) {
-    return "2x3";
-  }
-  return getFleetSlotLayoutMode();
+  return "3x2";
 }
 
 function readDisplaySettings(): DisplaySettings | null {
@@ -138,7 +130,25 @@ export function renderAirBases(): void {
   rerenderSolidSimulator("airbase");
 }
 
+let _renderAllPending = false;
+
 export function renderAll(): void {
   loadDisplaySettingsOnce();
+  if (_renderAllPending) return;
+  _renderAllPending = true;
+  const runner = () => {
+    _renderAllPending = false;
+    rerenderSolidSimulator("all");
+  };
+  if (typeof requestAnimationFrame !== "undefined") {
+    requestAnimationFrame(runner);
+  } else {
+    queueMicrotask(runner);
+  }
+}
+
+export function renderAllImmediate(): void {
+  loadDisplaySettingsOnce();
+  _renderAllPending = false;
   rerenderSolidSimulator("all");
 }

@@ -100,10 +100,12 @@ export default defineConfig({
   integrations: [
     sitemap(),
     react({
-      include: ["**/react/**/*.{js,jsx,ts,tsx}"],
+      include: ["**/react/**"],
+      exclude: ["**/solid/**"],
     }),
     solid({
-      include: ["**/solid/**/*.{js,jsx,ts,tsx}"],
+      include: ["**/solid/**"],
+      exclude: ["**/react/**"],
     }),
   ],
   output: "server",

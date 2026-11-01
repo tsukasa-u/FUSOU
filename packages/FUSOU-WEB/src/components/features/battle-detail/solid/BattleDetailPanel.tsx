@@ -18,7 +18,7 @@ import type {
   MstSlotItemRecord,
   ShipInfo,
 } from "@/features/battles/types";
-import { getBattleMapAsset } from "@/data/battleMapAssets";
+import { ensureMapLabels, resolveMapCellLabel } from "@/components/features/map-flow/solid/battle-map-flow/mapLabelCache";
 import { buildShareBattleUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
 import {
@@ -30,6 +30,7 @@ import { formatMapTextByIds } from "@/features/battles/map-labels";
 import {
   normalizeNullableNumber,
   normalizeEpochMs,
+  extractTimestampFromUuidV7,
 } from "@/features/battles/helpers";
 import {
   getMstShipById,
@@ -138,6 +139,7 @@ function formatDetailLoadError(
 }
 
 type BattleDetailPayload = {
+  period_tag?: string;
   table_version?: string | null;
   battle_indexes?: number[];
   battle?: Record<string, unknown> | null;
@@ -175,34 +177,65 @@ function toNullableNumber(value: unknown): number | null {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function parseEquipmentInfos(value: unknown): EquipmentInfo[] {
+function parseEquipmentInfos(
+  value: unknown,
+  mstSlotItemMap?: Map<number, MstSlotItemRecord>,
+): EquipmentInfo[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const row = jsonRecordOf(item);
     if (!row) return [];
+    const slotItemId = toNullableNumber(row["slotItemId"]);
+    let name = String(row["name"] ?? "");
+    let iconType = toNullableNumber(row["iconType"]);
+    if ((!name || name.startsWith("装備#")) && slotItemId && mstSlotItemMap) {
+      const mst = mstSlotItemMap.get(slotItemId);
+      if (mst) {
+        if (typeof mst["name"] === "string" && mst["name"]) {
+          name = mst["name"];
+        }
+        if (iconType === null && Array.isArray(mst["type"]) && mst["type"][3] != null) {
+          iconType = Number(mst["type"][3]);
+        }
+      }
+    }
     return [{
-      name: String(row["name"] ?? ""),
+      name,
       level: toNullableNumber(row["level"]),
-      iconType: toNullableNumber(row["iconType"]),
-      slotItemId: toNullableNumber(row["slotItemId"]),
+      iconType,
+      slotItemId,
     }];
   });
 }
 
-function parseFleetRecords(value: Array<Record<string, unknown>> | undefined): ShipInfo[] {
-  return (value ?? []).map((row) => ({
-    name: String(row["name"] ?? "艦"),
-    shipId: toNullableNumber(row["shipId"]),
-    level: toNullableNumber(row["level"]),
-    nowhp: normalizeNullableNumber(row["nowhp"]),
-    maxhp: normalizeNullableNumber(row["maxhp"]),
-    karyoku: normalizeNullableNumber(row["karyoku"]),
-    raisou: normalizeNullableNumber(row["raisou"]),
-    taiku: normalizeNullableNumber(row["taiku"]),
-    soukou: normalizeNullableNumber(row["soukou"]),
-    bannerUrl: String(row["bannerUrl"] ?? ""),
-    equipments: parseEquipmentInfos(row["equipments"]),
-  }));
+function parseFleetRecords(
+  value: Array<Record<string, unknown>> | undefined,
+  mstShipMap?: Map<number, MstShipRecord>,
+  mstSlotItemMap?: Map<number, MstSlotItemRecord>,
+): ShipInfo[] {
+  return (value ?? []).map((row) => {
+    const shipId = toNullableNumber(row["shipId"]);
+    let name = String(row["name"] ?? "艦");
+    if ((name === "艦" || name.startsWith("艦ID:") || name.startsWith("艦#")) && shipId && mstShipMap) {
+      const mst = mstShipMap.get(shipId);
+      if (mst && typeof mst["name"] === "string" && mst["name"]) {
+        name = mst["name"];
+      }
+    }
+    return {
+      name,
+      shipId,
+      level: toNullableNumber(row["level"]),
+      nowhp: normalizeNullableNumber(row["nowhp"]),
+      maxhp: normalizeNullableNumber(row["maxhp"]),
+      karyoku: normalizeNullableNumber(row["karyoku"]),
+      raisou: normalizeNullableNumber(row["raisou"]),
+      taiku: normalizeNullableNumber(row["taiku"]),
+      soukou: normalizeNullableNumber(row["soukou"]),
+      bannerUrl: String(row["bannerUrl"] ?? ""),
+      equipments: parseEquipmentInfos(row["equipments"], mstSlotItemMap),
+    };
+  });
 }
 
 function resolveAirBaseFormations(
@@ -292,6 +325,7 @@ export default function BattleDetailPanel(props: {
   battleIndex?: number | null;
   datasetId?: string | null;
   repository?: BattleDataRepository;
+  periods?: Array<{ period_tag: string; table_version?: string | null }>;
   onBattleIndexChange?: (index: number) => void;
   onLoadStatusChange?: (status: BattleDetailLoadStatus) => void;
 }): JSX.Element {
@@ -321,7 +355,13 @@ export default function BattleDetailPanel(props: {
     MstShipRecord
   > | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
-  const [cellLabel, setCellLabel] = createSignal<string>("-");
+  const cellLabel = createMemo(() => {
+    const b = battle();
+    if (!b) return "-";
+    const rawCellId = Number(b["cell_id"] ?? NaN);
+    if (!Number.isFinite(rawCellId)) return "-";
+    return resolveMapCellLabel(mapLabel(), rawCellId);
+  });
   const [dropShipInfo, setDropShipInfo] = createSignal<DropShipInfo | null>(
     null,
   );
@@ -372,10 +412,22 @@ export default function BattleDetailPanel(props: {
   });
   const [resolvedTableVersion, setResolvedTableVersion] =
     createSignal<string | null>(null);
+  const [resolvedPeriodTag, setResolvedPeriodTag] =
+    createSignal<string | null>(null);
   const [battleIndexes, setBattleIndexes] = createSignal<number[]>([]);
   const [switchingBattleIndex, setSwitchingBattleIndex] = createSignal<
     number | null
   >(null);
+  let loadedEnvBundle: {
+    envUuid: string;
+    periodTag: string;
+    requestedTableVersion: string;
+    datasetId?: string;
+    battles: Record<string, BattleDetailPayload>;
+    battleIndexes: number[];
+    commonMstShip: Map<number, MstShipRecord>;
+    commonMstSlotItem: Map<number, MstSlotItemRecord>;
+  } | null = null;
   let displaySettingsModalRef!: HTMLDialogElement;
 
   function parseSemver(version: string): [number, number, number] | null {
@@ -395,18 +447,47 @@ export default function BattleDetailPanel(props: {
     return left[2] < right[2];
   }
 
+  function resolveConcreteBattlePeriodTag(): string | null {
+    const resolved = resolvedPeriodTag()?.trim();
+    if (resolved && resolved !== "latest" && resolved !== "all") {
+      return resolved;
+    }
+    const requested = requestedPeriodTag().trim();
+    if (requested && requested !== "latest" && requested !== "all") {
+      return requested;
+    }
+    if (props.periods && props.periods.length > 0) {
+      const b = battle();
+      const rawTs = b ? (normalizeEpochMs(b["timestamp"]) ?? normalizeEpochMs(b["midnight_timestamp"])) : null;
+      const battleTs: number | null = rawTs ?? extractTimestampFromUuidV7(props.battleId);
+      if (battleTs !== null) {
+        const match = props.periods.find((p) => {
+          if (p.period_tag === "latest" || p.period_tag === "all") return false;
+          const pMs = Date.parse(`${p.period_tag}T00:00:00Z`);
+          return !Number.isNaN(pMs) && battleTs !== null && battleTs >= pMs;
+        });
+        if (match) return match.period_tag;
+      }
+      const latestConcrete = props.periods.find(
+        (p) => p.period_tag !== "latest" && p.period_tag !== "all"
+      );
+      if (latestConcrete) return latestConcrete.period_tag;
+    }
+    return null;
+  }
+
   function buildCurrentShareUrl(): string {
-    const tableVersion = requestedTableVersion().trim();
+    const tableVersion = (resolvedTableVersion()?.trim()) || requestedTableVersion().trim();
+    const periodTag = resolveConcreteBattlePeriodTag();
     const datasetId =
       props.datasetId !== undefined
         ? (props.datasetId ?? "").trim()
         : requestedDatasetId() || datasetIdFromSession(props.battleId.trim());
+    const currentBattleIdx = activeBattleIndex();
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
-      ...(props.battleIndex === undefined
-        ? {}
-        : { battleIndex: props.battleIndex }),
-      periodTag: requestedPeriodTag(),
+      battleIndex: currentBattleIdx,
+      ...(periodTag ? { periodTag } : {}),
       ...(tableVersion ? { tableVersion } : {}),
       ...(datasetId ? { datasetId } : {}),
       view: viewMode(),
@@ -505,65 +586,22 @@ export default function BattleDetailPanel(props: {
   });
 
   const selectableBattleIndexes = createMemo(() => {
-    return uniqueBattleIndexesInOrder(battleIndexes());
+    const list = [...battleIndexes()];
+    const current = Number(props.battleIndex ?? Number.NaN);
+    if (Number.isFinite(current) && current >= 0 && !list.includes(current)) {
+      list.push(current);
+      list.sort((a, b) => a - b);
+    }
+    return uniqueBattleIndexesInOrder(list);
   });
 
-  const alphaCellLabel = (cellId: number): string => {
-    if (!Number.isFinite(cellId) || cellId <= 0) return "-";
-    let n = Math.floor(cellId);
-    let label = "";
-    while (n > 0) {
-      const rem = (n - 1) % 26;
-      label = String.fromCharCode(65 + rem) + label;
-      n = Math.floor((n - 1) / 26);
+  const activeBattleIndex = createMemo(() => {
+    const pIdx = props.battleIndex;
+    if (pIdx !== undefined && pIdx !== null && Number.isFinite(Number(pIdx)) && Number(pIdx) >= 0) {
+      return Number(pIdx);
     }
-    return label;
-  };
-
-  async function resolveBattleCellLabel(
-    battleRecord: Record<string, unknown>,
-    mapAreaIdOverride?: number,
-    mapInfoNoOverride?: number,
-  ): Promise<string> {
-    const rawCellId = Number(battleRecord["cell_id"] ?? NaN);
-    if (!Number.isFinite(rawCellId)) return "-";
-    if (rawCellId === 0) return "港";
-
-    const mapAreaId = Number.isFinite(mapAreaIdOverride)
-      ? Number(mapAreaIdOverride)
-      : Number(battleRecord["maparea_id"] ?? NaN);
-    const mapInfoNo = Number.isFinite(mapInfoNoOverride)
-      ? Number(mapInfoNoOverride)
-      : Number(battleRecord["mapinfo_no"] ?? NaN);
-    if (
-      !Number.isFinite(mapAreaId) ||
-      !Number.isFinite(mapInfoNo) ||
-      mapAreaId <= 0 ||
-      mapInfoNo <= 0
-    ) {
-      return alphaCellLabel(rawCellId);
-    }
-
-    const mapKey = `${mapAreaId}-${mapInfoNo}`;
-    const asset = getBattleMapAsset(mapKey);
-    const targetUrl = asset?.dataUrl || asset?.labelsUrl;
-    if (!targetUrl) return alphaCellLabel(rawCellId);
-
-    try {
-      const response = await fetch(targetUrl);
-      if (!response.ok) return alphaCellLabel(rawCellId);
-      const payload = await response.json();
-      const payloadRecord = jsonRecordOf(payload);
-      if (!payloadRecord) return alphaCellLabel(rawCellId);
-      const labelsRecord = jsonRecordOf(payloadRecord["labels"]) ?? payloadRecord;
-      const label = labelsRecord[String(rawCellId)];
-      return typeof label === "string" && label
-        ? label
-        : alphaCellLabel(rawCellId);
-    } catch {
-      return alphaCellLabel(rawCellId);
-    }
-  }
+    return selectableBattleIndexes()[0] ?? 0;
+  });
 
   const formations = createMemo(() => {
     const b = battle();
@@ -657,8 +695,14 @@ export default function BattleDetailPanel(props: {
       loadToken,
       signal,
     } = params;
+    const isCurrentLoad = () =>
+      !disposed && loadToken === activeLoadToken && !signal.aborted;
+    const reportProgress = (progress: BattleDataProgress) => {
+      if (isCurrentLoad()) setLocalProgress(progress);
+    };
     if (!battle()) {
       setResolvedTableVersion(null);
+      setResolvedPeriodTag(null);
     }
     if (!battle()) {
       setMasterDataStatus([
@@ -677,10 +721,16 @@ export default function BattleDetailPanel(props: {
         // Only use the cached data if it matches the current battleId to avoid
         // showing a stale preview from a previously visited battle.
         const cachedUuid =
-          typeof parsedRecord?.["uuid"] === "string"
-            ? parsedRecord["uuid"]
-            : null;
-        const cachedMatchesCurrent = cachedUuid === envUuid;
+          typeof parsedRecord?.["env_uuid"] === "string"
+            ? parsedRecord["env_uuid"]
+            : (typeof parsedRecord?.["uuid"] === "string" ? parsedRecord["uuid"] : null);
+        const cachedIndex =
+          typeof parsedRecord?.["index"] === "number"
+            ? parsedRecord["index"]
+            : (typeof parsedRecord?.["battle_index"] === "number" ? parsedRecord["battle_index"] : null);
+        const cachedMatchesCurrent =
+          cachedUuid === envUuid &&
+          (cachedIndex === null || cachedIndex === requestedBattleIndex);
         if (parsedRecord && cachedMatchesCurrent) {
           const preloaded = {
             ...parsedRecord,
@@ -691,6 +741,8 @@ export default function BattleDetailPanel(props: {
           };
           if (disposed || loadToken !== activeLoadToken) return;
           setBattle(preloaded);
+          setFleets({ friendlyShips: [], enemyShips: [] });
+          setDropShipInfo(null);
         }
       } catch (e) {
         console.error("Failed to parse session battle data:", e);
@@ -709,7 +761,7 @@ export default function BattleDetailPanel(props: {
             limitBlocks: 120,
             limitRecords: 20000,
             signal,
-          }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleOverviewPayload;
+          }, repository.kind === "local-avro" ? { onProgress: reportProgress } : {})) as BattleOverviewPayload;
           const orderedRows = (overview.battles || [])
             .filter((row) => String(row["env_uuid"] ?? "") === envUuid)
             .map((row) => ({
@@ -733,25 +785,34 @@ export default function BattleDetailPanel(props: {
 
       if (!envUuid) {
         setMasterDataStatus([]);
-        setError("env_uuid が指定されていません");
+        setBattle(null);
+        setLoading(false);
         return;
       }
 
-      if (!Number.isFinite(requestedBattleIndex) || requestedBattleIndex < 0) {
-        setMasterDataStatus([]);
-        setError("battle_index が指定されていないか不正です");
-        return;
+      let effectiveBattleIndex = Number.isFinite(requestedBattleIndex) && requestedBattleIndex >= 0
+        ? requestedBattleIndex
+        : -1;
+
+      if (loadedEnvBundle && loadedEnvBundle.envUuid !== envUuid) {
+        loadedEnvBundle = null;
       }
 
-      let payload: BattleDetailPayload;
-      try {
+      const bundleMatches =
+        loadedEnvBundle !== null &&
+        loadedEnvBundle.envUuid === envUuid &&
+        loadedEnvBundle.periodTag === requestedPeriod &&
+        loadedEnvBundle.requestedTableVersion === tableVersion &&
+        (loadedEnvBundle.datasetId || "") === datasetId;
+
+      const fetchSingleDetail = async (targetIdx: number): Promise<BattleDetailPayload> => {
         const localMasterData =
           repository.kind === "local-avro"
             ? await Promise.all([getMstShipById(signal), getMstSlotItemById(signal)])
             : null;
-        payload = (await repository.getDetail({
+        return (await repository.getDetail({
           envUuid,
-          battleIndex: requestedBattleIndex,
+          battleIndex: targetIdx >= 0 ? targetIdx : 0,
           periodTag: requestedPeriod,
           ...(tableVersion ? { tableVersion } : {}),
           ...(datasetId ? { datasetId } : {}),
@@ -762,8 +823,90 @@ export default function BattleDetailPanel(props: {
               }
             : {}),
           signal,
-        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleDetailPayload;
+        }, repository.kind === "local-avro" ? { onProgress: reportProgress } : {})) as BattleDetailPayload;
+      };
+
+      let payload: BattleDetailPayload;
+      try {
+        const cachedBattle = effectiveBattleIndex >= 0
+          ? loadedEnvBundle?.battles[String(effectiveBattleIndex)]
+          : (loadedEnvBundle?.battleIndexes?.[0] !== undefined
+              ? loadedEnvBundle.battles[String(loadedEnvBundle.battleIndexes[0])]
+              : undefined);
+
+        if (bundleMatches && cachedBattle) {
+          // Instant local render from already-downloaded sortie bundle (0ms, zero network)
+          payload = cachedBattle;
+          if (effectiveBattleIndex < 0 && loadedEnvBundle?.battleIndexes?.[0] !== undefined) {
+            effectiveBattleIndex = loadedEnvBundle.battleIndexes[0];
+            props.onBattleIndexChange?.(effectiveBattleIndex);
+          }
+        } else if (typeof repository.getEnvDetail === "function") {
+          try {
+            const envPayload = await repository.getEnvDetail({
+              envUuid,
+              periodTag: requestedPeriod,
+              ...(tableVersion ? { tableVersion } : {}),
+              ...(datasetId ? { datasetId } : {}),
+              signal,
+            });
+            if (!isCurrentLoad()) return;
+            if (envPayload && envPayload.battles && Object.keys(envPayload.battles).length > 0) {
+              if (typeof envPayload.period_tag === "string" && envPayload.period_tag.trim() && envPayload.period_tag !== "latest" && envPayload.period_tag !== "all") {
+                setResolvedPeriodTag(envPayload.period_tag.trim());
+              }
+              const bIndexes = Object.keys(envPayload.battles)
+                .map(Number)
+                .filter((n) => Number.isFinite(n) && n >= 0)
+                .sort((a, b) => a - b);
+
+              // Build unified common master data from all battles in the sortie
+              const commonShip = new Map<number, MstShipRecord>();
+              const commonSlot = new Map<number, MstSlotItemRecord>();
+              for (const b of Object.values(envPayload.battles)) {
+                const sMap = parseMstShipMap(b.refs?.mst_ship);
+                for (const [id, row] of sMap.entries()) commonShip.set(id, row);
+                const iMap = parseMstSlotItemMap(b.refs?.mst_slotitem);
+                for (const [id, row] of iMap.entries()) commonSlot.set(id, row);
+              }
+
+              loadedEnvBundle = {
+                envUuid,
+                periodTag: requestedPeriod,
+                requestedTableVersion: tableVersion,
+                datasetId,
+                battles: envPayload.battles,
+                battleIndexes: bIndexes,
+                commonMstShip: commonShip,
+                commonMstSlotItem: commonSlot,
+              };
+
+              let resolvedBattleIdx = effectiveBattleIndex;
+              if (resolvedBattleIdx < 0 || !envPayload.battles[String(resolvedBattleIdx)]) {
+                resolvedBattleIdx = bIndexes[0] ?? 0;
+                effectiveBattleIndex = resolvedBattleIdx;
+                props.onBattleIndexChange?.(resolvedBattleIdx);
+              }
+
+              const envBattle = envPayload.battles[String(resolvedBattleIdx)];
+              if (envBattle) {
+                payload = envBattle;
+              } else {
+                payload = await fetchSingleDetail(resolvedBattleIdx);
+              }
+            } else {
+              payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
+            }
+          } catch (error) {
+            if (!isCurrentLoad()) return;
+            console.warn("Failed to load sortie bundle; trying battle detail:", error);
+            payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
+          }
+        } else {
+          payload = await fetchSingleDetail(effectiveBattleIndex >= 0 ? effectiveBattleIndex : 0);
+        }
       } catch (error) {
+        if (!isCurrentLoad()) return;
         const status =
           error instanceof BattleRepositoryHttpError ? error.status : null;
         if (status === 400) {
@@ -783,111 +926,177 @@ export default function BattleDetailPanel(props: {
         throw error;
       }
 
+      if (!isCurrentLoad()) return;
+      const currentBundle = loadedEnvBundle?.envUuid === envUuid &&
+        loadedEnvBundle.periodTag === requestedPeriod &&
+        loadedEnvBundle.requestedTableVersion === tableVersion &&
+        (loadedEnvBundle.datasetId || "") === datasetId
+        ? loadedEnvBundle
+        : null;
+      const indexesFromBundle = currentBundle?.battleIndexes;
       const indexesFromPayload = Array.isArray(payload.battle_indexes)
         ? uniqueBattleIndexesInOrder(payload.battle_indexes)
         : [];
-      if (indexesFromPayload.length > 0) {
-        setBattleIndexes(indexesFromPayload);
+      const effectiveIndexes =
+        indexesFromBundle && indexesFromBundle.length > 0
+          ? indexesFromBundle
+          : indexesFromPayload;
+      if (effectiveIndexes.length > 0) {
+        setBattleIndexes(effectiveIndexes);
       } else {
-        setBattleIndexes(await resolveBattleIndexesFallback());
+        const fallbackIndexes = await resolveBattleIndexesFallback();
+        if (!isCurrentLoad()) return;
+        setBattleIndexes(fallbackIndexes);
       }
       setResolvedTableVersion(
         typeof payload.table_version === "string" && payload.table_version.trim()
           ? payload.table_version.trim()
           : effectiveTableVersion,
       );
+      if (typeof payload.period_tag === "string" && payload.period_tag.trim() && payload.period_tag !== "latest" && payload.period_tag !== "all") {
+        setResolvedPeriodTag(payload.period_tag.trim());
+      }
       const detailBattle = payload.battle ?? null;
       if (detailBattle) {
-          const resolvedMstShip = parseMstShipMap(payload.refs?.mst_ship);
-          const resolvedMstSlotItem = parseMstSlotItemMap(
-            payload.refs?.mst_slotitem,
-          );
-          const fullMstSlotItem = await getMstSlotItemById(signal);
-          const effectiveMstSlotItem = new Map(fullMstSlotItem);
-          for (const [id, row] of resolvedMstSlotItem.entries()) {
-            effectiveMstSlotItem.set(id, row);
-          }
-          setMasterDataStatus([
-            {
-              name: "mst_ship",
-              status: resolvedMstShip.size > 0 ? "success" : "failed",
-              detail: `${resolvedMstShip.size}件`,
-            },
-            {
-              name: "mst_slotitem",
-              status: effectiveMstSlotItem.size > 0 ? "success" : "failed",
-              detail:
-                effectiveMstSlotItem.size > resolvedMstSlotItem.size
-                  ? `${resolvedMstSlotItem.size}件 + 補完${effectiveMstSlotItem.size - resolvedMstSlotItem.size}件`
-                  : `${resolvedMstSlotItem.size}件`,
-            },
-          ]);
+          const resolvedMstShip = new Map(currentBundle?.commonMstShip ?? parseMstShipMap(payload.refs?.mst_ship));
+          const resolvedMstSlotItem = new Map(currentBundle?.commonMstSlotItem ?? parseMstSlotItemMap(payload.refs?.mst_slotitem));
 
-          await getWeaponIconFrames(signal);
+          // Fast render: immediately apply pre-resolved refs without waiting for full 1MB master-data download
+          let effectiveMstShip = new Map(resolvedMstShip);
+          let effectiveMstSlotItem = new Map(resolvedMstSlotItem);
 
-          const dropShipId =
-            Number(jsonRecordOf(detailBattle["battle_result"])?.["drop_ship_id"] ?? 0) || 0;
-          const dropShip = dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
-          const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
-          const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
-          const linkedCell = Array.isArray(payload.linked?.cells)
-            ? payload.linked?.cells.find((row) => {
-                const area = Number(row["maparea_id"] ?? NaN);
-                const info = Number(row["mapinfo_no"] ?? NaN);
-                return (
-                  Number.isFinite(area) &&
-                  Number.isFinite(info) &&
-                  area > 0 &&
-                  info > 0
-                );
-              })
-            : undefined;
-          const fallbackMapAreaId = Number(linkedCell?.["maparea_id"] ?? NaN);
-          const fallbackMapInfoNo = Number(linkedCell?.["mapinfo_no"] ?? NaN);
-          const resolvedMapAreaId =
-            Number.isFinite(mapAreaId) && mapAreaId > 0
-              ? mapAreaId
-              : fallbackMapAreaId;
-          const resolvedMapInfoNo =
-            Number.isFinite(mapInfoNo) && mapInfoNo > 0
-              ? mapInfoNo
-              : fallbackMapInfoNo;
+          const applyBattleState = (
+            shipMap: Map<number, MstShipRecord>,
+            slotItemMap: Map<number, MstSlotItemRecord>,
+          ) => {
+            const dropShipId =
+              Number(jsonRecordOf(detailBattle["battle_result"])?.["drop_ship_id"] ?? 0) || 0;
+            const dropShip = dropShipId > 0 ? shipMap.get(dropShipId) : null;
+            const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
+            const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
+            const linkedCell = Array.isArray(payload.linked?.cells)
+              ? payload.linked?.cells.find((row) => {
+                  const area = Number(row["maparea_id"] ?? NaN);
+                  const info = Number(row["mapinfo_no"] ?? NaN);
+                  return (
+                    Number.isFinite(area) &&
+                    Number.isFinite(info) &&
+                    area > 0 &&
+                    info > 0
+                  );
+                })
+              : undefined;
+            const fallbackMapAreaId = Number(linkedCell?.["maparea_id"] ?? NaN);
+            const fallbackMapInfoNo = Number(linkedCell?.["mapinfo_no"] ?? NaN);
+            const resolvedMapAreaId =
+              Number.isFinite(mapAreaId) && mapAreaId > 0
+                ? mapAreaId
+                : fallbackMapAreaId;
+            const resolvedMapInfoNo =
+              Number.isFinite(mapInfoNo) && mapInfoNo > 0
+                ? mapInfoNo
+                : fallbackMapInfoNo;
 
-          if (disposed || loadToken !== activeLoadToken) return;
-          const resolvedCellLabel = await resolveBattleCellLabel(
-            detailBattle,
-            resolvedMapAreaId,
-            resolvedMapInfoNo,
-          );
-          setBattle(detailBattle);
-          setFleets({
-            friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet),
-            enemyShips: parseFleetRecords(payload.derived?.enemy_fleet),
-          });
-          setMstSlotItemById(effectiveMstSlotItem);
-          setMstShipById(resolvedMstShip);
-          setMapLabel(
-            Number.isFinite(resolvedMapAreaId) &&
+            if (disposed || loadToken !== activeLoadToken) return;
+            const currentMapKey =
+              Number.isFinite(resolvedMapAreaId) &&
               Number.isFinite(resolvedMapInfoNo) &&
               resolvedMapAreaId > 0 &&
               resolvedMapInfoNo > 0
-              ? `${resolvedMapAreaId}-${resolvedMapInfoNo}`
-              : null,
-          );
-          setCellLabel(resolvedCellLabel);
-          setDropShipInfo(
-            dropShipId > 0
-              ? {
-                  shipId: dropShipId,
-                  name: String(dropShip?.["name"] ?? `艦#${dropShipId}`),
-                  bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
+                ? `${resolvedMapAreaId}-${resolvedMapInfoNo}`
+                : null;
+            if (currentMapKey) {
+              ensureMapLabels(currentMapKey);
+            }
+            setBattle(detailBattle);
+            setFleets({
+              friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet, shipMap, slotItemMap),
+              enemyShips: parseFleetRecords(payload.derived?.enemy_fleet, shipMap, slotItemMap),
+            });
+            setMstSlotItemById(slotItemMap);
+            setMstShipById(shipMap);
+            setMapLabel(currentMapKey);
+            setDropShipInfo(
+              dropShipId > 0
+                ? {
+                    shipId: dropShipId,
+                    name: String(dropShip?.["name"] ?? `艦#${dropShipId}`),
+                    bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
+                  }
+                : null,
+            );
+          };
+
+          // Step 1: Render immediately
+          applyBattleState(effectiveMstShip, effectiveMstSlotItem);
+
+          // Step 2: If payload.refs provided all needed data, avoid downloading 1MB of full master data
+          const hasCompleteRefs =
+            payload.refs !== undefined &&
+            (resolvedMstShip.size > 0 || (Array.isArray(payload.refs.mst_ship) && payload.refs.mst_ship.length === 0));
+          if (hasCompleteRefs) {
+            setMasterDataStatus([
+              {
+                name: "mst_ship",
+                status: "success",
+                detail: `${resolvedMstShip.size}件 (同梱)`,
+              },
+              {
+                name: "mst_slotitem",
+                status: "success",
+                detail: `${resolvedMstSlotItem.size}件 (同梱)`,
+              },
+            ]);
+          } else {
+            // Fallback: only fetch full master data if refs were missing
+            void (async () => {
+              try {
+                const [fullMstShip, fullMstSlotItem] = await Promise.all([
+                  getMstShipById(signal),
+                  getMstSlotItemById(signal),
+                ]);
+                if (disposed || loadToken !== activeLoadToken) return;
+                const mergedShip = new Map(fullMstShip);
+                for (const [id, row] of resolvedMstShip.entries()) {
+                  mergedShip.set(id, row);
                 }
-              : null,
-          );
+                const mergedSlotItem = new Map(fullMstSlotItem);
+                for (const [id, row] of resolvedMstSlotItem.entries()) {
+                  mergedSlotItem.set(id, row);
+                }
+                effectiveMstShip = mergedShip;
+                effectiveMstSlotItem = mergedSlotItem;
+                setMasterDataStatus([
+                  {
+                    name: "mst_ship",
+                    status: mergedShip.size > 0 ? "success" : "failed",
+                    detail:
+                      mergedShip.size > resolvedMstShip.size
+                        ? `${resolvedMstShip.size}件 + 補完${mergedShip.size - resolvedMstShip.size}件`
+                        : `${resolvedMstShip.size}件`,
+                  },
+                  {
+                    name: "mst_slotitem",
+                    status: mergedSlotItem.size > 0 ? "success" : "failed",
+                    detail:
+                      mergedSlotItem.size > resolvedMstSlotItem.size
+                        ? `${resolvedMstSlotItem.size}件 + 補完${mergedSlotItem.size - resolvedMstSlotItem.size}件`
+                        : `${resolvedMstSlotItem.size}件`,
+                  },
+                ]);
+                applyBattleState(mergedShip, mergedSlotItem);
+              } catch {
+                // Ignore background error if partial data already rendered
+              }
+            })();
+          }
+
+          void getWeaponIconFrames(signal).catch(() => undefined);
         return;
       }
       throw new Error("detail response did not contain a battle");
     } catch (e) {
+      if (!isCurrentLoad()) return;
       console.error("Failed to load battle detail:", e);
       const diagnostic = formatDetailLoadError(
         e,
@@ -965,9 +1174,15 @@ export default function BattleDetailPanel(props: {
       props.datasetId !== undefined
         ? (props.datasetId ?? "").trim()
         : requestedDatasetId() || datasetIdFromSession(envUuid);
-    if (!envUuid || !Number.isFinite(idx) || idx < 0) {
+    if (!envUuid) {
+      ++activeLoadToken;
+      detailAbortController?.abort();
+      loadedEnvBundle = null;
+      lastLoadKey = null;
       setBattle(null);
-      setError("battle_index または env_uuid が不正です");
+      setFleets(null);
+      setBattleIndexes([]);
+      setLoading(false);
       return;
     }
 
@@ -979,7 +1194,15 @@ export default function BattleDetailPanel(props: {
     detailAbortController?.abort();
     const abortController = new AbortController();
     detailAbortController = abortController;
-    if (!untrack(() => battle())) {
+    const currentFleets = untrack(() => fleets());
+    const hasCachedBattle =
+      loadedEnvBundle !== null &&
+      loadedEnvBundle.envUuid === envUuid &&
+      loadedEnvBundle.periodTag === requestedPeriod &&
+      loadedEnvBundle.requestedTableVersion === tableVersion &&
+      (loadedEnvBundle.datasetId || "") === datasetId &&
+      Boolean(loadedEnvBundle.battles[String(idx >= 0 ? idx : (loadedEnvBundle.battleIndexes[0] ?? 0))]);
+    if (!hasCachedBattle || !currentFleets?.friendlyShips?.length) {
       setLoading(true);
     }
     setError(null);
@@ -1005,10 +1228,18 @@ export default function BattleDetailPanel(props: {
     } else {
       url.searchParams.delete("separators");
     }
+    const concreteTag = resolvedPeriodTag();
+    if (concreteTag && concreteTag !== "latest" && concreteTag !== "all") {
+      if (url.searchParams.get("period_tag") === "latest" || !url.searchParams.has("period_tag")) {
+        url.searchParams.set("period_tag", concreteTag);
+      }
+    }
     window.history.replaceState({}, "", url.toString());
   });
 
   // ── Render ────────────────────────────────────────────────────────
+
+  const isUnselected = () => !props.battleId || props.battleId.trim() === "";
 
   return (
     <div class="max-w-[1280px] mx-auto px-4 pt-2 pb-8">
@@ -1019,9 +1250,9 @@ export default function BattleDetailPanel(props: {
               {(idx, order) => (
                 <button
                   type="button"
-                  class={`tab tab-sm ${idx === Number(props.battleIndex ?? Number.NaN) ? "tab-active" : ""}`}
+                  class={`tab tab-sm ${idx === activeBattleIndex() ? "tab-active" : ""}`}
                   onClick={() => {
-                    if (idx === Number(props.battleIndex ?? Number.NaN)) return;
+                    if (idx === activeBattleIndex()) return;
                     setSwitchingBattleIndex(idx);
                     props.onBattleIndexChange?.(idx);
                   }}
@@ -1049,21 +1280,31 @@ export default function BattleDetailPanel(props: {
         </div>
       </Show>
 
-      {/* Error banner */}
-      <Show when={error()}>
-        <div class="fusou-card mb-6">
-          <div class="fusou-card-body">
-            <h2 class="card-title">戦闘詳細</h2>
-            <span
-              class={
-                error()!.includes("エラー") ? "text-error" : "text-warning"
-              }
-            >
-              {error()}
-            </span>
-          </div>
+      {/* Unselected Guidance */}
+      <Show when={isUnselected()}>
+        <div class="rounded-lg border border-base-content/10 bg-base-200/30 p-6 text-center my-4">
+          <p class="text-sm font-medium text-base-content/80">戦闘が選択されていません</p>
+          <p class="mt-1 text-xs text-base-content/60">
+            上部のタブ（「戦闘一覧」や「マップ」など）から確認したい戦闘を選択してください。
+          </p>
         </div>
       </Show>
+
+      {/* Error banner */}
+        <Show when={error() && !isUnselected()}>
+          <div class="fusou-card mb-6">
+            <div class="fusou-card-body">
+              <h2 class="card-title">戦闘詳細</h2>
+              <span
+                class={
+                  error()!.includes("エラー") ? "text-error" : "text-warning"
+                }
+              >
+                {error()}
+              </span>
+            </div>
+          </div>
+        </Show>
 
       <Show when={battle()}>
         {(b) => (
@@ -1177,7 +1418,15 @@ export default function BattleDetailPanel(props: {
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.enemyShips?.length}
-                      fallback={<FleetFallback emptyLabel="敵艦隊データなし" />}
+                      fallback={
+                        <FleetFallback
+                          emptyLabel={
+                            (!battle()?.["e_formation"] || !battle()?.["e_deck_id"])
+                              ? "敵艦隊なし（航空偵察・非戦闘マス）"
+                              : "敵艦隊データなし"
+                          }
+                        />
+                      }
                     >
                       <ShipRows ships={fleets()!.enemyShips} sideLabel="敵" />
                     </Show>
@@ -1296,7 +1545,7 @@ export default function BattleDetailPanel(props: {
       />
 
       {/* Loading state (only when no preloaded data yet) */}
-      <Show when={loading() && !battle()}>
+      <Show when={loading() && !battle() && !isUnselected()}>
         <div class="fusou-card mb-6">
           <div class="fusou-card-body py-12">
             <LoadingState message="戦闘詳細データを読込中..." size="lg" minHeight="min-h-[240px]" />

@@ -6,50 +6,52 @@ use tauri::Emitter;
 
 #[cfg(dev)]
 use regex::Regex;
+#[cfg(dev)]
+use std::sync::LazyLock;
 
+#[cfg(dev)]
+static RE_METADATA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap());
+
+use crate::events;
 use crate::storage::submit_data;
 
 use kc_api::interface::air_base::AirBases;
 use kc_api::interface::deck_port::DeckPorts;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
-
 use kc_api::parser::parser::{request_parser, response_parser};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
         EmitData::Add(data) => match data {
             Add::Materials(data) => {
-                let _ = handle.emit_to("main", "add-kcs-materials", data);
+                let _ = handle.emit_to("main", events::ADD_KCS_MATERIALS, data);
             }
             Add::Ships(data) => {
                 data.add_or();
-                let _ = handle.emit_to("main", "add-kcs-ships", data);
+                let _ = handle.emit_to("main", events::ADD_KCS_SHIPS, data);
             }
             Add::Battle(data) => {
                 let cell_id = data.cell_id;
                 data.add_or();
-                let merged_battle = Cells::load()
-                    .battles
-                    .get(&cell_id)
-                    .cloned()
-                    .unwrap_or(data);
-                let _ = handle.emit_to("main", "add-kcs-battle", merged_battle);
+                let merged_battle = Cells::load().battles.get(&cell_id).cloned().unwrap_or(data);
+                let _ = handle.emit_to("main", events::ADD_KCS_BATTLE, merged_battle);
             }
             Add::Cell(data) => {
                 data.add_or();
-                let _ = handle.emit_to("main", "add-kcs-cell", data);
+                let _ = handle.emit_to("main", events::ADD_KCS_CELL, data);
             }
             Add::QuestEvent(data) => {
                 crate::senders::quest_tree_sender::enqueue(data);
             }
             Add::Dammy(_) => {
-                let _ = handle.emit_to("main", "add-kcs-dammy", ());
+                let _ = handle.emit_to("main", events::ADD_KCS_DAMMY, ());
             }
         },
         EmitData::Set(data) => match data {
             Set::DeckPorts(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-deck-ports", data);
+                let _ = handle.emit_to("main", events::SET_KCS_DECK_PORTS, data);
             }
             Set::Basic(data) => {
                 data.restore();
@@ -62,61 +64,63 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 });
             }
             Set::Materials(data) => {
-                let _ = handle.emit_to("main", "set-kcs-materials", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MATERIALS, data);
             }
             Set::UseItems(data) => {
                 data.restore();
-                // let _ = handle.emit_to("main", "set-kcs-use-items", data);
+                // UseItems is not forwarded to the frontend.
             }
             Set::Ships(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-ships", data);
+                let _ = handle.emit_to("main", events::SET_KCS_SHIPS, data);
             }
             Set::SlotItems(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-slot-items", data);
+                let _ = handle.emit_to("main", events::SET_KCS_SLOT_ITEMS, data);
             }
             Set::NDocks(data) => {
-                let _ = handle.emit_to("main", "set-kcs-n-docks", data);
+                let _ = handle.emit_to("main", events::SET_KCS_N_DOCKS, data);
             }
             Set::Logs(data) => {
-                let _ = handle.emit_to("main", "set-kcs-logs", data);
+                let _ = handle.emit_to("main", events::SET_KCS_LOGS, data);
             }
             Set::AirBases(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-air-bases-ports", data);
+                let _ = handle.emit_to("main", events::SET_KCS_AIR_BASES_PORTS, data);
             }
             Set::MstShips(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-ships", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_SHIPS, data);
             }
             Set::MstSlotItems(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-slot-items", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_SLOT_ITEMS, data);
             }
             Set::MstEquipExslotShips(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_EQUIP_EXSLOT_SHIPS, data);
             }
             Set::MstEquipShips(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-equip-ships", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_EQUIP_SHIPS, data);
             }
             Set::MstStypes(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-stypes", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_STYPES, data);
             }
             Set::MstUseItems(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-use-items", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_USE_ITEMS, data);
             }
             Set::MstSlotItemEquipTypes(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
+                let _ = handle.emit_to("main", events::SET_KCS_MST_SLOT_ITEM_EQUIP_TYPES, data);
             }
             Set::Cells(data) => {
+                let mut data = data;
+                crate::map_cell_labels::apply_to_cells(&mut data);
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-cells", data);
+                let _ = handle.emit_to("main", events::SET_KCS_CELLS, data);
             }
             Set::MstMapAreas(data) => {
                 data.restore();
@@ -139,7 +143,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Set::Quests(data) => {
                 data.restore();
                 crate::senders::quest_tree_sender::enqueue_snapshot(data.clone());
-                let _ = handle.emit_to("main", "set-kcs-quests", data);
+                let _ = handle.emit_to("main", events::SET_KCS_QUESTS, data);
             }
             Set::ShipGrowthSnapshot(data) => {
                 crate::senders::ship_growth_sender::enqueue_snapshot(data);
@@ -154,7 +158,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 crate::senders::remodel_sender::enqueue_detail(data);
             }
             Set::Dammy(_) => {
-                let _ = handle.emit_to("main", "set-kcs-dammy", ());
+                let _ = handle.emit_to("main", events::SET_KCS_DAMMY, ());
             }
         },
         EmitData::Identifier(data) => match data {
@@ -167,8 +171,8 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 Cells::reset();
             }
             Identifier::MapStart(_) => {
-                let _ = handle.emit_to("main", "set-kcs-air-bases-battles", AirBases::load());
-                let _ = handle.emit_to("main", "set-kcs-deck-battles", DeckPorts::load());
+                let _ = handle.emit_to("main", events::SET_KCS_AIR_BASES_BATTLES, AirBases::load());
+                let _ = handle.emit_to("main", events::SET_KCS_DECK_BATTLES, DeckPorts::load());
                 Ships::cashe_restore();
             }
         },
@@ -184,10 +188,9 @@ pub fn struct_selector_response(
 
     #[cfg(dev)]
     {
-        let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
         let data_removed_metadata: String =
-            re_metadata.replace(&data_removed_svdata, "").to_string();
-        return response_parser(name, data_removed_metadata);
+            RE_METADATA.replace(&data_removed_svdata, "").to_string();
+        response_parser(name, data_removed_metadata)
     }
 
     #[cfg(any(not(dev), check_release))]
@@ -202,15 +205,13 @@ pub fn struct_selector_resquest(
 
     #[cfg(dev)]
     {
-        let re_svdata = Regex::new(r"svdata=").unwrap();
-        let data_removed_svdata: String = re_svdata.replace(&data_removed_bom, "").to_string();
-        let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+        let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
         let data_removed_metadata: String =
-            re_metadata.replace(&data_removed_svdata, "").to_string();
+            RE_METADATA.replace(&data_removed_svdata, "").to_string();
         let repalced_data = data_removed_metadata
             .replace("%5B", "[")
             .replace("%5D", "]");
-        return request_parser(name, repalced_data);
+        request_parser(name, repalced_data)
     }
 
     #[cfg(any(not(dev), check_release))]
@@ -232,6 +233,10 @@ async fn parser_server(
                     Some(bidirectional_channel::StatusInfo::RESPONSE { path, content_type: _, content }) => {
                         let handle_clone = handle.clone();
                         tokio::task::spawn(async move {
+                            if crate::map_cell_labels::map_ids_from_resource_path(&path).is_some() {
+                                return;
+                            }
+
                             if let Ok(emit_data_list) = struct_selector_response(path, content) {
                                 for emit_data_element in emit_data_list {
                                     emit_data(&handle_clone, emit_data_element);

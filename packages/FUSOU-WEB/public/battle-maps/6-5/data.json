@@ -236,7 +236,7 @@
     }
   ],
   "labels": {
-    "0": "港 1",
+    "0": "1",
     "1": "A",
     "2": "B",
     "3": "C",
@@ -255,7 +255,7 @@
     "16": "H",
     "17": "I",
     "18": "M",
-    "19": "港 2"
+    "19": "2"
   },
   "routes": [
     {
@@ -466,6 +466,16 @@
   ],
   "resourceSpots": [],
   "resourceLabels": [],
+  "maelstromLabels": [],
+  "nothingLabels": [],
+  "airLabels": [
+    "G",
+    "H"
+  ],
+  "nightLabels": [],
+  "activeBranchLabels": [],
+  "landingLabels": [],
+  "reconLabels": [],
   "airbases": [
     {
       "x": 197,
@@ -487,15 +497,5 @@
     "K": 5,
     "L": 5,
     "M": 5
-  },
-  "maelstromLabels": [],
-  "nothingLabels": [],
-  "airLabels": [
-    "G",
-    "H"
-  ],
-  "nightLabels": [],
-  "activeBranchLabels": [],
-  "landingLabels": [],
-  "reconLabels": []
+  }
 }

@@ -77,15 +77,15 @@ const speed_list = [
 
 const range_list = ["", "Short", "Medium", "Long", "Very Long"];
 
-export const ComponentShipMstTable: Component<ComponentShipMstTableProps> = (props) => {
+export const ComponentShipMstTable: Component<ComponentShipMstTableProps> = (
+  props,
+) => {
   const mst_ship = () => props.mst_ship ?? default_mst_ship;
   const size = () => props.size ?? "sm";
 
   const maxEq = () => {
     const ship = mst_ship();
-    return ship?.maxeq
-      ? ship.maxeq.reduce((a, b) => a + b, 0)
-      : 0;
+    return ship?.maxeq ? ship.maxeq.reduce((a, b) => a + b, 0) : 0;
   };
 
   return (

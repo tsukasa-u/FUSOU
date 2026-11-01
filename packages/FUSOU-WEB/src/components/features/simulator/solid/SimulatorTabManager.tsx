@@ -1,6 +1,11 @@
-/** @jsxImportSource solid-js */
+﻿/** @jsxImportSource solid-js */
+import { workspaceAddModalRef, workspaceEditTarget, workspaceModalMode } from "./WorkspaceAddModal";
+
 import { FusouPageHeader } from "@/components/common/solid/FusouPageHeader";
-import { createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import SimulatorSearchFilterBar from "./SimulatorSearchFilterBar";
+import SimulatorFilterModal, { type SimulatorFilterSettings } from "./SimulatorFilterModal";
+import { setActive } from "@/features/simulator/viewer-workspace";
+import { createSignal, createEffect, onMount, onCleanup, createMemo, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { SimulatorFleetTab } from "./SimulatorFleetTab";
 import { SimulatorModals } from "./SimulatorModals";
@@ -9,26 +14,90 @@ import { updateDataStatus, loadMasterData } from "@/features/simulator/data-load
 import { initShipModalEvents, handleResizeShip } from "@/features/simulator/ship-modal";
 import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
 import { prewarmImageCacheForCapture } from "@/features/simulator/image-capture";
-import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
+import { initIOEvents, loadFromUrl, initWorkspaceAutoSave } from "@/features/simulator/io-handlers";
 import { displaySettingsModalRef, saveImageModalRef } from "./SimulatorModals";
-import { apiPasteModalRef } from "./ApiPasteModal";
+import { dataImportModalRef } from "./DataImportModal";
 import { shareSettingsModalRef } from "./ShareSettingsModal";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
-import { loadFleetModalRef } from "./LoadFleetModal";
-import { MasterDataStatusAlert } from "./MasterDataStatusAlert";
 import { FusouTabs, type TabItem } from "@/components/common/solid/FusouTabs";
+import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
+import { SHIP_TYPE_GROUPS } from "@/components/features/ship-growth/solid/ShipGrowthFilterModal";
+import { WorkspacePanel } from "./WorkspacePanel";
 
-type SimTab = "fleet" | "optimizer" | "ship" | "equip";
+/**
+ * 装備最適化タブの有効フラグ
+ * 通常時は非表示。必要な時に元に戻す場合はここを true に切り替える。
+ */
+export const ENABLE_OPTIMIZER_TAB = false;
+
+type SimTab = "fleet" | "workspace" | "optimizer" | "ship" | "equip";
 
 const SIMULATOR_TABS: readonly TabItem<SimTab>[] = [
   { id: "fleet", label: "編成" },
-  { id: "optimizer", label: "装備最適化" },
+  { id: "workspace", label: "ワークスペース" },
+  ...(ENABLE_OPTIMIZER_TAB ? [{ id: "optimizer" as const, label: "装備最適化" }] : []),
   { id: "ship", label: "艦詳細" },
   { id: "equip", label: "装備詳細" },
-] as const;
+];
 
 export function SimulatorTabManager(props: { initialTab: string, accessToken: string | null }) {
-  const [activeTab, setActiveTab] = createSignal(props.initialTab || "fleet");
+  const resolveInitialTab = (tab: string | undefined): SimTab => {
+    if (!ENABLE_OPTIMIZER_TAB && tab === "optimizer") return "fleet";
+    if (tab === "fleet" || tab === "workspace" || tab === "ship" || tab === "equip" || (ENABLE_OPTIMIZER_TAB && tab === "optimizer")) {
+      return tab as SimTab;
+    }
+    return "fleet";
+  };
+
+  const [activeTab, setActiveTab] = createSignal<SimTab>(resolveInitialTab(props.initialTab));
+  const [filterSettings, setFilterSettings] = createSignal<SimulatorFilterSettings>({
+    includeShips: true,
+    includeEquips: true,
+    includeWorkspaces: true,
+    selectedStypes: [],
+  });
+
+  const activeFilterItems = createMemo<FilterChipItem[]>(() => {
+    const items: FilterChipItem[] = [];
+    const s = filterSettings();
+    if (!s.includeShips) {
+      items.push({
+        key: "no-ship",
+        label: "除外",
+        value: "艦",
+        onRemove: () => setFilterSettings((prev) => ({ ...prev, includeShips: true })),
+      });
+    }
+    if (!s.includeEquips) {
+      items.push({
+        key: "no-equip",
+        label: "除外",
+        value: "装備",
+        onRemove: () => setFilterSettings((prev) => ({ ...prev, includeEquips: true })),
+      });
+    }
+    if (!s.includeWorkspaces) {
+      items.push({
+        key: "no-ws",
+        label: "除外",
+        value: "ワークスペース",
+        onRemove: () => setFilterSettings((prev) => ({ ...prev, includeWorkspaces: true })),
+      });
+    }
+    if (s.selectedStypes.length > 0) {
+      const groupNames = SHIP_TYPE_GROUPS
+        .filter((g) => g.stypes.some((st) => s.selectedStypes.includes(st)))
+        .map((g) => g.name);
+      items.push({
+        key: "stype",
+        label: "艦種",
+        value: groupNames.join(", "),
+        onRemove: () => setFilterSettings((prev) => ({ ...prev, selectedStypes: [] })),
+      });
+    }
+    return items;
+  });
+  let simFilterModalRef!: HTMLDialogElement;
 
   let ensureOptimizerMounted: ((container?: HTMLElement) => void) | undefined;
   let mountSimulatorDetailsCatalog: ((root: HTMLElement) => void) | undefined;
@@ -59,7 +128,7 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
 
   createEffect(() => {
     const tab = activeTab();
-    if (tab === "optimizer") loadOptimizer();
+    if (ENABLE_OPTIMIZER_TAB && tab === "optimizer") loadOptimizer();
     if (tab === "ship" || tab === "equip") {
       loadDetails();
       window.dispatchEvent(new CustomEvent("simulator-tab-changed", { detail: tab }));
@@ -86,7 +155,7 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
 
     const handleTabChangeSync = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
-      setActiveTab(detail);
+      setActiveTab(resolveInitialTab(detail));
     };
     window.addEventListener("simulator-tab-changed-sync", handleTabChangeSync);
     onCleanup(() => window.removeEventListener("simulator-tab-changed-sync", handleTabChangeSync));
@@ -105,6 +174,7 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
   });
 
   const isFleet = () => activeTab() === "fleet";
+  const isWorkspace = () => activeTab() === "workspace";
   const isOptimizer = () => activeTab() === "optimizer";
   const isDetails = () => activeTab() === "ship" || activeTab() === "equip";
 
@@ -112,8 +182,9 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
     <div>
       {/* Page Header integrated into SolidJS to avoid DOM manipulation */}
       <FusouPageHeader
-        title={isOptimizer() ? "装備最適化" : activeTab() === "ship" ? "艦詳細" : activeTab() === "equip" ? "装備詳細" : "編成シミュレータ"}
+        title={isOptimizer() ? "装備最適化" : activeTab() === "workspace" ? "ワークスペース" : activeTab() === "ship" ? "艦詳細" : activeTab() === "equip" ? "装備詳細" : "編成シミュレータ"}
         subtitle={isOptimizer() ? "制約条件を満たす最適な装備の組み合わせを探索" : 
+             activeTab() === "workspace" ? "保存した編成や外部共有URLの管理・切り替え" : 
              activeTab() === "ship" ? "艦の能力・搭載・成長・シナジー等の詳細を確認" : 
              activeTab() === "equip" ? "装備の性能・装備可能艦・シナジー効果を横断的に確認" : 
              "艦隊編成を組み立てて確認・共有"}
@@ -125,17 +196,11 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
             </svg>
             <span class="hidden md:inline">表示設定</span>
           </button>
-          <button id="btn-load-fleet" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => loadFleetModalRef.current?.showModal()}>
+          <button id="btn-import" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => dataImportModalRef.current?.showModal()}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
             </svg>
-            <span class="hidden md:inline">R2読込</span>
-          </button>
-          <button id="btn-import" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => apiPasteModalRef.current?.showModal()}>
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-            </svg>
-            <span class="hidden md:inline">APIレスポンス貼り付け</span>
+            <span class="hidden md:inline">データ読込</span>
           </button>
           <button id="btn-save-image" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => {
             prewarmImageCacheForCapture();
@@ -151,6 +216,38 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
             </svg>
             <span class="hidden md:inline">共有</span>
+          </button>
+
+                    {/* Workspace tab actions */}
+          <button
+            id="btn-workspace-save-current"
+            class="fusou-btn-secondary gap-1.5"
+            hidden={!isWorkspace()}
+            onClick={() => {
+              workspaceEditTarget[1](null);
+              workspaceModalMode[1]("saveCurrent");
+              workspaceAddModalRef.current?.showModal();
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+            <span class="hidden md:inline">現在の編成を保存</span>
+          </button>
+          <button
+            id="btn-workspace-add-url"
+            class="fusou-btn-secondary gap-1.5"
+            hidden={!isWorkspace()}
+            onClick={() => {
+              workspaceEditTarget[1](null);
+              workspaceModalMode[1]("addUrl");
+              workspaceAddModalRef.current?.showModal();
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            <span class="hidden md:inline">URL追加</span>
           </button>
 
           <button id="sim-details-settings-btn" class="fusou-btn-secondary gap-1.5" hidden={!isDetails()} onClick={() => window.dispatchEvent(new CustomEvent("sim-details-open-settings"))}>
@@ -184,36 +281,95 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
         </>}
       />
 
-      <MasterDataStatusAlert />
 
-      <FusouTabs<SimTab>
-        tabs={SIMULATOR_TABS}
-        activeTab={activeTab() as SimTab}
-        onTabChange={(tab) => setActiveTab(tab)}
-        tabIdPrefix="sim-tab-btn"
-        ariaLabel="シミュレータタブ切り替え"
-      />
+      <div class="fusou-tab-toolbar">
+        <FusouTabs<SimTab>
+          tabs={SIMULATOR_TABS}
+          activeTab={activeTab() as SimTab}
+          onTabChange={(tab) => setActiveTab(tab)}
+          tabIdPrefix="sim-tab-btn"
+          ariaLabel="シミュレータタブ切り替え"
+        />
+
+        <SimulatorSearchFilterBar
+          settings={filterSettings}
+          activeTab={activeTab}
+          onOpenFilterModal={() => simFilterModalRef?.showModal()}
+          onSelectShip={(shipId) => {
+            setActiveTab("ship");
+            window.dispatchEvent(new CustomEvent("sim-details-select-ship", { detail: shipId }));
+          }}
+          onSelectEquip={(equipId) => {
+            setActiveTab("equip");
+            window.dispatchEvent(new CustomEvent("sim-details-select-equip", { detail: equipId }));
+          }}
+          onSelectWorkspace={(wsId) => {
+            setActiveTab("workspace");
+            setActive(wsId);
+          }}
+        />
+      </div>
+
+      <Show when={activeFilterItems().length > 0}>
+        <div class="-mt-3 mb-4 px-0.5">
+          <ActiveFilterChips
+            items={activeFilterItems()}
+            onClearAll={() => {
+              setFilterSettings({
+                includeShips: true,
+                includeEquips: true,
+                includeWorkspaces: true,
+                selectedStypes: [],
+              });
+            }}
+          />
+        </div>
+      </Show>
 
       {/* Fleet tab content */}
       <div id="sim-tab-fleet-container" hidden={!isFleet()}>
-        <SimulatorFleetTab />
+        <SimulatorFleetTab onOpenWorkspace={() => setActiveTab("workspace")} />
       </div>
 
-      {/* Optimizer tab content */}
-      <div id="sim-tab-optimizer-container" hidden={!isOptimizer()}>
-        <div id="optimizer-mount" ref={optimizerMountRef}></div>
+      {/* Workspace tab content */}
+      <div id="sim-tab-workspace-container" hidden={!isWorkspace()}>
+        <WorkspacePanel onSelectEntry={() => setActiveTab("fleet")} />
       </div>
+
+      {/* Optimizer tab content (ENABLE_OPTIMIZER_TAB が true の時のみ描画) */}
+      {ENABLE_OPTIMIZER_TAB && (
+        <div id="sim-tab-optimizer-container" hidden={!isOptimizer()}>
+          <div id="optimizer-mount" ref={optimizerMountRef}></div>
+        </div>
+      )}
 
       {/* Details tab content */}
       <div id="sim-tab-details-container" hidden={!isDetails()}>
         <div id="simulator-details-root" ref={detailsRootRef} class="min-h-96"></div>
       </div>
 
+      <SimulatorFilterModal
+        ref={(el) => {
+          simFilterModalRef = el;
+        }}
+        settings={filterSettings}
+        onSettingsChange={setFilterSettings}
+        onReset={() => {
+          setFilterSettings({
+            includeShips: true,
+            includeEquips: true,
+            includeWorkspaces: true,
+            selectedStypes: [],
+          });
+        }}
+      />
       <SimulatorModals />
     </div>
   );
 }
 
 export function mountSimulatorTabManager(root: HTMLElement, initialTab: string, accessToken: string | null) {
+  initWorkspaceAutoSave();
+  root.innerHTML = "";
   render(() => <SimulatorTabManager initialTab={initialTab} accessToken={accessToken} />, root);
 }

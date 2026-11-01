@@ -1,4 +1,5 @@
-import { ComponentEquipmentMstTableProps, ComponentEquipmentMstTable } from "ui";
+import type { ComponentEquipmentMstTableProps } from "ui";
+import { ComponentEquipmentMstTable } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
@@ -6,14 +7,16 @@ import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentEquipmentMstTableBasic = (
-  args: ComponentEquipmentMstTableProps
+  args: ComponentEquipmentMstTableProps,
 ) => {
-  return (<ComponentEquipmentMstTable
-    mst_slot_item={args.mst_slot_item}
-    show_param={args.show_param}
-    show_name={args.show_name}
-    size={args.size}
-  ></ComponentEquipmentMstTable>);
+  return (
+    <ComponentEquipmentMstTable
+      mst_slot_item={args.mst_slot_item}
+      show_param={args.show_param}
+      show_name={args.show_name}
+      size={args.size}
+    />
+  );
 };
 
 const meta = {

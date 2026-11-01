@@ -10,6 +10,9 @@ on:
       - "packages/avro-wasm/src/**"
       - "packages/configs/fingerprints.json"
       - "packages/FUSOU-WORKFLOW/src/reader.ts"
+      - "packages/FUSOU-WORKFLOW/src/avro-*.ts"
+      - "packages/FUSOU-WORKFLOW/src/schemas.ts"
+      - ".github/workflows/validate_schema_chain.yml"
   push:
     branches: [main, dev]
     paths:
@@ -20,6 +23,9 @@ on:
       - "packages/avro-wasm/src/**"
       - "packages/configs/fingerprints.json"
       - "packages/FUSOU-WORKFLOW/src/reader.ts"
+      - "packages/FUSOU-WORKFLOW/src/avro-*.ts"
+      - "packages/FUSOU-WORKFLOW/src/schemas.ts"
+      - ".github/workflows/validate_schema_chain.yml"
 
 permissions:
   contents: read
@@ -60,7 +66,7 @@ jobs:
         run: |
           VERSIONS=()
           while IFS= read -r line; do
-            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+(_[0-9]+)?)[[:space:]]*= ]]; then
               VERSIONS+=("${BASH_REMATCH[1]}")
             fi
           done < packages/kc_api/crates/kc-api-database/Cargo.toml
@@ -68,7 +74,7 @@ jobs:
           echo "count=${#VERSIONS[@]}" >> "$GITHUB_OUTPUT"
           echo "Detected versions: ${VERSIONS[*]}"
           if [ ${#VERSIONS[@]} -eq 0 ]; then
-            echo "::error::No schema versions detected in Cargo.toml. Expected schema_vN_M features."
+            echo "::error::No schema versions detected in Cargo.toml. Expected schema_vN_M or schema_vN_M_P features."
             exit 1
           fi
 
@@ -125,17 +131,12 @@ jobs:
             echo "Generating schema_${ver}..."
             OUTPUT_FILE="../../generated-schemas/schema_${ver}_check.json"
             # NOTE: 'full' feature is required because models module is gated behind #[cfg(feature = "full")]
-            if cargo run --bin print_schema --no-default-features --features "schema_${ver},full,${EPOCH_FEATURE}" \
-              > "$OUTPUT_FILE" 2>/dev/null; then
-              # Verify output is valid JSON (not empty)
-              if [ ! -s "$OUTPUT_FILE" ]; then
-                echo "⚠️  schema_${ver} generated empty output"
-                rm -f "$OUTPUT_FILE"
-              fi
-            else
-              echo "⚠️  schema_${ver} generation failed"
-              rm -f "$OUTPUT_FILE"
+            if ! cargo run --bin print_schema --no-default-features --features "schema_${ver},full,${EPOCH_FEATURE}" \
+              > "$OUTPUT_FILE"; then
+              echo "::error::schema_${ver} generation failed"
+              exit 1
             fi
+            node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$OUTPUT_FILE"
           done
 
       - name: Compare generated schemas with checked-in
@@ -145,6 +146,11 @@ jobs:
           for ver in "${VERSIONS[@]}"; do
             CHECKED="packages/kc_api/generated-schemas/schema_${ver}.json"
             GENERATED="packages/kc_api/generated-schemas/schema_${ver}_check.json"
+            if [ ! -f "$GENERATED" ]; then
+              echo "::error::schema_${ver} regeneration output is missing"
+              DRIFT=true
+              continue
+            fi
             if [ ! -f "$CHECKED" ] && [ -f "$GENERATED" ]; then
               echo "❌ schema_${ver}.json is missing but can be generated. Run: pnpm --filter fusou-workflow run generate:schemas"
               DRIFT=true
@@ -181,7 +187,7 @@ jobs:
 
           for (const ver of versions) {
             const file = 'packages/kc_api/generated-schemas/schema_' + ver + '.json';
-            if (!fs.existsSync(file)) { continue; }
+            if (!fs.existsSync(file)) { throw new Error('Missing schema: ' + file); }
             const content = JSON.parse(fs.readFileSync(file, 'utf-8'));
             const tableVersion = content.table_version || 'unknown';
             const tables = {};
@@ -228,7 +234,7 @@ jobs:
           const allVersions = new Set([...Object.keys(checked), ...Object.keys(generated)]);
           for (const ver of [...allVersions].sort()) {
             if (!generated[ver]) {
-              console.log('⚠️  ' + ver + ': in fingerprints.json but not in generated schemas (may be stale)');
+              console.log('⚠️  ' + ver + ': historical fingerprints retained without a current schema feature');
               continue;
             }
             if (!checked[ver]) {
@@ -258,7 +264,7 @@ jobs:
           VERSIONS=(${{ steps.detect.outputs.versions }})
           WASM_FEATURES=()
           while IFS= read -r line; do
-            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+(_[0-9]+)?)[[:space:]]*= ]]; then
               WASM_FEATURES+=("${BASH_REMATCH[1]}")
             fi
           done < packages/avro-wasm/Cargo.toml

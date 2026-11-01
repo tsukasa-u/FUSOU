@@ -4,7 +4,7 @@ import { LoadingState } from "@/components/common/solid/LoadingState";
 import { FORMATION_NAMES, RANK_HEX_COLORS, AIR_COLORS } from "@/features/battles/constants";
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
 
 type DailyPoint = { date: string; count: number };
@@ -79,15 +79,20 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     // Sortie and Map tracking
     const uniqueSorties = new Set<string>();
     const battleToMap = new Map<string, string>();
+    const envToMap = new Map<string, string>();
     const mapStats: Record<string, { sorties: Set<string>; sRanks: number; battles: number }> = {};
     
     let dayCount = 0;
     let nightCount = 0;
     let drops = 0;
+    let matchingBattlesCount = 0;
 
     for (const c of d.cellRecords()) {
       let mapLabel = mapKeyOf(c);
       if (mapLabel === "-" || mapLabel === "unknown") mapLabel = "不明";
+      if (c.env_uuid && mapLabel !== "不明") {
+        envToMap.set(c.env_uuid, mapLabel);
+      }
       if (c.battles) {
         if (Array.isArray(c.battles)) {
           c.battles.forEach((bu: string) => battleToMap.set(bu, mapLabel));
@@ -98,10 +103,38 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     }
 
     const dailySortiesByDate = new Map<string, Set<string>>();
+    const start = d.startDate().trim();
+    const end = d.endDate().trim();
+    const selectedMap = d.mapFilter();
+    const resultF = d.resultFilter();
 
     for (const b of battles) {
+      if ((start || end) && !isWithinDateRange(b.timestamp, start, end)) {
+        continue;
+      }
+
+      const direct = mapKeyOf(b);
+      const mapLabel =
+        direct !== "unknown" && direct !== "-"
+          ? direct
+          : b.uuid && battleToMap.get(b.uuid) && battleToMap.get(b.uuid) !== "不明"
+            ? battleToMap.get(b.uuid)!
+            : b.env_uuid && envToMap.get(b.env_uuid) && envToMap.get(b.env_uuid) !== "不明"
+              ? envToMap.get(b.env_uuid)!
+              : "不明";
+
+      if (selectedMap && mapLabel !== selectedMap) {
+        continue;
+      }
+
       const result = battleResultOf(b);
       const rank = result?.win_rank ?? "未記録";
+
+      if (resultF && rank !== resultF) {
+        continue;
+      }
+
+      matchingBattlesCount++;
       rankCounts[rank] = (rankCounts[rank] ?? 0) + 1;
 
       if (result?.drop_ship_id) drops++;
@@ -111,9 +144,9 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
         : [];
       for (const idx of mvpIndexes) {
         const normalized = Number(idx);
-        if (!Number.isFinite(normalized) || normalized <= 0) continue;
+        if (!Number.isFinite(normalized) || normalized < 0) continue;
         const label =
-          normalized === 1 ? "旗艦" : `随伴艦(${Math.trunc(normalized)}番艦)`;
+          normalized === 0 ? "旗艦" : `随伴艦(${Math.trunc(normalized) + 1}番艦)`;
         mvpCounts[label] = (mvpCounts[label] ?? 0) + 1;
       }
 
@@ -144,14 +177,21 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
         airCounts[name] = (airCounts[name] ?? 0) + 1;
       }
 
-      // Prioritize `b.uuid` (which is the proxy's real sortie ID) over the backend's artificially grouped `b.__sortie_id`
-      const sortieId = b.uuid || b.__sortie_id || b.env_uuid || String(b.timestamp);
+      // Use env_uuid as the authoritative sortie identifier (so multiple battles in the same sortie group together)
+      const sortieId = b.env_uuid || b.__sortie_id || b.uuid || String(b.timestamp);
 
-      if (b.timestamp) {
-        const dDate = new Date(b.timestamp);
-        const dateStr = `${dDate.getFullYear()}-${String(dDate.getMonth() + 1).padStart(2, "0")}-${String(dDate.getDate()).padStart(2, "0")}`;
-        if (!dailySortiesByDate.has(dateStr)) dailySortiesByDate.set(dateStr, new Set());
-        dailySortiesByDate.get(dateStr)!.add(sortieId);
+      if (b.timestamp != null) {
+        const rawTs = Number(b.timestamp);
+        if (Number.isFinite(rawTs) && rawTs > 0) {
+          const ms = rawTs < 10000000000 ? rawTs * 1000 : rawTs;
+          if (ms > 100000000000) {
+            // Standardize to JST (Asia/Tokyo = UTC+9)
+            const jstDate = new Date(ms + 9 * 60 * 60 * 1000);
+            const dateStr = `${jstDate.getUTCFullYear()}-${String(jstDate.getUTCMonth() + 1).padStart(2, "0")}-${String(jstDate.getUTCDate()).padStart(2, "0")}`;
+            if (!dailySortiesByDate.has(dateStr)) dailySortiesByDate.set(dateStr, new Set());
+            dailySortiesByDate.get(dateStr)!.add(sortieId);
+          }
+        }
       }
 
       if (b.midnight_timestamp != null && b.midnight_timestamp > 0) {
@@ -162,7 +202,6 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
       uniqueSorties.add(sortieId);
       
-      const mapLabel = (b.uuid ? battleToMap.get(b.uuid) : undefined) || "不明";
       if (!mapStats[mapLabel]) {
         mapStats[mapLabel] = { sorties: new Set(), sRanks: 0, battles: 0 };
       }
@@ -182,7 +221,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
       };
     }
 
-    const totalBattles = battles.length;
+    const totalBattles = matchingBattlesCount;
     const totalSortiesCount = uniqueSorties.size;
     const sCount = rankCounts["S"] ?? 0;
     const airSecured = airCounts["制空権確保"] ?? 0;
@@ -198,11 +237,18 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
       const firstEntry = dailySortiesRaw[0];
       const lastEntry = dailySortiesRaw[dailySortiesRaw.length - 1];
       if (firstEntry && lastEntry) {
-        const firstDate = new Date(firstEntry[0]);
-        const lastDate = new Date(lastEntry[0]);
-        for (let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
-          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          dailySorties.push({ date: dateStr, count: dailyCounts[dateStr] ?? 0 });
+        const firstDate = new Date(firstEntry[0] + "T00:00:00Z");
+        const lastDate = new Date(lastEntry[0] + "T00:00:00Z");
+        const diffDays = Math.round((lastDate.getTime() - firstDate.getTime()) / (86400 * 1000));
+        if (diffDays >= 0 && diffDays <= 90) {
+          for (let dayIter = new Date(firstDate); dayIter <= lastDate; dayIter.setUTCDate(dayIter.getUTCDate() + 1)) {
+            const dateStr = `${dayIter.getUTCFullYear()}-${String(dayIter.getUTCMonth() + 1).padStart(2, "0")}-${String(dayIter.getUTCDate()).padStart(2, "0")}`;
+            dailySorties.push({ date: dateStr, count: dailyCounts[dateStr] ?? 0 });
+          }
+        } else {
+          for (const [date, count] of dailySortiesRaw) {
+            dailySorties.push({ date, count });
+          }
         }
       }
     }

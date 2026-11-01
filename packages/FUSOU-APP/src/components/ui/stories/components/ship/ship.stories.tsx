@@ -1,17 +1,19 @@
-import { ComponentShipProps, ComponentShip } from "ui";
+import type { ComponentShipProps } from "ui";
+import { ComponentShip } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipBasic = (args: ComponentShipProps) => {
-  return (<ComponentShip
-    mst_ship={args.mst_ship}
-    color={args.color}
-    size={args.size}
-    name_flag={args.name_flag}
-    empty_flag={args.empty_flag}
-  ></ComponentShip>);
+  return (
+    <ComponentShip
+      mst_ship={args.mst_ship}
+      color={args.color}
+      size={args.size}
+      name_flag={args.name_flag}
+      empty_flag={args.empty_flag}
+    />
+  );
 };
 
 const meta = {

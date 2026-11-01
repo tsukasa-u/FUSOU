@@ -466,3 +466,27 @@ describe("RegisterOutputRequestSchema", () => {
     ).toBe(false);
   });
 });
+describe("ListSourceBlockRowSchema", () => {
+  it("accepts block rows with non-uuid dataset_id (e.g. bootstrap IDs)", async () => {
+    const { ListSourceBlockRowSchema } = await import("../internal-compaction");
+    const validRow = {
+      id: 1,
+      dataset_id: "bootstrap:2025-11-05:1766019600-1eb26956896e:cells",
+      table_name: "cells",
+      table_version: "rev1",
+      period_tag: "2025-11-05",
+      start_byte: 0,
+      length: 100,
+      record_count: 5,
+      start_timestamp: 1700000000,
+      end_timestamp: 1700000100,
+      compaction_tier: "period",
+      window_start_ms: null,
+      window_end_ms: null,
+      file_id: 10,
+      file_path: "path/to/file.avro",
+      file_size: 1024,
+    };
+    expect(ListSourceBlockRowSchema.safeParse(validRow).success).toBe(true);
+  });
+});

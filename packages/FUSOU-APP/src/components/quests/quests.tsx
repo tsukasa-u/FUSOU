@@ -52,20 +52,26 @@ export function QuestsComponent() {
       }));
   });
 
-  const hasData = createMemo(() => available().length > 0 || accepted().length > 0);
+  const hasData = createMemo(
+    () => available().length > 0 || accepted().length > 0,
+  );
 
   const questCard = (q: QuestView) => (
     <li class="text-xs py-1 w-full justify-between items-start gap-3">
       <div class="px-2 items-start gap-2 w-150">
         <div class="flex flex-col gap-0.5">
-          <span class="w-8 shrink-0 text-base-content/70 text-right">[{q.no}]</span>
+          <span class="w-8 shrink-0 text-base-content/70 text-right">
+            [{q.no}]
+          </span>
           <span class="w-8 text-right shrink-0 text-base-content/60">
             {progressLabel(q.progress_flag)}
           </span>
         </div>
         <div class="min-w-0 flex-1">
           <div class="truncate">{q.title}</div>
-          <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">{q.detail}</div>
+          <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+            {q.detail}
+          </div>
         </div>
       </div>
     </li>
@@ -83,20 +89,12 @@ export function QuestsComponent() {
             <li class="text-xs px-2 py-1 font-semibold text-base-content/80">
               Accepted ({accepted().length})
             </li>
-            <For each={accepted()}>
-              {(q) => (
-                questCard(q)
-              )}
-            </For>
+            <For each={accepted()}>{(q) => questCard(q)}</For>
 
             <li class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2">
               Available ({available().length})
             </li>
-            <For each={available()}>
-              {(q) => (
-                questCard(q)
-              )}
-            </For>
+            <For each={available()}>{(q) => questCard(q)}</For>
           </Show>
         </ul>
       </details>

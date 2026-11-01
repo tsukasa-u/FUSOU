@@ -1,4 +1,4 @@
-// ── Shared mutable application state ──
+﻿// ── Shared mutable application state ──
 // All runtime state that was previously module-scoped `let` variables.
 // Exported as a single object so modules can read/write the same values.
 
@@ -39,6 +39,7 @@ export const simulatorFleetState = atom({
   fleet4: [] as FleetSlot[],
 });
 export const simulatorAirbaseState = atom([] as AirBaseSlot[]);
+export const simulatorSearchQuery = atom<string>("");
 
 function cloneFleetSlot(slot: FleetSlot): FleetSlot {
   return {
@@ -211,7 +212,7 @@ export const state = {
   // Fleet state
   fleet1: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
   fleet2: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
-  fleet3: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
+  fleet3: Array.from({ length: 7 }, emptyFleetSlot) as FleetSlot[],
   fleet4: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
   fleetSectionVisible: {
     1: true,

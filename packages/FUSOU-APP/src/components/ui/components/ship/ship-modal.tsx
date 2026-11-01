@@ -1,4 +1,5 @@
-import { Component, createSignal, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 import type { Ship } from "@ipc-bindings/port";
 import { default_ship } from "@ipc-bindings/default_state/port";
@@ -28,7 +29,9 @@ export interface ComponentShipModalProps {
   classList?: any;
 }
 
-export const ComponentShipModal: Component<ComponentShipModalProps> = (props) => {
+export const ComponentShipModal: Component<ComponentShipModalProps> = (
+  props,
+) => {
   let dialogRef: HTMLDialogElement | undefined;
   const [showDialog, setShowDialog] = createSignal(false);
 
@@ -91,9 +94,7 @@ export const ComponentShipModal: Component<ComponentShipModalProps> = (props) =>
           name_flag={props.name_flag}
         />
       </div>
-      <Show when={showDialog()}>
-        {dialogTemplete()}
-      </Show>
+      <Show when={showDialog()}>{dialogTemplete()}</Show>
     </Show>
   );
 };

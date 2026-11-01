@@ -22,6 +22,8 @@ export default function CellDetailsPanel(props: Props) {
       d().cellIds,
       d().passCount,
       d().battleCount,
+      undefined,
+      d().isPort,
     );
   const theme = () => CELL_COLOR_THEMES[cellType()];
 

@@ -60,4 +60,65 @@ describe("battle overview resolver", () => {
     expect(payload.battles?.[0]).not.toHaveProperty("maparea_id");
     expect(payload.battles?.[0]).not.toHaveProperty("mapinfo_no");
   });
+
+  it("matches cell coordinates when cell.battles is an array of strings", () => {
+    const battles = [
+      { uuid: "battle-a", cell_id: 1, timestamp: 1_700_000_000 },
+      { uuid: "battle-b", cell_id: 2, timestamp: 1_700_000_100 },
+    ];
+    const payload = buildBattleOverviewPayload({
+      periodTag: "2026-07-08",
+      battles,
+      cells: [{ battles: ["battle-a", "battle-b"], maparea_id: 1, mapinfo_no: 5 }],
+      battleResults: [],
+    });
+
+    expect(payload.battles?.[0]).toEqual(expect.objectContaining({
+      uuid: "battle-a",
+      maparea_id: 1,
+      mapinfo_no: 5,
+    }));
+    expect(payload.battles?.[1]).toEqual(expect.objectContaining({
+      uuid: "battle-b",
+      maparea_id: 1,
+      mapinfo_no: 5,
+    }));
+  });
+
+  it("resolves map coordinates via env_uuid when cell.battles is absent", () => {
+    const battles = [
+      { uuid: "battle-env", env_uuid: "env-1", cell_id: 1, timestamp: 1_700_000_000 },
+    ];
+    const payload = buildBattleOverviewPayload({
+      periodTag: "2026-07-08",
+      battles,
+      cells: [{ env_uuid: "env-1", maparea_id: 2, mapinfo_no: 3 }],
+      battleResults: [],
+    });
+
+    expect(payload.battles?.[0]).toEqual(expect.objectContaining({
+      uuid: "battle-env",
+      maparea_id: 2,
+      mapinfo_no: 3,
+    }));
+  });
+
+  it("prioritizes direct map coordinates on battle over cell records", () => {
+    const battles = [
+      { uuid: "battle-direct", env_uuid: "env-1", cell_id: 1, maparea_id: 6, mapinfo_no: 5 },
+    ];
+    const payload = buildBattleOverviewPayload({
+      periodTag: "2026-07-08",
+      battles,
+      cells: [{ env_uuid: "env-1", battles: "battle-direct", maparea_id: 1, mapinfo_no: 1 }],
+      battleResults: [],
+    });
+
+    expect(payload.battles?.[0]).toEqual(expect.objectContaining({
+      uuid: "battle-direct",
+      maparea_id: 6,
+      mapinfo_no: 5,
+    }));
+  });
+
 });

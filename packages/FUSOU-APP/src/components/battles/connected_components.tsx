@@ -6,7 +6,14 @@ import {
   get_slot_item,
   type DeckShipIds,
 } from "../../utility/battles";
-import { ComponentColorBarLabel, ComponentEquipmentMstModal, ComponentShipMaskedModal, ComponentShipModal, ComponentShipMstModal, IconFleetNumber } from "ui";;
+import {
+  ComponentColorBarLabel,
+  ComponentEquipmentMstModal,
+  ComponentShipMaskedModal,
+  ComponentShipModal,
+  ComponentShipMstModal,
+  IconFleetNumber,
+} from "ui";
 import { useDeckBattles } from "../../utility/provider";
 import { Show } from "solid-js";
 
@@ -227,9 +234,7 @@ interface NumberedSupportShipProps {
   store_data_set_deck_ship: () => DataSetShip;
 }
 
-export function ConnectedNumberedSupportShip(
-  props: NumberedSupportShipProps,
-) {
+export function ConnectedNumberedSupportShip(props: NumberedSupportShipProps) {
   const support_deck_id = () => props.support_deck_id;
   const error_ship = () => {
     return (
@@ -316,32 +321,44 @@ export function ConnectedNumberedEnemyShip(props: NumberedEnemyShipProps) {
         size="xs"
         ship_max_hp={
           props.destruction_flag
-            ? props.store_data_set_param_ship().e_destruction_ship_max_hp[props.ship_idx]
+            ? props.store_data_set_param_ship().e_destruction_ship_max_hp[
+                props.ship_idx
+              ]
             : props.store_data_set_param_ship().e_ship_max_hp[props.ship_idx]
         }
         ship_param={
           props.destruction_flag
-            ? props.store_data_set_param_ship().e_destruction_ship_param[props.ship_idx]
+            ? props.store_data_set_param_ship().e_destruction_ship_param[
+                props.ship_idx
+              ]
             : props.store_data_set_param_ship().e_ship_param[props.ship_idx]
         }
         ship_slot={
           props.destruction_flag
-            ? props.store_data_set_param_ship().e_destruction_ship_slot[props.ship_idx]
+            ? props.store_data_set_param_ship().e_destruction_ship_slot[
+                props.ship_idx
+              ]
             : props.store_data_set_param_ship().e_ship_slot[props.ship_idx]
         }
         mst_ship={
           props.destruction_flag
-            ? props.store_data_set_param_ship().e_destruction_mst_ship[props.ship_idx]
+            ? props.store_data_set_param_ship().e_destruction_mst_ship[
+                props.ship_idx
+              ]
             : props.store_data_set_param_ship().e_mst_ship[props.ship_idx]
         }
         mst_slot_items={
           props.destruction_flag
-            ? props.store_data_set_param_ship().e_destruction_mst_slot_items[props.ship_idx]
+            ? props.store_data_set_param_ship().e_destruction_mst_slot_items[
+                props.ship_idx
+              ]
             : props.store_data_set_param_ship().e_mst_slot_items[props.ship_idx]
         }
         color={
           props.destruction_flag
-            ? props.store_data_set_param_ship().e_destruction_color[props.ship_idx]
+            ? props.store_data_set_param_ship().e_destruction_color[
+                props.ship_idx
+              ]
             : props.store_data_set_param_ship().e_color[props.ship_idx]
         }
         empty_flag={false}
@@ -507,11 +524,7 @@ export function ConnectedOwnShipHP(props: WrapOwnShipHPProps) {
     const v_now = props.f_now_hps?.[props.idx];
     const v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
     return (
-      <ComponentColorBarLabel
-        size="xs"
-        v_max={v_max ?? 0}
-        v_now={v_now ?? 0}
-      />
+      <ComponentColorBarLabel size="xs" v_max={v_max ?? 0} v_now={v_now ?? 0} />
     );
   };
 
@@ -535,14 +548,12 @@ export function ConnectedEnemyShipHP(props: WrapEnemyShipHPProps) {
       size="xs"
       v_max={
         props.destruction_flag
-          ? props.store_data_set_param_ship().e_destruction_ship_max_hp[
+          ? (props.store_data_set_param_ship().e_destruction_ship_max_hp[
               props.idx
-            ] ?? 0
-          : props.store_data_set_param_ship().e_ship_max_hp[props.idx] ?? 0
+            ] ?? 0)
+          : (props.store_data_set_param_ship().e_ship_max_hp[props.idx] ?? 0)
       }
-      v_now={
-        props.e_now_hps?.[props.idx] ?? 0
-      }
+      v_now={props.e_now_hps?.[props.idx] ?? 0}
     />
   );
 }
@@ -583,11 +594,7 @@ export function ConnectedSupportShipHP(props: WrapSupportShipHPProps) {
     const v_now = props.store_data_set_deck_ship()[ship_id]?.ship?.nowhp;
     const v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
     return (
-      <ComponentColorBarLabel
-        size="xs"
-        v_max={v_max ?? 0}
-        v_now={v_now ?? 0}
-      />
+      <ComponentColorBarLabel size="xs" v_max={v_max ?? 0} v_now={v_now ?? 0} />
     );
   };
 

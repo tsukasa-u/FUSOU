@@ -1,4 +1,5 @@
-import { Component, For, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { For, Show } from "solid-js";
 
 import {
   default_mst_ship,
@@ -58,7 +59,9 @@ const class_size = {
   },
 };
 
-export const ComponentShipMaskedTable: Component<ComponentShipMaskedTableProps> = (props) => {
+export const ComponentShipMaskedTable: Component<
+  ComponentShipMaskedTableProps
+> = (props) => {
   const mst_ship = () => props.mst_ship ?? default_mst_ship;
   const mst_slot_items = () => props.mst_slot_items ?? default_mst_slot_items;
   const size = () => props.size ?? "sm";
@@ -81,12 +84,7 @@ export const ComponentShipMaskedTable: Component<ComponentShipMaskedTableProps> 
         />
       );
     } else {
-      return (
-        <ComponentEquipmentMstModal
-          empty_flag={true}
-          size={size()}
-        />
-      );
+      return <ComponentEquipmentMstModal empty_flag={true} size={size()} />;
     }
   };
 
@@ -100,7 +98,7 @@ export const ComponentShipMaskedTable: Component<ComponentShipMaskedTableProps> 
                 "flex rounded rounded items-center w-full",
                 mst_ship() && mst_ship().slot_num <= index()
                   ? "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"
-                  : ""
+                  : "",
               ].join(" ")}
             >
               <th class="flex-none w-4">S{index() + 1}</th>
@@ -141,11 +139,9 @@ export const ComponentShipMaskedTable: Component<ComponentShipMaskedTableProps> 
             >
               Slots
             </caption>
-            <tbody>
-              {slotsTemplete()}
-            </tbody>
+            <tbody>{slotsTemplete()}</tbody>
           </table>
-          <div class="h-2"></div>
+          <div class="h-2" />
           <table class={["table", class_size[size()].table].join(" ")}>
             <caption
               class={["truncate", class_size[size()].caption_text].join(" ")}

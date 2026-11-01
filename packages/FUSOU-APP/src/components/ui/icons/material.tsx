@@ -1,4 +1,4 @@
-import { Component } from "solid-js";
+import type { Component } from "solid-js";
 
 export interface IconMaterialProps {
   item_number: number;
@@ -140,17 +140,15 @@ const get_name = (item_number: number) => {
   return item_list[item_number ?? 0]?.[0] ?? "  ";
 };
 
-const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
-  (i) => (
-    <path
-      d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
-      stroke="#303030"
-      stroke-width="0.5"
-      fill="none"
-      fill-rule="evenodd"
-    ></path>
-  )
-);
+const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+  <path
+    d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
+    stroke="#303030"
+    stroke-width="0.5"
+    fill="none"
+    fill-rule="evenodd"
+  />
+));
 
 export const IconMaterial: Component<IconMaterialProps> = (props) => {
   const size = () => props.size ?? "xs";

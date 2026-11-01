@@ -339,7 +339,7 @@ function readArray(
       values.push(readValue(bytes, cursor, itemSchema, named));
     }
     if (blockEnd !== undefined && cursor.offset !== blockEnd) {
-      return fail("Avro array block size does not match values");
+      cursor.offset = blockEnd;
     }
     blockCount = readDataLong(bytes, cursor);
   }
@@ -374,7 +374,7 @@ function readMap(
       values[key] = readValue(bytes, cursor, valueSchema, named);
     }
     if (blockEnd !== undefined && cursor.offset !== blockEnd) {
-      return fail("Avro map block size does not match values");
+      cursor.offset = blockEnd;
     }
     blockCount = readDataLong(bytes, cursor);
   }
@@ -568,6 +568,12 @@ function readBlock(
   return records;
 }
 
+export type PreparedAvroDecoderContext = {
+  header: OcfHeader;
+  schema: SchemaNode;
+  named: NamedSchemas;
+};
+
 function parseHeaderForDecoder(header: Uint8Array): OcfHeader {
   try {
     return parseOcfHeader(header);
@@ -579,17 +585,39 @@ function parseHeaderForDecoder(header: Uint8Array): OcfHeader {
   }
 }
 
+export function prepareAvroDecoderContext(
+  header: Uint8Array | OcfHeader,
+): PreparedAvroDecoderContext {
+  const parsedHeader =
+    header instanceof Uint8Array ? parseHeaderForDecoder(header) : header;
+  const schema = parsedHeader.schema as SchemaNode;
+  const named: NamedSchemas = new Map();
+  collectNamedSchemas(schema, named);
+  return {
+    header: parsedHeader,
+    schema,
+    named,
+  };
+}
+
+function resolveDecoderContext(
+  headerOrContext: OcfHeader | PreparedAvroDecoderContext,
+): PreparedAvroDecoderContext {
+  if ("named" in headerOrContext && headerOrContext.named instanceof Map) {
+    return headerOrContext;
+  }
+  return prepareAvroDecoderContext(headerOrContext as OcfHeader);
+}
+
 function decodeNullBody(
-  header: OcfHeader,
+  headerOrContext: OcfHeader | PreparedAvroDecoderContext,
   body: Uint8Array,
   options: {
     maxRecords?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): AvroJsonRecord[] {
-  const schema = header.schema as SchemaNode;
-  const named: NamedSchemas = new Map();
-  collectNamedSchemas(schema, named);
+  const { header, schema, named } = resolveDecoderContext(headerOrContext);
   const cursor: Cursor = { offset: 0 };
   const records: AvroJsonRecord[] = [];
   const decodedRecords = { count: 0 };
@@ -611,14 +639,11 @@ function decodeNullBody(
   return records;
 }
 
-async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
+async function inflateRawAsync(compressed: Uint8Array, maxBytes?: number): Promise<Uint8Array> {
   const stream = new DecompressionStream("deflate-raw");
-  const writer = stream.writable.getWriter();
-  const reader = stream.readable.getReader();
   const input = new ArrayBuffer(compressed.byteLength);
   new Uint8Array(input).set(compressed);
-  await writer.write(new Uint8Array(input));
-  await writer.close();
+  const reader = new Blob([input]).stream().pipeThrough(stream).getReader();
 
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
@@ -627,6 +652,10 @@ async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
     if (result.done) break;
     chunks.push(result.value);
     totalLength += result.value.length;
+    if (maxBytes !== undefined && totalLength > maxBytes) {
+      await reader.cancel();
+      throw new AvroOcfError("OUT_OF_MEMORY_GUARD", "Avro expanded bytes exceed the configured limit");
+    }
   }
 
   const output = new Uint8Array(totalLength);
@@ -639,19 +668,19 @@ async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
 }
 
 async function decodeDeflateBody(
-  header: OcfHeader,
+  headerOrContext: OcfHeader | PreparedAvroDecoderContext,
   body: Uint8Array,
   options: {
     maxRecords?: number;
+    maxDecodedBytes?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): Promise<AvroJsonRecord[]> {
-  const schema = header.schema as SchemaNode;
-  const named: NamedSchemas = new Map();
-  collectNamedSchemas(schema, named);
+  const { header, schema, named } = resolveDecoderContext(headerOrContext);
   const records: AvroJsonRecord[] = [];
   const decodedRecords = { count: 0 };
   let offset = 0;
+  let decodedBytes = 0;
 
   while (offset < body.length) {
     const blockCursor: Cursor = { offset };
@@ -669,7 +698,9 @@ async function decodeDeflateBody(
     const compressedEnd = compressedStart + compressedSize;
     const compressed = body.slice(compressedStart, compressedEnd);
     assertSyncMarker(body, compressedEnd, header.syncMarker);
-    const inflated = await inflateRawAsync(compressed);
+    const inflated = await inflateRawAsync(compressed,
+      options.maxDecodedBytes === undefined ? undefined : options.maxDecodedBytes - decodedBytes);
+    decodedBytes += inflated.byteLength;
 
     const payloadCursor: Cursor = { offset: 0 };
     for (let index = 0; index < recordCount; index += 1) {
@@ -740,6 +771,18 @@ export function parseNullAvroBlock(
   return decodeNullBody(parsedHeader, dataBlock);
 }
 
+export function parseNullAvroBlockWithContext(
+  context: PreparedAvroDecoderContext,
+  dataBlock: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): AvroJsonRecord[] {
+  requireCodec(context.header, "null");
+  return decodeNullBody(context, dataBlock, options);
+}
+
 export function parseAllNullAvroBlocks(
   header: Uint8Array,
   body: Uint8Array,
@@ -754,6 +797,237 @@ export async function parseDeflateAvroBlock(
   const parsedHeader = parseHeaderForDecoder(header);
   requireCodec(parsedHeader, "deflate");
   return decodeDeflateBody(parsedHeader, dataBlock);
+}
+
+export async function parseDeflateAvroBlockWithContext(
+  context: PreparedAvroDecoderContext,
+  dataBlock: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): Promise<AvroJsonRecord[]> {
+  requireCodec(context.header, "deflate");
+  return decodeDeflateBody(context, dataBlock, options);
+}
+
+export async function decodeAvroDataBlocksWithContext(
+  context: PreparedAvroDecoderContext,
+  dataBlock: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): Promise<AvroJsonRecord[]> {
+  const codec = context.header.codec ?? "null";
+  if (codec === "null") {
+    return decodeNullBody(context, dataBlock, options);
+  }
+  if (codec === "deflate") {
+    return decodeDeflateBody(context, dataBlock, options);
+  }
+  throw new AvroOcfError(
+    "UNSUPPORTED_CODEC",
+    `Unsupported Avro codec: ${codec}`,
+  );
+}
+
+export function encodeZigzagLong(value: number | bigint): Uint8Array {
+  let v = (BigInt(value) << 1n) ^ (BigInt(value) >> 63n);
+  const bytes: number[] = [];
+  while (v >= 0x80n) {
+    bytes.push(Number((v & 0x7fn) | 0x80n));
+    v >>= 7n;
+  }
+  bytes.push(Number(v));
+  return new Uint8Array(bytes);
+}
+
+export function getAvroRecordPrimaryKey(
+  tableName: string,
+  record: AvroJsonRecord,
+): string {
+  const uuid = String(record["uuid"] ?? record["env_uuid"] ?? "");
+  if (!uuid) return JSON.stringify(record);
+
+  switch (tableName) {
+    case "battle":
+    case "destruction_battle":
+    case "own_ship":
+    case "enemy_ship":
+    case "friend_ship":
+    case "own_slotitem":
+    case "enemy_slotitem":
+    case "friend_slotitem":
+    case "plane_info":
+    case "air_base_air_attack":
+    case "airbase_airattack":
+    case "opening_air_attack":
+    case "opening_airattack":
+    case "opening_taisen":
+    case "midnight_hougeki":
+    case "friendly_support_hourai":
+      return `${uuid}:${Number(record["index"] ?? 0)}`;
+    case "hougeki":
+      return `${uuid}:${Number(record["index_1"] ?? 0)}:${Number(record["index_2"] ?? 0)}`;
+    case "cells":
+      return `${uuid}:${Number(record["cell_index"] ?? record["cell_id"] ?? 0)}`;
+    case "airbase":
+      return `${uuid}:${Number(record["base_no"] ?? 0)}`;
+    default:
+      return uuid;
+  }
+}
+
+export function deduplicateNullAvroOcf(
+  avroBytes: Uint8Array,
+  tableName: string,
+): ReturnType<typeof deduplicateAvroOcf> {
+  const codec = parseHeaderForDecoder(avroBytes).codec ?? "null";
+  if (codec !== "null") {
+    throw new AvroOcfError("UNSUPPORTED_CODEC", `Deduplication only supports null codec, got: ${codec}`);
+  }
+  return deduplicateAvroOcf(avroBytes, tableName);
+}
+
+export function deduplicateAvroOcf(
+  avroBytes: Uint8Array,
+  tableName: string,
+  deflateCodec?: {
+    inflate: (payload: Uint8Array) => Uint8Array;
+    deflate: (payload: Uint8Array) => Uint8Array;
+  },
+): {
+  deduplicatedOcf: Uint8Array;
+  originalCount: number;
+  uniqueCount: number;
+  duplicateCount: number;
+} {
+  const header = parseHeaderForDecoder(avroBytes);
+  const codec = header.codec ?? "null";
+  if (codec !== "null" && (codec !== "deflate" || !deflateCodec)) {
+    throw new AvroOcfError(
+      "UNSUPPORTED_CODEC",
+      `No deduplication codec implementation for: ${codec}`,
+    );
+  }
+
+  const { schema, named } = resolveDecoderContext(header);
+  const body = avroBytes.slice(header.bodyOffset);
+  const cursor: Cursor = { offset: 0 };
+  const seenKeys = new Set<string>();
+  const uniqueSlices: Uint8Array[] = [];
+  let totalOriginal = 0;
+
+  while (cursor.offset < body.length) {
+    const recordCount = readDataLong(body, cursor);
+    if (!Number.isSafeInteger(recordCount) || recordCount <= 0) {
+      fail("Avro block record count is invalid");
+    }
+    const payloadSize = readDataLong(body, cursor);
+    if (!Number.isSafeInteger(payloadSize) || payloadSize < 0) {
+      fail("Avro block payload size is invalid");
+    }
+    if (payloadSize > body.length - cursor.offset - header.syncMarker.length) {
+      fail("Avro block payload is truncated");
+    }
+
+    const payloadEnd = cursor.offset + payloadSize;
+    const encodedPayload = body.subarray(cursor.offset, payloadEnd);
+    const payload = codec === "deflate" && deflateCodec
+      ? deflateCodec.inflate(encodedPayload)
+      : encodedPayload;
+    const payloadCursor: Cursor = { offset: 0 };
+
+    for (let index = 0; index < recordCount; index += 1) {
+      totalOriginal += 1;
+      const startOffset = payloadCursor.offset;
+      const value = readValue(payload, payloadCursor, schema, named);
+      const endOffset = payloadCursor.offset;
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        value instanceof Uint8Array ||
+        Array.isArray(value)
+      ) {
+        fail("Avro top-level schema did not produce a record");
+      }
+      const record = value as AvroJsonRecord;
+      const key = getAvroRecordPrimaryKey(tableName, record);
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        uniqueSlices.push(payload.subarray(startOffset, endOffset));
+      }
+    }
+
+    if (payloadCursor.offset !== payload.length) {
+      fail("Avro block payload has trailing bytes");
+    }
+    assertSyncMarker(body, payloadEnd, header.syncMarker);
+    cursor.offset = payloadEnd + header.syncMarker.length;
+  }
+
+  const duplicateCount = totalOriginal - seenKeys.size;
+  if (duplicateCount === 0) {
+    return {
+      deduplicatedOcf: avroBytes,
+      originalCount: totalOriginal,
+      uniqueCount: seenKeys.size,
+      duplicateCount: 0,
+    };
+  }
+
+  let totalPayloadBytes = 0;
+  for (const slice of uniqueSlices) {
+    totalPayloadBytes += slice.byteLength;
+  }
+
+  const countBytes = encodeZigzagLong(seenKeys.size);
+  let compressedPayload: Uint8Array | undefined;
+  if (codec === "deflate" && deflateCodec) {
+    const rawPayload = new Uint8Array(totalPayloadBytes);
+    let payloadOffset = 0;
+    for (const slice of uniqueSlices) {
+      rawPayload.set(slice, payloadOffset);
+      payloadOffset += slice.byteLength;
+    }
+    compressedPayload = deflateCodec.deflate(rawPayload);
+  }
+  const payloadLength = compressedPayload?.byteLength ?? totalPayloadBytes;
+  const sizeBytes = encodeZigzagLong(payloadLength);
+  const newBlockLength =
+    countBytes.byteLength +
+    sizeBytes.byteLength +
+    payloadLength +
+    header.syncMarker.length;
+
+  const result = new Uint8Array(header.bodyOffset + newBlockLength);
+  result.set(avroBytes.subarray(0, header.bodyOffset), 0);
+
+  let writeOffset = header.bodyOffset;
+  result.set(countBytes, writeOffset);
+  writeOffset += countBytes.byteLength;
+  result.set(sizeBytes, writeOffset);
+  writeOffset += sizeBytes.byteLength;
+
+  if (compressedPayload) {
+    result.set(compressedPayload, writeOffset);
+    writeOffset += compressedPayload.byteLength;
+  } else {
+    for (const slice of uniqueSlices) {
+      result.set(slice, writeOffset);
+      writeOffset += slice.byteLength;
+    }
+  }
+
+  result.set(header.syncMarker, writeOffset);
+
+  return {
+    deduplicatedOcf: result,
+    originalCount: totalOriginal,
+    uniqueCount: seenKeys.size,
+    duplicateCount,
+  };
 }
 
 export async function parseAllDeflateAvroBlocks(
@@ -789,6 +1063,7 @@ export async function decodeAvroOcfToJsonAsync(
   avroBytes: Uint8Array,
   options: {
     maxRecords?: number;
+    maxDecodedBytes?: number;
     recordFilter?: (record: AvroJsonRecord) => boolean;
   } = {},
 ): Promise<AvroJsonRecord[]> {

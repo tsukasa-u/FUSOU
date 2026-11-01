@@ -317,7 +317,13 @@ impl UploadRetryService {
                         } else {
                             tracing::error!("Failed to retry upload {}: {}", meta.id, error_text);
                             meta.increment_attempt(Self::now_epoch_seconds());
-                            let _ = store.update_meta(&meta);
+                            if let Err(error) = store.update_meta(&meta) {
+                                tracing::error!(
+                                    pending_id = %meta.id,
+                                    %error,
+                                    "Failed to persist retry metadata; stored attempt count is unchanged"
+                                );
+                            }
                             stats.failed += 1;
                         }
 

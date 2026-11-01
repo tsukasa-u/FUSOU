@@ -55,10 +55,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             when={f_midnight_touchplane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <ConnectedCIMstEquip
-              si={f_midnight_touchplane}
-              e_flag={false}
-            />
+            <ConnectedCIMstEquip si={f_midnight_touchplane} e_flag={false} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>

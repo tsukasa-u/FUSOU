@@ -45,22 +45,22 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     destruction_battle?.air_base_attack.e_damage.bak_flag?.forEach(
       (flag, idx) => {
         show_damage[0][idx] ||= flag == 1;
-      }
+      },
     );
     destruction_battle?.air_base_attack.e_damage.rai_flag?.forEach(
       (flag, idx) => {
         show_damage[0][idx] ||= flag == 1;
-      }
+      },
     );
     destruction_battle?.air_base_attack.f_damage.bak_flag?.forEach(
       (flag, idx) => {
         show_damage[1][idx] ||= flag == 1;
-      }
+      },
     );
     destruction_battle?.air_base_attack.f_damage.rai_flag?.forEach(
       (flag, idx) => {
         show_damage[1][idx] ||= flag == 1;
-      }
+      },
     );
     return show_damage;
   });
@@ -116,7 +116,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
           </Match>
           <Match when={lost_kind == 2}>
             <div class="text-red-500 pl-1">
-              Supplies have taken damage, and your land-based air squadrons have also suffered losses on the ground.
+              Supplies have taken damage, and your land-based air squadrons have
+              also suffered losses on the ground.
             </div>
           </Match>
           <Match when={lost_kind == 3}>
@@ -142,7 +143,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
 
   const base_attacker_planes = () => {
     const base_ids = Object.keys(
-      props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane ?? {}
+      props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane ??
+        {},
     );
     return (
       <td>
@@ -405,7 +407,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             {display_air_raid_result()}
             <div class="divider divider-horizontal mr-0 ml-0" />
             <Show when={props.cell()?.destruction_battle?.air_base_attack}>
-                {display_sprite_counts()}
+              {display_sprite_counts()}
             </Show>
           </div>
           <ul class="pl-0">

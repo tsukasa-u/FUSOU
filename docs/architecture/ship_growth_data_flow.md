@@ -597,3 +597,77 @@ npx wrangler d1 execute SHIP_GROWTH_DB --remote --command "SELECT name, tbl_name
 期待:
 
 - `ship_growth_bounds` / `ship_growth_caps` / `ship_level_exp_pairs` の index が表示される
+
+## 13. R2 スナップショット事前生成・Zero-D1 高速配信アーキテクチャ（2026-10 実装）
+
+### 13.1 背景と課題
+従来のパラメータ推移（ship-growth）API は、リクエストごとに D1（`SHIP_GROWTH_DB`）に対して bounds / caps / exp を動的クエリ（またはオンデマンド集約）していたため、以下の問題が発生していた。
+1. **レイテンシの増大**: D1 のクエリと集約により 500ms〜2000ms の遅延が発生し、初期表示がもたつく。
+2. **D1 のリソース消費**: 公開ダッシュボードで複数ユーザーがアクセスすると D1 の読み取り行数が急増する。
+3. **過去期間のアーカイブ分断**: 過去期間のデータは `SHIP_GROWTH_ARCHIVE_BUCKET`（R2）の個別アーカイブ JSON に退避されていたため、過去全期間の横断集約（all-periods / cumulative）を行うには多数の R2 オブジェクトを走査する必要があった。
+4. **テーブルバージョンの不統一**: 過去アーカイブ内で `"0.5"` と `"0.5.0"` が混在し、期間リストで重複表示される不整合が存在した。
+
+### 13.2 R2 スナップショットの設計（Zero-D1 配信）
+戦闘データと同様に、**「事前に計算・集約した JSON を R2 に配置し、Worker は R2 から直接高速配信する（Zero-D1）」** アーキテクチャへと刷新。
+
+#### スナップショットのキー体系
+- プレフィックス: `snapshots/ship_growth/`
+- 期間サマリ: `snapshots/ship_growth/summary.json.br`
+- 累積パラメータ: `snapshots/ship_growth/cumulative.json.br`
+- 全期間比較: `snapshots/ship_growth/all_periods.json.br`
+- 期間別 bounds: `snapshots/ship_growth/bounds/{period_tag}_{table_version}.json.br`
+- 期間別 exp: `snapshots/ship_growth/exp/{period_tag}_{table_version}.json.br`
+
+#### テーブルバージョンの完全正規化（`0.5` → `0.5.0`）
+- `normalizeTableVersion(version: string)` を導入し、`"0.5"` の表記をすべてセマンティックバージョニング標準の `"0.5.0"` に一本化。
+- アーカイブ集約時に `0.5` と `0.5.0` を同一期間（例: `2026-07-08/0.5.0`）としてマージ。
+- R2 上の旧形式キー `*_0.5.json.br` は自動削除しない。manifest 移行後は参照されず、必要な旧オブジェクトを誤削除しない。
+- API エンドポイント（`/bounds`, `/exp`）に `table_version=0.5` が渡された場合も、サーバー側で自動的に `0.5.0` のスナップショットキーへ解決して即座に応答（後方互換ガード）。
+
+### 13.3 ブラウザ透過伸長と平文 JSON 返却の原則
+Worker からブラウザへスナップショットを配信する際、以下の重大な落とし穴を解消した。
+- **問題**: Worker 内で R2 の Brotli バイナリに手動で `Content-Encoding: br` ヘッダーを付けてストリーム返却すると、ブラウザ Fetch API / `cachedFetch`（内部で `res.clone().text()` を実行）で透過解凍が行われず、生バイナリ（`~ D5n...`）が渡って `Failed to execute 'json' on 'Response': Unexpected token ... is not valid JSON` のクラッシュが発生する。
+- **対策**: Worker レベルでは `Content-Encoding: br` を一切付与しない。Worker 内で native zlib（`brotliDecompressAsync`）を用いて平文 JSON 文字列へと解凍し、`Content-Type: application/json; charset=utf-8` で返却する。
+- クライアントとエッジ間の gzip/br 圧縮は Cloudflare CDN のネイティブ透過的圧縮に任せることで、ブラウザの HTTP スタックが確実に自動解凍を行い、100% 安定した JSON パースを保証する。
+
+### 13.4 再構築・バックフィル用内部 API
+- 設定済みの `ADMIN_TOKEN` と `INTERNAL_COMPACTION_TOKEN` のいずれかを既存の timing-safe helper で照合する。無認証ではストレージにアクセスしない。
+- エンドポイント: `POST /api/ship-growth/internal/rebuild-snapshots`
+- 認証: `Authorization: Bearer <ADMIN_TOKEN>`（タイミングセーフ検証）
+- 動作:
+  1. `SHIP_GROWTH_ARCHIVE_BUCKET` 内の全 `ship-growth/archive/` オブジェクトを走査。
+  2. バージョンを `0.5.0` に正規化しながら、bounds（最小値 MIN）および caps（最大値 MAX）を集約。
+  3. D1 に最新期間が存在する場合は最新期間のスナップショットも生成。
+  4. `generations/{generation}/` に `summary`, `cumulative`, `all_periods` および各期間の bounds/exp を保存する。
+  5. 全入力・全保存が成功した場合だけ `manifest.json` を ETag 条件付きで切り替える。欠落・不正な入力、D1/R2 例外、競合があれば旧世代を維持して失敗を返す。
+
+### 13.5 クライアントの鮮度とエラー表示（2026-10-27 監査）
+
+- `cachedFetch` のメモリ鮮度は最大10分とし、HTTP `max-age` / `Age` が示す残存時間を超えて延長しない。IndexedDB の7日は保存・オフライン利用の上限であり、未検証で配信し続ける期間ではない。
+- 「更新」は `cache: "reload"` で現在表示中の exp / bounds / cumulative / all-periods を再取得する。これはサーバー側の再構築や CDN キャッシュ削除を実行する操作ではない。
+- AbortSignal を持つ呼び出しは通信を共有せず、一方のキャンセルを別の画面へ伝播させない。同じ URL の古い通信は、新しい更新結果や明示的なキャッシュ消去を上書きしない。
+- JSON として不正なレスポンスは保存しない。中断をオフライン成功に置き換えず、保存上限を超えた IndexedDB データも復活させない。
+- 累積・期間比較で最新期間の bounds 取得が失敗した場合、成功扱いで欠落させずエラーを表示する。読込失敗後は、前の期間のグラフを新しい期間の結果として表示しない。
+- 最新期間はサマリ配列の先頭ではなく期間タグとテーブルバージョンで選択する。caps の短縮キーは共通正規化処理を通し、明示的な `0` を保持する。
+
+### 13.6 世代公開・更新・リソース上限
+
+- 論理キーは13.2のままとし、`snapshots/ship_growth/manifest.json` が各論理キーから世代別の実体キーを参照する。manifest がない環境では従来の固定キーを読み、段階移行を可能にする。
+- 完成済み世代の実体が欠落・破損している場合は503とし、別世代やD1への暗黙の切替で成功に見せない。manifest がない、または対象の論理キーが存在しない場合の既存フォールバックは維持する。
+- 読取は manifest と実体を R2 から解決し、古い HTTP キャッシュより優先する。スナップショット応答は `max-age=0, must-revalidate` とし、固定 URL の CDN / メモリ鮮度で更新を隠さない。ヒット時は D1 binding 自体を必要としない。
+- ingest のD1コミット成功後、バックグラウンドで対象期間の bounds/exp と summary/cumulative/all-periods を更新する。既存の集計をマージし、全アーカイブを再走査しない。並行更新は manifest の ETag 条件で検出し、最大3回まで最新入力から再計算する。初回の manifest 作成だけは全再構築になる。
+- バックグラウンド公開の失敗はログへ明示する。ingest の保存成功と公開完了は別であり、waitUntil の中断や失敗後は内部APIによる再構築が必要になる場合がある。
+- `0.5` と `0.5.0` のD1行は両方を読み、正規化した同一期間として一度だけ保存する。過去の EXP は bounds とは独立して検出する。bounds の `0` は従来仕様どおり未観測であり、正の観測の最小値を消さない。
+- JSONは1件16 MiB以下、圧縮入力も16 MiB以下とする。Brotli解凍には `maxOutputLength` を指定する。超過時は切捨てず失敗する。これは isolate 全体のメモリやCPU時間の保証ではなく、全再構築で保持するMapや並行要求の負荷測定・将来の分割生成は引き続き必要。
+- [Cloudflare公式制限](https://developers.cloudflare.com/workers/platform/limits/#memory)（2026-10-27確認）では通常のWorkersはFree/Paidとも isolate あたり128 MB、JSヒープとWasmを含み並行要求と共有する。CPUはFree HTTPで10 ms、Paid HTTPは既定30秒・設定で最大5分であり、50 msをFreeの前提にしない。
+
+### 13.7 運ステータス（lucky_naked）およびレベル別パラメータ一覧表示
+
+- **運のデータ特性**:
+  - D1 の `ship_growth_bounds` テーブルおよび R2 スナップショット（`bounds`）に保存されている `lucky_naked`（裸の運ステータス）を可視化。
+  - 運は通常レベルアップで成長せず初期値固定（まるゆ改修等で上昇）のため、未改修の初期運が下限値（最小観測値）として記録される。
+  - 2026年4〜5月の初期アーカイブなど、`lucky_naked` カラムが存在しない旧データに対しては、Zod スキーマ（`ShipGrowthArchiveBoundsRowSchema` / `ShipGrowthBoundSchema`）で `optional().default(0)` フォールバックを提供し、下位互換性を確保する。
+- **UI表示**:
+  - 折れ線グラフ（Chart.js）にアンバー色（`rgb(234, 179, 8)`）の「運(naked)」系列を追加。
+  - 全期間比較モード（`all_periods=1`）では、4系列（回避・対潜・索敵・運）× 期間数として描画され、新旧に応じた不透明度グラデーションと履歴期間数計算（データセット数 ÷ 4）を適用。
+  - 単一期間モードでは折れ線グラフ直下に「レベル別パラメータ一覧 (naked)」テーブル（DaisyUI `table table-pin-rows`）を配置し、Lvごとの回避・対潜・索敵・運の数値を一覧確認可能。

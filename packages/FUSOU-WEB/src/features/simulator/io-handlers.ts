@@ -1,6 +1,7 @@
 // ── I/O event handlers: import, share, load from URL, fleet load ──
 
 import { applyFleetSnapshot, applyExportedFleet } from "./snapshot";
+import { stripSvdataPrefix, detectResponseKind, convertPortToSnapshot, mergeSnapshots } from "./api-response-parser";
 import type { FleetSlot } from "./types";
 import {
   addEntry,
@@ -24,6 +25,8 @@ import {
   hasSnapshotData,
 } from "./simulator-selectors";
 import { authFetch } from "@/utils/authFetch";
+import { atom } from "nanostores";
+import { onSimulatorStateDirty } from "./state";
 import { z } from "zod";
 
 const _accessToken: string | null = window.__fusouAccessToken ?? null;
@@ -224,12 +227,88 @@ export function finalizePlaygroundLoad(
 
 import { setWorkspaceReadOnly } from "./simulator-mutations";
 
+export type WorkspaceSaveStatus = "saved" | "saving" | "unsaved" | "locked";
+export const workspaceSaveStatus = atom<WorkspaceSaveStatus>("saved");
+export const workspaceLastSavedAt = atom<number | null>(null);
+
+let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _isApplyingEntry = false;
+
+export function flushAutoSave(): void {
+  if (_autoSaveTimer !== null) {
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = null;
+  }
+  const activeEntry = getActiveWorkspaceEntry();
+  if (activeEntry) {
+    if (activeEntry.sourceType === "ownDeck" && !activeEntry.locked) {
+      saveCurrentStateToEntry(activeEntry);
+      workspaceSaveStatus.set("saved");
+      workspaceLastSavedAt.set(Date.now());
+    } else if (activeEntry.locked) {
+      workspaceSaveStatus.set("locked");
+    }
+  } else {
+    rememberCurrentPlayground();
+    workspaceSaveStatus.set("saved");
+    workspaceLastSavedAt.set(Date.now());
+  }
+}
+
+export function scheduleAutoSave(): void {
+  if (_isApplyingEntry) return;
+
+  const activeEntry = getActiveWorkspaceEntry();
+  if (activeEntry?.locked) {
+    workspaceSaveStatus.set("locked");
+    return;
+  }
+
+  workspaceSaveStatus.set("saving");
+
+  if (_autoSaveTimer !== null) {
+    clearTimeout(_autoSaveTimer);
+  }
+
+  _autoSaveTimer = setTimeout(() => {
+    _autoSaveTimer = null;
+    flushAutoSave();
+  }, 350);
+}
+
+let _autoSaveInitialized = false;
+export function initWorkspaceAutoSave(): void {
+  if (_autoSaveInitialized) return;
+  _autoSaveInitialized = true;
+
+  onSimulatorStateDirty(() => {
+    scheduleAutoSave();
+  });
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", () => {
+      flushAutoSave();
+    });
+  }
+}
+
+
 export function activateWorkspaceEntry(
   entry: ViewerEntry,
   rememberPlayground = true,
   savePrevious = true,
 ): void {
   const activeEntry = getActiveWorkspaceEntry();
+
+  if (activeEntry && activeEntry.id === entry.id) {
+    if (activeEntry.sourceType === "ownDeck" && !activeEntry.locked) {
+      saveCurrentStateToEntry(activeEntry);
+      workspaceSaveStatus.set("saved");
+      workspaceLastSavedAt.set(Date.now());
+    }
+    setWorkspaceReadOnly(entry.locked ?? false);
+    return;
+  }
 
   if (activeEntry && activeEntry.id !== entry.id) {
     if (savePrevious) {
@@ -240,9 +319,16 @@ export function activateWorkspaceEntry(
   }
 
   setActive(entry.id);
-  applyViewerEntry(entry);
+  _isApplyingEntry = true;
+  try {
+    applyViewerEntry(entry);
+  } finally {
+    _isApplyingEntry = false;
+  }
   setSnapshotPlaygroundMode(false);
   setWorkspaceReadOnly(entry.locked ?? false);
+  workspaceSaveStatus.set(entry.locked ? "locked" : "saved");
+  workspaceLastSavedAt.set(entry.updatedAt ?? Date.now());
 }
 
 export function switchToPlayground(): void {
@@ -251,8 +337,15 @@ export function switchToPlayground(): void {
     saveCurrentStateToEntry(activeEntry);
   }
   clearActive();
-  applyPlaygroundDraftOrBlank();
+  _isApplyingEntry = true;
+  try {
+    applyPlaygroundDraftOrBlank();
+  } finally {
+    _isApplyingEntry = false;
+  }
   setWorkspaceReadOnly(false);
+  workspaceSaveStatus.set("saved");
+  workspaceLastSavedAt.set(Date.now());
 }
 
 
@@ -283,7 +376,7 @@ export function createOwnDeckFromCurrentState(
 ): ViewerEntry {
   const mergedPayload = buildCurrentPlaygroundPayload();
 
-  return addEntry({
+  const entry = addEntry({
     name: name || `自分のデッキ ${new Date().toLocaleString()}`,
     memo,
     sourceType: "ownDeck",
@@ -293,6 +386,9 @@ export function createOwnDeckFromCurrentState(
     pinned: false,
     locked: false,
   });
+  workspaceSaveStatus.set("saved");
+  workspaceLastSavedAt.set(entry.updatedAt);
+  return entry;
 }
 
 function saveActiveOwnDeckIfNeeded(): void {
@@ -355,6 +451,43 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
     } catch {
       // Invalid data param
     }
+  }
+
+  if (!data && sharedSnapshotPayload) {
+    applyExportedFleet(sharedSnapshotPayload);
+    _playgroundDraft = sharedSnapshotPayload;
+    setSnapshotPlaygroundMode(hasSnapshotData());
+    clearActive();
+    return null;
+  }
+
+  try {
+    const rawApiPaste = sessionStorage.getItem("__fusouPendingApiPaste");
+    if (rawApiPaste) {
+      sessionStorage.removeItem("__fusouPendingApiPaste");
+      const cleaned = stripSvdataPrefix(rawApiPaste);
+      const parsed: unknown = JSON.parse(cleaned);
+      if (typeof parsed === "object" && parsed !== null) {
+        const record = parsed as Record<string, unknown>;
+        const kind = detectResponseKind(record);
+        if (kind === "port") {
+          const pSnap = convertPortToSnapshot(record);
+          applyFleetSnapshot(mergeSnapshots(pSnap, { s8s: [] }));
+          _playgroundDraft = buildCurrentPlaygroundPayload();
+          setSnapshotPlaygroundMode(true);
+          clearActive();
+          return null;
+        } else if (kind === "exportedFleet") {
+          applyExportedFleet(record);
+          _playgroundDraft = record;
+          setSnapshotPlaygroundMode(hasSnapshotData());
+          clearActive();
+          return null;
+        }
+      }
+    }
+  } catch {
+    // Ignore malformed pending API paste
   }
 
   const fleetTag = params.get("fleet")?.trim();

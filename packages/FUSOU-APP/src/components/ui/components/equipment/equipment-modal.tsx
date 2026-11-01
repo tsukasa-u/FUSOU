@@ -1,4 +1,5 @@
-import { Component, createSignal, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 import type { SlotItem } from "@ipc-bindings/require_info";
 import type { MstSlotItem } from "@ipc-bindings/get_data";
@@ -19,7 +20,9 @@ export interface ComponentEquipmentModalProps {
   classList?: any;
 }
 
-export const ComponentEquipmentModal: Component<ComponentEquipmentModalProps> = (props) => {
+export const ComponentEquipmentModal: Component<
+  ComponentEquipmentModalProps
+> = (props) => {
   let dialogRef: HTMLDialogElement | undefined;
   const [showDialog, setShowDialog] = createSignal(false);
 
@@ -62,10 +65,7 @@ export const ComponentEquipmentModal: Component<ComponentEquipmentModalProps> = 
       when={!props.empty_flag}
       fallback={
         <div class="w-full cursor-default">
-          <ComponentEquipment
-            size={props.size}
-            empty_flag={props.empty_flag}
-          />
+          <ComponentEquipment size={props.size} empty_flag={props.empty_flag} />
         </div>
       }
     >
@@ -80,9 +80,7 @@ export const ComponentEquipmentModal: Component<ComponentEquipmentModalProps> = 
           hide_onslot={props.hide_onslot}
         />
       </div>
-      <Show when={showDialog()}>
-        {dialogTemplete()}
-      </Show>
+      <Show when={showDialog()}>{dialogTemplete()}</Show>
     </Show>
   );
 };

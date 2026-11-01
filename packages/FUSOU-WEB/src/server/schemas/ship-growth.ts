@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PublicIdSchema } from "./public-id";
 
-const IntegerSchema = z.number().int();
+const IntegerSchema = z.number().int().safe();
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/i);
 
 const ShipGrowthSlotSchema = z
@@ -15,8 +15,8 @@ const ShipGrowthSlotSchema = z
 
 const ShipGrowthEntrySchema = z
   .object({
-    master_id: IntegerSchema,
-    lv: IntegerSchema,
+    master_id: IntegerSchema.positive(),
+    lv: IntegerSchema.positive(),
     exp_current: IntegerSchema,
     exp_to_next: IntegerSchema.nullable(),
     kyouka: z.array(IntegerSchema),
@@ -105,7 +105,7 @@ export const ShipGrowthCapsUpdatedRowSchema = ShipGrowthCapsRowSchema.extend({
 
 export const ShipGrowthArchiveBoundsRowSchema = z
   .object({
-    row_id: IntegerSchema.positive(),
+    row_id: IntegerSchema.positive().optional().default(1),
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
     master_id: IntegerSchema.positive(),
@@ -113,13 +113,13 @@ export const ShipGrowthArchiveBoundsRowSchema = z
     kaihi_naked: ShipGrowthStatSchema,
     taisen_naked: ShipGrowthStatSchema,
     sakuteki_naked: ShipGrowthStatSchema,
-    lucky_naked: ShipGrowthStatSchema,
+    lucky_naked: ShipGrowthStatSchema.optional().default(0),
   })
   .passthrough();
 
 export const ShipGrowthArchiveCapsRowSchema = z
   .object({
-    row_id: IntegerSchema.positive(),
+    row_id: IntegerSchema.positive().optional().default(1),
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
     master_id: IntegerSchema.positive(),

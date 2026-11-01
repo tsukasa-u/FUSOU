@@ -292,7 +292,9 @@ async function openShipSelectModalFromFirstSlot(page: Page): Promise<void> {
 async function openEquipSelectModalFromFleet1FirstEquipSlot(
   page: Page,
 ): Promise<void> {
-  const equipSlot = page.locator("#fleet-1-slots [class*='group/equip']").first();
+  const equipSlot = page
+    .locator("#fleet-1-slots [data-testid='simulator-equip-slot']")
+    .first();
   await expect(equipSlot).toBeVisible();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {

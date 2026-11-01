@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { brotliDecompressSync } = require('zlib');
 
 const ROOT = path.resolve(__dirname, '..');
 const PROXY_DATA_DIR = path.resolve(ROOT, '..', 'FUSOU-PROXY-DATA');
@@ -78,12 +79,12 @@ function main() {
   const mapFiles = findAllMapInfoFiles();
   console.log(`[extract-map-cells] Found ${mapFiles.size} distinct sea areas.`);
 
-  // Load existing label mapping if available
-  const labelMapPath = path.resolve(ROOT, '..', 'FUSOU-WEB', 'src', 'assets', 'map', 'cell_labels.json');
-  let labelMap = {};
-  if (fs.existsSync(labelMapPath)) {
+  // Load all authentic map labels if available
+  const allLabelsPath = path.resolve(ROOT, 'output', 'all_map_labels.json');
+  let allLabelsMap = {};
+  if (fs.existsSync(allLabelsPath)) {
     try {
-      labelMap = JSON.parse(fs.readFileSync(labelMapPath, 'utf8'));
+      allLabelsMap = JSON.parse(fs.readFileSync(allLabelsPath, 'utf8'));
     } catch (e) {}
   }
 
@@ -110,7 +111,13 @@ function main() {
 
     for (const filePath of fileList) {
       try {
-        const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        let buf = fs.readFileSync(filePath);
+        if (buf.length >= 2 && buf[0] !== 0x7b && buf[0] !== 0x5b) {
+          try {
+            buf = brotliDecompressSync(buf);
+          } catch (e) {}
+        }
+        const raw = JSON.parse(buf.toString('utf8'));
         if (bg.length === 0 && raw.bg) bg = raw.bg;
         if (Array.isArray(raw.spots)) {
           for (const s of raw.spots) {
@@ -148,7 +155,14 @@ function main() {
       }
     }
 
-    const mapLabelLookup = labelMap[key] || {};
+    let mapLabelLookup = allLabelsMap[key];
+    if (!mapLabelLookup) {
+      const perMapPath = path.resolve(ROOT, 'output', 'map-resources', key, 'cell_labels.json');
+      if (fs.existsSync(perMapPath)) {
+        try { mapLabelLookup = JSON.parse(fs.readFileSync(perMapPath, 'utf8')); } catch (e) {}
+      }
+    }
+    mapLabelLookup = mapLabelLookup || {};
     const coordToCanon = new Map();
     for (const [sno, s] of spotsMap.entries()) {
       const coordKey = `${s.x},${s.y}`;

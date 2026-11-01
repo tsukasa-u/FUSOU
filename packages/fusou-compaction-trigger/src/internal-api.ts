@@ -132,8 +132,11 @@ export class InternalCompactionClient {
 
       blocks.push(...(resp.blocks ?? []));
       if (!resp.has_more) break;
-      cursor = Number(resp.next_cursor_id ?? cursor);
-      if (!Number.isFinite(cursor) || cursor <= 0) break;
+      const nextCursor = resp.next_cursor_id;
+      if (nextCursor === undefined || !Number.isSafeInteger(nextCursor) || nextCursor <= cursor) {
+        throw new Error("Source pagination cursor did not advance");
+      }
+      cursor = nextCursor;
     }
 
     return blocks;

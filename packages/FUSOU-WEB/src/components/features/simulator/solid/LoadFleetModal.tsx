@@ -54,8 +54,8 @@ export function LoadFleetModal() {
         );
         setErrorMsg(
           body.success
-            ? body.data.error ?? "Authentication required. Please check your FUSOU-APP connection."
-            : "Authentication required. Please check your FUSOU-APP connection.",
+            ? body.data.error ?? "認証が必要です。FUSOU-APPとの接続状況を確認してください。"
+            : "認証が必要です。FUSOU-APPとの接続状況を確認してください。",
         );
         return;
       }
@@ -113,8 +113,8 @@ export function LoadFleetModal() {
           };
         }
       }}
-      title="Load My Deck from R2"
-      description="The selected deck will be added to the workspace."
+      title="R2からマイデッキを読み込み"
+      description="選択したデッキがワークスペースに追加されます。"
       maxWidth="lg"
       actions={
         <form method="dialog">
@@ -131,9 +131,9 @@ export function LoadFleetModal() {
             <div class="text-sm leading-relaxed">
               <AlertMessage type="info">
                 <div>
-                  <p>Using saved fleet data requires FUSOU-APP linking and web service sign-in.</p>
-                  <p class="mt-2">Authenticating with Google during FUSOU-APP linking also completes web sign-in.</p>
-                  <a href="/auth/local/signin?return_to=%2Fsimulator" class="link link-primary mt-2 inline-block">Link FUSOU-APP and sign in</a>
+                  <p>保存された艦隊データを利用するには、FUSOU-APPとの連携およびWebログインが必要です。</p>
+                  <p class="mt-2">FUSOU-APP連携時にGoogle認証を行うことで、Webログインも同時に完了します。</p>
+                  <a href="/auth/local/signin?return_to=%2Fsimulator" class="link link-primary mt-2 inline-block">FUSOU-APPと連携してログイン</a>
                 </div>
               </AlertMessage>
             </div>

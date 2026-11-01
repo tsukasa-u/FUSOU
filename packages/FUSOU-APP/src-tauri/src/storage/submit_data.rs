@@ -92,11 +92,10 @@ pub fn submit_port_table() {
             let _guard = acquire_port_table_guard().await;
 
             let retry_auth_manager = retry_service.auth_manager();
-            let user_env = crate::util::resolve_dataset_id_for_current_member(
-                retry_auth_manager.as_ref(),
-            )
-            .await
-            .unwrap_or_default();
+            let user_env =
+                crate::util::resolve_dataset_id_for_current_member(retry_auth_manager.as_ref())
+                    .await
+                    .unwrap_or_default();
             let user_env = if user_env.trim().is_empty() {
                 get_local_fallback_id().await
             } else {

@@ -21,6 +21,21 @@ import { LoadingState } from "@/components/common/solid/LoadingState";
 import { EmptyState } from "@/components/common/solid/EmptyState";
 import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 
+const STAT_JP: Record<string, string> = {
+  houg: "火力",
+  raig: "雷装",
+  tyku: "対空",
+  souk: "装甲",
+  soku: "速力",
+  kaih: "回避",
+  tais: "対潜",
+  saku: "索敵",
+  baku: "爆装",
+  houm: "命中",
+  leng: "射程",
+  luck: "運",
+};
+
 export const [equipModalTrigger, setEquipModalTrigger] = createSignal(0);
 
 type EquipRuntimeMeta = MstSlotItemData & { _snapshotLevel?: number; _snapshotAlv?: number; _snapshotCount?: number; _requiredLevel?: number; _requiredAlv?: number; };
@@ -229,6 +244,97 @@ export function EquipSelectionModal() {
     return { rows, catOffsets };
   });
 
+  const synergyBonusMap = createMemo(() => {
+    masterDataStatus();
+    equipModalTrigger();
+    const effects = getSlotItemEffects();
+    const equipTarget = getEquipModalTarget();
+    if (!effects || equipTarget.shipId == null || !equipTarget.slot) {
+      return new Map<number, { hasBonus: boolean; delta: Record<string, number>; tooltip: string }>();
+    }
+
+    const shipId = equipTarget.shipId;
+    const targetSlot = equipTarget.slot;
+    const targetIdx = equipTarget.slotIdx;
+    const isExslot = targetIdx === -1;
+
+    // 現在の対象スロットを除いたベース装備構成
+    const baseEquipIds = [...targetSlot.equipIds];
+    let baseExSlotId = targetSlot.exSlotId;
+    const baseEquipImp = [...targetSlot.equipImprovement];
+    let baseExImp = targetSlot.exSlotImprovement;
+
+    if (isExslot) {
+      baseExSlotId = null;
+      baseExImp = 0;
+    } else if (targetIdx >= 0 && targetIdx < baseEquipIds.length) {
+      baseEquipIds[targetIdx] = null;
+      baseEquipImp[targetIdx] = 0;
+    }
+
+    const bonusWithout = computeEquipBonuses(
+      shipId,
+      baseEquipIds,
+      baseExSlotId,
+      baseEquipImp,
+      baseExImp
+    );
+
+    const map = new Map<number, { hasBonus: boolean; delta: Record<string, number>; tooltip: string }>();
+    const items = filteredEquips();
+
+    const testEquipIds = [...baseEquipIds];
+    const testEquipImp = [...baseEquipImp];
+
+    for (const equip of items) {
+      if (map.has(equip.id)) continue;
+
+      const candLv = getCandidateLevel(equip);
+      let testExSlotId = baseExSlotId;
+      let testExImp = baseExImp;
+
+      if (isExslot) {
+        testExSlotId = equip.id;
+        testExImp = candLv;
+      } else if (targetIdx >= 0) {
+        testEquipIds[targetIdx] = equip.id;
+        testEquipImp[targetIdx] = candLv;
+      }
+
+      const bonusWith = computeEquipBonuses(
+        shipId,
+        testEquipIds,
+        testExSlotId,
+        testEquipImp,
+        testExImp
+      );
+
+      const delta: Record<string, number> = {};
+      let hasBonus = false;
+      const bonusKeys = new Set([...Object.keys(bonusWith), ...Object.keys(bonusWithout)]);
+
+      for (const k of bonusKeys) {
+        const d = (bonusWith[k] || 0) - (bonusWithout[k] || 0);
+        if (d !== 0) {
+          delta[k] = d;
+          if (d > 0) hasBonus = true;
+        }
+      }
+
+      if (hasBonus) {
+        const tooltipParts = Object.entries(delta)
+          .map(([k, v]) => `${STAT_JP[k] ?? k}${v > 0 ? `+${v}` : v}`);
+        map.set(equip.id, {
+          hasBonus: true,
+          delta,
+          tooltip: `装備ボーナス: ${tooltipParts.join(", ")}`,
+        });
+      }
+    }
+
+    return map;
+  });
+
   const activeRowIndex = createMemo(() => {
     const data = listData();
     const currentId = getEquipModalCurrentId();
@@ -311,7 +417,7 @@ export function EquipSelectionModal() {
       dialogRef={(el) => {
         dialogRef = el;
       }}
-      boxClass="w-[min(96vw,84rem)] max-w-[84rem]"
+      boxClass="w-[min(96vw,64rem)] max-w-5xl"
       onClose={() => setHoveredEquipId(null)}
     >
         <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
@@ -408,7 +514,20 @@ export function EquipSelectionModal() {
                        <div class={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-primary/8 active:bg-primary/15"}`} onMouseEnter={() => setHoveredEquipId(equip.id)} onClick={() => handleSelect(equip)}>
                          <div class="rounded shrink-0" style={frame && spriteSheet.url ? { width: `${iconPx}px`, height: `${iconPx}px`, "background-image": `url('${spriteSheet.url}')`, "background-position": `-${frame[0] * (iconPx / frame[2])}px -${frame[1] * (iconPx / frame[3])}px`, "background-size": `${spriteSheet.width * (iconPx / frame[2])}px ${spriteSheet.height * (iconPx / frame[3])}px`, "background-repeat": "no-repeat" } : { width: `${iconPx}px`, height: `${iconPx}px` }}></div>
                          <div class="min-w-0 flex-1 overflow-hidden">
-                           <div class="text-sm truncate leading-tight font-medium">{equip.name}</div>
+                           <div class="text-sm truncate leading-tight font-medium flex items-center gap-1.5">
+                            <span class="truncate">{equip.name}</span>
+                            <Show when={synergyBonusMap().get(equip.id)}>
+                              {(syn) => (
+                                <span
+                                  class="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 text-[10px] font-bold leading-tight select-none shadow-2xs"
+                                  title={syn().tooltip}
+                                >
+                                  <span class="text-amber-400">★</span>
+                                  <span>シナジー</span>
+                                </span>
+                              )}
+                            </Show>
+                          </div>
                            <div class="grid grid-cols-[minmax(0,1fr)_2.1rem_2.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight">
                              <span class="truncate">
                                {getEquipTypeName(equip.type?.[2] ?? 0)}
@@ -529,7 +648,7 @@ function EquipDetail(props: { equip: MstSlotItemData }) {
 
       <Show when={bonusInfo() && Object.keys(bonusInfo()!.delta).length > 0 ? bonusInfo() : null}>
         {(info) => {
-          const STAT_JP: Record<string, string> = { houg: "火力", raig: "雷装", tyku: "対空", souk: "装甲", soku: "速力", kaih: "回避", tais: "対潜", saku: "索敵", baku: "爆装", houm: "命中", leng: "射程" };
+          // using top-level STAT_JP
           return (
             <div class="mt-4 pt-3 border-t border-base-200">
               <div class="text-[11px] font-bold text-warning/80 mb-2 flex items-center gap-1">

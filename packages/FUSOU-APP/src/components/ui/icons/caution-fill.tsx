@@ -1,4 +1,4 @@
-import { Component } from "solid-js";
+import type { Component } from "solid-js";
 
 export interface IconCautionFillProps {
   level: "low" | "middle" | "high";
@@ -35,10 +35,7 @@ export const IconCautionFill: Component<IconCautionFillProps> = (props) => {
       xmlns="http://www.w3.org/2000/svg"
       xmlns:xlink="http://www.w3.org/1999/xlink"
       overflow="hidden"
-      class={[
-        color_list[level()],
-        class_size[size()],
-      ].join(" ")}
+      class={[color_list[level()], class_size[size()]].join(" ")}
     >
       <g>
         <circle

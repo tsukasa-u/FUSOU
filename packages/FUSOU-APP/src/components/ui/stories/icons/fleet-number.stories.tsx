@@ -1,87 +1,92 @@
-import { IconFleetNumberProps } from "ui";
+import { For } from "solid-js";
+import type { IconFleetNumberProps } from "ui";
 import { IconFleetNumber } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const IconFleetNumberBasic = (args: IconFleetNumberProps) => {
-  return (<IconFleetNumber
-    e_flag={args.e_flag}
-    combined_flag={args.combined_flag}
-    ship_number={args.ship_number}
-    fleet_number={args.fleet_number}
-    size={args.size}
-  ></IconFleetNumber>);
+  return (
+    <IconFleetNumber
+      e_flag={args.e_flag}
+      combined_flag={args.combined_flag}
+      ship_number={args.ship_number}
+      fleet_number={args.fleet_number}
+      size={args.size}
+    />
+  );
 };
 
 const IconFleetNumberCatalog = () => {
   return (
     <div class="grid grid-cols-5 w-100 gap-4">
       <div class="grid gap-4">
-        {[1, 2, 3, 4, 5, 6].map((ship_number) => (
-          <IconFleetNumber
-            e_flag={0}
-            combined_flag={false}
-            ship_number={ship_number}
-            fleet_number={1}
-            size="xs"
-          />
-        ))}
-        {[7, 8, 9, 10, 11, 12].map((_) => (
-          <div class="h-6"></div>
-        ))}
+        <For each={[1, 2, 3, 4, 5, 6]}>
+          {(ship_number) => (
+            <IconFleetNumber
+              e_flag={0}
+              combined_flag={false}
+              ship_number={ship_number}
+              fleet_number={1}
+              size="xs"
+            />
+          )}
+        </For>
+        <For each={[7, 8, 9, 10, 11, 12]}>{() => <div class="h-6" />}</For>
       </div>
       <div class="grid gap-4">
-        {[1, 2, 3, 4, 5, 6].map((ship_number) => (
-          <IconFleetNumber
-            e_flag={1}
-            combined_flag={false}
-            ship_number={ship_number}
-            fleet_number={1}
-            size="xs"
-          />
-        ))}
-        {[7, 8, 9, 10, 11, 12].map((_) => (
-          <div class="h-6"></div>
-        ))}
+        <For each={[1, 2, 3, 4, 5, 6]}>
+          {(ship_number) => (
+            <IconFleetNumber
+              e_flag={1}
+              combined_flag={false}
+              ship_number={ship_number}
+              fleet_number={1}
+              size="xs"
+            />
+          )}
+        </For>
+        <For each={[7, 8, 9, 10, 11, 12]}>{() => <div class="h-6" />}</For>
       </div>
       <div class="grid gap-4">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((ship_number) => (
-          <IconFleetNumber
-            e_flag={0}
-            combined_flag={true}
-            ship_number={ship_number}
-            fleet_number={1}
-            size="xs"
-          />
-        ))}
+        <For each={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}>
+          {(ship_number) => (
+            <IconFleetNumber
+              e_flag={0}
+              combined_flag={true}
+              ship_number={ship_number}
+              fleet_number={1}
+              size="xs"
+            />
+          )}
+        </For>
       </div>
       <div class="grid gap-4">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((ship_number) => (
-          <IconFleetNumber
-            e_flag={1}
-            combined_flag={true}
-            ship_number={ship_number}
-            fleet_number={1}
-            size="xs"
-          />
-        ))}
+        <For each={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}>
+          {(ship_number) => (
+            <IconFleetNumber
+              e_flag={1}
+              combined_flag={true}
+              ship_number={ship_number}
+              fleet_number={1}
+              size="xs"
+            />
+          )}
+        </For>
       </div>
       <div class="grid gap-4">
-        {[1, 2, 3, 4, 5, 6, 7].map((ship_number) => (
-          <IconFleetNumber
-            e_flag={0}
-            combined_flag={false}
-            ship_number={ship_number}
-            fleet_number={1}
-            size="xs"
-          />
-        ))}
-        {[8, 9, 10, 11, 12].map((_) => (
-          <div class="h-6"></div>
-        ))}
+        <For each={[1, 2, 3, 4, 5, 6, 7]}>
+          {(ship_number) => (
+            <IconFleetNumber
+              e_flag={0}
+              combined_flag={false}
+              ship_number={ship_number}
+              fleet_number={1}
+              size="xs"
+            />
+          )}
+        </For>
+        <For each={[8, 9, 10, 11, 12]}>{() => <div class="h-6" />}</For>
       </div>
     </div>
   );

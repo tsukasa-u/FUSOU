@@ -55,10 +55,9 @@ enum CliCommand {
 
 pub fn parse_invocation() -> CliInvocation {
     let cli = CliArgs::parse();
-    let app_info = match cli.command {
-        Some(CliCommand::Info { json }) => Some(AppInfoRequest { as_json: json }),
-        None => None,
-    };
+    let app_info = cli
+        .command
+        .map(|CliCommand::Info { json }| AppInfoRequest { as_json: json });
 
     CliInvocation {
         show_version: cli.version,
@@ -68,10 +67,7 @@ pub fn parse_invocation() -> CliInvocation {
 }
 
 pub fn prepare_terminal_logs(invocation: &CliInvocation) {
-    if invocation.enable_terminal_logs
-        || invocation.show_version
-        || invocation.app_info.is_some()
-    {
+    if invocation.enable_terminal_logs || invocation.show_version || invocation.app_info.is_some() {
         attach_to_terminal();
     }
 }

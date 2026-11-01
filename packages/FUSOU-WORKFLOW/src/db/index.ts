@@ -1,11 +1,7 @@
 import {
   createTursoClientFromEnv,
   bulkInsertActive,
-  countProcessingRows,
-  swapTables,
-  fetchProcessingRows,
   fetchHotRows,
-  resetProcessingTable,
   BufferLogRecord,
 } from "./turso-client";
 
@@ -29,40 +25,13 @@ export async function insertBufferLogs(
     uploaded_by?: string;
     trust_tag?: string;
   }>,
+  messageId?: string,
 ): Promise<{ source: "turso"; insertedCount: number }> {
   const client = createTursoClientFromEnv(env);
-  const result = await bulkInsertActive(client, records);
+  const result = await bulkInsertActive(client, records, messageId);
   return {
     source: "turso",
     insertedCount: result.insertedCount,
-  };
-}
-
-export async function fetchProcessingBufferedData(
-  env: UnifiedDbEnv,
-): Promise<{ rows: BufferLogRecord[]; source: "turso" }> {
-  const client = createTursoClientFromEnv(env);
-  const processingCount = await countProcessingRows(client);
-  if (processingCount === 0) {
-    await swapTables(client);
-  }
-
-  const rows = await fetchProcessingRows(client);
-  return {
-    rows,
-    source: "turso",
-  };
-}
-
-export async function cleanupProcessingBuffer(
-  env: UnifiedDbEnv,
-): Promise<{ source: "turso"; rowsAffected: number }> {
-  const client = createTursoClientFromEnv(env);
-  const before = await countProcessingRows(client);
-  await resetProcessingTable(client);
-  return {
-    source: "turso",
-    rowsAffected: before,
   };
 }
 

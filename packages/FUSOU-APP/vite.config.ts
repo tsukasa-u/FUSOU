@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
+import { playwright } from "@vitest/browser-playwright";
+import fs from "node:fs";
 import path, { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +14,15 @@ const dirname =
 
 const host = process.env.TAURI_DEV_HOST;
 
+const testDataIpcPath = resolve(
+  dirname,
+  "../../../FUSOU-TESTDATA/storybook/ipc",
+);
+const testDataSharedUiPath = resolve(
+  dirname,
+  "../../../FUSOU-TESTDATA/storybook/shared-ui",
+);
+
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [solid()],
@@ -20,12 +31,18 @@ export default defineConfig(async () => ({
     jsxImportSource: "solid-js",
   },
   test: {
-    workspace: [
+    projects: [
+      {
+        extends: false,
+        test: {
+          name: "unit",
+          include: ["src/**/*.test.ts"],
+          setupFiles: [],
+        },
+      },
       {
         extends: true,
         plugins: [
-          // The plugin will run tests for the stories defined in your Storybook config
-          // See options at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon#storybooktest
           storybookTest({
             configDir: path.join(dirname, ".storybook"),
           }),
@@ -33,29 +50,21 @@ export default defineConfig(async () => ({
         test: {
           name: "storybook",
           browser: {
-            // Enable browser-based testing for UI components
             enabled: true,
             headless: true,
-            provider: "playwright",
+            provider: playwright(),
             instances: [{ browser: "chromium" }],
           },
-          // This setup file applies Storybook project annotations for Vitest
-          // More info at: https://storybook.js.org/docs/api/portable-stories/portable-stories-vitest#setprojectannotations
           setupFiles: [".storybook/vitest.setup.ts"],
         },
       },
     ],
-    include: ["stories/**/*.stories.tsx", "stories/**/*.test.tsx"],
     exclude: ["stories/**/*.mdx"],
   },
-  optimizeDeps: {
-  },
+  optimizeDeps: {},
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent vite from obscuring rust errors
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 5173,
     strictPort: true,
@@ -68,22 +77,19 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
   },
   resolve: {
     alias: {
       "@ipc-bindings": resolve(dirname, "../kc_api/bindings"),
-      "@fusou-testdata-ipc": resolve(
-        dirname,
-        "../../../FUSOU-TESTDATA/storybook/ipc"
-      ),
-      "ui": resolve(dirname, "src/components/ui/index.tsx"),
-      "@fusou-testdata-shared-ui": resolve(
-        dirname,
-        "../../../FUSOU-TESTDATA/storybook/shared-ui"
-      ),
-    }
+      "@fusou-testdata-ipc": fs.existsSync(testDataIpcPath)
+        ? testDataIpcPath
+        : resolve(dirname, "src/stories"),
+      ui: resolve(dirname, "src/components/ui/index.tsx"),
+      "@fusou-testdata-shared-ui": fs.existsSync(testDataSharedUiPath)
+        ? testDataSharedUiPath
+        : resolve(dirname, "src/stories"),
+    },
   },
 }));

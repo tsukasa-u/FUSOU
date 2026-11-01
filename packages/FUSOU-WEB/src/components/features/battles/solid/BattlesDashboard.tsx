@@ -4,6 +4,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -20,6 +21,7 @@ import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataLoadStatusAlert";
 import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 import BattleSearchFilterBar from "./BattleSearchFilterBar";
+import type { MasterDataJsonResponse } from "@/features/simulator/api-response-schemas";
 
 // We'll lazy load or dynamically import the sub-panels to keep bundle size manageable if needed,
 // but for SPA we can just import them directly.
@@ -33,6 +35,11 @@ import BattleDropsPanel from "../../drops/solid/BattleDropsPanel"; // New compon
 import BattleTabs from "./BattleTabs"; // We'll create this Solid component
 import BattleDataSettingsModal from "./BattleDataSettingsModal";
 import BattleFilterSettingsModal from "./BattleFilterSettingsModal";
+import type { LocalDirectoryPermissionState } from "@/features/battles/local-directory/permissions";
+import type {
+  ManifestScanProgress,
+  ManifestScanResult,
+} from "@/features/battles/local-directory/manifest-scanner";
 
 import { SettingsIcon } from "@/components/common/solid/icons/SettingsIcon";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
@@ -44,7 +51,6 @@ import type {
   BattleDataRepository,
 } from "@/features/battles/repository/types";
 import type { LocalAvroLoadLimits } from "@/features/battles/local-directory/limits";
-import { MasterDataJsonResponseSchema } from "@/features/simulator/api-response-schemas";
 import type {
   BattleRecord,
   CellRecord,
@@ -143,14 +149,28 @@ function formatLoadError(
   ].filter((part): part is string => part !== null).join(" / ");
 }
 
+let sharedMasterDataCache: {
+  mstShip: MasterDataJsonResponse;
+  mstSlotItem: MasterDataJsonResponse;
+} | null = null;
+
 export default function BattlesDashboard(props: {
   repository: BattleDataRepository;
   source: "r2" | "local-avro";
   localStatus: "idle" | "scanning" | "ready" | "error";
   localDirectoryName: () => string | null;
+  permission: () => LocalDirectoryPermissionState;
+  scanResult: () => ManifestScanResult | null;
+  scanProgress: () => ManifestScanProgress | null;
+  localError: () => string | null;
+  hasStoredHandle: () => boolean;
   rememberSource: boolean;
   onSourceChange: (source: "r2" | "local-avro") => void;
-  onOpenLocalDirectorySettings: () => void;
+  onOpenLocalDirectorySettings?: () => void;
+  onPickLocalDirectory: () => void;
+  onRequestLocalPermission: () => void;
+  onRescanLocalDirectory: () => void;
+  onReleaseLocalAccess: () => void;
   onRefreshDataSource: () => void | Promise<void>;
   onRememberSourceChange: (enabled: boolean) => void;
   localLimits: LocalAvroLoadLimits;
@@ -205,6 +225,8 @@ export default function BattlesDashboard(props: {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
+  const [startDate, setStartDate] = createSignal("");
+  const [endDate, setEndDate] = createSignal("");
   const activeFilterItems = createMemo((): FilterChipItem[] => {
     const items: FilterChipItem[] = [];
     const query = searchQuery().trim();
@@ -248,6 +270,27 @@ export default function BattlesDashboard(props: {
         label: "勝敗",
         value: `${result}勝利`,
         onRemove: () => setResultFilter(""),
+      });
+    }
+    const start = startDate().trim();
+    const end = endDate().trim();
+    if (start || end) {
+      let dateValue = "";
+      if (start && end) {
+        dateValue = start === end ? start : `${start} 〜 ${end}`;
+      } else if (start) {
+        dateValue = `${start} 以降`;
+      } else {
+        dateValue = `${end} 以前`;
+      }
+      items.push({
+        key: "date",
+        label: "日付",
+        value: dateValue,
+        onRemove: () => {
+          setStartDate("");
+          setEndDate("");
+        },
       });
     }
     return items;
@@ -368,6 +411,95 @@ export default function BattlesDashboard(props: {
     return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
   }
 
+  function applyMasterData(
+    shipPayload: MasterDataJsonResponse,
+    itemPayload: MasterDataJsonResponse,
+  ) {
+    setMasterDataStatus([
+      {
+        name: "mst_ship",
+        status: "success",
+        detail: `${shipPayload.records?.length ?? 0}件` +
+          (shipPayload.period_tag
+            ? ` / ${shipPayload.period_tag} rev${shipPayload.period_revision ?? "?"}`
+            : ""),
+      },
+      {
+        name: "mst_slotitem",
+        status: "success",
+        detail: `${itemPayload.records?.length ?? 0}件` +
+          (itemPayload.period_tag
+            ? ` / ${itemPayload.period_tag} rev${itemPayload.period_revision ?? "?"}`
+            : ""),
+      },
+    ]);
+    setMstShips(parseMasterShipRecords(shipPayload.records));
+    setMstSlotItems(parseMasterSlotItemRecords(itemPayload.records));
+    setWeaponIconFrames({});
+    setWeaponIconMeta({ width: 0, height: 0 });
+    setMasterDataMeta({
+      ...(shipPayload.period_tag !== undefined
+        ? { period_tag: shipPayload.period_tag }
+        : {}),
+      ...(shipPayload.period_revision !== undefined
+        ? { period_revision: shipPayload.period_revision }
+        : {}),
+      ...(shipPayload.table_version !== undefined
+        ? { table_version: shipPayload.table_version }
+        : {}),
+    });
+  }
+
+  async function loadMasterDataAsync(signal: AbortSignal, forceRefresh: boolean) {
+    if (sharedMasterDataCache && !forceRefresh) {
+      applyMasterData(sharedMasterDataCache.mstShip, sharedMasterDataCache.mstSlotItem);
+      return;
+    }
+    try {
+      const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
+        cachedFetch("/api/master-data/json?table_name=mst_ship", {
+          signal,
+          cache: forceRefresh ? "reload" : "default",
+        }),
+        cachedFetch("/api/master-data/json?table_name=mst_slotitem", {
+          signal,
+          cache: forceRefresh ? "reload" : "default",
+        }),
+      ]);
+      if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
+        throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
+      }
+      const [shipJson, itemJson] = await Promise.all([
+        masterShipResponse.json(),
+        masterSlotItemResponse.json(),
+      ]);
+      if (
+        !shipJson ||
+        typeof shipJson !== "object" ||
+        !Array.isArray((shipJson as any).records) ||
+        !itemJson ||
+        typeof itemJson !== "object" ||
+        !Array.isArray((itemJson as any).records)
+      ) {
+        throw new Error("Invalid master data JSON payload");
+      }
+      sharedMasterDataCache = {
+        mstShip: shipJson as MasterDataJsonResponse,
+        mstSlotItem: itemJson as MasterDataJsonResponse,
+      };
+      if (signal.aborted) return;
+      applyMasterData(shipJson as MasterDataJsonResponse, itemJson as MasterDataJsonResponse);
+    } catch (err: unknown) {
+      const errorRecord = err && typeof err === "object" ? (err as Record<string, unknown>) : {};
+      if (errorRecord["name"] === "AbortError" || signal.aborted) return;
+      console.warn("[BattlesDashboard] Failed to load master data in background:", err);
+      setMasterDataStatus([
+        { name: "mst_ship", status: "failed", detail: "取得失敗（ID表示）" },
+        { name: "mst_slotitem", status: "failed", detail: "取得失敗（ID表示）" },
+      ]);
+    }
+  }
+
   async function loadData(periodOverride?: PeriodSummary | null, { forceRefresh = false }: { forceRefresh?: boolean } = {}) {
     const requestedPeriod = periodOverride ?? selectedPeriod();
     if (!requestedPeriod) {
@@ -396,152 +528,77 @@ export default function BattlesDashboard(props: {
       { name: "mst_slotitem", status: "pending" },
     ]);
 
-    let masterDataLoaded = false;
+    // 非同期バックグラウンドでマスターデータを取得（画面表示をブロックしない）
+    void loadMasterDataAsync(signal, forceRefresh);
+
     try {
       if (datasetKind === "overview") {
-        const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
-          cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
-        ]);
-        if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
-          throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
-        }
-        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
-          await masterShipResponse.json(),
-        );
-        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
-          await masterSlotItemResponse.json(),
-        );
-        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
-          throw new Error("Invalid master data response");
-        }
-        const masterShipPayload = parsedMasterShip.data;
-        const masterSlotItemPayload = parsedMasterSlotItem.data;
-        setMasterDataStatus([
-          {
-            name: "mst_ship",
-            status: "success",
-            detail: `${masterShipPayload.records?.length ?? 0}件` +
-              (masterShipPayload.period_tag
-                ? ` / ${masterShipPayload.period_tag} rev${masterShipPayload.period_revision ?? "?"}`
-                : ""),
-          },
-          {
-            name: "mst_slotitem",
-            status: "success",
-            detail: `${masterSlotItemPayload.records?.length ?? 0}件` +
-              (masterSlotItemPayload.period_tag
-                ? ` / ${masterSlotItemPayload.period_tag} rev${masterSlotItemPayload.period_revision ?? "?"}`
-                : ""),
-          },
-        ]);
-        masterDataLoaded = true;
-        const payload = await repository.getOverview({
-          periodTag: requestedPeriodTag,
-          ...(requestedPeriod.table_version
-            ? { tableVersion: requestedPeriod.table_version }
-            : {}),
-          masterShips: masterShipPayload.records || [],
-          limitBlocks: limitBlocks(),
-          limitRecords: limitRecords(),
-          signal,
-          forceRefresh,
-        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
+        const payload = await (repository.kind === "r2"
+          ? repository.getOverview({
+              periodTag: requestedPeriodTag,
+              ...(requestedPeriod.table_version
+                ? { tableVersion: requestedPeriod.table_version }
+                : {}),
+              limitBlocks: limitBlocks(),
+              limitRecords: limitRecords(),
+              signal,
+              forceRefresh,
+            })
+          : repository.getOverview(
+              {
+                periodTag: requestedPeriodTag,
+                ...(requestedPeriod.table_version
+                  ? { tableVersion: requestedPeriod.table_version }
+                  : {}),
+                masterShips: sharedMasterDataCache?.mstShip.records || [],
+                limitBlocks: limitBlocks(),
+                limitRecords: limitRecords(),
+                signal,
+                forceRefresh,
+              },
+              { onProgress: setLocalProgress },
+            ));
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords(parseCellRecords(payload.cells));
         setEnemyDecks(parseEnemyDeckRecords(payload.enemy_decks));
         setEnemyShips(parseEnemyShipRecords(payload.enemy_ships));
         setEnemySlotItems(parseEnemySlotItemRecords([]));
-        setMstShips(parseMasterShipRecords(masterShipPayload.records));
-        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
-        setWeaponIconFrames({});
-        setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta({
-          ...(masterShipPayload.period_tag !== undefined
-            ? { period_tag: masterShipPayload.period_tag }
-            : {}),
-          ...(masterShipPayload.period_revision !== undefined
-            ? { period_revision: masterShipPayload.period_revision }
-            : {}),
-          ...(masterShipPayload.table_version !== undefined
-            ? { table_version: masterShipPayload.table_version }
-            : {}),
-        });
         setLoadedDatasetKind("overview");
       } else {
-        const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
-          cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
-        ]);
-        if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
-          throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
-        }
-        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
-          await masterShipResponse.json(),
-        );
-        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
-          await masterSlotItemResponse.json(),
-        );
-        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
-          throw new Error("Invalid master data response");
-        }
-        const masterShipPayload = parsedMasterShip.data;
-        const masterSlotItemPayload = parsedMasterSlotItem.data;
-        setMasterDataStatus([
-          {
-            name: "mst_ship",
-            status: "success",
-            detail: `${masterShipPayload.records?.length ?? 0}件` +
-              (masterShipPayload.period_tag
-                ? ` / ${masterShipPayload.period_tag} rev${masterShipPayload.period_revision ?? "?"}`
-                : ""),
-          },
-          {
-            name: "mst_slotitem",
-            status: "success",
-            detail: `${masterSlotItemPayload.records?.length ?? 0}件` +
-              (masterSlotItemPayload.period_tag
-                ? ` / ${masterSlotItemPayload.period_tag} rev${masterSlotItemPayload.period_revision ?? "?"}`
-                : ""),
-          },
-        ]);
-        masterDataLoaded = true;
-        const payload = await repository.getDrops({
-          periodTag: requestedPeriodTag,
-          ...(requestedPeriod.table_version
-            ? { tableVersion: requestedPeriod.table_version }
-            : {}),
-          masterShips: masterShipPayload.records || [],
-          limitBlocks: limitBlocks(),
-          limitRecords: limitRecords(),
-          signal,
-          forceRefresh,
-        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
+        const payload = await (repository.kind === "r2"
+          ? repository.getDrops({
+              periodTag: requestedPeriodTag,
+              ...(requestedPeriod.table_version
+                ? { tableVersion: requestedPeriod.table_version }
+                : {}),
+              limitBlocks: limitBlocks(),
+              limitRecords: limitRecords(),
+              signal,
+              forceRefresh,
+            })
+          : repository.getDrops(
+              {
+                periodTag: requestedPeriodTag,
+                ...(requestedPeriod.table_version
+                  ? { tableVersion: requestedPeriod.table_version }
+                  : {}),
+                masterShips: sharedMasterDataCache?.mstShip.records || [],
+                limitBlocks: limitBlocks(),
+                limitRecords: limitRecords(),
+                signal,
+                forceRefresh,
+              },
+              { onProgress: setLocalProgress },
+            ));
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords([]);
         setEnemyDecks([]);
         setEnemyShips([]);
         setEnemySlotItems([]);
-        setMstShips(parseMasterShipRecords(masterShipPayload.records));
-        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
-        setWeaponIconFrames({});
-        setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta({
-          ...(masterShipPayload.period_tag !== undefined
-            ? { period_tag: masterShipPayload.period_tag }
-            : {}),
-          ...(masterShipPayload.period_revision !== undefined
-            ? { period_revision: masterShipPayload.period_revision }
-            : {}),
-          ...(masterShipPayload.table_version !== undefined
-            ? { table_version: masterShipPayload.table_version }
-            : {}),
-        });
         setLoadedDatasetKind("drops");
       }
-
     } catch (e: unknown) {
       const errorRecord =
         e && typeof e === "object" ? (e as Record<string, unknown>) : {};
@@ -551,27 +608,19 @@ export default function BattlesDashboard(props: {
         signal.aborted ||
         loadDataAbortController !== abortController
       ) return;
-      const diagnostic = masterDataLoaded
-        ? formatLoadError(
-            e,
-            requestedPeriod,
-            localProgress(),
-            repository.kind === "local-avro" ? "ローカル AVRO" : "R2",
-          )
-        : `データソース: R2 / 対象: マスターデータ（mst_ship, mst_slotitem） / 原因: ${
-            typeof errorRecord["message"] === "string"
-              ? errorRecord["message"]
-              : "原因不明のエラー"
-          }`;
+      const diagnostic = formatLoadError(
+        e,
+        requestedPeriod,
+        localProgress(),
+        repository.kind === "local-avro" ? "ローカル AVRO" : "R2",
+      );
       setError(
-        masterDataLoaded
-          ? repository.kind === "local-avro"
-            ? "ローカル AVRO の戦闘データ読込に失敗しました。"
-            : "R2 の戦闘データ読込に失敗しました。"
-          : "マスターデータ（取得元: R2）の読込に失敗しました。",
+        repository.kind === "local-avro"
+          ? "ローカル AVRO の戦闘データ読込に失敗しました。"
+          : "R2 の戦闘データ読込に失敗しました。",
       );
       setErrorDetail(diagnostic);
-      if (masterDataLoaded && repository.kind === "r2") {
+      if (repository.kind === "r2") {
         setQueryErrorStatus({
           name: "R2 戦闘データ",
           status: "failed",
@@ -584,15 +633,6 @@ export default function BattlesDashboard(props: {
       setEnemyDecks([]);
       setEnemyShips([]);
       setEnemySlotItems([]);
-      if (!masterDataLoaded) {
-        setMstShips([]);
-        setMstSlotItems([]);
-        setMasterDataMeta(null);
-        setMasterDataStatus([
-          { name: "mst_ship", status: "failed", detail: "R2 / 読込失敗", diagnostic },
-          { name: "mst_slotitem", status: "failed", detail: "R2 / 読込失敗", diagnostic },
-        ]);
-      }
       setLoadedDatasetKind(null);
     } finally {
       if (loadDataAbortController === abortController) {
@@ -607,48 +647,121 @@ export default function BattlesDashboard(props: {
   }
 
   onMount(() => {
+    const handleNavigateTab = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail && ["overview", "list", "map-flow", "stats", "drops"].includes(customEvent.detail)) {
+        setActiveTab(customEvent.detail as "list" | "detail" | "map-flow" | "stats" | "drops");
+      }
+    };
+    window.addEventListener("fusou:navigate-tab", handleNavigateTab);
+    onCleanup(() => {
+      window.removeEventListener("fusou:navigate-tab", handleNavigateTab);
+    });
+
+    const applyUrlState = (urlStr: string) => {
+      const url = new URL(urlStr, window.location.origin);
+      const params = url.searchParams;
+      const tab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops" | null;
+      if (tab) {
+        setActiveTab(tab);
+      } else {
+        setActiveTab("list");
+      }
+      const detailId = params.get("detail_id")?.trim() ?? "";
+      setSelectedDetailId(detailId);
+      if (detailId && !tab) {
+        setActiveTab("detail");
+      }
+      const bIdx = params.get("battle_index");
+      if (bIdx !== null && bIdx !== "") {
+        const parsed = Number(bIdx);
+        if (Number.isFinite(parsed)) setSelectedBattleIndex(parsed);
+      } else {
+        setSelectedBattleIndex(null);
+      }
+      const datasetId = params.get("dataset_id")?.trim() ?? "";
+      setSelectedDatasetId(datasetId);
+      const q = params.get("q")?.trim() ?? "";
+      setSearchQuery(q);
+      const map = params.get("map_filter")?.trim() ?? "";
+      setMapFilter(map);
+      const res = params.get("result_filter")?.trim() ?? "";
+      setResultFilter(res);
+      const sDate = params.get("start_date")?.trim() ?? "";
+      setStartDate(sDate);
+      const eDate = params.get("end_date")?.trim() ?? "";
+      setEndDate(eDate);
+      const pTag = params.get("period_tag");
+      const tVer = params.get("table_version");
+      if (pTag !== null) {
+        const rows = periods();
+        if (rows.length > 0) {
+          const idx = resolveInitialPeriodIndex(rows, pTag, tVer);
+          if (idx !== selectedPeriodIdx()) {
+            setSelectedPeriodIdx(idx);
+          }
+        }
+      }
+    };
+
+    const handlePopState = () => {
+      applyUrlState(window.location.href);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    onCleanup(() => {
+      window.removeEventListener("popstate", handlePopState);
+    });
+
     const params = new URLSearchParams(window.location.search);
     const initialPeriodTag = params.get("period_tag");
     const initialTableVersion = params.get("table_version");
-    const initialQuery = params.get("q")?.trim() ?? "";
-    if (initialQuery) {
-      setSearchQuery(initialQuery);
-    }
-    const initialMapFilter = params.get("map_filter")?.trim() ?? "";
-    const initialResultFilter = params.get("result_filter")?.trim() ?? "";
+    applyUrlState(window.location.href);
     const initialTab = params.get("tab") as "list" | "detail" | "map-flow" | "stats" | "drops";
-    if (initialMapFilter) {
-      setMapFilter(initialMapFilter);
-    }
-    if (initialResultFilter) {
-      setResultFilter(initialResultFilter);
-    }
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
     const initialDetailId = params.get("detail_id");
-    const initialDatasetId = params.get("dataset_id")?.trim() ?? "";
-    setSelectedDatasetId(initialDatasetId);
-    if (initialDetailId) {
-      setSelectedDetailId(initialDetailId);
-      if (!initialTab) setActiveTab("detail");
-    }
-    const initialBattleIndex = params.get("battle_index");
-    if (initialBattleIndex !== null) {
-      setSelectedBattleIndex(Number(initialBattleIndex));
-    }
 
     void (async () => {
+      const shouldLoadInitialDataset = initialTab !== "detail" || !initialDetailId;
+      // Always pre-warm master data cache so ship and item names resolve immediately in all tabs
+      cachedFetch("/api/master-data/json?table_name=mst_ship").catch(() => undefined);
+      cachedFetch("/api/master-data/json?table_name=mst_slotitem").catch(() => undefined);
+      const immediateR2Period: PeriodSummary | null =
+        shouldLoadInitialDataset &&
+        repository.kind === "r2" &&
+        (!initialPeriodTag ||
+          initialPeriodTag === "latest" ||
+          initialPeriodTag === "all" ||
+          Boolean(initialTableVersion))
+          ? {
+              period_tag: initialPeriodTag?.trim() || "latest",
+              table_version: initialTableVersion?.trim() || null,
+            }
+          : null;
+      const immediateLoadPromise = immediateR2Period
+        ? loadData(immediateR2Period)
+        : null;
       try {
         const rows = await fetchPeriodSummary();
         if (rows.length > 0) {
           const idx = resolveInitialPeriodIndex(rows, initialPeriodTag, initialTableVersion);
           setSelectedPeriodIdx(idx);
-          if (initialTab !== "detail" || !initialDetailId) {
-            await loadData(rows[idx]);
+          if (shouldLoadInitialDataset) {
+            const resolvedPeriod = rows[idx];
+            if (
+              immediateLoadPromise &&
+              resolvedPeriod &&
+              resolvedPeriod.period_tag === immediateR2Period?.period_tag &&
+              (resolvedPeriod.table_version ?? null) ===
+                (immediateR2Period?.table_version ?? null)
+            ) {
+              await immediateLoadPromise;
+            } else {
+              await loadData(resolvedPeriod);
+            }
           }
         }
       } catch (cause) {
+        loadDataAbortController?.abort();
         const sourceLabel = repository.kind === "local-avro" ? "ローカル AVRO" : "R2";
         const fallbackPeriod: PeriodSummary = {
           period_tag: initialPeriodTag || "latest",
@@ -659,25 +772,28 @@ export default function BattlesDashboard(props: {
       }
     })();
   });
-
-  createEffect(() => {
-    const tab = activeTab();
-    const period = selectedPeriod();
-    const wantedDatasetKind = datasetKindForTab(tab);
-    if (
-      wantedDatasetKind &&
-      !loading() &&
-      loadedDatasetKind() !== wantedDatasetKind &&
-      period &&
-      (props.source !== "local-avro" || props.localStatus === "ready")
-    ) {
-      void loadData(period);
-    }
-  });
+  createEffect(
+    on(
+      activeTab,
+      (tab, prevTab) => {
+        if (tab === prevTab) return;
+        const wantedDatasetKind = datasetKindForTab(tab);
+        const period = selectedPeriod();
+        if (
+          wantedDatasetKind &&
+          loadedDatasetKind() !== wantedDatasetKind &&
+          period &&
+          (props.source !== "local-avro" || props.localStatus === "ready")
+        ) {
+          void loadData(period);
+        }
+      },
+      { defer: true },
+    ),
+  );
 
   onCleanup(() => {
     loadDataAbortController?.abort();
-    void repository.dispose();
   });
 
   // URL Sync
@@ -710,11 +826,25 @@ export default function BattlesDashboard(props: {
 
     const p = selectedPeriod();
     if (p) {
-      url.searchParams.set("period_tag", p.period_tag);
-      if (p.table_version) {
-        url.searchParams.set("table_version", p.table_version);
+      if (currentTab === "detail" && p.period_tag === "latest") {
+        const concrete = periods().find((row) => row.period_tag !== "latest" && row.period_tag !== "all");
+        if (concrete) {
+          url.searchParams.set("period_tag", concrete.period_tag);
+          if (concrete.table_version) {
+            url.searchParams.set("table_version", concrete.table_version);
+          } else {
+            url.searchParams.delete("table_version");
+          }
+        } else {
+          url.searchParams.set("period_tag", p.period_tag);
+        }
       } else {
-        url.searchParams.delete("table_version");
+        url.searchParams.set("period_tag", p.period_tag);
+        if (p.table_version) {
+          url.searchParams.set("table_version", p.table_version);
+        } else {
+          url.searchParams.delete("table_version");
+        }
       }
     }
 
@@ -737,6 +867,20 @@ export default function BattlesDashboard(props: {
       url.searchParams.set("result_filter", result);
     } else {
       url.searchParams.delete("result_filter");
+    }
+
+    const startVal = startDate().trim();
+    if (startVal) {
+      url.searchParams.set("start_date", startVal);
+    } else {
+      url.searchParams.delete("start_date");
+    }
+
+    const endVal = endDate().trim();
+    if (endVal) {
+      url.searchParams.set("end_date", endVal);
+    } else {
+      url.searchParams.delete("end_date");
     }
 
     window.history.replaceState({}, "", url.toString());
@@ -763,6 +907,10 @@ export default function BattlesDashboard(props: {
     weaponIconMeta,
     searchQuery,
     setSearchQuery,
+    startDate,
+    setStartDate,
+    endDate,
+    setEndDate,
     mapFilter,
     setMapFilter,
     resultFilter,
@@ -781,17 +929,6 @@ export default function BattlesDashboard(props: {
           title="戦闘データ"
           subtitle="記録された戦闘ログの分析・集計機能"
           actions={<>
-            <Show when={activeTab() === "map-flow"}>
-              <button
-                class="fusou-btn-secondary gap-1.5"
-                type="button"
-                onClick={() => window.dispatchEvent(new CustomEvent("map-flow-open-display-settings"))}
-              >
-                <SettingsIcon class="h-4 w-4" />
-                <span class="hidden sm:inline">表示設定</span>
-              </button>
-            </Show>
-
             <Show when={activeTab() === "detail"}>
               <button
                 id="battle-detail-display-settings-btn"
@@ -934,6 +1071,9 @@ export default function BattlesDashboard(props: {
             onSearchChange={setSearchQuery}
             activeFilterCount={activeFilterItems().length}
             onOpenFilterModal={() => filterSettingsModalRef?.showModal()}
+            mapOptions={mapOptions}
+            battleRecords={battleRecords}
+            mstShips={mstShips}
           />
         </div>
 
@@ -943,6 +1083,8 @@ export default function BattlesDashboard(props: {
               items={activeFilterItems()}
               onClearAll={() => {
                 setSearchQuery("");
+                setStartDate("");
+                setEndDate("");
                 setMapFilter("");
                 setResultFilter("");
                 const defaultIdx = defaultPeriodIndex();
@@ -971,6 +1113,7 @@ export default function BattlesDashboard(props: {
                 battleIndex={selectedBattleIndex()}
                 datasetId={selectedDatasetId()}
                 repository={repository}
+                periods={periods()}
                 onBattleIndexChange={(index) => setSelectedBattleIndex(index)}
                 onLoadStatusChange={setDetailLoadStatus}
               />
@@ -981,22 +1124,24 @@ export default function BattlesDashboard(props: {
           </Switch>
         </div>
       <BattleDataSettingsModal
-        ref={(element) => {
-          dataSettingsModalRef = element;
-        }}
-        source={props.source}
-        localStatus={props.localStatus}
-        localDirectoryName={props.localDirectoryName}
-        rememberSource={props.rememberSource}
-        onSourceChange={(source) => {
-          dataSettingsModalRef.close();
-          props.onSourceChange(source);
-        }}
-        onOpenLocalDirectorySettings={() => {
-          dataSettingsModalRef.close();
-          props.onOpenLocalDirectorySettings();
-        }}
-        onRememberSourceChange={props.onRememberSourceChange}
+          ref={(element) => {
+            dataSettingsModalRef = element;
+          }}
+          source={props.source}
+          localStatus={props.localStatus}
+          localDirectoryName={props.localDirectoryName}
+          permission={props.permission}
+          scanResult={props.scanResult}
+          scanProgress={props.scanProgress}
+          localError={props.localError}
+          hasStoredHandle={props.hasStoredHandle}
+          rememberSource={props.rememberSource}
+          onSourceChange={props.onSourceChange}
+          onPickLocalDirectory={props.onPickLocalDirectory}
+          onRequestLocalPermission={props.onRequestLocalPermission}
+          onRescanLocalDirectory={props.onRescanLocalDirectory}
+          onReleaseLocalAccess={props.onReleaseLocalAccess}
+          onRememberSourceChange={props.onRememberSourceChange}
         periodLabel={selectedPeriod()?.period_tag === "latest"
           ? "最新 (latest)"
           : selectedPeriod()?.period_tag === "all"
@@ -1020,6 +1165,10 @@ export default function BattlesDashboard(props: {
         onPeriodChange={changePeriod}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
         mapOptions={mapOptions}
         mapFilter={mapFilter}
         onMapFilterChange={setMapFilter}

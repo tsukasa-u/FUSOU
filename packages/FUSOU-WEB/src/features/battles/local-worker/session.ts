@@ -368,10 +368,12 @@ export class LocalWorkerSession {
     reportProgress: WorkerProgressReporter,
   ) {
     this.ensureReady();
-    const [battles, cells, battleResults] = await Promise.all([
+    const [battles, cells, battleResults, allEnemyDecks, allEnemyShips] = await Promise.all([
       this.loadRows("battle", query.periodTag, query.tableVersion, requestId, reportProgress),
       this.loadOptionalRows("cells", query.periodTag, query.tableVersion, requestId, reportProgress),
       this.loadOptionalRows("battle_result", query.periodTag, query.tableVersion, requestId, reportProgress),
+      this.loadOptionalRows("enemy_deck", query.periodTag, query.tableVersion, requestId, reportProgress),
+      this.loadOptionalRows("enemy_ship", query.periodTag, query.tableVersion, requestId, reportProgress),
     ]);
     const deckIds = new Set(
       battles
@@ -379,13 +381,6 @@ export class LocalWorkerSession {
           typeof battle["e_deck_id"] === "string" ? battle["e_deck_id"] : "",
         )
         .filter(Boolean),
-    );
-    const allEnemyDecks = await this.loadOptionalRows(
-      "enemy_deck",
-      query.periodTag,
-      query.tableVersion,
-      requestId,
-      reportProgress,
     );
     const enemyDecks = allEnemyDecks.filter((deck) =>
       deckIds.has(String(deck["uuid"] ?? "")),
@@ -400,13 +395,6 @@ export class LocalWorkerSession {
             ? [deck["ship_ids"]]
             : [],
       ),
-    );
-    const allEnemyShips = await this.loadOptionalRows(
-      "enemy_ship",
-      query.periodTag,
-      query.tableVersion,
-      requestId,
-      reportProgress,
     );
     const enemyShips = allEnemyShips.filter((ship) =>
       shipGroupIds.has(String(ship["uuid"] ?? "")),

@@ -15,11 +15,10 @@ import {
 import {
   Chart,
   registerables,
-  type ChartData,
-  type ChartDataset,
   type ChartOptions,
 } from "chart.js";
 import { cachedFetch } from "@/utils/fetchCache";
+import { compareTableVersions } from "@/features/battles/helpers";
 import {
   ENEMY_ID_THRESHOLD,
 } from "@/features/simulator/constants";
@@ -28,6 +27,18 @@ import {
   ShipGrowthBoundsResponseSchema,
   ShipGrowthExpResponseSchema,
   ShipGrowthSummaryResponseSchema,
+  selectLatestShipGrowthPeriod,
+  type BoundRow,
+  type CapRow,
+  type AllPeriodsEntry,
+  type BoundsDataPoint,
+  normalizeBoundRows,
+  mergeBoundsByMax,
+  mergeCapsByMax,
+  buildBoundsChartData,
+  buildAllPeriodsBoundsChartData,
+  normalizeCapRows,
+  parsePositiveInt,
 } from "@/features/simulator/ship-growth-utils";
 import {
   MasterShipListResponseSchema,
@@ -41,13 +52,16 @@ import {
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
 import { ShipCatalogPicker } from "@/components/common/solid/ShipCatalogPicker";
+import ShipGrowthSearchFilterBar from "./ShipGrowthSearchFilterBar";
+import ShipGrowthFilterModal, { SHIP_TYPE_GROUPS } from "./ShipGrowthFilterModal";
+import { ActiveFilterChips, type FilterChipItem } from "@/components/common/solid/ActiveFilterChips";
 
 Chart.register(...registerables);
 
 
 type PeriodSource = "live" | "latest" | "cumulative" | "all";
 
-type PeriodSummary = {
+export type PeriodSummary = {
   period_tag: string;
   table_version: string;
   source?: PeriodSource;
@@ -65,8 +79,10 @@ const ALL_PERIODS_TABLE_VERSION = "__all__";
 function isLatestPeriod(p: PeriodSummary | null | undefined): boolean {
   return (
     !!p &&
-    p.period_tag === LATEST_PERIOD_TAG &&
-    p.table_version === LATEST_TABLE_VERSION
+    (p.period_tag === LATEST_PERIOD_TAG ||
+      p.period_tag === "latest" ||
+      p.table_version === LATEST_TABLE_VERSION ||
+      p.source === "latest")
   );
 }
 
@@ -86,7 +102,7 @@ function isAllPeriodsPeriod(p: PeriodSummary | null | undefined): boolean {
   );
 }
 
-function periodLabel(p: PeriodSummary): string {
+export function periodLabel(p: PeriodSummary): string {
   if (isLatestPeriod(p)) return "最新期間";
   if (isCumulativePeriod(p)) return "全期間";
   if (isAllPeriodsPeriod(p)) return "全期間比較";
@@ -98,32 +114,7 @@ type ExpRow = {
   exp_current: number;
 };
 
-type BoundRow = {
-  master_id: number;
-  lv: number;
-  kaihi_naked: number;
-  taisen_naked: number;
-  sakuteki_naked: number;
-  // Optional: source period that contributed the winning (minimum) value.
-  // Populated only in cumulative mode from /api/ship-growth/cumulative.
-  kaihi_source_period?: string;
-  taisen_source_period?: string;
-  sakuteki_source_period?: string;
-};
 
-type AllPeriodsEntry = {
-  period_tag: string;
-  table_version: string;
-  bounds: BoundRow[];
-  caps: CapRow[];
-};
-
-type CapRow = {
-  master_id: number;
-  kaihi_max: number;
-  taisen_max: number;
-  sakuteki_max: number;
-};
 
 type ShipMasterRow = {
   id: number;
@@ -131,7 +122,6 @@ type ShipMasterRow = {
   stype: number | null;
 };
 
-type AnyRecord = Record<string, unknown>;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -151,348 +141,13 @@ function buildExpChartData(expRows: ExpRow[]) {
   };
 }
 
-function toFiniteNumber(value: unknown, fallback = 0): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
 
-function normalizeBoundRows(rows: unknown): BoundRow[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const r = row as AnyRecord;
-      return {
-        master_id: toFiniteNumber(r["master_id"]),
-        lv: toFiniteNumber(r["lv"]),
-        kaihi_naked: toFiniteNumber(r["kaihi_naked"]),
-        taisen_naked: toFiniteNumber(r["taisen_naked"]),
-        sakuteki_naked: toFiniteNumber(r["sakuteki_naked"]),
-        ...(typeof r["kaihi_source_period"] === "string"
-          ? { kaihi_source_period: r["kaihi_source_period"] }
-          : {}),
-        ...(typeof r["taisen_source_period"] === "string"
-          ? { taisen_source_period: r["taisen_source_period"] }
-          : {}),
-        ...(typeof r["sakuteki_source_period"] === "string"
-          ? { sakuteki_source_period: r["sakuteki_source_period"] }
-          : {}),
-      };
-    })
-    .filter(
-      (row) =>
-        Number.isFinite(row.master_id) &&
-        row.master_id > 0 &&
-        Number.isFinite(row.lv) &&
-        row.lv > 0,
-    );
-}
-
-function normalizeCapRows(rows: unknown): CapRow[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const r = row as AnyRecord;
-      return {
-        master_id: toFiniteNumber(r["master_id"]),
-        kaihi_max: toFiniteNumber(r["kaihi_max"] ?? r["kaihi_cap"]),
-        taisen_max: toFiniteNumber(r["taisen_max"] ?? r["taisen_cap"]),
-        sakuteki_max: toFiniteNumber(
-          r["sakuteki_max"] ?? r["sakuteki_cap"],
-        ),
-      };
-    })
-    .filter((row) => Number.isFinite(row.master_id) && row.master_id > 0);
-}
-
-function parsePositiveInt(raw: string | null): number | null {
-  if (!raw) return null;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) return null;
-  return value;
-}
-
-function mergeBoundsByMax(
-  archiveRows: BoundRow[],
-  liveRows: BoundRow[],
-  liveSourcePeriod: string,
-): BoundRow[] {
-  const merged = new Map<string, BoundRow>();
-
-  for (const row of archiveRows) {
-    merged.set(`${row.master_id}:${row.lv}`, { ...row });
-  }
-
-  for (const liveRow of liveRows) {
-    const key = `${liveRow.master_id}:${liveRow.lv}`;
-    const existing = merged.get(key);
-    if (!existing) {
-      merged.set(key, {
-        ...liveRow,
-        kaihi_source_period: liveRow.kaihi_source_period ?? liveSourcePeriod,
-        taisen_source_period:
-          liveRow.taisen_source_period ?? liveSourcePeriod,
-        sakuteki_source_period:
-          liveRow.sakuteki_source_period ?? liveSourcePeriod,
-      });
-      continue;
-    }
-
-    const next = { ...existing };
-    // Use the smaller (more precise) naked value. 0 means no reliable
-    // observation (clamped from negative), so only update when the incoming
-    // value is positive and smaller than the current best estimate.
-    if (
-      liveRow.kaihi_naked > 0 &&
-      (existing.kaihi_naked === 0 || liveRow.kaihi_naked < existing.kaihi_naked)
-    ) {
-      next.kaihi_naked = liveRow.kaihi_naked;
-      next.kaihi_source_period =
-        liveRow.kaihi_source_period ?? liveSourcePeriod;
-    }
-    if (
-      liveRow.taisen_naked > 0 &&
-      (existing.taisen_naked === 0 || liveRow.taisen_naked < existing.taisen_naked)
-    ) {
-      next.taisen_naked = liveRow.taisen_naked;
-      next.taisen_source_period =
-        liveRow.taisen_source_period ?? liveSourcePeriod;
-    }
-    if (
-      liveRow.sakuteki_naked > 0 &&
-      (existing.sakuteki_naked === 0 || liveRow.sakuteki_naked < existing.sakuteki_naked)
-    ) {
-      next.sakuteki_naked = liveRow.sakuteki_naked;
-      next.sakuteki_source_period =
-        liveRow.sakuteki_source_period ?? liveSourcePeriod;
-    }
-    merged.set(key, next);
-  }
-
-  return [...merged.values()].sort(
-    (a, b) => a.master_id - b.master_id || a.lv - b.lv,
-  );
-}
-
-function mergeCapsByMax(archiveCaps: CapRow[], liveCaps: CapRow[]): CapRow[] {
-  const merged = new Map<number, CapRow>();
-
-  for (const row of archiveCaps) {
-    merged.set(row.master_id, { ...row });
-  }
-
-  for (const liveRow of liveCaps) {
-    const existing = merged.get(liveRow.master_id);
-    if (!existing) {
-      merged.set(liveRow.master_id, { ...liveRow });
-      continue;
-    }
-
-    merged.set(liveRow.master_id, {
-      master_id: liveRow.master_id,
-      kaihi_max: Math.max(existing.kaihi_max, liveRow.kaihi_max),
-      taisen_max: Math.max(existing.taisen_max, liveRow.taisen_max),
-      sakuteki_max: Math.max(existing.sakuteki_max, liveRow.sakuteki_max),
-    });
-  }
-
-  return [...merged.values()].sort((a, b) => a.master_id - b.master_id);
-}
-
-// Data point type for bounds chart — includes optional source period used by
-// the cumulative mode tooltip to show which period contributed the min value.
-type BoundsDataPoint = { x: number; y: number; sourcePeriod?: string };
-
-function buildBoundsChartData(
-  boundRows: BoundRow[],
-  cap: CapRow | null,
-): ChartData<"line", BoundsDataPoint[]> {
-  const minLv = boundRows[0]?.lv ?? 1;
-  const maxLv = boundRows[boundRows.length - 1]?.lv ?? 180;
-
-  const datasets: ChartDataset<"line", BoundsDataPoint[]>[] = [
-    {
-      label: "回避(naked)",
-      data: boundRows.map((r) => ({
-        x: r.lv,
-        y: r.kaihi_naked,
-        ...(r.kaihi_source_period
-          ? { sourcePeriod: r.kaihi_source_period }
-          : {}),
-      })),
-      borderColor: "rgb(34, 197, 94)",
-      backgroundColor: "transparent",
-      tension: 0,
-      pointRadius: 2,
-    },
-    {
-      label: "対潜(naked)",
-      data: boundRows.map((r) => ({
-        x: r.lv,
-        y: r.taisen_naked,
-        ...(r.taisen_source_period
-          ? { sourcePeriod: r.taisen_source_period }
-          : {}),
-      })),
-      borderColor: "rgb(249, 115, 22)",
-      backgroundColor: "transparent",
-      tension: 0,
-      pointRadius: 2,
-    },
-    {
-      label: "索敵(naked)",
-      data: boundRows.map((r) => ({
-        x: r.lv,
-        y: r.sakuteki_naked,
-        ...(r.sakuteki_source_period
-          ? { sourcePeriod: r.sakuteki_source_period }
-          : {}),
-      })),
-      borderColor: "rgb(168, 85, 247)",
-      backgroundColor: "transparent",
-      tension: 0,
-      pointRadius: 2,
-    },
-  ];
-
-  // Cap reference lines are only meaningful when there are bounds rows to
-  // compare against. Skip them when boundRows is empty to avoid generating a
-  // dataset-only chart on a detached canvas (e.g. ship absent from cumulative).
-  if (cap && boundRows.length > 0) {
-    if (Number.isFinite(cap.kaihi_max) && cap.kaihi_max > 0) {
-      datasets.push({
-        label: "回避(cap)",
-        data: [
-          { x: minLv, y: cap.kaihi_max },
-          { x: maxLv, y: cap.kaihi_max },
-        ],
-        borderColor: "rgba(34, 197, 94, 0.6)",
-        borderDash: [8, 6],
-        pointRadius: 0,
-        tension: 0,
-      });
-    }
-    if (Number.isFinite(cap.taisen_max) && cap.taisen_max > 0) {
-      datasets.push({
-        label: "対潜(cap)",
-        data: [
-          { x: minLv, y: cap.taisen_max },
-          { x: maxLv, y: cap.taisen_max },
-        ],
-        borderColor: "rgba(249, 115, 22, 0.6)",
-        borderDash: [8, 6],
-        pointRadius: 0,
-        tension: 0,
-      });
-    }
-    if (Number.isFinite(cap.sakuteki_max) && cap.sakuteki_max > 0) {
-      datasets.push({
-        label: "索敵(cap)",
-        data: [
-          { x: minLv, y: cap.sakuteki_max },
-          { x: maxLv, y: cap.sakuteki_max },
-        ],
-        borderColor: "rgba(168, 85, 247, 0.6)",
-        borderDash: [8, 6],
-        pointRadius: 0,
-        tension: 0,
-      });
-    }
-  }
-
-  return { datasets };
-}
 
 // Stat colors used across all periods in the all-periods chart.
 // Same hue for every period — recency is communicated by opacity + line weight:
 //   newest period → full opacity + thicker line (vivid)
 //   older periods → progressively more transparent + thinner
 // Hover highlights use saturated border + larger point hit radius.
-const STAT_COLORS = {
-  kaihi: "34,197,94", // green
-  taisen: "249,115,22", // orange
-  sakuteki: "168,85,247", // purple
-} as const;
-
-function buildAllPeriodsBoundsChartData(
-  entries: AllPeriodsEntry[],
-  masterId: number | null,
-): ChartData<"line", BoundsDataPoint[]> {
-  const datasets: ChartDataset<"line", BoundsDataPoint[]>[] = [];
-  const total = entries.length;
-  // Pre-compute the last index that actually has data for the selected ship.
-  // This is used to give the "newest" visual treatment (full opacity + thick
-  // border) to the most recent period that HAS data, not the most recent
-  // period overall (which may have been skipped for this ship).
-  let lastDataIdx = -1;
-  for (let i = total - 1; i >= 0; i--) {
-    const entry = entries[i];
-    if (!entry) continue;
-    const hasRows =
-      masterId != null
-        ? entry.bounds.some((r) => r.master_id === masterId)
-        : entry.bounds.length > 0;
-    if (hasRows) {
-      lastDataIdx = i;
-      break;
-    }
-  }
-  for (let i = 0; i < total; i++) {
-    const entry = entries[i];
-    if (!entry) continue;
-    const rows =
-      masterId != null
-        ? entry.bounds.filter((r) => r.master_id === masterId)
-        : entry.bounds;
-    if (rows.length === 0) continue;
-    // Older entries (lower index) get lower opacity; newest is fully opaque.
-    // Min alpha=0.15 keeps older lines legible while clearly marking them as "old".
-    const alpha = total > 1 ? 0.15 + 0.85 * (i / (total - 1)) : 1;
-    // The most recent period that has data for this ship gets a thicker line.
-    const borderWidth = i === lastDataIdx ? 2.5 : 1.5;
-    const shortLabel = `${entry.period_tag}(v${entry.table_version})`;
-    const { kaihi, taisen, sakuteki } = STAT_COLORS;
-    datasets.push(
-      {
-        label: `回避(naked) - ${shortLabel}`,
-        data: rows.map((r) => ({ x: r.lv, y: r.kaihi_naked })),
-        borderColor: `rgba(${kaihi},${alpha})`,
-        hoverBorderColor: `rgb(${kaihi})`,
-        backgroundColor: "transparent",
-        borderWidth,
-        hoverBorderWidth: 3,
-        tension: 0,
-        pointRadius: 1,
-        pointHoverRadius: 4,
-      },
-      {
-        label: `対潜(naked) - ${shortLabel}`,
-        data: rows.map((r) => ({ x: r.lv, y: r.taisen_naked })),
-        borderColor: `rgba(${taisen},${alpha})`,
-        hoverBorderColor: `rgb(${taisen})`,
-        backgroundColor: "transparent",
-        borderWidth,
-        hoverBorderWidth: 3,
-        tension: 0,
-        pointRadius: 1,
-        pointHoverRadius: 4,
-      },
-      {
-        label: `索敵(naked) - ${shortLabel}`,
-        data: rows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
-        borderColor: `rgba(${sakuteki},${alpha})`,
-        hoverBorderColor: `rgb(${sakuteki})`,
-        backgroundColor: "transparent",
-        borderWidth,
-        hoverBorderWidth: 3,
-        tension: 0,
-        pointRadius: 1,
-        pointHoverRadius: 4,
-      },
-    );
-  }
-  return { datasets };
-}
-
 const CHART_OPTIONS_EXP = {
   responsive: true,
   maintainAspectRatio: false,
@@ -591,9 +246,80 @@ const CHART_OPTIONS_BOUNDS_CUMULATIVE: ChartOptions<"line"> = {
 // ── Component ──────────────────────────────────────────────────────
 
 export default function ShipGrowthPanel() {
+  const [headerSearchQuery, setHeaderSearchQuery] = createSignal("");
+  const [selectedStypes, setSelectedStypes] = createSignal<number[]>([]);
+  let growthFilterModalRef!: HTMLDialogElement;
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
   const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
   const [shipMasterRows, setShipMasterRows] = createSignal<ShipMasterRow[]>([]);
+
+  const selectedPeriod = createMemo(
+    () => periods()[selectedPeriodIdx()] ?? null,
+  );
+
+  const defaultPeriodIndex = () => {
+    const p = periods();
+    const latestIdx = p.findIndex((row) => isLatestPeriod(row));
+    return latestIdx >= 0 ? latestIdx : 0;
+  };
+
+  const activeFilterItems = createMemo<FilterChipItem[]>(() => {
+    const items: FilterChipItem[] = [];
+    const q = headerSearchQuery().trim();
+    if (q) {
+      items.push({
+        key: "search",
+        label: "検索",
+        value: q,
+        onRemove: () => setHeaderSearchQuery(""),
+      });
+    }
+
+    const p = selectedPeriod();
+    if (p && (selectedPeriodIdx() !== defaultPeriodIndex() || !isLatestPeriod(p))) {
+      items.push({
+        key: "period",
+        label: "期間",
+        value: periodLabel(p),
+        onRemove: () => {
+          setSelectedPeriodIdx(defaultPeriodIndex());
+        },
+      });
+    }
+
+    const stypes = selectedStypes();
+    if (stypes.length > 0) {
+      const groupNames = SHIP_TYPE_GROUPS
+        .filter((g) => g.stypes.some((st) => stypes.includes(st)))
+        .map((g) => g.name);
+      items.push({
+        key: "stype",
+        label: "艦種",
+        value: groupNames.join(", "),
+        onRemove: () => setSelectedStypes([]),
+      });
+    }
+
+    return items;
+  });
+
+  const filteredShipMasterRows = createMemo(() => {
+    const q = headerSearchQuery().trim().toLowerCase();
+    const stypes = selectedStypes();
+    return shipMasterRows().filter((ship) => {
+      if (q) {
+        const matchesName = ship.name.toLowerCase().includes(q);
+        const matchesId = String(ship.id).includes(q);
+        if (!matchesName && !matchesId) return false;
+      }
+      if (stypes.length > 0) {
+        if (ship.stype == null || !stypes.includes(ship.stype)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  });
   const [selectedMasterId, setSelectedMasterId] = createSignal<number | null>(
     null,
   );
@@ -636,10 +362,6 @@ export default function ShipGrowthPanel() {
   // not store exp tables), so this differs from selectedPeriod().
   const [expSourcePeriod, setExpSourcePeriod] =
     createSignal<PeriodSummary | null>(null);
-
-  const selectedPeriod = createMemo(
-    () => periods()[selectedPeriodIdx()] ?? null,
-  );
 
   const selectedShip = createMemo(() => {
     const id = selectedMasterId();
@@ -779,7 +501,7 @@ export default function ShipGrowthPanel() {
 
   let fetchGrowthDataVersion = 0;
 
-  async function fetchGrowthData() {
+  async function fetchGrowthData(forceReload = false) {
     const period = selectedPeriod();
     if (!period) return;
 
@@ -787,6 +509,8 @@ export default function ShipGrowthPanel() {
     // period can detect it is stale and discard its results.
     const currentVersion = ++fetchGrowthDataVersion;
     const isCurrentFetch = () => fetchGrowthDataVersion === currentVersion;
+    const fetchData = (url: string) =>
+      cachedFetch(url, forceReload ? { cache: "reload" } : undefined);
 
     setLoadingData(true);
     setError(null);
@@ -794,7 +518,9 @@ export default function ShipGrowthPanel() {
       const latest = isLatestPeriod(period);
       const cumulative = isCumulativePeriod(period);
       const allPeriods = isAllPeriodsPeriod(period);
-      const firstLivePeriod = periods().find((p) => p.source === "live") ?? null;
+      const firstLivePeriod = selectLatestShipGrowthPeriod(
+        periods().filter((p) => p.source === "live"),
+      );
       const resolvedLivePeriod = latest ? firstLivePeriod : period;
 
       if (latest && !resolvedLivePeriod) {
@@ -811,7 +537,7 @@ export default function ShipGrowthPanel() {
       }
       if (expPeriod) {
         const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(expPeriod.period_tag)}&table_version=${encodeURIComponent(expPeriod.table_version)}`;
-        const expRes = await cachedFetch(expUrl);
+        const expRes = await fetchData(expUrl);
         if (!expRes.ok) throw new Error(`exp HTTP ${expRes.status}`);
         const parsedExp = ShipGrowthExpResponseSchema.safeParse(
           await expRes.json(),
@@ -834,9 +560,9 @@ export default function ShipGrowthPanel() {
         // Exp, all-periods, and live bounds are all fetched in parallel.
         const livePeriodForBounds = firstLivePeriod;
         const [apRes, liveRes] = await Promise.all([
-          cachedFetch("/api/ship-growth/all-periods"),
+          fetchData("/api/ship-growth/all-periods"),
           livePeriodForBounds
-            ? cachedFetch(
+            ? fetchData(
                 `/api/ship-growth/bounds?period_tag=${encodeURIComponent(livePeriodForBounds.period_tag)}&table_version=${encodeURIComponent(livePeriodForBounds.table_version)}`,
               )
             : Promise.resolve(null),
@@ -857,17 +583,21 @@ export default function ShipGrowthPanel() {
           }),
         );
 
-        const combined: AllPeriodsEntry[] = [...archivedEntries];
-        if (liveRes && liveRes.ok) {
+        const combined = new Map(archivedEntries.map((entry) => [
+          `${entry.period_tag}/${entry.table_version}`, entry,
+        ]));
+        if (liveRes && !liveRes.ok) throw new Error(`bounds HTTP ${liveRes.status}`);
+        if (liveRes) {
           const parsedLive = ShipGrowthBoundsResponseSchema.safeParse(
             await liveRes.json(),
           );
-          if (!parsedLive.success) throw new Error("Unexpected bounds response");
+          if (!parsedLive.success || !parsedLive.data.ok)
+            throw new Error("Unexpected bounds response");
           const liveJson = parsedLive.data;
           // Use the pre-computed livePeriodForBounds (same reference, no
           // re-read of periods() after the await point).
           if (liveJson.ok && livePeriodForBounds) {
-            combined.push({
+            combined.set(`${livePeriodForBounds.period_tag}/${livePeriodForBounds.table_version}`, {
               period_tag: livePeriodForBounds.period_tag,
               table_version: livePeriodForBounds.table_version,
               bounds: normalizeBoundRows(liveJson.bounds),
@@ -878,7 +608,8 @@ export default function ShipGrowthPanel() {
         // Guard: discard if period changed while awaiting archive data.
         if (!isCurrentFetch()) return;
         batch(() => {
-          setAllPeriodsEntries(combined);
+          setAllPeriodsEntries([...combined.values()].sort((a, b) =>
+            a.period_tag.localeCompare(b.period_tag) || compareTableVersions(a.table_version, b.table_version)));
           // Clear single-period signals so stale data doesn't show.
           setAllBoundRows([]);
           setAllCapRows([]);
@@ -890,9 +621,9 @@ export default function ShipGrowthPanel() {
 
       if (cumulative) {
         const [cumulativeRes, liveRes] = await Promise.all([
-          cachedFetch("/api/ship-growth/cumulative"),
+          fetchData("/api/ship-growth/cumulative"),
           firstLivePeriod
-            ? cachedFetch(
+            ? fetchData(
                 `/api/ship-growth/bounds?period_tag=${encodeURIComponent(firstLivePeriod.period_tag)}&table_version=${encodeURIComponent(firstLivePeriod.table_version)}`,
               )
             : Promise.resolve(null),
@@ -910,7 +641,8 @@ export default function ShipGrowthPanel() {
         let mergedBounds = normalizeBoundRows(cumulativeJson.bounds);
         let mergedCaps = normalizeCapRows(cumulativeJson.caps);
 
-        if (liveRes?.ok && firstLivePeriod) {
+        if (liveRes && !liveRes.ok) throw new Error(`bounds HTTP ${liveRes.status}`);
+        if (liveRes && firstLivePeriod) {
           const parsedLive = ShipGrowthBoundsResponseSchema.safeParse(
             await liveRes.json(),
           );
@@ -944,7 +676,7 @@ export default function ShipGrowthPanel() {
         throw new Error("期間データの解決に失敗しました。");
       }
       const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(resolvedLivePeriod.period_tag)}&table_version=${encodeURIComponent(resolvedLivePeriod.table_version)}`;
-      const boundsRes = await cachedFetch(boundsUrl);
+      const boundsRes = await fetchData(boundsUrl);
       if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
       const parsedBounds = ShipGrowthBoundsResponseSchema.safeParse(
         await boundsRes.json(),
@@ -963,6 +695,15 @@ export default function ShipGrowthPanel() {
     } catch (e) {
       // Only surface error if this fetch is still the current one.
       if (isCurrentFetch()) {
+        batch(() => {
+          setExpRows([]);
+          setExpSourcePeriod(null);
+          setAllBoundRows([]);
+          setAllCapRows([]);
+          setAllPeriodsEntries([]);
+          setBoundRows([]);
+          setSelectedCap(null);
+        });
         setError(
           `成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
         );
@@ -1082,8 +823,16 @@ export default function ShipGrowthPanel() {
     } else if (isLatestPeriod(period)) {
       url.searchParams.delete("cumulative");
       url.searchParams.delete("all_periods");
-      url.searchParams.set("period_tag", LATEST_PERIOD_TAG);
-      url.searchParams.delete("table_version");
+      const latestLive = selectLatestShipGrowthPeriod(
+        periods().filter((p) => p.source === "live" && p.period_tag !== "latest" && p.period_tag !== LATEST_PERIOD_TAG && p.period_tag !== "all")
+      );
+      if (latestLive) {
+        url.searchParams.set("period_tag", latestLive.period_tag);
+        url.searchParams.set("table_version", latestLive.table_version);
+      } else {
+        url.searchParams.set("period_tag", LATEST_PERIOD_TAG);
+        url.searchParams.delete("table_version");
+      }
     } else {
       url.searchParams.delete("cumulative");
       url.searchParams.delete("all_periods");
@@ -1105,8 +854,11 @@ export default function ShipGrowthPanel() {
     const period = selectedPeriod();
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
+    const livePeriods = periods().filter(
+      (p) => p.source === "live" && p.period_tag !== "latest" && p.period_tag !== LATEST_PERIOD_TAG && p.period_tag !== "all"
+    );
     const sharePeriod = isLatestPeriod(period)
-      ? periods().find((p) => p.source === "live") ?? null
+      ? selectLatestShipGrowthPeriod(livePeriods)
       : period;
     if (!sharePeriod) return null;
     // Cumulative and all-periods are synthetic local-only selections; share
@@ -1114,6 +866,9 @@ export default function ShipGrowthPanel() {
     if (isCumulativePeriod(sharePeriod)) return null;
     if (isAllPeriodsPeriod(sharePeriod)) return null;
     if (isLatestPeriod(sharePeriod)) return null;
+    if (sharePeriod.period_tag === "latest" || sharePeriod.period_tag === LATEST_PERIOD_TAG || sharePeriod.period_tag === "all") {
+      return null;
+    }
 
     return buildShareGrowthUrl(window.location.origin, {
       periodTag: sharePeriod.period_tag,
@@ -1143,6 +898,21 @@ export default function ShipGrowthPanel() {
   const expChartData = createMemo(() => buildExpChartData(expRows()));
 
   // Bounds chart data: single-period or all-periods view.
+  const allPeriodsMatchedCount = createMemo(() => {
+    const mid = selectedMasterId();
+    if (mid == null) return 0;
+    return allPeriodsEntries().filter((e) =>
+      e.bounds.some(
+        (r) =>
+          r.master_id === mid &&
+          (r.kaihi_naked > 0 ||
+            r.taisen_naked > 0 ||
+            r.sakuteki_naked > 0 ||
+            r.lucky_naked > 0),
+      ),
+    ).length;
+  });
+
   const boundsChartData = createMemo(() => {
     const period = selectedPeriod();
     if (isAllPeriodsPeriod(period)) {
@@ -1212,6 +982,7 @@ export default function ShipGrowthPanel() {
   });
 
   onCleanup(() => {
+    ++fetchGrowthDataVersion;
     expChart?.destroy();
     boundsChart?.destroy();
   });
@@ -1250,7 +1021,7 @@ export default function ShipGrowthPanel() {
               periods().length === 0 ||
               selectedMasterId() == null
             }
-            onClick={() => fetchGrowthData()}
+            onClick={() => fetchGrowthData(true)}
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1283,12 +1054,49 @@ export default function ShipGrowthPanel() {
         </AlertMessage>
       </Show>
 
-      <MasterDataLoadStatusAlert items={masterDataStatus()} />
+      <MasterDataLoadStatusAlert items={masterDataStatus()} errorsOnly={true} class="mb-6" />
+
+      <div class="fusou-tab-toolbar">
+        <div class="flex items-center gap-2 py-1">
+          <span class="text-sm font-semibold text-base-content/80">艦別パラメータ分析</span>
+          <Show when={selectedShip()}>
+            {(ship) => (
+              <span class="badge badge-sm badge-outline text-xs">
+                {ship().name}
+              </span>
+            )}
+          </Show>
+        </div>
+
+        <ShipGrowthSearchFilterBar
+          searchQuery={headerSearchQuery}
+          onSearchChange={setHeaderSearchQuery}
+          activeFilterCount={activeFilterItems().length}
+          onOpenFilterModal={() => growthFilterModalRef?.showModal()}
+          ships={shipMasterRows}
+          onSelectShip={(id) => selectShip(id)}
+        />
+      </div>
+
+      <Show when={activeFilterItems().length > 0}>
+        <div class="-mt-3 mb-4 px-0.5">
+          <ActiveFilterChips
+            items={activeFilterItems()}
+            onClearAll={() => {
+              setHeaderSearchQuery("");
+              setSelectedStypes([]);
+              if (selectedPeriodIdx() !== defaultPeriodIndex()) {
+                setSelectedPeriodIdx(defaultPeriodIndex());
+              }
+            }}
+          />
+        </div>
+      </Show>
 
       {/* Ship picker + charts */}
       <ShipCatalogPicker
         idPrefix="ship-growth"
-        ships={shipMasterRows()}
+        ships={filteredShipMasterRows()}
         selectedShipId={selectedMasterId()}
         onSelectShip={(id) => selectShip(id)}
         loading={loadingShips()}
@@ -1363,7 +1171,7 @@ export default function ShipGrowthPanel() {
                   >
                     <Show when={isAllPeriodsPeriod(selectedPeriod())}>
                       <p class="text-sm text-base-content/60">
-                        {Math.round(boundsChartData().datasets.length / 3)}{" "}
+                        {allPeriodsMatchedCount()}{" "}
                         期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
                       </p>
                     </Show>
@@ -1377,6 +1185,44 @@ export default function ShipGrowthPanel() {
                     <div class="relative w-full h-[360px] sm:h-[420px] lg:h-[480px]">
                       <canvas ref={setBoundsCanvas} class="w-full h-full block" />
                     </div>
+                    <Show when={!isAllPeriodsPeriod(selectedPeriod()) && boundRows().length > 0}>
+                      <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                          <h4 class="text-sm font-semibold text-base-content/80">
+                            レベル別パラメータ一覧 (naked)
+                          </h4>
+                          <span class="text-xs text-base-content/50">
+                            全 {boundRows().length} レベル
+                          </span>
+                        </div>
+                        <div class="overflow-x-auto max-h-72 overflow-y-auto border border-base-300 rounded-lg">
+                          <table class="table table-xs sm:table-sm table-pin-rows table-zebra w-full text-center">
+                            <thead>
+                              <tr class="bg-base-200 text-base-content">
+                                <th>Lv</th>
+                                <th class="text-green-600 dark:text-green-400">回避</th>
+                                <th class="text-orange-600 dark:text-orange-400">対潜</th>
+                                <th class="text-purple-600 dark:text-purple-400">索敵</th>
+                                <th class="text-amber-600 dark:text-amber-400">運</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <For each={boundRows()}>
+                                {(row) => (
+                                  <tr>
+                                    <td class="font-mono font-medium">{row.lv}</td>
+                                    <td class="font-mono">{row.kaihi_naked > 0 ? row.kaihi_naked : "-"}</td>
+                                    <td class="font-mono">{row.taisen_naked > 0 ? row.taisen_naked : "-"}</td>
+                                    <td class="font-mono">{row.sakuteki_naked > 0 ? row.sakuteki_naked : "-"}</td>
+                                    <td class="font-mono">{row.lucky_naked > 0 ? row.lucky_naked : "-"}</td>
+                                  </tr>
+                                )}
+                              </For>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </Show>
                   </Show>
                 </div>
               </div>
@@ -1403,6 +1249,23 @@ export default function ShipGrowthPanel() {
           </Show>
         </div>
       </ShipCatalogPicker>
+      <ShipGrowthFilterModal
+        ref={(el) => {
+          growthFilterModalRef = el;
+        }}
+        periods={periods}
+        selectedPeriodIndex={selectedPeriodIdx}
+        loadingPeriods={loadingPeriods}
+        onPeriodChange={(idx) => setSelectedPeriodIdx(idx)}
+        selectedStypes={selectedStypes}
+        onStypesChange={setSelectedStypes}
+        onReset={() => {
+          setSelectedStypes([]);
+          if (selectedPeriodIdx() !== defaultPeriodIndex()) {
+            setSelectedPeriodIdx(defaultPeriodIndex());
+          }
+        }}
+      />
     </div>
   );
 }

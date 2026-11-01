@@ -1,4 +1,4 @@
-// ── Fleet snapshot application ──
+﻿// ── Fleet snapshot application ──
 
 import type { FleetSlot } from "./types";
 import { computeEquipSum, computeEquipBonuses } from "./equip-calc";
@@ -109,7 +109,7 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
   }
 
   function populateFleet(fleet: FleetSlot[], shipIds: Array<number | null>) {
-    for (let i = 0; i < Math.min(shipIds.length, 6); i++) {
+    for (let i = 0; i < Math.min(shipIds.length, fleet.length); i++) {
       const instanceId = shipIds[i];
       if (instanceId == null || instanceId <= 0) {
         continue;
@@ -281,7 +281,7 @@ export function applyExportedFleet(data: Record<string, unknown>) {
 
   function applyFleetArray(src: unknown, dst: FleetSlot[]) {
     if (!Array.isArray(src)) return;
-    for (let i = 0; i < Math.min(src.length, 6); i++) {
+    for (let i = 0; i < Math.min(src.length, dst.length); i++) {
       const slot = parseFleetSlot(src[i]);
       if (slot) replaceFleetSlot(dst, i, slot);
     }

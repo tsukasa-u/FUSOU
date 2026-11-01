@@ -118,6 +118,7 @@ async function parseEntry(
   relativePath: string,
   file: File,
   handle?: FileSystemFileHandle,
+  tableVersionCache?: Map<string, Promise<string | null>>,
 ): Promise<LocalManifestEntry | null> {
   if (!relativePath.endsWith(".avro")) return null;
   const parsed = parseLocalAvroPath(relativePath);
@@ -133,11 +134,18 @@ async function parseEntry(
       "AVRO file size exceeds the local reader limit",
     );
   }
+  const cacheKey = `${parsed.periodTag}\0${parsed.storageKind}\0${parsed.table}`;
+  let versionPromise = tableVersionCache?.get(cacheKey);
+  if (!versionPromise) {
+    versionPromise = readEmbeddedTableVersion(file);
+    tableVersionCache?.set(cacheKey, versionPromise);
+  }
+  const tableVersion = await versionPromise;
   return {
     ...createLocalAvroFileEntry(parsed, {
       size: file.size,
       lastModified: file.lastModified,
-      tableVersion: await readEmbeddedTableVersion(file),
+      tableVersion,
     }),
     ...(handle ? { handle } : { file }),
   };
@@ -149,7 +157,7 @@ async function scanDirectory(
   entries: LocalManifestEntry[],
   diagnostics: ManifestDiagnostic[],
   options: ManifestScanOptions,
-  sizeState: { totalBytes: number },
+  sizeState: { totalBytes: number; tableVersionCache: Map<string, Promise<string | null>> },
 ): Promise<void> {
   const limits = normalizeLocalAvroLoadLimits(options.limits);
   const iterableDirectory = directory as unknown as {
@@ -174,7 +182,7 @@ async function scanDirectory(
     });
     try {
       const file = await child.getFile();
-      const entry = await parseEntry(path, file, child);
+      const entry = await parseEntry(path, file, child, sizeState.tableVersionCache);
       if (entry) {
         sizeState.totalBytes += entry.size;
         if (sizeState.totalBytes > limits.maxManifestBytes) {
@@ -205,7 +213,10 @@ export async function scanLocalDirectoryHandle(
 ): Promise<ManifestScanResult> {
   const entries: LocalManifestEntry[] = [];
   const diagnostics: ManifestDiagnostic[] = [];
-  const sizeState = { totalBytes: 0 };
+  const sizeState = {
+    totalBytes: 0,
+    tableVersionCache: new Map<string, Promise<string | null>>(),
+  };
   await scanDirectory(
     root,
     shouldScanRoot(root) ? "fusou" : "",
@@ -224,6 +235,7 @@ export async function scanLocalFileList(
   const entries: LocalManifestEntry[] = [];
   const diagnostics: ManifestDiagnostic[] = [];
   const limits = normalizeLocalAvroLoadLimits(options.limits);
+  const tableVersionCache = new Map<string, Promise<string | null>>();
   let totalBytes = 0;
   for (const file of files) {
     const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
@@ -233,7 +245,7 @@ export async function scanLocalFileList(
       completed: entries.length,
     });
     try {
-      const entry = await parseEntry(relativePath, file);
+      const entry = await parseEntry(relativePath, file, undefined, tableVersionCache);
       if (entry) {
         totalBytes += entry.size;
         if (totalBytes > limits.maxManifestBytes) {

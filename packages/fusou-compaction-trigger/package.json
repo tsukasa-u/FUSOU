@@ -1,13 +1,13 @@
 {
   "name": "fusou-compaction-trigger",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "pnpm --dir ../fusou-compaction-core build && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:config": "tsc -p tsconfig.trigger.config.json --noEmit",
-    "test": "pnpm run build && node test/internal-api-smoke.mjs && node --test test/reconciliation-classification.mjs && node --test test/compaction-tasks.test.mjs",
+    "test": "pnpm run build && node test/internal-api-smoke.mjs && node --test test/reconciliation-classification.mjs && node --test test/compaction-tasks.test.mjs && node --test test/cli-entrypoint.test.mjs",
     "run:job": "node dist/index.js",
     "dev": "pnpm run trigger:dev",
     "deploy": "pnpm run trigger:deploy",
@@ -45,19 +45,20 @@
     "battle-data:bootstrap:apply": "pnpm run bootstrap:archived-files:apply",
     "battle-data:recover": "pnpm run bootstrap:archived-files && pnpm run reindex:all",
     "battle-data:recover:apply": "pnpm run bootstrap:archived-files:apply && pnpm run reindex:all:apply",
-    "battle-data:verify": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/repair-d1-indexes-from-r2.mjs --remote --db dev-kc-battle-index --bucket dev-kc-battle-data --phase d1-verify"
+    "battle-data:verify": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/repair-d1-indexes-from-r2.mjs --remote --db dev-kc-battle-index --bucket dev-kc-battle-data --phase d1-verify",
+    "verify:compaction": "node scripts/verify-compaction.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1136.0",
     "@dotenvx/dotenvx": "^1.75.1",
     "@fusou/compaction-core": "workspace:*",
-    "@trigger.dev/sdk": "^4.6.3",
+    "@trigger.dev/sdk": "4.6.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@trigger.dev/build": "^4.6.3",
+    "@trigger.dev/build": "4.6.3",
     "@types/node": "^22.20.4",
-    "trigger.dev": "^4.6.3",
+    "trigger.dev": "4.6.3",
     "typescript": "^5.9.3"
   }
 }

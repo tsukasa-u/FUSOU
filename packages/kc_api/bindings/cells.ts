@@ -7,7 +7,7 @@ export type Cell = { timestamp: number | null, rashin_id: number, no: number, co
 
 export type CellData = { id: number, no: number, color_no: number, passed: number, distance: number | null, };
 
-export type Cells = { maparea_id: number, mapinfo_no: number, bosscell_no: number, bosscomp: number, cells: { [key in number]?: Cell }, cell_index: Array<number>, event_map: Eventmap | null, cell_data: Array<CellData>, battles: { [key in number]?: Battle }, };
+export type Cells = { maparea_id: number, mapinfo_no: number, bosscell_no: number, bosscomp: number, cells: { [key in number]?: Cell }, cell_index: Array<number>, cell_labels?: { [key in string]?: string }, event_map: Eventmap | null, cell_data: Array<CellData>, battles: { [key in number]?: Battle }, };
 
 export type DestructionBattle = { formation: Array<number>, ship_ke: Array<number>, ship_lv: Array<number>, e_nowhps: Array<number>, e_maxhps: Array<number>, e_slot: Array<Array<number>>, f_nowhps: Array<number>, f_maxhps: Array<number>, air_base_attack: AirBaseAttack, lost_kind: number, f_total_damages: Array<number> | null, e_total_damages: Array<number> | null, };
 

@@ -1,4 +1,5 @@
-import { Component, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { Show } from "solid-js";
 
 export interface IconEquipmentProps {
   icon_number: number;
@@ -151,20 +152,20 @@ const class_size = {
   none: "",
 };
 
-const get_primary_color = (icon_number: number) => icon_list[icon_number ?? 0]?.[0] ?? "#FFFFFF";
-const get_secondary_color = (icon_number: number) => icon_list[icon_number ?? 0]?.[1] ?? "#FFFFFF";
+const get_primary_color = (icon_number: number) =>
+  icon_list[icon_number ?? 0]?.[0] ?? "#FFFFFF";
+const get_secondary_color = (icon_number: number) =>
+  icon_list[icon_number ?? 0]?.[1] ?? "#FFFFFF";
 
-const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
-  (i) => (
-    <path
-      d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
-      stroke="#303030"
-      stroke-width="0.5"
-      fill="none"
-      fill-rule="evenodd"
-    ></path>
-  )
-);
+const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+  <path
+    d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
+    stroke="#303030"
+    stroke-width="0.5"
+    fill="none"
+    fill-rule="evenodd"
+  />
+));
 
 export const IconEquipment: Component<IconEquipmentProps> = (props) => {
   const size = () => props.size ?? "xs";

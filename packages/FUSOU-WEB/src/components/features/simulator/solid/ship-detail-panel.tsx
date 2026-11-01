@@ -69,7 +69,11 @@ import {
   SynergyStatInline,
   CompatibilityBadges,
   MultiEntryDisplay,
+  statKeyToLabel,
 } from "./shared-ui";
+import { useStore } from "@nanostores/solid";
+import { simulatorSearchQuery } from "@/features/simulator/state";
+import { IconFilter } from "@/components/common/solid/icons/CommonIcons";
 
 function ShipDetailPanel(props: {
   ship: MstShipData;
@@ -80,6 +84,7 @@ function ShipDetailPanel(props: {
   expandMultiSynergy: boolean;
   showMultiSynergy: boolean;
 }): JSX.Element {
+  const searchQuery = useStore(simulatorSearchQuery);
   const [shipGrowthCap, setShipGrowthCap] =
     createSignal<NormalizedShipGrowthCaps | null>(null);
 
@@ -667,7 +672,122 @@ function ShipDetailPanel(props: {
   const [isSynergiesReady, setIsSynergiesReady] = createSignal(false);
   const deferredSynergies = createMemo(() => {
     if (!isSynergiesReady()) return null;
-    return shipSynergy();
+    const syn = shipSynergy();
+    const q = searchQuery().trim().toLowerCase();
+    if (!q) return syn;
+
+    const matchMultiEntry = (entry: MultiEntry): boolean => {
+      if (entry.kind === "combo") {
+        return entry.combo.some(
+          (eq) =>
+            eq.name.toLowerCase().includes(q) || String(eq.id).includes(q),
+        );
+      }
+      if (entry.kind === "pool") {
+        return entry.pool.some(
+          (eq) =>
+            eq.name.toLowerCase().includes(q) || String(eq.id).includes(q),
+        );
+      }
+      if (entry.kind === "category") {
+        return entry.pools.some((p) =>
+          p.some(
+            (eq) =>
+              eq.name.toLowerCase().includes(q) || String(eq.id).includes(q),
+          ),
+        );
+      }
+      if (entry.kind === "grouped_combo") {
+        return entry.groupedPools.some((p) =>
+          p.some(
+            (eq) =>
+              eq.name.toLowerCase().includes(q) || String(eq.id).includes(q),
+          ),
+        );
+      }
+      return false;
+    };
+
+    const filteredSingle = syn.single
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter((item) => {
+          const matchName = item.equip.name.toLowerCase().includes(q);
+          const matchId = String(item.equip.id).includes(q);
+          const matchStats =
+            item.base &&
+            Object.keys(item.base).some((k) => statKeyToLabel(k).includes(q));
+          return matchName || matchId || matchStats;
+        });
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    const filteredDouble = syn.double
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter(matchMultiEntry);
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    const filteredSpeed = syn.speedSynergies
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter(
+          (item) =>
+            item.equip.name.toLowerCase().includes(q) ||
+            String(item.equip.id).includes(q),
+        );
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    const filteredRange = syn.rangeSynergies
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter(
+          (item) =>
+            item.equip.name.toLowerCase().includes(q) ||
+            String(item.equip.id).includes(q),
+        );
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    const filteredTriple = syn.triple
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter(matchMultiEntry);
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    const filteredQuad = syn.quad
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter(matchMultiEntry);
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    const filteredPenta = syn.penta
+      .map((group) => {
+        if (group.label.toLowerCase().includes(q)) return group;
+        const entries = group.entries.filter(matchMultiEntry);
+        return { statKey: group.statKey, label: group.label, entries };
+      })
+      .filter((g) => g.entries.length > 0);
+
+    return {
+      single: filteredSingle,
+      double: filteredDouble,
+      speedSynergies: filteredSpeed,
+      rangeSynergies: filteredRange,
+      triple: filteredTriple,
+      quad: filteredQuad,
+      penta: filteredPenta,
+    };
   });
 
   createEffect(() => {
@@ -682,7 +802,7 @@ function ShipDetailPanel(props: {
     }, 50); // Yield to let DOM paint the ship details first
   });
 
-  const equippableGroups = createMemo(() => {
+  const rawEquippableGroups = createMemo(() => {
     const allies = Object.values(getMasterSlotItems())
       .filter((equip) => equip.id < ENEMY_ID_THRESHOLD)
       .sort((a, b) => a.sortno - b.sortno)
@@ -694,6 +814,45 @@ function ShipDetailPanel(props: {
         (row) => row.compat.normalSlots.length > 0 || row.compat.exslot != null,
       );
     return groupBy(allies, (row) => equipDisplayTypeName(row.equip));
+  });
+
+  const equippableGroups = createMemo(() => {
+    const groups = rawEquippableGroups();
+    const q = searchQuery().trim().toLowerCase();
+    if (!q) return groups;
+
+    return groups
+      .map((group) => {
+        if (group.key.toLowerCase().includes(q)) return group;
+        const filteredItems = group.items.filter(
+          (item) =>
+            item.equip.name.toLowerCase().includes(q) ||
+            String(item.equip.id).includes(q),
+        );
+        return {
+          key: group.key,
+          items: filteredItems,
+        };
+      })
+      .filter((group) => group.items.length > 0);
+  });
+
+  const matchedEquipCount = createMemo(() => {
+    return equippableGroups().reduce((acc, g) => acc + g.items.length, 0);
+  });
+
+  const matchedSynergyCount = createMemo(() => {
+    const syn = deferredSynergies();
+    if (!syn) return 0;
+    const sCount = syn.single.reduce((acc, g) => acc + g.entries.length, 0);
+    const dCount = syn.double.reduce((acc, g) => acc + g.entries.length, 0);
+    const spCount = syn.speedSynergies.reduce((acc, g) => acc + g.entries.length, 0);
+    const rCount = syn.rangeSynergies.reduce((acc, g) => acc + g.entries.length, 0);
+    const mCount =
+      syn.triple.reduce((acc, g) => acc + g.entries.length, 0) +
+      syn.quad.reduce((acc, g) => acc + g.entries.length, 0) +
+      syn.penta.reduce((acc, g) => acc + g.entries.length, 0);
+    return sCount + dCount + spCount + rCount + mCount;
   });
 
   const specRows = createMemo<Array<[label: string, value: string | number]>>(
@@ -767,11 +926,45 @@ function ShipDetailPanel(props: {
           </div>
         </div>
 
+        <Show when={searchQuery().trim()}>
+          <div class="flex items-center justify-between px-3 py-2 bg-primary/10 border border-primary/25 rounded-xl text-xs text-primary mb-3 transition-all">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="badge badge-primary badge-sm font-semibold">絞り込み中</span>
+              <span>
+                「<strong>{searchQuery().trim()}</strong>」
+              </span>
+              <span class="text-base-content/60">
+                （装備可能: <span class="font-bold text-base-content">{matchedEquipCount()}</span>件 / シナジー: <span class="font-bold text-base-content">{matchedSynergyCount()}</span>件）
+              </span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-primary hover:bg-primary/20 cursor-pointer shrink-0"
+              onClick={() => simulatorSearchQuery.set("")}
+            >
+              解除 ✕
+            </button>
+          </div>
+        </Show>
+
         <section class="mb-8">
           <h4 class="text-sm font-semibold text-base-content/80 mb-2">装備可能な装備</h4>
           <div class="rounded-lg border border-base-300/70 p-2">
             <div id="ship-detail-equippable-list" class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
-              <For each={equippableGroups()}>
+              <Show
+                when={equippableGroups().length > 0}
+                fallback={
+                  <div class="py-8 text-center text-xs text-base-content/50">
+                    <Show
+                      when={searchQuery().trim()}
+                      fallback={<span>装備可能な装備はありません。</span>}
+                    >
+                      <span>「{searchQuery().trim()}」に一致する装備可能装備は見つかりませんでした。</span>
+                    </Show>
+                  </div>
+                }
+              >
+                <For each={equippableGroups()}>
                 {(group) => (
                   <LazyRender>
                   <div>
@@ -805,6 +998,7 @@ function ShipDetailPanel(props: {
 </LazyRender>
 )}
 </For>
+              </Show>
             </div>
           </div>
         </section>

@@ -2,6 +2,7 @@ import { defineConfig, timeout } from "@trigger.dev/sdk";
 import { syncEnvVars } from "@trigger.dev/build/extensions/core";
 
 const REQUIRED_RUNTIME_ENVS = [
+  "TRIGGER_PROJECT_REF",
   "INTERNAL_COMPACTION_BASE_URL",
   "INTERNAL_COMPACTION_TOKEN",
   "R2_BUCKET",
@@ -19,7 +20,10 @@ function requireEnv(name: (typeof REQUIRED_RUNTIME_ENVS)[number]): string {
 }
 
 function requireProjectRef(): string {
-  const value = process.env["TRIGGER_PROJECT_REF"];
+  const value =
+    process.env["TRIGGER_PROJECT_REF"] ||
+    process.env["TRIGGER_PROJECT_ID"] ||
+    "proj_mpohortqxgaevhnqsxkw";
   if (!value || !String(value).trim()) {
     throw new Error("Missing required deploy env for Trigger project: TRIGGER_PROJECT_REF");
   }

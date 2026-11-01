@@ -1,5 +1,9 @@
 import { schedules, task } from "@trigger.dev/sdk/v3";
 import { createHash } from "node:crypto";
+import { execSync } from "node:child_process";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { runCompactionJob } from "../index.js";
 import { InternalCompactionClient } from "../internal-api.js";
 import type { CompactionTier } from "../types.js";
@@ -12,6 +16,8 @@ type BackfillPayload = {
   end_ms?: number;
   table_names?: string[];
   chunk_limit?: number;
+  period_tag?: string | undefined;
+  table_version?: string | undefined;
 };
 
 function requiredEnv(name: string): string {
@@ -140,11 +146,36 @@ async function runWindowedBackfill(params: {
   }
 }
 
+
+async function triggerSnapshotRebuild(periodTag: string): Promise<void> {
+  console.info(`[compactor] Automatically rebuilding snapshots for period: ${periodTag}...`);
+  try {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidatePaths = [
+      path.resolve(currentDir, "../../../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+      path.resolve(currentDir, "../../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+      path.resolve(process.cwd(), "../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+      path.resolve(process.cwd(), "packages/FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
+    ];
+    const scriptPath = candidatePaths.find((p) => fs.existsSync(p));
+    if (scriptPath) {
+      execSync(`node "${scriptPath}"`, { stdio: "inherit", env: { ...process.env, PERIOD_TAG: periodTag } });
+      console.info(`[compactor] Snapshot rebuild complete for period: ${periodTag}`);
+    } else {
+      console.warn(`[compactor] rebuild-all-snapshots.mjs not found in candidates, skipping snapshot rebuild.`);
+    }
+  } catch (err) {
+    console.warn(`[compactor] Failed to automatically rebuild snapshots for ${periodTag}:`, err);
+  }
+}
+
 async function runPeriodBackfill(params: {
   sourceTier: CompactionTier;
   discoveryWindow: Window;
   tableNames: string[];
   chunkLimit: number;
+  periodTag?: string | undefined;
+  tableVersion?: string | undefined;
 }): Promise<void> {
   const client = buildInternalClient();
   const outputGroupKey = createOutputGroupKey({
@@ -155,15 +186,24 @@ async function runPeriodBackfill(params: {
     scope: "period",
   });
 
+  const affectedPeriods = new Set<string>();
+
   for (const tableName of params.tableNames) {
-    const groups = await client.listSourceGroups({
+    const rawGroups = await client.listSourceGroups({
       tier: params.sourceTier,
       table_name: tableName,
       window_start_ms: params.discoveryWindow.start,
       window_end_ms: params.discoveryWindow.end,
     });
 
+    const groups = rawGroups.filter((g) => {
+      if (params.periodTag && g.period_tag !== params.periodTag) return false;
+      if (params.tableVersion && g.table_version !== params.tableVersion) return false;
+      return true;
+    });
+
     for (const group of groups) {
+      if (group.period_tag) affectedPeriods.add(group.period_tag);
       await runCompactionJob({
         run_key: `backfill:period:${params.sourceTier}:${group.period_tag}:${group.table_version}`,
         tier: "period",
@@ -177,6 +217,45 @@ async function runPeriodBackfill(params: {
         chunk_limit: params.chunkLimit,
       });
     }
+  }
+
+  // Convergence pass: If promoted from lower tier (e.g. weekly -> period),
+  // automatically merge existing period outputs into a single converged file per table.
+  if (params.sourceTier !== "period") {
+    console.info("[compactor] Running automatic period convergence pass to unify existing period outputs...");
+    for (const tableName of params.tableNames) {
+      const rawPeriodGroups = await client.listSourceGroups({
+        tier: "period",
+        table_name: tableName,
+        window_start_ms: 0,
+        window_end_ms: Number.MAX_SAFE_INTEGER,
+      });
+      const periodGroups = rawPeriodGroups.filter((g) => {
+        if (params.periodTag && g.period_tag !== params.periodTag) return false;
+        if (params.tableVersion && g.table_version !== params.tableVersion) return false;
+        return true;
+      });
+      for (const group of periodGroups) {
+        if (group.period_tag) affectedPeriods.add(group.period_tag);
+        await runCompactionJob({
+          run_key: `converge:period:${group.period_tag}:${group.table_version}`,
+          tier: "period",
+          source_tier: "period",
+          output_group_key: outputGroupKey,
+          table_name: tableName,
+          period_tag: group.period_tag,
+          table_version: group.table_version,
+          window_start_ms: 0,
+          window_end_ms: Number.MAX_SAFE_INTEGER,
+          chunk_limit: params.chunkLimit,
+        });
+      }
+    }
+  }
+
+  // Automatically rebuild snapshots for all affected periods
+  for (const periodTag of affectedPeriods) {
+    await triggerSnapshotRebuild(periodTag);
   }
 }
 
@@ -262,6 +341,23 @@ async function runTierForAllTables(tier: CompactionTier, sourceTier: CompactionT
       });
     }
   }
+
+  // Automatically rebuild snapshots for affected periods after daily/weekly compaction
+  const affectedPeriods = new Set<string>();
+  for (const tableName of tables) {
+    const groups = await client.listSourceGroups({
+      tier,
+      table_name: tableName,
+      window_start_ms: window.start,
+      window_end_ms: window.end,
+    });
+    for (const g of groups) {
+      if (g.period_tag) affectedPeriods.add(g.period_tag);
+    }
+  }
+  for (const periodTag of affectedPeriods) {
+    await triggerSnapshotRebuild(periodTag);
+  }
 }
 
 async function runBackfillCascade(params: {
@@ -270,6 +366,8 @@ async function runBackfillCascade(params: {
   discoveryWindow: Window;
   tableNames: string[];
   chunkLimit: number;
+  periodTag?: string | undefined;
+  tableVersion?: string | undefined;
 }): Promise<void> {
   const order: Exclude<CompactionTier, "hourly">[] = ["daily", "weekly", "period"];
   const startIndex = order.indexOf(params.startTier);
@@ -285,6 +383,8 @@ async function runBackfillCascade(params: {
         discoveryWindow: params.discoveryWindow,
         tableNames: params.tableNames,
         chunkLimit: params.chunkLimit,
+        periodTag: params.periodTag,
+        tableVersion: params.tableVersion,
       });
 
       // Converge period outputs to a single file per table/period/version by
@@ -295,6 +395,8 @@ async function runBackfillCascade(params: {
           discoveryWindow: params.discoveryWindow,
           tableNames: params.tableNames,
           chunkLimit: params.chunkLimit,
+          periodTag: params.periodTag,
+          tableVersion: params.tableVersion,
         });
       }
       continue;
@@ -344,7 +446,7 @@ export const backfillCompaction = task({
   },
   run: async (payload: BackfillPayload) => {
     const tier = payload.tier;
-    const sourceTier = payload.source_tier ?? defaultSourceTierFor(tier);
+    const sourceTier = payload.source_tier ?? (tier === "period" ? "period" : defaultSourceTierFor(tier));
     const requestedTables = resolveRequestedTables(payload.table_names);
     const tableNames = await resolveTargetTables({
       sourceTier,
@@ -386,6 +488,8 @@ export const backfillCompaction = task({
       discoveryWindow: { start, end },
       tableNames,
       chunkLimit,
+      periodTag: payload.period_tag,
+      tableVersion: payload.table_version ?? "0.6.0",
     });
 
     return {

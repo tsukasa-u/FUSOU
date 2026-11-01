@@ -50,7 +50,9 @@ const class_size = {
   },
 };
 
-export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (props) => {
+export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (
+  props,
+) => {
   const proficiencyOnslotTemplete = () => {
     return (
       <div
@@ -60,7 +62,7 @@ export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (pro
           class_size[props.size].proficiency_onslot_mt,
         ].join(" ")}
       >
-        {props.compact ? null : <div class="w-4"></div>}
+        {props.compact ? null : <div class="w-4" />}
       </div>
     );
   };

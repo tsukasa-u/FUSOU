@@ -2,17 +2,18 @@ import type { ComponentShipTableProps } from "ui";
 import { ComponentShipTable } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
-
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentShipTableBasic = (args: ComponentShipTableProps) => {
-  return (<ComponentShipTable
-    slot_items={args.slot_items}
-    mst_slot_items={args.mst_slot_items}
-    ship={args.ship}
-    mst_ship={args.mst_ship}
-    size={args.size}
-   />);
+  return (
+    <ComponentShipTable
+      slot_items={args.slot_items}
+      mst_slot_items={args.mst_slot_items}
+      ship={args.ship}
+      mst_ship={args.mst_ship}
+      size={args.size}
+    />
+  );
 };
 
 const meta = {

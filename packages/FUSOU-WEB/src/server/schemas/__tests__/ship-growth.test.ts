@@ -69,6 +69,15 @@ describe("ship-growth D1 projection schemas", () => {
 });
 
 describe("ShipGrowthIngestBodySchema", () => {
+  it("rejects non-positive, fractional, unsafe and string ship identities and levels", () => {
+    const entry = ShipGrowthIngestBodySchema.shape.ships.element;
+    for (const invalid of [-1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1, "1"]) {
+      expect(entry.shape.master_id.safeParse(invalid).success).toBe(false);
+      expect(entry.shape.lv.safeParse(invalid).success).toBe(false);
+    }
+    expect(entry.shape.master_id.safeParse(1).success).toBe(true);
+    expect(entry.shape.exp_current.safeParse(0).success).toBe(true);
+  });
   it("accepts a producer-shaped snapshot payload", () => {
     const result = ShipGrowthIngestBodySchema.safeParse({
       dataset_id: "11111111-1111-4111-8111-111111111111",

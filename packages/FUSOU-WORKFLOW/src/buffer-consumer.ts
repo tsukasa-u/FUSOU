@@ -4,6 +4,7 @@
 import { insertBufferLogs } from "./db";
 import { QueueMessageSchema } from "./schemas";
 import type { QueueMessage } from "./schemas";
+import { inspectAvroFrames } from "./avro-integrity";
 export { QueueMessageSchema } from "./schemas";
 export type { QueueMessage } from "./schemas";
 /**
@@ -77,6 +78,9 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   const now = Date.now();
   const tableVersion = msg.tableVersion;
   const timestamp = msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now;
+  if (!Number.isSafeInteger(timestamp) || timestamp <= 0) {
+    throw new Error("Invalid triggeredAt in queue message");
+  }
 
   if (!tableVersion) {
     throw new Error("Missing table_version in queue message");
@@ -87,8 +91,14 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
     // New batched format: split payload by offsets
     const payload = decodeBase64ToBytes(msg.payload_base64);
     const records: BufferLogRecord[] = [];
+    let previousEnd = 0;
 
-    for (const offset of msg.table_offsets) {
+    for (const offset of [...msg.table_offsets].sort((a, b) => a.start_byte - b.start_byte)) {
+      const end = offset.start_byte + offset.byte_length;
+      if (!Number.isSafeInteger(end) || offset.start_byte < previousEnd || end > payload.byteLength) {
+        throw new Error(`Invalid or overlapping table offset for ${offset.table_name}`);
+      }
+      previousEnd = end;
       const slice = payload.subarray(
         offset.start_byte,
         offset.start_byte + offset.byte_length,
@@ -104,6 +114,9 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
           `Avro header validation failed for ${offset.table_name}: ${headerCheck.error}`,
         );
       }
+      const framing = inspectAvroFrames(slice);
+      if (framing.codec !== "null" && framing.codec !== "deflate") throw new Error("Unsupported Avro codec");
+      if (!framing.recordCount) continue;
 
       console.log(
         `[Consumer] Accepted ${offset.table_name}: ${slice.length} bytes, table_version=${tableVersion}`,
@@ -138,6 +151,9 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   if (!headerCheck.valid) {
     throw new Error(`Avro header validation failed: ${headerCheck.error}`);
   }
+  const framing = inspectAvroFrames(avroBytes);
+  if (framing.codec !== "null" && framing.codec !== "deflate") throw new Error("Unsupported Avro codec");
+  if (!framing.recordCount) return [];
 
   console.log(
     `[Consumer] Accepted ${legacyMsg.table}: ${avroBytes.length} bytes, table_version=${tableVersion}`,
@@ -178,13 +194,10 @@ function decodeBase64ToBytes(base64: string): Uint8Array {
  * Triggered by Cloudflare Queue with batched messages
  */
 export async function handleBufferConsumer(
-  batch: MessageBatch<QueueMessage>,
+  batch: MessageBatch<unknown>,
   env: Env,
 ): Promise<void> {
-  const allRecords: BufferLogRecord[] = [];
-  const failedMessages: Message<QueueMessage>[] = [];
-
-  // Step 1: Flatten all messages into single record array (with async validation)
+  // Keep each message's records and receipt in one transaction, and bound live buffers.
   for (const message of batch.messages) {
     try {
       const parsedMessage = QueueMessageSchema.safeParse(message.body);
@@ -192,52 +205,13 @@ export async function handleBufferConsumer(
         throw new Error(`Invalid queue message: ${parsedMessage.error.message}`);
       }
       const normalized = await normalizeMessage(parsedMessage.data);
-      allRecords.push(...normalized);
+      const result = await insertBufferLogs(env, normalized, `${batch.queue}:${message.id}`);
+      console.log(`[Buffer Consumer] Buffered ${result.insertedCount} records for ${message.id}`);
+      message.ack();
     } catch (err) {
-      console.error("Failed to normalize/validate message:", err);
-      failedMessages.push(message);
+      console.error(`[Buffer Consumer] Failed message ${message.id}:`, err);
+      message.retry();
     }
-  }
-
-  if (allRecords.length === 0) {
-    console.log("No valid records to buffer");
-    // Retry failed messages
-    failedMessages.forEach((msg) => msg.retry());
-    return;
-  }
-
-  // Step 2: Insert into Turso buffer_logs_active
-  try {
-    const recordsForInsert = allRecords.map((r) => ({
-      dataset_id: r.dataset_id,
-      table_name: r.table_name,
-      period_tag: r.period_tag,
-      table_version: r.table_version,
-      timestamp: r.timestamp,
-      data: r.data,
-      ...(r.uploaded_by !== undefined ? { uploaded_by: r.uploaded_by } : {}),
-      ...(r.trust_tag !== undefined ? { trust_tag: r.trust_tag } : {}),
-    }));
-
-    const { source, insertedCount } = await insertBufferLogs(
-      env,
-      recordsForInsert,
-    );
-
-    console.log(`✅ Buffered ${insertedCount} records to ${source}`);
-
-    // Step 3: ACK successful messages only
-    batch.messages.forEach((msg) => {
-      if (!failedMessages.includes(msg)) {
-        msg.ack();
-      } else {
-        msg.retry();
-      }
-    });
-  } catch (err) {
-    console.error("❌ Insert failed (Turso):", err);
-    // Retry entire batch (Queue will re-deliver)
-    batch.retryAll();
   }
 }
 
@@ -246,77 +220,18 @@ export async function handleBufferConsumer(
  * D1 has query size limits, so split into smaller chunks if needed
  */
 export async function handleBufferConsumerChunked(
-  batch: MessageBatch<QueueMessage>,
+  batch: MessageBatch<unknown>,
   env: Env,
-  chunkSize: number = 500, // Adjust based on D1 limits
+  _chunkSize: number = 500,
 ): Promise<void> {
-  const allRecords: BufferLogRecord[] = [];
-  const failedMessages: Message<QueueMessage>[] = [];
-
-  for (const message of batch.messages) {
-    try {
-      const parsedMessage = QueueMessageSchema.safeParse(message.body);
-      if (!parsedMessage.success) {
-        throw new Error(`Invalid queue message: ${parsedMessage.error.message}`);
-      }
-      const normalized = await normalizeMessage(parsedMessage.data);
-      allRecords.push(...normalized);
-    } catch (err) {
-      console.error("Failed to normalize/validate message:", err);
-      failedMessages.push(message);
-    }
-  }
-
-  if (allRecords.length === 0) {
-    console.log("No valid records to buffer");
-    failedMessages.forEach((msg) => msg.retry());
-    return;
-  }
-
-  // Insert into Turso buffer_logs_active
-  try {
-    const recordsForInsert = allRecords.map((r) => ({
-      dataset_id: r.dataset_id,
-      table_name: r.table_name,
-      period_tag: r.period_tag,
-      table_version: r.table_version,
-      timestamp: r.timestamp,
-      data: r.data,
-      ...(r.uploaded_by !== undefined ? { uploaded_by: r.uploaded_by } : {}),
-      ...(r.trust_tag !== undefined ? { trust_tag: r.trust_tag } : {}),
-    }));
-
-    const { source, insertedCount } = await insertBufferLogs(
-      env,
-      recordsForInsert,
-    );
-
-    // ACK successful messages
-    batch.messages.forEach((msg) => {
-      if (!failedMessages.includes(msg)) {
-        msg.ack();
-      } else {
-        msg.retry();
-      }
-    });
-
-    console.log(
-      `[Buffer Consumer] ${insertedCount} records inserted to ${source} (${failedMessages.length} skipped)`,
-    );
-  } catch (err) {
-    console.error(
-      "[Buffer Consumer] Insert failed (Turso):",
-      err instanceof Error ? err.message : String(err),
-    );
-    batch.retryAll();
-  }
+  await handleBufferConsumer(batch, env);
 }
 
 /**
  * Export for integration into main Worker
  */
 export default {
-  async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     // Use chunked handler for safety (handles large batches)
     await handleBufferConsumerChunked(batch, env);
   },

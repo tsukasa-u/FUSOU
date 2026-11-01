@@ -24,6 +24,14 @@ declare module "@tursodatabase/serverless/compat" {
       >,
       mode?: "write" | "read" | "deferred",
     ): Promise<ResultSet[]>;
+    transaction(mode?: "write" | "read" | "deferred"): Promise<Transaction>;
+  }
+
+  export interface Transaction {
+    execute(statement: string | { sql: string; args?: unknown[] }): Promise<ResultSet>;
+    commit(): Promise<void>;
+    rollback(): Promise<void>;
+    close(): void;
   }
 
   export function createClient(config: {

@@ -17,7 +17,7 @@ export type RangeProps = {
 
 export const init_range_props = (
   params: string[],
-  abbreviations: string[]
+  abbreviations: string[],
 ): RangeProps => {
   const range_props: RangeProps = {};
   params.forEach((param, index) => {
@@ -38,7 +38,7 @@ export const set_range_window_list = (
   params: string[],
   range_props: RangeProps,
   set_range_props: SetStoreFunction<RangeProps>,
-  set_spec_modal: Setter<boolean>
+  set_spec_modal: Setter<boolean>,
 ): { [key: string]: JSX.Element } => {
   const paramWindow: { [key: string]: JSX.Element } = {};
   params.forEach((param) => {
@@ -77,7 +77,7 @@ export const set_range_window_list = (
                 set_spec_modal(true);
                 (
                   document.getElementById(
-                    `${modal_prefix}_${param}`
+                    `${modal_prefix}_${param}`,
                   ) as HTMLDialogElement
                 ).showModal();
               }}
@@ -200,7 +200,7 @@ export const set_discrete_range_window_list = (
   params_converter: string[][],
   range_props: RangeProps,
   set_range_props: SetStoreFunction<RangeProps>,
-  set_spec_modal: Setter<boolean>
+  set_spec_modal: Setter<boolean>,
 ): { [key: string]: JSX.Element } => {
   const paramWindow: { [key: string]: JSX.Element } = {};
   params.forEach((param, param_index) => {
@@ -239,7 +239,7 @@ export const set_discrete_range_window_list = (
                 set_spec_modal(true);
                 (
                   document.getElementById(
-                    `${modal_prefix}_${param}`
+                    `${modal_prefix}_${param}`,
                   ) as HTMLDialogElement
                 ).showModal();
               }}
@@ -272,8 +272,8 @@ export const set_discrete_range_window_list = (
                         param,
                         "min",
                         params_converter[param_index].findIndex(
-                          (param_select) => param_select == e.target.value
-                        )
+                          (param_select) => param_select == e.target.value,
+                        ),
                       );
                     }}
                   >
@@ -293,8 +293,8 @@ export const set_discrete_range_window_list = (
                         param,
                         "max",
                         params_converter[param_index].findIndex(
-                          (param_select) => param_select == e.target.value
-                        )
+                          (param_select) => param_select == e.target.value,
+                        ),
                       );
                     }}
                   >
@@ -333,8 +333,8 @@ export const set_discrete_range_window_list = (
                         param,
                         "eq",
                         params_converter[param_index].findIndex(
-                          (param_select) => param_select == e.target.value
-                        )
+                          (param_select) => param_select == e.target.value,
+                        ),
                       )
                     }
                   >
@@ -378,7 +378,7 @@ export const sort_window = (
   set_set_order: Setter<boolean>,
   set_sort: Accessor<string>,
   set_set_sort: Setter<string>,
-  set_spec_modal: Setter<boolean>
+  set_spec_modal: Setter<boolean>,
 ) => {
   return (
     <>
@@ -397,7 +397,7 @@ export const sort_window = (
               set_spec_modal(true);
               (
                 document.getElementById(
-                  `${modal_prefix}_sort`
+                  `${modal_prefix}_sort`,
                 ) as HTMLDialogElement
               ).showModal();
             }}
@@ -468,7 +468,7 @@ export const search_name_window = (
   search_name: Accessor<string>,
   set_search_name: Setter<string>,
   cal_search_name: (search_name: string) => void,
-  set_spec_modal: Setter<boolean>
+  set_spec_modal: Setter<boolean>,
 ) => {
   return (
     <>
@@ -487,7 +487,7 @@ export const search_name_window = (
               set_spec_modal(true);
               (
                 document.getElementById(
-                  `${modal_prefix}_search_name`
+                  `${modal_prefix}_search_name`,
                 ) as HTMLDialogElement
               ).showModal();
             }}
@@ -548,7 +548,7 @@ export const set_type_window = (
   set_check_types: SetStoreFunction<CheckTypes>,
   set_type: Accessor<string>,
   set_categorize: Accessor<boolean>,
-  set_spec_modal: Setter<boolean>
+  set_spec_modal: Setter<boolean>,
 ) => {
   return (
     <>
@@ -567,7 +567,7 @@ export const set_type_window = (
               set_spec_modal(true);
               (
                 document.getElementById(
-                  `${modal_prefix}_type`
+                  `${modal_prefix}_type`,
                 ) as HTMLDialogElement
               ).showModal();
             }}
@@ -655,7 +655,7 @@ export const select_properties_window = (
   modal_prefix: string,
   check_property: CheckProps,
   set_check_property: SetStoreFunction<CheckProps>,
-  set_spec_modal: Setter<boolean>
+  set_spec_modal: Setter<boolean>,
 ) => {
   return (
     <>
@@ -665,7 +665,7 @@ export const select_properties_window = (
           set_spec_modal(true);
           (
             document.getElementById(
-              `${modal_prefix}_select_properties`
+              `${modal_prefix}_select_properties`,
             ) as HTMLDialogElement
           ).showModal();
         }}

@@ -11,9 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
 use crate::builder_setup::logger::MessageVisitor;
-#[cfg(feature = "gdrive")]
-use crate::storage::providers::gdrive;
-use crate::storage::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
+use crate::events;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -22,6 +20,9 @@ use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 use crate::interface::slot_item::SlotItems;
+use crate::storage::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
+#[cfg(feature = "gdrive")]
+use crate::storage::providers::gdrive;
 
 use crate::sequence;
 use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
@@ -33,7 +34,7 @@ pub async fn get_mst_ships(window: tauri::Window) {
     let data = MstShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-ships", data);
+        .emit_to("main", events::SET_KCS_MST_SHIPS, data);
 }
 
 #[tauri::command]
@@ -41,7 +42,7 @@ pub async fn get_mst_slot_items(window: tauri::Window) {
     let data = MstSlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-slot-items", data);
+        .emit_to("main", events::SET_KCS_MST_SLOT_ITEMS, data);
 }
 
 #[tauri::command]
@@ -49,7 +50,7 @@ pub async fn get_slot_items(window: tauri::Window) {
     let data = SlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-slot-items", data);
+        .emit_to("main", events::SET_KCS_SLOT_ITEMS, data);
 }
 
 #[tauri::command]
@@ -57,7 +58,7 @@ pub async fn get_mst_equip_exslot_ships(window: tauri::Window) {
     let data = MstEquipExslotShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
+        .emit_to("main", events::SET_KCS_MST_EQUIP_EXSLOT_SHIPS, data);
 }
 
 #[tauri::command]
@@ -65,7 +66,7 @@ pub async fn get_mst_slotitem_equip_types(window: tauri::Window) {
     let data = MstSlotItemEquipTypes::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
+        .emit_to("main", events::SET_KCS_MST_SLOT_ITEM_EQUIP_TYPES, data);
 }
 
 #[tauri::command]
@@ -73,7 +74,7 @@ pub async fn get_mst_equip_ships(window: tauri::Window) {
     let data = MstEquipShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-ships", data);
+        .emit_to("main", events::SET_KCS_MST_EQUIP_SHIPS, data);
 }
 
 #[tauri::command]
@@ -81,7 +82,7 @@ pub async fn get_mst_stypes(window: tauri::Window) {
     let data = MstStypes::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-stypes", data);
+        .emit_to("main", events::SET_KCS_MST_STYPES, data);
 }
 
 #[tauri::command]
@@ -89,7 +90,7 @@ pub async fn get_mst_useitems(window: tauri::Window) {
     let data = MstUseItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-use-items", data);
+        .emit_to("main", events::SET_KCS_MST_USE_ITEMS, data);
 }
 
 #[allow(dead_code)]
@@ -136,10 +137,7 @@ pub async fn close_splashscreen(window: tauri::Window) {
 #[cfg(feature = "gdrive")]
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<(), ()> {
-    let mut parts = token
-        .split('&')
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let mut parts = token.split('&').map(str::trim).filter(|s| !s.is_empty());
 
     let Some(refresh_token) = parts.next().map(str::to_string) else {
         return Err(());
@@ -174,7 +172,9 @@ pub async fn check_supabase_session_health(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<SessionHealth, String> {
     let manager = {
-        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
+        let guard = auth_manager
+            .lock()
+            .map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
@@ -207,16 +207,20 @@ pub async fn force_local_sign_out(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<(), String> {
     let manager = {
-        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
+        let guard = auth_manager
+            .lock()
+            .map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
     manager.clear().await.map_err(|e| e.to_string())?;
 
     // Tell frontend to drop tokens immediately.
-    let _ = window
-        .app_handle()
-        .emit_to("main", "set-supabase-tokens", vec![String::new(), String::new()]);
+    let _ = window.app_handle().emit_to(
+        "main",
+        events::SET_SUPABASE_TOKENS,
+        vec![String::new(), String::new()],
+    );
 
     Ok(())
 }
@@ -229,7 +233,9 @@ pub async fn get_access_token(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<String, String> {
     let manager = {
-        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
+        let guard = auth_manager
+            .lock()
+            .map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
@@ -273,7 +279,7 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
         _ => {}
     }
 
-    return Ok(());
+    Ok(())
 }
 
 #[tauri::command]
@@ -319,7 +325,7 @@ pub async fn check_open_window(window: tauri::Window, label: &str) -> Result<boo
         Some(true)
     };
 
-    return opened_flag.ok_or(());
+    opened_flag.ok_or(())
 }
 
 #[tauri::command]
@@ -352,7 +358,7 @@ pub async fn get_kc_server_name(_window: tauri::Window) -> Result<String, ()> {
 //--------------------------------------------------------------
 
 pub fn set_update_page(app: &AppHandle) {
-    let _ = app.emit_to("main", "set-main-page-update", ());
+    let _ = app.emit_to("main", events::SET_MAIN_PAGE_UPDATE, ());
 }
 
 #[tauri::command]
@@ -360,11 +366,11 @@ pub async fn perform_snapshot_sync(
     _window: tauri::Window,
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<serde_json::Value, String> {
-    
     crate::storage::snapshot::perform_snapshot_sync_app(
         _window.app_handle(),
         auth_manager.inner().clone(),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -478,10 +484,7 @@ pub async fn get_pending_upload_retry_status(
                 due_now_count += 1;
             }
 
-            let pending_type = classify_pending_type(
-                &meta.target_url,
-                meta.context.as_deref(),
-            );
+            let pending_type = classify_pending_type(&meta.target_url, meta.context.as_deref());
 
             PendingRetryItemStatus {
                 id: meta.id,
@@ -568,18 +571,22 @@ fn classify_by_target(target_url: &str) -> String {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_ship_growth_suppression_status(
 ) -> Result<Option<ShipGrowthSuppressionStatus>, String> {
-    Ok(crate::senders::ship_growth_sender::get_suppression_status().map(|status| ShipGrowthSuppressionStatus {
-        scope: status.scope,
-        entries: status
-            .entries
-            .into_iter()
-            .map(|entry| ShipGrowthSuppressionEntryStatus {
-                key: entry.key,
-                expires_at_ms: entry.expires_at_ms,
-                hash_prefix: entry.hash.chars().take(12).collect(),
-            })
-            .collect(),
-    }))
+    Ok(
+        crate::senders::ship_growth_sender::get_suppression_status().map(|status| {
+            ShipGrowthSuppressionStatus {
+                scope: status.scope,
+                entries: status
+                    .entries
+                    .into_iter()
+                    .map(|entry| ShipGrowthSuppressionEntryStatus {
+                        key: entry.key,
+                        expires_at_ms: entry.expires_at_ms,
+                        hash_prefix: entry.hash.chars().take(12).collect(),
+                    })
+                    .collect(),
+            }
+        }),
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -598,18 +605,22 @@ pub struct QuestTreeSuppressionStatus {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_quest_tree_suppression_status(
 ) -> Result<Option<QuestTreeSuppressionStatus>, String> {
-    Ok(crate::senders::quest_tree_sender::get_suppression_status().map(|status| QuestTreeSuppressionStatus {
-        scope: status.scope,
-        entries: status
-            .entries
-            .into_iter()
-            .map(|entry| QuestTreeSuppressionEntryStatus {
-                key: entry.key,
-                expires_at_ms: entry.expires_at_ms,
-                hash_prefix: entry.hash.chars().take(12).collect(),
-            })
-            .collect(),
-    }))
+    Ok(
+        crate::senders::quest_tree_sender::get_suppression_status().map(|status| {
+            QuestTreeSuppressionStatus {
+                scope: status.scope,
+                entries: status
+                    .entries
+                    .into_iter()
+                    .map(|entry| QuestTreeSuppressionEntryStatus {
+                        key: entry.key,
+                        expires_at_ms: entry.expires_at_ms,
+                        hash_prefix: entry.hash.chars().take(12).collect(),
+                    })
+                    .collect(),
+            }
+        }),
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -626,20 +637,23 @@ pub struct RemodelSuppressionStatus {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn get_remodel_suppression_status(
-) -> Result<Option<RemodelSuppressionStatus>, String> {
-    Ok(crate::senders::remodel_sender::get_suppression_status().map(|status| RemodelSuppressionStatus {
-        scope: status.scope,
-        entries: status
-            .entries
-            .into_iter()
-            .map(|entry| RemodelSuppressionEntryStatus {
-                key: entry.key,
-                expires_at_ms: entry.expires_at_ms,
-                hash_prefix: entry.hash.chars().take(12).collect(),
-            })
-            .collect(),
-    }))
+pub async fn get_remodel_suppression_status() -> Result<Option<RemodelSuppressionStatus>, String> {
+    Ok(
+        crate::senders::remodel_sender::get_suppression_status().map(|status| {
+            RemodelSuppressionStatus {
+                scope: status.scope,
+                entries: status
+                    .entries
+                    .into_iter()
+                    .map(|entry| RemodelSuppressionEntryStatus {
+                        key: entry.key,
+                        expires_at_ms: entry.expires_at_ms,
+                        hash_prefix: entry.hash.chars().take(12).collect(),
+                    })
+                    .collect(),
+            }
+        }),
+    )
 }
 
 // Removed: use notify::show via internal callers when needed.
@@ -658,7 +672,9 @@ pub async fn get_user_tokens(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<Option<String>, String> {
     let manager = {
-        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
+        let guard = auth_manager
+            .lock()
+            .map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
@@ -707,4 +723,3 @@ pub async fn close_debug_window(window: tauri::Window) {
         tracing::warn!("no window labeled 'debug' found");
     }
 }
-

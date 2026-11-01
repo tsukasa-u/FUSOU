@@ -15,6 +15,8 @@ function parseArgs(argv) {
     end: "",
     tableNames: "",
     chunkLimit: "",
+    periodTag: "",
+    tableVersion: "",
   };
 
   for (let i = 2; i < argv.length; i += 1) {
@@ -56,6 +58,16 @@ function parseArgs(argv) {
     }
     if (arg === "--chunk-limit") {
       out.chunkLimit = String(argv[i + 1] || "").trim();
+      i += 1;
+      continue;
+    }
+    if (arg === "--period") {
+      out.periodTag = String(argv[i + 1] || "").trim();
+      i += 1;
+      continue;
+    }
+    if (arg === "--table-version") {
+      out.tableVersion = String(argv[i + 1] || "").trim();
       i += 1;
       continue;
     }
@@ -105,6 +117,8 @@ function buildPayloadFromArgs(args) {
       .filter(Boolean);
     if (tableNames.length > 0) payload.table_names = tableNames;
   }
+  if (args.periodTag) payload.period_tag = args.periodTag;
+  if (args.tableVersion) payload.table_version = args.tableVersion;
   if (args.chunkLimit) {
     const chunkLimit = Number(args.chunkLimit);
     if (!Number.isFinite(chunkLimit) || chunkLimit <= 0) {

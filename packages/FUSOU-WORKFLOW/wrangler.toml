@@ -38,9 +38,9 @@ binding = "COMPACTION_QUEUE"
 queue = "dev-kc-compaction-dlq"
 max_batch_size = 5
 max_batch_timeout = 60
-max_retries = 1
+max_retries = 100
 
-# ===== CPU limit: 5 minutes per step =====
+# ===== CPU limit per invocation (this Worker is not a Workflows step) =====
 [limits]
 cpu_ms = 300000
 

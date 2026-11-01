@@ -46,6 +46,7 @@ function Updater() {
     const update = updateInfo();
     if (update) {
       try {
+        // eslint-disable-next-line solid/reactivity
         await update.downloadAndInstall((event) => {
           switch (event.event) {
             case "Started":

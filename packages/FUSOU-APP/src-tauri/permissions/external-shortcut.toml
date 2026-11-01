@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-external-window-shortcut"
+description = "Allows the external game window to request its own keyboard shortcut actions."
+commands.allow = ["external_window_shortcut"]

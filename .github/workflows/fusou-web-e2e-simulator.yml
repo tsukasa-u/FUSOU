@@ -77,7 +77,7 @@ jobs:
 
   simulator-e2e-smoke:
     needs: web-quality-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401
@@ -124,7 +124,7 @@ jobs:
   simulator-e2e-d1r2:
     needs: web-quality-check
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_d1r2 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401

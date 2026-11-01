@@ -9,7 +9,6 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
@@ -53,7 +52,10 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     app.deep_link().register_all()?;
 
     app.deep_link().on_open_url(|event| {
-        tracing::info!("deep-link event received (url_count={})", event.urls().len());
+        tracing::info!(
+            "deep-link event received (url_count={})",
+            event.urls().len()
+        );
     });
     Ok(())
 }
@@ -459,7 +461,11 @@ fn setup_tray(
                                         tracing::error!("Failed to show main window: {}", e);
                                     }
                                 }
-                                let _ = window.emit_to("main", "set-main-page-launch", ());
+                                let _ = window.emit_to(
+                                    "main",
+                                    crate::events::SET_MAIN_PAGE_LAUNCH,
+                                    (),
+                                );
                             }
                             None => {
                                 app::open_main_window(tray.app_handle());
@@ -632,7 +638,11 @@ fn setup_tray(
                                     );
                                     let main_window = app_handle.get_webview_window("main");
                                     if let Some(window) = main_window {
-                                        let _ = window.emit_to("main", "set-supabase-tokens", vec![String::new(), String::new()]);
+                                        let _ = window.emit_to(
+                                            "main",
+                                            crate::events::SET_SUPABASE_TOKENS,
+                                            vec![String::new(), String::new()],
+                                        );
                                     }
                                 }
                                 Err(e) => {
@@ -825,78 +835,6 @@ fn configure_channel_transport() {
     }
 }
 
-fn register_external_window_shortcuts(app: &mut tauri::App) {
-    let shortcut_manager = app.global_shortcut();
-
-    if let Err(e) = shortcut_manager.on_shortcut("F5", |app, _shortcut, event| {
-        if event.state != ShortcutState::Pressed {
-            return;
-        }
-
-        tracing::warn!("global shortcut pressed: F5 (external reload)");
-
-        external::reload_focused_external_window(app);
-    }) {
-        tracing::warn!("failed to register global shortcut F5: {}", e);
-    }
-
-    let register_force_refresh = |accelerator: &str| {
-        let accelerator_label = accelerator.to_string();
-
-        if let Err(e) =
-            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-
-            tracing::warn!(
-                "global shortcut pressed: {} (external force refresh)",
-                accelerator_label
-            );
-
-            external::force_refresh_focused_external_window(app);
-        })
-        {
-            tracing::warn!(
-                "failed to register global shortcut {} for forced render refresh: {}",
-                accelerator,
-                e
-            );
-        }
-    };
-
-    register_force_refresh("Ctrl+R");
-    register_force_refresh("Super+R");
-
-    let register_external_screenshot = |accelerator: &str| {
-        let accelerator_label = accelerator.to_string();
-
-        if let Err(e) =
-            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
-
-                tracing::warn!(
-                    "global shortcut pressed: {} (external screenshot)",
-                    accelerator_label
-                );
-
-                let _ = external::capture_focused_external_window_screenshot(app);
-            })
-        {
-            tracing::warn!(
-                "failed to register global shortcut {} for external screenshot: {}",
-                accelerator,
-                e
-            );
-        }
-    };
-
-    register_external_screenshot("Ctrl+S");
-    register_external_screenshot("Super+S");
-}
-
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
 
@@ -916,7 +854,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         .get_enable_autostart();
     configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
-    register_external_window_shortcuts(app);
     configure_channel_transport();
     if configs::get_user_configs_for_app()
         .discord
@@ -989,5 +926,5 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     //     }
     // });
 
-    return Ok(());
+    Ok(())
 }

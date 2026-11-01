@@ -31,6 +31,9 @@ export function buildShareGrowthUrl(
   origin: string,
   selection: ShareGrowthSelection,
 ): string {
+  if (!selection.periodTag || selection.periodTag === "latest" || selection.periodTag === "all") {
+    throw new Error(`Cannot build share growth URL with invalid period tag: ${selection.periodTag}`);
+  }
   const shareUrl = new URL("/share/growth", origin);
   shareUrl.searchParams.set("period_tag", selection.periodTag);
   shareUrl.searchParams.set("table_version", selection.tableVersion);
@@ -47,7 +50,7 @@ export function buildShareBattleUrl(
   if (selection.battleIndex != null) {
     shareUrl.searchParams.set("battle_index", String(selection.battleIndex));
   }
-  if (selection.periodTag) {
+  if (selection.periodTag && selection.periodTag !== "latest" && selection.periodTag !== "all") {
     shareUrl.searchParams.set("period_tag", selection.periodTag);
   }
   if (selection.tableVersion) {

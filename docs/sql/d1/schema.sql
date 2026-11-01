@@ -98,6 +98,10 @@ CREATE INDEX idx_block_dataset_table_ts
   ON block_indexes(dataset_id, table_name, table_version, period_tag, start_timestamp, end_timestamp);
 CREATE INDEX idx_block_search
   ON block_indexes(dataset_id, table_name, table_version, start_timestamp, end_timestamp);
+CREATE INDEX idx_block_indexes_dataset_table_time
+  ON block_indexes(dataset_id, table_name, period_tag, start_timestamp DESC);
+CREATE INDEX idx_block_indexes_global_time
+  ON block_indexes(table_name, table_version, period_tag, start_timestamp DESC, compaction_tier);
 
 CREATE TABLE datasets (
   id TEXT PRIMARY KEY,

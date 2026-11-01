@@ -1,4 +1,5 @@
 import { createClient } from "@tursodatabase/serverless/compat";
+import { normalizeTableVersion, tableVersionAliases } from "../version";
 
 export type TursoClient = ReturnType<typeof createClient>;
 
@@ -101,8 +102,46 @@ export function createTursoClientFromEnv(env: TursoEnv): TursoClient {
 export async function bulkInsertActive(
   client: TursoClient,
   records: InsertBufferLogParams[],
+  messageId?: string,
 ): Promise<{ insertedCount: number }> {
   if (records.length === 0) return { insertedCount: 0 };
+
+  if (messageId) {
+    const tx = await client.transaction("write");
+    try {
+      const receipt = await tx.execute({
+        sql: "SELECT message_id FROM workflow_queue_receipts WHERE message_id = ?",
+        args: [messageId],
+      });
+      if (receipt.rows.length) {
+        await tx.commit();
+        return { insertedCount: 0 };
+      }
+      for (const record of records) {
+        await tx.execute({
+          sql: `INSERT INTO buffer_logs_active
+            (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            record.dataset_id, record.table_name, record.period_tag,
+            normalizeTableVersion(record.table_version), record.timestamp,
+            normalizeBlob(record.data), record.uploaded_by ?? null, record.trust_tag ?? null,
+          ],
+        });
+      }
+      await tx.execute({
+        sql: "INSERT INTO workflow_queue_receipts (message_id, created_at) VALUES (?, ?)",
+        args: [messageId, Date.now()],
+      });
+      await tx.commit();
+      return { insertedCount: records.length };
+    } catch (error) {
+      await tx.rollback();
+      throw error;
+    } finally {
+      tx.close();
+    }
+  }
 
   let insertedCount = 0;
   for (let i = 0; i < records.length; i += INSERT_CHUNK_SIZE) {
@@ -120,7 +159,7 @@ export async function bulkInsertActive(
         record.dataset_id,
         record.table_name,
         record.period_tag,
-        record.table_version,
+        normalizeTableVersion(record.table_version),
         record.timestamp,
         normalizeBlob(record.data),
         record.uploaded_by ?? null,
@@ -136,39 +175,6 @@ export async function bulkInsertActive(
   }
 
   return { insertedCount };
-}
-
-export async function countProcessingRows(client: TursoClient): Promise<number> {
-  const result = await client.execute(
-    "SELECT COUNT(*) AS count FROM buffer_logs_processing",
-  );
-  const value = result.rows[0]?.["count"];
-  return Number(value ?? 0);
-}
-
-export async function swapTables(client: TursoClient): Promise<void> {
-  await executeWithRetry(async () => {
-    await client.batch(
-      [
-        "ALTER TABLE buffer_logs_active RENAME TO buffer_logs_swap_tmp",
-        "ALTER TABLE buffer_logs_processing RENAME TO buffer_logs_active",
-        "ALTER TABLE buffer_logs_swap_tmp RENAME TO buffer_logs_processing",
-      ],
-      "write",
-    );
-  });
-}
-
-export async function fetchProcessingRows(
-  client: TursoClient,
-): Promise<BufferLogRecord[]> {
-  const result = await client.execute(`
-    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
-    FROM buffer_logs_processing
-    ORDER BY table_version, table_name, period_tag, dataset_id, id ASC
-  `);
-
-  return result.rows.map((row) => normalizeRecord(row));
 }
 
 export async function fetchHotRows(
@@ -191,8 +197,9 @@ export async function fetchHotRows(
   const args: Array<string | number> = [params.dataset_id, params.table_name];
 
   if (params.table_version !== undefined) {
-    sql += " AND table_version = ?";
-    args.push(params.table_version);
+    const aliases = tableVersionAliases(params.table_version);
+    sql += ` AND table_version IN (${aliases.map(() => "?").join(",")})`;
+    args.push(...aliases);
   }
   if (params.from !== undefined) {
     sql += " AND timestamp >= ?";
@@ -214,8 +221,9 @@ export async function fetchHotRows(
     args.push(params.dataset_id, params.table_name);
 
     if (params.table_version !== undefined) {
-      sql += " AND table_version = ?";
-      args.push(params.table_version);
+      const aliases = tableVersionAliases(params.table_version);
+      sql += ` AND table_version IN (${aliases.map(() => "?").join(",")})`;
+      args.push(...aliases);
     }
     if (params.from !== undefined) {
       sql += " AND timestamp >= ?";
@@ -231,29 +239,4 @@ export async function fetchHotRows(
 
   const result = await client.execute({ sql, args });
   return result.rows.map((row) => normalizeRecord(row));
-}
-
-export async function resetProcessingTable(client: TursoClient): Promise<void> {
-  await executeWithRetry(async () => {
-    await client.batch(
-      [
-        "DROP TABLE IF EXISTS buffer_logs_processing",
-        `CREATE TABLE buffer_logs_processing (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          dataset_id TEXT NOT NULL,
-          table_name TEXT NOT NULL,
-          period_tag TEXT NOT NULL DEFAULT 'latest',
-          table_version TEXT NOT NULL,
-          timestamp INTEGER NOT NULL,
-          data BLOB NOT NULL,
-          uploaded_by TEXT,
-          trust_tag TEXT,
-          created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-        )`,
-        "CREATE INDEX idx_blp_ordering ON buffer_logs_processing(table_version, table_name, period_tag, dataset_id, id)",
-        "CREATE INDEX idx_blp_hot ON buffer_logs_processing(dataset_id, table_name, timestamp)",
-      ],
-      "write",
-    );
-  });
 }

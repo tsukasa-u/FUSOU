@@ -1,23 +1,26 @@
 {
   "name": "@fusou/compaction-core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "private": true,
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "node": "./dist/index.js",
-      "default": "./src/index.ts"
+      "default": "./dist/index.js"
     }
   },
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "prepare": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/**/*.test.mjs"
   },
   "devDependencies": {
+    "@types/node": "^22.20.4",
     "typescript": "^5.9.3"
-  }
+  },
+  "sideEffects": false
 }

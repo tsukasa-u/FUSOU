@@ -263,29 +263,29 @@ export function SpecTable(props: {
 
   return (
     <div class="overflow-x-auto rounded-xl border border-base-300/70">
-      <table class="table table-fixed table-zebra table-sm w-full sm:hidden">
+      <table class="table table-zebra table-sm w-full sm:hidden">
         <tbody>
           <For each={props.rows}>
             {(row) => (
               <tr>
-                <th class="w-28 md:w-36 text-base-content/65 font-medium whitespace-nowrap">
+                <th class="w-28 text-base-content/65 font-medium whitespace-nowrap">
                   {row[0]}
                 </th>
-                <td class="font-mono text-right md:text-left">{row[1]}</td>
+                <td class="font-mono text-right sm:text-left whitespace-nowrap">{row[1]}</td>
               </tr>
             )}
           </For>
         </tbody>
       </table>
-      <table class="hidden sm:table table-fixed table-zebra table-sm w-full">
+      <table class="hidden sm:table table-zebra table-sm w-full">
         <tbody>
           <For each={pairedRows()}>
             {(pair) => (
               <tr>
-                <th class="w-28 md:w-36 text-base-content/65 font-medium whitespace-nowrap">
+                <th class="text-base-content/65 font-medium whitespace-nowrap">
                   {pair[0]?.[0]}
                 </th>
-                <td class="font-mono text-right md:text-left">
+                <td class="font-mono text-left whitespace-nowrap">
                   {pair[0]?.[1]}
                 </td>
                 <Show
@@ -297,10 +297,10 @@ export function SpecTable(props: {
                     </>
                   }
                 >
-                  <th class="w-28 md:w-36 text-base-content/65 font-medium whitespace-nowrap">
+                  <th class="text-base-content/65 font-medium whitespace-nowrap">
                     {pair[1]?.[0]}
                   </th>
-                  <td class="font-mono text-right md:text-left">
+                  <td class="font-mono text-left whitespace-nowrap">
                     {pair[1]?.[1]}
                   </td>
                 </Show>

@@ -50,7 +50,7 @@
   color-scheme: "dark";
   --color-base-100: oklch(21.6% 0.006 56.043);
   --color-base-200: oklch(21.6% 0.006 56.043);
-  --color-base-300: oklch(27% 0.006 286.033);
+  --color-base-300: oklch(35% 0.008 286.033);
   --color-base-content: oklch(97.807% 0.029 256.847);
   --color-primary: oklch(87% 0.15 154.449);
   --color-primary-content: oklch(29% 0.066 243.157);
@@ -89,7 +89,7 @@
 
 .btn:not(.btn-link) {
   border-width: 1px;
-  border-color: color-mix(in oklch, var(--color-base-content) 14%, transparent);
+  border-color: color-mix(in oklch, var(--color-base-content) 22%, transparent);
 }
 
 .btn.btn-primary {
@@ -102,7 +102,7 @@
 
 .btn.btn-outline,
 .btn.btn-ghost {
-  border-color: color-mix(in oklch, var(--color-base-content) 18%, transparent);
+  border-color: color-mix(in oklch, var(--color-base-content) 25%, transparent);
 }
 
 .btn.btn-link {
@@ -187,7 +187,7 @@
 }
 
 select::picker(select) {
-  border: 1px solid color-mix(in oklch, var(--color-base-content) 16%, transparent) !important;
+  border: 1px solid color-mix(in oklch, var(--color-base-content) 22%, transparent) !important;
 }
 
 .table th {
@@ -461,7 +461,7 @@ select::picker(select) {
 .markdown [data-callout] {
   & {
     @apply my-6 space-y-2 p-4 rounded-lg;
-    border: 1px solid color-mix(in oklch, var(--color-base-content) 12%, transparent);
+    border: 1px solid color-mix(in oklch, var(--color-base-content) 22%, transparent);
   }
 
   & > [data-callout-title] {
@@ -677,7 +677,7 @@ select::picker(select) {
 }
 
 .fusou-card {
-  @apply bg-base-100 rounded-xl border border-base-300/60;
+  @apply bg-base-100 rounded-xl border border-base-300/75;
 }
 
 .fusou-card-body {
@@ -721,11 +721,11 @@ select::picker(select) {
 }
 
 .fusou-card-interactive {
-  @apply bg-base-100 rounded-xl border border-base-300/60 transition-all hover:border-primary/50 hover:shadow-sm cursor-pointer;
+  @apply bg-base-100 rounded-xl border border-base-300/75 transition-all hover:border-primary/50 hover:shadow-sm cursor-pointer;
 }
 
 .fusou-tab-toolbar {
-  @apply flex flex-col md:flex-row md:items-center md:justify-between border-b border-base-300/60 mb-5 gap-2.5;
+  @apply flex flex-col md:flex-row md:items-center md:justify-between border-b border-base-300/75 mb-5 gap-2.5;
 }
 
 .fusou-tab-toolbar .fusou-tabs {
@@ -734,7 +734,7 @@ select::picker(select) {
 }
 
 .fusou-tabs {
-  @apply flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto;
+  @apply flex gap-1 mb-5 border-b border-base-300/75 overflow-x-auto;
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
@@ -756,7 +756,7 @@ select::picker(select) {
 }
 
 .fusou-footer-note {
-  @apply border-t border-base-300/60 mt-8 py-4 px-4 text-center;
+  @apply border-t border-base-300/75 mt-8 py-4 px-4 text-center;
 }
 
 .fusou-control-preview {
@@ -868,33 +868,6 @@ select::picker(select) {
   color: var(--color-accent);
 }
 
-.sim-delete-btn {
-  filter: blur(0.35px);
-  background-image: radial-gradient(
-    circle at center,
-    color-mix(in oklch, var(--color-base-100) 72%, transparent) 16%,
-    color-mix(in oklch, var(--color-base-100) 50%, transparent) 48%,
-    color-mix(in oklch, var(--color-base-100) 20%, transparent) 76%,
-    color-mix(in oklch, var(--color-base-100) 3%, transparent) 100%
-  );
-}
-
-.sim-delete-btn:hover {
-  background-image: radial-gradient(
-    circle at center,
-    color-mix(in oklch, var(--color-base-100) 78%, transparent) 14%,
-    color-mix(in oklch, var(--color-base-100) 58%, transparent) 46%,
-    color-mix(in oklch, var(--color-base-100) 24%, transparent) 76%,
-    color-mix(in oklch, var(--color-base-100) 5%, transparent) 100%
-  );
-}
-
-.sim-delete-btn-airbase,
-.sim-delete-btn-airbase:hover {
-  filter: none;
-  background-image: none;
-  background-color: transparent;
-}
 
 /* Hide scrollbar utility */
 .hide-scrollbar::-webkit-scrollbar {

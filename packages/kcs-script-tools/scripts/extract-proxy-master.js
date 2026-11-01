@@ -9,6 +9,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const PROXY_DATA_DIR = path.resolve(ROOT, '..', 'FUSOU-PROXY-DATA');
+const MAP_RESOURCES_DIR = path.join(ROOT, 'output', 'map-resources');
 const WEB_DATA_DIR = path.resolve(ROOT, '..', 'FUSOU-WEB', 'src', 'data');
 const WEB_PUBLIC_MAP_DIR = path.resolve(ROOT, '..', 'FUSOU-WEB', 'public', 'battle-maps');
 
@@ -91,8 +92,8 @@ function extractMaster() {
   const masterAirbaseData = {};
 
   const allMapKeys = new Set([...Object.keys(cellDataByMap), ...Object.keys(airbasesByMap)]);
-  if (fs.existsSync(WEB_ASSETS_MAP_DIR)) {
-    for (const f of fs.readdirSync(WEB_ASSETS_MAP_DIR)) {
+  if (fs.existsSync(MAP_RESOURCES_DIR)) {
+    for (const f of fs.readdirSync(MAP_RESOURCES_DIR)) {
       if (/^\d+-\d+$/.test(f)) allMapKeys.add(f);
     }
   }
@@ -102,7 +103,7 @@ function extractMaster() {
     const [b1, b2] = b.split('-').map(Number);
     return a1 !== b1 ? a1 - b1 : a2 - b2;
   })) {
-    const assetDataPath = path.join(WEB_ASSETS_MAP_DIR, mapKey, 'data.json');
+    const assetDataPath = path.join(MAP_RESOURCES_DIR, mapKey, 'data.json');
     const publicDataPath = path.join(WEB_PUBLIC_MAP_DIR, mapKey, 'data.json');
     let mapData = null;
     if (fs.existsSync(assetDataPath)) {

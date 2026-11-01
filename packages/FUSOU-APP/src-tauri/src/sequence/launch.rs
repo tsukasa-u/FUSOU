@@ -42,8 +42,7 @@ pub async fn launch_with_options(
                     let server_address = if server_index == -1 {
                         Some(server_name.as_str())
                     } else {
-                        binding_server_address
-                            .as_deref()
+                        binding_server_address.as_deref()
                     };
                     if let Some(server_address) = server_address {
                         let pac_path = get_ROAMING_DIR()
@@ -171,12 +170,15 @@ pub async fn launch_with_options(
                 if browse_webview != 0 {
                     create_external_window(window.app_handle(), None, true);
                 } else {
-                    let browser = SHARED_BROWSER.lock().unwrap_or_else(|e| e.into_inner()).get_browser();
+                    let browser = SHARED_BROWSER
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_browser();
                     create_external_window(window.app_handle(), Some(browser), false);
                 }
             }
         }
     }
 
-    return Ok(());
+    Ok(())
 }

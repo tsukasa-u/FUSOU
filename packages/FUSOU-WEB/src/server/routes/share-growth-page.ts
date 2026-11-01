@@ -2,11 +2,12 @@ import {
   buildShareBadRequestResponse,
   buildSharePageResponse,
 } from "@/server/routes/share-page-common";
+import { isValidPeriodTagDate } from "@/server/utils/period-tags";
 
 function parsePositiveInt(raw: string | null): number | null {
   if (!raw) return null;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) return null;
+  if (!Number.isSafeInteger(value) || value <= 0) return null;
   return value;
 }
 
@@ -25,8 +26,11 @@ export async function handleShareGrowthRequest(
 
   if (
     !isSafeToken(periodTag) ||
+    !isValidPeriodTagDate(periodTag) ||
     !isSafeToken(tableVersion) ||
-    masterId == null
+    masterId == null ||
+    periodTag === "latest" ||
+    periodTag === "all"
   ) {
     return buildShareBadRequestResponse("invalid growth share parameters");
   }

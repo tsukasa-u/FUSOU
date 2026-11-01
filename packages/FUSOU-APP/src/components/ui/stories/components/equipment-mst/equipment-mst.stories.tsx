@@ -1,4 +1,5 @@
-import { ComponentEquipmentMstProps, ComponentEquipmentMst } from "ui";
+import type { ComponentEquipmentMstProps } from "ui";
+import { ComponentEquipmentMst } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
@@ -6,14 +7,16 @@ import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentEquipmentMstBasic = (args: ComponentEquipmentMstProps) => {
-  return (<ComponentEquipmentMst
-    mst_slot_item={args.mst_slot_item}
-    name_flag={args.name_flag}
-    show_name={args.show_name}
-    size={args.size}
-    empty_flag={args.empty_flag}
-    compact={args.compact}
-  ></ComponentEquipmentMst>);
+  return (
+    <ComponentEquipmentMst
+      mst_slot_item={args.mst_slot_item}
+      name_flag={args.name_flag}
+      show_name={args.show_name}
+      size={args.size}
+      empty_flag={args.empty_flag}
+      compact={args.compact}
+    />
+  );
 };
 const meta = {
   title: "FUSOU/components/equipment-mst/component-equipment-mst",
