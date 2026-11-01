@@ -1337,10 +1337,11 @@ mod tests {
         let directory = test_directory();
         let path = directory.join("runtime-config-epoch-state.json");
         fs::write(&path, b"prior-state").unwrap();
+        let expired_deadline = Instant::now() - Duration::from_secs(1);
         let result = write_state_atomic_bytes(
             &path,
             b"new-state",
-            || Err(RuntimeConfigManifestError::Transport("deadline expired")),
+            || ensure_deadline(expired_deadline),
             "state write failed",
         );
 

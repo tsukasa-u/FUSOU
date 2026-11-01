@@ -43,6 +43,14 @@ function hash(bytes) {
   return createHash("sha256").update(bytes).digest("base64url");
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function signManifest(payload, signer) {
   const payloadBase64Url = Buffer.from(canonicalJson(payload), "utf8").toString("base64url");
   const signature = sign(
@@ -87,6 +95,7 @@ function resignFreshnessPayload(responseRaw, setup, changes) {
 function makeHarness({
   sharedClock = new InMemoryFreshnessClockForTest(VECTOR.policy.now_ms),
   journalClock = sharedClock,
+  releaseClock = sharedClock,
 } = {}) {
   const rootPair = createTestEd25519KeyPair();
   const releasePair = createTestEd25519KeyPair();
@@ -184,7 +193,7 @@ function makeHarness({
     rootSigner,
     releaseSigner,
     freshnessSigner,
-    releaseClock: sharedClock,
+    releaseClock,
     journalClock,
     freshnessClock: sharedClock,
     manifestVerifier,
@@ -218,6 +227,7 @@ function makeHarness({
     freshnessSigner,
     request,
     sharedClock,
+    releaseClock,
     freshnessDelegationRaw,
   };
 }
@@ -227,6 +237,24 @@ async function committedHarness(options) {
   const manifestRaw = freshManifest(setup.manifestSigner, "1");
   await setup.authority.commitRelease(manifestRaw);
   return { ...setup, manifestRaw };
+}
+
+function restartAuthority(setup, overrides = {}) {
+  const snapshots = setup.authority.snapshots();
+  return new InMemoryRuntimeConfigFreshnessAuthorityForTest({
+    manifestUrl: MANIFEST_URL,
+    rootSigner: setup.rootSigner,
+    releaseSigner: setup.releaseSigner,
+    freshnessSigner: setup.freshnessSigner,
+    releaseClock: setup.releaseClock,
+    journalClock: setup.authority.journal.clock,
+    freshnessClock: setup.sharedClock,
+    manifestVerifier: setup.authority.manifestVerifier,
+    testOnlyGenesisApproval: "TEST_ONLY_APPROVED_GENESIS",
+    r2Snapshot: overrides.r2Snapshot ?? snapshots.r2,
+    journalSnapshot: overrides.journalSnapshot ?? snapshots.journal,
+    coordinationSnapshot: overrides.coordinationSnapshot ?? snapshots.coordination,
+  });
 }
 
 test("Manifest V2, Journal commit, DO state, R2 snapshot, and Freshness response agree", async () => {
@@ -257,9 +285,7 @@ test("HSM authorization and Journal append do not independently make a release C
   const attempt = await setup.authority.beginRelease(manifestRaw);
   setup.authority.writePointerCas(attempt.attempt_id);
   setup.authority.observePointerCommitted(attempt.attempt_id);
-  const authorization = setup.authority.authorizeJournalAppend(attempt.attempt_id, {
-    authorized_at: "1900-01-01T00:00:00.000Z",
-  });
+  const authorization = setup.authority.authorizeJournalAppend(attempt.attempt_id);
   const authEnvelope = JSON.parse(authorization.toString("utf8"));
   const authPayload = JSON.parse(
     Buffer.from(authEnvelope.payload_base64url, "base64url").toString("utf8"),
@@ -283,27 +309,51 @@ test("HSM authorization and Journal append do not independently make a release C
   assert.equal(setup.authority.coordination.getCurrentCommitted(), null);
 });
 
+test("orphaned Release Authority signature is not stored or treated as committed", async () => {
+  const setup = makeHarness();
+  const attempt = await setup.authority.beginRelease(
+    freshManifest(setup.manifestSigner, "1"),
+  );
+  setup.authority.writePointerCas(attempt.attempt_id);
+  setup.authority.observePointerCommitted(attempt.attempt_id);
+  let orphanedAuthorization;
+
+  assert.throws(
+    () => setup.authority.authorizeJournalAppend(attempt.attempt_id, {
+      afterSign(raw) {
+        orphanedAuthorization = raw;
+        throw new Error("simulated crash before authorization persistence");
+      },
+    }),
+    /simulated crash/,
+  );
+  assert.ok(orphanedAuthorization);
+  assert.equal(
+    setup.authority.coordination.getPending().authorization_base64url,
+    null,
+  );
+  assert.equal(setup.authority.journal.getHead(), null);
+  assert.throws(
+    () => setup.authority.appendJournal(attempt.attempt_id),
+    /persisted exact authorization bytes/,
+  );
+
+  setup.releaseClock.advance(1);
+  const restarted = restartAuthority(setup);
+  assert.equal(await restarted.recoverPendingRelease(), "COMMITTED");
+  assert.notEqual(
+    restarted.journal.getHead().record_base64url,
+    orphanedAuthorization.toString("base64url"),
+  );
+});
+
 test("Journal append followed by a crash is recovered without a second commit", async () => {
   const setup = makeHarness();
   const manifestRaw = freshManifest(setup.manifestSigner, "1");
-  const attempt = await setup.authority.commitRelease(manifestRaw, {
+  await setup.authority.commitRelease(manifestRaw, {
     crashAfter: "journal-append",
   });
-  const snapshots = setup.authority.snapshots();
-  const restarted = new InMemoryRuntimeConfigFreshnessAuthorityForTest({
-    manifestUrl: MANIFEST_URL,
-    rootSigner: setup.rootSigner,
-    releaseSigner: setup.releaseSigner,
-    freshnessSigner: setup.freshnessSigner,
-    releaseClock: setup.sharedClock,
-    journalClock: setup.sharedClock,
-    freshnessClock: setup.sharedClock,
-    manifestVerifier: setup.authority.manifestVerifier,
-    testOnlyGenesisApproval: "TEST_ONLY_APPROVED_GENESIS",
-    r2Snapshot: snapshots.r2,
-    journalSnapshot: snapshots.journal,
-    coordinationSnapshot: snapshots.coordination,
-  });
+  const restarted = restartAuthority(setup);
 
   await assert.rejects(
     restarted.issueFreshness(setup.request.raw),
@@ -324,9 +374,117 @@ test("Journal append followed by a crash is recovered without a second commit", 
   });
 
   assert.equal(verified.payload.pointer_generation, "1");
-  assert.equal(restarted.journal.getHead().record_sha256, attempt.candidate
-    ? restarted.coordination.getCurrentCommitted().record_sha256
-    : null);
+  assert.equal(
+    restarted.journal.getHead().record_base64url,
+    restarted.coordination.getCurrentCommitted().record_base64url,
+  );
+});
+
+test("recovery resumes each commit boundary and never accepts an orphan authorization", async () => {
+  for (const crashAfter of [
+    "prepared",
+    "pointer-cas",
+    "pointer-committed",
+    "authorization-stored",
+    "journal-append",
+  ]) {
+    const setup = makeHarness();
+    const manifestRaw = freshManifest(setup.manifestSigner, "1");
+    await setup.authority.commitRelease(manifestRaw, { crashAfter });
+    const restarted = restartAuthority(setup);
+
+    await assert.rejects(
+      restarted.issueFreshness(setup.request.raw),
+      /pending|stable committed release/,
+      crashAfter,
+    );
+    assert.equal(await restarted.recoverPendingRelease(), "COMMITTED", crashAfter);
+    const response = await restarted.issueFreshness(setup.request.raw);
+    const verified = verifyRuntimeConfigFreshnessResponse(response, {
+      bootstrapSigner: setup.rootSigner,
+      manifestUrl: MANIFEST_URL,
+      request: setup.request.request,
+      nowMs: setup.sharedClock.now(),
+    });
+    assert.equal(verified.payload.pointer_generation, "1", crashAfter);
+    assert.equal(restarted.journal.entries.length, 1, crashAfter);
+  }
+
+  const committed = makeHarness();
+  await committed.authority.commitRelease(
+    freshManifest(committed.manifestSigner, "1"),
+    { crashAfter: "do-committed" },
+  );
+  const restartedCommitted = restartAuthority(committed);
+  assert.equal(await restartedCommitted.recoverPendingRelease(), "NO_PENDING_RELEASE");
+  const committedResponse = await restartedCommitted.issueFreshness(committed.request.raw);
+  const committedVerified = verifyRuntimeConfigFreshnessResponse(committedResponse, {
+    bootstrapSigner: committed.rootSigner,
+    manifestUrl: MANIFEST_URL,
+    request: committed.request.request,
+    nowMs: committed.sharedClock.now(),
+  });
+  assert.equal(committedVerified.payload.pointer_generation, "1");
+});
+
+test("ambiguous R2 CAS outcome is reconciled from exact pointer and snapshot", async () => {
+  const setup = makeHarness();
+  const manifestRaw = freshManifest(setup.manifestSigner, "1");
+  setup.authority.r2.failAfterNextCas = true;
+  await assert.rejects(
+    setup.authority.commitRelease(manifestRaw),
+    /pointer CAS outcome is unknown/,
+  );
+  const restarted = restartAuthority(setup);
+  assert.equal(await restarted.recoverPendingRelease(), "COMMITTED");
+  assert.equal(restarted.coordination.getCurrentCommitted().manifest_sha256, hash(manifestRaw));
+});
+
+test("ambiguous R2 CAS with prior pointer readback stays blocked", async () => {
+  const setup = makeHarness();
+  setup.authority.r2.failBeforeNextCas = true;
+  await assert.rejects(
+    setup.authority.commitRelease(freshManifest(setup.manifestSigner, "1")),
+    /pointer CAS outcome is unknown/,
+  );
+  const restarted = restartAuthority(setup);
+
+  await assert.rejects(
+    restarted.recoverPendingRelease(),
+    /cannot resolve the R2 pointer CAS outcome/,
+  );
+  await assert.rejects(
+    restarted.issueFreshness(setup.request.raw),
+    /pending/,
+  );
+  assert.equal(restarted.journal.getHead(), null);
+});
+
+test("Journal restart validates signed chain and append metadata", async () => {
+  const setup = await committedHarness();
+  const snapshots = setup.authority.snapshots();
+  snapshots.journal.entries[0].appended_at = "2100-01-01T00:00:00.000Z";
+
+  assert.throws(
+    () => restartAuthority(setup, { journalSnapshot: snapshots.journal }),
+    /outside delegation/,
+  );
+});
+
+test("recovery waits for an existing Freshness lease and blocks new leases", async () => {
+  const setup = await committedHarness();
+  const lease = setup.authority.coordination.acquireIssueLease();
+  const attempt = await setup.authority.beginRelease(freshManifest(setup.manifestSigner, "2"));
+  assert.equal(attempt.state, "WAITING_FOR_LEASES");
+
+  const restarted = restartAuthority(setup);
+  assert.equal(await restarted.recoverPendingRelease(), "WAITING_FOR_LEASES");
+  assert.throws(
+    () => restarted.coordination.acquireIssueLease(),
+    /pending/,
+  );
+  restarted.coordination.releaseIssueLease(lease.lease_id);
+  assert.equal(await restarted.recoverPendingRelease(), "COMMITTED");
 });
 
 test("Freshness lease wins release race; writer-pending blocks later leases and pointer CAS", async () => {
@@ -348,6 +506,45 @@ test("Freshness lease wins release race; writer-pending blocks later leases and 
   assert.equal(setup.authority.resumeRelease(attempt.attempt_id), "PREPARED");
   setup.authority.writePointerCas(attempt.attempt_id);
   setup.authority.observePointerCommitted(attempt.attempt_id);
+});
+
+test("multiple active issue leases finish before release resumes", async () => {
+  const setup = await committedHarness();
+  const bothSigned = deferred();
+  const releaseSignatures = deferred();
+  let entered = 0;
+  const afterSign = () => {
+    entered += 1;
+    if (entered === 2) bothSigned.resolve();
+    return releaseSignatures.promise;
+  };
+  const secondRequest = createRuntimeConfigFreshnessRequest({
+    environment: "production",
+    manifestUrl: MANIFEST_URL,
+    requestNonce: randomBytes(32),
+  });
+  const firstIssue = setup.authority.issueFreshness(setup.request.raw, { afterSign });
+  const secondIssue = setup.authority.issueFreshness(secondRequest.raw, { afterSign });
+  await bothSigned.promise;
+  assert.equal(setup.authority.coordination.activeLeaseCount(), 2);
+
+  const attempt = await setup.authority.beginRelease(
+    freshManifest(setup.manifestSigner, "2"),
+  );
+  assert.equal(attempt.state, "WAITING_FOR_LEASES");
+  await assert.rejects(
+    setup.authority.issueFreshness(createRuntimeConfigFreshnessRequest({
+      environment: "production",
+      manifestUrl: MANIFEST_URL,
+      requestNonce: randomBytes(32),
+    }).raw),
+    /pending/,
+  );
+
+  releaseSignatures.resolve();
+  await Promise.all([firstIssue, secondIssue]);
+  assert.equal(setup.authority.coordination.activeLeaseCount(), 0);
+  assert.equal(setup.authority.resumeRelease(attempt.attempt_id), "PREPARED");
 });
 
 test("Freshness signing that outlives the 8-second lease is discarded", async () => {
@@ -481,6 +678,48 @@ test("Journal rejects authorization from a signer clock later than append time",
   );
   assert.equal(setup.authority.journal.getHead(), null);
   assert.equal(setup.authority.coordination.getPending().state, "POINTER_COMMITTED");
+});
+
+test("Release Authority clock before delegation not_before cannot authorize a Journal append", async () => {
+  const sharedClock = new InMemoryFreshnessClockForTest(VECTOR.policy.now_ms);
+  const releaseClock = new InMemoryFreshnessClockForTest(VECTOR.policy.now_ms - 61_000);
+  const setup = makeHarness({ sharedClock, releaseClock });
+  const attempt = await setup.authority.beginRelease(
+    freshManifest(setup.manifestSigner, "1"),
+  );
+  setup.authority.writePointerCas(attempt.attempt_id);
+  setup.authority.observePointerCommitted(attempt.attempt_id);
+
+  assert.throws(
+    () => setup.authority.authorizeJournalAppend(attempt.attempt_id),
+    /delegation/,
+  );
+  assert.equal(
+    setup.authority.coordination.getPending().authorization_base64url,
+    null,
+  );
+  assert.equal(setup.authority.journal.getHead(), null);
+});
+
+test("Journal refuses a signed authorization replayed into another release attempt", async () => {
+  const setup = await committedHarness();
+  const firstRecord = setup.authority.journal.getHead().record_base64url;
+  const secondAttempt = await setup.authority.beginRelease(
+    freshManifest(setup.manifestSigner, "2"),
+  );
+  setup.authority.writePointerCas(secondAttempt.attempt_id);
+  setup.authority.observePointerCommitted(secondAttempt.attempt_id);
+  setup.authority.coordination.storeAuthorization(
+    secondAttempt.attempt_id,
+    Buffer.from(firstRecord, "base64url"),
+  );
+
+  assert.throws(
+    () => setup.authority.appendJournal(secondAttempt.attempt_id),
+    /does not match the pending attempt/,
+  );
+  assert.equal(setup.authority.journal.entries.length, 1);
+  assert.equal(setup.authority.coordination.getCurrentCommitted().generation, "1");
 });
 
 test("Freshness verifier rejects missing, expired, wrong-root, and substituted signer delegations", async () => {

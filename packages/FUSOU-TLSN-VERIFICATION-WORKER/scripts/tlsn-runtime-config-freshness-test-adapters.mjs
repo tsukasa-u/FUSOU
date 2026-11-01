@@ -146,6 +146,8 @@ export class InMemoryRuntimeConfigR2ForTest {
     this.objects = new Map(snapshot?.objects ?? []);
     this.pointer = clone(snapshot?.pointer ?? null);
     this.etagCounter = snapshot?.etagCounter ?? 0;
+    this.failBeforeNextCas = false;
+    this.failAfterNextCas = false;
   }
 
   putImmutable(key, raw) {
@@ -180,11 +182,19 @@ export class InMemoryRuntimeConfigR2ForTest {
     if ((this.pointer?.etag ?? null) !== expectedEtag) {
       throw new Error("test R2 pointer compare-and-swap conflict");
     }
+    if (this.failBeforeNextCas) {
+      this.failBeforeNextCas = false;
+      throw new Error("test R2 pointer CAS outcome is unknown");
+    }
     this.etagCounter += 1;
     this.pointer = {
       body_base64url: Buffer.from(raw).toString("base64url"),
       etag: `test-etag-${this.etagCounter}`,
     };
+    if (this.failAfterNextCas) {
+      this.failAfterNextCas = false;
+      throw new Error("test R2 pointer CAS outcome is unknown");
+    }
     return this.pointer.etag;
   }
 
@@ -203,6 +213,51 @@ export class InMemoryReleaseJournalForTest {
     this.clock = clock;
     this.testOnlyGenesisApproval = testOnlyGenesisApproval;
     this.entries = clone(snapshot?.entries ?? []);
+    this.validateSnapshot();
+  }
+
+  validateSnapshot() {
+    let previous = null;
+    for (const entry of this.entries) {
+      if (
+        !entry ||
+        typeof entry.record_base64url !== "string" ||
+        typeof entry.release_delegation_base64url !== "string" ||
+        typeof entry.appended_at !== "string"
+      ) {
+        throw new Error("test Journal snapshot contains an invalid entry");
+      }
+      if (!previous && this.testOnlyGenesisApproval !== "TEST_ONLY_APPROVED_GENESIS") {
+        throw new Error("test Journal requires an explicit test-only genesis approval");
+      }
+      const recordRaw = Buffer.from(entry.record_base64url, "base64url");
+      const releaseDelegationRaw = Buffer.from(entry.release_delegation_base64url, "base64url");
+      if (
+        recordRaw.toString("base64url") !== entry.record_base64url ||
+        releaseDelegationRaw.toString("base64url") !== entry.release_delegation_base64url
+      ) {
+        throw new Error("test Journal snapshot contains noncanonical base64url");
+      }
+      const verified = verifyRuntimeConfigReleaseCommitRecord(recordRaw, {
+        rootSigner: this.rootSigner,
+        environment: "production",
+        releaseDelegationRaw,
+        appendedAt: entry.appended_at,
+      });
+      const expectedGeneration = (BigInt(previous?.generation ?? "0") + 1n).toString();
+      if (
+        verified.digest !== entry.record_sha256 ||
+        verified.payload.commit_generation !== expectedGeneration ||
+        entry.generation !== expectedGeneration ||
+        entry.manifest_epoch !== verified.payload.manifest_epoch ||
+        verified.payload.previous_commit_generation !== (previous?.generation ?? null) ||
+        verified.payload.previous_commit_record_sha256 !== (previous?.record_sha256 ?? null) ||
+        (previous && BigInt(verified.payload.manifest_epoch) <= BigInt(previous.manifest_epoch))
+      ) {
+        throw new Error("test Journal snapshot chain verification failed");
+      }
+      previous = entry;
+    }
   }
 
   getHead() {
@@ -450,7 +505,10 @@ export class InMemoryReleaseCoordinationForTest {
       !this.state.pending ||
       !journalEntry ||
       !pointer ||
+      journalEntry.generation !== this.state.pending.commit_generation ||
       journalEntry.record_sha256 !== this.state.pending.authorization_sha256 ||
+      journalEntry.record_base64url !== this.state.pending.authorization_base64url ||
+      journalEntry.manifest_epoch !== this.state.pending.manifest_epoch ||
       pointer.etag !== this.state.pending.pointer_etag ||
       pointer.manifest_sha256 !== this.state.pending.manifest_sha256
     ) {
@@ -470,7 +528,9 @@ export class InMemoryReleaseCoordinationForTest {
       this.state.leases.length > 0 ||
       !pending.authorization_base64url ||
       journalEntry.record_sha256 !== pending.authorization_sha256 ||
-      journalEntry.generation !== pending.commit_generation
+      journalEntry.record_base64url !== pending.authorization_base64url ||
+      journalEntry.generation !== pending.commit_generation ||
+      journalEntry.manifest_epoch !== pending.manifest_epoch
     ) {
       throw new Error("Journal record does not authorize the pending DO transition");
     }
@@ -563,7 +623,9 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
     const previousJournal = this.journal.getHead();
     if (
       (current?.record_sha256 ?? null) !== (previousJournal?.record_sha256 ?? null) ||
-      (current?.generation ?? null) !== (previousJournal?.generation ?? null)
+      (current?.generation ?? null) !== (previousJournal?.generation ?? null) ||
+      (current?.manifest_epoch ?? null) !== (previousJournal?.manifest_epoch ?? null) ||
+      (current?.record_base64url ?? null) !== (previousJournal?.record_base64url ?? null)
     ) {
       throw new Error("test DO and Journal heads disagree before release");
     }
@@ -623,14 +685,14 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
     });
   }
 
-  authorizeJournalAppend(attemptId) {
+  authorizeJournalAppend(attemptId, { afterSign } = {}) {
     const pending = this.coordination.getPending();
     if (!pending || pending.attempt_id !== attemptId || pending.state !== "POINTER_COMMITTED") {
       throw new Error("Release Authority requires the exact POINTER_COMMITTED attempt");
     }
     const leaseCount = this.coordination.activeLeaseCount();
     if (leaseCount !== 0) throw new Error("Release Authority is blocked by an issue lease");
-    const pointer = this.r2.getPointer();
+    let pointer = this.r2.getPointer();
     const snapshot = this.r2.getObject(pending.manifest_ref);
     if (
       !pointer ||
@@ -646,7 +708,10 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
     if (
       (journalHead?.record_sha256 ?? null) !== (pending.previous_record_sha256 ?? null) ||
       (journalHead?.generation ?? null) !== (pending.previous_generation ?? null) ||
-      (current?.record_sha256 ?? null) !== (pending.previous_record_sha256 ?? null)
+      (current?.record_sha256 ?? null) !== (pending.previous_record_sha256 ?? null) ||
+      (current?.generation ?? null) !== (journalHead?.generation ?? null) ||
+      (current?.manifest_epoch ?? null) !== (journalHead?.manifest_epoch ?? null) ||
+      (current?.record_base64url ?? null) !== (journalHead?.record_base64url ?? null)
     ) {
       throw new Error("Release Authority prior Journal head changed");
     }
@@ -686,6 +751,7 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
       releaseDelegationRaw: this.releaseSigner.delegation_raw,
       appendedAt: payload.authorized_at,
     });
+    if (afterSign) afterSign(Buffer.from(raw));
     this.coordination.storeAuthorization(attemptId, raw);
     return Buffer.from(raw);
   }
@@ -700,6 +766,7 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
     ) {
       throw new Error("Journal append requires persisted exact authorization bytes");
     }
+    this.verifyPendingAuthorization(pending);
     const entry = this.journal.append({
       recordRaw: Buffer.from(pending.authorization_base64url, "base64url"),
       releaseDelegationRaw: this.releaseSigner.delegation_raw,
@@ -718,19 +785,23 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
       !pointer ||
       !snapshot ||
       head.record_sha256 !== pending.authorization_sha256 ||
+      head.record_base64url !== pending.authorization_base64url ||
       head.generation !== pending.commit_generation ||
+      head.manifest_epoch !== pending.manifest_epoch ||
       pointer.etag !== pending.pointer_etag ||
       !pointer.body.equals(snapshot) ||
       hash(snapshot) !== pending.manifest_sha256
     ) {
       throw new Error("Journal, DO attempt, pointer, or immutable snapshot disagree");
     }
+    this.verifyPendingAuthorization(pending);
     this.coordination.commitRelease(attemptId, head);
   }
 
   async commitRelease(manifestRaw, { crashAfter } = {}) {
     const attempt = await this.beginRelease(manifestRaw);
     if (attempt.state === "WAITING_FOR_LEASES") return attempt;
+    if (crashAfter === "prepared") return attempt;
     this.writePointerCas(attempt.attempt_id);
     if (crashAfter === "pointer-cas") return attempt;
     this.observePointerCommitted(attempt.attempt_id);
@@ -740,50 +811,170 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
     this.appendJournal(attempt.attempt_id);
     if (crashAfter === "journal-append") return attempt;
     this.completeRelease(attempt.attempt_id);
+    if (crashAfter === "do-committed") return attempt;
     return attempt;
   }
 
   async recoverPendingRelease() {
+    const pendingBeforeRecovery = this.coordination.getPending();
+    if (!pendingBeforeRecovery) return "NO_PENDING_RELEASE";
     const admission = this.coordination.beginRecovery();
     if (admission !== "ADMITTED") return admission;
-    const pending = this.coordination.getPending();
+    let pending = this.coordination.getPending();
+    if (!pending) throw new Error("recovery lost its pending release attempt");
+    const current = this.coordination.getCurrentCommitted();
     const head = this.journal.getHead();
-    const pointer = this.r2.getPointer();
-    const snapshot = pending && this.r2.getObject(pending.manifest_ref);
+    let pointer = this.r2.getPointer();
+    const snapshot = this.r2.getObject(pending.manifest_ref);
+    const expectedPreviousGeneration = pending.previous_generation;
+    const expectedPreviousDigest = pending.previous_record_sha256;
+    const journalIsPriorHead =
+      (head?.generation ?? null) === expectedPreviousGeneration &&
+      (head?.record_sha256 ?? null) === expectedPreviousDigest;
+    const journalIsPendingCommit =
+      head?.generation === pending.commit_generation &&
+      head.record_sha256 === pending.authorization_sha256 &&
+      head.record_base64url === pending.authorization_base64url;
     if (
-      !pending ||
-      !head ||
-      !pointer ||
       !snapshot ||
-      !pending.authorization_base64url ||
-      head.record_sha256 !== pending.authorization_sha256 ||
-      head.record_base64url !== pending.authorization_base64url ||
-      pointer.etag !== pending.pointer_etag ||
-      !pointer.body.equals(snapshot) ||
-      hash(snapshot) !== pending.manifest_sha256
+      hash(snapshot) !== pending.manifest_sha256 ||
+      (current?.generation ?? null) !== expectedPreviousGeneration ||
+      (current?.record_sha256 ?? null) !== expectedPreviousDigest
     ) {
-      throw new Error("recovery could not reconcile the exact Journal and R2 state");
+      throw new Error("recovery could not reconcile the pending DO and immutable Manifest");
+    }
+
+    if (journalIsPendingCommit) {
+      if (!pending.authorization_base64url) {
+        throw new Error("Journal contains a commit absent from the pending DO attempt");
+      }
+      this.verifyPendingAuthorization(pending);
+    } else if (!journalIsPriorHead) {
+      throw new Error("recovery Journal head is neither the prior nor pending commit");
+    }
+
+    if (pending.state === "WAITING_FOR_LEASES") {
+      this.coordination.resumeRelease(pending.attempt_id);
+      pending = this.coordination.getPending();
+    }
+
+    let pointerMatchesCandidate =
+      pointer !== null &&
+      pointer.body.equals(snapshot) &&
+      hash(pointer.body) === pending.manifest_sha256;
+    const pointerMatchesPrevious = current
+      ? pointer !== null &&
+        pointer.etag === current.pointer_etag &&
+        hash(pointer.body) === current.manifest_sha256
+      : pointer === null && pending.expected_pointer_etag === null;
+
+    if (pending.state === "PREPARED") {
+      if (pointerMatchesCandidate && pending.pointer_write_started) {
+        this.coordination.observePointerCommitted(pending.attempt_id, {
+          etag: pointer.etag,
+          manifestSha256: pending.manifest_sha256,
+        });
+      } else if (pointerMatchesPrevious && !pending.pointer_write_started) {
+        this.writePointerCas(pending.attempt_id);
+        this.observePointerCommitted(pending.attempt_id);
+        pointer = this.r2.getPointer();
+        pointerMatchesCandidate =
+          pointer !== null &&
+          pointer.body.equals(snapshot) &&
+          hash(pointer.body) === pending.manifest_sha256;
+      } else {
+        throw new Error("recovery cannot resolve the R2 pointer CAS outcome");
+      }
+      pending = this.coordination.getPending();
+    }
+
+    if (
+      pending.state !== "POINTER_COMMITTED" ||
+      !pointerMatchesCandidate ||
+      pointer.etag !== pending.pointer_etag
+    ) {
+      throw new Error("recovery R2 pointer and pending release do not match");
+    }
+
+    if (!journalIsPendingCommit) {
+      if (!journalIsPriorHead) {
+        throw new Error("recovery cannot append over a changed Journal head");
+      }
+      if (!pending.authorization_base64url) {
+        this.authorizeJournalAppend(pending.attempt_id);
+        pending = this.coordination.getPending();
+      } else {
+        this.verifyPendingAuthorization(pending);
+      }
+      this.appendJournal(pending.attempt_id);
+    }
+
+    const committedHead = this.journal.getHead();
+    if (
+      !committedHead ||
+      committedHead.generation !== pending.commit_generation ||
+      committedHead.record_sha256 !== pending.authorization_sha256 ||
+      committedHead.record_base64url !== pending.authorization_base64url
+    ) {
+      throw new Error("recovery Journal append did not commit the exact authorization");
     }
     const verified = verifyRuntimeConfigReleaseCommitRecord(
-      Buffer.from(head.record_base64url, "base64url"),
+      Buffer.from(committedHead.record_base64url, "base64url"),
       {
         rootSigner: this.rootSigner,
         environment: "production",
-        releaseDelegationRaw: Buffer.from(head.release_delegation_base64url, "base64url"),
-        appendedAt: head.appended_at,
+        releaseDelegationRaw: Buffer.from(committedHead.release_delegation_base64url, "base64url"),
+        appendedAt: committedHead.appended_at,
       },
     );
     if (
-      verified.digest !== head.record_sha256 ||
+      verified.digest !== committedHead.record_sha256 ||
+      verified.payload.commit_generation !== pending.commit_generation ||
+      verified.payload.release_commit_id !== pending.release_commit_id ||
       verified.payload.manifest_sha256 !== hash(snapshot)
     ) {
       throw new Error("recovery Release Commit Record verification failed");
     }
     this.coordination.completeRecovery({
-      journalEntry: head,
+      journalEntry: committedHead,
       pointer: { etag: pointer.etag, manifest_sha256: hash(pointer.body) },
     });
     return "COMMITTED";
+  }
+
+  verifyPendingAuthorization(pending) {
+    if (!pending.authorization_base64url || !pending.authorization_sha256) {
+      throw new Error("pending release has no stored Journal authorization");
+    }
+    const recordRaw = Buffer.from(pending.authorization_base64url, "base64url");
+    if (recordRaw.toString("base64url") !== pending.authorization_base64url) {
+      throw new Error("pending authorization is not canonical base64url");
+    }
+    const envelope = JSON.parse(recordRaw.toString("utf8"));
+    const payload = JSON.parse(
+      Buffer.from(envelope.payload_base64url, "base64url").toString("utf8"),
+    );
+    const verified = verifyRuntimeConfigReleaseCommitRecord(recordRaw, {
+      rootSigner: this.rootSigner,
+      environment: "production",
+      releaseDelegationRaw: this.releaseSigner.delegation_raw,
+      appendedAt: payload.authorized_at,
+    });
+    if (
+      verified.digest !== pending.authorization_sha256 ||
+      verified.payload.commit_generation !== pending.commit_generation ||
+      verified.payload.release_commit_id !== pending.release_commit_id ||
+      verified.payload.manifest_schema_version !== 2 ||
+      verified.payload.manifest_epoch !== pending.manifest_epoch ||
+      verified.payload.manifest_sha256 !== pending.manifest_sha256 ||
+      verified.payload.manifest_ref !== pending.manifest_ref ||
+      verified.payload.pointer_etag !== pending.pointer_etag ||
+      verified.payload.previous_commit_generation !== pending.previous_generation ||
+      verified.payload.previous_commit_record_sha256 !== pending.previous_record_sha256
+    ) {
+      throw new Error("stored Journal authorization does not match the pending attempt");
+    }
+    return verified;
   }
 
   async issueFreshness(requestRaw, { afterSign } = {}) {
@@ -801,7 +992,10 @@ export class InMemoryRuntimeConfigFreshnessAuthorityForTest {
       if (
         journalHead.record_sha256 !== committed.record_sha256 ||
         journalHead.generation !== committed.generation ||
-        journalHead.manifest_epoch !== committed.manifest_epoch
+        journalHead.manifest_epoch !== committed.manifest_epoch ||
+        journalHead.record_base64url !== committed.record_base64url ||
+        journalHead.release_delegation_base64url !== committed.release_delegation_base64url ||
+        journalHead.appended_at !== committed.appended_at
       ) {
         throw new Error("Freshness DO and Journal current heads disagree");
       }

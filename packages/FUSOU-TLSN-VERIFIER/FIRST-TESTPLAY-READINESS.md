@@ -1,6 +1,36 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Phase 1 implementation snapshot — based on `b2a546986aaa31eae46aa8944304df6508d83be1`
+## Phase 1 follow-up verification — audit base `4183a4c6d54b92f253504546a4e674cae682d866`
+
+The follow-up audit started on branch `tlsn-first-testplay-candidate` at
+`4183a4c6d54b92f253504546a4e674cae682d866`, parent
+`2211b3964c8779f5032a5444165eb9daaa2ccca7`. The index was empty. Existing
+local edits to the root `justfile` and APP roaming config were preserved and
+excluded from this work.
+
+| Area | Status | Evidence and limit |
+|---|---|---|
+| Test-only release/freshness authority | **VERIFIED — TEST ONLY** | The focused Freshness suite passed 21/21. It exercises signer-clock `authorized_at`, strict Journal append ordering, exact-attempt replay rejection, orphan signatures, every commit/recovery boundary, ambiguous R2 outcomes, restart chain validation, multiple leases, and recovery waiting. The adapter does not provide production service bindings. |
+| Related Runtime Config Worker tests | **VERIFIED — LOCAL TESTS** | 79/79 Freshness, Manifest, R2-store, publisher-readiness and Bootstrap trust tests passed with zero skips. |
+| Worker TypeScript | **VERIFIED** | `npm run typecheck` passed. No Worker runtime source or binding was changed. |
+| APP `tlsn-production` build/check | **VERIFIED — LOCAL** | `cargo check --features tlsn-production --lib` passed. |
+| APP Runtime Config/preflight Rust tests | **VERIFIED — LOCAL** | `cargo test --features tlsn-production --lib tlsn_runtime_config` passed 28 tests; 57 unrelated tests were filtered out. This compiled and exercised the changed final-deadline state-preservation test. |
+| Rust formatting | **PARTIAL** | `rustfmt --edition 2021 --check` passed for the changed Freshness Rust file. Workspace `cargo fmt --check` reports existing formatting differences in unrelated files; those files were not reformatted. |
+| Hosted CI | **NOT_CHECKED** | No hosted workflow was started or observed for this follow-up. |
+| Production Freshness implementation | **NOT_IMPLEMENTED** | There is no deployed route, production DO/R2/Journal/HSM adapter, binding, key, or registration. The in-memory adapter and genesis sentinel are tests only. |
+| Human trust-owner approval / Production registration | **BLOCKED** | Trust-owner approvals, Release/Freshness key custody, Journal authority/retention, service registration and APP release remain external prerequisites. |
+| Stage A — protocol-only `TLSN_PROTOCOL_TESTPLAY` | **BLOCKED** | No qualifying protocol-only testplay or approved live inputs were supplied. |
+| Stage B — identity-bound `IDENTITY_BOUND_TESTPLAY` | **BLOCKED** | No real Game Server, Notary or identity-bound testplay was performed. |
+| Stage C — `PRODUCTION_EVIDENCE_DELIVERY` | **BLOCKED** | No Production signer, Journal, Freshness service or evidence delivery was registered or exercised. |
+| Production acceptance / deployment / real-game evidence | **BLOCKED** | Local tests and builds do not establish deployment, real Presentation/Result validity, gameplay, or Production acceptance. |
+
+`authorized_at` in the in-memory adapter is sampled from its injected test
+clock, not supplied by a caller. The Phase 0 contract has no separate
+authorization-to-append age limit beyond strict delegation bounds and
+`authorized_at <= appended_at`; see the protocol follow-up record for the
+resulting constraint and why no unapproved threshold was invented.
+
+## Initial Phase 1 implementation snapshot (historical) — based on `b2a546986aaa31eae46aa8944304df6508d83be1`
 
 The implementation work started on branch `tlsn-first-testplay-candidate` at
 `b2a546986aaa31eae46aa8944304df6508d83be1`, parent

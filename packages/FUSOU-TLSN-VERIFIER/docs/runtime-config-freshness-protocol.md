@@ -66,6 +66,53 @@ The Phase 1 implementation commit is
   Stage A, Stage B, Stage C, Production acceptance, deployment and real-game
   evidence remain **BLOCKED**.
 
+## Phase 1 follow-up verification — audit base `4183a4c6d54b92f253504546a4e674cae682d866`
+
+This follow-up started on `tlsn-first-testplay-candidate` at
+`4183a4c6d54b92f253504546a4e674cae682d866`, parent
+`2211b3964c8779f5032a5444165eb9daaa2ccca7`. The earlier Phase 1 record above
+is historical and is superseded only for the local test/validation results
+listed here; it does not imply a Production service implementation.
+
+- The test-only Release Authority creates `authorized_at` from its injected
+  `releaseClock.now()` when authorizing the exact pending attempt. The caller
+  does not supply a timestamp. The Journal independently samples its append
+  clock and accepts only when both timestamps are inside the Release Authority
+  delegation's half-open interval and `authorized_at <= appended_at`.
+  Tests reject a signer clock before `not_before`, a signer time after Journal
+  append time, authorization bytes replayed into another release attempt, and
+  an orphaned signature that was not persisted to its pending DO attempt.
+- Phase 0 defines no independent maximum elapsed time from authorization to
+  Journal append. No new age threshold or timestamp trust source is introduced
+  here: a delayed authorization remains eligible only as the exact bytes
+  stored for its exact pending attempt, while the prior Journal head and
+  pointer/snapshot still match, and only before the delegation expires. The
+  resulting upper bound is the remaining Release Authority delegation
+  lifetime (strictly less than 30 days from its `issued_at`); adding a shorter
+  production signing-to-append SLA requires an explicit protocol decision.
+- Recovery tests cover `PREPARED`, R2 CAS, `POINTER_COMMITTED`, stored
+  authorization, Journal append, and post-DO-commit restart. Exact committed
+  Journal bytes are verified before DO recovery. A candidate pointer confirmed
+  after an ambiguous CAS is recoverable; an unchanged prior pointer after a
+  CAS was started remains blocked rather than being retried. Recovery waits
+  for existing issue leases, and multiple concurrent leases prevent release
+  until all have completed.
+- The test Journal validates its signed generation/hash chain and append
+  metadata on restart. The in-memory R2, Journal, DO, clocks and keys remain
+  test-only; none is wired to the deployed Worker.
+- **Local verification:** 21/21 Freshness tests and 79/79 combined
+  Freshness/Manifest/R2-store/publisher-readiness/Bootstrap tests passed,
+  with zero skips. Worker typecheck passed. APP `cargo check` with
+  `tlsn-production` passed, and 28 matching APP Runtime Config/preflight Rust
+  tests passed with that feature enabled. The changed Rust file passed a
+  targeted `rustfmt --check`. Workspace-wide `cargo fmt --check` still reports
+  existing formatting differences in unrelated files; no formatting change
+  was applied to them. Cargo emitted existing unused/dead-code warnings.
+- No hosted CI or live R2/Journal/DO/HSM operation was run. Production
+  Freshness adapters, bindings, keys and registration remain
+  **NOT_IMPLEMENTED** / **BLOCKED**. Stage A, Stage B, Stage C, Production
+  acceptance, deployment and real-game evidence remain **BLOCKED**.
+
 ## 1. Normative decisions
 
 1. **Use a Bootstrap-root-delegated Release Authority commit record.** The
