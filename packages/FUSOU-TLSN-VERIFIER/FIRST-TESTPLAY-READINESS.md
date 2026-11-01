@@ -1,5 +1,39 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Phase 1 implementation snapshot — based on `b2a546986aaa31eae46aa8944304df6508d83be1`
+
+The implementation work started on branch `tlsn-first-testplay-candidate` at
+`b2a546986aaa31eae46aa8944304df6508d83be1`, parent
+`42bd255bb128bef97b1d6e01fb3dbcf323437fd6`. The source/test implementation
+is committed as `2211b3964c8779f5032a5444165eb9daaa2ccca7`; this record
+distinguishes local protocol code and tests from deployed Production
+readiness.
+
+| Area | Status | Evidence and limit |
+|---|---|---|
+| Worker Freshness verifier and in-memory authority adapters | **VERIFIED — TEST ONLY** | Twelve adversarial Node tests pass against fake in-memory R2, Journal, DO, clocks and ephemeral test keys. The verifier is under Worker `scripts/`; it is not imported by the deployed Worker entry point and does not use Cloudflare DO, R2, Journal or HSM bindings. |
+| APP Freshness source path | **OBSERVED / UNVERIFIED** | Feature-gated Rust verification, a dedicated bounded Freshness HTTP client, exact Manifest snapshot/artifact checks, state-v2 high-waters, v1-state migration and final synchronous atomic-rename deadline check are present. Rust compilation and execution were not verified. |
+| APP epoch state failure behavior | **OBSERVED** | Valid v1 state is retained as a migration high-water; malformed or unsupported state fails closed rather than resetting the high-water. New state is persisted only after full Manifest/artifact verification. |
+| APP Rust tests | **NOT_CHECKED** | Focused state-migration, corrupt-state and failed-final-check tests were added but not run. Cargo would compile `packages/configs`, whose source uses `include_str!` for protected `configs.toml` files; the requested protection against reading those files therefore prevents Cargo validation. Rust formatting/syntax check passed. |
+| Worker TypeScript typecheck | **VERIFIED** | `npm run typecheck` passed. |
+| Freshness and existing Runtime Config Worker tests | **VERIFIED — LOCAL TESTS** | The focused Freshness suite passed 12/12; the combined Freshness, Manifest, R2-store, publisher-readiness and Bootstrap trust suites passed 70/70 with zero skips. No R2 integration test or live service was run. |
+| Hosted CI for this implementation | **NOT_CHECKED** | No hosted run was started or observed for this implementation. |
+| Production Freshness endpoint and service adapters | **NOT_IMPLEMENTED** | No deployed Worker route, DO, HSM, Journal, production R2 access, binding or key was added or registered. The test-only genesis sentinel is not a Production genesis-approval contract. |
+| Human trust-owner approval / Production registration | **BLOCKED** | Root-signed delegations, HSM custody, Journal genesis/retention/access authority, DO/R2/service registration, endpoint and APP release remain external prerequisites. |
+| Stage A — protocol-only `TLSN_PROTOCOL_TESTPLAY` | **BLOCKED** | This local test implementation is not a protocol-only testplay and supplies no required live or approved inputs. |
+| Stage B — identity-bound `IDENTITY_BOUND_TESTPLAY` | **BLOCKED** | No real Game Server, Notary or identity-bound testplay was performed. |
+| Stage C — `PRODUCTION_EVIDENCE_DELIVERY` | **BLOCKED** | No Production signer, Journal, Freshness service or evidence delivery was registered or exercised. |
+| Production acceptance / deployment / real-game evidence | **BLOCKED** | Local tests do not establish deployment, real Presentation/Result validity, gameplay, or Production acceptance. |
+
+`RuntimeConfigManager::refresh` now uses the Freshness path and does not fall
+back to the old direct Manifest GET path. The old 15-second generic Manifest
+fetcher remains available to the existing private test helper; the Freshness
+path has its own 2-second connect / 10-second request limits and one 10-second
+monotonic acceptance deadline through the pre-rename check. The Worker scripts
+and in-memory adapters are test scaffolding only, not a Production service.
+
+## Historical Phase 0 review-start snapshot — HEAD `42bd255bb128bef97b1d6e01fb3dbcf323437fd6` (2026-11-01)
+
 ## Source/readiness snapshot at review start — HEAD `42bd255bb128bef97b1d6e01fb3dbcf323437fd6` (2026-11-01)
 
 At review start, the inspected branch was `tlsn-first-testplay-candidate`;
@@ -13,7 +47,7 @@ baseline. At task start, the worktree had only the pre-existing
 [justfile](/home/ogu-h/Documents/GitHub/FUSOU/justfile) and APP roaming
 config edit, with an empty index; both were preserved.
 
-### Current verification status
+### Historical verification status at that review start
 
 | Area | Status | Evidence and limit |
 |---|---|---|

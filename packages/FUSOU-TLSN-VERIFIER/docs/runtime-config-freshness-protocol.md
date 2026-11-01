@@ -1,27 +1,70 @@
 # Runtime Config Freshness Protocol — Phase 0 Specification
 
-- **Status:** Specification selected; implementation and approval pending
+- **Status:** Phase 0 design selected; local Phase 1 implementation is partial; Production implementation and approval pending
 - **Updated:** 2026-11-01
 - **Repository HEAD at review start:** `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`
 - **Parent at review start:** `891ec66a729da4dc832cb70fbd6ff5cd3e620cae`
 - **Previous Phase 0 review snapshot:** `254967c4fb77d279a608da91b8836b5b9d8f551e`
 - **Runtime-source baseline:** `43ab72e6284deee3ad202be7fb50e3f0199af304`
 - **Historical design snapshot:** `a0cb49250df53132ee8df42ca02fbce91e10c7d2`
+- **Phase 1 implementation base:** branch `tlsn-first-testplay-candidate`, HEAD `b2a546986aaa31eae46aa8944304df6508d83be1`, parent `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`
+- **Phase 1 source/test commit:** `2211b3964c8779f5032a5444165eb9daaa2ccca7`
 - **Readiness record:** [FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md)
 
-This is the Phase 0 protocol specification. It changes no APP, Worker, Rust,
-TypeScript, JavaScript, build, binding, or deployment source. It creates no key,
-contacts no Production service, and writes nothing to R2. The source baseline
-was independently inspected. At review start, the APP/Worker Runtime Config
-source paths compared in Section 2 were unchanged from runtime-source baseline
-`43ab72e...`; the older design snapshot `a0cb492...` is historical, not the
-current repository HEAD.
-The edits made for this Phase 0 review are documentation-only.
+The decisions below are the Phase 0 design. The Phase 1 record below describes
+later local source and test changes based on the stated implementation base;
+it does not revise the Manifest v2 signing contract. The 42bd/43ab source
+observations in Section 2 are historical review-start evidence, not a claim
+that those exact source paths remain unchanged in the current branch.
 
-The protocol is **not implemented**. Root and delegated keys, the Release
-Journal, the authority state machine, endpoint, and Production registration
-are all absent or unregistered. No Freshness, deployment, or real-game
-readiness is implied by this specification.
+The Production protocol is **not implemented**. The local APP verifier and
+Worker-side test protocol are not Production services: no Production key,
+Release Journal, DO, R2 authority, endpoint, binding or registration was
+created. No deployment, live Freshness response, or real-game readiness is
+implied.
+
+## Phase 1 local implementation record
+
+The Phase 1 implementation commit is
+`2211b3964c8779f5032a5444165eb9daaa2ccca7`, based on
+`b2a546986aaa31eae46aa8944304df6508d83be1` on
+`tlsn-first-testplay-candidate` (parent `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`).
+
+- APP `RuntimeConfigManager::refresh` now enters a dedicated Freshness POST
+  flow with a fresh 32-byte nonce, redirects disabled, bounded response reads,
+  a 2-second connect timeout, a 10-second request timeout, and a single
+  10-second monotonic deadline from immediately before challenge submission
+  through the synchronous atomic state-file replacement check. The existing
+  Manifest v2 envelope and signing bytes are unchanged.
+- APP source verifies canonical, exact-schema delegation/Release Commit
+  Record/Freshness envelopes; root and delegated Ed25519 signatures; scope,
+  environment, audience, nonce, timestamps, strict delegation lifetime,
+  Manifest reference/digests and release metadata. It fetches the exact
+  immutable Manifest snapshot and all existing independent artifacts before
+  accepting the original Manifest verifier result.
+- Persisted epoch state v2 binds Manifest epoch/digest, commit generation,
+  Release Commit Record digest, and Freshness delegation generation/digest.
+  Valid v1 state is used as migration high-water. Malformed or unsupported
+  state fails closed. The final callback runs after temporary-file write and
+  fsync, rechecks state and time/deadline, and returns synchronously to atomic
+  rename without an async yield.
+- Worker `scripts/tlsn-runtime-config-freshness.mjs` and its in-memory R2,
+  DO-coordination, Journal, clock and signer adapters are test-only. They are
+  not wired into `src/index.ts` and do not implement Cloudflare service
+  adapters. The test genesis approval sentinel is explicitly test-only and
+  does not specify Production genesis authorization.
+- **Local verification:** 12/12 Freshness adversarial tests and 70/70 focused
+  Freshness/Manifest/R2-store/publisher-readiness/Bootstrap tests passed;
+  Worker TypeScript typecheck and JavaScript syntax checks passed; Rust
+  rustfmt/syntax check passed. APP Cargo tests/build are **NOT_CHECKED**:
+  `packages/configs/src/configs.rs` embeds protected `configs.toml` files with
+  `include_str!`, so Cargo compilation would read those files. No Cargo
+  command was run. No hosted CI or live R2/Journal/DO/HSM operation was run.
+- **Readiness:** APP Rust compilation is **UNVERIFIED**; Production authority
+  adapters and registration are **NOT_IMPLEMENTED** / **BLOCKED**. Human
+  trust-owner approval and key/Journal/provider registration remain required.
+  Stage A, Stage B, Stage C, Production acceptance, deployment and real-game
+  evidence remain **BLOCKED**.
 
 ## 1. Normative decisions
 
@@ -77,7 +120,7 @@ separately administered append-only journal; this is a new online trust
 assumption and is an explicit human-approval item, not an already existing
 property.
 
-## 2. Source-confirmed current implementation
+## 2. Historical source-confirmed implementation at Phase 0 review start
 
 | Area | Verified source behavior | Limit relevant to Freshness |
 |---|---|---|
@@ -1438,9 +1481,11 @@ The following are external trust/operations inputs, not coding questions:
    method-level ACLs; the deployed DO RPC authorization must be reviewed.
    These permissions are not registered or verified.
 
-**Phase 0 result:** Option B and `LATEST_AT_ISSUANCE` are specified with
+**Phase 0 result:** Option B and `LATEST_AT_ISSUANCE` were specified with
 bounded semantics, delegated keys, HSM authorization versus Journal commit
 semantics, per-operation linearization points, expiry/clock rules, DO state
-transitions, APP verification and failure handling.
-The Freshness protocol remains **NOT_IMPLEMENTED**, registrations remain
+transitions, APP verification and failure handling. At that Phase 0 boundary,
+Freshness source was **NOT_IMPLEMENTED**. The later local Phase 1 verifier and
+test-only adapters are recorded at the top of this document; the Production
+Freshness service remains **NOT_IMPLEMENTED**, registrations remain
 **BLOCKED**, and Production/Stage A/B/C acceptance remains **BLOCKED**.
