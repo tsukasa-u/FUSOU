@@ -19,18 +19,12 @@
     "types": [
       "@cloudflare/workers-types",
       "node"
-    ],
-    "paths": {
-      "../../avro-wasm/*": [
-        "../avro-wasm/*"
-      ]
-    }
+    ]
   },
   "include": [
     "src/**/*",
     "test/*.test.ts",
-    "test/*-fixture.ts",
-    "../avro-wasm/**/*"
+    "test/*-fixture.ts"
   ],
   "exclude": [
     "node_modules",
