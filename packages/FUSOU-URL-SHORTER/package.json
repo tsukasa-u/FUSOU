@@ -1,6 +1,6 @@
 {
   "name": "fusou-url-shorter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "URL shortener Cloudflare Worker for FUSOU simulator fleet sharing",
   "type": "module",
   "main": "src/index.ts",
