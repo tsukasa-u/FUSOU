@@ -7,14 +7,8 @@ on:
   schedule:
     - cron: "0 0 * * 1"
   pull_request:
-    paths:
-      - "packages/FUSOU-WORKFLOW/**"
-      - "packages/fusou-compaction-core/**"
-      - "docs/sql/turso/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/check_build.yml"
-      - ".github/workflows/trigger_daily_compaction.yml"
-      - ".github/workflows/validate_schema_chain.yml"
+    branches:
+      - main
 
 env:
   CARGO_TERM_COLOR: always
@@ -52,7 +46,6 @@ jobs:
           cargo test --lib configs::tests:: -- --nocapture
 
   build:
-    if: github.event_name != 'pull_request'
     defaults:
       run:
         working-directory: ./packages/FUSOU-APP
@@ -125,10 +118,14 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: install frontend dependencies
-        # If you don't have `beforeBuildCommand` configured you may want to build your frontend here too.
-        run: pnpm install # change this to npm or pnpm depending on which one you use.
+        run: pnpm install --frozen-lockfile
+
+      - name: build without bundling (pull request)
+        if: github.event_name == 'pull_request'
+        run: node node_modules/@tauri-apps/cli/tauri.js build --no-bundle --ci -- --locked
 
       - uses: tauri-apps/tauri-action@v0
+        if: github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
