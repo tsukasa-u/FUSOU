@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 use tauri_plugin_shell::ShellExt;
 use tracing_unwrap::OptionExt;
+#[cfg(target_os = "linux")]
+use tracing_unwrap::ResultExt;
 
 use crate::notify;
 
