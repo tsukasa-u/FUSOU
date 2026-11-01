@@ -34,6 +34,10 @@ const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const ED25519_SPKI_PREFIX = Buffer.from(
+  "302a300506032b6570032100",
+  "hex",
+);
 const DNS_HOSTNAME_PATTERN =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const UINT64_MAX = 18_446_744_073_709_551_615n;
@@ -159,10 +163,36 @@ function parseCanonicalJson(raw, fields, label, maxBytes) {
     throw new Error(`${label} is not valid UTF-8 JSON`);
   }
   assertExactKeys(value, fields, label);
+  assertWellFormedJsonStrings(value, label);
   if (!Buffer.from(canonicalJson(value), "utf8").equals(bytes)) {
     throw new Error(`${label} is not canonical JSON`);
   }
   return value;
+}
+
+function assertWellFormedJsonStrings(value, label) {
+  const pending = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      for (let index = 0; index < current.length; index += 1) {
+        const code = current.charCodeAt(index);
+        if (code >= 0xd800 && code <= 0xdbff) {
+          const next = current.charCodeAt(index + 1);
+          if (!(next >= 0xdc00 && next <= 0xdfff)) {
+            throw new Error(`${label} contains an invalid Unicode string`);
+          }
+          index += 1;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+          throw new Error(`${label} contains an invalid Unicode string`);
+        }
+      }
+    } else if (Array.isArray(current)) {
+      for (const item of current) pending.push(item);
+    } else if (current && typeof current === "object") {
+      for (const [key, item] of Object.entries(current)) pending.push(key, item);
+    }
+  }
 }
 
 function decodeBase64Url(value, label, expectedLength) {
@@ -195,6 +225,23 @@ function assertKeyId(value, label) {
   if (typeof value !== "string" || !KEY_ID_PATTERN.test(value)) {
     throw new Error(`${label} is invalid`);
   }
+}
+
+function importEd25519Spki(value, label) {
+  const spki = decodeBase64Url(value, `${label} SPKI`, 44);
+  if (!ED25519_SPKI_PREFIX.every((byte, index) => spki[index] === byte)) {
+    throw new Error(`${label} SPKI is not canonical Ed25519`);
+  }
+  let publicKey;
+  try {
+    publicKey = createPublicKey({ key: spki, format: "der", type: "spki" });
+  } catch {
+    throw new Error(`${label} SPKI is invalid`);
+  }
+  if (publicKey.asymmetricKeyType !== "ed25519") {
+    throw new Error(`${label} key is not Ed25519`);
+  }
+  return publicKey;
 }
 
 function assertUuidV4(value, label) {
@@ -243,16 +290,7 @@ export function runtimeConfigFreshnessSigningBytes(domain, keyId, payloadBytes) 
 }
 
 function verifyEd25519(spkiBase64Url, bytes, signatureBase64Url, label) {
-  const spki = decodeBase64Url(spkiBase64Url, `${label} SPKI`);
-  let publicKey;
-  try {
-    publicKey = createPublicKey({ key: spki, format: "der", type: "spki" });
-  } catch {
-    throw new Error(`${label} SPKI is invalid`);
-  }
-  if (publicKey.asymmetricKeyType !== "ed25519") {
-    throw new Error(`${label} key is not Ed25519`);
-  }
+  const publicKey = importEd25519Spki(spkiBase64Url, label);
   const signature = decodeBase64Url(signatureBase64Url, `${label} signature`, 64);
   if (!verifySignature(null, bytes, publicKey, signature)) {
     throw new Error(`${label} signature verification failed`);
@@ -333,15 +371,7 @@ export function verifyRuntimeConfigDelegation(raw, {
   assertUuidV4(payload.delegation_id, "delegation ID");
   parseUnsigned(payload.delegation_generation, "delegation generation");
   assertKeyId(payload.key_id, "delegated key ID");
-  decodeBase64Url(payload.public_key_spki, "delegated key SPKI");
-  const delegatedKey = createPublicKey({
-    key: Buffer.from(payload.public_key_spki, "base64url"),
-    format: "der",
-    type: "spki",
-  });
-  if (delegatedKey.asymmetricKeyType !== "ed25519") {
-    throw new Error("delegated key is not Ed25519");
-  }
+  importEd25519Spki(payload.public_key_spki, "delegated key");
   const issuedAt = parseTimestamp(payload.issued_at, "delegation issued_at");
   const notBefore = parseTimestamp(payload.not_before, "delegation not_before");
   const notAfter = parseTimestamp(payload.not_after, "delegation not_after");
@@ -457,8 +487,7 @@ export function verifyRuntimeConfigReleaseCommitRecord(raw, {
   }
   if (
     typeof payload.pointer_etag !== "string" ||
-    payload.pointer_etag.length === 0 ||
-    payload.pointer_etag.trim() !== payload.pointer_etag
+    rustTrimHasBoundaryWhitespace(payload.pointer_etag)
   ) {
     throw new Error("Release Commit Record pointer ETag is invalid");
   }
@@ -501,6 +530,27 @@ export function verifyRuntimeConfigReleaseCommitRecord(raw, {
     digest: sha256Base64Url(Buffer.from(raw)),
     appendedAt: appendedAtMs,
   };
+}
+
+function rustTrimHasBoundaryWhitespace(value) {
+  const codePoints = Array.from(value, (character) => character.codePointAt(0));
+  const isWhitespace = (codePoint) =>
+    (codePoint >= 0x09 && codePoint <= 0x0d) ||
+    codePoint === 0x20 ||
+    codePoint === 0x85 ||
+    codePoint === 0xa0 ||
+    codePoint === 0x1680 ||
+    (codePoint >= 0x2000 && codePoint <= 0x200a) ||
+    codePoint === 0x2028 ||
+    codePoint === 0x2029 ||
+    codePoint === 0x202f ||
+    codePoint === 0x205f ||
+    codePoint === 0x3000;
+  return (
+    codePoints.length === 0 ||
+    isWhitespace(codePoints[0]) ||
+    isWhitespace(codePoints[codePoints.length - 1])
+  );
 }
 
 export function createRuntimeConfigFreshnessRequest({

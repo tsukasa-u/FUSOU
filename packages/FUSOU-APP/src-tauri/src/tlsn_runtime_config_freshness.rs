@@ -1279,6 +1279,29 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn golden_vectors() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/test/fixtures/freshness-v1-golden.json"
+        ))
+        .unwrap()
+    }
+
+    fn golden_bytes(value: &Value) -> Vec<u8> {
+        URL_SAFE_NO_PAD.decode(value.as_str().unwrap()).unwrap()
+    }
+
+    fn golden_bootstrap(golden: &Value) -> RuntimeConfigBootstrap {
+        RuntimeConfigBootstrap {
+            manifest_url: Url::parse(golden["manifest_url"].as_str().unwrap()).unwrap(),
+            trusted_signer: serde_json::from_value(golden["root_signer"].clone()).unwrap(),
+        }
+    }
+
+    fn golden_request(golden: &Value) -> FreshnessRequest {
+        let raw = golden_bytes(&golden["request_raw_base64url"]);
+        parse_canonical_json(&raw, "golden request").unwrap()
+    }
+
     fn test_directory() -> PathBuf {
         let directory = std::env::temp_dir().join(format!(
             "fusou-runtime-config-freshness-test-{}",
@@ -1296,6 +1319,163 @@ mod tests {
         }
         #[cfg(not(unix))]
         let _ = path;
+    }
+
+    #[test]
+    fn accepts_shared_freshness_golden_vector_and_rejects_all_response_negatives() {
+        let golden = golden_vectors();
+        let bootstrap = golden_bootstrap(&golden);
+        let request = golden_request(&golden);
+        let now =
+            DateTime::<Utc>::from_timestamp_millis(golden["now_ms"].as_i64().unwrap()).unwrap();
+        let valid = verify_freshness_response(
+            &golden_bytes(&golden["response_raw_base64url"]),
+            &bootstrap,
+            &request,
+            now,
+            None,
+        )
+        .unwrap();
+        assert_eq!(valid.payload.freshness_semantics, "LATEST_AT_ISSUANCE");
+        assert_eq!(valid.payload.latest_epoch, "43");
+        assert_eq!(valid.payload.pointer_generation, "2");
+        assert_eq!(valid.release_commit.payload.pointer_etag, "etag-é-🌱");
+
+        for (name, encoded) in golden["cases"]["response"].as_object().unwrap() {
+            let result =
+                verify_freshness_response(&golden_bytes(encoded), &bootstrap, &request, now, None);
+            assert!(
+                result.is_err(),
+                "APP accepted invalid response vector {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_shared_noncanonical_and_malformed_request_vectors() {
+        let golden = golden_vectors();
+        let bootstrap = golden_bootstrap(&golden);
+        let valid_response = golden_bytes(&golden["response_raw_base64url"]);
+        let now =
+            DateTime::<Utc>::from_timestamp_millis(golden["now_ms"].as_i64().unwrap()).unwrap();
+        for (name, encoded) in golden["cases"]["request"].as_object().unwrap() {
+            let raw = golden_bytes(encoded);
+            let result: Result<FreshnessRequest, _> = parse_canonical_json(&raw, "golden request");
+            if let Ok(request) = result {
+                assert!(
+                    verify_freshness_response(&valid_response, &bootstrap, &request, now, None,)
+                        .is_err(),
+                    "APP accepted invalid request vector {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_delegation_and_release_record_boundary_vectors() {
+        let golden = golden_vectors();
+        let bootstrap = golden_bootstrap(&golden);
+        let request = golden_request(&golden);
+        let root = &bootstrap.trusted_signer;
+        let freshness_audience = &request.audience_manifest_url_sha256;
+        let release_audience = format!("{RELEASE_AUDIENCE_PREFIX}production");
+
+        for (name, encoded) in golden["cases"]["delegation"].as_object().unwrap() {
+            let (purpose, audience) = if name.starts_with("freshness_") {
+                ("freshness-response-v1", freshness_audience.as_str())
+            } else {
+                ("release-commit-record-v1", release_audience.as_str())
+            };
+            assert!(
+                verify_delegation(
+                    &golden_bytes(encoded),
+                    root,
+                    purpose,
+                    "production",
+                    audience,
+                )
+                .is_err(),
+                "APP accepted invalid delegation vector {name}"
+            );
+        }
+
+        let appended_at = parse_canonical_utc(
+            golden["release_commit_record_appended_at"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        for name in [
+            "generation_overflow_raw_base64url",
+            "epoch_overflow_raw_base64url",
+            "previous_generation_mismatch_raw_base64url",
+            "unpaired_surrogate_raw_base64url",
+        ] {
+            let result = verify_release_commit_record(
+                &golden_bytes(&golden["cases"]["release_record"][name]),
+                verify_delegation(
+                    &golden_bytes(&golden["release_delegation_raw_base64url"]),
+                    root,
+                    "release-commit-record-v1",
+                    "production",
+                    &release_audience,
+                )
+                .unwrap(),
+                "production",
+                appended_at,
+            );
+            assert!(
+                result.is_err(),
+                "APP accepted invalid release vector {name}"
+            );
+        }
+
+        let mismatched_previous_digest = golden_bytes(
+            &golden["cases"]["release_record"]["previous_digest_mismatch_raw_base64url"],
+        );
+        let verified = verify_release_commit_record(
+            &mismatched_previous_digest,
+            verify_delegation(
+                &golden_bytes(&golden["release_delegation_raw_base64url"]),
+                root,
+                "release-commit-record-v1",
+                "production",
+                &release_audience,
+            )
+            .unwrap(),
+            "production",
+            appended_at,
+        )
+        .unwrap();
+        assert_ne!(
+            verified.payload.previous_commit_record_sha256.as_deref(),
+            Some(golden["previous_head"]["record_sha256"].as_str().unwrap()),
+            "APP's standalone Record verifier must not claim Journal head membership"
+        );
+    }
+
+    #[test]
+    fn enforces_freshness_delegation_clock_skew_boundaries() {
+        let golden = golden_vectors();
+        let bootstrap = golden_bootstrap(&golden);
+        let request = golden_request(&golden);
+        let delegation = verify_delegation(
+            &golden_bytes(&golden["freshness_delegation_raw_base64url"]),
+            &bootstrap.trusted_signer,
+            "freshness-response-v1",
+            "production",
+            &request.audience_manifest_url_sha256,
+        )
+        .unwrap();
+        let margin = chrono::Duration::seconds(MAX_CLOCK_SKEW_SECONDS as i64);
+        assert!(
+            validate_freshness_delegation_active(&delegation, delegation.not_before + margin,)
+                .is_ok()
+        );
+        assert!(
+            validate_freshness_delegation_active(&delegation, delegation.not_after - margin,)
+                .is_err()
+        );
     }
 
     #[test]
