@@ -1,5 +1,61 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Current identity-bound testplay continuation — audit base `bbf1811cdbb6503ccec5851929da5b755dfc4496`
+
+This continuation rechecked the current source path and readiness boundary
+without registering Production trust, changing a service, or performing a
+testplay.
+
+### Git and hosted-CI baseline
+
+- Repository: `tsukasa-u/FUSOU`
+- Branch: `tlsn-first-testplay-candidate`
+- Starting HEAD: `bbf1811cdbb6503ccec5851929da5b755dfc4496`
+- Parent: `ab818c266361b582eef86d001afc40bf2c467706`
+- The local tracking ref and the GitHub branch API both reported the same HEAD
+  when checked. The scoped worktree and index were clean; protected
+  configuration paths were excluded from status and content inspection.
+- Latest observed hosted workflow: [run #108](https://github.com/tsukasa-u/FUSOU/actions/runs/41401374741),
+  `TLSN testplay candidate checks`, completed successfully for the exact
+  starting SHA. This predates the local changes described in this continuation
+  and is not evidence of live service operation or game-server acceptance.
+
+### Current source findings
+
+| Boundary | Current observation | Status / limit |
+|---|---|---|
+| TLSNotary revision and interoperability | The [alpha.15 audit](../../docs/implementation-plans/tlsnotary-alpha15-revision-attestation-id-interoperability-audit.md) records the effective patched source graph and local characterization. | P0-01 factual mapping has evidence; independent compatibility, security, and license approval remains `BLOCKED_EXTERNAL_INPUTS`. P0-10 remains `UNRESOLVED`; the source-derived corpus is not an owner-approved normative oracle. |
+| APP Runtime Config / Freshness | [RuntimeConfigManager::refresh](../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs) calls the Freshness verifier before returning a verified Manifest. The verifier uses the signed `LATEST_AT_ISSUANCE` response and local high-water state. | The checked-in Worker has no Runtime Config Freshness route or service adapter. Production Bootstrap values, signer/delegation, endpoint and service registration remain `NOT_REGISTERED` / `NOT_IMPLEMENTED`; the APP path cannot treat this as configured. No P2 or wire-contract change was made. |
+| WEB Device Proof | The Worker client calls both exact-owner handlers mounted by [anonymous-sync-v2.ts](../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts); [the migration](../FUSOU-WEB/supabase/migrations/20261030000000_tlsn_device_proofs.sql) locks/rechecks the existing device row and atomically consumes proof/replay claims. | Source implementation is present. Deployment, real owner enrollment, live Supabase migration and service behavior are `NOT_CHECKED`; no migration was applied. |
+| Worker Result and raw archive | In Production inventory mode, the Worker archives and reads back the exact Presentation and outer Result, binds the archive snapshots to the authority record, and only then commits the verified Result. | `OBSERVED` in source, not a deployment claim. Stage C whole-Bundle remote delivery/retention is separate and remains `NOT_IMPLEMENTED`. |
+| Evidence roles and local finalization | The [offline verifier](./src/evidence_bundle.rs) requires the existing 19 roles. The [candidate finalizer](./src/evidence_bundle/finalization.rs) supplies five candidate artifacts and requires the other role material separately; it rejects a missing execution-receipt sidecar and checks its exact header/bytes. | No role is fabricated or relaxed. A candidate receipt sidecar does not become a 20th role or a Production trust root. The current capture path does not collect all authoritative real-material roles end to end. |
+| Execution receipt | The optional receipt is Canary-scoped in the Worker implementation. Candidate capture is marked complete only when receipt bytes exist; synchronous Production handling does not create that Canary receipt. | The retained receipt gate remains. No Production execution-receipt authority, registry, or independent approval was found/registered; Canary material is not promoted to Production evidence. |
+| Origin send | The APP/Proxy durable local journal keys a send record from the issued binding digest, records target/request digest before transport, and persists `NotSent`, `Unknown`, or `ResponseReceived`. An unfinished send becomes `Unknown` on restart. | This is local single-use/recovery evidence, not a dedicated authority-issued reservation binding an authenticated request and target to a durable logical origin-attempt ID. That contract remains a Stage B code blocker; ambiguous origin sends are not retried. |
+| Pre-capture report | The existing preflight keeps `gameplay_authorized=false`, target identity `NOT_YET_OBSERVED`, and Production acceptance `BLOCKED`. | This continuation adds the missing authority-issued logical origin-attempt blocker to the machine-readable Stage B report; it does not grant capture or gameplay permission. |
+
+### Validation and current decision
+
+| Check | Result | Scope |
+|---|---|---|
+| Verifier library tests, `cargo test --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --locked --offline --lib` | **140 passed, 0 failed, 0 ignored** | Local tests; TLSN fixtures and test keys are synthetic. Does not verify a real Presentation or external service. |
+| Focused candidate finalization tests | **14 passed, 0 failed** | Local byte-binding, receipt-presence, missing-material and fail-closed output tests. |
+| Worker contract suites under Deno (`--no-check`, sanitized environment) | **140 passed, 0 failed** | Device Proof client, Freshness, Manifest, Bootstrap trust and Production evidence trust-graph fixtures; no network permission. This is not the Worker TypeScript typecheck. |
+| APP pre-capture and acceptance-stage helpers under Deno (`--no-check`, sanitized environment) | **15 passed, 0 failed** | Report/preflight contract only; no APP launch, protected config use, or gameplay. |
+| Latest hosted workflow at starting SHA | **PASS** | Run #108; completed before this continuation's uncommitted change. |
+| Node/Vitest, Worker TypeScript typecheck, WEB PostgreSQL integration, APP/Proxy Cargo checks | **NOT RUN** | Node/npm/pnpm are unavailable in this environment. Deno execution used `--no-check`; no typecheck was established. No live service or external database was used. |
+| Production resources, real Game Server/Notary, human gameplay | **NOT RUN** | No Production secrets, trust roots, migrations, deployment, R2 operation, real capture, or game traffic. |
+
+The only implementation change in this continuation is additive blocker
+reporting and its regression assertion. It does not create the missing
+authority, weaken a trust boundary, alter the 19-role schema, remove the
+candidate receipt requirement, or enable Stage A as an independent APP path.
+
+`IDENTITY_BOUND_TESTPLAY_READY` remains **BLOCKED_CODE /
+BLOCKED_EXTERNAL_INPUTS**. Stage A, Stage B, Stage C, and Production acceptance
+remain **BLOCKED**. Stage C's full-Bundle remote delivery is not a Stage B
+acceptance condition; the existing Worker raw Presentation/outer-Result archive
+readback and candidate finalizer receipt gate remain intact.
+
 ## Phase 1 follow-up verification — audit base `4183a4c6d54b92f253504546a4e674cae682d866`
 
 The follow-up audit started on branch `tlsn-first-testplay-candidate` at

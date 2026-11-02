@@ -25,6 +25,9 @@ test("source assessment neither authorizes gameplay nor waives the retained rece
   const stages = testplayAcceptanceStages();
   assert.equal(stages.gameplay_authorized, false);
   assert.ok(stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes("candidate_execution_receipt_gate_retained"));
+  assert.ok(stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes(
+    "authority_issued_logical_origin_attempt_reservation_missing",
+  ));
   assert.equal(stages.PRODUCTION_EVIDENCE_DELIVERY.production_acceptance, "BLOCKED");
   assert.equal(stages.PRODUCTION_EVIDENCE_DELIVERY.deployment, "NOT_CHECKED");
   assert.equal(stages.TLSN_PROTOCOL_TESTPLAY.real_evidence_verification, "NOT_CHECKED");

@@ -35,6 +35,7 @@ export function testplayAcceptanceStages() {
       code_blockers: [
         "real_material_collection_not_connected",
         "candidate_execution_receipt_gate_retained",
+        "authority_issued_logical_origin_attempt_reservation_missing",
       ],
       device_proof_owner_handlers: "IMPLEMENTED_AND_CONNECTED",
       owner_proof_migration_and_deployment: "NOT_CHECKED",
