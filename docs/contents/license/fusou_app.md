@@ -47,7 +47,7 @@ SOFTWARE.
 
 FUSOU-APP は **Tauri v2** を採用したデスクトップアプリケーションです。ユーザー環境に配布されるバイナリには以下が含まれます：
 
-1. **Rust ネイティブバックエンド**: プロキシ通信の傍受・復号、艦これAPIレスポンスのパース、ローカルSQLite/DuckDBへの保存、暗号化処理、OSネイティブ通知、自動更新機能などを担当します（計 970 クレート）。
+1. **Rust ネイティブバックエンド**: プロキシ通信の傍受・復号、艦これAPIレスポンスのパース、ローカルSQLite/DuckDBへの保存、暗号化処理、OSネイティブ通知、自動更新機能などを担当します（計 964 クレート）。
 2. **Webview フロントエンド**: SolidJS で構築されたUIコンポーネントであり、Tauri の WebView2（Windows）上で実行されます（計 18 パッケージ）。
 
 配布されるプログラムは、すべての依存関係において **パーミッシブなライセンス（MIT, Apache-2.0, BSD, ISC, Zlib 等）** または **ファイル単位の弱コピーレフトライセンス（MPL-2.0）** を採用しており、GPL/AGPL 等の強コピーレフトライセンスの混入はありません。
@@ -94,14 +94,14 @@ FUSOU-APP のバックエンドでは、CSSパーサー等の補助機能とし�
 | `react` | `19.2.0` | MIT |
 | `react-dom` | `19.2.0` | MIT |
 | `scheduler` | `0.27.0` | MIT |
-| `seroval` | `1.5.1` | MIT |
-| `seroval-plugins` | `1.3.3` | MIT |
-| `solid-js` | `1.9.10` | MIT |
+| `seroval` | `1.6.7` | MIT |
+| `seroval-plugins` | `1.5.6` | MIT |
+| `solid-js` | `1.9.14` | MIT |
 | `virtua` | `0.41.5` | MIT |
 
 ---
 
-## 5. バックエンド Rust クレート一覧 (970 クレート)
+## 5. バックエンド Rust クレート一覧 (964 クレート)
 
 FUSOU-APP のネイティブバイナリにコンパイル・静的リンクされるクレートの一覧です。
 
@@ -259,7 +259,7 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `combine` | `4.6.7` | MIT | [リンク](https://github.com/Marwes/combine) |
 | `comfy-table` | `7.2.2` | MIT | [リンク](https://github.com/nukesor/comfy-table) |
 | `concurrent-queue` | `2.5.0` | Apache-2.0 OR MIT | [リンク](https://github.com/smol-rs/concurrent-queue) |
-| `configs` | `0.4.0` | MIT OR Apache-2.0 | - |
+| `configs` | `0.5.0` | MIT OR Apache-2.0 | - |
 | `confy` | `0.6.1` | MIT/X11 OR Apache-2.0 | [リンク](https://github.com/rust-cli/confy) |
 | `const-oid` | `0.9.6` | Apache-2.0 OR MIT | [リンク](https://github.com/RustCrypto/formats/tree/master/const-oid) |
 | `const-oid` | `0.10.2` | Apache-2.0 OR MIT | [リンク](https://github.com/RustCrypto/formats) |
@@ -396,7 +396,7 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `funty` | `2.0.0` | MIT | [リンク](https://github.com/myrrlyn/funty) |
 | `fusou-auth` | `0.3.0` | MIT OR Apache-2.0 | - |
 | `fusou-storage` | `0.1.0` | MIT OR Apache-2.0 | - |
-| `fusou-upload` | `0.1.0` | MIT OR Apache-2.0 | - |
+| `fusou-upload` | `0.1.1` | MIT OR Apache-2.0 | - |
 | `futures` | `0.3.32` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/futures-rs) |
 | `futures-channel` | `0.3.32` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/futures-rs) |
 | `futures-core` | `0.3.32` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/futures-rs) |
@@ -416,7 +416,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `gdkx11-sys` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk3-rs) |
 | `generator` | `0.8.9` | MIT/Apache-2.0 | [リンク](https://github.com/Xudong-Huang/generator-rs.git) |
 | `generic-array` | `0.14.7` | MIT | [リンク](https://github.com/fizyk20/generic-array.git) |
-| `gethostname` | `1.1.0` | Apache-2.0 | [リンク](https://codeberg.org/swsnr/gethostname.rs.git) |
 | `getrandom` | `0.3.4` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-random/getrandom) |
 | `getrandom` | `0.2.17` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-random/getrandom) |
 | `getrandom` | `0.4.2` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-random/getrandom) |
@@ -426,7 +425,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `glib-macros` | `0.18.5` | MIT | [リンク](https://github.com/gtk-rs/gtk-rs-core) |
 | `glib-sys` | `0.18.1` | MIT | [リンク](https://github.com/gtk-rs/gtk-rs-core) |
 | `glob` | `0.3.3` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/glob) |
-| `global-hotkey` | `0.8.0` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/global-hotkey) |
 | `gobject-sys` | `0.18.0` | MIT | [リンク](https://github.com/gtk-rs/gtk-rs-core) |
 | `group` | `0.13.0` | MIT/Apache-2.0 | [リンク](https://github.com/zkcrypto/group) |
 | `gtk` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk3-rs) |
@@ -507,14 +505,14 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `js-sys` | `0.3.99` | MIT OR Apache-2.0 | [リンク](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys) |
 | `json-patch` | `3.0.1` | MIT/Apache-2.0 | [リンク](https://github.com/idubrov/json-patch) |
 | `jsonptr` | `0.6.3` | MIT OR Apache-2.0 | [リンク](https://github.com/chanced/jsonptr) |
-| `kc-api` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-api-build-config` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-api-database` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-api-dto` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-api-interface` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-api-interface-adapter` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-api-parser` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `kc-fleet-snapshot` | `0.4.0` | MIT OR Apache-2.0 | - |
+| `kc-api` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-api-build-config` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-api-database` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-api-dto` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-api-interface` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-api-interface-adapter` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-api-parser` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `kc-fleet-snapshot` | `0.6.0` | MIT OR Apache-2.0 | - |
 | `keyboard-types` | `0.7.0` | MIT OR Apache-2.0 | [リンク](https://github.com/pyfisch/keyboard-types) |
 | `lazy_static` | `1.5.0` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang-nursery/lazy-static.rs) |
 | `leb128fmt` | `0.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/bluk/leb128fmt) |
@@ -673,7 +671,7 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `protoc-bin-vendored-macos-aarch_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
 | `protoc-bin-vendored-macos-x86_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
 | `protoc-bin-vendored-win32` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `proxy-https` | `0.1.1` | MIT OR Apache-2.0 | - |
+| `proxy-https` | `0.2.0` | MIT OR Apache-2.0 | - |
 | `ptr_meta` | `0.1.4` | MIT | [リンク](https://github.com/djkoloski/ptr_meta) |
 | `ptr_meta_derive` | `0.1.4` | MIT | [リンク](https://github.com/djkoloski/ptr_meta) |
 | `quad-rand` | `0.2.3` | MIT | [リンク](https://github.com/not-fl3/quad-rand) |
@@ -704,8 +702,8 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `regex-automata` | `0.4.14` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/regex) |
 | `regex-lite` | `0.1.9` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/regex) |
 | `regex-syntax` | `0.8.10` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/regex) |
-| `register_macro_derive_and_attr` | `0.4.0` | MIT OR Apache-2.0 | - |
-| `register_trait` | `0.4.0` | MIT OR Apache-2.0 | - |
+| `register_macro_derive_and_attr` | `0.6.0` | MIT OR Apache-2.0 | - |
+| `register_trait` | `0.6.0` | MIT OR Apache-2.0 | - |
 | `rend` | `0.4.2` | MIT | [リンク](https://github.com/djkoloski/rend) |
 | `reqwest` | `0.11.27` | MIT OR Apache-2.0 | [リンク](https://github.com/seanmonstar/reqwest) |
 | `reqwest` | `0.12.28` | MIT OR Apache-2.0 | [リンク](https://github.com/seanmonstar/reqwest) |
@@ -836,7 +834,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `tauri-plugin-deep-link` | `2.4.9` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
 | `tauri-plugin-dialog` | `2.7.1` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
 | `tauri-plugin-fs` | `2.5.1` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
-| `tauri-plugin-global-shortcut` | `2.3.2` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
 | `tauri-plugin-log` | `2.8.0` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
 | `tauri-plugin-notification` | `2.3.3` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
 | `tauri-plugin-opener` | `2.5.4` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/plugins-workspace) |
@@ -1051,11 +1048,8 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `wyz` | `0.5.1` | MIT | [リンク](https://github.com/myrrlyn/wyz) |
 | `x11` | `2.21.0` | MIT | [リンク](https://github.com/AltF02/x11-rs.git) |
 | `x11-dl` | `2.21.0` | MIT | [リンク](https://github.com/AltF02/x11-rs.git) |
-| `x11rb` | `0.13.2` | MIT OR Apache-2.0 | [リンク](https://github.com/psychon/x11rb) |
-| `x11rb-protocol` | `0.13.2` | MIT OR Apache-2.0 | [リンク](https://github.com/psychon/x11rb) |
 | `x509-parser` | `0.16.0` | MIT OR Apache-2.0 | [リンク](https://github.com/rusticata/x509-parser.git) |
 | `xattr` | `1.6.1` | MIT OR Apache-2.0 | [リンク](https://github.com/Stebalien/xattr) |
-| `xkeysym` | `0.2.1` | MIT OR Apache-2.0 OR Zlib | [リンク](https://github.com/notgull/xkeysym) |
 | `xmlparser` | `0.13.6` | MIT/Apache-2.0 | [リンク](https://github.com/RazrFalcon/xmlparser) |
 | `xz2` | `0.1.7` | MIT/Apache-2.0 | [リンク](https://github.com/alexcrichton/xz2-rs) |
 | `yasna` | `0.5.2` | MIT OR Apache-2.0 | [リンク](https://github.com/qnighy/yasna.rs) |

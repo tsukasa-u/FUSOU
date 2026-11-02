@@ -86,36 +86,20 @@ pnpm install
 
 ### 2. (install dependencies for linux)
 
-on Linux(Ubuntu), you have to install additional library
+on Linux(Ubuntu), you have to install additional libraries for Tauri v2:
 
 ```
-apt install libsoup-gnome2.4-dev libjavascriptcoregtk-4.0-dev libwebkit2gtk-4.0-dev
+sudo apt update
+sudo apt install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 ```
 
-for v2, install library as tauri installation gaide and additionally install this library
-
-```
-apt install libayatana-appindicator3-dev
-apt install librsvg2-dev
-```
-
-### 3. build shared-ui library
-
-run on terminal
-
-```
-cd "your-path-to-FUSOU"/packages/shared-ui
-pnpm build
-pnpm install
-```
-
-### 4. launch tauri
+### 3. launch tauri
 
 run on terminal
 
 ```
 cd "your-path-to-FUSOU"/packages/FUSOU-APP
-pnpm tuari dev
+pnpm tauri dev
 ```
 
 ## My idea 考えていること
