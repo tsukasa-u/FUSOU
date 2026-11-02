@@ -192,7 +192,7 @@ fn setup_tray(
     };
 
     let intergrate_file =
-        MenuItemBuilder::with_id("intergrate_file".to_string(), "Intergrate Cloud File")
+        MenuItemBuilder::with_id("intergrate_file".to_string(), "Integrate Cloud File")
             .build(app)?;
 
     let check_update =
@@ -225,7 +225,7 @@ fn setup_tray(
         .enabled(false)
         .build(app)?;
 
-    let mut advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced");
+    let mut advanced_sub_menu = SubmenuBuilder::new(app, "Advanced");
 
     if let Some(ref launch_at_startup) = launch_at_startup {
         advanced_sub_menu = advanced_sub_menu.item(launch_at_startup);
@@ -327,7 +327,61 @@ fn setup_tray(
                             }
                         }
                     },
-                    "proxy-serve-shutdown" => {}
+                    "proxy-serve-shutdown" => {
+                        let app_handle = tray.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let channel = get_proxy_bidirectional_channel().clone_master();
+                            match request_shutdown(channel).await {
+                                Ok(_) => {
+                                    notify::show(
+                                        &app_handle,
+                                        "Proxy Server",
+                                        "Proxy server shutdown requested.",
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to shutdown proxy server: {:?}", e);
+                                    notify::show(
+                                        &app_handle,
+                                        "Proxy Server",
+                                        "Failed to shutdown proxy server.",
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    "pac-serve-shutdown" => {
+                        let app_handle = tray.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let channel = get_pac_bidirectional_channel().clone_master();
+                            match request_shutdown(channel).await {
+                                Ok(_) => {
+                                    notify::show(
+                                        &app_handle,
+                                        "PAC Server",
+                                        "PAC server shutdown requested.",
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to shutdown PAC server: {:?}", e);
+                                    notify::show(
+                                        &app_handle,
+                                        "PAC Server",
+                                        "Failed to shutdown PAC server.",
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    "delete-registry" => {
+                        let app_handle = tray.app_handle().clone();
+                        native_cmd::remove_pac(&app_handle);
+                        notify::show(
+                            &app_handle,
+                            "Proxy Settings",
+                            "PAC settings removal command has been executed.",
+                        );
+                    }
                     "restart" => {
                         if let Some(window) = tray.get_webview_window("main") {
                             if let Ok(visible) = window.is_visible() {

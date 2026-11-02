@@ -769,14 +769,14 @@ pub fn external_window_shortcut(
     }
 
     let app = window.app_handle();
-    if !is_external_window_focused(&app) {
+    if !is_external_window_focused(app) {
         return Ok(());
     }
 
     match action.as_str() {
-        "reload" => handle_external_reload_shortcut(&app),
-        "force-refresh" => handle_external_force_refresh_shortcut(&app),
-        "screenshot" => handle_external_screenshot_shortcut(&app),
+        "reload" => handle_external_reload_shortcut(app),
+        "force-refresh" => handle_external_force_refresh_shortcut(app),
+        "screenshot" => handle_external_screenshot_shortcut(app),
         _ => return Err(format!("unsupported external shortcut action: {action}")),
     }
 

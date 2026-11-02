@@ -23,6 +23,7 @@ use configs;
 
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_storage::asset_sync;
+use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tracing_unwrap::ResultExt;
 
@@ -34,6 +35,9 @@ static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
 
 static ORGANIZATION_NAME: &str = "FUSOU";
 static COUNTRY_NAME: &str = "JP";
+
+static RE_KANCOLLE_SERVER_URI: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"https+://.*\.kancolle-server\.com").expect("valid regex"));
 
 fn normalize_content_type(content_type: &str) -> String {
     content_type
@@ -186,8 +190,7 @@ fn log_response(
 
     let content_encodings = parse_content_encodings(&content_encoding);
 
-    let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
-    let uri_path = re_uri.replace(uri.path(), "").to_string();
+    let uri_path = RE_KANCOLLE_SERVER_URI.replace(uri.path(), "").to_string();
     let is_success = parts.status.is_success();
     let status = parts.status.to_string();
 
@@ -822,7 +825,12 @@ pub fn serve_proxy(
         let mut roots = rustls::RootCertStore::empty();
         let native_certs = rustls_native_certs::load_native_certs();
         for cert in native_certs.certs {
-            roots.add(cert).unwrap();
+            if let Err(e) = roots.add(cert) {
+                tracing::warn!("Failed to add native cert to root store: {e}");
+            }
+        }
+        for err in native_certs.errors {
+            tracing::warn!("Error loading native cert: {err}");
         }
         roots
     };
