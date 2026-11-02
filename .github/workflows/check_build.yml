@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+      - dev
 
 env:
   CARGO_TERM_COLOR: always
@@ -31,6 +32,7 @@ jobs:
       - run: pnpm --filter fusou-workflow test
       - run: pnpm --filter fusou-workflow typecheck
       - run: pnpm --filter @fusou/compaction-core test
+      - run: pnpm --filter fusou-app check.tsc
 
   check_config:
     runs-on: ubuntu-latest

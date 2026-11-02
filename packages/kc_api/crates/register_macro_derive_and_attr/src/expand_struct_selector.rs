@@ -117,27 +117,28 @@ pub fn expand_struct_selector(
     }
 
     let mut file_list: Vec<((String, String), (String, String))> = Vec::new();
-    let if_arg_path_not_exists = !args.path.exists();
-    // let if_sub_arg_path_not_exists = match &args.subpath {
-    //     Some(p) => !p.exists(),
-    //     None => false,
-    // };
-    let if_sub_arg_path_not_exists = !args.subpath.exists();
-    if if_arg_path_not_exists && if_sub_arg_path_not_exists {
-        return Err(syn::Error::new_spanned(
-            ast.sig.output.clone(),
-            "The path is not exist.",
-        ));
-    }
-    let paths = match if_arg_path_not_exists {
-        false => fs::read_dir(args.path.clone()),
-        // true if !if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone().unwrap()),
-        true if !if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone()),
-        _ => {
+    let candidate_paths = [
+        args.path.clone(),
+        args.subpath.clone(),
+        std::env::var("CARGO_MANIFEST_DIR")
+            .map(|m| path::PathBuf::from(m).join(&args.path))
+            .unwrap_or_default(),
+        std::env::var("CARGO_MANIFEST_DIR")
+            .map(|m| path::PathBuf::from(m).join(&args.subpath))
+            .unwrap_or_default(),
+    ];
+
+    let target_path = candidate_paths
+        .into_iter()
+        .find(|p| !p.as_os_str().is_empty() && p.exists());
+
+    let paths = match target_path {
+        Some(p) => fs::read_dir(p),
+        None => {
             return Err(syn::Error::new_spanned(
                 ast.sig.output.clone(),
-                "The path(& subpath) is not exist.",
-            ))
+                "The path is not exist.",
+            ));
         }
     };
     if paths.is_err() {
