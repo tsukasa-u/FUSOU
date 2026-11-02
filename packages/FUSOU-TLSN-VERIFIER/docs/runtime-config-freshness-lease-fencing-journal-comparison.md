@@ -13,6 +13,13 @@ It does not implement a DO, route, RPC, Journal, R2 adapter, signer, HSM,
 secret, binding, migration, test, or configuration. It does not change the
 wire contract or readiness. No test or Production resource operation was run.
 
+**Correction precedence:** Section 14 supplements and, where explicitly
+stated, corrects the earlier comparison of B and C. In particular, it
+separates Freshness linearization from output finalization, and distinguishes
+C-read from C-log. Sections 1–13 are retained as the original comparison;
+Section 14 controls where earlier wording leaves either distinction
+ambiguous. No candidate is thereby selected for Production.
+
 The eight-second value is **UNRESOLVED as a human decision**. It is not
 assumed that it must be retained, removed, or changed. The current normative
 protocol describes a lease with a maximum eight-second lifetime and a
@@ -546,9 +553,986 @@ testplays were run. This report does not promote readiness.
   recovery contract need decisions and evidence first.
 
 **Recommended candidate for further design, not an implementation approval:**
-preserve the current `LATEST_AT_ISSUANCE` wire semantics with B's exact
-response-finalization gate, but make the fence/operation ledger independent
-of DO PITR and require every output route to pass that gate. Evaluate C-log
-as the alternative if a suitable linearizable Journal can atomically order
-Freshness issuance and Release. Neither candidate is currently
-Production-ready.
+preserve the current `LATEST_AT_ISSUANCE` wire semantics with **B1's
+issue-time LP** and an exact response-finalization gate, but make the
+fence/operation ledger independent of DO PITR and require every output route
+to pass that gate. This is only the least disruptive candidate, not an
+implementation decision. Evaluate **C-log** as the alternative if an
+approved, rollback-resistant Journal can atomically order Freshness issue
+events and Release. Neither candidate is currently Production-ready.
+
+## 14. Supplement and corrections: LP, finalization, and C variants
+
+This section was added after re-reading the current protocol, P2 designs, P1
+interfaces, APP implementation, Worker test adapter, tests, and shared
+golden-vector fixture on the current HEAD. It records distinctions required
+for future design; it does not revise the normative protocol or authorize a
+Production implementation.
+
+### 14.1 Current-source facts and limits
+
+| Area | Confirmed source fact | Limit |
+|---|---|---|
+| Normative semantics | [The protocol](./runtime-config-freshness-protocol.md) specifies `LATEST_AT_ISSUANCE`. It samples `issued_at` after checking Journal/DO/R2/snapshot/Manifest while an at-most-8-second issue lease is active, then requires a post-sign check of that same lease and delegation. | It does not define a separate signed finalization receipt or a Freshness issue event in the Journal. |
+| Release ordering | Exact successful Journal compare-and-append is the Release LP. R2 pointer CAS happens earlier in Release preparation and is not commit. DO `COMMITTED` is written after the Journal append and is coordination state, not a second Release LP. | A successful append with a lost ACK still has an LP; outcome recovery must read the exact Journal state. |
+| Time limits | The APP starts one monotonic 10-second deadline immediately before the Freshness POST and carries it through verification, snapshot/artifact reads, and the final pre-rename guard. The response has a maximum 30-second validity window; the APP also checks the response-time skew rule. | The 30-second response TTL does not extend the APP's 10-second request deadline. The deadline callback is before rename; it does not establish a deadline check after rename and parent-directory sync. |
+| APP verification | [The APP verifier](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_freshness.rs) verifies the signed response, exact nonce/audience/environment, `LATEST_AT_ISSUANCE`, response/delegation times, Release Commit Record bindings, and `release_commit_record_appended_at <= issued_at`. It then verifies exact immutable Manifest and artifact bytes and the local state transition. | APP does not independently query the Journal or verify a Journal head-read/issue receipt; under the present contract the Freshness signer attests current Journal membership. |
+| APP acceptance | [The state writer](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs) runs a synchronous final callback and atomically replaces the local state file. That rename is the local persisted-acceptance point; parent-directory sync follows. The high-water binds Manifest epoch/digest, Release generation/record digest, and Freshness delegation generation/digest. | This local acceptance point is neither the Freshness LP nor the Release LP. A response valid at issuance may be locally accepted after a later Release, subject to the deadline and existing high-water. |
+| P1 signer request | [The P1 signer interface](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts) defines `FreshnessResponseSignerRequest` with `operation: "ISSUE_LATEST_AT_ISSUANCE"`, `challenge`, `verifiedCurrentState`, and `freshnessDelegation`. `VerifiedCurrentFreshnessState` contains the Release head/record, append time, Manifest bytes/digest/ref, pointer ETag/generation, and epoch. | The request has no operation ID, issue-lease ID, fencing token, finalization receipt, or Journal-read receipt. Its TypeScript interfaces are structurally constructible, not runtime proof. |
+| P1 wire | [The domain contract](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts) defines a response payload with `issued_at`, `expires_at`, Release head/Manifest bindings, and `LATEST_AT_ISSUANCE`; the request has a nonce. | The current payload/envelope has no field for an issue operation ID, read receipt, issue-event receipt, or DO finalization receipt. Unknown fields are rejected, so such proof cannot be added silently. |
+| Worker path | The Worker [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs) acquires an in-memory lease, reads the fake Journal/DO/R2/snapshot, samples `issued_at`, creates the response signature, runs an optional `afterSign`, rechecks the lease/delegation, returns the response, and releases the lease in `finally`. | This is test-only and does not model Production DO persistence, HSM cancellation, remote result delivery, a finalization receipt, or a rollback-resistant operation ledger. |
+| Existing tests/vectors | The test [suite](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test.mjs) covers in-memory lease/release ordering and rejection of a test signing delay beyond eight seconds. The shared [golden vectors](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/test/fixtures/freshness-v1-golden.json) cover the present wire request, response, delegations, Release record, and malformed cases. | They do not prove physical signer quiescence or exercise B1/B2/C-read/C-log receipts. No test is added or run by this document update. |
+| Production status | The checked-in Worker runtime still has no Runtime Config Production route, authority DO, Journal provider, or Freshness signer service. [Readiness](../FIRST-TESTPLAY-READINESS.md) keeps Production acceptance and Stage A/B/C blocked. | Test-adapter success is not Production acceptance. |
+
+The P2 DO design's use of “operational target/SLO” for eight seconds remains
+in conflict with the normative “at most 8-second issue lease.” This
+supplement does not resolve that conflict or reinterpret the protocol.
+
+### 14.2 Linearization-point vocabulary
+
+Use the following event names consistently. A point is meaningful only if
+the operation is durably ordered against every competing Release operation
+that can change the claimed current state.
+
+| Event | Meaning | Is it a Freshness or Release LP? |
+|---|---|---|
+| `R_PREPARE` | Release candidate/artifact/snapshot validation and durable pending-attempt setup. | No. It is preparation. |
+| `R_POINTER` | Successful conditional mutation of the mutable R2 pointer. | No under the current protocol. It precedes the Release commit. |
+| `R_LP` | Successful atomic compare-and-append of the exact authorized Release record to the canonical Release Journal. | **Yes, Release LP.** If the append succeeded but its ACK was lost, the LP still occurred. |
+| `R_DO_COMMITTED` | DO records the already appended exact Release and clears pending coordination state. | No. It is post-commit coordination state. |
+| `F_READ` | A linearizable read returns a Journal head. | An observation in A/B1/B2/C-log. It is the candidate **C-read Freshness LP** only when its receipt/time and all currentness requirements are bound to the response. |
+| `F_ISSUE_APPEND` | A typed Freshness issue event is atomically appended to a shared ordered Journal. | Candidate **C-log Freshness LP**. |
+| `F_ISSUE_TIME` | The protocol-defined `issued_at` is sampled while the current Release state is protected by the valid issue gate, after all required checks. | **A and B1 Freshness LP** under the current lease-based semantics. It is not HSM signature time. |
+| `F_DO_ISSUE_COMMIT` | A DO transaction freezes operation, current Release binding, and issue time/sequence before signing. | Candidate **B2 Freshness LP** only if it is trusted and ordered with every Release LP. |
+| `F_HSM` | HSM generates the signature bytes over a preimage. | No. It proves a key signed those bytes; it does not by itself prove the Journal was current or establish order. |
+| `F_OUTPUT_FINALIZE` | A coordinator validates the exact operation/fence/result, persists exact signed response bytes or digest, and permits output. | Normally a delivery/fencing point, **not** the Freshness LP. B2 may not call this the LP unless its signed payload/receipt is defined at this point. |
+| `F_DURABLE_RESPONSE` | Exact signed bytes are stored for retry. | No. DO durability is not rollback resistance. |
+| `F_DELIVERY` | HTTP response bytes are sent or observed by the APP. | No. Network delivery does not linearize currentness. |
+| `APP_ACCEPT` | APP has validated the full response, snapshot and artifacts, passed its deadline/high-water checks, and atomically replaced the local state file. | A separate APP-local persisted-acceptance point; not a Freshness or Release LP. |
+
+The current Release ordering remains:
+
+```text
+R_PREPARE -> R_POINTER -> R_LP -> R_DO_COMMITTED
+```
+
+In particular, `R_POINTER < R_LP`. A Freshness operation that sees a changed
+pointer while the Journal still says N must not infer that N+1 committed;
+under the current contract, a pending Release or disagreement causes
+Freshness to fail closed. Conversely, an N Freshness proof whose LP occurred
+before `R_LP(N+1)` is not made false merely because `APP_ACCEPT` happens
+later.
+
+### 14.3 B1 — Issue-time LP, separate output finalization
+
+#### Definition
+
+B1 retains the current `LATEST_AT_ISSUANCE` meaning. Its Freshness LP is
+`F_ISSUE_TIME`: the signer samples the response's exact `issued_at` **after**
+verifying the current Journal record, matching DO `COMMITTED` state, R2
+pointer and immutable snapshot/Manifest, while the same valid per-environment
+issue gate prevents a Release pointer update/Journal append from interleaving.
+The Journal-head read alone is not B1's LP; the HSM signing operation is not
+its LP.
+
+`issued_at` represents `F_ISSUE_TIME` only under the gate/clock assumption.
+If the head is read at `t1`, Release changes are excluded, then `issued_at`
+is sampled at `t2`, the unchanged head at `t2` is the fact being attested.
+Without that exclusion, or an authenticated receipt that fixes the exact
+head-read time, a signer-clock sample after a read is not proof that the same
+head remained current until that sample.
+
+The HSM signature signs a response whose payload includes the LP time and
+head bindings. It authenticates the signer's statement about the state at
+`F_ISSUE_TIME`; it does not make `F_HSM` the LP. A later
+`F_OUTPUT_FINALIZE` checks whether this exact operation may be returned and
+whether the required lease/fence remains valid. It may store the exact
+response for retries. It does not move the already defined Freshness LP.
+
+#### Release ordering around finalization
+
+- **Release `R_LP` before `F_ISSUE_TIME`:** if the Release writer gate won
+  first, B1 denies the issue grant. If a head was read before the Release
+  but the issue gate did not protect the sample, the signer re-reads or
+  rejects; it must not sign N as current at a time after N+1 committed.
+- **Release after `F_ISSUE_TIME` but before the existing post-sign check or
+  finalization:** with a correct active issue gate this ordering cannot
+  happen: Release waits. If the eight-second lease expires, the DO rolls
+  back, or a Release writer bypasses the gate, the current protocol requires
+  the post-sign recheck to fail and the signature to be discarded. The
+  candidate bytes are not returned. This is fail-closed availability loss;
+  it does not retroactively move the LP to finalization.
+- **Release after successful B1 finalization:** N was latest at
+  `F_ISSUE_TIME`; N+1 can commit before the HTTP response arrives or before
+  APP acceptance. That delayed N response remains semantically valid under
+  `LATEST_AT_ISSUANCE`. APP rejects it if a higher high-water is already
+  stored; otherwise it may accept N within its 10-second deadline and the
+  response's 30-second validity rules.
+- **B1 without a gate but with a durable issue receipt:** a rollback-resistant
+  receipt that records `F_ISSUE_TIME` before `R_LP(N+1)` could permit exact
+  N bytes to be finalized/delivered after N+1. That is not the current
+  DO-only B1 candidate; it approaches C-log and requires an external,
+  orderable operation record.
+
+Thus, in the intended lease-based B1, an observed N+1 append before
+`F_OUTPUT_FINALIZE` means either the issue lost its lease or a trust
+assumption failed: reject and do not deliver. It is not enough to say “the
+signature is valid.” If an independently verifiable issue receipt proves
+`F_ISSUE_TIME(N) < R_LP(N+1)`, the earlier N claim can be delivered despite
+the later Release, but this requires a different recovery proof than a
+DO-only finalization row.
+
+#### B1 contract impact
+
+- **Wire:** can remain byte-for-byte unchanged only if APP continues to trust
+  the Freshness signer to attest the protected issue-time facts, and the
+  finalization proof stays internal. No APP-visible fence/receipt is then
+  proven.
+- **HSM preimage:** the existing Freshness response payload, including
+  `issued_at`, nonce, audience, Release record and Manifest bindings.
+- **Signer/DO:** add operation ID, request/body digest, lease/fence, strict
+  state transitions, and exact response finalization/idempotent lookup to
+  the internal interface. The Production signer must independently re-read
+  and validate all security-relevant facts; TypeScript `Verified*` values
+  are not proof.
+- **Journal:** remains the Release authority and Release LP. No Freshness
+  event is appended.
+- **PITR:** a DO-only lease/finalization/tombstone may roll back. After a
+  restore, the system must quarantine and compare an independent monotonic
+  operation epoch/checkpoint or remain blocked. A signature and a restored
+  `finalized=true` bit are insufficient.
+- **HSM delay:** the current lease is rechecked after signing. The HSM need
+  not be physically cancelled only if every response path is forced through
+  the still-valid gate and a late result cannot bypass finalization. Under
+  the normative rule, expired lease means discard, not late delivery.
+- **Progress:** if the lease/gate remains unsettled and the old signer cannot
+  be proven quiescent or safely fenced, Release may wait indefinitely. A
+  timer by itself is not a safe unlock proof.
+
+### 14.4 B2 — Finalize-time LP is a distinct, more demanding design
+
+#### Why post-sign output finalization cannot simply be renamed the LP
+
+Suppose the signer has already built and HSM-signed a payload with
+`issued_at=t2`, then at `t4` the DO stores the signature and labels the
+operation finalized. If the Freshness LP is `t4`, the HSM signature does not
+prove that N was current at `t4`; its signed `issued_at` is `t2`. A Release
+could have committed N+1 between `t2` and `t4`. Calling the response
+“finalized at t4” does not change its signed claim. Therefore, the current
+post-sign `finalizeIssue(exact_response)` shape is an **output
+finalization**, not a valid finalize-time Freshness LP.
+
+#### Minimal B2 candidate
+
+To define B2's Freshness LP as a finalization event, split the operation:
+
+1. The signer validates the challenge and current N state, constructs a
+   typed issue intent bound to operation ID, exact request digest/nonce,
+   audience/environment, N Release record digest/generation, Manifest
+   digest/ref, and Freshness delegation.
+2. Before the final Freshness response signature, an atomic
+   `commitFreshnessIssue`/DO-finalize transaction verifies that N is still
+   eligible, no Release writer won the gate, and the intent/fence match. It
+   assigns an authenticated logical sequence and trusted `issued_at`, and
+   persists a receipt. **This transaction is `F_DO_ISSUE_COMMIT`, the
+   candidate B2 Freshness LP.**
+3. The Freshness signer verifies that receipt and HSM-signs the final
+   response with `issued_at` and Release/Manifest bindings fixed by the
+   receipt. The signed response must bind the receipt digest or its exact
+   fields.
+4. A separate `persistResponse`/`F_OUTPUT_FINALIZE` transition stores the
+   exact signed response bytes/digest and permits output. This second
+   transition is not the B2 LP. Exact retries return the same response only
+   if the receipt and operation binding still verify.
+
+The response's issue time is not known to the HSM before step 2. If the
+design instead signs a pre-finalization response core, that core must omit
+the final `issued_at`/LP proof and a subsequent authenticated receipt or
+second signature must bind the core digest to the finalization event. This
+is a new signature/wire protocol, not the existing one-signature payload
+with a renamed timestamp.
+
+#### Receipt and trust boundary
+
+A B2 receipt must state at least:
+
+- environment and protocol/scope;
+- operation ID and exact challenge/request digest (including nonce and
+  audience binding);
+- Release generation/record digest and Manifest epoch/digest/ref;
+- the finalized issue sequence/fence and trusted issue timestamp;
+- exact Freshness delegation identity/digest and the response-core or
+  response-payload digest it authorizes;
+- the authority that issued the receipt and enough data to detect replay,
+  conflicting finalization, and rollback.
+
+The APP has no DO receipt verifier or receipt field in the current
+Freshness contract. Options are: (a) the existing Freshness HSM key signs a
+new response payload that includes and attests the receipt; (b) a Journal or
+independent operation-ledger key signs the receipt and the APP verifies its
+delegation/chain; or (c) a signed log/checkpoint proof is delivered with the
+response. Option (a) adds no new public key by itself, but expands the
+Freshness signer's trust assertion to include DO finalization ordering,
+timestamp, and rollback status. Options (b)/(c) introduce additional
+publicly verifiable trust material and APP verification logic.
+
+In all cases, the DO's local SQLite record is rollbackable through PITR.
+Neither a DO response row nor a DO-generated counter proves non-rollback.
+The receipt requires an independent monotonic checkpoint/Journal, or a
+restore-incarnation epoch anchored outside the restored DO. If that anchor
+is unavailable after restore, fail closed. A same-key HSM signature over a
+receipt does not independently prove the DO was not rolled back; the signer
+must validate the external anchor before signing.
+
+#### B2 release order, compatibility, and liveness
+
+- If `R_LP(N+1)` wins before `F_DO_ISSUE_COMMIT`, B2 must not finalize an
+  N response. It either rejects and starts a new operation over N+1 or
+  returns failure.
+- If `F_DO_ISSUE_COMMIT(N)` wins first and is externally anchored, a later
+  `R_LP(N+1)` does not invalidate the N issue-time fact. The final N
+  signature may be completed/delivered after N+1 only if the APP-verifiable
+  receipt proves the order and the response remains within its validity and
+  APP deadline.
+- If Release admission and issue commit use the same DO writer gate and the
+  issue operation is held until response persistence, the ordinary order is
+  `F_DO_ISSUE_COMMIT -> F_HSM -> F_OUTPUT_FINALIZE -> R_LP`. A stuck HSM
+  can block Release indefinitely. If the gate is released at B2 LP, Release
+  may progress while HSM signing continues, but only an independent durable
+  receipt can make the late response safe after a DO restore.
+- HSM failure after `F_DO_ISSUE_COMMIT` leaves an issued intent without a
+  deliverable signed response. Exact retry must reuse the same receipt and
+  operation ID; if its 30-second response window has elapsed, APP rejects
+  the result and a new issue operation is needed. A safe abort/revoke policy
+  must not erase the historical LP or make its operation ID reusable.
+
+| Question | B1 — issue-time LP | B2 — finalize-time LP |
+|---|---|---|
+| LP | `issued_at` sampled under the valid current-state issue gate. | Pre-sign atomic issue commit/finalization that fixes current head, sequence, and trusted issue time. |
+| `LATEST_AT_ISSUANCE` fit | Direct fit with current semantics when the lease truly protects the sample. | Possible only if the signed response/receipt defines `issued_at` as the earlier B2 LP; current response finalization after signature is not enough. |
+| Current `issued_at` | Sampled before HSM signing, as current protocol and adapter do. | Must be supplied by the LP receipt and then signed; the existing interface has no receipt input. |
+| HSM operation | Signs the current Freshness payload. | Signs after the LP receipt, or signs a pre-finalization core plus a separately authenticated receipt. |
+| Output finalization | Separate permission/store point; not LP. | Still separate from the issue LP if exact signed bytes are stored after HSM. |
+| APP/wire | No change only if Freshness signer remains the sole attestor and finalization stays internal. | To verify the receipt independently, new payload/envelope/domain fields and APP Rust validation are required. If signer alone attests, same root may remain but the signed claim/trust semantics change. |
+| DO/Journal role | DO lease/fence enforces exclusion; Journal remains Release commit authority. | DO can order locally only if every Release append is gated through it; Journal/independent ledger must anchor issue receipt against PITR. |
+| PITR | DO gate/tombstone rollback is a blocker; external checkpoint/quarantine required. | More critical: rollback may resurrect an old head/fence and permit false new issue commits; external receipt/checkpoint is required. |
+| HSM delay | Expired/invalid lease means discard; a late signature must not bypass finalization. | LP may precede signing; late signature is usable only with receipt, valid time window, exact operation, and external anti-rollback verification. |
+| Release progress | Can block until issue finalization or proven quiescence/revoke. | Can block if gate remains held until response persistence; can proceed sooner only with independently anchored LP and exact result recovery. |
+
+**B2 conclusion:** A finalize-time LP is not established by the current
+response signature plus a DO `finalized` flag. It can be designed, but not
+without a new signed claim/receipt and a rollback-resistant ordering source.
+Using the existing Freshness signer key for the final attestation avoids a
+new public key only if the signer assumes and validates the DO/Journal
+ordering and anti-rollback controls; that is still an expanded trust
+assertion. B2 is not Production-ready.
+
+### 14.5 C-read — linearizable Journal head read, no issue append
+
+#### Candidate contract
+
+C-read adds **no Freshness issue record** to the Journal. Its intended flow
+is:
+
+1. Validate the APP challenge; do not accept caller-supplied epoch, digest,
+   head, pointer ETag, or Manifest reference as current state.
+2. Perform a linearizable Journal head read returning Release head N.
+3. Obtain an authenticated read receipt that binds environment, exact head
+   generation/record digest, a monotonic Journal sequence or equivalent,
+   read time, and the provider identity.
+4. Fetch the exact immutable Manifest snapshot referenced by N and verify
+   its exact bytes/digest and Manifest signature.
+5. Verify the Release record/delegation and any required DO/R2 agreement.
+   The current protocol checks a stable committed state and pointer/
+   snapshot consistency; a head read alone does not prove those other reads
+   were simultaneous.
+6. Bind the read receipt/head/time into the Freshness response and sign it.
+   The response `issued_at` must mean the receipt's read LP, not a later
+   arbitrary signer-clock sample.
+7. APP verifies the Freshness signature and receipt, exact Manifest/artifact
+   bytes, nonce/audience, expiry/deadline, and local high-water.
+
+`F_READ` is the C-read LP: the provider's atomic linearizable head-read
+instant. Fetching the snapshot, HSM signature generation, response delivery,
+and APP rename all occur later and are not the LP.
+
+#### Receipt, time, and cross-resource consistency
+
+A linearizable read has a serialization point, but “the API returned head N”
+does not by itself give APP an independently verifiable time/sequence for
+that point. The current response has `issued_at` and no read-receipt field.
+To prove the read LP in the current response shape, the signer would have to
+attest that its `issued_at` exactly represents the read LP; a later local
+clock sample is insufficient if a Release can commit in between. A stronger
+contract is a Journal-signed receipt with a monotonic sequence and trusted
+timestamp, included in and bound by the response. The Journal/provider must
+generate that receipt at the linearizable read, not the HTTP Gateway or
+caller. Whether the receipt timestamp can equal the existing millisecond
+`issued_at` without changing the protocol is **UNRESOLVED**.
+
+The immutable Manifest is consistent with N only if its exact raw bytes
+match the digest/ref in N. However, the present Release workflow updates the
+mutable R2 pointer before `R_LP`. A Journal head read can therefore return N
+while an N+1 pointer CAS is already in flight. To preserve the present
+contract's Journal + DO + R2 agreement, C-read still needs one of:
+
+- the existing DO issue gate held across the checks/read LP so Release
+  cannot mutate the pointer/append between them;
+- an atomic provider snapshot that jointly binds Journal head and the
+  required pointer/DO state; or
+- an approved protocol change making the immutable Journal head the sole
+  currentness source and moving/removing the pointer/DO requirement.
+
+No such cross-resource transaction/provider is present. C-read with a
+linearizable Journal read **alone** is not sufficient under the current
+multi-source contract.
+
+If Release N+1 commits after `F_READ(N)` but before HSM signing, a response
+for N can still be valid under `LATEST_AT_ISSUANCE` if its receipt proves
+that exact read LP and all required point-in-time state. APP may accept it
+after N+1 only if it has not already persisted a higher high-water and the
+10-second deadline/30-second response checks pass. If N+1 committed before
+the read LP, the current head must be N+1; a stale N read is a provider
+violation or must be rejected against a trustworthy monotonic receipt.
+
+Because C-read creates no Journal issue event, Journal append cannot provide
+exact retry state for the Freshness request. If exact retry/deduplication
+is required across Worker crashes, an independent operation ledger must bind
+the APP nonce/request digest to its result. The current P1 signer interface
+has no operation ID; the current APP does not automatically retry the
+Freshness POST.
+
+### 14.6 C-log — Freshness issue event appended to a shared ordered Journal
+
+#### Candidate event and protocol
+
+C-log makes `F_ISSUE_APPEND` the Freshness LP by appending an immutable,
+typed issue event to the same **linearizably ordered authority log** that
+orders Release records. An example event binds:
+
+- event schema/type and environment;
+- unique issue operation ID and exact request/body digest, including nonce,
+  audience and request scope;
+- the latest committed Release generation and exact Release record digest;
+- Manifest epoch/schema/digest/content-addressed ref;
+- Freshness delegation key ID, delegation ID and exact delegation digest;
+- previous **log-event** sequence/digest, distinct from previous Release
+  generation/record digest;
+- no caller-supplied “latest” value; all current fields are independently
+  verified before append.
+
+The Journal assigns authenticated `appended_at`, monotonic event sequence,
+event digest, and previous-event linkage at the atomic append. These values
+belong to the append receipt, not to an unsigned caller timestamp. The exact
+successful append of the event is `F_ISSUE_APPEND`, the Freshness LP. The
+Freshness HSM signature is generated after the LP and binds the exact event
+digest/receipt and `issued_at=appended_at`. To avoid a signature/hash cycle,
+the event can bind an authorized unsigned response intent or response-core
+digest; it must not include the final signature whose preimage includes the
+event digest.
+
+APP can independently verify the receipt only if it has an authenticated
+Journal receipt key/delegation or an independently verifiable log inclusion/
+consistency proof and checkpoint. If the Freshness signer merely signs
+“I read this Journal event,” APP trusts the Freshness signer rather than
+independently verifying Journal issuance. The current APP trust/schema has
+no Freshness issue-event proof or Journal receipt key, so independent receipt
+verification needs domain/wire and Rust verifier changes.
+
+#### Append concurrency, idempotency, and recovery
+
+- **Issue event before Release append:** the total order is
+  `F_ISSUE_APPEND(N) < R_LP(N+1)`. The N response remains valid at its
+  issue LP even if HSM signing, delivery, or APP acceptance happens after
+  N+1.
+- **Release append before issue event:** the issue append must serialize
+  after N+1 and bind N+1 as the latest Release. If a request was prepared
+  against N, an expected-head conflict rejects it; the signer re-reads N+1
+  and starts/retries the exact operation under the approved retry contract.
+  It must not append an issue event naming N after N+1.
+- **R2 pointer CAS before Release append:** pointer mutation is still not
+  `R_LP`, but a pending/inconsistent Release is rejected under the current
+  contract. C-log requires the same Release writer gate across the
+  pre-append pointer state, or an approved change to make Journal state
+  sole authority.
+- **Operation ID:** the Journal must support an exact operation lookup.
+  Same ID/same request digest returns the exact existing issue event and
+  receipt; same ID/different digest rejects. The operation tombstone/event
+  must survive retention and PITR/restore. Do not retry under a new ID after
+  an ambiguous append until the old operation is resolved.
+- **ACK loss / Worker crash after append:** the LP exists if the append
+  committed. Recover by linearizable `getByOperationId`/exact event lookup
+  and verify bytes, event sequence, previous digest, receipt, and request
+  digest. If unknown, use only provider-guaranteed exact idempotent retry;
+  otherwise remain blocked. Never infer that a missing ACK means no LP.
+- **Crash after append but before HSM signature:** the immutable issue event
+  remains. A retry can sign the same receipt-bound response only if the
+  operation and expiry policy permit it. If the response TTL/delegation or
+  APP's 10-second deadline has elapsed, APP rejects; a new issue event is
+  required for a new challenge. The old event remains a historical LP.
+- **DO PITR:** an independent Journal event survives DO rollback only if the
+  Journal is genuinely outside the DO restore domain. DO/Journal disagreement
+  blocks until recovery. Joint rollback still requires an independent
+  checkpoint/witness.
+
+The current Release record/domain is organized around Release generations
+and previous Release record digests. Interleaving issue events changes a
+shared event-log head even though the latest Release generation does not
+change. A production C-log design must define separate `event_sequence`
+and `release_generation` projections and update Release compare-and-append/
+authorization semantics so a Freshness event cannot silently invalidate or
+bypass a pending Release authorization. A separate issue log would need an
+atomic shared ordering service; two independent logs do not establish which
+LP came first. This is a significant Journal/domain design change, not a
+simple extra record type.
+
+### 14.7 C-read versus C-log
+
+| Axis | C-read | C-log |
+|---|---|---|
+| Freshness LP | Exact linearizable Journal head-read instant. | Exact successful append of a typed Freshness issue event. |
+| Journal write per Freshness request | No. | Yes. |
+| Receipt needed | Authenticated read receipt/time/sequence is needed to bind existing `issued_at` to the read LP; absent it, a later signer timestamp races the read. | Authenticated append receipt/time/sequence is needed; the append itself establishes ordering, while the receipt proves it to APP/recovery. |
+| Snapshot binding | Release head must name immutable Manifest digest/ref; fetch/hash exact bytes. | Issue event binds exact Release record and Manifest digest/ref; fetch/hash exact bytes before or as part of append authorization. |
+| Release N+1 after initial head N | N can be returned only if the exact read LP is receipt-bound and other required DO/R2 state was protected. Otherwise the N response can be stale at its signed time. | If issue event N appended first, N is valid even if N+1 appends/signature is delivered later. If Release N+1 append wins first, issue event must name N+1 or reject/retry. |
+| Release mutable pointer race | Linearizable Journal read does not atomically bind R2 pointer/DO state; current contract still needs a gate or revised authority rule. | Same issue: event order alone does not make a pre-append R2 pointer mutation a Release commit; preserve the gate or revise currentness sources. |
+| Exact retry after crash | Not represented in Journal; requires an independent operation ledger or a new challenge. | Journal event by operation ID can recover exact LP/result if the provider guarantees exact lookup/idempotency and retention. |
+| APP verification | Current APP has no read-receipt field/key; wire/domain/Rust changes are needed for independently verifiable proof. | Current APP has no event/append-receipt fields/key; wire/domain/Rust changes are needed. |
+| Release-log compatibility | Does not alter Release event format, but requires a receipt and correct cross-resource ordering. | Shared event stream changes Journal head semantics, Release CAS/authorization, chain projections, retention, and possibly signatures. |
+| Safety blocker | Read receipt authenticity/time plus read/Release ordering and DO/R2 consistency. | Provider's ordered event append, receipt verification, exact idempotency, cross-log rollback, and Release-chain integration. |
+| Progress | Signer delay need not hold a Release lock after a valid read LP, but APP may reject a response that misses its deadline/TTL. | Signer delay after append need not hold Release; a pending/ambiguous Journal append or unresolved operation can block recovery. |
+
+### 14.8 Unified LP ordering matrix
+
+In every row, `R_LP` means the exact Release Journal append, not Release
+preparation, R2 pointer CAS, signer authorization, or DO `COMMITTED`.
+`APP_ACCEPT` is a later local acceptance point and does not reorder either
+server-side LP.
+
+| Method | Freshness LP | Release LP | Normal order | If N+1 Release LP occurs before the Freshness LP | If N+1 Release LP occurs after the Freshness LP |
+|---|---|---|---|---|---|
+| **A — lease** | `F_ISSUE_TIME`: `issued_at` sampled while the verified N state is protected by the active issue lease. | `R_LP`: exact Journal append. | Lease grant/check/sample/sign/post-sign check/release lease, then Release may mutate pointer and append: `F < R`. | Release gate wins and issue is denied; after N+1 commits, a new issue must verify N+1. | N response remains valid at issue time; it may arrive after N+1. APP high-water may reject it if N+1 was already locally accepted. |
+| **B1 — issue-time + output finalization** | Same `F_ISSUE_TIME` as A. `F_OUTPUT_FINALIZE` is a separate exact-response delivery gate, not the LP. | `R_LP`. | With a correct active operation/fence, Release waits for finalization/abort: `F < output-finalize < R`. | Release wins before issue grant; deny N. If release happens after `F` but before finalization because the gate expired/rolled back, baseline B1 rejects the response; a durable independent issue receipt would be needed to deliver it later. | Finalized N bytes remain valid for their earlier LP and may arrive after N+1, subject to APP deadline/high-water. |
+| **B2 — finalize-time** | `F_DO_ISSUE_COMMIT`: atomic, authenticated, rollback-resistant issue commit fixing current head/time before final response signing. Later exact-byte storage is `F_OUTPUT_FINALIZE`, not this LP. | `R_LP`, ordered against the same gate/log. | If issue commit wins, `F < signature < output-finalize`; Release may append after F. It may be required to wait for response persistence or may proceed only with independent receipt. | Release wins the shared ordering first; stale N issue commit rejects. A later issue must bind N+1. | N remains valid if its finalize receipt proves `F < R`; response may be signed/delivered later. |
+| **C-read** | `F_READ`: linearizable Journal `getHead` read instant with an authenticated receipt/time and required DO/R2 consistency. | `R_LP`. | If head read/receipt is ordered first: `F < R`; HSM signature/delivery can follow. | Read returns N+1, or a stale N receipt is rejected. | N is valid at read time if receipt-bound and other current-state requirements were satisfied. |
+| **C-log** | `F_ISSUE_APPEND`: successful Freshness event append to the same ordered authority log. | `R_LP`: successful Release event append in that same orderable log. | Whichever append serializes first defines the order. `F(N) < R(N+1)` means N was latest at issue LP. | Release event wins; Freshness event must bind N+1 or append fails/retries. | Freshness event wins; N response remains valid after N+1. |
+
+Important boundaries across the matrix:
+
+- `R_PREPARE` and `R_POINTER` can precede `R_LP`; they do not mean N+1 is
+  committed. Under the existing protocol, pending/inconsistent pointer/DO
+  state fails closed for Freshness.
+- `F_HSM` proves only signature generation over the specified bytes. It is
+  not a current-head read, an LP, a Journal append, or permission to deliver.
+- A DO finalization/write is not rollback-resistant merely because the
+  transaction succeeded. PITR can restore prior DO state.
+- `F_DELIVERY` and `APP_ACCEPT` do not move the signed Freshness LP.
+- For any ambiguous Journal append, the LP is determined by the Journal's
+  actual atomic result, not the Worker timeout/ACK. Recovery needs an exact,
+  authenticated read or provider-guaranteed exact retry.
+
+### 14.9 Signature and finalization stages are different guarantees
+
+| Stage | What it establishes | What it does not establish |
+|---|---|---|
+| HSM signature generated | The HSM produced signature bytes for a particular signing preimage. | That the caller received them, that the signature validates, that N was current, that an LP occurred, or that the result may be delivered. |
+| Signature received by Worker | The Worker received a byte string from the HSM/API. | That the returned bytes are valid or match the request; network timeout/lost response remains ambiguous. |
+| Signature validated by Worker | The bytes verify under the expected delegated key/domain and bind the intended payload. | That the bound state was current at its claimed LP or the response passed the operation/fence gate. |
+| DO output finalization accepted | The DO accepted a matching operation/fence/result transition under its current stored state. | Release Journal commit, externally durable currentness, independent timestamp proof, or PITR resistance. |
+| Exact response durably stored | The exact response can be read back in ordinary DO operation for idempotent retry. | That PITR cannot remove the row or that an older operation cannot be replayed after restore. |
+| APP response delivered | The HTTP client observed some response bytes. | That APP accepted the response or that it was the latest at response delivery. |
+| APP accepted | APP passed signature, challenge, exact-byte Manifest/artifact, time/deadline and high-water checks and atomically replaced local state. | A new Journal append, global latest-at-acceptance, Production deployment, or currentness after this point. |
+
+For B1, `F_OUTPUT_FINALIZE` is a guard over an already defined issue-time
+claim. For B2, an earlier authenticated issue-commit must define the LP; the
+later exact response store remains a separate output-finalization stage.
+Conflating these two meanings would make `issued_at`, HSM preimage, and
+Release ordering ambiguous.
+
+### 14.10 Required race/failure scenarios and diagram key
+
+The following matrix applies to all five candidates. “Before” and “after”
+refer to the actual LP, not message-send or ACK time.
+
+| Scenario | A | B1 | B2 | C-read | C-log |
+|---|---|---|---|---|---|
+| 1. Normal Freshness and Release | `F_ISSUE_TIME`, post-sign lease check, then `R_LP`. | `F_ISSUE_TIME`, HSM, exact output finalize, then `R_LP`. | `F_DO_ISSUE_COMMIT`, HSM, exact response store; Release order depends on whether gate stays held. | `F_READ` receipt; Release append can follow. | Issue event append then Release event, or vice versa; the log sequence decides. |
+| 2. Head N read, N+1 commits before HSM signing | Valid lease should prevent N+1 `R_LP`; if gate lost, post-check rejects. | Same; no finalize of stale operation without valid fence/receipt. | If N+1 wins before issue-commit LP, reject N. If it commits after the anchored B2 LP, N may still be signed. | N may be signed only if receipt proves the read LP preceded N+1 and the pointer/DO rule was met. | If Release append wins before issue append, re-read N+1; stale N append conflicts. |
+| 3. HSM signature before output finalization, then N+1 `R_LP` | Normally impossible while the lease is active; if lease expired, discard signature. | Gate should prevent it; if it occurs due expiry/rollback, reject in baseline B1. | B2's LP is already before HSM; later N+1 is validly ordered after B2 if receipt is anchored. | N response may be finalized after N+1 only with exact read receipt and compatible current-state contract. | N issue event may be signed after N+1 if its event append preceded N+1. |
+| 4. Finalization succeeds, Worker crashes before HTTP response | No durable exact-operation response in the existing protocol; do not infer delivery or fabricate retry. | Retrieve exact stored bytes by same operation ID/digest, or fail closed if the record is absent/rolled back. | Reuse B2 receipt and exact response operation; if no safe recovery, block/fail. | Journal has no Freshness event; needs a separate exact operation ledger or a new APP challenge. | Recover the event/receipt by operation ID, then finish the same response; never append a second event. |
+| 5. Journal append succeeds, ACK is lost, Worker crashes | For Release, read exact current Journal record and recover DO `COMMITTED`; do not append another generation. | Same Release recovery; B1 Freshness itself has no Journal issue append. | Same Release recovery; B2 receipt source must also be checked. | Same Release recovery; C-read itself has no append ACK. | For both Release and Freshness issue append, exact `getByOperationId`/head read proves success; same-body exact retry only, otherwise blocked. |
+| 6. DO PITR rolls back operation state | Quarantine; a lease/fence may have been resurrected or forgotten. Compare independent checkpoint/Journal and do not resume from DO alone. | Same; DO finalization/tombstone is not anti-rollback. | Reject receipt/state unless an external incarnation/checkpoint proves current; DO-only B2 LP is invalid after rollback uncertainty. | Journal read receipt may survive, but the current DO/R2 consistency contract can still fail closed. | Independent Journal event can survive DO rollback; joint Journal/checkpoint rollback still blocks without witness. |
+| 7. Same operation ID retry | Current request contract does not define an internal op ID; exact retry semantics are not implemented. | Exact same ID+digest returns same stored response; different digest rejects; the external ledger must survive PITR. | Reuse same receipt/LP; differing digest rejects. Do not create a second LP under the same ID. | Journal alone cannot deduplicate; require external operation ledger or fresh nonce/new operation. | Return exact event/receipt for same ID+digest; reject same ID/different digest. |
+| 8. Old N response arrives after N+1 commit | Valid only if N's LP preceded N+1; APP may accept if high-water/deadline permit. | Same; finalization time is not substituted for issue time. | Valid only if B2 receipt proves its LP preceded N+1. | Valid only if `F_READ(N)` receipt preceded N+1 and other current-state constraints hold. | Valid only if issue event sequence precedes N+1. |
+
+The following diagrams show the ordered paths and representative race,
+crash, retry, and restore branches. Each diagram labels the Freshness LP,
+Release LP, signature, finalization, delivery, and APP-local acceptance
+separately. Each `opt` fragment is an independent fault-injection variant,
+not a continuation of the preceding successful trace. A normal diagram path
+is not a Production implementation claim.
+
+#### A — eight-second issue lease
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant APP
+    participant F as Freshness signer
+    participant DO
+    participant J as Release Journal
+    participant H as HSM
+    participant R as Release worker
+    participant R2
+
+    APP->>F: Freshness challenge + nonce
+    alt Release gate wins before issue lease
+        R->>DO: writer_pending
+        R->>R2: CAS pointer N+1 (not Release LP)
+        R->>J: append exact N+1 record
+        Note over J: R_LP(N+1)
+        R->>DO: persist COMMITTED (post-commit)
+        F->>DO: acquire issue lease
+        DO-->>F: reject; no F_ISSUE_TIME
+        F->>J: later read N+1; retry only under a new valid operation
+    else Issue lease wins before Release
+        F->>DO: acquire bounded issue lease
+        DO-->>F: lease for current N
+        R->>DO: beginRelease / set writer_pending
+        DO-->>R: wait while issue lease is active
+        F->>J: authenticated getHead = N
+        F->>DO: verify COMMITTED = N
+        F->>R2: verify pointer + immutable snapshot N
+        F->>F: sample issued_at = F_ISSUE_TIME
+        F->>H: sign response payload for N
+        H-->>F: signature bytes generated
+        alt Same lease remains valid
+        F->>DO: revalidate same lease; release lease
+        F-->>APP: signed response
+        APP->>APP: verify; high-water/deadline; rename = APP_ACCEPT
+        R->>R2: CAS pointer N+1 (not Release LP)
+        R->>J: exact compare-and-append N+1
+        Note over J: R_LP(N+1)
+        R->>DO: persist COMMITTED (post-commit)
+        else Lease expires or state rolls back during HSM delay
+        Note over R,DO: Pending Release proceeds only after lease invalidation is proven
+        R->>R2: CAS pointer N+1 after invalidation
+        R->>J: append exact N+1 record = R_LP
+        R->>DO: persist COMMITTED
+        F->>DO: post-sign revalidate same lease
+        DO-->>F: reject
+        Note over F,APP: Discard signature; do not deliver
+        end
+    end
+
+    opt Worker crashes after signature before delivery
+        Note over F,APP: No APP_ACCEPT; current protocol has no exact signer operation ID
+        APP->>F: retry only as a fresh protocol request after prior outcome is resolved
+    end
+
+    opt Release append ACK is lost
+        R->>J: exact head/record readback
+        J-->>R: exact N+1 record or conflicting head
+        R->>DO: recover COMMITTED only from exact record and pointer
+    end
+
+    opt DO PITR
+        DO-->>F: restored/uncertain issue state
+        Note over DO,J: Quarantine; independent checkpoint required
+    end
+
+    opt N response arrives after N+1 Release
+        APP->>APP: accept only if N LP was before R_LP, deadline/TTL pass, and local high-water is not higher
+    end
+```
+
+#### B1 — issue-time LP plus separate response finalization
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant APP
+    participant F as Freshness signer
+    participant DO
+    participant J as Release Journal
+    participant H as HSM
+    participant R as Release worker
+    participant R2
+    participant L as External anti-rollback ledger
+
+    APP->>F: challenge + nonce + operation binding
+    alt Release wins before B1 issue LP
+        R->>DO: set writer_pending
+        R->>J: verify expected previous head N
+        R->>R2: CAS pointer N+1 (not Release LP)
+        R->>J: append N+1 = R_LP
+        R->>DO: persist COMMITTED after exact append
+        F->>DO: acquire issue gate
+        DO-->>F: reject; no N LP
+        F->>J: re-read N+1; retry only with a new valid operation
+    else Freshness issue gate wins first
+        F->>DO: acquire issue gate/fence
+        DO-->>F: grant for N
+        R->>DO: beginRelease / set writer_pending
+        DO-->>R: wait until issue finalization or safe abort
+        F->>J: verify exact current Release head N
+        F->>F: sample issued_at = F_ISSUE_TIME (B1 LP)
+        F->>H: sign response containing N and issued_at
+        H-->>F: signature generated
+        F->>F: validate signature/preimage and exact operation
+        F->>DO: finalize exact response(op ID, digest, fence, bytes)
+        DO->>L: anchor operation/fence against PITR
+        L-->>DO: current external epoch/checkpoint
+        DO-->>F: exact response durably finalized; release issue gate
+        alt APP response delivered before Release LP
+            F-->>APP: response delivery
+            APP->>APP: verify; high-water/deadline; rename = APP_ACCEPT
+            R->>J: verify expected previous head N
+            R->>R2: CAS pointer N+1 (not Release LP)
+            R->>J: append N+1 = R_LP
+            R->>DO: persist COMMITTED after exact append
+        else Release LP occurs before delayed response delivery
+            R->>J: verify expected previous head N
+            R->>R2: CAS pointer N+1 (not Release LP)
+            R->>J: append N+1 = R_LP
+            R->>DO: persist COMMITTED after exact append
+            F-->>APP: delayed response for N
+            APP->>APP: accept only if B1 LP precedes R_LP and local high-water/time checks pass
+        end
+    end
+
+    opt Finalized response but Worker crashes before delivery
+        F->>DO: exact retry by same operation ID + digest
+        DO-->>F: return exact bytes only if external epoch and record still verify
+    end
+
+    opt Journal append ACK lost
+        R->>J: query exact expected Release record
+        J-->>R: exact committed bytes or conflict
+        R->>DO: recover from exact Journal result
+    end
+
+    opt DO PITR
+        DO-->>F: operation row/fence may be old
+        F->>L: check independent epoch
+        L-->>F: mismatch/unknown
+        Note over F,APP: Quarantine; fail closed
+    end
+```
+
+#### B2 — finalize-time LP, then signing and output finalization
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant APP
+    participant F as Freshness signer
+    participant DO
+    participant J as Release Journal
+    participant H as HSM
+    participant R as Release worker
+    participant R2
+    participant L as Independent checkpoint/receipt authority
+
+    APP->>F: challenge + nonce
+    alt Release N+1 wins before issue commit
+        R->>DO: set writer_pending
+        R->>R2: CAS pointer N+1 (not Release LP)
+        R->>J: append N+1 = R_LP
+        R->>DO: persist COMMITTED after exact append
+        F->>DO: commit issue intent for stale N
+        DO-->>F: reject; re-read N+1 or fail
+        F->>J: read current head N+1
+    else B2 issue commit wins
+        F->>DO: acquire issue reservation for expected generation N
+        DO-->>F: grant only if no Release is pending
+        F->>J: read and verify candidate Release head N
+        F->>DO: commit issue intent for exact N/op ID/digest
+        DO->>L: verify/advance anti-rollback epoch
+        L-->>DO: trusted order/time receipt
+        DO-->>F: finalized issue receipt = F_DO_ISSUE_COMMIT (B2 LP)
+        Note over F,DO: This receipt fixes the issue order; it does not prove a response was signed or delivered
+        par Release after B2 LP
+            R->>DO: beginRelease after issue commit
+            R->>R2: CAS pointer N+1 (not Release LP)
+            R->>J: append N+1 = R_LP
+            R->>DO: persist COMMITTED after exact append
+        and Finish signing and output finalization
+            F->>H: sign final response binding receipt and issued_at
+            H-->>F: signature generated
+            F->>DO: persist exact signed response (F_OUTPUT_FINALIZE, not LP)
+            DO-->>F: response bytes stored
+            F-->>APP: signed response + required receipt proof
+            APP->>APP: accept only if receipt proves B2 LP(N) < R_LP(N+1), high-water/deadline/time checks pass
+        end
+    end
+
+    opt HSM fails or Worker crashes after B2 LP
+        F->>DO: exact retry same op ID/digest/receipt
+        DO-->>F: same receipt; never create a second LP
+        Note over F,APP: If TTL/deadline has expired, do not deliver; keep audit record and fail closed
+    end
+
+    opt DO PITR erases issue state
+        F->>L: verify external receipt/incarnation
+        L-->>F: missing or mismatched anchor
+        Note over F,APP: Do not trust restored DO finalize bit; quarantine
+    end
+```
+
+#### C-read — linearizable head read, no Freshness issue append
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant APP
+    participant F as Freshness signer
+    participant J as Release Journal
+    participant DO
+    participant R2
+    participant H as HSM
+    participant R as Release worker
+
+    APP->>F: challenge + nonce
+    alt Release N+1 commits before F_READ
+        R->>DO: set writer_pending
+        R->>R2: pointer CAS N+1 (not Release LP)
+        R->>J: append N+1 = R_LP
+        R->>DO: persist COMMITTED after exact append
+        F->>DO: acquire/read under current-state rules
+        F->>J: linearizable getHead
+        J-->>F: N+1; do not issue N
+    else F_READ(N) precedes Release append
+        F->>DO: acquire current-state gate if required by pointer contract
+        F->>J: linearizable getHead
+        J-->>F: N + authenticated read receipt/time = F_READ (C-read LP)
+        F->>DO: release any read gate after receipt fixes F_READ
+        par Validate immutable state and sign
+            F->>R2: fetch exact immutable snapshot referenced by N
+            F->>DO: verify COMMITTED/pointer under the selected contract
+            F->>H: sign response binding receipt and issued_at
+            H-->>F: signature generated
+        and Release may append after the read
+            R->>R2: pointer CAS N+1 (not Release LP)
+            R->>J: append Release N+1 = R_LP
+            R->>DO: persist COMMITTED after exact append
+        end
+        Note over F,DO: If the retained contract requires current DO/pointer=N, an intervening advance fails closed; C-read alone does not override it
+        F-->>APP: response + read proof only if all required checks pass
+        APP->>APP: verify signer/receipt/snapshot/artifacts; high-water/deadline; rename = APP_ACCEPT
+        Note over F,APP: Acceptance of N after N+1 requires receipt to prove F_READ(N) < R_LP(N+1) and a contract permitting that historical state
+    end
+
+    opt Worker crashes after HSM signature
+        Note over F,J: C-read has no issue event; exact retry requires a separate operation ledger or a new challenge
+    end
+
+    opt Release append ACK lost
+        R->>J: exact current-head/record readback
+        J-->>R: resolve Release only from authenticated exact record
+    end
+
+    opt DO PITR
+        DO-->>F: current state uncertain
+        Note over F,J: Independent Journal receipt may survive; mismatched required DO state blocks
+    end
+```
+
+#### C-log — shared ordered Journal issue append
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant APP
+    participant F as Freshness signer
+    participant J as Shared ordered Journal
+    participant R2
+    participant H as HSM
+    participant R as Release worker
+    participant DO
+
+    APP->>F: challenge + nonce + operation ID
+    alt Release gate wins before issue preparation
+        R->>DO: set writer_pending
+        R->>R2: pointer CAS N+1 (not Release LP)
+        R->>J: append Release event N+1 = R_LP
+        R->>DO: post-append COMMITTED coordination
+        F->>DO: acquire issue gate
+        DO-->>F: reject; no issue event or C-log LP
+        F->>J: re-read current Release projection N+1
+    else Freshness issue gate wins
+        F->>DO: acquire issue gate; reject if writer_pending
+        DO-->>F: gate for current projection
+        F->>J: read current Release projection N
+        F->>R2: verify exact snapshot/digest for N
+        alt Release event nevertheless wins before issue append
+            Note over F,R: Gate violation or uncoordinated writer; this branch must fail closed
+            R->>R2: pointer CAS N+1 (not Release LP)
+            R->>J: append Release event N+1 = R_LP
+            R->>DO: post-append COMMITTED coordination
+            F->>J: append issue event with expected projection N
+            J-->>F: conflict; no C-log LP
+            F->>J: re-read N+1; retry only under a new exact operation or fail
+        else Issue event append wins
+            F->>J: append typed issue event(op ID, request digest, N, snapshot)
+            J-->>F: receipt(sequence, trusted time, event digest) = F_ISSUE_APPEND (C-log LP)
+            Note over F,J: Atomic append establishes issue order before any later Release event
+            par Complete signing and delivery
+                F->>H: sign response binding event receipt and issued_at
+                H-->>F: signature generated
+                F-->>APP: signed response + verifiable issue receipt
+                APP->>APP: verify log proof/snapshot/artifacts; high-water/deadline; rename = APP_ACCEPT
+            and Release after issue event
+                R->>DO: beginRelease after issue append
+                R->>R2: pointer CAS N+1 (not Release LP)
+                R->>J: append Release event N+1 = R_LP
+                R->>DO: post-append COMMITTED coordination
+            end
+            Note over F,APP: N is valid at its event LP even if signature or delivery follows N+1; APP must verify event order and local high-water
+        end
+    end
+
+    opt Freshness append succeeds but ACK is lost and Worker crashes
+        F->>J: getByOperationId(same ID, same request digest)
+        J-->>F: exact existing event/receipt; no duplicate LP
+        F->>H: finish exact receipt-bound response
+    end
+
+    opt Same operation ID with changed body
+        F->>J: retry same ID, different request digest
+        J-->>F: reject conflict; preserve original event
+    end
+
+    opt Release append ACK is lost
+        R->>J: exact release/event-head lookup
+        J-->>R: resolve only exact committed record and sequence
+        R->>DO: recover post-commit coordination
+    end
+
+    opt DO PITR
+        DO-->>R: restored coordination row
+        R->>J: compare Journal Release projection/event sequence
+        Note over DO,J: Quarantine if mismatch; joint rollback needs independent witness
+    end
+
+    opt N response arrives after N+1
+        APP->>APP: accept only if issue event sequence precedes N+1 and local high-water/deadline permit
+    end
+```
+
+### 14.11 Eight-second lease: safety versus timeouts and progress
+
+The present normative contract still says **at most an eight-second issue
+lease** and requires post-sign same-lease validation. This supplement does
+not remove or extend that requirement. The table below distinguishes what a
+candidate design needs for safety from unrelated operational time budgets.
+
+| Timer/limit | Purpose | Does it establish currentness/order? |
+|---|---|---|
+| 8-second issue lease | Current normative cap on the exclusive issue operation. | No, not by itself. A clock expiry does not prove an HSM stopped or that a late response cannot be delivered. Current protocol combines the lease with an after-sign recheck. |
+| Worker request timeout | Bounds one Worker invocation/resource usage. | No. Timeout/abort is not an LP and does not prove an external signer stopped. |
+| HSM operation timeout/cancellation | Bounds signer work if provider offers terminal cancellation/status. | Only a verified provider contract can establish quiescence. It does not replace Release/issue ordering. |
+| Operation recovery deadline | Operational policy for resolving `IN_DOUBT`. | No safe automatic unlock unless a durable fence/revoke or terminal signer status is proved. |
+| 30-second response lifetime | Limits how long APP may accept signed response time. | No. It is not a lock, LP, or substitute for APP's request deadline. |
+| APP 10-second monotonic deadline | Bounds one challenge from before POST through the last pre-rename guard. | No server-side ordering guarantee; a valid earlier LP response may still be rejected if slow. |
+| SLO/latency target | Measures expected processing/availability. | No authorization and no safety proof. It must not be conflated with a hard lease or response expiry. |
+
+| Candidate | Is an 8-second hard expiry logically necessary for its LP safety? | If the eight-second limit were formally removed, what replaces it? | Can Release block forever? |
+|---|---|---|---|
+| A | Not a substitute for safety; the current protocol nevertheless requires it. Safety needs an enforced gate through post-sign recheck and no bypass. | Protocol amendment plus a verified operation/fence mechanism, signer late-result rejection, clock/receipt model, and recovery policy. | Yes, if the gate is held and signer quiescence or safe revocation cannot be proved. A time-only unlock is unsafe. |
+| B1 | No, the LP remains `issued_at` under a valid exclusive gate; but the current protocol requires max 8s and rejects after-sign expiry. | Durable issue operation ID/fence, external anti-rollback ledger, mandatory output finalization, and approved handling of signer work beyond eight seconds. | Yes, while `IN_DOUBT` holds the Release gate. |
+| B2 | No, if the issue commit receipt itself is the authenticated, rollback-resistant LP. | Signed/verified finalization receipt, external monotonic checkpoint, signer binding to receipt, and a policy for slow signing/response expiry. | Yes if Release waits for response persistence/quiescence. Not necessarily if the externally anchored LP lets Release proceed without waiting; failure then affects response availability, not Release order. |
+| C-read | No, if a trusted read receipt and all current-state requirements are met. | Provider-signed read LP/sequence, receipt binding in response, and resolution of DO/R2 cross-resource races; amendment if receipt changes `issued_at` semantics. | No for the read itself. Yes only if the implementation additionally holds a DO issue gate and cannot recover it. |
+| C-log | No, if the typed issue append is the LP in the same ordered log and exact receipt/retry works. | Shared-log event schema, operation ID and append receipt, proof/APP verification, retention/checkpoint, and Release chain integration. | HSM delay need not block Release after the event LP. An ambiguous shared Journal append can block until exact outcome is resolved; no time-only conclusion is safe. |
+
+Removing or changing the normative eight-second limit is a protocol-owner
+decision. A Worker timeout, response TTL, or operational SLO cannot be
+substituted silently. Likewise, keeping a hard deadline does not prove
+progress: a timeout followed by an unanchored lease deletion can let an old
+signer response race a new Release.
+
+### 14.12 Implementation impact — design only
+
+“Observed” means present in current source; “required” means a future
+candidate change inferred from this comparison, not code written in this
+task.
+
+| Surface | Observed now | B1 future impact | B2 future impact | C-read future impact | C-log future impact |
+|---|---|---|---|---|---|
+| Domain package | `FreshnessRequest`, `FreshnessResponsePayload/Envelope`, validators, and shared golden vectors exist. | Add internal op ID/digest/fence/result contracts. APP wire may remain if no receipt is public. | Add a finalize receipt/sequence and new signed payload semantics or receipt envelope; exact-schema validators and domains must change. | Add authenticated read-receipt type and response binding; current exact schema rejects unknown fields. | Add issue-event/receipt schemas, event digest/sequence, verifier, and signature binding. |
+| Signer interface | `FreshnessResponseSignerRequest` accepts challenge, structurally typed `verifiedCurrentState`, and delegation only. | Bind operation ID, request digest, lease/fence, and exact finalization result; runtime revalidation remains mandatory. | Split issue-commit receipt acquisition, HSM signing, and exact response persistence; only purpose-specific methods. | Accept/verify Journal read receipt and required DO/R2 state; no generic read/sign request. | Accept/verify exact append receipt/event; exact operation lookup/retry API. |
+| Verified types | `VerifiedCurrentFreshnessState` and `VerifiedDelegation` are normal structural interfaces. | Runtime-check raw/loaded state after every RPC; optional nominal branding is only local misuse defense. | Finalization receipt must be verified at signer boundary and not trusted because it is a TypeScript object. | Journal-signed receipt and consistency evidence need runtime validators. | Append event/receipt, sequence, previous event head, and operation record need runtime verification. |
+| Worker route/signer | Production Freshness route/signer is not implemented; script path is test adapter. | New route/coordinator and universal output-finalization gate; no direct HSM-to-APP bypass. | New multi-stage coordinator and receipt validation; response is signed after LP. | Read-only Journal API and receipt-aware signer path; no issue append. | Shared ordered Journal client and exact issue-event idempotency; Release integration required. |
+| DO coordination | No Runtime Config production DO class/binding. Existing verification/session binding DO is separate. | Store issue operation/fence/exact response; Release gate; anti-rollback checkpoint integration. | Store issue intent/receipt and then exact response as separate states; PITR quarantine. | Optional current-state gate if existing pointer/DO contract is retained; not a Journal receipt substitute. | May coordinate pointer gate, but cannot be the sole event sequencer if Journal append is LP. |
+| Journal adapter | No selected Production Journal provider. | Existing Release `getHead`/append remains; external op ledger may be separate. | Journal or external ledger anchors finalize receipt and anti-rollback. | Authenticated linearizable `getHead` plus signed read receipt/time/sequence. | Shared typed event log, cross-event append CAS, exact lookup, trusted receipt, retention, and separate Release projection. |
+| APP Rust | Verifies current response payload and Release chain, Manifest, artifacts, timing, and high-water. | No change if proof remains wholly within trusted Freshness signer; otherwise verify receipt/fence. | Add receipt schema/signature/ordering validation and possibly store issue sequence/op high-water. | Verify Journal read receipt/key/sequence/time and bind to `issued_at`. | Verify issue event, receipt, sequence, release ordering, signature, and rollback/high-water policy. |
+| APP state/high-water | Persists Manifest epoch/digest, Release generation/record digest, and Freshness delegation generation/digest. | Likely no change for internal-only operation fence; external anti-rollback remains server responsibility. | Consider monotonic issue/receipt sequence if needed to detect replay across local state rollback. | Persist receipt sequence only if the protocol requires local monotonicity beyond Release generation. | Persist/validate event sequence or operation state if required; do not weaken existing epoch/record high-water. |
+| Golden vectors/tests | Shared current-wire vectors and APP/Worker tests exist for present contract. | Add exact retry, stale fence, response-finalize crash, PITR, release-vs-finalize race. | Add receipt signature, issue-commit/response-finalize separation, PITR, time/order boundary. | Add signed/stale read receipt, release-after-read, pointer/DO mismatch, snapshot digest mismatch. | Add append before/after Release, exact retry/conflicting body, ambiguous ACK, crash, event-chain consistency. |
+| Readiness | Production Freshness and Stage A/B/C remain BLOCKED. | No status change until Production provider/HSM/DO evidence and review. | No status change; receipt trust and PITR blocker first. | No status change; Journal capability and APP contract first. | No status change; shared-log provider and protocol/wire approval first. |
+
+No implementation impact above was applied. No source, test, configuration,
+golden-vector, readiness, or wire file was modified.
+
+### 14.13 Remaining human decisions and status
+
+The following remain **UNRESOLVED**:
+
+1. Whether the current eight-second maximum remains a hard normative lease,
+   and what failure/recovery semantics the protocol owner approves. No change
+   is made here.
+2. Whether B1, B2, C-read, or C-log is the authorized Freshness LP model.
+3. Whether a DO-only internal output gate is an acceptable trust boundary or
+   the APP must independently verify a read/finalization/append receipt.
+4. Which trusted source supplies a millisecond `issued_at` exactly aligned
+   with the selected LP; no signer/DO/Journal clock relationship is assumed.
+5. How the current Release writer gate and R2-before-Journal ordering
+   interoperate with C-read/C-log without claiming pointer update is Release
+   commit.
+6. Whether a shared event Journal can preserve existing Release generation,
+   previous-Release digest, pending authorization, and exact append semantics
+   while interleaving Freshness events.
+7. Which independently administered checkpoint prevents DO PITR or joint
+   Journal/DO rollback, who controls restore quarantine, and how old
+   operation IDs/tombstones are retained.
+8. Whether B2/C-read/C-log receipt fields and trust material may change the
+   current exact APP/Worker wire contract; this task did not make such a
+   change.
+9. How HSM late results, exact retries, response expiry, ACK ambiguity, and
+   permanent `IN_DOUBT` states are resolved without false success.
+
+**Readiness remains:** Production Freshness **BLOCKED**; Stage A, Stage B,
+Stage C **BLOCKED**; Production acceptance **BLOCKED**. This document-only
+supplement neither implements nor authorizes a Production authority.
+
+### 14.14 Explicit conclusions
+
+- **Does B1 fit existing `LATEST_AT_ISSUANCE`?** **Yes**, if the existing
+  `issued_at` sample is the LP under an active gate that prevents Release
+  append through the required post-sign validation, or if an equivalent
+  authenticated issue receipt fixes the same point. Finalization is separate
+  and does not move the LP. Under the current lease rule, a post-sign
+  revalidation failure discards the response.
+- **Does B2 work without an additional trust assertion?** **No.** A
+  post-sign DO flag cannot redefine a previously signed `issued_at`. B2
+  needs an LP receipt/time/sequence fixed before final response signing and
+  a rollback-resistant order source. The existing Freshness key could attest
+  to the receipt without adding a public key, but that expands its trust
+  assertion and still requires independent PITR protection.
+- **Is a C-read linearizable head read alone sufficient?** **No** under the
+  current contract. It needs an authenticated receipt/time bound to
+  `issued_at`, exact immutable snapshot binding, and a solution to the
+  Journal/DO/R2 cross-resource race. The current APP wire has no read receipt.
+- **Can C-log use Journal append as the Freshness LP?** **Yes, as a
+  candidate**, if Freshness issue and Release records share one genuinely
+  linearizable ordered log, issue append receipts are authenticated and
+  exactly retryable, and Release generation/head semantics are redesigned
+  for interleaved event types. None of those Production guarantees is
+  currently selected or implemented.
+- **Must eight seconds remain for Safety?** **Not inherently for the
+  candidate LPs.** Safety requires authentic ordering, output gating, and
+  rollback-resistant recovery; a duration alone proves none of them. The
+  current protocol still imposes the eight-second maximum and post-sign
+  recheck. Changing it requires explicit protocol approval.
+- **Can Production implementation start now?** **No.** LP choice, clock/
+  receipt source, provider capabilities, DO PITR anchor, exact retry and HSM
+  recovery, wire approval, and Release/C-log ordering remain blockers.
