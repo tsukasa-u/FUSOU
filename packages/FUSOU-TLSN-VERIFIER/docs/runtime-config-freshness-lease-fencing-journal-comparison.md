@@ -1787,9 +1787,16 @@ recovery procedure.
 
 ### 15.1 Review baseline and source evidence
 
-The review baseline is the `9f2541103ebcd5d38548d69804422c536657d8d9` HEAD
-recorded in Section 1. The source findings below are separate from proposed
-design behavior.
+The prior Section 15 source review used the
+`9f2541103ebcd5d38548d69804422c536657d8d9` HEAD recorded in Section 1. This
+coverage-completion review was performed on `2026-11-02` against branch
+`tlsn-first-testplay-candidate`, HEAD
+`ab818c266361b582eef86d001afc40bf2c467706`, parent
+`9f2541103ebcd5d38548d69804422c536657d8d9`; the expected HEAD matched. The
+allowed-path worktree and index were clean at review start. The protected
+paths were excluded from status inspection; no GitHub remote state is
+asserted. Source findings below remain separate from proposed design
+behavior.
 
 | Source | Verified source fact | Limit |
 |---|---|---|
@@ -1832,33 +1839,53 @@ or Production deployment.
 
 ### 15.3 Release gate coverage and mutation paths
 
-`R_LP` remains the exact Release Journal append, not R2 pointer movement,
-signer authorization, or DO `COMMITTED`. The gate must cover the interval
-from Release admission through `R_LP` reconciliation and post-commit DO
-state, while preventing new Freshness issues after `writer_pending` is set.
-All external I/O remains outside a DO transaction; durable intent must be
-written before the call and reconciled before the gate is cleared.
+`R_LP` remains the successful Journal compare-and-append of the exact
+authorized Release record. R2 pointer CAS is not `R_LP`; DO `COMMITTED` is
+post-commit coordination state. The proposed gate is one per-environment
+coordinator, but that Production owner, fence, and gate are
+`NOT_IMPLEMENTED`. Every external call must occur outside a DO transaction;
+persist intent first and reconcile before clearing the gate.
 
-| Release path / stage | Required gate and durable evidence | Unknown outcome / safe behavior |
-|---|---|---|
-| Candidate immutable objects | Content-addressed writes may precede gate admission only if they cannot change the active pointer or become authoritative by themselves. Verify exact bytes/digests; orphaned candidates are safe to retain or collect later. | If object immutability or pointer independence is not established, treat the write as authoritative and gate it. |
-| `beginRelease` / `R_PREPARE` | Atomically set `writer_pending`, record one attempt ID and canonical request digest, expected prior Journal generation/digest, expected R2 ETag, candidate Manifest digest/ref, and next generation. A new Freshness lease must lose once this transaction commits. | Exact same ID+digest may resume. A conflicting attempt or predecessor is rejected. No pointer write starts before the attempt is durable and admitted. |
-| R2 Manifest-pointer CAS / `R_POINTER` | Keep `writer_pending`; persist `pointer_write_started` before the external conditional write. CAS against the exact prior ETag; read back the pointer and immutable snapshot bytes, digest, and ETag before proceeding. `R_POINTER` is not `R_LP`. | Timeout or lost ACK is `IN_DOUBT`. A 404/negative read alone cannot prove the old in-flight write will not commit. Do not clear the gate or start a competing Release until the original write is definitively resolved. |
-| Release-authority signing | Only sign the exact persisted attempt after pointer readback and prior Journal/DO/R2 agreement. Bind the signer operation to the attempt ID and canonical payload digest; persist exact authorization bytes before append. | A signer timeout after submission is not proof of no signature. Do not silently re-sign with a changed `authorized_at` or new attempt ID. |
-| Journal compare-and-append / `R_LP` | Hold the same Release gate. Append the exact authorized record using expected previous generation and record digest. The provider must return/authenticate the exact record and trusted position/time. This append is the Release LP. | Lost ACK is ambiguous. Query exact operation/head or retry the exact same ID+bytes only under a provider-guaranteed idempotency contract. A conflicting append blocks and alarms; do not make a new generation. |
-| DO `COMMITTED` update | After `R_LP`, verify the Journal record and R2 pointer/snapshot against the durable attempt, then commit the DO projection and clear `writer_pending`/recovery only in the same terminal transition. | If the Journal append succeeded but DO update failed, Journal remains authoritative. Keep Freshness blocked and reconstruct only from exact authenticated Journal and R2 evidence. |
-| Recovery, alarms, RPC retry | Recovery acquires the same gate, reuses the same attempt/operation IDs, and handles one explicit state at a time. Alarms are triggers, not evidence that an external operation stopped. | Do not clear a lease, `IN_DOUBT`, or writer blocker solely because a timer fired, a Worker restarted, or an RPC client disconnected. |
-| Freshness issue racing Release | Release admission and issue-lease acquisition must serialize on one environment authority. If issue wins, the active operation blocks pointer CAS and Journal append until the normative post-sign check/release or a proven logical revocation. If Release wins, new issue is denied until reconciliation. | Separate DO namespaces, stale cached lease counts, or an uncoordinated administrative publisher invalidate this argument. |
-| Direct publisher, credentials, admin, restore | Restrict R2 write credentials, Worker bindings/deploy rights, DO Data Studio/editor rights, and restore privileges so every authoritative mutation is either gated or treated as a controlled quarantine event. Audit every alternate script/credential. | Account-level permissions and deployment inventory were not inspected. Complete gate coverage is **UNRESOLVED**; do not infer it from the test adapter or one Worker binding. |
+The table separates the required design from what current source proves.
+`NOT_IMPLEMENTED` means no Production mechanism is present; a behavior in the
+in-memory adapter is explicitly identified as test-only.
 
-**Coverage finding:** The in-memory test adapter models a single gate and
-recovery state machine, but it does not demonstrate that every Production
-R2 pointer writer, Journal writer, signer, DO restore, or administrator is
-forced through that gate. The publisher registration being false currently
-blocks its ordinary Production entry; it does not prove that low-level
-credentials or administrative paths cannot mutate a pointer. A Production
-design needs an explicit credential/route inventory and a tested statement
-of who can mutate each authoritative resource.
+| Operation | Gate owner | Gate required | Operation ID | Expected generation | Fence check | External mutation | Recovery | Freshness race | Source evidence |
+|---|---|---|---|---|---|---|---|---|---|
+| Immutable candidate object write | Candidate writer/R2 credential; no Production Runtime Config gate owner is registered. | No only for content-addressed, immutable, orphan-safe writes; yes if a write can change an active alias/pointer or authority. | Required: stable content digest/key. Separate operation ID: `NOT_IMPLEMENTED`. | No active generation may change. Candidate generation is not authoritative before `R_PREPARE`; binding is `NOT_IMPLEMENTED`. | Enforce create-once semantics for exact key/body; no Release fence in the R2 helper. | R2 object `PutObject` under the artifacts namespace. | Exact readback; retain an orphan if the Release aborts. Never promote it by itself. | Safe only if Freshness never reads an uncommitted candidate as current. An alternate active-pointer update remains outside this row. | [R2 helper](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs); [publisher](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-release.mjs). |
+| `beginRelease` / `R_PREPARE` | Required: one per-environment Runtime Config DO. Current: `NOT_IMPLEMENTED`; only the in-memory test coordinator exists. | Yes; atomically set `writer_pending` and persist the attempt before any mutable pointer write. | Test adapter has `attempt_id`; Production operation ID/idempotency contract is `NOT_IMPLEMENTED`. | Require current Journal generation/digest and expected pointer ETag, then candidate generation = current + 1. Test-only. | Test adapter checks prior generation/digest/ETag; Production fencing token/incarnation is `NOT_IMPLEMENTED`. | DO state write only; no external I/O in the transaction. | Resume the same attempt after restart; conflicting attempt or predecessor fails closed. Production durable recovery is `NOT_IMPLEMENTED`. | Must serialize with Freshness lease acquisition: Release-first denies issue; issue-first makes Release wait. Production serialization is `NOT_IMPLEMENTED`. | [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs); [P2 DO design](./runtime-config-freshness-do-coordination-design.md). |
+| R2 pointer CAS / `R_POINTER` | Required: same per-environment DO gate owner. Current owner/fence: `NOT_IMPLEMENTED`. | Yes; gate stays held from durable write intent through exact readback. | Required: original Release attempt ID. Test adapter has one; Production idempotency/fence binding is `NOT_IMPLEMENTED`. | CAS expected prior ETag; verify the exact candidate Manifest digest and generation bound by `R_PREPARE`. Production generation binding is `NOT_IMPLEMENTED`. | Test adapter records `pointer_write_started`; a Production stale-owner/incarnation fence is `NOT_IMPLEMENTED`. | Conditional R2 `PutObject` changes the mutable Manifest pointer. This is not `R_LP`. | Query pointer and immutable snapshot; retry only the same exact CAS if the outcome is resolved/provider semantics permit it. An ambiguous write remains blocked. | No Freshness issue while writer gate is held. A direct R2 writer can bypass the proposed gate; credentials are `UNRESOLVED`. | [R2 store](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs); [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs). |
+| Release Authority signing | Required: same DO gate plus a signer operation boundary. Current Production gate/signer: `NOT_IMPLEMENTED`. | Yes; sign only the exact persisted attempt after pointer readback and predecessor checks. | P1 carries `attempt_id` through `PendingReleaseAttemptBinding`; separate HSM operation/idempotency ID is `NOT_IMPLEMENTED`. | Sign candidate generation and previous Journal generation/digest exactly; no new generation on retry. | No Production signer fence/current-incarnation check. P1 signer request is not a provider status or output-fencing contract. | Production HSM operation: `NOT_IMPLEMENTED`; test adapter creates a test record. | Recover the exact signer operation/result or remain `IN_DOUBT`; never sign a changed timestamp/payload as a retry. | Gate blocks Freshness during Release. A stale signer output still needs a universal finalizer; it is `NOT_IMPLEMENTED`. | [signer interface](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts); [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs). |
+| Journal compare-and-append / `R_LP` | Required: DO gate plus the selected Journal authority. Both Production resources: `NOT_IMPLEMENTED`. | Yes; hold the gate through authenticated append result/readback and DO reconciliation. | Required: stable Release attempt/append ID and exact record digest. Test record has `release_commit_id`; Journal operation idempotency is `NOT_IMPLEMENTED`. | Expected prior generation/head digest; successful append creates the next Release generation. Provider contract is `NOT_IMPLEMENTED`. | Must reject stale predecessor/fence. No Production fence or Journal adapter exists. | Journal append is the Release LP. Do not treat signing or R2 CAS as the LP. | Query exact record/position; exact retry only if selected provider guarantees it. Lost ACK otherwise remains `IN_DOUBT`. | Freshness remains blocked until append is resolved and current head is reconciled. | [protocol](./runtime-config-freshness-protocol.md); [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs). |
+| DO `COMMITTED` | Required: same per-environment DO. Current Runtime Config DO: `NOT_IMPLEMENTED`. | Yes; post-`R_LP` transaction verifies the exact committed Journal/R2 result before releasing the writer gate. | Reuse the same Release attempt ID; Production durable operation record is `NOT_IMPLEMENTED`. | Must equal the generation/record actually appended at `R_LP`; never infer a commit from a DO-local counter. | Match current incarnation, exact attempt, Journal record digest, and R2 ETag. Production fence is `NOT_IMPLEMENTED`. | DO post-commit state write only; no second Journal append. | Reconstruct the projection only from independently authenticated Journal and matching R2 bytes; otherwise quarantine. | Deny Freshness until committed DO state agrees with the Release LP and R2 snapshot. | [protocol](./runtime-config-freshness-protocol.md); [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs). |
+| R2 CAS recovery | Required: same DO recovery gate. Current Production gate: `NOT_IMPLEMENTED`. | Yes; keep writer pending and prevent a competing pointer mutation. | Original Release attempt ID and exact request digest; Production durable record is `NOT_IMPLEMENTED`. | Original expected ETag and candidate generation only; no increment during recovery. | Require exact current epoch/fence and pending attempt. Production fence: `NOT_IMPLEMENTED`. | Read R2; possibly retry the exact conditional pointer write after resolving the original outcome. | Exact pointer+snapshot match can advance recovery; prior pointer is safe only after the original request is definitively terminal. Otherwise remain `IN_DOUBT`. | Freshness stays denied while pointer outcome is ambiguous or inconsistent. | [R2 helper](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs); [test recovery](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs). |
+| Journal append recovery | Required: same DO gate and Journal provider. Current provider/status API: `NOT_IMPLEMENTED`. | Yes; do not admit another Release while exact append outcome is unknown. | Original attempt/append ID and byte-identical authorized record; provider exact lookup/retry is `NOT_IMPLEMENTED`. | Expected previous head and candidate generation must match the exact record position. | Validate current epoch and predecessor; no Production fencing is implemented. | Authenticated Journal query or exact idempotent append retry. | If the exact record is at the expected next position, proceed to DO projection; conflict, missing proof, or ambiguous head keeps quarantine. | Freshness denied until Journal head and current pointer are reconciled. | [protocol](./runtime-config-freshness-protocol.md); Production Journal is absent from [Worker bindings](../../FUSOU-TLSN-VERIFICATION-WORKER/wrangler.toml). |
+| DO post-commit recovery | Required: same DO recovery gate, with Journal as commit authority. Current implementation: `NOT_IMPLEMENTED`. | Yes; recovery and ordinary Release/Freshness cannot mutate concurrently. | Original Release attempt ID; Production persistence is `NOT_IMPLEMENTED`. | Exact Journal generation, record digest, and matching R2 pointer/snapshot. | Check external incarnation and exact committed attempt; Production check is `NOT_IMPLEMENTED`. | DO projection write only, after reads outside the transaction. | Rebuild only from authenticated exact Journal record plus matching R2 state; do not append again. | Deny Freshness until the projection is repaired and the gate is safely cleared. | [test recovery](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs); no Runtime Config DO binding in [Wrangler configuration](../../FUSOU-TLSN-VERIFICATION-WORKER/wrangler.toml). |
+| Duplicate / retry | Required: same DO gate plus each external side-effect owner’s idempotency ledger. Production owners: `NOT_IMPLEMENTED`. | Yes; same ID+digest only; conflicting ID/body rejects. | Test `beginRelease` resumes the same `attempt_id`; P1 release contract has an attempt ID but no HSM/Journal exact-idempotency contract. | Preserve original generation and predecessor; never allocate a new generation for an unresolved retry. | Validate current incarnation/fence and exact digest; Production fencing is `NOT_IMPLEMENTED`. | Retry only exact R2/Journal/HSM operation with provider-supported idempotency. | Reuse exact durable output/result; no new signing or append on an ambiguous operation. | Freshness remains denied while a Release retry is unresolved. | [test adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test-adapters.mjs); [signer interface](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts). |
+| Stale Worker / stale RPC | Required: DO validates a current external incarnation/fence on every operation; signer finalizer performs the same check. Current mechanisms: `NOT_IMPLEMENTED`. | Yes; stale deployments/callers must be rejected before external mutation and before output. | Stable operation ID plus signer/RPC request digest; P1 Freshness signer request has no operation ID/fence. | Compare to independently current Release generation and incarnation; a cached generation alone is insufficient. | External epoch + current fence required; neither is implemented. | Stale code could call an exposed R2 helper or return a delayed signer result if its credentials/path permit; actual reachability is `UNRESOLVED`. | Revoke/disable stale caller credentials and resolve its in-flight operations before re-enable. | Must not issue Freshness from stale state; no deployed gate exists to establish this today. | [signer interface](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts); [R2 helper](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs); [Worker entrypoint](../../FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts). |
+| Administrative mutation / alternate publisher | Required: Cloudflare account/IAM, Worker deploy, R2 credentials, and DO editor/restore authorities around the application gate. Actual principals: `UNRESOLVED`. | Yes; every privileged mutation must use the gate or force quarantine before/after mutation. Current control-plane enforcement is `UNRESOLVED`. | Audited admin change ID and target generation/digest required; not present in source. | Compare independently witnessed generation/head; a caller-chosen ETag is not authorization. | External epoch/fence and least-privilege credential control required; not implemented/verified. | R2 helper exports `createR2RuntimeConfigObjectStore()` and `createCloudflareR2RuntimeConfigObjectStore()`; their store exposes `compareAndSwapManifest()` without a registration assertion. | The regular `publishTlsnRuntimeConfig()` entry checks registration (currently false) and throws. The low-level capability can be called by code possessing the configured S3 credentials or injected client; repository search finds only helper definitions/tests, not a Production caller. Who holds credentials and whether other deployments exist is `UNRESOLVED`. | Direct pointer mutation can race Freshness unless every credential and alternate publisher is disabled or gated. | [R2 store](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs); [publisher](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-release.mjs); [registration](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-production-registration.mjs). |
+| Restore / quarantine | Required: an independently administered restore controller/checkpoint owner and a universal traffic/signer gate. All are `NOT_IMPLEMENTED`. | Yes; quarantine before any restore or rollback-sensitive recovery and hold until independent reconciliation completes. | Restore event ID + new incarnation epoch; both are `NOT_IMPLEMENTED`. | Compare witnessed DO/Journal/R2 heads and operation-history watermark, not a restored DO generation alone. | Reject all old-epoch RPCs and outputs; verifier locations and epoch check are `NOT_IMPLEMENTED`. | DO PITR; any R2/Journal restore or privileged mutation must also be inventoried. | Advance external epoch, reconcile exact heads, resolve all `IN_DOUBT` operations, revoke stale callers, then dual-authorize re-enable. Missing evidence means remain quarantined. | Deny Freshness throughout quarantine and until all three authorities agree. | [DO PITR specification](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/); [DO roles](https://developers.cloudflare.com/workers/authorization/durable-objects/); no Production Runtime Config authority is in [Wrangler configuration](../../FUSOU-TLSN-VERIFICATION-WORKER/wrangler.toml). |
+
+**Registration guard versus write capability:** `publishTlsnRuntimeConfig()`
+calls `assertRuntimeConfigProductionSigningRegistered()` and currently
+fails because registration is false. In contrast,
+`createR2RuntimeConfigObjectStore()` accepts an S3 client, and
+`createCloudflareR2RuntimeConfigObjectStore()` builds one from the
+`TLSN_RUNTIME_CONFIG_R2_*` environment values (or accepts an injected client);
+the returned object exposes `compareAndSwapManifest()`. Neither helper calls
+the publisher registration assertion. The checked-in `rg` search found only
+the helpers and test usages, not a Production caller. Source proves the
+capability and its required credentials/client; it does not identify which
+human, secret store, deployment, or external script possesses them. That
+authorization inventory is **UNRESOLVED**. A conditional ETag CAS fences
+concurrent writes to that pointer key, but it is not the Release LP or a
+universal application gate.
+
+**Coverage finding:** The test adapter demonstrates a single in-memory gate,
+not Production route completeness. Gate/fence owners for all listed
+Production mutations are `NOT_IMPLEMENTED`; administrative and external
+credential reachability is `UNRESOLVED`. No pointer CAS is promoted to
+`R_LP`, and DO `COMMITTED` remains post-commit state.
 
 ### 15.4 DO PITR anti-rollback candidates
 
@@ -1875,6 +1902,40 @@ does not, by itself, prove whether `F_ISSUE_TIME` or `R_LP` happened first.
 | **R2 — External append-only operation journal** | Records each operation ID, epoch/role, request digest, state transition, external idempotency ID, and result digest; exact result bytes or a durable result reference are needed for exact retry. This is the strongest candidate for detecting old operation-ID/nonce reuse. | If this journal and DO are restored to mutually consistent old heads, the joint rollback is not detected without an independent checkpoint/witness. Append-only semantics and exact lookup are provider requirements, not assumptions. | Highest write and retention burden; every HSM/R2/Journal side effect needs a prepared/completed protocol. Journal or witness outage blocks issuance/release. |
 | **R3 — External restore/incarnation epoch** | An epoch outside DO SQLite, included in all internal authenticated operation/HMAC inputs, fences old packets after an epoch advance. A public Freshness response needs a verifiable binding if APP is expected to validate that epoch. | An epoch authority that shares DO restore/admin control can itself roll back. Epoch change alone does not detect an unannounced restore or stop a semantic duplicate re-signed under the new epoch; pair it with operation history. | Low data retention, but requires coordinated deployment and key/verifier rollout. Re-enable waits until every caller rejects old epochs and exact in-flight results are resolved. |
 | **R4 — Mandatory restore quarantine** | Stops known callers/signers before a planned restore and keeps routes disabled until Journal/R2 reconciliation, epoch/key transition, and signer `IN_DOUBT` resolution complete. | Does not detect an unannounced restore, compromised control plane, or administrator bypass. The quarantine control must be outside the restored DO and independently enforced. | Human-intensive and reduces availability during restore. Requires two-person approval, audited runbook, controlled credentials, and tested re-enable criteria. It is not standalone anti-rollback protection. |
+
+#### Eight independently evaluated restore states
+
+The Production Journal, external operation log, checkpoint, witness, and
+incarnation-epoch service below are not registered: each is
+`NOT_IMPLEMENTED`. “Detected” therefore describes what evidence could show
+under the stated independent-source condition, not a current runtime
+capability.
+
+| State | Observable evidence | Independent comparison source | Detection result | Replay risk | Required quarantine | Safe recovery | Residual uncertainty |
+|---|---|---|---|---|---|---|---|
+| 1. DO only rollback | Restored DO rows may be internally consistent but show an older generation, tombstone set, or operation result. | Current authenticated Journal/R2 head plus an operation-history checkpoint outside the DO. | Detectable only if an independent head/sequence advanced and is not in the same rollback domain. The DO ledger alone cannot detect its own rollback. | Old operation IDs/nonces absent from restored rows may be accepted again. | Deny Freshness, Release, and signer-output RPCs until comparisons complete. | Rebuild the DO projection from exact authenticated external records; advance/check incarnation epoch; resolve pending results. | No Production Journal/checkpoint is implemented; R2 alone is mutable state and does not prove operation history. |
+| 2. DO and R2 disagree | DO generation/ETag/digest differs from current R2 pointer or referenced snapshot. | Exact R2 GET/HEAD and immutable snapshot bytes; authenticated Journal if available. | Mismatch is observable, but which state is authoritative is not established by the disagreement itself. | Freshness could bind stale DO state or a pointer to a different Manifest if the gate is bypassed. | Keep writer and Freshness gates closed; prohibit pointer repair by an uncoordinated writer. | Repair only after the exact Journal commit record identifies the intended generation and R2 bytes can be verified; otherwise operator investigation. | No Production authority contract proves a precedence among conflicting stores. |
+| 3. DO and Journal disagree | DO committed projection differs in generation, record digest, epoch, or exact bytes from Journal head. | Authenticated, linearizable Journal head/record and independent checkpoint. | Detectable if Journal is current and independent. If Journal and DO share a rollback domain, comparison can be false reassurance. | Restored DO may reissue old Freshness or retry an already-used Release attempt. | Block Freshness and new Releases; admit only fenced recovery. | Project exact Journal record into DO only after matching the referenced R2 pointer/snapshot and verifying the record/append metadata. | Journal provider, trusted append time, rollback behavior, and witness are unselected. |
+| 4. DO and R2 rollback; Journal advances | DO and pointer show an older Manifest while Journal reports a later committed Release. | Authenticated Journal record/sequence plus the record's content-addressed Manifest and independent witness. | Mismatch is detectable if the Journal and witness are genuinely outside the DO/R2 rollback domain. | Old Manifest could be served if Freshness trusts rolled-back DO/R2. | Keep Freshness and all pointer writers quarantined. | Retrieve the exact Manifest by signed/content-addressed ref, verify its digest and Release record, then repair R2/DO under the same gate. | R2 restoration behavior, immutable retention, and Journal independence are not configured/verified. |
+| 5. DO and Journal rollback; R2 advances | DO/Journal show older head while R2 pointer or snapshot appears newer. | Independent checkpoint/witness; R2 is only a comparison source unless its admin/restore domain is proven independent. | A mismatch is observable, but R2 alone cannot prove a committed Release or its order. | Old Release attempt IDs may be replayed; a newer R2 object might be an uncommitted candidate or unauthorized write. | Quarantine; do not promote the R2 pointer or roll it back based only on ETag. | Require a witnessed Release record for the newer generation; otherwise reconcile with operators and remain blocked. | No current authenticated Journal exists; whether R2 and Journal share administration/rollback control is `UNRESOLVED`. |
+| 6. DO, R2, and Journal roll back together | All three appear mutually consistent at a prior generation. | Independent operation-history checkpoint and a separate witness outside all three rollback domains. | Undetectable if every source and checkpoint restores to the same prior state. A DO-internal ledger cannot detect this. | Every deleted nonce, operation ID, fence, and tombstone may be replayable. | Full quarantine; do not infer safety from cross-store agreement. | Recover from externally retained history, verify all nonterminal signer/provider operations, advance epoch, and dual-authorize re-enable. | No witness/provider or independent-admin boundary is selected; common-mode rollback is a hard blocker. |
+| 7. Restored DO receives old-incarnation RPC | RPC has a valid old MAC/signature but carries an obsolete or absent incarnation epoch. | External monotonic epoch authority plus its independently protected checkpoint/witness. | Rejectable only if every DO ingress, Worker, signer, callback, and output finalizer checks the current epoch. This is `NOT_IMPLEMENTED`. | Old authenticated packets may reapply old operations; key rotation alone does not prove the operation was unused. | Keep all callers/output paths quarantined until epoch propagation is verified. | Epoch **issuer** must be a human-approved external authority; **storage** must be outside DO/R2 rollback and separately witnessed; **verifiers** must be every RPC ingress and finalizer. None is selected or implemented. | No concrete issuer, storage, witness, verifier coverage, or APP-visible receipt exists. |
+| 8. Old operation ID / nonce / fence is reused after restore | Incoming operation ID/digest/fence may match a pre-restore request whose tombstone was lost. | Complete external operation log or witnessed monotonic sequence covering every operation ID/nonce and digest, not only Release generations. | Detectable only if that history is retained and independently current. Key rotation without history does not detect semantic reuse. | Duplicate HSM signing, Release append, or Freshness response can occur under a new key/epoch if policy permits reuse. | Reject every old/unknown operation until the history watermark and current epoch are checked. | Exact old operation must resolve to its retained result/terminal state; otherwise keep `IN_DOUBT` and quarantine. Do not mint a new ID to bypass it. | Operation ID/nonce retention, history compaction, checkpoint rollback, and quorum policy remain `UNRESOLVED`. |
+
+Checkpoint and witness administration must be independent in both permission
+scope and rollback domain. Two records controlled by the same account,
+operator, restore workflow, or credentials are not independent witnesses.
+The checkpoint itself needs its own monotonic protection; otherwise its
+rollback recreates the same blind spot.
+
+Quarantine can be released only by the approved restore authority plus a
+separate reviewer after they verify: the current witnessed epoch/checkpoint;
+authenticated exact Journal records and append positions; matching R2 pointer
+and immutable snapshot bytes; no unresolved HSM/R2/Journal operation; old
+Worker versions and credentials cannot act; every verifier enforces the new
+epoch; and replay tests reject prior IDs/nonces/fences. Those authorities,
+proof records, and permission separation are not present in current source,
+so no presently available evidence authorizes quarantine release.
 
 Key rotation alone is insufficient: it may reject old MAC bytes only after
 every verifier/caller stops accepting the old key, but it cannot reconstruct
@@ -1908,10 +1969,11 @@ quarantine remains active.
 
 The P1 signer contract exposes a Promise returning signature/result bytes but
 does not carry a durable operation ID, request digest, provider job ID,
-status-query contract, or cancellation receipt. No HSM provider is selected.
-Consequently, a Worker timeout, disconnected RPC, deployment, or DO restart
-cannot distinguish “HSM never accepted the request” from “signature exists
-but its response is delayed/lost.”
+status-query contract, or cancellation receipt. No HSM provider is selected;
+cancellation, idempotency, status query, and exact-result retrieval are all
+`NOT_VERIFIED`. Consequently, a Worker timeout, disconnected RPC, deployment,
+or DO restart cannot distinguish “HSM never accepted the request” from
+“signature exists but its response is delayed/lost.”
 
 | Signer event | Required state/evidence | Permitted action |
 |---|---|---|
@@ -1928,7 +1990,9 @@ if every route from provider result to APP is behind a stateful, universal
 finalizer and stale results can never bypass it. A DO-only finalizer is not
 rollback-resistant under PITR. The signer/gateway boundary, direct HSM
 bindings, queues/callbacks, and admin access must therefore be part of the
-trusted computing base.
+trusted computing base. Current source does not prove a universal finalizer
+or exclude a route that returns a raw signature; that bypass possibility
+remains **UNRESOLVED**.
 
 | Recovery candidate | Safety contribution | Remaining blocker |
 |---|---|---|
@@ -1945,18 +2009,119 @@ check and finalizer or be discarded. `F_HSM` is not `R_LP` or `F_ISSUE_TIME`.
 
 ### 15.6 Cross-scenario failure review
 
-| # | Failure/race | Required invariant | Safe recovery / residual risk |
-|---:|---|---|---|
-| 1 | Release admission races a new Freshness lease. | One environment authority serializes `writer_pending` and lease acquisition. | If Release wins, deny issue; if issue wins, Release waits. Separate authorities or cached lease counts make the proof **UNRESOLVED**. |
-| 2 | Freshness holds a lease while Release is pending. | No pointer CAS or Journal append until the current issue is finalized or logically revoked under the normative post-sign rule. | Keep the gate; do not treat `writer_pending` as permission to invalidate a valid in-flight issue. |
-| 3 | Worker crashes after R2 CAS but before persisting readback. | Persist pointer-write intent before the call; gate all competing writers. | Reconcile exact pointer/snapshot and attempt. A negative read cannot settle an earlier in-flight write; remain `IN_DOUBT` until resolved. |
-| 4 | Release HSM accepts a request, then the Worker times out. | Stable signer operation ID and exact-preimage digest; no changed retry. | Query/retrieve exact provider result or remain blocked. A new `authorized_at` signature could create conflicting authorizations. |
-| 5 | Freshness HSM returns after the eight-second lease expires. | Same lease/fence recheck after signing and universal finalizer before output. | Discard stale result. The test adapter exercises a simulated delay, not remote cancellation; automatic lease pruning without a universal finalizer is unsafe. |
-| 6 | Journal append succeeds but its ACK is lost. | Release LP is the actual append, not client ACK; exact operation/record lookup and retry. | Query exact head/record or retry exact bytes under verified idempotency. Do not start a second Release. |
-| 7 | Journal append succeeds but DO `COMMITTED` update fails. | Journal stays authoritative; DO remains in recovery and Freshness is denied. | Rebuild DO projection from exact authenticated Journal record and matching R2 pointer/snapshot; then clear the same gate. |
-| 8 | Freshness finalization succeeds but HTTP response is lost. | Durable exact response keyed to the original challenge; retrieval is authenticated. | Return the same bytes on exact retry before the original APP deadline; never issue a replacement signature for the same operation. |
-| 9 | DO PITR restores an old lease/tombstone/fence while old RPC or signer result exists. | An external epoch/checkpoint is checked by every caller and output path; restore is quarantined. | Reject old authenticated packets/results, reconcile Journal/R2, and resolve outstanding operations. Without an independent witness, common-mode rollback is undetectable. |
-| 10 | Admin or an alternate publisher mutates R2/DO outside the coordinator. | Credential and administrative inventory proves every authoritative path is gated or quarantined. | No complete account/deployment inventory exists in source; coverage is **UNRESOLVED**. Current registration blocks the normal publisher only. |
+The following ten cases are distinct. All Production gate/fence/checkpoint
+mechanisms noted as required remain `NOT_IMPLEMENTED` unless explicitly
+described as test-adapter behavior.
+
+#### 1. Freshness issue is active when Release starts
+
+- **Initial state:** DO/Journal/R2 agree at generation N; a Freshness issue has acquired its lease for N.
+- **Event sequence:** Release request sets `writer_pending` while signing/current-state verification may still be in progress.
+- **Safety risk:** R2 CAS or `R_LP` before the issue's required post-sign lease check could make the issued bytes inconsistent with `LATEST_AT_ISSUANCE`.
+- **Current source can prevent:** The in-memory adapter serializes `acquireIssueLease` and `beginRelease`; issue-first makes Release wait, and a delayed test signature is rechecked.
+- **Current source cannot prevent:** No Production DO gate is bound to the Worker; the adapter cannot enforce all R2 writers or stop a remote HSM result.
+- **Required gate / fence / checkpoint:** One per-environment atomic gate; exact lease/attempt IDs and current generation; no R2/Journal mutation until the issue is terminal or logically revoked by a universal finalizer.
+- **Safe recovery conditions:** Complete and post-sign-check the same issue before Release proceeds, or prove that every output path rejects its revoked fence.
+- **Recovery impossible / quarantine conditions:** Lease state was PITR-restored, signer outcome is `IN_DOUBT`, or an alternate writer may have mutated the pointer; keep both issuance and Release side effects quarantined.
+
+#### 2. Worker crashes after Release R2 CAS
+
+- **Initial state:** `R_PREPARE` and pointer-write intent exist; conditional R2 CAS may be in flight or may have committed.
+- **Event sequence:** R2 accepts or rejects the pointer CAS, then the Worker crashes before persisting readback.
+- **Safety risk:** A retry or competing writer may overwrite a committed candidate or mistake a negative read for proof that the original request failed.
+- **Current source can prevent:** The R2 helper reconciles ambiguous responses while its call is alive; the in-memory adapter has a simulated crash-after-CAS recovery path.
+- **Current source cannot prevent:** No durable Production attempt state or cross-Worker recovery authority exists. An R2 negative read cannot rule out a prior in-flight write.
+- **Required gate / fence / checkpoint:** Persist the exact attempt ID, expected ETag/generation, pointer-write-started bit, and incarnation fence before I/O; hold the writer gate.
+- **Safe recovery conditions:** Exact candidate pointer and immutable snapshot match the attempt, or the original CAS is definitively terminal and the exact retry is allowed.
+- **Recovery impossible / quarantine conditions:** Pointer result remains ambiguous, another generation appears, or DO and R2 disagree without authenticated `R_LP`; do not clear the gate.
+
+#### 3. Journal append succeeds, then DO update fails
+
+- **Initial state:** Exact authorization is durably associated with one pending attempt; R2 points at its candidate; Journal head is the prior generation.
+- **Event sequence:** Journal append commits `R_LP`; the ACK or following DO `COMMITTED` transaction fails.
+- **Safety risk:** A replacement Release may append twice or Freshness may use a stale DO projection.
+- **Current source can prevent:** The test adapter's recovery checks exact record bytes/generation and matching R2 state before completing the DO projection.
+- **Current source cannot prevent:** The adapter is in-memory; no Production Journal, durable DO, append receipt, or exact provider lookup is registered.
+- **Required gate / fence / checkpoint:** Keep `writer_pending`; bind the original attempt and exact record digest; treat Journal as commit authority only after provider authentication and rollback protection.
+- **Safe recovery conditions:** Read the exact record at the expected Journal position, verify signature/append metadata and R2 snapshot, then project that same record into DO without another append.
+- **Recovery impossible / quarantine conditions:** Journal head is ambiguous, record conflicts with pending bytes, or its trusted position/time cannot be established; Freshness and new Releases remain blocked.
+
+#### 4. DO PITR is followed by resubmission of an old Release operation
+
+- **Initial state:** A Release operation ID, predecessor, or terminal tombstone existed after the PITR restore point; restored DO no longer shows it.
+- **Event sequence:** An old Worker/RPC resends that operation using its old authenticated packet or reuses its ID.
+- **Safety risk:** A duplicate pointer change, signature, or append can occur if the old ID appears new in restored state.
+- **Current source can prevent:** Test-adapter checks reject a conflicting pending attempt and verify expected generation/record digest within its current memory state.
+- **Current source cannot prevent:** No Production restore epoch or operation-history witness exists; DO-local state cannot detect its own rollback.
+- **Required gate / fence / checkpoint:** External incarnation epoch on every authenticated operation plus a retained operation-ID/request-digest ledger and independent witness.
+- **Safe recovery conditions:** Compare old ID/digest against witnessed history; return the retained exact terminal result or reject it, then reconcile Journal/R2.
+- **Recovery impossible / quarantine conditions:** History/witness is unavailable or jointly rolled back, or old credentials can bypass the epoch check; do not execute the RPC.
+
+#### 5. DO PITR is followed by resubmission of an old Freshness issue RPC
+
+- **Initial state:** A Freshness challenge/issue record or tombstone may have existed after the restore point; restored DO has no such record.
+- **Event sequence:** The old issue request is replayed to a Worker whose current-state view is also restored or stale.
+- **Safety risk:** Re-signing the same internal operation or stale release state can produce an unauthorized delayed result; replaying an old response against a different APP request must also be rejected.
+- **Current source can prevent:** APP verifies the current outstanding `request_nonce`; a response for a different nonce does not satisfy that challenge. The test adapter validates a current lease/head and post-sign lease again.
+- **Current source cannot prevent:** P1 signer request has no durable issue operation ID/fence; no Production DO replay ledger or PITR epoch is present. A valid late response for the same still-outstanding nonce is not distinguished by an internal operation ledger.
+- **Required gate / fence / checkpoint:** External epoch and full issue-operation ledger, checked at signer ingress and the universal output finalizer; preserve exact response bytes for exact retry.
+- **Safe recovery conditions:** Reject an old epoch or return the exact previously finalized result for the same operation; APP must still accept only its outstanding nonce and valid time window.
+- **Recovery impossible / quarantine conditions:** Epoch/history is missing or a late signature can bypass finalization; do not issue or deliver a replacement response.
+
+#### 6. HSM returns a delayed signature after timeout
+
+- **Initial state:** Sign request may have reached HSM; caller has timed out and cannot determine whether signature bytes exist.
+- **Event sequence:** HSM completes later and returns the signature to a restarted Worker, callback, or queue.
+- **Safety risk:** Stale Release authorization or expired-lease Freshness bytes may be returned after the operation/gate was considered finished.
+- **Current source can prevent:** Test adapter rechecks the issue lease and response/delegation time after its simulated signing delay.
+- **Current source cannot prevent:** No HSM provider is selected; cancellation, idempotency, status query, and exact-result retrieval are `NOT_VERIFIED`. Test callback is not physical HSM cancellation.
+- **Required gate / fence / checkpoint:** Stable operation ID/preimage digest, durable `IN_DOUBT`, current epoch/fence check, and universal output finalizer. Physical cancel is optional only if logical non-delivery is proved.
+- **Safe recovery conditions:** Query/retrieve the exact operation, validate its result, and finalize only if current policy permits; otherwise prove every delivery path rejects it.
+- **Recovery impossible / quarantine conditions:** Provider status is unknown and a bypass around finalizer cannot be excluded; retain `IN_DOUBT` without a time-based TTL.
+
+#### 7. A second Worker recovers the same operation after the first crashes
+
+- **Initial state:** Worker A may have submitted one external side effect; its durable operation/result status is unknown to Worker B.
+- **Event sequence:** Worker B retries after A crashes or loses its RPC response.
+- **Safety risk:** B may repeat HSM signing, R2 CAS, or Journal append with new bytes/IDs while A's result is still in flight.
+- **Current source can prevent:** The test adapter uses an attempt ID, reuses persisted authorization bytes, and reconciles selected simulated R2/Journal states.
+- **Current source cannot prevent:** Those states are in-memory/test-only; P1 signer and external-provider contracts do not establish cross-Worker idempotency or exact status retrieval.
+- **Required gate / fence / checkpoint:** Shared durable operation ID+digest, one recovery owner/fence, provider idempotency/status, and external anti-rollback witness.
+- **Safe recovery conditions:** B reads the same operation record and returns/reconciles the exact prior result; only one owner may advance its state.
+- **Recovery impossible / quarantine conditions:** Provider cannot identify the original operation or exact result; B must not resubmit a semantically changed operation.
+
+#### 8. `IN_DOUBT` Freshness issue remains while Release is requested
+
+- **Initial state:** Freshness signing may be in flight or have produced an undelivered result; no terminal status/finalization evidence exists.
+- **Event sequence:** Release tries to set `writer_pending` or advance R2 while the Freshness issue outcome is unresolved.
+- **Safety risk:** Release could advance while a stale signer result remains deliverable, or Freshness could be acknowledged without knowing whether the post-sign lease check/finalizer ran.
+- **Current source can prevent:** Test adapter holds/releases an in-memory lease and rejects a delayed signature after the lease expires.
+- **Current source cannot prevent:** There is no Production `IN_DOUBT` record, HSM status contract, universal finalizer, or proof that late output cannot bypass the DO.
+- **Required gate / fence / checkpoint:** Persist nonterminal issue state; Release waits until exact issue completion or logical revocation under an independent current fence.
+- **Safe recovery conditions:** Exact terminal provider status/result is known, or rollback-resistant finalization guarantees late bytes cannot be delivered; then clear only the matching operation.
+- **Recovery impossible / quarantine conditions:** Neither condition can be proved. The issue may block Release indefinitely; no automatic TTL is permitted.
+
+#### 9. Release recovery and Freshness recovery start concurrently
+
+- **Initial state:** Release recovery has an ambiguous external step while a Freshness retry/recovery is also requested.
+- **Event sequence:** Both Workers read state and attempt R2/Journal/signer operations before either recovery is recorded as owner.
+- **Safety risk:** Recovery can race itself, duplicate external effects, or allow Freshness against an unreconciled Release head.
+- **Current source can prevent:** Test adapter `beginRecovery` sets `recovery_pending`/`writer_pending` and denies new issue leases in its single in-memory coordinator.
+- **Current source cannot prevent:** No Production coordinator or cross-Worker recovery lock exists; recovery precedence/ownership is not specified by a provider contract.
+- **Required gate / fence / checkpoint:** One durable recovery owner and epoch/fence, serialized transitions, and one external call at a time with persisted intent.
+- **Safe recovery conditions:** Admit one exact recovery operation; Freshness remains denied until Release/R2/Journal agree. The policy choosing recovery priority must be human-approved.
+- **Recovery impossible / quarantine conditions:** Both recovery attempts may have performed side effects or their owner/fence cannot be identified; freeze both and reconcile externally.
+
+#### 10. DO, R2, and Journal state are mutually inconsistent
+
+- **Initial state:** Current DO projection, R2 pointer/snapshot, and Journal head do not agree in generation, digest, ETag, or exact record.
+- **Event sequence:** Freshness, Release, or repair is requested while no provider-independent ordering proof identifies the authoritative result.
+- **Safety risk:** Majority voting or selecting the newest timestamp can expose an uncommitted Manifest, erase a committed Release, or sign stale Freshness.
+- **Current source can prevent:** Test adapter checks for head/pointer/DO mismatch and fails closed before its simulated issue/commit transitions.
+- **Current source cannot prevent:** No Production Journal/trusted append metadata or rollback witness exists to adjudicate conflicts.
+- **Required gate / fence / checkpoint:** Quarantine every writer and issue route; compare against an independent authenticated Journal/checkpoint and exact immutable bytes.
+- **Safe recovery conditions:** A verified `R_LP` record and independent position identify the committed generation, and its referenced R2 snapshot can be validated before repairing projections.
+- **Recovery impossible / quarantine conditions:** Journal authority, trusted append position, or witness is ambiguous or rolled back with the other stores; remain quarantined for human investigation.
 
 ### 15.7 Recovery order, decisions, and readiness
 
