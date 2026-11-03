@@ -3,7 +3,8 @@
   "description": "permissions that were migrated from v1",
   "local": true,
   "windows": [
-    "main"
+    "main",
+    "debug"
   ],
   "permissions": [
     "core:default",
@@ -47,6 +48,7 @@
     "process:default",
     "process:allow-restart",
     "autostart:default",
-    "notification:default"
+    "notification:default",
+    "allow-app-commands"
   ]
 }

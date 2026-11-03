@@ -63,6 +63,7 @@ const DEFAULT_SERVER_LIST: { [key: string]: string } = {
 
 function Start() {
   createEffect(location_route);
+  const [isLaunching, setIsLaunching] = createSignal<boolean>(false);
 
   const [runProxyServer, setRunProxyServer] = createSignal<boolean>(
     Boolean(launch_options["run_proxy_server"]),
@@ -204,15 +205,37 @@ function Start() {
     return 1;
   });
 
-  const start_button_class = createMemo(() => {
-    if (
+  const isStartDisabled = createMemo(() => {
+    return (
+      isLaunching() ||
       proxyServerHealth() == -1 ||
       pacServerHealth() == -1 ||
       run_proxy_flag() == -1
-    )
+    );
+  });
+
+  const start_button_class = createMemo(() => {
+    if (isStartDisabled()) {
       return "btn w-full btn-disabled btn-primary";
+    }
     return "btn w-full btn-primary border-primary-content";
   });
+
+  const handleStart = async (e: MouseEvent) => {
+    e.preventDefault();
+    if (isStartDisabled()) return;
+
+    setIsLaunching(true);
+
+    try {
+      await invoke("launch_with_options", { options: launch_options });
+    } catch (err) {
+      console.error("Failed to launch with options:", err);
+    } finally {
+      setIsLaunching(false);
+      window.location.href = "/app";
+    }
+  };
 
   const auto_listen = createAsyncStore<string>(async () => {
     const response_promise = invoke<string>("get_kc_server_name")
@@ -586,16 +609,17 @@ function Start() {
           </div>
           <div class="h-4" />
           <div class="flex justify-center mx-4" id="start-button">
-            <a
-              role="button"
+            <button
+              type="button"
               class={start_button_class()}
-              href="/app"
-              onClick={() => {
-                invoke("launch_with_options", { options: launch_options });
-              }}
+              disabled={isStartDisabled()}
+              onClick={handleStart}
             >
-              Start
-            </a>
+              <Show when={isLaunching()} fallback="Start">
+                <span class="loading loading-spinner loading-sm mr-2" />
+                Launching...
+              </Show>
+            </button>
           </div>
           <div class="h-12" />
         </div>

@@ -52,14 +52,12 @@ pub async fn launch_with_options(
                             .expect_or_log("failed to convert str")
                             .to_string();
 
-                        let Some(period_tag) = supabase::get_period_tag().await else {
-                            tracing::error!("failed to launch proxy: kc-period tag could not be determined");
-                            crate::notify::show(
-                                window.app_handle(),
-                                "FUSOU - 起動エラー",
-                                "メンテナンス期間タグ(kc-period)の取得に失敗したため、プロキシの起動を中止しました。",
-                            );
-                            return Err(());
+                        let period_tag = match supabase::get_period_tag().await {
+                            Some(tag) => tag,
+                            None => {
+                                tracing::warn!("kc-period tag could not be determined; using fallback directory for local proxy storage (cloud upload is suspended)");
+                                "unknown-period".to_string()
+                            }
                         };
 
                         #[cfg(dev)]
@@ -124,8 +122,13 @@ pub async fn launch_with_options(
                         match addr {
                             Ok(addr) => Some(addr),
                             Err(e) => {
-                                tracing::error!("Error: {e}");
-                                return Err(());
+                                tracing::error!("failed to start proxy: {e}");
+                                crate::notify::show(
+                                    window.app_handle(),
+                                    "FUSOU - プロキシ起動エラー",
+                                    &format!("プロキシの起動に失敗しました: {e}"),
+                                );
+                                None
                             }
                         }
                     } else {
@@ -184,6 +187,8 @@ pub async fn launch_with_options(
                         .get_browser();
                     create_external_window(window.app_handle(), Some(browser), false);
                 }
+            } else {
+                create_external_window(window.app_handle(), None, true);
             }
         }
     }

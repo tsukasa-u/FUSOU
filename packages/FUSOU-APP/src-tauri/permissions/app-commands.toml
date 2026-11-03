@@ -1,0 +1,40 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Allows main window to invoke all application commands."
+commands.allow = [
+  "get_mst_ships",
+  "get_mst_slot_items",
+  "get_slot_items",
+  "get_mst_equip_exslot_ships",
+  "get_mst_slotitem_equip_types",
+  "get_mst_equip_ships",
+  "get_mst_stypes",
+  "get_mst_useitems",
+  "launch_with_options",
+  "check_pac_server_health",
+  "check_proxy_server_health",
+  "set_refresh_token",
+  "check_open_window",
+  "get_app_theme",
+  "get_app_font",
+  "get_kc_server_name",
+  "get_access_token",
+  "get_user_tokens",
+  "check_supabase_session_health",
+  "force_local_sign_out",
+  "perform_snapshot_sync",
+  "retry_pending_uploads_now",
+  "retry_pending_upload_item_now",
+  "delete_pending_upload_item",
+  "get_pending_upload_retry_status",
+  "get_ship_growth_suppression_status",
+  "get_quest_tree_suppression_status",
+  "get_remodel_suppression_status",
+  "get_all_logs",
+  "open_debug_window",
+  "close_debug_window",
+  "show_splashscreen",
+  "close_splashscreen",
+  "read_emit_file"
+]
+

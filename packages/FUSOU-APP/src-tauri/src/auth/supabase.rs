@@ -13,7 +13,7 @@ static PERIOD_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 static LAST_NOTIFY_TIMESTAMP_SECS: AtomicI64 = AtomicI64::new(0);
 
 const NOTIFY_INTERVAL_SECS: i64 = 60;
-const MAX_FETCH_ATTEMPTS: usize = 3;
+const MAX_FETCH_ATTEMPTS: usize = 2;
 
 /// Returns the current kc-period tag (e.g. "2026-10-14").
 /// If not yet cached, attempts to fetch it via API with retry.
@@ -121,9 +121,10 @@ fn get_period_endpoint() -> &'static str {
 fn get_period_http_client() -> &'static Client {
     PERIOD_HTTP_CLIENT.get_or_init(|| {
         Client::builder()
+            .no_proxy()
             .user_agent("FUSOU-APP/period-fetcher")
-            .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(5))
             .build()
             .expect("failed to build kc period reqwest client")
     })
