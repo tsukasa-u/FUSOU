@@ -587,7 +587,7 @@ export function EquipmentListComponent() {
     return (
       <thead>
         <tr class="flex mt-1">
-          <th class="w-10 flex bg-base-100 z-[4] sticky left-0">{sort_window_element}</th>
+          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">{sort_window_element}</th>
           <th class="w-48 bg-base-100 z-[4] sticky left-10">{search_name_window_element}</th>
           <Show when={check_equip_property["Equip Type"]}>
             <th class="w-[96px]">{set_equip_type_window_element}</th>
