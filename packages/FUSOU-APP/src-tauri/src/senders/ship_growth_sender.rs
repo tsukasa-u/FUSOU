@@ -300,7 +300,10 @@ impl ShipGrowthSender {
         let caps_hash = Self::caps_suppression_hash(snapshot);
 
         tracing::debug!("ship_growth_sender: fetching period tag");
-        let period_tag = crate::auth::supabase::get_period_tag().await;
+        let Some(period_tag) = crate::auth::supabase::get_period_tag().await else {
+            tracing::warn!("ship_growth_sender: kc-period tag is unavailable; skipping upload to protect data integrity");
+            return Err("kc-period tag is unavailable".into());
+        };
         tracing::debug!(period_tag = %period_tag, "ship_growth_sender: period tag resolved");
         // bounds are period-scoped: clear on period_tag OR table version change
         self.bounds_cache.rotate_scope(Some(&format!(

@@ -145,7 +145,10 @@ impl QuestTreeSender {
         let payload_hash = Self::payload_hash(packet);
         let event_type = Self::packet_event_type(packet).to_string();
 
-        let period_tag = crate::auth::supabase::get_period_tag().await;
+        let Some(period_tag) = crate::auth::supabase::get_period_tag().await else {
+            tracing::warn!("quest_tree_sender: kc-period tag is unavailable; skipping upload to protect data integrity");
+            return Err("kc-period tag is unavailable".into());
+        };
         // quest tree data is cross-period: only invalidate on table version change
         self.request_cache
             .rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));

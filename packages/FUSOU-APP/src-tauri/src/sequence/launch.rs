@@ -52,7 +52,15 @@ pub async fn launch_with_options(
                             .expect_or_log("failed to convert str")
                             .to_string();
 
-                        let period_tag = supabase::get_period_tag().await;
+                        let Some(period_tag) = supabase::get_period_tag().await else {
+                            tracing::error!("failed to launch proxy: kc-period tag could not be determined");
+                            crate::notify::show(
+                                window.app_handle(),
+                                "FUSOU - 起動エラー",
+                                "メンテナンス期間タグ(kc-period)の取得に失敗したため、プロキシの起動を中止しました。",
+                            );
+                            return Err(());
+                        };
 
                         #[cfg(dev)]
                         let proxy_base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

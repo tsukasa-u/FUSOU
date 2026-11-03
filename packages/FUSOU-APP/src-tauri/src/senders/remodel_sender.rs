@@ -131,7 +131,10 @@ impl RemodelSender {
         let p_hash = Self::payload_hash(packet);
         let evt = Self::event_type(packet);
 
-        let period_tag = crate::auth::supabase::get_period_tag().await;
+        let Some(period_tag) = crate::auth::supabase::get_period_tag().await else {
+            tracing::warn!("remodel_sender: kc-period tag is unavailable; skipping upload to protect data integrity");
+            return Err("kc-period tag is unavailable".into());
+        };
         // remodel data is cross-period: only invalidate on table version change
         self.request_cache
             .rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
