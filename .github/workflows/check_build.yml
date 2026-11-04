@@ -23,6 +23,13 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout FUSOU-TESTDATA
+        uses: actions/checkout@v4
+        with:
+          repository: tsukasa-u/FUSOU-TESTDATA
+          path: FUSOU-TESTDATA
+      - name: Link FUSOU-TESTDATA to parent directory
+        run: ln -s "$GITHUB_WORKSPACE/FUSOU-TESTDATA" "$GITHUB_WORKSPACE/../FUSOU-TESTDATA"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
