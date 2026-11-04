@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const JsonRecordSchema = z.record(z.unknown());
+export const JsonRecordSchema = z.record(z.string(), z.unknown());
 
 const LegacyQueueMessageSchema = z.object({
   batched: z.literal(false).optional(),
@@ -73,8 +73,9 @@ const FingerprintEntrySchema = z.union([
 ]);
 
 export const FingerprintVersionMapSchema = z.record(
+  z.string(),
   z.object({
-    tables: z.record(FingerprintEntrySchema),
+    tables: z.record(z.string(), FingerprintEntrySchema),
   }),
 );
 

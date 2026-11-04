@@ -3,7 +3,7 @@ import { z } from "zod";
 export type MasterDataJsonResponse = z.infer<typeof MasterDataJsonResponseSchema>;
 export const MasterDataJsonResponseSchema = z
   .object({
-    records: z.array(z.record(z.unknown())).optional(),
+    records: z.array(z.record(z.string(), z.unknown())).optional(),
     period_tag: z.string().optional(),
     period_revision: z.number().int().optional(),
     table_version: z.string().optional(),

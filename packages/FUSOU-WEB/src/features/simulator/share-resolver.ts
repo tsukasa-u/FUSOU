@@ -22,8 +22,8 @@ const ResolveApiResponseSchema = z
     ok: z.boolean(),
     key: z.string().optional(),
     originalUrl: z.string().optional(),
-    dataPayload: z.record(z.unknown()).optional(),
-    snapshotPayload: z.record(z.unknown()).nullable().optional(),
+    dataPayload: z.record(z.string(), z.unknown()).optional(),
+    snapshotPayload: z.record(z.string(), z.unknown()).nullable().optional(),
     error: z.string().optional(),
   })
   .passthrough();

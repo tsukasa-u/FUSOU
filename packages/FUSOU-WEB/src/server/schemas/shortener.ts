@@ -2,8 +2,8 @@ import { z } from "zod";
 
 export const SnapshotPayloadSchema = z
   .object({
-    snapshotShips: z.record(z.unknown()).optional(),
-    snapshotSlotItems: z.record(z.unknown()).optional(),
+    snapshotShips: z.record(z.string(), z.unknown()).optional(),
+    snapshotSlotItems: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 

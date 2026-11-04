@@ -31,7 +31,7 @@ export const MAX_SHIP_GROWTH_JSON_BYTES = 16 * 1024 * 1024;
 const ManifestSchema = z.object({
   schema_version: z.literal(1),
   generation: z.string().min(1),
-  objects: z.record(z.string().startsWith(`${SHIP_GROWTH_SNAPSHOT_PREFIX}generations/`)),
+  objects: z.record(z.string(), z.string().startsWith(`${SHIP_GROWTH_SNAPSHOT_PREFIX}generations/`)),
 });
 type SnapshotManifest = z.infer<typeof ManifestSchema>;
 class SnapshotPublicationConflict extends Error {}

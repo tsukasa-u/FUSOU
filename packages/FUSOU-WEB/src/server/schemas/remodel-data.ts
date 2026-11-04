@@ -108,7 +108,7 @@ const RemodelJsonValueSchema: z.ZodType<RemodelJsonValue> = z.lazy(() =>
     z.number().finite(),
     z.string(),
     z.array(RemodelJsonValueSchema),
-    z.record(RemodelJsonValueSchema),
+    z.record(z.string(), RemodelJsonValueSchema),
   ]),
 );
 
@@ -195,7 +195,7 @@ export const ValidatedRemodelDataIngestBodySchema =
 
     if (!datasetId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["dataset_id"],
         message: "dataset_id is required",
       });
@@ -203,14 +203,14 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!PublicIdSchema.safeParse(datasetId).success) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["dataset_id"],
         message: "dataset_id must be a UUID v4 public_id",
       });
     }
     if (!requestId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["request_id"],
         message: "request_id is required",
       });
@@ -218,7 +218,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["payload_hash"],
         message: "payload_hash must be a valid 64-char SHA-256 hex string",
       });
@@ -226,7 +226,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!VALID_EVENT_TYPES.has(eventType)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["event_type"],
         message: "event_type must be one of: slotlist, detail",
       });
@@ -234,7 +234,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!isValidInt(schemaVersion)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["schema_version"],
         message: "schema_version must be an integer",
       });
@@ -242,7 +242,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (schemaVersion !== REMODEL_INGEST_SCHEMA_VERSION) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["schema_version"],
         message: `unsupported schema_version: ${schemaVersion} (latest=${REMODEL_INGEST_SCHEMA_VERSION})`,
       });
@@ -250,7 +250,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!isValidPeriodTagDate(periodTag)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["period_tag"],
         message: "period_tag must be a valid calendar date",
       });
@@ -258,7 +258,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!isValidInt(timestampMs) || timestampMs <= 0) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["timestamp_ms"],
         message: "timestamp_ms must be a positive integer",
       });
@@ -272,7 +272,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         secretaryShipMasterId <= 0
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["secretary_ship_master_id"],
           message: "secretary_ship_master_id must be a positive integer",
         });
@@ -285,7 +285,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         weekdayJst > 6
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["weekday_jst"],
           message: "weekday_jst must be 0-6",
         });
@@ -294,7 +294,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       const entries = body["entries"];
       if (!Array.isArray(entries) || entries.length === 0) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["entries"],
           message: "entries array is required and must not be empty",
         });
@@ -302,7 +302,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       }
       if (entries.length > 2000) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["entries"],
           message: "entries array exceeds maximum of 2000 elements",
         });
@@ -329,7 +329,7 @@ export const ValidatedRemodelDataIngestBodySchema =
           !isValidInt(entry["remodel_step_id"])
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entries", index, "remodel_step_id"],
             message: `entries[${index}].remodel_step_id must be an integer or null`,
           });
@@ -340,7 +340,7 @@ export const ValidatedRemodelDataIngestBodySchema =
           !isValidInt(entry["remodel_level"])
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entries", index, "remodel_level"],
             message: `entries[${index}].remodel_level must be an integer or null`,
           });
@@ -348,7 +348,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         }
         if (!isValidInt(entry["remodel_level"])) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entries", index, "remodel_level"],
             message: `entries[${index}].remodel_level is required and must be an integer`,
           });
@@ -356,7 +356,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         }
         if (entry["remodel_level"] < 0 || entry["remodel_level"] > 10) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entries", index, "remodel_level"],
             message: `entries[${index}].remodel_level must be between 0 and 10`,
           });
@@ -365,7 +365,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         for (const field of intFields) {
           if (!isValidInt(entry[field])) {
             context.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               path: ["entries", index, field],
               message: `entries[${index}].${field} must be an integer`,
             });
@@ -379,7 +379,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     const slotitemMasterId = body["slotitem_master_id"];
     if (!isValidInt(slotitemMasterId) || slotitemMasterId <= 0) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["slotitem_master_id"],
         message: "slotitem_master_id must be a positive integer",
       });
@@ -387,7 +387,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!isValidInt(body["remodel_id"])) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["remodel_id"],
         message: "remodel_id must be an integer",
       });
@@ -398,7 +398,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       !isValidInt(body["remodel_step_id"])
     ) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["remodel_step_id"],
         message: "remodel_step_id must be an integer or null",
       });
@@ -409,7 +409,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       !isValidInt(body["remodel_level"])
     ) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["remodel_level"],
         message: "remodel_level must be an integer or null",
       });
@@ -417,7 +417,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!isValidInt(body["remodel_level"])) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["remodel_level"],
         message: "remodel_level is required and must be an integer",
       });
@@ -429,7 +429,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (remodelLevel < 0 || remodelLevel > 10) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["remodel_level"],
         message: "remodel_level must be between 0 and 10",
       });
@@ -440,7 +440,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       !isValidInt(body["certain_remodelkit"])
     ) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["certain_buildkit"],
         message: "certain_buildkit and certain_remodelkit must be integers",
       });
@@ -448,7 +448,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
     if (!isValidInt(body["change_flag"])) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["change_flag"],
         message: "change_flag must be an integer",
       });
@@ -459,7 +459,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       (body["req_slot_num"] != null && !isValidInt(body["req_slot_num"]))
     ) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["req_slot_id"],
         message: "req_slot_id and req_slot_num must be integers or null",
       });
@@ -473,7 +473,7 @@ export const ValidatedRemodelDataIngestBodySchema =
     ]) {
       if (body[field] != null && !isValidInt(body[field])) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: [field],
           message: `${field} must be an integer or null`,
         });

@@ -44,13 +44,13 @@ export const SokuSpeedUpgradeResponseSchema = z
     ok: z.literal(true),
     period_tag: z.string().min(1).nullable(),
     table_version: z.string().min(1).nullable(),
-    data: z.record(SokuSpeedAggregateEntrySchema.array()),
+    data: z.record(z.string(), SokuSpeedAggregateEntrySchema.array()),
   })
   .passthrough()
   .superRefine((response, context) => {
     if ((response.period_tag === null) !== (response.table_version === null)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["period_tag"],
         message: "period_tag and table_version must both be null or present",
       });
@@ -181,54 +181,54 @@ export const ValidatedSokuSpeedIngestBodySchema =
 
     if (!datasetId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["dataset_id"],
         message: "dataset_id is required",
       });
     } else if (!PublicIdSchema.safeParse(datasetId).success) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["dataset_id"],
         message: "dataset_id must be a UUID v4 public_id",
       });
     }
     if (!requestId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["request_id"],
         message: "request_id is required",
       });
     }
     if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["payload_hash"],
         message: "payload_hash must be a valid 64-char SHA-256 hex string",
       });
     }
     if (eventType !== "snapshot") {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["event_type"],
         message: 'event_type must be "snapshot"',
       });
     }
     if (!body.period_tag || !isValidPeriodTagDate(periodTag)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["period_tag"],
         message: "Invalid period_tag (expected YYYY-MM-DD)",
       });
     }
     if (!body.table_version) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["table_version"],
         message: "table_version is required",
       });
     } else if (!/^\d+\.\d+(?:\.\d+)?$/.test(tableVersion)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["table_version"],
         message:
           "table_version must be in MAJOR.MINOR or MAJOR.MINOR.PATCH format (e.g. '0.5.1')",
@@ -237,7 +237,7 @@ export const ValidatedSokuSpeedIngestBodySchema =
 
     if (!body.ships || body.ships.length === 0) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["ships"],
         message: "ships array is required and must not be empty",
       });
@@ -254,7 +254,7 @@ export const ValidatedSokuSpeedIngestBodySchema =
         !isValidInteger(observedSpeed)
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["ships", index],
           message: `ships[${index}] has invalid numeric fields`,
         });
@@ -262,21 +262,21 @@ export const ValidatedSokuSpeedIngestBodySchema =
       }
       if (![5, 10, 15, 20].includes(observedSpeed)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["ships", index, "soku_observed"],
           message: `ships[${index}].soku_observed must be one of 5, 10, 15, 20`,
         });
       }
       if (masterId <= 0) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["ships", index, "master_id"],
           message: `ships[${index}].master_id must be > 0`,
         });
       }
       if (level < 1 || level > 300) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["ships", index, "lv"],
           message: `ships[${index}].lv must be between 1 and 300`,
         });
@@ -295,7 +295,7 @@ export const ValidatedSokuSpeedIngestBodySchema =
         })
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["ships", index, "slots"],
           message: `ships[${index}].slots has invalid fields`,
         });
@@ -311,7 +311,7 @@ export const ValidatedSokuSpeedIngestBodySchema =
           !isValidInteger(exslot.alv)
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["ships", index, "exslot"],
             message: `ships[${index}].exslot has invalid fields`,
           });
@@ -322,7 +322,7 @@ export const ValidatedSokuSpeedIngestBodySchema =
       const hasExslot = ship.exslot !== undefined && ship.exslot !== null;
       if (!hasSlots && !hasExslot) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["ships", index],
           message: `ships[${index}] has no slots or exslot (speed synergy requires at least one item)`,
         });

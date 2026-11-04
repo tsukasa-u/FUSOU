@@ -17,16 +17,16 @@ const brotliDecompressAsync = node_util.promisify(node_zlib.brotliDecompress);
 export const MAX_SNAPSHOT_JSON_BYTES = 16 * 1024 * 1024;
 const SnapshotSchema = z.object({
   success: z.literal(true),
-  battles: z.array(z.record(z.unknown())),
-  cells: z.array(z.record(z.unknown())).optional(),
-  enemy_decks: z.array(z.record(z.unknown())).optional(),
-  enemy_ships: z.array(z.record(z.unknown())).optional(),
+  battles: z.array(z.record(z.string(), z.unknown())),
+  cells: z.array(z.record(z.string(), z.unknown())).optional(),
+  enemy_decks: z.array(z.record(z.string(), z.unknown())).optional(),
+  enemy_ships: z.array(z.record(z.string(), z.unknown())).optional(),
 }).passthrough();
 const DetailSchema = z.object({
   env_uuid: z.string(),
   period_tag: z.string(),
   table_version: z.string(),
-  tables: z.record(z.array(z.record(z.unknown()))),
+  tables: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),
 }).passthrough();
 
 async function readSnapshot(object: R2ObjectBody): Promise<unknown> {

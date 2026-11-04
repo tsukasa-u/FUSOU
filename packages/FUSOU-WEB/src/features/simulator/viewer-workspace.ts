@@ -41,7 +41,7 @@ const StoredViewerEntrySchema = z
       z.boolean(),
       z.null(),
       z.array(z.unknown()),
-      z.record(z.unknown()),
+      z.record(z.string(), z.unknown()),
     ]),
     updatedAt: z.number().finite(),
     pinned: z.boolean(),

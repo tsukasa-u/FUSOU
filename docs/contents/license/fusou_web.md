@@ -107,24 +107,24 @@ FUSOU-WEB は **Astro**, **SolidJS**, **Cloudflare Workers** をベースに構�
 
 ---
 
-## 5. 全本番依存パッケージ一覧 (476 パッケージ)
+## 5. 全本番依存パッケージ一覧 (521 パッケージ)
 
 FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッジワーカー）に含まれるすべての依存パッケージ一覧です。
 
 <details>
-<summary><strong>全 476 パッケージの一覧を展開する (クリックして表示)</strong></summary>
+<summary><strong>全 521 パッケージの一覧を展開する (クリックして表示)</strong></summary>
 
 | パッケージ名 | バージョン | ライセンス |
 | :--- | :--- | :--- |
 | `@antfu/install-pkg` | `1.1.0` | MIT |
-| `@astrojs/cloudflare` | `14.2.6` | MIT |
+| `@astrojs/cloudflare` | `14.3.4` | MIT |
 | `@astrojs/compiler-binding` | `0.4.1` | MIT |
 | `@astrojs/compiler-binding-win32-x64-msvc` | `0.4.1` | MIT |
 | `@astrojs/compiler-rs` | `0.4.1` | MIT |
-| `@astrojs/internal-helpers` | `0.10.1, 0.10.4, 0.11.0` | MIT |
-| `@astrojs/markdown-remark` | `7.2.1` | MIT |
-| `@astrojs/markdown-satteri` | `0.3.8` | MIT |
-| `@astrojs/prism` | `4.0.2` | MIT |
+| `@astrojs/internal-helpers` | `0.11.0, 0.12.0, 0.13.0` | MIT |
+| `@astrojs/markdown-remark` | `7.3.5` | MIT |
+| `@astrojs/markdown-satteri` | `0.4.1` | MIT |
+| `@astrojs/prism` | `4.0.2, 4.1.2` | MIT |
 | `@astrojs/telemetry` | `3.3.3` | MIT |
 | `@astrojs/underscore-redirects` | `1.0.4` | MIT |
 | `@babel/helper-string-parser` | `7.29.7` | MIT |
@@ -161,24 +161,25 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `@jridgewell/sourcemap-codec` | `1.6.0` | MIT |
 | `@jridgewell/trace-mapping` | `0.3.9, 0.3.31` | MIT |
 | `@kurkle/color` | `0.3.4` | MIT |
+| `@mdx-js/mdx` | `3.1.1` | MIT |
 | `@mermaid-js/parser` | `2.0.0` | MIT |
 | `@nanostores/persistent` | `1.2.0` | MIT |
 | `@nanostores/solid` | `1.1.1` | MIT |
 | `@oslojs/encoding` | `1.1.0` | MIT |
-| `@oxc-project/types` | `0.150.0` | MIT |
+| `@oxc-project/types` | `0.156.0` | MIT |
 | `@poppinss/colors` | `4.1.6` | MIT |
 | `@poppinss/dumper` | `0.6.5` | MIT |
 | `@poppinss/exception` | `1.2.3` | MIT |
-| `@rolldown/binding-win32-x64-msvc` | `1.2.9` | MIT |
+| `@rolldown/binding-win32-x64-msvc` | `1.2.16` | MIT |
 | `@rolldown/pluginutils` | `1.0.1` | MIT |
-| `@shikijs/core` | `4.4.3` | MIT |
-| `@shikijs/engine-javascript` | `4.4.3` | MIT |
-| `@shikijs/engine-oniguruma` | `4.4.3` | MIT |
-| `@shikijs/langs` | `4.4.3` | MIT |
-| `@shikijs/primitive` | `4.4.3` | MIT |
-| `@shikijs/themes` | `4.4.3` | MIT |
-| `@shikijs/types` | `4.4.3` | MIT |
-| `@shikijs/vscode-textmate` | `10.0.2` | MIT |
+| `@shikijs/core` | `4.6.0` | MIT |
+| `@shikijs/engine-javascript` | `4.6.0` | MIT |
+| `@shikijs/engine-oniguruma` | `4.6.0` | MIT |
+| `@shikijs/langs` | `4.6.0` | MIT |
+| `@shikijs/primitive` | `4.6.0` | MIT |
+| `@shikijs/themes` | `4.6.0` | MIT |
+| `@shikijs/types` | `4.6.0` | MIT |
+| `@shikijs/vscode-textmate` | `10.1.0` | MIT |
 | `@sindresorhus/is` | `7.2.0` | MIT |
 | `@speed-highlight/core` | `1.2.15` | CC0-1.0 |
 | `@supabase/auth-js` | `2.86.0` | MIT |
@@ -222,25 +223,27 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `@types/d3-transition` | `3.0.9` | MIT |
 | `@types/d3-zoom` | `3.0.8` | MIT |
 | `@types/debug` | `4.1.12` | MIT |
-| `@types/estree` | `1.0.9` | MIT |
+| `@types/estree` | `1.0.10` | MIT |
 | `@types/estree-jsx` | `1.0.5` | MIT |
 | `@types/geojson` | `7946.0.16` | MIT |
 | `@types/hast` | `3.0.4, 3.0.5` | MIT |
 | `@types/katex` | `0.16.8` | MIT |
 | `@types/mdast` | `4.0.4` | MIT |
+| `@types/mdx` | `2.0.13` | MIT |
 | `@types/ms` | `2.1.0` | MIT |
 | `@types/nlcst` | `2.0.3` | MIT |
 | `@types/node` | `20.19.43, 22.20.4, 26.6.5` | MIT |
 | `@types/phoenix` | `1.6.6` | MIT |
 | `@types/react` | `19.2.7` | MIT |
 | `@types/trusted-types` | `2.0.7` | MIT |
-| `@types/unist` | `3.0.3` | MIT |
+| `@types/unist` | `2.0.11, 3.0.3` | MIT |
 | `@types/ws` | `8.18.1` | MIT |
 | `@ungap/structured-clone` | `1.3.3` | ISC |
 | `@upsetjs/venn.js` | `2.0.0` | MIT |
 | `@xyflow/react` | `12.10.0` | MIT |
 | `@xyflow/system` | `0.0.74` | MIT |
 | `acorn` | `8.19.0` | MIT |
+| `acorn-jsx` | `5.3.2` | MIT |
 | `am-i-vibing` | `0.4.0` | MIT |
 | `ansi-styles` | `4.3.0` | MIT |
 | `anymatch` | `3.1.3` | ISC |
@@ -249,7 +252,8 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `aria-query` | `5.3.2` | Apache-2.0 |
 | `array-back` | `6.2.2` | MIT |
 | `array-iterate` | `2.0.1` | MIT |
-| `astro` | `7.2.8` | MIT |
+| `astring` | `1.9.0` | MIT |
+| `astro` | `7.3.3` | MIT |
 | `axobject-query` | `4.1.0` | Apache-2.0 |
 | `bail` | `2.0.2` | MIT |
 | `blake3-wasm` | `2.1.5` | MIT |
@@ -261,12 +265,14 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `character-entities` | `2.0.2` | MIT |
 | `character-entities-html4` | `2.1.0` | MIT |
 | `character-entities-legacy` | `3.0.0` | MIT |
+| `character-reference-invalid` | `2.0.1` | MIT |
 | `chart.js` | `4.5.1` | MIT |
 | `chevrotain` | `11.1.2` | Apache-2.0 |
 | `chokidar` | `5.0.0` | MIT |
 | `ci-info` | `4.4.0` | MIT |
 | `classcat` | `5.0.5` | MIT |
 | `clsx` | `2.1.1` | MIT |
+| `collapse-white-space` | `2.1.0` | MIT |
 | `color-convert` | `2.0.1` | MIT |
 | `color-name` | `1.1.4` | MIT |
 | `comma-separated-tokens` | `2.0.3` | MIT |
@@ -326,19 +332,19 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `daisyui` | `5.7.0` | MIT |
 | `dayjs` | `1.11.23` | MIT |
 | `debug` | `4.4.3` | MIT |
-| `decode-named-character-reference` | `1.2.0, 1.3.0` | MIT |
+| `decode-named-character-reference` | `1.3.0` | MIT |
 | `defu` | `6.1.7` | MIT |
 | `delaunator` | `5.0.1` | ISC |
 | `dequal` | `2.0.3` | MIT |
 | `destr` | `2.0.5` | MIT |
 | `detect-libc` | `2.1.2` | Apache-2.0 |
-| `devalue` | `6.0.0` | MIT |
+| `devalue` | `6.0.3` | MIT |
 | `devlop` | `1.1.0` | MIT |
 | `diff` | `9.0.0` | BSD-3-Clause |
 | `dom-serializer` | `2.0.0` | MIT |
 | `domelementtype` | `2.3.0` | BSD-2-Clause |
 | `domhandler` | `5.0.3` | BSD-2-Clause |
-| `dompurify` | `3.4.16` | (MPL-2.0 OR Apache-2.0) |
+| `dompurify` | `3.4.17` | (MPL-2.0 OR Apache-2.0) |
 | `domutils` | `3.2.2` | BSD-2-Clause |
 | `dset` | `3.1.4` | MIT |
 | `elkjs` | `0.9.3, 0.11.0` | EPL-2.0 |
@@ -346,15 +352,24 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `error-stack-parser-es` | `1.0.5` | MIT |
 | `es-module-lexer` | `2.3.2` | MIT |
 | `es-toolkit` | `1.52.0` | MIT |
+| `esast-util-from-estree` | `2.0.0` | MIT |
+| `esast-util-from-js` | `2.0.1` | MIT |
 | `esbuild` | `0.28.1, 0.28.2` | MIT |
 | `escape-string-regexp` | `5.0.0` | MIT |
+| `estree-util-attach-comments` | `3.0.0` | MIT |
+| `estree-util-build-jsx` | `3.0.1` | MIT |
+| `estree-util-is-identifier-name` | `3.0.0` | MIT |
+| `estree-util-scope` | `1.0.1` | MIT |
+| `estree-util-to-js` | `2.0.0` | MIT |
+| `estree-util-visit` | `2.0.0` | MIT |
+| `estree-walker` | `3.0.3` | MIT |
 | `eventemitter3` | `5.0.4` | MIT |
 | `extend` | `3.0.2` | MIT |
 | `fast-string-truncated-width` | `3.0.3` | MIT |
 | `fast-string-width` | `3.0.2` | MIT |
 | `fast-wrap-ansi` | `0.2.2` | MIT |
 | `fdir` | `6.5.0` | MIT |
-| `find-proc` | `0.1.0` | MIT |
+| `find-proc` | `0.2.0` | MIT |
 | `find-replace` | `5.0.2` | MIT |
 | `flatbuffers` | `25.9.23` | Apache-2.0 |
 | `flattie` | `1.1.1` | MIT |
@@ -372,7 +387,9 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `hast-util-is-element` | `3.0.0` | MIT |
 | `hast-util-parse-selector` | `4.0.0` | MIT |
 | `hast-util-raw` | `9.1.0` | MIT |
-| `hast-util-to-html` | `9.0.5` | MIT |
+| `hast-util-to-estree` | `3.1.3` | MIT |
+| `hast-util-to-html` | `9.0.6` | MIT |
+| `hast-util-to-jsx-runtime` | `2.3.7` | MIT |
 | `hast-util-to-parse5` | `8.0.1` | MIT |
 | `hast-util-to-text` | `4.0.2` | MIT |
 | `hast-util-whitespace` | `3.0.0` | MIT |
@@ -384,9 +401,14 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `http-cache-semantics` | `4.3.0` | BSD-2-Clause |
 | `iceberg-js` | `0.8.0` | MIT |
 | `iconv-lite` | `0.6.3` | MIT |
+| `inline-style-parser` | `0.2.7, 0.2.9` | MIT |
 | `internmap` | `1.0.1, 2.0.3` | ISC |
 | `iron-webcrypto` | `1.2.1` | MIT |
+| `is-alphabetical` | `2.0.1` | MIT |
+| `is-alphanumerical` | `2.0.1` | MIT |
+| `is-decimal` | `2.0.1` | MIT |
 | `is-docker` | `4.0.0` | MIT |
+| `is-hexadecimal` | `2.0.1` | MIT |
 | `is-plain-obj` | `4.1.0` | MIT |
 | `jiti` | `2.7.0` | MIT |
 | `jose` | `6.1.2` | MIT |
@@ -403,8 +425,9 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `lodash.camelcase` | `4.3.0` | MIT |
 | `longest-streak` | `3.1.0` | MIT |
 | `lru-cache` | `11.5.3` | BlueOak-1.0.0 |
-| `magic-string` | `1.4.1` | MIT |
+| `magic-string` | `1.4.5` | MIT |
 | `magicast` | `0.5.5` | MIT |
+| `markdown-extensions` | `2.0.0` | MIT |
 | `markdown-table` | `3.0.4` | MIT |
 | `marked` | `16.4.2` | MIT |
 | `mdast-util-definitions` | `6.0.0` | MIT |
@@ -417,6 +440,10 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `mdast-util-gfm-table` | `2.0.0` | MIT |
 | `mdast-util-gfm-task-list-item` | `2.0.0` | MIT |
 | `mdast-util-math` | `3.0.0` | MIT |
+| `mdast-util-mdx` | `3.0.0` | MIT |
+| `mdast-util-mdx-expression` | `2.0.1` | MIT |
+| `mdast-util-mdx-jsx` | `3.2.1` | MIT |
+| `mdast-util-mdxjs-esm` | `2.0.1` | MIT |
 | `mdast-util-phrasing` | `4.1.0` | MIT |
 | `mdast-util-to-hast` | `13.2.1` | MIT |
 | `mdast-util-to-markdown` | `2.1.2` | MIT |
@@ -434,8 +461,14 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `micromark-extension-gfm-tagfilter` | `2.0.0` | MIT |
 | `micromark-extension-gfm-task-list-item` | `2.1.0` | MIT |
 | `micromark-extension-math` | `3.1.0` | MIT |
+| `micromark-extension-mdx-expression` | `3.0.1` | MIT |
+| `micromark-extension-mdx-jsx` | `3.0.2` | MIT |
+| `micromark-extension-mdx-md` | `2.0.0` | MIT |
+| `micromark-extension-mdxjs` | `3.0.0` | MIT |
+| `micromark-extension-mdxjs-esm` | `3.0.0` | MIT |
 | `micromark-factory-destination` | `2.0.1` | MIT |
 | `micromark-factory-label` | `2.0.1` | MIT |
+| `micromark-factory-mdx-expression` | `2.0.3` | MIT |
 | `micromark-factory-space` | `2.0.1` | MIT |
 | `micromark-factory-title` | `2.0.1` | MIT |
 | `micromark-factory-whitespace` | `2.0.1` | MIT |
@@ -446,6 +479,7 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `micromark-util-decode-numeric-character-reference` | `2.0.2` | MIT |
 | `micromark-util-decode-string` | `2.0.1` | MIT |
 | `micromark-util-encode` | `2.0.1` | MIT |
+| `micromark-util-events-to-acorn` | `2.0.3` | MIT |
 | `micromark-util-html-tag-name` | `2.0.1` | MIT |
 | `micromark-util-normalize-identifier` | `2.0.1` | MIT |
 | `micromark-util-resolve-all` | `2.0.1` | MIT |
@@ -458,7 +492,7 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `mlly` | `1.8.2` | MIT |
 | `mrmime` | `2.0.1` | MIT |
 | `ms` | `2.1.3` | MIT |
-| `nanoid` | `3.3.19` | MIT |
+| `nanoid` | `3.3.20` | MIT |
 | `nanostores` | `1.1.0` | MIT |
 | `neotraverse` | `1.0.1` | MIT |
 | `nlcst-to-string` | `4.0.0` | MIT |
@@ -472,9 +506,10 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `oniguruma-parser` | `0.12.2` | MIT |
 | `oniguruma-to-es` | `4.3.6` | MIT |
 | `p-limit` | `7.3.3` | MIT |
-| `p-queue` | `9.3.3` | MIT |
+| `p-queue` | `9.3.5` | MIT |
 | `p-timeout` | `7.0.2` | MIT |
-| `package-manager-detector` | `1.8.0` | MIT |
+| `package-manager-detector` | `1.9.0` | MIT |
+| `parse-entities` | `4.0.2` | MIT |
 | `parse-latin` | `7.0.0` | MIT |
 | `parse5` | `7.3.0` | MIT |
 | `path-data-parser` | `0.1.0` | MIT |
@@ -484,32 +519,38 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `picocolors` | `1.1.1` | ISC |
 | `picomatch` | `2.3.2, 4.0.7` | MIT |
 | `pkg-types` | `1.3.1` | MIT |
-| `playwright` | `1.57.0` | Apache-2.0 |
-| `playwright-core` | `1.57.0` | Apache-2.0 |
+| `playwright` | `1.64.1` | Apache-2.0 |
+| `playwright-core` | `1.64.1` | Apache-2.0 |
 | `points-on-curve` | `0.2.0` | MIT |
 | `points-on-path` | `0.2.1` | MIT |
-| `postcss` | `8.5.28` | MIT |
+| `postcss` | `8.5.32` | MIT |
 | `prismjs` | `1.30.0` | MIT |
 | `process-ancestry` | `0.1.0` | MIT |
-| `property-information` | `7.1.0, 7.2.0` | MIT |
+| `property-information` | `7.2.0` | MIT |
 | `radix3` | `1.1.2` | MIT |
 | `react` | `19.2.0` | MIT |
 | `react-chartjs-2` | `5.3.1` | MIT |
 | `react-dom` | `19.2.0` | MIT |
 | `react-virtuoso` | `4.15.0` | MIT |
 | `readdirp` | `5.1.1` | MIT |
+| `recma-build-jsx` | `1.0.0` | MIT |
+| `recma-jsx` | `1.0.1` | MIT |
+| `recma-parse` | `1.0.0` | MIT |
+| `recma-stringify` | `1.0.0` | MIT |
 | `regex` | `6.1.0` | MIT |
 | `regex-recursion` | `6.0.2` | MIT |
 | `regex-utilities` | `2.3.0` | MIT |
 | `rehype-katex` | `7.0.1` | MIT |
 | `rehype-mermaid` | `3.0.0` | MIT |
 | `rehype-raw` | `7.0.0` | MIT |
+| `rehype-recma` | `1.0.0` | MIT |
 | `rehype-stringify` | `10.0.1` | MIT |
 | `remark-gfm` | `4.0.1` | MIT |
 | `remark-math` | `6.0.0` | MIT |
+| `remark-mdx` | `3.1.1` | MIT |
 | `remark-parse` | `11.0.0` | MIT |
 | `remark-rehype` | `11.1.2` | MIT |
-| `remark-smartypants` | `3.0.2` | MIT |
+| `remark-smartypants` | `3.0.3` | MIT |
 | `remark-stringify` | `11.0.0` | MIT |
 | `resolve-pkg-maps` | `1.0.0` | MIT |
 | `retext` | `9.0.0` | MIT |
@@ -517,27 +558,29 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `retext-smartypants` | `6.2.0` | MIT |
 | `retext-stringify` | `4.0.0` | MIT |
 | `robust-predicates` | `3.0.2` | Unlicense |
-| `rolldown` | `1.2.9` | MIT |
+| `rolldown` | `1.2.16` | MIT |
 | `roughjs` | `4.6.6` | MIT |
 | `rw` | `1.3.3` | BSD-3-Clause |
 | `safer-buffer` | `2.1.2` | MIT |
 | `satteri` | `0.10.5` | MIT |
 | `sax` | `1.6.1` | BlueOak-1.0.0 |
 | `scheduler` | `0.27.0` | MIT |
-| `semver` | `7.8.5` | ISC |
-| `seroval` | `1.6.7` | MIT |
+| `semver` | `7.8.6` | ISC |
+| `seroval` | `1.7.7` | MIT |
 | `seroval-plugins` | `1.5.6` | MIT |
 | `sharp` | `0.35.5` | Apache-2.0 |
-| `shiki` | `4.4.3` | MIT |
+| `shiki` | `4.6.0` | MIT |
 | `sisteransi` | `1.0.5` | MIT |
 | `smol-toml` | `1.9.1` | BSD-3-Clause |
 | `solid-chartjs` | `1.3.11` | MIT |
 | `solid-js` | `1.9.14` | MIT |
-| `source-map` | `0.6.1` | BSD-3-Clause |
+| `source-map` | `0.6.1, 0.7.6, 0.8.0` | BSD-3-Clause |
 | `source-map-js` | `1.2.2` | BSD-3-Clause |
 | `source-map-support` | `0.5.21` | MIT |
 | `space-separated-tokens` | `2.0.2` | MIT |
 | `stringify-entities` | `4.0.4` | MIT |
+| `style-to-js` | `1.1.21` | MIT |
+| `style-to-object` | `1.0.14, 2.0.2` | MIT |
 | `stylis` | `4.3.6` | MIT |
 | `supports-color` | `7.2.0, 10.2.2` | MIT |
 | `svgo` | `4.1.0` | MIT |
@@ -555,7 +598,7 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `ufo` | `1.6.4` | MIT |
 | `ultrahtml` | `1.7.0` | MIT |
 | `uncrypto` | `0.1.3` | MIT |
-| `undici` | `8.10.2` | MIT |
+| `undici` | `7.30.1, 8.12.3` | MIT |
 | `undici-types` | `6.21.0, 8.9.0` | MIT |
 | `unenv` | `2.0.0-rc.24` | MIT |
 | `unified` | `11.0.5` | MIT |
@@ -564,32 +607,34 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `unist-util-is` | `6.0.1` | MIT |
 | `unist-util-modify-children` | `4.0.0` | MIT |
 | `unist-util-position` | `5.0.0` | MIT |
+| `unist-util-position-from-estree` | `2.0.0` | MIT |
 | `unist-util-remove-position` | `5.0.0` | MIT |
 | `unist-util-stringify-position` | `4.0.0` | MIT |
-| `unist-util-visit` | `5.1.0` | MIT |
+| `unist-util-visit` | `5.2.0` | MIT |
 | `unist-util-visit-children` | `3.0.0` | MIT |
-| `unist-util-visit-parents` | `6.0.2` | MIT |
-| `unstorage` | `1.17.5` | MIT |
+| `unist-util-visit-parents` | `6.0.2, 6.1.0` | MIT |
+| `unstorage` | `1.17.6` | MIT |
 | `use-sync-external-store` | `1.6.0` | MIT |
 | `uuid` | `11.1.1` | MIT |
+| `verkit` | `0.4.1` | MIT |
 | `vfile` | `6.0.3` | MIT |
 | `vfile-location` | `5.0.3` | MIT |
 | `vfile-message` | `4.0.3` | MIT |
 | `virtua` | `0.41.5` | MIT |
-| `vite` | `8.3.0` | MIT |
+| `vite` | `8.3.5` | MIT |
 | `vitefu` | `1.1.3` | MIT |
 | `web-namespaces` | `2.0.1` | MIT |
 | `wordwrapjs` | `5.1.1` | MIT |
 | `workerd` | `1.20260918.1` | Apache-2.0 |
 | `wrangler` | `4.135.0` | MIT OR Apache-2.0 |
-| `ws` | `8.21.1` | MIT |
+| `ws` | `8.22.1` | MIT |
 | `xxhash-wasm` | `1.1.0` | MIT |
-| `yaml` | `2.8.3` | ISC |
+| `yaml` | `2.9.1` | ISC |
 | `yargs-parser` | `22.0.0` | ISC |
 | `yocto-queue` | `1.2.2` | MIT |
 | `youch` | `4.1.0-beta.10` | MIT |
 | `youch-core` | `0.3.3` | MIT |
-| `zod` | `3.25.76, 4.6.5` | MIT |
+| `zod` | `4.6.7` | MIT |
 | `zustand` | `4.5.7` | MIT |
 | `zwitch` | `2.0.4` | MIT |
 

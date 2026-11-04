@@ -49,7 +49,7 @@ const SpriteAtlasFrameSchema = z
 
 export const SpriteAtlasSchema = z
   .object({
-    frames: z.record(SpriteAtlasFrameSchema),
+    frames: z.record(z.string(), SpriteAtlasFrameSchema),
     meta: z
       .object({
         size: z

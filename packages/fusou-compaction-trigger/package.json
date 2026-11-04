@@ -53,7 +53,7 @@
     "@dotenvx/dotenvx": "^1.75.1",
     "@fusou/compaction-core": "workspace:*",
     "@trigger.dev/sdk": "4.6.3",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@trigger.dev/build": "4.6.3",

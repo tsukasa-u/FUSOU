@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use reqwest::Client;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use tracing::{debug, info, warn};
 
 /// Metadata for a dataset file stored in R2

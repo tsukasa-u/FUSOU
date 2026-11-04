@@ -1,4 +1,4 @@
-﻿// ── Air Base Rendering / Fleet Section UI ──
+// ── Air Base Rendering / Fleet Section UI ──
 
 import {
   setAirbaseSectionVisible,
@@ -23,7 +23,7 @@ let displaySettingsLoaded = false;
 
 const DisplaySettingsSchema = z
   .object({
-    fleets: z.record(z.boolean()).optional(),
+    fleets: z.record(z.string(), z.boolean()).optional(),
     showAirbase: z.boolean().optional(),
     airbaseCount: z.number().finite().optional(),
     fleetSlotLayout: z.enum(["2x3", "3x2"]).optional(),

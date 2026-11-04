@@ -194,7 +194,7 @@ async function handlePreparation(
   let body: Record<string, unknown>;
   try {
     const parsedBody = z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .safeParse(JSON.parse(new TextDecoder().decode(bodyResult.data)));
     if (!parsedBody.success) {
       return c.json({ error: "Invalid JSON body" }, 400);
@@ -345,7 +345,7 @@ async function handleExecution(
   // Verify signed upload token
   const rawTokenPayload = await verifySignedToken(uploadToken, signingSecret);
   const tokenPayloadValidation = z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .safeParse(rawTokenPayload);
   if (!tokenPayloadValidation.success) {
     return c.json({ error: "Invalid or expired upload token" }, 401);

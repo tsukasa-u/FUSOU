@@ -24,8 +24,8 @@ const app = new Hono<{ Bindings: Bindings }>();
 const SHORT_KEY_LENGTH = 16;
 
 const snapshotPayloadSchema = z.object({
-  snapshotShips: z.record(z.unknown()).optional(),
-  snapshotSlotItems: z.record(z.unknown()).optional(),
+  snapshotShips: z.record(z.string(), z.unknown()).optional(),
+  snapshotSlotItems: z.record(z.string(), z.unknown()).optional(),
 });
 
 const storedShareRecordSchema = z.object({
@@ -177,8 +177,8 @@ const shortenSchema = z.object({
     ),
   snapshotPayload: z
     .object({
-      snapshotShips: z.record(z.unknown()).optional(),
-      snapshotSlotItems: z.record(z.unknown()).optional(),
+      snapshotShips: z.record(z.string(), z.unknown()).optional(),
+      snapshotSlotItems: z.record(z.string(), z.unknown()).optional(),
     })
     .optional(),
 });

@@ -31,7 +31,7 @@ const SnapshotListResponseSchema = z
   .object({ ok: z.boolean(), tags: z.array(SnapshotEntrySchema) })
   .passthrough();
 const SnapshotResponseSchema = z
-  .object({ ok: z.literal(true), snapshot: z.record(z.unknown()) })
+  .object({ ok: z.literal(true), snapshot: z.record(z.string(), z.unknown()) })
   .passthrough();
 const ErrorResponseSchema = z
   .object({ error: z.string().optional() })
