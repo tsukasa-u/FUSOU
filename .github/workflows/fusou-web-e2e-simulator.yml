@@ -115,10 +115,12 @@ jobs:
 
       - name: Install Playwright system dependencies
         timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           for i in 1 2 3; do
             echo "Attempt $i to install Playwright dependencies..."
-            if sudo DEBIAN_FRONTEND=noninteractive pnpm --dir packages/FUSOU-WEB exec playwright install-deps chromium; then
+            if pnpm --dir packages/FUSOU-WEB exec playwright install-deps chromium; then
               break
             fi
             if [ "$i" -eq 3 ]; then
@@ -190,10 +192,12 @@ jobs:
 
       - name: Install Playwright system dependencies
         timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           for i in 1 2 3; do
             echo "Attempt $i to install Playwright dependencies..."
-            if sudo DEBIAN_FRONTEND=noninteractive pnpm --dir packages/FUSOU-WEB exec playwright install-deps chromium; then
+            if pnpm --dir packages/FUSOU-WEB exec playwright install-deps chromium; then
               break
             fi
             if [ "$i" -eq 3 ]; then
