@@ -260,10 +260,8 @@ render(
 - **fusou-upload** - Triggers batch uploads
 - **configs** - Reads settings
 
-**📌 Critical Missing:** 
-- ❌ No quest-tree ingestion sender
-- App does NOT intercept and send `questlist`, `start`, `stop`, `clearitemget` responses to WEB ingest endpoint
-- Required for quest-tree feature to work end-to-end
+**📌 Ingestion Senders:** 
+- ✅ Implemented: APP-side quest-tree ingestion sender (`quest_tree_sender.rs`), remodel sender, ship growth sender, and soku speed sender are now implemented and operational.
 
 ---
 
@@ -395,8 +393,8 @@ Enqueue quest_inference_tasks (async)
     └─ Rebuild quest graph, compute prerequisites
 ```
 
-**⚠️ Missing Implementation:**  
-APP-side sender NOT implemented. FUSOU-APP must intercept quest endpoints and call WEB ingest endpoint (currently only PROXY does this in attempt mode).
+**✅ Implementation Status:**  
+APP-side sender is implemented via `quest_tree_sender.rs`. FUSOU-APP intercepts quest endpoints and forwards them to the WEB ingest endpoint with deduplication and retry queues.
 
 ---
 
@@ -750,8 +748,8 @@ const kv = env.KV_CACHE;
 - kc_api: Complete parsing framework + bindings generation
 - fusou-auth: Token lifecycle, session persistence
 - fusou-upload: Upload pipeline, retry service
-- FUSOU-APP: Real-time display + data collection trigger
-- FUSOU-PROXY: Game interception, quest collection attempt
+- FUSOU-APP: Real-time display, telemetry senders (`quest_tree`, `remodel`, `ship_growth`, `soku_speed`) + data collection trigger
+- FUSOU-PROXY: Game interception, bidirectional channel streaming
 - FUSOU-WEB: Ingest validation, normalization, task enqueuing
 
 ### ⚠️ Planned/In Progress
@@ -761,10 +759,7 @@ const kv = env.KV_CACHE;
 - Avro format support in fusou-upload (currently stub)
 
 ### ❌ Missing / Not Yet Started
-- **🔴 FUSOU-APP quest sender:** APP must implement quest endpoint interception + POST to WEB ingest
-  - Status: Zero references to `/quest-tree/ingest` in FUSOU-APP codebase
-  - Impact: Quest tree collection stuck at proxy level; APP cannot propagate
-  - Timeline: Must be done before quest collection begins in production
+- None (core MVP telemetry pipelines implemented)
 
 ---
 

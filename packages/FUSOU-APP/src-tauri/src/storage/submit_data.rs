@@ -47,7 +47,10 @@ pub fn submit_get_data_table() {
         let get_data_table = GetDataTable::new();
         match get_data_table.encode() {
             Ok(get_data_table_encode) => {
-                let pariod_tag = supabase::get_period_tag().await;
+                let Some(pariod_tag) = supabase::get_period_tag().await else {
+                    tracing::warn!("submit_get_data_table: kc-period tag is unavailable; skipping upload to protect data integrity");
+                    return;
+                };
                 storage_service
                     .write_get_data_table(&pariod_tag, get_data_table_encode)
                     .await;
@@ -117,7 +120,10 @@ pub fn submit_port_table() {
                     // is impossible: each entry is keyed by its `PortTableEnum` variant.
                     let encode: PortTableEncode = tables.into();
 
-                    let pariod_tag = supabase::get_period_tag().await;
+                    let Some(pariod_tag) = supabase::get_period_tag().await else {
+                        tracing::warn!("submit_port_table: kc-period tag is unavailable; skipping upload to protect data integrity");
+                        return;
+                    };
                     let upload_success = storage_service
                         .write_port_table(&pariod_tag, encode, maparea_id, mapinfo_no)
                         .await;

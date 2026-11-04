@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "packages/configs",
+    "packages/fusou-auth",
+    "packages/fusou-upload",
+    "packages/fusou-storage",
+    "packages/FUSOU-PROXY/proxy-https",
+    "packages/FUSOU-APP/src-tauri",
+]
+exclude = [
+    "packages/avro-wasm",
+    "packages/kc_api",
+]
+

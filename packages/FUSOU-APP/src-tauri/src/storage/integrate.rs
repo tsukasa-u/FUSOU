@@ -37,7 +37,11 @@ pub fn integrate_port_table(
 
         tracing::info!("Start to integrate port table in cloud storage");
 
-        let pariod_tag = supabase::get_period_tag().await;
+        let Some(pariod_tag) = supabase::get_period_tag().await else {
+            tracing::warn!("integrate: kc-period tag is unavailable; skipping port table integration to protect data integrity");
+            INTEGRATION_IN_PROGRESS.store(false, Ordering::SeqCst);
+            return;
+        };
         match tokio::time::timeout(
             tokio::time::Duration::from_secs(3600), // 1 hour timeout
             storage_service.integrate_port_table(&pariod_tag),

@@ -1,0 +1,22 @@
+.specification-vlist {
+  width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  scrollbar-gutter: stable;
+}
+
+.specification-vlist > div {
+  min-width: var(--table-width, 1200px) !important;
+}
+
+.specification-header {
+  width: 100%;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  scrollbar-gutter: stable;
+}
+
+.specification-header::-webkit-scrollbar {
+  display: none;
+}
+

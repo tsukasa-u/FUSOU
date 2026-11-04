@@ -196,6 +196,8 @@ pub async fn run() {
             window::external::external_window_shortcut,
         ])
         .setup(move |app: &mut tauri::App| {
+            crate::notify::set_app_handle(app.handle().clone());
+
             // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
             builder_setup::setup::set_paths(app)?;
 
@@ -288,6 +290,9 @@ pub async fn run() {
                 )
                 .await;
             });
+
+            // Start background period tag updater & cache warmup
+            crate::auth::supabase::start_period_tag_background_updater();
 
             // Run remaining setup (logger, tray, schedulers, etc.) so that logging is available
             // before we perform token fetch below.

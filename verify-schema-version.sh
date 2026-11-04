@@ -4,7 +4,8 @@
 
 set -e
 
-WORKSPACE_ROOT="/home/ogu-h/Documents/GitHub/FUSOU/packages"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-"$SCRIPT_DIR/packages"}"
 
 echo "======================================"
 echo "kc_api Import & Feature Verification"

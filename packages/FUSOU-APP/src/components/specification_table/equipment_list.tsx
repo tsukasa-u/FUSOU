@@ -19,11 +19,11 @@ import { VList } from "virtua/solid";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 import {
   scroll_fn,
-  scroll_parent_fn,
   drag_scroll_fn,
 } from "../../utility/scroll.tsx";
 
 import "../../css/divider.css";
+import "../../css/specification_table.css";
 import { ComponentEquipmentModal, IconPlaneProficiency } from "ui";
 import type {
   CheckName,
@@ -422,12 +422,12 @@ export function EquipmentListComponent() {
       : undefined;
     return (
       <tr class="flex table_hover rounded bg-base-100">
-        <th class="px-0 w-10 flex bg-base-100 z-[1] self-center">
+        <th class="px-0 w-10 flex bg-base-100 z-[2] self-center sticky left-0">
           <span class="flex-1" />
           {index + 1}
           <div class="w-[10px]" />
         </th>
-        <td class="w-48 overflow-hidden">
+        <td class="w-48 overflow-hidden bg-base-100 sticky left-10 z-[2]">
           {/* <EquimentComponent slot_id={Number(equip_id)} name_flag={true} /> */}
           <ComponentEquipmentModal
             size="xs"
@@ -587,8 +587,8 @@ export function EquipmentListComponent() {
     return (
       <thead>
         <tr class="flex mt-1">
-          <th class="w-10 flex bg-base-100 z-[3]">{sort_window_element}</th>
-          <th class="w-48">{search_name_window_element}</th>
+          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">{sort_window_element}</th>
+          <th class="w-48 bg-base-100 z-[4] sticky left-10">{search_name_window_element}</th>
           <Show when={check_equip_property["Equip Type"]}>
             <th class="w-[96px]">{set_equip_type_window_element}</th>
           </Show>
@@ -676,6 +676,44 @@ export function EquipmentListComponent() {
     );
   };
 
+  let headerScrollElementCategorized!: HTMLDivElement;
+  let headerScrollElementNoneCategorized!: HTMLDivElement;
+  let vlistWrapperCategorized!: HTMLDivElement;
+  let vlistWrapperNoneCategorized!: HTMLDivElement;
+
+  const handle_header_wheel = (
+    e: WheelEvent,
+    isCategorized: boolean,
+  ) => {
+    if (equip_spec_modal()) return;
+    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    const wrapper = isCategorized
+      ? vlistWrapperCategorized
+      : vlistWrapperNoneCategorized;
+    const vlistEl = wrapper?.querySelector(".specification-vlist") as HTMLElement | null;
+    if (!vlistEl) return;
+    e.preventDefault();
+    vlistEl.scrollLeft += e.deltaY;
+  };
+
+  const attach_vlist = (wrapper: HTMLDivElement) => {
+    // eslint-disable-next-line solid/reactivity
+    queueMicrotask(() => {
+      const vlistEl = wrapper?.querySelector(".specification-vlist") as HTMLDivElement | null;
+      if (vlistEl) {
+        drag_scroll_fn(vlistEl, equip_spec_modal);
+        vlistEl.addEventListener("scroll", () => {
+          if (headerScrollElementCategorized) {
+            headerScrollElementCategorized.scrollLeft = vlistEl.scrollLeft;
+          }
+          if (headerScrollElementNoneCategorized) {
+            headerScrollElementNoneCategorized.scrollLeft = vlistEl.scrollLeft;
+          }
+        });
+      }
+    });
+  };
+
   const table_element_none_categorized = (equip_ids: (number | string)[]) => {
     const table_element = equip_ids
       .map((equip_id, index) => [
@@ -685,36 +723,20 @@ export function EquipmentListComponent() {
       ])
       .filter(([, flag]) => flag as boolean);
     return (
-      <table class={`table table-xs max-w-[1240px]`}>
-        <tbody>
-          {/* <VList
-            data={equip_ids}
-            style={{
-              height: "calc(100dvh - 126px)",
-              width: table_width,
-            }}
-            class="overflow-x-hidden"
-          >
-            {(equip_id, index) => (
-              <Show when={filtered_equips()[Number(equip_id)] ?? false}>
-                {table_line_element(Number(equip_id), index())}
-              </Show>
-            )}
-          </VList> */}
-          <VList
-            data={table_element}
-            style={{
-              height: "calc(100dvh - 126px)",
-              width: table_width,
-            }}
-            class="overflow-x-hidden"
-          >
-            {([equip_id, , index]) => (
-              <>{table_line_element(Number(equip_id), Number(index))}</>
-            )}
-          </VList>
-        </tbody>
-      </table>
+      <VList
+        data={table_element}
+        style={{
+          height: "calc(100dvh - 126px)",
+          "--table-width": table_width,
+        }}
+        class="specification-vlist"
+      >
+        {([equip_id, , index]) => (
+          <table class="table table-xs" style={{ width: table_width }}>
+            <tbody>{table_line_element(Number(equip_id), Number(index))}</tbody>
+          </table>
+        )}
+      </VList>
     );
   };
 
@@ -727,34 +749,20 @@ export function EquipmentListComponent() {
       ])
       .filter(([, flag]) => flag as boolean);
     return (
-      <table class={`table table-xs max-w-[1240px]`}>
-        <tbody>
-          {/* <VList
-            data={equip_ids}
-            style={{
-              height: "calc(100dvh - 159px)",
-              width: table_width,
-            }}
-            class="overflow-x-hidden"
-          >
-            {(equip_id, index) => (
-              <>{table_line_element(Number(equip_id), index())}</>
-            )}
-          </VList> */}
-          <VList
-            data={table_element}
-            style={{
-              height: "calc(100dvh - 159px)",
-              width: table_width,
-            }}
-            class="overflow-x-hidden"
-          >
-            {([equip_id, , index]) => (
-              <>{table_line_element(Number(equip_id), Number(index))}</>
-            )}
-          </VList>
-        </tbody>
-      </table>
+      <VList
+        data={table_element}
+        style={{
+          height: "calc(100dvh - 159px)",
+          "--table-width": table_width,
+        }}
+        class="specification-vlist"
+      >
+        {([equip_id, , index]) => (
+          <table class="table table-xs" style={{ width: table_width }}>
+            <tbody>{table_line_element(Number(equip_id), Number(index))}</tbody>
+          </table>
+        )}
+      </VList>
     );
   };
 
@@ -794,8 +802,6 @@ export function EquipmentListComponent() {
       set_equip_spec_modal,
     );
 
-  let parentScrollElement!: HTMLDivElement;
-
   return (
     <>
       <div class="bg-base-100 z-[4]">
@@ -827,7 +833,7 @@ export function EquipmentListComponent() {
       <Switch>
         <Match when={set_categorize()}>
           <div
-            class={`overflow-x-auto max-w-[1240px]`}
+            class="overflow-x-auto w-full"
             ref={(el) => {
               scroll_fn(el, equip_spec_modal);
               drag_scroll_fn(el, equip_spec_modal);
@@ -842,67 +848,63 @@ export function EquipmentListComponent() {
                       categorized_equips_keys()[equip_type_name].length != 0
                     }
                   >
-                    <>
-                      <input
-                        type="radio"
-                        name="ship_specification_table_tab"
-                        class="tab"
-                        aria-label={equip_type_name}
-                        onClick={() => set_set_equip_type(equip_type_name)}
-                        checked={set_equip_type() == equip_type_name}
-                      />
-                    </>
+                    <input
+                      type="radio"
+                      name="ship_specification_table_tab"
+                      class="tab"
+                      aria-label={equip_type_name}
+                      onClick={() => set_set_equip_type(equip_type_name)}
+                      checked={set_equip_type() == equip_type_name}
+                    />
                   </Show>
                 )}
               </For>
             </div>
           </div>
 
-          <div
-            class={`overflow-x-auto max-w-[1240px] border-t-1 border-base-300`}
-            style={{
-              "scrollbar-gutter": "stable",
-              "overflow-x": "scroll",
-              "user-select": "none",
-            }}
-            ref={parentScrollElement}
-          >
+          <div class="w-full flex flex-col border-t border-base-300">
             <div
-              ref={(el) => {
-                scroll_parent_fn(el, parentScrollElement, equip_spec_modal);
-                drag_scroll_fn(parentScrollElement, equip_spec_modal);
-              }}
+              ref={headerScrollElementCategorized}
+              class="specification-header"
+              onWheel={(e) => handle_header_wheel(e, true)}
             >
-              <table class={`table table-xs max-w-[1240px]`}>
+              <table class="table table-xs" style={{ width: table_width }}>
                 {table_header()}
               </table>
             </div>
-            {table_element_categorized(
-              categorized_equips_keys()[set_equip_type()],
-            )}
+            <div
+              ref={(el) => {
+                vlistWrapperCategorized = el;
+                attach_vlist(el);
+              }}
+              class="w-full"
+            >
+              {table_element_categorized(
+                categorized_equips_keys()[set_equip_type()],
+              )}
+            </div>
           </div>
         </Match>
         <Match when={!set_categorize()}>
-          <div
-            class={`overflow-x-auto max-w-[1240px]`}
-            style={{
-              "scrollbar-gutter": "stable",
-              "overflow-x": "scroll",
-              "user-select": "none",
-            }}
-            ref={parentScrollElement}
-          >
+          <div class="w-full flex flex-col">
             <div
-              ref={(el) => {
-                scroll_parent_fn(el, parentScrollElement, equip_spec_modal);
-                drag_scroll_fn(parentScrollElement, equip_spec_modal);
-              }}
+              ref={headerScrollElementNoneCategorized}
+              class="specification-header"
+              onWheel={(e) => handle_header_wheel(e, false)}
             >
-              <table class={`table table-xs max-w-[1240px]`}>
+              <table class="table table-xs" style={{ width: table_width }}>
                 {table_header()}
               </table>
             </div>
-            {table_element_none_categorized(sorted_equip_keys())}
+            <div
+              ref={(el) => {
+                vlistWrapperNoneCategorized = el;
+                attach_vlist(el);
+              }}
+              class="w-full"
+            >
+              {table_element_none_categorized(sorted_equip_keys())}
+            </div>
           </div>
         </Match>
       </Switch>

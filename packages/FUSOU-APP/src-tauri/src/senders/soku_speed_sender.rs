@@ -127,7 +127,10 @@ impl SokuSpeedSender {
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let payload_hash = Self::payload_hash(snapshot);
 
-        let period_tag = crate::auth::supabase::get_period_tag().await;
+        let Some(period_tag) = crate::auth::supabase::get_period_tag().await else {
+            tracing::warn!("soku_speed_sender: kc-period tag is unavailable; skipping upload to protect data integrity");
+            return Err("kc-period tag is unavailable".into());
+        };
         self.cache.rotate_scope(Some(&format!(
             "{}:{}",
             period_tag,

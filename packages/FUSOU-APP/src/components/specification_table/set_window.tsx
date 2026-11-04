@@ -384,7 +384,7 @@ export const sort_window = (
     <>
       <div>
         <div class="indicator">
-          <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
+          <span class="indicator-item indicator-top indicator-center badge badge-secondary badge-xs max-w-16 truncate flex justify-start z-10 pointer-events-none">
             <Switch fallback="">
               <Match when={set_order()}>▲</Match>
               <Match when={!set_order()}>▼</Match>
@@ -392,7 +392,7 @@ export const sort_window = (
             {set_sort()}
           </span>
           <div
-            class="btn btn-xs btn-ghost -mx-1"
+            class="btn btn-xs btn-ghost px-1"
             onClick={() => {
               set_spec_modal(true);
               (
@@ -408,46 +408,41 @@ export const sort_window = (
       </div>
       <dialog id={`${modal_prefix}_sort`} class="modal modal-top">
         <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
-          <table class="table table-sm ">
-            <tbody>
-              <tr class="flex" style={{ "border-bottom-width": "0px" }}>
-                <td class="flex-1">order</td>
-                <td class="flex-none h-6">
-                  <label class="swap swap-rotate">
-                    <input
-                      type="checkbox"
-                      onClick={(e) => set_set_order(e.currentTarget.checked)}
-                    />
-                    <div class="swap-on flex flex-nowrap items-center">
-                      <IconUpArrow class="h-6 w-6" />
-                      <div class="label-text text-xs">ASC</div>
-                    </div>
-                    <div class="swap-off flex flex-nowrap items-center">
-                      <IconDownArrow class="h-6 w-6" />
-                      <div class="label-text text-xs">DESC</div>
-                    </div>
-                  </label>
-                </td>
-              </tr>
-              <tr
-                class="flex items-center"
-                style={{ "border-bottom-width": "0px" }}
+          <div class="flex flex-col gap-3 py-1">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">order</span>
+              <div class="h-6">
+                <label class="swap swap-rotate">
+                  <input
+                    type="checkbox"
+                    checked={set_order()}
+                    onClick={(e) => set_set_order(e.currentTarget.checked)}
+                  />
+                  <div class="swap-on flex flex-nowrap items-center">
+                    <IconUpArrow class="h-6 w-6" />
+                    <div class="label-text text-xs">ASC</div>
+                  </div>
+                  <div class="swap-off flex flex-nowrap items-center">
+                    <IconDownArrow class="h-6 w-6" />
+                    <div class="label-text text-xs">DESC</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">sort parameters</span>
+              <select
+                class="select select-bordered select-sm w-28"
+                value={set_sort()}
+                onChange={(e) => set_set_sort(e.target.value)}
               >
-                <td class="flex-1">sort parameters</td>
-                <td class="flex-none">
-                  <select
-                    class="select select-bordered select-sm w-28"
-                    onChange={(e) => set_set_sort(e.target.value)}
-                  >
-                    <option>Default</option>
-                    <For each={properties}>
-                      {(property) => <option>{property}</option>}
-                    </For>
-                  </select>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                <option>Default</option>
+                <For each={properties}>
+                  {(property) => <option>{property}</option>}
+                </For>
+              </select>
+            </div>
+          </div>
         </div>
         <form method="dialog" class="modal-backdrop">
           <button onClick={() => set_spec_modal(false)}>close</button>
