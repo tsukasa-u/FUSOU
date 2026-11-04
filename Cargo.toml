@@ -13,3 +13,5 @@ exclude = [
     "packages/kc_api",
 ]
 
+[profile.release]
+strip = false
