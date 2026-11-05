@@ -62,4 +62,63 @@ const missingResponse = await app.fetch(
 );
 assert.equal(missingResponse.status, 404);
 
+// Reject non-https URL schemes and malformed snapshotPayload records (Zod v4 + @hono/zod-validator)
+const invalidPayloadResponse = await app.fetch(
+  new Request("https://s.fusou.dev/api/shorten", {
+    method: "POST",
+    headers: {
+      Origin: "https://fusou.dev",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url: "javascript:alert(1)",
+      snapshotPayload: { snapshotShips: ["not-a-record"] },
+    }),
+  }),
+  env,
+);
+assert.equal(invalidPayloadResponse.status, 400);
+const invalidPayloadBody = await invalidPayloadResponse.json();
+assert.equal(invalidPayloadBody.error, "Validation failed");
+assert.ok(Array.isArray(invalidPayloadBody.issues) && invalidPayloadBody.issues.length >= 2);
+
+// Reject non-simulator path
+const wrongPathResponse = await app.fetch(
+  new Request("https://s.fusou.dev/api/shorten", {
+    method: "POST",
+    headers: {
+      Origin: "https://fusou.dev",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url: "https://fusou.dev/battles" }),
+  }),
+  env,
+);
+assert.equal(wrongPathResponse.status, 400);
+
+// Reject unallowed target hostname even with valid Origin header
+const disallowedHostResponse = await app.fetch(
+  new Request("https://s.fusou.dev/api/shorten", {
+    method: "POST",
+    headers: {
+      Origin: "https://fusou.dev",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url: "https://evil.example/simulator?fleet=abc" }),
+  }),
+  env,
+);
+assert.equal(disallowedHostResponse.status, 403);
+
+// Reject missing Origin/Referer on stateful /api/shorten
+const missingOriginResponse = await app.fetch(
+  new Request("https://s.fusou.dev/api/shorten", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://fusou.dev/simulator?fleet=abc" }),
+  }),
+  env,
+);
+assert.equal(missingOriginResponse.status, 403);
+
 console.log("[index-smoke] URL shortener KV and validation paths OK");

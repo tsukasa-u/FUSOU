@@ -438,6 +438,219 @@ async fn delete_from_r2(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn test_object_store_download_delete_and_compaction_roundtrip() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+        let dataset_id = Uuid::new_v4();
+        let uploader_id = Uuid::new_v4();
+
+        let path1 = object_store::path::Path::from("raw/ds/part1.bin");
+        let path2 = object_store::path::Path::from("raw/ds/part2.bin");
+        store
+            .put(&path1, bytes::Bytes::from_static(b"XXFRAG_AYY").into())
+            .await
+            .expect("put part1");
+        store
+            .put(&path2, bytes::Bytes::from_static(b"Z_FRAG_B!").into())
+            .await
+            .expect("put part2");
+
+        // Verify download_from_r2 via ObjectStoreExt::get and missing-key StorageError
+        let raw1 = download_from_r2(store.as_ref(), "raw/ds/part1.bin")
+            .await
+            .expect("download part1");
+        assert_eq!(raw1, b"XXFRAG_AYY");
+
+        let missing = download_from_r2(store.as_ref(), "raw/ds/does-not-exist.bin").await;
+        assert!(matches!(missing, Err(ProcessingError::StorageError(_))));
+
+        // Local HTTP receiver for presigned PUT inside compact_dataset_files -> upload_to_r2
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        let put_server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept PUT");
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let header_end = loop {
+                let n = stream.read(&mut chunk).await.expect("read");
+                assert!(n > 0);
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let header_str = String::from_utf8_lossy(&buf[..header_end]).to_string();
+            let req_line = header_str.lines().next().unwrap_or_default().to_string();
+            let content_len = header_str
+                .lines()
+                .find_map(|l| {
+                    let (k, v) = l.split_once(':')?;
+                    if k.trim().eq_ignore_ascii_case("content-length") {
+                        v.trim().parse::<usize>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0);
+            while buf.len() < header_end + content_len {
+                let n = stream.read(&mut chunk).await.expect("read body");
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .expect("write 200");
+            (req_line, buf[header_end..header_end + content_len].to_vec())
+        });
+
+        let now = Utc::now();
+        let current_metadata = vec![
+            DatasetFileMetadata {
+                id: Some(Uuid::new_v4()),
+                dataset_id,
+                uploader_id,
+                table_name: "battle_log".to_string(),
+                file_path: "raw/ds/part1.bin".to_string(),
+                start_byte: 2,
+                byte_length: 6,
+                is_public: true,
+                is_compacted: false,
+                created_at: now,
+            },
+            DatasetFileMetadata {
+                id: Some(Uuid::new_v4()),
+                dataset_id,
+                uploader_id,
+                table_name: "battle_log".to_string(),
+                file_path: "raw/ds/part2.bin".to_string(),
+                start_byte: 1,
+                byte_length: 7,
+                is_public: true,
+                is_compacted: false,
+                created_at: now,
+            },
+        ];
+
+        let upload_base_url = format!("http://{}/r2/", addr);
+        let compacted = compact_dataset_files(
+            dataset_id,
+            current_metadata,
+            store.clone(),
+            &upload_base_url,
+        )
+        .await
+        .expect("compaction succeeded");
+
+        assert_eq!(compacted.len(), 1);
+        assert!(compacted[0].is_compacted);
+        assert_eq!(compacted[0].start_byte, 0);
+        assert_eq!(compacted[0].byte_length, 13);
+        assert!(compacted[0]
+            .file_path
+            .starts_with(&format!("optimized/{}/battle_log-", dataset_id)));
+
+        let (req_line, uploaded_bytes) = put_server.await.expect("put server join");
+        assert!(req_line.starts_with(&format!("PUT /r2/{} ", compacted[0].file_path)));
+        assert_eq!(uploaded_bytes, b"FRAG_A_FRAG_B");
+
+        // Old objects must be deleted via ObjectStoreExt::delete
+        assert!(matches!(
+            download_from_r2(store.as_ref(), "raw/ds/part1.bin").await,
+            Err(ProcessingError::StorageError(_))
+        ));
+        assert!(matches!(
+            download_from_r2(store.as_ref(), "raw/ds/part2.bin").await,
+            Err(ProcessingError::StorageError(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_arrow_parquet_datafusion_54_roundtrip() {
+        use arrow_array::{Array, Int32Array, RecordBatch, StringArray};
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::prelude::{ParquetReadOptions, SessionContext};
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+        use parquet::arrow::ArrowWriter;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("name", DataType::Utf8, false),
+            Field::new("lv", DataType::Int32, false),
+        ]));
+
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from(vec![101, 102, 103])),
+                Arc::new(StringArray::from(vec!["Nagato", "Mutsu", "Fubuki"])),
+                Arc::new(Int32Array::from(vec![99, 125, 80])),
+            ],
+        )
+        .expect("record batch");
+
+        let mut parquet_bytes = Vec::new();
+        {
+            let mut writer =
+                ArrowWriter::try_new(&mut parquet_bytes, schema.clone(), None).expect("writer");
+            writer.write(&batch).expect("write batch");
+            writer.close().expect("close writer");
+        }
+
+        // Verify Parquet 58 in-memory reader
+        let reader = ParquetRecordBatchReaderBuilder::try_new(bytes::Bytes::from(
+            parquet_bytes.clone(),
+        ))
+        .expect("reader builder")
+        .build()
+        .expect("reader");
+        let decoded_batches: Vec<RecordBatch> =
+            reader.collect::<Result<Vec<_>, _>>().expect("collect batches");
+        assert_eq!(decoded_batches.len(), 1);
+        assert_eq!(decoded_batches[0].num_rows(), 3);
+
+        // Verify DataFusion 54 SQL execution over the written Parquet 58 file
+        let temp_dir =
+            std::env::temp_dir().join(format!("fusou-df54-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let parquet_file = temp_dir.join("ships.parquet");
+        std::fs::write(&parquet_file, &parquet_bytes).expect("write parquet file");
+
+        let ctx = SessionContext::new();
+        ctx.register_parquet(
+            "ships",
+            parquet_file.to_str().expect("utf8 path"),
+            ParquetReadOptions::default(),
+        )
+        .await
+        .expect("register_parquet");
+
+        let results = ctx
+            .sql("SELECT id, name FROM ships WHERE lv >= 99 ORDER BY id ASC")
+            .await
+            .expect("sql plan")
+            .collect()
+            .await
+            .expect("collect sql");
+
+        let total_rows: usize = results.iter().map(|b| b.num_rows()).sum();
+        assert_eq!(total_rows, 2);
+        let ids = results[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("id col");
+        assert_eq!(ids.value(0), 101);
+        assert_eq!(ids.value(1), 102);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
     #[test]
     fn test_dataset_file_metadata_serialization() {
         let metadata = DatasetFileMetadata {

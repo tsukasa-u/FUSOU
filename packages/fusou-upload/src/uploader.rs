@@ -459,3 +459,172 @@ impl Uploader {
         Ok(UploadResult::Success)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+    use fusou_auth::manager::AuthConfig;
+    use fusou_auth::{Session, Storage};
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+    use uuid::Uuid;
+
+    async fn read_raw_http(stream: &mut TcpStream) -> (String, String, Vec<u8>) {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let header_end = loop {
+            let n = stream.read(&mut chunk).await.unwrap();
+            assert!(n > 0);
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let header_str = String::from_utf8_lossy(&buf[..header_end]).to_string();
+        let req_line = header_str.lines().next().unwrap_or_default().to_string();
+        let content_len = header_str
+            .lines()
+            .find_map(|l| {
+                let (k, v) = l.split_once(':')?;
+                if k.trim().eq_ignore_ascii_case("content-length") {
+                    v.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        while buf.len() < header_end + content_len {
+            let n = stream.read(&mut chunk).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        (
+            req_line,
+            header_str.to_ascii_lowercase(),
+            buf[header_end..header_end + content_len].to_vec(),
+        )
+    }
+
+    #[tokio::test]
+    async fn uploader_handshake_binary_put_and_pending_fallback_over_http() {
+        let temp_root = std::env::temp_dir().join(format!("fusou-uploader-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let session_file = temp_root.join("session.json");
+        let pending_dir = temp_root.join("pending");
+
+        let file_storage = Arc::new(FileStorage::new(session_file));
+        file_storage
+            .save_session(&Session {
+                access_token: "test-bearer-jwt".to_string(),
+                refresh_token: "test-refresh-jwt".to_string(),
+                expires_at: Some(Utc::now() + Duration::hours(1)),
+                token_type: Some("bearer".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let auth_manager = AuthManager::new(
+            AuthConfig {
+                supabase_url: "http://127.0.0.1:9".to_string(),
+                api_key: "test-key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            file_storage,
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            // 1. Successful handshake -> returns uploadUrl + signed token
+            let (mut s1, _) = listener.accept().await.unwrap();
+            let (line1, headers1, body1) = read_raw_http(&mut s1).await;
+            assert!(line1.starts_with("POST /api/upload "));
+            assert!(headers1.contains("authorization: bearer test-bearer-jwt\r\n"));
+            assert!(headers1.contains("x-custom-trace: trace-1\r\n"));
+            let hs: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+            assert!(hs["content_hash"].as_str().unwrap().len() == 64);
+
+            let hs_resp = serde_json::json!({
+                "uploadUrl": format!("http://{}/api/upload/binary", addr),
+                "token": "signed-upload-token-123"
+            })
+            .to_string();
+            let reply1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                hs_resp.len(),
+                hs_resp
+            );
+            s1.write_all(reply1.as_bytes()).await.unwrap();
+
+            // 2. Binary upload -> verifies X-Upload-Token & payload
+            let (mut s2, _) = listener.accept().await.unwrap();
+            let (line2, headers2, body2) = read_raw_http(&mut s2).await;
+            assert!(line2.starts_with("POST /api/upload/binary "));
+            assert!(headers2.contains("x-upload-token: signed-upload-token-123\r\n"));
+            assert_eq!(body2, b"binary-avro-payload");
+            s2.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+
+            // 3. Server 503 failure -> verifies PendingStore queueing
+            let (mut s3, _) = listener.accept().await.unwrap();
+            let _ = read_raw_http(&mut s3).await;
+            s3.write_all(
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbusy",
+            )
+            .await
+            .unwrap();
+        });
+
+        let client = Client::new();
+        let pending_store = PendingStore::new(pending_dir);
+        let endpoint = format!("http://{}/api/upload", addr);
+
+        let mut headers = HashMap::new();
+        headers.insert("X-Custom-Trace".to_string(), "trace-1".to_string());
+
+        let ok_res = Uploader::upload(
+            &client,
+            &auth_manager,
+            UploadRequest {
+                endpoint: &endpoint,
+                handshake_body: Uploader::build_snapshot_handshake("latest", ""),
+                data: b"binary-avro-payload".to_vec(),
+                headers: headers.clone(),
+                context: UploadContext::Snapshot { is_snapshot: true },
+            },
+            Some(&pending_store),
+        )
+        .await
+        .expect("upload should succeed");
+        assert!(matches!(ok_res, UploadResult::Success));
+        assert_eq!(pending_store.list_pending().len(), 0);
+
+        let err_res = Uploader::upload(
+            &client,
+            &auth_manager,
+            UploadRequest {
+                endpoint: &endpoint,
+                handshake_body: Uploader::build_snapshot_handshake("latest", ""),
+                data: b"retry-me-payload".to_vec(),
+                headers,
+                context: UploadContext::Snapshot { is_snapshot: true },
+            },
+            Some(&pending_store),
+        )
+        .await;
+        assert!(err_res.is_err());
+        let queued = pending_store.list_pending();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(pending_store.read_data(&queued[0]).unwrap(), b"retry-me-payload");
+
+        server.await.unwrap();
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
+}

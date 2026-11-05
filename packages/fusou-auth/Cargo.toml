@@ -23,5 +23,9 @@ rand = "0.8"
 base64 = "0.22"
 uuid = "1.16"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["net", "io-util", "sync"] }
+flate2 = "1.1"
+
 [features]
 default = []

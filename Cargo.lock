@@ -3145,6 +3145,7 @@ dependencies = [
  "chrono",
  "configs",
  "ed25519-dalek",
+ "flate2",
  "log",
  "rand 0.8.6",
  "reqwest 0.12.28",
