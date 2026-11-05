@@ -1,4 +1,4 @@
-﻿// ── Data loader: master data import, normalization, asset loading ──
+// ── Data loader: master data import, normalization, asset loading ──
 
 import { z } from "zod";
 import {
@@ -303,27 +303,27 @@ const MasterEquipExslotResponseSchema = z
 const AssetMapResponseSchema = z
   .object({
     base_url: z.string(),
-    banners: z.record(z.string()),
+    banners: z.record(z.string(), z.string()),
   })
   .passthrough();
 const CardMapResponseSchema = z
   .object({
     base_url: z.string(),
-    cards: z.record(z.string()),
+    cards: z.record(z.string(), z.string()),
   })
   .passthrough();
 const ShipIconMapResponseSchema = z
   .object({
     base_url: z.string(),
-    icons: z.record(z.string()),
+    icons: z.record(z.string(), z.string()),
   })
   .passthrough();
 const EquipImageMapResponseSchema = z
   .object({
     base_url: z.string(),
-    card: z.record(z.string()),
-    item_on: z.record(z.string()),
-    item_up: z.record(z.string()),
+    card: z.record(z.string(), z.string()),
+    item_on: z.record(z.string(), z.string()),
+    item_up: z.record(z.string(), z.string()),
   })
   .passthrough();
 
@@ -341,7 +341,7 @@ const IconFrameSchema = z
   .passthrough();
 const IconFramesResponseSchema = z
   .object({
-    frames: z.record(IconFrameSchema),
+    frames: z.record(z.string(), IconFrameSchema),
     meta: z
       .object({
         size: z
@@ -358,6 +358,7 @@ const SokuSpeedResponseSchema = z
   .object({
     ok: z.literal(true),
     data: z.record(
+      z.string(),
       z.array(
         z
           .object({
@@ -932,7 +933,7 @@ async function fetchJsonSafeWithEtag<T>(
   url: string,
   cacheKey: string,
   label: string,
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   cached?: MasterCacheEntry<T> | null,
 ): Promise<{ data: T | null; isNotModified: boolean; etag: string | null }> {
   try {

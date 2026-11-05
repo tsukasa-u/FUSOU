@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const FleetSnapshotRecordSchema = z.record(z.unknown());
+const FleetSnapshotRecordSchema = z.record(z.string(), z.unknown());
 const FleetSnapshotArraySchema = FleetSnapshotRecordSchema.array();
 
 export const FleetSnapshotPayloadSchema = z
@@ -15,7 +15,7 @@ export const FleetSnapshotPayloadSchema = z
   .superRefine((payload, context) => {
     if (!("s3s" in payload || "u7s" in payload || "s8s" in payload || "d8k" in payload)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "fleet snapshot must contain at least one fleet data array",
       });
     }

@@ -206,13 +206,13 @@ export const ValidatedQuestTreeIngestBodySchema =
 
     if (!datasetId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["dataset_id"],
         message: "dataset_id is required",
       });
     } else if (!PublicIdSchema.safeParse(datasetId).success) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["dataset_id"],
         message: "dataset_id must be a UUID v4 public_id",
       });
@@ -220,35 +220,35 @@ export const ValidatedQuestTreeIngestBodySchema =
 
     if (!requestId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["request_id"],
         message: "request_id is required",
       });
     }
     if (!payloadHash) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["payload_hash"],
         message: "payload_hash is required",
       });
     }
     if (!ALLOWED_EVENT_TYPES.has(eventType)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["event_type"],
         message: "event_type must be one of: snapshot, start, stop, complete",
       });
     }
     if (!periodTag) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["period_tag"],
         message: "period_tag is required",
       });
     }
     if (!tableVersion) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["table_version"],
         message: "table_version is required",
       });

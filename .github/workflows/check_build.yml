@@ -4,12 +4,21 @@ name: check build
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 0 * * 1"
   pull_request:
     branches:
       - main
       - dev
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "packages/FUSOU-APP/**"
+      - "packages/configs/**"
+      - "packages/kc_api/**"
+      - "packages/fusou-*/**"
+      - "packages/FUSOU-PROXY/**"
+      - "packages/avro-wasm/**"
+      - ".github/workflows/check_build.yml"
 
 env:
   CARGO_TERM_COLOR: always
@@ -75,18 +84,20 @@ jobs:
             args: ""
             SCCACHE_GHA_ENABLED: "true"
             RUSTC_WRAPPER: "sccache"
-          - platform: "ubuntu-24.04-arm"
-            args: ""
-            SCCACHE_GHA_ENABLED: "true"
-            RUSTC_WRAPPER: "sccache"
           - platform: "windows-latest"
             args: ""
             SCCACHE_GHA_ENABLED: "true"
             RUSTC_WRAPPER: "sccache"
-          - platform: "windows-11-arm"
-            args: ""
-            SCCACHE_GHA_ENABLED: "false"
-            RUSTC_WRAPPER: ""
+          # ARM builders are excluded from PR checks to reduce GitHub Actions minutes.
+          # Full ARM release bundles are built in publish_and_create_version_tag.yml.
+          # - platform: "ubuntu-24.04-arm"
+          #   args: ""
+          #   SCCACHE_GHA_ENABLED: "true"
+          #   RUSTC_WRAPPER: "sccache"
+          # - platform: "windows-11-arm"
+          #   args: ""
+          #   SCCACHE_GHA_ENABLED: "false"
+          #   RUSTC_WRAPPER: ""
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -111,7 +122,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: "22"
           cache: "pnpm"
 
       - name: install Rust stable

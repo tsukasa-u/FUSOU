@@ -1209,4 +1209,191 @@ mod tests {
         assert!(cache.tokens.contains_key(&member_b_dataset));
         assert!(!cache.tokens.contains_key(&unowned_dataset));
     }
+
+    async fn read_http_request(stream: &mut tokio::net::TcpStream) -> (String, String, String) {
+        use tokio::io::AsyncReadExt;
+
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let header_end = loop {
+            let n = stream.read(&mut chunk).await.expect("read request chunk");
+            assert!(n > 0, "unexpected EOF while reading HTTP headers");
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+
+        let header_str = String::from_utf8_lossy(&buf[..header_end]).to_string();
+        let mut lines = header_str.lines();
+        let request_line = lines.next().unwrap_or_default().to_string();
+        let content_length = lines
+            .find_map(|line| {
+                let (k, v) = line.split_once(':')?;
+                if k.trim().eq_ignore_ascii_case("content-length") {
+                    v.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
+        while buf.len() < header_end + content_length {
+            let n = stream.read(&mut chunk).await.expect("read request body");
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+
+        let body = String::from_utf8_lossy(&buf[header_end..header_end + content_length]).to_string();
+        (request_line, header_str.to_ascii_lowercase(), body)
+    }
+
+    #[tokio::test]
+    async fn request_with_refresh_retries_after_401_and_decodes_gzip_refresh_response() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let server = tokio::spawn(async move {
+            // 1st request: GET /protected with stale token -> 401 Unauthorized
+            let (mut s1, _) = listener.accept().await.expect("accept 1");
+            let (req_line1, headers1, _) = read_http_request(&mut s1).await;
+            assert!(req_line1.starts_with("GET /protected "));
+            assert!(headers1.contains("authorization: bearer stale-access-token\r\n"));
+            s1.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+
+            // 2nd request: POST /auth/v1/token?grant_type=refresh_token -> 200 OK (gzip JSON)
+            let (mut s2, _) = listener.accept().await.expect("accept 2");
+            let (req_line2, headers2, body2) = read_http_request(&mut s2).await;
+            assert!(req_line2.starts_with("POST /auth/v1/token?grant_type=refresh_token "));
+            assert!(headers2.contains("apikey: test-publishable-key\r\n"));
+            assert!(headers2.contains("accept-encoding:") && headers2.contains("gzip"));
+            let parsed_refresh: serde_json::Value = serde_json::from_str(&body2).unwrap();
+            assert_eq!(parsed_refresh["refresh_token"], "initial-refresh-token");
+
+            let refresh_json = br#"{"access_token":"fresh-access-token","refresh_token":"rotated-refresh-token","expires_in":3600,"token_type":"bearer"}"#;
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(refresh_json).unwrap();
+            let gzipped = encoder.finish().unwrap();
+
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                gzipped.len()
+            );
+            s2.write_all(header.as_bytes()).await.unwrap();
+            s2.write_all(&gzipped).await.unwrap();
+
+            // 3rd request: retried GET /protected with fresh token -> 200 OK
+            let (mut s3, _) = listener.accept().await.expect("accept 3");
+            let (req_line3, headers3, _) = read_http_request(&mut s3).await;
+            assert!(req_line3.starts_with("GET /protected "));
+            assert!(headers3.contains("authorization: bearer fresh-access-token\r\n"));
+            let ok_body = br#"{"ok":true}"#;
+            let resp3 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                ok_body.len()
+            );
+            s3.write_all(resp3.as_bytes()).await.unwrap();
+            s3.write_all(ok_body).await.unwrap();
+        });
+
+        let storage = Arc::new(crate::storage::InMemoryStorage::new());
+        storage
+            .save_session(&Session {
+                access_token: "stale-access-token".to_string(),
+                refresh_token: "initial-refresh-token".to_string(),
+                expires_at: Some(Utc::now() + Duration::minutes(30)),
+                token_type: Some("bearer".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let base_url = format!("http://{}", addr);
+        let manager = AuthManager::new(
+            AuthConfig {
+                supabase_url: base_url.clone(),
+                api_key: "test-publishable-key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            storage.clone(),
+        );
+
+        let protected_url = format!("{}/protected", base_url);
+        let resp = manager
+            .request_with_refresh(|client| client.get(&protected_url))
+            .await
+            .expect("request_with_refresh should succeed");
+
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let payload: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(payload["ok"], true);
+
+        let updated = storage.load_session().await.unwrap().expect("session saved");
+        assert_eq!(updated.access_token, "fresh-access-token");
+        assert_eq!(updated.refresh_token, "rotated-refresh-token");
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_refresh_clears_session_on_unauthorized_http_response() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let (req_line, _, _) = read_http_request(&mut stream).await;
+            assert!(req_line.starts_with("POST /auth/v1/token?grant_type=refresh_token "));
+            let err_body = br#"{"error":"invalid_grant"}"#;
+            let resp = format!(
+                "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                err_body.len()
+            );
+            stream.write_all(resp.as_bytes()).await.unwrap();
+            stream.write_all(err_body).await.unwrap();
+        });
+
+        let storage = Arc::new(crate::storage::InMemoryStorage::new());
+        storage
+            .save_session(&Session {
+                access_token: "expired-access".to_string(),
+                refresh_token: "revoked-refresh".to_string(),
+                expires_at: Some(Utc::now() - Duration::seconds(10)),
+                token_type: Some("bearer".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let manager = AuthManager::new(
+            AuthConfig {
+                supabase_url: format!("http://{}", addr),
+                api_key: "test-publishable-key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            storage.clone(),
+        );
+
+        let err = manager
+            .get_access_token()
+            .await
+            .expect_err("expired session with 401 refresh must fail");
+        assert!(matches!(err, AuthError::RequireReauth(_)));
+        assert!(storage.load_session().await.unwrap().is_none());
+
+        server.await.unwrap();
+    }
 }
