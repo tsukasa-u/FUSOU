@@ -858,34 +858,10 @@ fn configure_channel_transport() {
     let proxy_configs = configs::get_user_configs_for_proxy();
     let transport = proxy_configs.get_channel_transport();
 
-    #[cfg(feature = "grpc-channel")]
-    {
-        if !matches!(transport, configs::ChannelTransportKind::Grpc) {
-            tracing::warn!(
-                "proxy.channel.transport is set to `mpsc`, but this binary was built with the `grpc-channel` feature. gRPC transport will be used."
-            );
-        }
-
-        if let Some(endpoint) = proxy_configs.get_channel_endpoint() {
-            env::set_var("FUSOU_CHANNEL_ENDPOINT", endpoint.clone());
-            tracing::info!("Configured gRPC channel endpoint: {}", endpoint);
-        } else {
-            tracing::info!("Configured gRPC channel endpoint: default (127.0.0.1:50061)");
-        }
-
-        if let Some(buffer) = proxy_configs.get_channel_buffer_size() {
-            env::set_var("FUSOU_CHANNEL_BUFFER", buffer.to_string());
-            tracing::info!("Configured gRPC channel buffer size override: {}", buffer);
-        }
-    }
-
-    #[cfg(not(feature = "grpc-channel"))]
-    {
-        if matches!(transport, configs::ChannelTransportKind::Grpc) {
-            tracing::warn!(
-                "proxy.channel.transport is set to `grpc`, but this binary was built without the `grpc-channel` feature. Falling back to the in-process channel."
-            );
-        }
+    if matches!(transport, configs::ChannelTransportKind::Grpc) {
+        tracing::warn!(
+            "proxy.channel.transport is set to `grpc`, but gRPC support has been removed. Falling back to the in-process channel."
+        );
     }
 }
 
