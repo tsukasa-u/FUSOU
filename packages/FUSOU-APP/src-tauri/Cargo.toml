@@ -20,7 +20,6 @@ serde_json = "1.0"
 dirs = "5.0.1"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_qs = "0.14.0"
 tauri = { version = "2.9.5", features = ["tray-icon", "devtools"] }
 tauri-plugin-window-state = "2.4.0"
 tauri-plugin-deep-link = "2.4.3"
@@ -46,11 +45,7 @@ time = "0.3.43"
 discord-rich-presence = "1.1.0"
 once_cell = "1.21.3"
 uuid = { version = "1.16.0", features = ["v4"] }
-rustls = { version = "0.23.26", features = ["ring"] }
-warp = "0.3.7"
 regex = "1.9.6"
-futures = "0.3.31"
-http-body-util = "0.1.2"
 tokio-cron-scheduler = "0.14.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter", "time", "local-time"] }
@@ -60,11 +55,8 @@ reqwest = { version = "0.12.5", default-features = false, features = ["json", "r
 url = "2.5"
 clap = { version = "4.5.20", features = ["derive"] }
 sha2 = "0.10"
-flate2 = "1.1.5"
 hex = "0.4"
 base64 = "0.22"
-urlencoding = "2.1"
-cap-std = "3"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
@@ -73,7 +65,6 @@ cap-std = "3"
 custom-protocol = [ "tauri/custom-protocol" ]
 
 default = ["kc-api-epoch-20250627"]
-grpc-channel = ["proxy-https/grpc"]
 kc-api-epoch-genesis = [
 	"kc_api/genesis",
 	"proxy-https/kc-api-epoch-genesis",

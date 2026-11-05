@@ -6,13 +6,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 async-trait = "0.1"
-reqwest = { version = "0.12", features = ["json", "gzip", "native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] }
-log = "0.4"
 tracing = "0.1"
 configs = { path = "../configs" }
 # v2 anonymous-sync (pepper + Ed25519 device key) で利用する。

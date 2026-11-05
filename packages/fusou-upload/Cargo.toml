@@ -11,7 +11,6 @@ serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
 tracing = "0.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 fusou-auth = { path = "../fusou-auth" }
 configs = { path = "../configs" }
@@ -25,13 +24,11 @@ parquet = { version = "58", features = ["arrow"] }
 arrow = { version = "58" }
 arrow-array = { version = "58" }
 arrow-schema = { version = "58" }
-arrow-ipc = { version = "58" }
 
 # Storage
 object_store = { version = "0.13", features = ["aws"] }
 
 # Error handling
-anyhow = "1.0"
 bytes = "1.0"
 
 [dev-dependencies]
