@@ -768,6 +768,75 @@ pub fn external_window_shortcut(
         return Err("shortcut actions are only available to the external window".to_string());
     }
 
+    if action == "start-dragging" {
+        let _ = window.start_dragging();
+        return Ok(());
+    }
+
+    if action == "minimize" {
+        let _ = window.minimize();
+        return Ok(());
+    }
+
+    if action == "toggle-maximize" {
+        if window.is_maximized().unwrap_or(false) {
+            let _ = window.unmaximize();
+        } else {
+            let _ = window.maximize();
+        }
+        return Ok(());
+    }
+
+    if action == "close" {
+        let _ = window.close();
+        return Ok(());
+    }
+
+    if action.starts_with("volume:") {
+        let parts: Vec<&str> = action.split(':').collect();
+        if parts.len() >= 3 {
+            let vol = parts[1].parse::<f64>().unwrap_or(1.0);
+            let muted = parts[2] == "true";
+            let is_muted = muted || vol <= 0.0001;
+
+            #[cfg(windows)]
+            {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+                use windows_core::Interface;
+                let _ = window.with_webview(move |platform_webview| {
+                    let controller = platform_webview.controller();
+                    let webview = match unsafe { controller.CoreWebView2() } {
+                        Ok(wv) => wv,
+                        Err(_) => return,
+                    };
+                    if let Ok(wv8) = webview.cast::<ICoreWebView2_8>() {
+                        let _ = unsafe { wv8.SetIsMuted(is_muted) };
+                    }
+                });
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                use webkit2gtk::WebViewExt;
+                let _ = window.with_webview(move |platform_webview| {
+                    let webview = platform_webview.inner();
+                    webview.set_is_muted(is_muted);
+                });
+            }
+
+            let app_handle = window.app_handle();
+            use tauri::Emitter;
+            let _ = app_handle.emit(
+                "fusou-volume-changed",
+                serde_json::json!({
+                    "volume": vol,
+                    "muted": muted
+                }),
+            );
+        }
+        return Ok(());
+    }
+
     let app = window.app_handle();
     if !is_external_window_focused(app) {
         return Ok(());
@@ -781,6 +850,98 @@ pub fn external_window_shortcut(
     }
 
     Ok(())
+}
+
+pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
+    let Some(external) = get_visible_external_window(app) else {
+        return;
+    };
+
+    let is_muted = muted || volume <= 0.0001;
+
+    #[cfg(windows)]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+        use windows_core::Interface;
+        let _ = external.with_webview(move |platform_webview| {
+            let controller = platform_webview.controller();
+            let webview = match unsafe { controller.CoreWebView2() } {
+                Ok(wv) => wv,
+                Err(_) => return,
+            };
+            if let Ok(wv8) = webview.cast::<ICoreWebView2_8>() {
+                let _ = unsafe { wv8.SetIsMuted(is_muted) };
+            }
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use webkit2gtk::WebViewExt;
+        let _ = external.with_webview(move |platform_webview| {
+            let webview = platform_webview.inner();
+            webview.set_is_muted(is_muted);
+        });
+    }
+
+    let script = format!(
+        "if (typeof window.__fusouSetVolume === 'function') {{ window.__fusouSetVolume({}, {}, true); }}",
+        volume, muted
+    );
+    #[cfg(target_os = "linux")]
+    eval_external_script_with_callback(&external, Box::leak(script.into_boxed_str()), "set-volume");
+
+    #[cfg(not(target_os = "linux"))]
+    if let Err(e) = external.eval(&script) {
+        tracing::warn!("failed to eval volume script: {}", e);
+    }
+}
+
+#[tauri::command]
+pub fn trigger_external_screenshot(app: AppHandle) {
+    handle_external_screenshot_shortcut(&app);
+}
+
+#[tauri::command]
+pub fn trigger_external_reload(app: AppHandle) {
+    if !reload_focused_external_window(&app) {
+        crate::notify::show(
+            &app,
+            "External window",
+            "Failed to reload external window. Ensure the game window is open.",
+        );
+    }
+}
+
+#[tauri::command]
+pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
+    set_external_window_volume(&app, volume, muted);
+}
+
+#[cfg(windows)]
+pub fn apply_windows_rounded_corners(window: &tauri::WebviewWindow) {
+    if let Ok(hwnd) = window.hwnd() {
+        #[link(name = "dwmapi")]
+        extern "system" {
+            fn DwmSetWindowAttribute(
+                hwnd: *mut std::ffi::c_void,
+                dwAttribute: u32,
+                pvAttribute: *const std::ffi::c_void,
+                cbAttribute: u32,
+            ) -> i32;
+        }
+        const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+        const DWMWCP_ROUND: u32 = 2;
+        let preference = DWMWCP_ROUND;
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd.0 as _,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &preference as *const _ as *const std::ffi::c_void,
+                std::mem::size_of_val(&preference) as u32,
+            );
+        }
+    }
 }
 
 pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
@@ -835,11 +996,22 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         let max_window_size_width = kc_window.get_max_inner_width() as f64;
         let max_window_size_height = kc_window.get_max_inner_height() as f64;
 
+        const TITLEBAR_HEIGHT: f64 = 32.0;
         let external = external
             .fullscreen(false)
             .title("fusou-viewer")
-            .inner_size(inner_winow_size_width, inner_winow_size_height)
-            .max_inner_size(max_window_size_width, max_window_size_height)
+            .decorations(false)
+            .transparent(false)
+            .shadow(true)
+            .resizable(true)
+            .inner_size(
+                inner_winow_size_width,
+                inner_winow_size_height + TITLEBAR_HEIGHT,
+            )
+            .max_inner_size(
+                max_window_size_width,
+                max_window_size_height + TITLEBAR_HEIGHT,
+            )
             .visible(false)
             .initialization_script(init_script);
         #[cfg(dev)]
@@ -853,7 +1025,10 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         install_linux_webview_key_fallback(&external_result);
 
         #[cfg(windows)]
-        install_windows_webview_key_fallback(&external_result);
+        {
+            install_windows_webview_key_fallback(&external_result);
+            apply_windows_rounded_corners(&external_result);
+        }
 
         external_result
             .show()

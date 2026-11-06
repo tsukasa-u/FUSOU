@@ -1,49 +1,910 @@
 const GAME_FRAME_HEIGHT = 720;
 const GAME_FRAME_WIDTH = 1200;
+const TITLEBAR_HEIGHT = 32;
 let oldUrl = "";
 let isInitialized = false;
 let areShortcutsBound = false;
 
+const isTopWindow = () => {
+  try {
+    return window.self === window.top;
+  } catch (e) {
+    return false;
+  }
+};
+
+/* =========================================================================
+ * Web Audio API Master Gain Interception (KanColle HTML5 kcs2 Audio Routing)
+ * Must be installed immediately before any game scripts run.
+ * ========================================================================= */
+let fusouCurrentVolume = 1.0;
+let fusouIsMuted = false;
+const activeFusouGainNodes = new Set();
+
+const setupWebAudioInterception = () => {
+  const OriginalAudioContext =
+    window.AudioContext || window.webkitAudioContext;
+  if (!OriginalAudioContext || OriginalAudioContext.__fusouPatched) return;
+
+  function PatchedAudioContext(...args) {
+    const ctx = new OriginalAudioContext(...args);
+    try {
+      const masterGain = ctx.createGain();
+      const effVol = fusouIsMuted ? 0 : fusouCurrentVolume;
+      try {
+        masterGain.gain.setValueAtTime(effVol, ctx.currentTime);
+      } catch (_) {}
+      masterGain.gain.value = effVol;
+
+      // Connect masterGain to the true hardware destination
+      masterGain.connect(ctx.destination);
+
+      // Mask the destination property on this context instance so that
+      // all connections to context.destination automatically route to our masterGain
+      Object.defineProperty(ctx, "destination", {
+        get: () => masterGain,
+        configurable: true,
+        enumerable: true,
+      });
+
+      ctx.__fusouMasterGain = masterGain;
+      activeFusouGainNodes.add(masterGain);
+    } catch (e) {
+      console.warn("[fusou] audio patching error:", e);
+    }
+    return ctx;
+  }
+
+  PatchedAudioContext.prototype = OriginalAudioContext.prototype;
+  PatchedAudioContext.prototype.constructor = PatchedAudioContext;
+  PatchedAudioContext.__fusouPatched = true;
+
+  try {
+    Object.getOwnPropertyNames(OriginalAudioContext).forEach((prop) => {
+      if (!(prop in PatchedAudioContext)) {
+        try {
+          Object.defineProperty(
+            PatchedAudioContext,
+            prop,
+            Object.getOwnPropertyDescriptor(OriginalAudioContext, prop)
+          );
+        } catch (e) {}
+      }
+    });
+  } catch (e) {}
+
+  window.AudioContext = PatchedAudioContext;
+  if (window.webkitAudioContext) {
+    window.webkitAudioContext = PatchedAudioContext;
+  }
+
+  // Backup interceptor on AudioNode.prototype.connect for direct destination connections
+  try {
+    const origConnect = AudioNode.prototype.connect;
+    if (!AudioNode.prototype.__fusouConnectPatched) {
+      AudioNode.prototype.connect = function (dest, ...rest) {
+        if (
+          dest &&
+          dest instanceof AudioDestinationNode &&
+          this.context &&
+          this.context.__fusouMasterGain &&
+          this !== this.context.__fusouMasterGain
+        ) {
+          return origConnect.call(
+            this,
+            this.context.__fusouMasterGain,
+            ...rest
+          );
+        }
+        return origConnect.call(this, dest, ...rest);
+      };
+      AudioNode.prototype.__fusouConnectPatched = true;
+    }
+  } catch (e) {}
+};
+
+setupWebAudioInterception();
+
+/* =========================================================================
+ * HTML5 Media Element Interception (KanColle HTML5 BGM new Audio() Routing)
+ * ========================================================================= */
+const activeFusouMediaElements = new Set();
+let nativeMediaVolumeDescriptor = null;
+
+try {
+  nativeMediaVolumeDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLMediaElement.prototype,
+    "volume"
+  );
+} catch (e) {}
+
+const setElementNativeVolume = (el, vol, muted) => {
+  try {
+    const clamped = Math.max(0, Math.min(1, vol));
+    if (nativeMediaVolumeDescriptor && nativeMediaVolumeDescriptor.set) {
+      nativeMediaVolumeDescriptor.set.call(el, clamped);
+    } else {
+      el.volume = clamped;
+    }
+    el.muted = muted;
+  } catch (e) {}
+};
+
+const setupMediaElementInterception = () => {
+  // 1. Monkeypatch HTMLMediaElement.prototype.play to track all elements (even in-memory new Audio())
+  try {
+    const origPlay = HTMLMediaElement.prototype.play;
+    if (!HTMLMediaElement.prototype.__fusouPlayPatched) {
+      HTMLMediaElement.prototype.play = function (...args) {
+        try {
+          activeFusouMediaElements.add(this);
+          const base =
+            typeof this.__fusouBaseVolume === "number"
+              ? this.__fusouBaseVolume
+              : typeof this.volume === "number"
+                ? this.volume
+                : 1.0;
+          this.__fusouBaseVolume = base;
+          const effVol = fusouIsMuted ? 0 : fusouCurrentVolume * base;
+          setElementNativeVolume(this, effVol, fusouIsMuted);
+        } catch (e) {}
+        return origPlay.apply(this, args);
+      };
+      HTMLMediaElement.prototype.__fusouPlayPatched = true;
+    }
+  } catch (e) {}
+
+  // 2. Monkeypatch HTMLMediaElement.prototype.volume descriptor
+  try {
+    if (nativeMediaVolumeDescriptor && !nativeMediaVolumeDescriptor.__fusouPatched) {
+      Object.defineProperty(HTMLMediaElement.prototype, "volume", {
+        get: function () {
+          return typeof this.__fusouBaseVolume === "number"
+            ? this.__fusouBaseVolume
+            : nativeMediaVolumeDescriptor.get.call(this);
+        },
+        set: function (val) {
+          activeFusouMediaElements.add(this);
+          const base = Number(val);
+          this.__fusouBaseVolume = isNaN(base) ? 1.0 : base;
+          const effVol = fusouIsMuted ? 0 : fusouCurrentVolume * this.__fusouBaseVolume;
+          return nativeMediaVolumeDescriptor.set.call(
+            this,
+            Math.max(0, Math.min(1, effVol))
+          );
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      nativeMediaVolumeDescriptor.__fusouPatched = true;
+    }
+  } catch (e) {}
+
+  // 3. Monkeypatch window.Audio constructor
+  try {
+    const OriginalAudio = window.Audio;
+    if (OriginalAudio && !OriginalAudio.__fusouPatched) {
+      function PatchedAudio(...args) {
+        const audio = new OriginalAudio(...args);
+        try {
+          activeFusouMediaElements.add(audio);
+          audio.__fusouBaseVolume = 1.0;
+          const effVol = fusouIsMuted ? 0 : fusouCurrentVolume;
+          setElementNativeVolume(audio, effVol, fusouIsMuted);
+        } catch (e) {}
+        return audio;
+      }
+      PatchedAudio.prototype = OriginalAudio.prototype;
+      PatchedAudio.prototype.constructor = PatchedAudio;
+      PatchedAudio.__fusouPatched = true;
+      window.Audio = PatchedAudio;
+    }
+  } catch (e) {}
+};
+
+setupMediaElementInterception();
+
+const FUSOU_LOGO_SVG = `
+<svg viewBox="0 0 1000 1000" width="16" height="16" xmlns="http://www.w3.org/2000/svg" style="display:inline-block; vertical-align:middle; flex-shrink:0; pointer-events:none;">
+  <rect x="150" y="73" width="750" height="225" rx="75" fill="#B5D95A" />
+  <rect x="150" y="388" width="450" height="225" rx="75" fill="#96C54E" />
+  <rect x="150" y="703" width="225" height="225" rx="75" fill="#76B142" />
+</svg>
+`;
+
+const SCREENSHOT_SVG = `
+<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+  <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+</svg>
+`;
+
+const RELOAD_SVG = `
+<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+</svg>
+`;
+
+const SPEAKER_MUTED_SVG = `
+<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#ef4444" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+  <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+</svg>
+`;
+
+const SPEAKER_LOW_SVG = `
+<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m-4.243-8.486L7.586 11H6a1 1 0 00-1 1v0a1 1 0 001 1h1.586l3.707 3.95c.63.67 1.707.225 1.707-.707V7.757c0-.932-1.077-1.378-1.707-.707z" />
+</svg>
+`;
+
+const SPEAKER_HIGH_SVG = `
+<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+</svg>
+`;
+
+const MINIMIZE_SVG = `
+<svg width="12" height="12" viewBox="0 0 12 12" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <rect fill="currentColor" width="10" height="1" x="1" y="6" />
+</svg>
+`;
+
+const MAXIMIZE_SVG = `
+<svg width="12" height="12" viewBox="0 0 12 12" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <rect fill="none" stroke="currentColor" stroke-width="1" width="9" height="9" x="1.5" y="1.5" />
+</svg>
+`;
+
+const RESTORE_SVG = `
+<svg width="12" height="12" viewBox="0 0 12 12" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <rect fill="none" stroke="currentColor" stroke-width="1" width="7" height="7" x="3.5" y="1.5" />
+  <polyline fill="none" stroke="currentColor" stroke-width="1" points="1.5,4 1.5,10.5 8,10.5" />
+</svg>
+`;
+
+const CLOSE_SVG = `
+<svg width="12" height="12" viewBox="0 0 12 12" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2" />
+  <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2" />
+</svg>
+`;
+
+const ensureTitlebarStyles = () => {
+  if (!isTopWindow()) return;
+  if (document.getElementById("fusou-titlebar-styles")) return;
+  const style = document.createElement("style");
+  style.id = "fusou-titlebar-styles";
+  style.textContent = `
+    /* Non-game pages (login, terms, etc): natural layout with titlebar clearance */
+    body:not(.fusou-game-mode) {
+      padding-top: ${TITLEBAR_HEIGHT}px !important;
+      box-sizing: border-box !important;
+    }
+    /* Game mode only: frameless clipping */
+    html.fusou-game-mode, body.fusou-game-mode {
+      background-color: #0e0e11 !important;
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    html.fusou-game-mode::-webkit-scrollbar,
+    body.fusou-game-mode::-webkit-scrollbar,
+    .fusou-game-mode #game_frame::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+    #fusou-titlebar {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      height: ${TITLEBAR_HEIGHT}px !important;
+      background-color: #27272a !important;
+      background-color: oklch(27% 0.006 286.033) !important;
+      color: #f1f5f9 !important;
+      color: oklch(97.807% 0.029 256.847) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      padding: 0 10px !important;
+      z-index: 2147483647 !important;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+      font-size: 12px !important;
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+      box-sizing: border-box !important;
+      cursor: default !important;
+      -webkit-app-region: drag !important;
+    }
+    #fusou-titlebar * {
+      box-sizing: border-box !important;
+    }
+    #fusou-titlebar button,
+    #fusou-titlebar input,
+    #fusou-volume-popover {
+      -webkit-app-region: no-drag !important;
+      cursor: pointer !important;
+    }
+    .fusou-tool-group {
+      display: flex !important;
+      align-items: center !important;
+      gap: 4px !important;
+    }
+    .fusou-tool-btn {
+      height: 24px !important;
+      min-height: 24px !important;
+      padding: 0 6px !important;
+      border-radius: 4px !important;
+      border: none !important;
+      background: transparent !important;
+      color: #e5e7eb !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 4px !important;
+      font-size: 12px !important;
+      font-family: inherit !important;
+      transition: all 0.15s ease !important;
+      box-sizing: border-box !important;
+    }
+    .fusou-tool-btn:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: #ffffff !important;
+    }
+    .fusou-tool-btn.fusou-active {
+      background: rgba(255, 255, 255, 0.15) !important;
+    }
+    .fusou-win-controls {
+      display: flex !important;
+      align-items: center !important;
+      height: 100% !important;
+      margin-right: -10px !important;
+    }
+    .fusou-win-btn {
+      width: 40px !important;
+      height: ${TITLEBAR_HEIGHT}px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      border: none !important;
+      background: transparent !important;
+      color: #e5e7eb !important;
+      cursor: pointer !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      transition: background 0.15s ease, color 0.15s ease !important;
+    }
+    .fusou-win-btn:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: #ffffff !important;
+    }
+    .fusou-win-btn:active {
+      background: rgba(255, 255, 255, 0.15) !important;
+    }
+    .fusou-win-close:hover {
+      background: #ef4444 !important;
+      color: #ffffff !important;
+    }
+    .fusou-win-close:active {
+      background: #dc2626 !important;
+    }
+
+    /* DaisyUI 5 Matched Popover & Controls */
+    #fusou-volume-popover {
+      display: none;
+      position: absolute !important;
+      top: 32px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      width: 176px !important;
+      background-color: #1d1c1c !important;
+      background-color: oklch(21.6% 0.006 56.043) !important;
+      color: #f1f5f9 !important;
+      color: oklch(97.807% 0.029 256.847) !important;
+      border: 1px solid #27272a !important;
+      border-radius: 8px !important;
+      padding: 10px !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+      flex-direction: column !important;
+      gap: 8px !important;
+      z-index: 2147483647 !important;
+      font-family: inherit !important;
+    }
+    #fusou-vol-slider {
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      width: 100% !important;
+      height: 16px !important;
+      background: transparent !important;
+      cursor: pointer !important;
+      margin: 2px 0 !important;
+      padding: 0 !important;
+      border: none !important;
+    }
+    #fusou-vol-slider:focus {
+      outline: none !important;
+    }
+    #fusou-vol-slider::-webkit-slider-runnable-track {
+      width: 100% !important;
+      height: 8px !important;
+      background-color: rgba(255, 255, 255, 0.15) !important;
+      border-radius: 9999px !important;
+    }
+    #fusou-vol-slider::-webkit-slider-thumb {
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      width: 16px !important;
+      height: 16px !important;
+      border-radius: 50% !important;
+      background-color: #96C54E !important;
+      border: 2px solid #1d1c1c !important;
+      margin-top: -4px !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+      transition: transform 0.1s ease !important;
+    }
+    #fusou-vol-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.1) !important;
+    }
+    #fusou-mute-btn {
+      width: 100% !important;
+      height: 24px !important;
+      padding: 0 8px !important;
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      border-radius: 8px !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      background-color: transparent !important;
+      color: #f1f5f9 !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: all 0.15s ease !important;
+      font-family: inherit !important;
+      text-transform: none !important;
+      box-sizing: border-box !important;
+    }
+    #fusou-mute-btn:hover {
+      background-color: #f1f5f9 !important;
+      color: #1d1c1c !important;
+      border-color: #f1f5f9 !important;
+    }
+    #fusou-mute-btn.is-muted {
+      background-color: #ef4444 !important;
+      color: #ffffff !important;
+      border-color: transparent !important;
+    }
+    #fusou-mute-btn.is-muted:hover {
+      background-color: #dc2626 !important;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+};
+
+const updateMaximizeIcon = () => {
+  const maxBtn = document.getElementById("fusou-win-max-btn");
+  if (!maxBtn) return;
+  const isMax =
+    window.outerWidth >= screen.availWidth - 4 &&
+    window.outerHeight >= screen.availHeight - 4;
+  maxBtn.innerHTML = isMax ? RESTORE_SVG : MAXIMIZE_SVG;
+  maxBtn.title = isMax ? "Restore" : "Maximize";
+};
+
+let isUserDraggingSlider = false;
+let volumeDebounceTimer = null;
+
+const updateVolumeUI = (vol, muted) => {
+  const volBtnText = document.getElementById("fusou-vol-btn-text");
+  const volIcon = document.getElementById("fusou-vol-icon");
+  const volVal = document.getElementById("fusou-vol-val");
+  const volSlider = document.getElementById("fusou-vol-slider");
+  const muteBtn = document.getElementById("fusou-mute-btn");
+
+  if (volBtnText) {
+    volBtnText.textContent = muted ? "0%" : `${vol}%`;
+  }
+  if (volVal) {
+    volVal.textContent = muted ? "Muted" : `${vol}%`;
+  }
+  if (volSlider && !isUserDraggingSlider) {
+    volSlider.value = vol;
+  }
+  if (muteBtn) {
+    muteBtn.textContent = muted ? "Unmute" : "Mute Audio";
+    if (muted) {
+      muteBtn.classList.add("is-muted");
+    } else {
+      muteBtn.classList.remove("is-muted");
+    }
+  }
+  if (volIcon) {
+    if (muted || vol === 0) {
+      volIcon.innerHTML = SPEAKER_MUTED_SVG;
+    } else if (vol > 50) {
+      volIcon.innerHTML = SPEAKER_HIGH_SVG;
+    } else {
+      volIcon.innerHTML = SPEAKER_LOW_SVG;
+    }
+  }
+};
+
+const injectTitlebar = () => {
+  if (!isTopWindow()) return;
+  ensureTitlebarStyles();
+
+  if (document.getElementById("fusou-titlebar")) return;
+  const parent = document.body || document.documentElement;
+  if (!parent) return;
+
+  const titlebar = document.createElement("div");
+  titlebar.id = "fusou-titlebar";
+  titlebar.setAttribute("data-tauri-drag-region", "");
+
+  titlebar.addEventListener("mousedown", (e) => {
+    if (
+      e.target.closest("button") ||
+      e.target.closest("#fusou-volume-popover") ||
+      e.target.closest("input")
+    ) {
+      return;
+    }
+    if (e.button === 0) {
+      requestNativeShortcut("start-dragging");
+    }
+  });
+
+  titlebar.addEventListener("dblclick", (e) => {
+    if (
+      e.target.closest("button") ||
+      e.target.closest("#fusou-volume-popover") ||
+      e.target.closest("input")
+    ) {
+      return;
+    }
+    requestNativeShortcut("toggle-maximize");
+    setTimeout(updateMaximizeIcon, 100);
+    setTimeout(updateMaximizeIcon, 300);
+  });
+
+  // Left: Brand & Logo
+  const leftGroup = document.createElement("div");
+  leftGroup.setAttribute("data-tauri-drag-region", "");
+  leftGroup.style.cssText =
+    "display:flex; align-items:center; gap:8px; cursor:default;";
+  leftGroup.innerHTML = `${FUSOU_LOGO_SVG}<span data-tauri-drag-region style="font-weight:700; letter-spacing:0.05em; font-size:11px; opacity:0.9;">FUSOU</span>`;
+
+  // Center: Action & utility buttons
+  const toolGroup = document.createElement("div");
+  toolGroup.className = "fusou-tool-group";
+
+  const screenshotBtn = document.createElement("button");
+  screenshotBtn.type = "button";
+  screenshotBtn.className = "fusou-tool-btn";
+  screenshotBtn.title = "Capture Screenshot (External Window)";
+  screenshotBtn.innerHTML = SCREENSHOT_SVG;
+  screenshotBtn.onclick = () => {
+    screenshotBtn.style.transform = "scale(0.95)";
+    setTimeout(() => {
+      screenshotBtn.style.transform = "";
+    }, 250);
+    requestNativeShortcut("screenshot");
+  };
+
+  const reloadBtn = document.createElement("button");
+  reloadBtn.type = "button";
+  reloadBtn.className = "fusou-tool-btn";
+  reloadBtn.title = "Reload External Window (F5)";
+  reloadBtn.innerHTML = RELOAD_SVG;
+  reloadBtn.onclick = () => {
+    reloadBtn.style.transform = "rotate(180deg)";
+    setTimeout(() => {
+      reloadBtn.style.transform = "";
+    }, 500);
+    requestNativeShortcut("reload");
+  };
+
+  // Volume dropdown
+  const volumeContainer = document.createElement("div");
+  volumeContainer.style.cssText = "position:relative;";
+
+  const volumeBtn = document.createElement("button");
+  volumeBtn.type = "button";
+  volumeBtn.className = "fusou-tool-btn";
+  volumeBtn.title = "Volume Control";
+  volumeBtn.innerHTML = `
+    <span id="fusou-vol-icon" style="display:inline-flex; align-items:center;">${SPEAKER_HIGH_SVG}</span>
+    <span id="fusou-vol-btn-text" style="font-size:10px; width:24px; text-align:right; font-variant-numeric:tabular-nums;">100%</span>
+  `;
+
+  const popover = document.createElement("div");
+  popover.id = "fusou-volume-popover";
+  popover.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:600;">
+      <span>Sound Volume</span>
+      <span id="fusou-vol-val" style="font-size:10px; opacity:0.7; font-variant-numeric:tabular-nums;">100%</span>
+    </div>
+    <input id="fusou-vol-slider" type="range" min="0" max="100" value="100" />
+    <button id="fusou-mute-btn" type="button">
+      Mute Audio
+    </button>
+  `;
+
+  volumeBtn.onclick = (e) => {
+    e.stopPropagation();
+    const isOpen = popover.style.display === "flex";
+    popover.style.display = isOpen ? "none" : "flex";
+    if (isOpen) {
+      volumeBtn.classList.remove("fusou-active");
+    } else {
+      volumeBtn.classList.add("fusou-active");
+    }
+  };
+
+  document.addEventListener("mousedown", (e) => {
+    if (!volumeContainer.contains(e.target)) {
+      popover.style.display = "none";
+      volumeBtn.classList.remove("fusou-active");
+    }
+  });
+
+  volumeContainer.appendChild(volumeBtn);
+  volumeContainer.appendChild(popover);
+
+  toolGroup.appendChild(screenshotBtn);
+  toolGroup.appendChild(reloadBtn);
+  toolGroup.appendChild(volumeContainer);
+
+  // Right: Window controls
+  const windowControls = document.createElement("div");
+  windowControls.className = "fusou-win-controls";
+
+  const minBtn = document.createElement("button");
+  minBtn.type = "button";
+  minBtn.className = "fusou-win-btn";
+  minBtn.title = "Minimize";
+  minBtn.innerHTML = MINIMIZE_SVG;
+  minBtn.onclick = () => requestNativeShortcut("minimize");
+
+  const maxBtn = document.createElement("button");
+  maxBtn.type = "button";
+  maxBtn.id = "fusou-win-max-btn";
+  maxBtn.className = "fusou-win-btn";
+  maxBtn.title = "Maximize";
+  maxBtn.innerHTML = MAXIMIZE_SVG;
+  maxBtn.onclick = () => {
+    requestNativeShortcut("toggle-maximize");
+    setTimeout(updateMaximizeIcon, 100);
+    setTimeout(updateMaximizeIcon, 300);
+  };
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "fusou-win-btn fusou-win-close";
+  closeBtn.title = "Close";
+  closeBtn.innerHTML = CLOSE_SVG;
+  closeBtn.onclick = () => requestNativeShortcut("close");
+
+  windowControls.appendChild(minBtn);
+  windowControls.appendChild(maxBtn);
+  windowControls.appendChild(closeBtn);
+
+  titlebar.appendChild(leftGroup);
+  titlebar.appendChild(toolGroup);
+  titlebar.appendChild(windowControls);
+
+  parent.appendChild(titlebar);
+
+  // Initialize and bind volume controls
+  setTimeout(() => {
+    const slider = document.getElementById("fusou-vol-slider");
+    const muteBtn = document.getElementById("fusou-mute-btn");
+
+    const savedVol = localStorage.getItem("fusou-external-volume");
+    const savedMuted = localStorage.getItem("fusou-external-muted");
+    const initVol = savedVol !== null ? Number(savedVol) : 100;
+    const initMuted = savedMuted === "true";
+
+    fusouCurrentVolume = initVol / 100;
+    fusouIsMuted = initMuted;
+    updateVolumeUI(initVol, initMuted);
+    applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+    requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
+
+    if (slider) {
+      const startDrag = () => {
+        isUserDraggingSlider = true;
+      };
+      const stopDrag = () => {
+        if (!isUserDraggingSlider) return;
+        isUserDraggingSlider = false;
+        const v = Number(slider.value);
+        fusouCurrentVolume = v / 100;
+        localStorage.setItem("fusou-external-volume", v.toString());
+        localStorage.setItem(
+          "fusou-external-muted",
+          fusouIsMuted ? "true" : "false",
+        );
+        window.__fusouSetVolume(fusouCurrentVolume, fusouIsMuted);
+      };
+
+      slider.addEventListener("mousedown", startDrag);
+      slider.addEventListener("touchstart", startDrag, { passive: true });
+      window.addEventListener("mouseup", stopDrag);
+      window.addEventListener("touchend", stopDrag);
+
+      slider.oninput = (e) => {
+        isUserDraggingSlider = true;
+        const v = Number(e.target.value);
+        fusouCurrentVolume = v / 100;
+        if (fusouIsMuted && v > 0) {
+          fusouIsMuted = false;
+        } else if (v === 0) {
+          fusouIsMuted = true;
+        }
+        localStorage.setItem("fusou-external-volume", v.toString());
+        localStorage.setItem(
+          "fusou-external-muted",
+          fusouIsMuted ? "true" : "false",
+        );
+
+        // Immediate visual feedback
+        const volBtnText = document.getElementById("fusou-vol-btn-text");
+        const volVal = document.getElementById("fusou-vol-val");
+        const muteBtn = document.getElementById("fusou-mute-btn");
+        const volIcon = document.getElementById("fusou-vol-icon");
+        if (volBtnText) volBtnText.textContent = fusouIsMuted ? "0%" : `${v}%`;
+        if (volVal) volVal.textContent = fusouIsMuted ? "Muted" : `${v}%`;
+        if (muteBtn) {
+          muteBtn.textContent = fusouIsMuted ? "Unmute" : "Mute Audio";
+          if (fusouIsMuted) {
+            muteBtn.classList.add("is-muted");
+          } else {
+            muteBtn.classList.remove("is-muted");
+          }
+        }
+        if (volIcon) {
+          volIcon.innerHTML =
+            fusouIsMuted || v === 0
+              ? SPEAKER_MUTED_SVG
+              : v > 50
+                ? SPEAKER_HIGH_SVG
+                : SPEAKER_LOW_SVG;
+        }
+
+        applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+
+        // Debounce IPC calls and broadcasts
+        if (volumeDebounceTimer) clearTimeout(volumeDebounceTimer);
+        volumeDebounceTimer = setTimeout(() => {
+          requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
+          broadcastToAllFrames({
+            type: "fusou-set-volume",
+            volume: fusouCurrentVolume,
+            muted: fusouIsMuted,
+          });
+        }, 30);
+      };
+
+      slider.onchange = () => {
+        stopDrag();
+      };
+    }
+
+    if (muteBtn) {
+      muteBtn.onclick = () => {
+        fusouIsMuted = !fusouIsMuted;
+        localStorage.setItem(
+          "fusou-external-muted",
+          fusouIsMuted ? "true" : "false",
+        );
+        window.__fusouSetVolume(fusouCurrentVolume, fusouIsMuted);
+      };
+    }
+
+    updateMaximizeIcon();
+  }, 50);
+};
+
 const adjustGameFrameScale = (
-  frame = document.getElementById("game_frame")
+  frame = document.getElementById("game_frame"),
 ) => {
   if (!frame) return;
-  const scale = window.innerHeight / GAME_FRAME_HEIGHT;
+  const availableWidth = window.innerWidth;
+  if (availableWidth <= 0) return;
+  const scale = availableWidth / GAME_FRAME_WIDTH;
   frame.style.transform = `scale(${scale}, ${scale})`;
 };
 
+let isApplyingLayout = false;
+
 const applyLayout = () => {
-  const htmlElement = document.documentElement;
-  if (htmlElement) {
-    htmlElement.style.setProperty("overflow", "hidden", "important");
-  }
+  if (!isTopWindow()) return;
+  if (isApplyingLayout) return;
+  isApplyingLayout = true;
+  try {
+    injectTitlebar();
 
-  const rootElement = document.getElementById("root");
-  if (rootElement) {
-    ["header", "footer", "aside"].forEach((tag) => {
-      const element = rootElement.getElementsByTagName(tag)[0];
-      if (element) {
-        element.style.setProperty("display", "none", "important");
+    const gameFrame = document.getElementById("game_frame");
+
+    if (!gameFrame) {
+      // Non-game page (Login, terms, maintenance): restore natural layout
+      if (document.documentElement.classList.contains("fusou-game-mode")) {
+        document.documentElement.classList.remove("fusou-game-mode");
       }
-    });
+      if (document.body && document.body.classList.contains("fusou-game-mode")) {
+        document.body.classList.remove("fusou-game-mode");
+      }
 
-    const ulElements = rootElement.getElementsByTagName("ul");
-    for (let i = 0; i < ulElements.length; i++) {
-      ulElements[i].style.setProperty("display", "none", "important");
+      // Restore any hidden navigation elements if present
+      const rootElement = document.getElementById("root");
+      if (rootElement) {
+        ["header", "footer", "aside"].forEach((tag) => {
+          const element = rootElement.getElementsByTagName(tag)[0];
+          if (element && element.style.display === "none") {
+            element.style.display = "";
+          }
+        });
+
+        const ulElements = rootElement.getElementsByTagName("ul");
+        for (let i = 0; i < ulElements.length; i++) {
+          if (ulElements[i].style.display === "none") {
+            ulElements[i].style.display = "";
+          }
+        }
+      }
+      return;
     }
+
+    // Game mode page (#game_frame exists)
+    if (!document.documentElement.classList.contains("fusou-game-mode")) {
+      document.documentElement.classList.add("fusou-game-mode");
+    }
+    if (document.body && !document.body.classList.contains("fusou-game-mode")) {
+      document.body.classList.add("fusou-game-mode");
+    }
+
+    // Hide extra DMM outer navigation bars in game mode
+    const rootElement = document.getElementById("root");
+    if (rootElement) {
+      ["header", "footer", "aside"].forEach((tag) => {
+        const element = rootElement.getElementsByTagName(tag)[0];
+        if (element && element.style.display !== "none") {
+          element.style.setProperty("display", "none", "important");
+        }
+      });
+
+      const ulElements = rootElement.getElementsByTagName("ul");
+      for (let i = 0; i < ulElements.length; i++) {
+        if (ulElements[i].style.display !== "none") {
+          ulElements[i].style.setProperty("display", "none", "important");
+        }
+      }
+    }
+
+    if (gameFrame.style.position !== "fixed") {
+      gameFrame.style.position = "fixed";
+      gameFrame.style.margin = "0";
+      gameFrame.style.padding = "0";
+      gameFrame.style.border = "none";
+      gameFrame.style.outline = "none";
+      gameFrame.style.top = `${TITLEBAR_HEIGHT}px`;
+      gameFrame.style.left = "0";
+      gameFrame.style.transformOrigin = "0 0";
+      gameFrame.style.width = `${GAME_FRAME_WIDTH}px`;
+      gameFrame.setAttribute("scrolling", "no");
+    }
+
+    adjustGameFrameScale(gameFrame);
+  } finally {
+    isApplyingLayout = false;
   }
-
-  const gameFrame = document.getElementById("game_frame");
-  if (!gameFrame) return;
-
-  gameFrame.style.position = "fixed";
-  gameFrame.style.margin = "0";
-  gameFrame.style.top = "0";
-  gameFrame.style.left = "0";
-  gameFrame.style.transformOrigin = "0 0";
-  gameFrame.style.width = `${GAME_FRAME_WIDTH}px`;
-
-  adjustGameFrameScale(gameFrame);
 };
 
 const observer = new MutationObserver(() => {
@@ -56,6 +917,8 @@ const observer = new MutationObserver(() => {
 });
 
 const initialize = () => {
+  if (!isTopWindow()) return;
+  injectTitlebar();
   if (isInitialized || !document.body) return;
 
   isInitialized = true;
@@ -64,12 +927,14 @@ const initialize = () => {
   observer.observe(document.body, {
     subtree: true,
     childList: true,
-    attributes: true,
-    characterData: true,
   });
 
   applyLayout();
 };
+
+if (isTopWindow() && (document.body || document.documentElement)) {
+  injectTitlebar();
+}
 
 if (document.readyState === "loading") {
   window.addEventListener("DOMContentLoaded", initialize);
@@ -78,8 +943,20 @@ if (document.readyState === "loading") {
 }
 
 window.addEventListener("load", initialize);
-window.addEventListener("resize", () => adjustGameFrameScale());
+window.addEventListener("resize", () => {
+  if (isTopWindow()) {
+    adjustGameFrameScale();
+    updateMaximizeIcon();
+  }
+});
 window.addEventListener("urlChange", applyLayout);
+
+if (isTopWindow()) {
+  const titlebarPersistenceTimer = setInterval(() => {
+    injectTitlebar();
+  }, 250);
+  setTimeout(() => clearInterval(titlebarPersistenceTimer), 15000);
+}
 
 const forceRenderRefresh = () => {
   const element = document.body ?? document.documentElement;
@@ -155,3 +1032,190 @@ const bindShortcutHandlers = () => {
 };
 
 bindShortcutHandlers();
+
+/* =========================================================================
+ * Multi-frame Direct Audio Control (KanColle WebAudio + HTML5 Media + SoundJS)
+ * ========================================================================= */
+
+// Set of direct window proxies for all child/nested frames (maintained by top window)
+const registeredFusouFrames = new Set();
+
+// Broadcast a message to all accessible frames and windows
+const broadcastToAllFrames = (msg) => {
+  // 1. Direct postMessage to all registered frames (bypasses cross-origin nesting limits)
+  registeredFusouFrames.forEach((frameProxy) => {
+    try {
+      frameProxy.postMessage(msg, "*");
+    } catch (e) {
+      registeredFusouFrames.delete(frameProxy);
+    }
+  });
+
+  // 2. Direct child frames
+  try {
+    for (let i = 0; i < window.frames.length; i++) {
+      try {
+        window.frames[i].postMessage(msg, "*");
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  // 3. DOM iframes
+  try {
+    document.querySelectorAll("iframe").forEach((frame) => {
+      try {
+        if (frame.contentWindow) {
+          frame.contentWindow.postMessage(msg, "*");
+        }
+      } catch (e) {}
+    });
+  } catch (e) {}
+};
+
+// Apply volume directly to all audio nodes and media elements in this frame
+const applyVolumeToPage = (volume, muted) => {
+  if (typeof volume === "number") {
+    fusouCurrentVolume = Math.max(0, Math.min(1, volume));
+  }
+  if (typeof muted === "boolean") {
+    fusouIsMuted = muted;
+  }
+  const effectiveVolume = fusouIsMuted ? 0 : fusouCurrentVolume;
+
+  // 1. Web Audio API Master Gain Nodes
+  activeFusouGainNodes.forEach((gainNode) => {
+    try {
+      try {
+        gainNode.gain.setValueAtTime(
+          effectiveVolume,
+          gainNode.context.currentTime
+        );
+      } catch (_) {}
+      gainNode.gain.value = effectiveVolume;
+    } catch (e) {}
+  });
+
+  // 2. HTML5 Media Elements (including in-memory Audio instances and DOM elements)
+  const applyToMedia = (el) => {
+    try {
+      const base =
+        typeof el.__fusouBaseVolume === "number" ? el.__fusouBaseVolume : 1.0;
+      const targetVol = fusouIsMuted ? 0 : fusouCurrentVolume * base;
+      setElementNativeVolume(el, targetVol, fusouIsMuted);
+    } catch (e) {}
+  };
+
+  activeFusouMediaElements.forEach(applyToMedia);
+  try {
+    document.querySelectorAll("audio, video").forEach(applyToMedia);
+  } catch (e) {}
+
+  // 3. KanColle SoundJS / CreateJS fallback
+  try {
+    if (window.createjs && window.createjs.Sound) {
+      if (typeof window.createjs.Sound.setVolume === "function") {
+        window.createjs.Sound.setVolume(effectiveVolume);
+      } else {
+        window.createjs.Sound.volume = effectiveVolume;
+      }
+      if (typeof window.createjs.Sound.setMute === "function") {
+        window.createjs.Sound.setMute(fusouIsMuted);
+      } else {
+        window.createjs.Sound.muted = fusouIsMuted;
+      }
+    }
+  } catch (e) {}
+};
+
+// Periodic synchronization to catch late-initializing audio nodes or elements
+setInterval(() => {
+  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+}, 2000);
+
+// Global setter called from external titlebar or Rust evaluation
+window.__fusouSetVolume = (volume, muted, fromRust = false) => {
+  if (typeof volume === "number") {
+    fusouCurrentVolume = Math.max(0, Math.min(1, volume));
+  }
+  if (typeof muted === "boolean") {
+    fusouIsMuted = muted;
+  }
+  const volPercent = Math.round(fusouCurrentVolume * 100);
+
+  if (isTopWindow()) {
+    updateVolumeUI(volPercent, fusouIsMuted);
+    // Request Rust to apply native webview engine mute (SetIsMuted) only if NOT called from Rust
+    if (!fromRust) {
+      requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
+    }
+  }
+
+  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+
+  // Broadcast to all frames
+  broadcastToAllFrames({
+    type: "fusou-set-volume",
+    volume: fusouCurrentVolume,
+    muted: fusouIsMuted,
+  });
+};
+
+// Message listener for cross-frame coordination
+window.addEventListener("message", (e) => {
+  if (!e.data || typeof e.data !== "object") return;
+
+  // Handle frame registration (Top window records newly created iframes)
+  if (e.data.type === "fusou-register-frame" && isTopWindow()) {
+    if (e.source) {
+      registeredFusouFrames.add(e.source);
+      // Immediately reply with current volume configuration
+      try {
+        e.source.postMessage(
+          {
+            type: "fusou-set-volume",
+            volume: fusouCurrentVolume,
+            muted: fusouIsMuted,
+          },
+          "*"
+        );
+      } catch (err) {}
+    }
+  }
+
+  // Handle volume change broadcast
+  if (e.data.type === "fusou-set-volume") {
+    applyVolumeToPage(e.data.volume, e.data.muted);
+
+    // Relay to any child frames contained within this window
+    try {
+      for (let i = 0; i < window.frames.length; i++) {
+        try {
+          window.frames[i].postMessage(e.data, "*");
+        } catch (err) {}
+      }
+    } catch (err) {}
+    try {
+      document.querySelectorAll("iframe").forEach((frame) => {
+        try {
+          if (frame.contentWindow) {
+            frame.contentWindow.postMessage(e.data, "*");
+          }
+        } catch (err) {}
+      });
+    } catch (err) {}
+  }
+});
+
+// If this is an iframe (e.g. KanColle game_frame or osapi frame), register with Top window
+if (!isTopWindow()) {
+  const registerWithTop = () => {
+    try {
+      if (window.top && window.top !== window) {
+        window.top.postMessage({ type: "fusou-register-frame" }, "*");
+      }
+    } catch (e) {}
+  };
+  registerWithTop();
+  const regTimer = setInterval(registerWithTop, 1000);
+  setTimeout(() => clearInterval(regTimer), 15000);
+}
