@@ -1124,6 +1124,31 @@ pub enum OriginRequestOutcome {
     ResponseReceived,
 }
 
+struct CaptureExecution {
+    state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+    origin_outcome: Arc<Mutex<OriginRequestOutcome>>,
+    lifecycle: Arc<Mutex<Option<ExchangeLifecycle>>>,
+    proof_task: Mutex<Option<AbortOnDropHandle<()>>>,
+    locally_quiesced: Arc<AtomicBool>,
+}
+
+impl CaptureExecution {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ExperimentalTlsnRuntimeState::Selected)),
+            origin_outcome: Arc::new(Mutex::new(OriginRequestOutcome::NotSent)),
+            lifecycle: Arc::new(Mutex::new(None)),
+            proof_task: Mutex::new(None),
+            locally_quiesced: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+#[derive(Default)]
+struct CaptureControl {
+    current: Option<Arc<CaptureExecution>>,
+}
+
 pub struct ExperimentalTlsnForwarder {
     binding_provider: Arc<dyn AttestationBindingProvider>,
     serializer: Arc<dyn OriginRequestSerializer>,
@@ -1132,16 +1157,105 @@ pub struct ExperimentalTlsnForwarder {
     result_boundary: Arc<dyn ExperimentalResultBoundary>,
     send_journal: Option<Arc<dyn OriginSendJournal>>,
     journal_target: Option<String>,
-    state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+    capture_control: Arc<Mutex<CaptureControl>>,
     lifecycle_policy: Option<ExchangePolicy>,
-    lifecycle: Arc<Mutex<Option<ExchangeLifecycle>>>,
-    proof_task: Arc<Mutex<Option<AbortOnDropHandle<()>>>>,
-    origin_outcome: Arc<Mutex<OriginRequestOutcome>>,
+}
+
+struct CaptureAttemptOwner {
+    state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
+    locally_quiesced: Arc<AtomicBool>,
+    binding_provider: Arc<dyn AttestationBindingProvider>,
+    binding: Option<AttestationBinding>,
+    send_started: bool,
+    finished: bool,
+}
+
+impl CaptureAttemptOwner {
+    fn new(
+        capture: &CaptureExecution,
+        binding_provider: Arc<dyn AttestationBindingProvider>,
+    ) -> Self {
+        Self {
+            state: Arc::clone(&capture.state),
+            locally_quiesced: Arc::clone(&capture.locally_quiesced),
+            binding_provider,
+            binding: None,
+            send_started: false,
+            finished: false,
+        }
+    }
+
+    fn set_binding(&mut self, binding: AttestationBinding) {
+        self.binding = Some(binding);
+    }
+
+    fn mark_send_started(&mut self) {
+        self.send_started = true;
+    }
+
+    fn finish(
+        &mut self,
+        next_state: Option<ExperimentalTlsnRuntimeState>,
+        cleanup_confirmed: bool,
+    ) -> Result<(), String> {
+        if !cleanup_confirmed {
+            *self
+                .state
+                .lock()
+                .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())? =
+                ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
+            self.finished = true;
+            return Ok(());
+        }
+        if let Some(next_state) = next_state {
+            *self
+                .state
+                .lock()
+                .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())? =
+                next_state;
+        }
+        self.finished = true;
+        if let Some(binding) = self.binding.take() {
+            self.binding_provider.attempt_completed(&binding);
+        }
+        self.locally_quiesced.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
+impl Drop for CaptureAttemptOwner {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+
+        let next_state = if self.send_started {
+            ExperimentalTlsnRuntimeState::CleanupUnconfirmed
+        } else {
+            ExperimentalTlsnRuntimeState::Cancelled
+        };
+        match self.state.lock() {
+            Ok(mut state) => *state = next_state,
+            Err(_) => {
+                tracing::error!("TLSN capture state poisoned while finalizing a dropped task");
+                return;
+            }
+        }
+
+        if self.send_started {
+            self.locally_quiesced.store(false, Ordering::Release);
+            return;
+        }
+
+        if let Some(binding) = self.binding.take() {
+            self.binding_provider.attempt_completed(&binding);
+        }
+        self.locally_quiesced.store(true, Ordering::Release);
+    }
 }
 
 struct ExchangeOwner {
     lifecycle: ExchangeLifecycle,
-    state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
     finished: bool,
 }
 
@@ -1155,11 +1269,7 @@ fn stop_state(reason: ExchangeStop) -> ExperimentalTlsnRuntimeState {
 impl Drop for ExchangeOwner {
     fn drop(&mut self) {
         if !self.finished {
-            let reason = self.lifecycle.stop(ExchangeStop::Cancelled);
-            match self.state.lock() {
-                Ok(mut state) => *state = stop_state(reason),
-                Err(_) => tracing::error!("TLSN runtime state poisoned during cancellation"),
-            }
+            self.lifecycle.stop(ExchangeStop::Cancelled);
         }
     }
 }
@@ -1220,11 +1330,8 @@ impl ExperimentalTlsnForwarder {
             result_boundary,
             send_journal,
             journal_target,
-            state: Arc::new(Mutex::new(ExperimentalTlsnRuntimeState::Ready)),
+            capture_control: Arc::new(Mutex::new(CaptureControl::default())),
             lifecycle_policy,
-            lifecycle: Arc::new(Mutex::new(None)),
-            proof_task: Arc::new(Mutex::new(None)),
-            origin_outcome: Arc::new(Mutex::new(OriginRequestOutcome::NotSent)),
         })
     }
 
@@ -1239,51 +1346,51 @@ impl ExperimentalTlsnForwarder {
     }
 
     pub fn state(&self) -> Result<ExperimentalTlsnRuntimeState, String> {
-        self.state
-            .lock()
-            .map(|state| *state)
-            .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())
+        let capture = self.current_capture()?;
+        match capture {
+            Some(capture) => capture
+                .state
+                .lock()
+                .map(|state| *state)
+                .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned()),
+            None => Ok(ExperimentalTlsnRuntimeState::Ready),
+        }
     }
 
     pub fn origin_outcome(&self) -> Result<OriginRequestOutcome, String> {
-        self.origin_outcome
-            .lock()
-            .map(|outcome| *outcome)
-            .map_err(|_| "TLSN origin outcome state is poisoned".to_owned())
+        let capture = self.current_capture()?;
+        match capture {
+            Some(capture) => capture
+                .origin_outcome
+                .lock()
+                .map(|outcome| *outcome)
+                .map_err(|_| "TLSN origin outcome state is poisoned".to_owned()),
+            None => Ok(OriginRequestOutcome::NotSent),
+        }
     }
 
-    fn begin_attempt(&self) -> Result<(), String> {
-        let mut state = self
-            .state
+    fn current_capture(&self) -> Result<Option<Arc<CaptureExecution>>, String> {
+        self.capture_control
             .lock()
-            .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())?;
-        if self.origin_outcome()? == OriginRequestOutcome::Unknown {
-            return Err(
-                "previous TLSN origin outcome is unknown; no retry is permitted".to_owned(),
-            );
-        }
-        if matches!(
-            *state,
-            ExperimentalTlsnRuntimeState::Selected
-                | ExperimentalTlsnRuntimeState::BindingIssued
-                | ExperimentalTlsnRuntimeState::Serialized
-                | ExperimentalTlsnRuntimeState::Sent
-                | ExperimentalTlsnRuntimeState::ResponseReceived
-                | ExperimentalTlsnRuntimeState::ResponseReturned
-                | ExperimentalTlsnRuntimeState::ProofStarted
-                | ExperimentalTlsnRuntimeState::EvidenceReady
-                | ExperimentalTlsnRuntimeState::Verified
-                | ExperimentalTlsnRuntimeState::CleanupUnconfirmed
-        ) {
-            return Err("another TLSN attempt is still active".to_owned());
-        }
-        *state = ExperimentalTlsnRuntimeState::Selected;
-        *self
-            .origin_outcome
+            .map(|control| control.current.clone())
+            .map_err(|_| "TLSN capture control is poisoned".to_owned())
+    }
+
+    fn begin_attempt(&self) -> Result<Arc<CaptureExecution>, String> {
+        let mut control = self
+            .capture_control
             .lock()
-            .map_err(|_| "TLSN origin outcome state is poisoned".to_owned())? =
-            OriginRequestOutcome::NotSent;
-        Ok(())
+            .map_err(|_| "TLSN capture control is poisoned".to_owned())?;
+        if control
+            .current
+            .as_ref()
+            .is_some_and(|capture| !capture.locally_quiesced.load(Ordering::Acquire))
+        {
+            return Err("previous TLSN capture local processing has not quiesced".to_owned());
+        }
+        let capture = Arc::new(CaptureExecution::new());
+        control.current = Some(Arc::clone(&capture));
+        Ok(capture)
     }
 
     pub fn start_preparation(&self) {
@@ -1292,11 +1399,24 @@ impl ExperimentalTlsnForwarder {
     }
 
     pub fn capture_ready(&self) -> bool {
-        self.binding_provider.capture_ready()
+        let local_slot_available = self
+            .capture_control
+            .lock()
+            .map(|control| {
+                control
+                    .current
+                    .as_ref()
+                    .is_none_or(|capture| capture.locally_quiesced.load(Ordering::Acquire))
+            })
+            .unwrap_or(false);
+        local_slot_available && self.binding_provider.capture_ready()
     }
 
     pub fn cancel(&self) -> Result<(), String> {
-        let state = self
+        let capture = self
+            .current_capture()?
+            .ok_or("TLSN exchange has not started")?;
+        let state = capture
             .state
             .lock()
             .map_err(|_| "TLSN runtime state poisoned")?;
@@ -1315,21 +1435,14 @@ impl ExperimentalTlsnForwarder {
         ) {
             return Err("TLSN exchange is not active".to_owned());
         }
-        let lifecycle = self
+        drop(state);
+        let lifecycle = capture
             .lifecycle
             .lock()
             .map_err(|_| "TLSN lifecycle state poisoned")?;
         let lifecycle = lifecycle.as_ref().ok_or("TLSN exchange has not started")?;
         lifecycle.stop(ExchangeStop::Cancelled);
         Ok(())
-    }
-
-    fn transition(
-        &self,
-        expected: ExperimentalTlsnRuntimeState,
-        next: ExperimentalTlsnRuntimeState,
-    ) -> Result<(), String> {
-        transition_state(&self.state, expected, next)
     }
 
     fn transition_shared(
@@ -1556,45 +1669,49 @@ impl ExperimentalTlsnForwarder {
         connection_id: u64,
         request: Request<Bytes>,
     ) -> Result<Option<Response<Bytes>>, String> {
+        let capture_execution = match self.begin_attempt() {
+            Ok(capture) => capture,
+            Err(error) => {
+                tracing::info!(%error, connection_id, "TLSN capture unavailable while a prior capture is active; using ordinary proxy");
+                return Ok(None);
+            }
+        };
+        let mut capture_owner =
+            CaptureAttemptOwner::new(&capture_execution, Arc::clone(&self.binding_provider));
         let context = BindingRequestContext::new(connection_id, request.uri().path());
         let binding = match self.binding_provider.issue_binding(context).await {
             Ok(binding) => binding,
             Err(error) => {
                 tracing::info!(%error, connection_id, "TLSN capture unavailable before origin send; using ordinary proxy");
+                capture_owner.finish(Some(ExperimentalTlsnRuntimeState::Unattested), true)?;
                 return Ok(None);
             }
         };
-        if self.begin_attempt().is_err() {
-            self.binding_provider.attempt_completed(&binding);
-            return Ok(None);
-        }
+        capture_owner.set_binding(binding.clone());
+        transition_state(
+            &capture_execution.state,
+            ExperimentalTlsnRuntimeState::Selected,
+            ExperimentalTlsnRuntimeState::BindingIssued,
+        )?;
         let lifecycle = match self.lifecycle_policy.map(ExchangePolicy::start).transpose() {
             Ok(lifecycle) => lifecycle,
             Err(error) => {
                 tracing::warn!(%error, connection_id, "TLSN exchange could not start before origin send; using ordinary proxy");
-                if let Ok(mut state) = self.state.lock() {
-                    *state = ExperimentalTlsnRuntimeState::Unattested;
-                }
-                self.binding_provider.attempt_completed(&binding);
+                capture_owner.finish(Some(ExperimentalTlsnRuntimeState::Unattested), true)?;
                 return Ok(None);
             }
         };
-        *self
+        *capture_execution
             .lifecycle
             .lock()
             .map_err(|_| "TLSN lifecycle state poisoned")? = lifecycle.clone();
         let mut owner = lifecycle.clone().map(|lifecycle| ExchangeOwner {
             lifecycle,
-            state: Arc::clone(&self.state),
             finished: false,
         });
         let mut fallback_allowed = true;
         let preparation = async {
             let (parts, body) = request.into_parts();
-            self.transition(
-                ExperimentalTlsnRuntimeState::Selected,
-                ExperimentalTlsnRuntimeState::BindingIssued,
-            )?;
             let serialized = match self.serializer.serialize(&parts, body, &binding) {
                 Ok(serialized) => serialized,
                 Err(error) => {
@@ -1602,7 +1719,8 @@ impl ExperimentalTlsnForwarder {
                     return Ok(None);
                 }
             };
-            self.transition(
+            transition_state(
+                &capture_execution.state,
                 ExperimentalTlsnRuntimeState::BindingIssued,
                 ExperimentalTlsnRuntimeState::Serialized,
             )?;
@@ -1628,7 +1746,8 @@ impl ExperimentalTlsnForwarder {
 
             // This transition is intentionally committed before transport I/O. Any
             // partial write or connection error must not be retried or sent to Production.
-            self.transition(
+            transition_state(
+                &capture_execution.state,
                 ExperimentalTlsnRuntimeState::Serialized,
                 ExperimentalTlsnRuntimeState::Sent,
             )?;
@@ -1638,11 +1757,12 @@ impl ExperimentalTlsnForwarder {
                     .send_once_with_lifecycle(serialized.clone(), lifecycle.clone()),
                 None => self.transport.send_once(serialized.clone()),
             };
-            *self
+            *capture_execution
                 .origin_outcome
                 .lock()
                 .map_err(|_| "TLSN origin outcome state is poisoned")? =
                 OriginRequestOutcome::Unknown;
+            capture_owner.mark_send_started();
             let capture = match transport.await {
                 Ok(capture) => capture,
                 Err(error) => {
@@ -1657,12 +1777,16 @@ impl ExperimentalTlsnForwarder {
                             | TlsnTransportError::SystemTrustStoreUnavailable
                             | TlsnTransportError::TlsHandshakeFailed { .. }
                     ) {
-                        match self.origin_outcome.lock() {
+                        match capture_execution.origin_outcome.lock() {
                             Ok(mut outcome) => *outcome = OriginRequestOutcome::NotSent,
                             Err(_) => tracing::error!("TLSN origin outcome state is poisoned"),
                         }
                     }
-                    let origin_outcome = self.origin_outcome()?;
+                    let origin_outcome = capture_execution
+                        .origin_outcome
+                        .lock()
+                        .map(|outcome| *outcome)
+                        .map_err(|_| "TLSN origin outcome state is poisoned")?;
                     if let Some(journal) = &self.send_journal {
                         let recorded_outcome = match origin_outcome {
                             OriginRequestOutcome::NotSent => OriginSendJournalOutcome::NotSent,
@@ -1687,18 +1811,20 @@ impl ExperimentalTlsnForwarder {
                     return Err(error.to_string());
                 }
             };
-            *self
+            *capture_execution
                 .origin_outcome
                 .lock()
                 .map_err(|_| "TLSN origin outcome state is poisoned")? =
                 OriginRequestOutcome::ResponseReceived;
-            self.transition(
+            transition_state(
+                &capture_execution.state,
                 ExperimentalTlsnRuntimeState::Sent,
                 ExperimentalTlsnRuntimeState::ResponseReceived,
             )?;
             let browser_response = capture.exchange.response.clone();
             let response = response_from_origin(browser_response)?;
-            self.transition(
+            transition_state(
+                &capture_execution.state,
                 ExperimentalTlsnRuntimeState::ResponseReceived,
                 ExperimentalTlsnRuntimeState::ResponseReturned,
             )?;
@@ -1721,35 +1847,39 @@ impl ExperimentalTlsnForwarder {
         let (serialized, binding, capture, response, attempt_id) = match prepared {
             Ok(Some(prepared)) => prepared,
             Ok(None) => {
-                if let Some(lifecycle) = lifecycle.as_ref() {
+                let cleanup_confirmed = if let Some(lifecycle) = lifecycle.as_ref() {
                     lifecycle.stop(ExchangeStop::Cancelled);
-                    if lifecycle.wait_for_cleanup().await {
-                        if let Ok(mut state) = self.state.lock() {
-                            *state = ExperimentalTlsnRuntimeState::Unattested;
-                        }
-                    } else {
-                        if let Ok(mut state) = self.state.lock() {
-                            *state = ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
-                        }
-                        self.binding_provider.attempt_completed(&binding);
-                        return Err("TLSN cleanup deadline expired before origin send".to_owned());
-                    }
-                    owner
-                        .as_mut()
-                        .expect("lifecycle owns the exchange")
-                        .finished = true;
-                } else if let Ok(mut state) = self.state.lock() {
-                    *state = ExperimentalTlsnRuntimeState::Unattested;
+                    lifecycle.wait_for_cleanup().await
+                } else {
+                    true
+                };
+                if let Some(owner) = owner.as_mut() {
+                    owner.finished = true;
                 }
-                self.binding_provider.attempt_completed(&binding);
+                capture_owner.finish(
+                    Some(if cleanup_confirmed {
+                        ExperimentalTlsnRuntimeState::Unattested
+                    } else {
+                        ExperimentalTlsnRuntimeState::CleanupUnconfirmed
+                    }),
+                    cleanup_confirmed,
+                )?;
+                if !cleanup_confirmed {
+                    return Err("TLSN cleanup deadline expired before origin send".to_owned());
+                }
                 return Ok(None);
             }
             Err(error) => {
-                let origin_outcome = self.origin_outcome()?;
-                if let Some(lifecycle) = lifecycle.as_ref() {
+                let origin_outcome = capture_execution
+                    .origin_outcome
+                    .lock()
+                    .map(|outcome| *outcome)
+                    .map_err(|_| "TLSN origin outcome state is poisoned")?;
+                let (next_state, cleanup_confirmed) = if let Some(lifecycle) = lifecycle.as_ref() {
                     let stopped = lifecycle.stop_reason();
                     lifecycle.stop(ExchangeStop::Cancelled);
-                    let next = if lifecycle.wait_for_cleanup().await {
+                    let cleanup_confirmed = lifecycle.wait_for_cleanup().await;
+                    let next_state = if cleanup_confirmed {
                         stopped
                             .map(stop_state)
                             .unwrap_or(ExperimentalTlsnRuntimeState::Unattested)
@@ -1757,16 +1887,14 @@ impl ExperimentalTlsnForwarder {
                         tracing::error!("TLSN cleanup deadline expired after transport failure");
                         ExperimentalTlsnRuntimeState::CleanupUnconfirmed
                     };
-                    *self
-                        .state
-                        .lock()
-                        .map_err(|_| "TLSN runtime state poisoned")? = next;
-                    owner
-                        .as_mut()
-                        .expect("lifecycle owns the exchange")
-                        .finished = true;
+                    (next_state, cleanup_confirmed)
+                } else {
+                    (ExperimentalTlsnRuntimeState::Unattested, true)
+                };
+                if let Some(owner) = owner.as_mut() {
+                    owner.finished = true;
                 }
-                self.binding_provider.attempt_completed(&binding);
+                capture_owner.finish(Some(next_state), cleanup_confirmed)?;
                 if origin_outcome == OriginRequestOutcome::NotSent && fallback_allowed {
                     return Ok(None);
                 }
@@ -1774,11 +1902,9 @@ impl ExperimentalTlsnForwarder {
             }
         };
         let TlsnOriginCapture { exchange, proof } = capture;
-        let state = Arc::clone(&self.state);
+        let state = Arc::clone(&capture_execution.state);
         let verifier = Arc::clone(&self.verifier);
         let result_boundary = Arc::clone(&self.result_boundary);
-        let binding_provider = Arc::clone(&self.binding_provider);
-        let binding_for_completion = binding.clone();
         let send_journal = self.send_journal.clone();
         let task = AbortOnDropHandle::new(tokio::spawn(async move {
             tokio::task::yield_now().await;
@@ -1845,11 +1971,11 @@ impl ExperimentalTlsnForwarder {
             if let Some(owner) = owner.as_mut() {
                 owner.finished = true;
             }
-            if cleanup_confirmed {
-                binding_provider.attempt_completed(&binding_for_completion);
+            if let Err(error) = capture_owner.finish(None, cleanup_confirmed) {
+                tracing::error!(%error, connection_id, "TLSN capture owner could not finalize");
             }
         }));
-        *self
+        *capture_execution
             .proof_task
             .lock()
             .map_err(|_| "TLSN proof task owner poisoned")? = Some(task);
@@ -1868,11 +1994,8 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
             result_boundary: Arc::clone(&self.result_boundary),
             send_journal: self.send_journal.clone(),
             journal_target: self.journal_target.clone(),
-            state: Arc::clone(&self.state),
+            capture_control: Arc::clone(&self.capture_control),
             lifecycle_policy: self.lifecycle_policy,
-            lifecycle: Arc::clone(&self.lifecycle),
-            proof_task: Arc::clone(&self.proof_task),
-            origin_outcome: Arc::clone(&self.origin_outcome),
         });
         Box::pin(forwarder.forward_inner(connection_id, request))
     }
@@ -1975,6 +2098,7 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, VecDeque};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::oneshot;
 
@@ -2008,6 +2132,37 @@ mod tests {
                 .unwrap()
                 .push(context.connection_id());
             Box::pin(async { Ok(binding()) })
+        }
+    }
+
+    struct SequenceBindingProvider {
+        bindings: Mutex<VecDeque<AttestationBinding>>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl SequenceBindingProvider {
+        fn new(bindings: impl IntoIterator<Item = &'static str>) -> Self {
+            Self {
+                bindings: Mutex::new(
+                    bindings
+                        .into_iter()
+                        .map(|value| AttestationBinding::new(value.to_owned()).unwrap())
+                        .collect(),
+                ),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    impl AttestationBindingProvider for SequenceBindingProvider {
+        fn issue_binding(&self, _context: BindingRequestContext) -> BindingFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let binding = self.bindings.lock().unwrap().pop_front();
+            Box::pin(async move { binding.ok_or(BindingError::BindingNotReady) })
+        }
+
+        fn capture_ready(&self) -> bool {
+            !self.bindings.lock().unwrap().is_empty()
         }
     }
 
@@ -2053,6 +2208,119 @@ mod tests {
                     },
                 })
             })
+        }
+    }
+
+    enum ScriptedTransportStep {
+        Ambiguous,
+        Response,
+    }
+
+    struct ScriptedTransport {
+        steps: Mutex<VecDeque<ScriptedTransportStep>>,
+        calls: Arc<AtomicUsize>,
+        request_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl TlsnOriginTransport for ScriptedTransport {
+        fn send_once(&self, request: SerializedOriginRequest) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.request_bytes
+                .lock()
+                .unwrap()
+                .push(request.bytes().to_vec());
+            let request_sha256 = sha256(request.bytes());
+            let step = self.steps.lock().unwrap().pop_front();
+            Box::pin(async move {
+                match step.ok_or(TlsnTransportError::Unavailable)? {
+                    ScriptedTransportStep::Ambiguous => {
+                        Err(TlsnTransportError::AmbiguousOriginSend)
+                    }
+                    ScriptedTransportStep::Response => {
+                        let mut exchange = exchange();
+                        exchange.transcript.request_sha256 = request_sha256;
+                        Ok(TlsnOriginCapture {
+                            exchange,
+                            proof: ProofContinuation::completed(),
+                        })
+                    }
+                }
+            })
+        }
+    }
+
+    struct PendingTransport {
+        calls: Arc<AtomicUsize>,
+        started: Mutex<Option<oneshot::Sender<()>>>,
+    }
+
+    impl TlsnOriginTransport for PendingTransport {
+        fn send_once(&self, _request: SerializedOriginRequest) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let started = self.started.lock().unwrap().take();
+            Box::pin(async move {
+                if let Some(started) = started {
+                    let _ = started.send(());
+                }
+                std::future::pending::<Result<TlsnOriginCapture, TlsnTransportError>>().await
+            })
+        }
+    }
+
+    struct MemoryJournalEntry {
+        outcome: Option<OriginSendJournalOutcome>,
+    }
+
+    #[derive(Default)]
+    struct MemoryOriginSendJournal {
+        entries: Mutex<BTreeMap<String, MemoryJournalEntry>>,
+    }
+
+    impl MemoryOriginSendJournal {
+        fn outcome(&self, attempt_id: &str) -> Option<OriginSendJournalOutcome> {
+            self.entries
+                .lock()
+                .unwrap()
+                .get(attempt_id)
+                .and_then(|entry| entry.outcome)
+        }
+    }
+
+    impl OriginSendJournal for MemoryOriginSendJournal {
+        fn record_send_intent(
+            &self,
+            attempt_id: &str,
+            _target: &str,
+            _request_sha256: &[u8; 32],
+        ) -> Result<(), String> {
+            let mut entries = self
+                .entries
+                .lock()
+                .map_err(|_| "test origin journal is poisoned".to_owned())?;
+            if entries.contains_key(attempt_id) {
+                return Err("test origin journal rejected a reused binding".to_owned());
+            }
+            entries.insert(attempt_id.to_owned(), MemoryJournalEntry { outcome: None });
+            Ok(())
+        }
+
+        fn record_outcome(
+            &self,
+            attempt_id: &str,
+            outcome: OriginSendJournalOutcome,
+        ) -> Result<(), String> {
+            let mut entries = self
+                .entries
+                .lock()
+                .map_err(|_| "test origin journal is poisoned".to_owned())?;
+            let entry = entries
+                .get_mut(attempt_id)
+                .ok_or_else(|| "test outcome has no send intent".to_owned())?;
+            if entry.outcome.is_some() {
+                return Err("test origin journal outcome is already final".to_owned());
+            }
+            entry.outcome = Some(outcome);
+            Ok(())
         }
     }
 
@@ -2198,6 +2466,43 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn late_completion_updates_only_the_capture_that_owns_its_state() {
+        let forwarder = ExperimentalTlsnForwarder::new(
+            Arc::new(NoBindingAuthority),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::new(UnconfiguredTlsnOriginTransport),
+            Arc::new(UnconfiguredVerifier),
+            Arc::new(UnconfiguredResultBoundary),
+        );
+        let capture_a = forwarder.begin_attempt().unwrap();
+        *capture_a.state.lock().unwrap() = ExperimentalTlsnRuntimeState::Verified;
+        capture_a.locally_quiesced.store(true, Ordering::Release);
+
+        let capture_b = forwarder.begin_attempt().unwrap();
+        assert!(!Arc::ptr_eq(&capture_a.state, &capture_b.state));
+        assert!(!Arc::ptr_eq(
+            &capture_a.origin_outcome,
+            &capture_b.origin_outcome
+        ));
+        transition_state(
+            &capture_a.state,
+            ExperimentalTlsnRuntimeState::Verified,
+            ExperimentalTlsnRuntimeState::ResultDelivered,
+        )
+        .unwrap();
+        *capture_a.origin_outcome.lock().unwrap() = OriginRequestOutcome::ResponseReceived;
+
+        assert_eq!(
+            forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::Selected
+        );
+        assert_eq!(
+            forwarder.origin_outcome().unwrap(),
+            OriginRequestOutcome::NotSent
+        );
+    }
+
     #[tokio::test]
     async fn explicit_policy_completes_pipeline_once_and_only_after_cleanup() {
         let (forwarder, sends, results) = policy_forwarder(None, "1000");
@@ -2214,8 +2519,9 @@ mod tests {
         assert_eq!(sends.load(Ordering::SeqCst), 1);
         assert_eq!(results.load(Ordering::SeqCst), 1);
         assert!(forwarder.cancel().is_err());
+        let capture = forwarder.current_capture().unwrap().unwrap();
         assert_eq!(
-            forwarder
+            capture
                 .lifecycle
                 .lock()
                 .unwrap()
@@ -2261,7 +2567,9 @@ mod tests {
         let (release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "1000");
         assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
-        let lifecycle = forwarder.lifecycle.lock().unwrap().clone().unwrap();
+        let capture = forwarder.current_capture().unwrap().unwrap();
+        let lifecycle = capture.lifecycle.lock().unwrap().clone().unwrap();
+        drop(capture);
         drop(forwarder);
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             while !release.is_closed() {
@@ -2280,10 +2588,13 @@ mod tests {
         let (_release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "10000");
         assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
-        let lifecycle = forwarder.lifecycle.lock().unwrap().clone().unwrap();
+        let capture = forwarder.current_capture().unwrap().unwrap();
+        let lifecycle = capture.lifecycle.lock().unwrap().clone().unwrap();
+        drop(capture);
         let unfinished = lifecycle.tasks().spawn(std::future::pending::<()>());
         forwarder.cancel().unwrap();
         wait_state(&forwarder, ExperimentalTlsnRuntimeState::CleanupUnconfirmed).await;
+        assert!(!forwarder.capture_ready());
         assert!(forwarder.forward(2, request(None)).await.unwrap().is_none());
         assert_eq!(sends.load(Ordering::SeqCst), 1);
         assert_eq!(results.load(Ordering::SeqCst), 0);
@@ -2294,6 +2605,7 @@ mod tests {
             forwarder.state().unwrap(),
             ExperimentalTlsnRuntimeState::CleanupUnconfirmed
         );
+        assert!(!forwarder.capture_ready());
     }
 
     #[test]
@@ -2550,6 +2862,12 @@ mod tests {
         );
         assert_eq!(verifier_calls.load(Ordering::SeqCst), 0);
         assert_eq!(result_calls.load(Ordering::SeqCst), 0);
+        assert!(!forwarder.capture_ready());
+        assert!(forwarder
+            .forward(42, request(None))
+            .await
+            .unwrap()
+            .is_none());
 
         release_tx.send(()).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
@@ -2564,6 +2882,7 @@ mod tests {
         .expect("background proof pipeline did not complete");
         assert_eq!(verifier_calls.load(Ordering::SeqCst), 1);
         assert_eq!(result_calls.load(Ordering::SeqCst), 1);
+        assert!(forwarder.capture_ready());
     }
 
     #[tokio::test]
@@ -2633,7 +2952,7 @@ mod tests {
         );
         assert_eq!(
             forwarder.state().unwrap(),
-            ExperimentalTlsnRuntimeState::Ready
+            ExperimentalTlsnRuntimeState::Unattested
         );
     }
 
@@ -2668,7 +2987,7 @@ mod tests {
             assert_eq!(transport_calls.load(Ordering::SeqCst), 0);
             assert_eq!(
                 forwarder.state().unwrap(),
-                ExperimentalTlsnRuntimeState::Ready
+                ExperimentalTlsnRuntimeState::Unattested
             );
         }
     }
@@ -2778,7 +3097,202 @@ mod tests {
                 }
             );
             assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert!(forwarder.capture_ready());
         }
+    }
+
+    #[tokio::test]
+    async fn unknown_capture_is_terminal_but_a_new_identical_request_uses_a_fresh_binding() {
+        let binding_provider = Arc::new(SequenceBindingProvider::new([
+            "capture-binding-a",
+            "capture-binding-b",
+        ]));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let request_bytes = Arc::new(Mutex::new(Vec::new()));
+        let transport = Arc::new(ScriptedTransport {
+            steps: Mutex::new(VecDeque::from([
+                ScriptedTransportStep::Ambiguous,
+                ScriptedTransportStep::Response,
+            ])),
+            calls: Arc::clone(&calls),
+            request_bytes: Arc::clone(&request_bytes),
+        });
+        let journal = Arc::new(MemoryOriginSendJournal::default());
+        let result_calls = Arc::new(AtomicUsize::new(0));
+        let forwarder = ExperimentalTlsnForwarder::new_with_policy_and_journal(
+            binding_provider.clone(),
+            Arc::new(Http1OriginRequestSerializer),
+            transport,
+            Arc::new(MockVerifier {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::clone(&result_calls),
+            }),
+            None,
+            Some(journal.clone()),
+            None,
+        );
+
+        assert!(forwarder.forward(1, request(None)).await.is_err());
+        let attempt_a = digest_hex(&sha256(b"capture-binding-a"));
+        assert_eq!(
+            journal.outcome(&attempt_a),
+            Some(OriginSendJournalOutcome::Unknown)
+        );
+        assert_eq!(
+            forwarder.origin_outcome().unwrap(),
+            OriginRequestOutcome::Unknown
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(forwarder.capture_ready());
+
+        let response = forwarder
+            .forward(2, request(None))
+            .await
+            .unwrap()
+            .expect("next client request should begin a new capture");
+        assert_eq!(response.status(), StatusCode::OK);
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::ResultReady).await;
+
+        let attempt_b = digest_hex(&sha256(b"capture-binding-b"));
+        assert_eq!(
+            journal.outcome(&attempt_a),
+            Some(OriginSendJournalOutcome::Unknown)
+        );
+        assert_eq!(
+            journal.outcome(&attempt_b),
+            Some(OriginSendJournalOutcome::ResponseReceived)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(result_calls.load(Ordering::SeqCst), 1);
+        let sent = request_bytes.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        assert_ne!(sent[0], sent[1]);
+        for bytes in sent.iter() {
+            assert!(bytes.starts_with(b"POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\n"));
+            assert!(bytes.ends_with(b"\r\n\r\nabc"));
+        }
+        assert!(sent[0]
+            .windows(b"capture-binding-a".len())
+            .any(|window| { window == b"capture-binding-a" }));
+        assert!(sent[1]
+            .windows(b"capture-binding-b".len())
+            .any(|window| { window == b"capture-binding-b" }));
+    }
+
+    #[tokio::test]
+    async fn journal_rejects_reuse_of_a_binding_without_a_second_origin_send() {
+        let binding_provider = Arc::new(SequenceBindingProvider::new([
+            "capture-binding-used",
+            "capture-binding-used",
+        ]));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let request_bytes = Arc::new(Mutex::new(Vec::new()));
+        let transport = Arc::new(ScriptedTransport {
+            steps: Mutex::new(VecDeque::from([
+                ScriptedTransportStep::Ambiguous,
+                ScriptedTransportStep::Response,
+            ])),
+            calls: Arc::clone(&calls),
+            request_bytes,
+        });
+        let journal = Arc::new(MemoryOriginSendJournal::default());
+        let forwarder = ExperimentalTlsnForwarder::new_with_policy_and_journal(
+            binding_provider,
+            Arc::new(Http1OriginRequestSerializer),
+            transport,
+            Arc::new(UnconfiguredVerifier),
+            Arc::new(UnconfiguredResultBoundary),
+            None,
+            Some(journal.clone()),
+            None,
+        );
+
+        assert!(forwarder.forward(1, request(None)).await.is_err());
+        let attempt = digest_hex(&sha256(b"capture-binding-used"));
+        assert_eq!(
+            journal.outcome(&attempt),
+            Some(OriginSendJournalOutcome::Unknown)
+        );
+        assert!(forwarder.forward(2, request(None)).await.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            journal.outcome(&attempt),
+            Some(OriginSendJournalOutcome::Unknown)
+        );
+    }
+
+    #[tokio::test]
+    async fn dropped_capture_is_not_resumed_and_unconfirmed_local_cleanup_blocks_reuse() {
+        let (started_tx, started_rx) = oneshot::channel();
+        let prior_calls = Arc::new(AtomicUsize::new(0));
+        let journal = Arc::new(MemoryOriginSendJournal::default());
+        let prior_forwarder = ExperimentalTlsnForwarder::new_with_policy_and_journal(
+            Arc::new(MockBindingProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+                connection_ids: Arc::new(Mutex::new(Vec::new())),
+            }),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::new(PendingTransport {
+                calls: Arc::clone(&prior_calls),
+                started: Mutex::new(Some(started_tx)),
+            }),
+            Arc::new(UnconfiguredVerifier),
+            Arc::new(UnconfiguredResultBoundary),
+            None,
+            Some(journal.clone()),
+            None,
+        );
+        let prior_task = tokio::spawn(prior_forwarder.forward(1, request(None)));
+        started_rx.await.unwrap();
+        prior_task.abort();
+        assert!(prior_task.await.unwrap_err().is_cancelled());
+
+        assert_eq!(
+            prior_forwarder.origin_outcome().unwrap(),
+            OriginRequestOutcome::Unknown
+        );
+        assert_eq!(
+            prior_forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::CleanupUnconfirmed
+        );
+        assert!(!prior_forwarder.capture_ready());
+        assert_eq!(prior_calls.load(Ordering::SeqCst), 1);
+
+        let restart_calls = Arc::new(AtomicUsize::new(0));
+        let restarted_forwarder = ExperimentalTlsnForwarder::new_with_policy_and_journal(
+            Arc::new(SequenceBindingProvider::new(["fresh-after-restart"])),
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::new(ScriptedTransport {
+                steps: Mutex::new(VecDeque::from([ScriptedTransportStep::Response])),
+                calls: Arc::clone(&restart_calls),
+                request_bytes: Arc::new(Mutex::new(Vec::new())),
+            }),
+            Arc::new(MockVerifier {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            None,
+            Some(journal),
+            None,
+        );
+        assert_eq!(restart_calls.load(Ordering::SeqCst), 0);
+        assert!(restarted_forwarder.capture_ready());
+        assert!(restarted_forwarder
+            .forward(2, request(None))
+            .await
+            .unwrap()
+            .is_some());
+        wait_state(
+            &restarted_forwarder,
+            ExperimentalTlsnRuntimeState::ResultReady,
+        )
+        .await;
+        assert_eq!(prior_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(restart_calls.load(Ordering::SeqCst), 1);
     }
 
     struct GatedWorker {
@@ -2908,6 +3422,7 @@ mod tests {
                 OriginRequestOutcome::ResponseReceived
             );
             assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert!(forwarder.capture_ready());
         }
     }
 }

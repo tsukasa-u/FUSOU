@@ -1,0 +1,19 @@
+[package]
+name = "fusou-proxy-capture-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+authenticity-core = { path = "../../../authenticity/authenticity-core" }
+http = "=1.5.0"
+hyper = "=1.12.0"
+sha2 = "=0.10.9"
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "=0.7.20", features = ["rt"] }
+tracing = "=0.1.44"

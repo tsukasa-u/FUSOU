@@ -142,6 +142,16 @@ jobs:
           RUSTUP_TOOLCHAIN: "1.98.1"
           RUSTUP_AUTO_INSTALL: "0"
 
+      - name: Test independent TLSN verifier and candidate finalizer
+        run: >-
+          cargo +1.98.1 test --locked --offline
+          --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
+          --lib
+        env:
+          CARGO_NET_OFFLINE: "true"
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
       - name: Build Worker verifier WASM with commit-bound offline provenance
         run: pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run build:wasm
         env:
@@ -182,6 +192,17 @@ jobs:
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs \
             scripts/release-worker-source.test.mjs \
             scripts/release-worker-integration.test.mjs
+
+      - name: Test Freshness, Production Result, and candidate readiness contracts
+        run: |
+          pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run typecheck
+          pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run test
+          node --test \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-result-contract.test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs \
+            packages/FUSOU-APP/scripts/testplay-acceptance-stages.test.mjs \
+            packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.test.mjs
 
       - name: Run APP build handoff and Worker reference tests
         run: |
@@ -230,3 +251,41 @@ jobs:
           --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
           --features tlsn-production
           tlsn_preflight --lib
+
+  proxy-capture-source-unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: Fetch locked isolated capture harness dependencies
+        run: >-
+          cargo +1.98.1 fetch --locked
+          --manifest-path packages/FUSOU-PROXY/proxy-https/capture-test-harness/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "false"
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Type-check Proxy capture and lifecycle source modules
+        run: >-
+          cargo +1.98.1 check --locked --offline --lib
+          --manifest-path packages/FUSOU-PROXY/proxy-https/capture-test-harness/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-capture-harness-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Run Proxy capture and lifecycle unit tests
+        run: >-
+          cargo +1.98.1 test --locked --offline --lib
+          --manifest-path packages/FUSOU-PROXY/proxy-https/capture-test-harness/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-capture-harness-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"

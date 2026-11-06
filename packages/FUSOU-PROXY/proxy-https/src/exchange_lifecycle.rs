@@ -178,4 +178,5 @@ impl ExchangeLifecycle {
 }
 
 #[cfg(test)]
+#[path = "exchange_lifecycle/tests.rs"]
 mod tests;
