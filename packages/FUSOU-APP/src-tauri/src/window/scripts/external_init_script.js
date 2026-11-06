@@ -304,13 +304,27 @@ const ensureTitlebarStyles = () => {
       overflow: auto !important;
     }
     /* Game mode only: frameless clipping */
-    html.fusou-game-mode, body.fusou-game-mode {
+    html.fusou-game-mode {
+      background-color: transparent !important;
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    body.fusou-game-mode {
       background-color: #0e0e11 !important;
       overflow: hidden !important;
       margin: 0 !important;
       padding: 0 !important;
       scrollbar-width: none !important;
       -ms-overflow-style: none !important;
+    }
+    html:not(.is-maximized) .fusou-game-mode #game_frame {
+      border-bottom-left-radius: 10px !important;
+      border-bottom-right-radius: 10px !important;
+    }
+    html.is-maximized .fusou-game-mode #game_frame {
+      border-bottom-left-radius: 0px !important;
+      border-bottom-right-radius: 0px !important;
     }
     html.fusou-game-mode::-webkit-scrollbar,
     body.fusou-game-mode::-webkit-scrollbar,

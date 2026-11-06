@@ -97,7 +97,7 @@ body {
 }
 
 #root {
-  background-color: var(--color-base-100);
+  background-color: transparent !important;
   border-radius: 10px;
   overflow: hidden;
   height: 100vh;
@@ -120,6 +120,14 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
+  background-color: var(--color-base-100);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+#root.is-maximized .window-content-container {
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
 }
 
 /* Fusou custom titlebar & tool buttons matching external */

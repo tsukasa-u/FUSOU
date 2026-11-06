@@ -937,7 +937,7 @@ pub fn apply_windows_rounded_corners(window: &tauri::WebviewWindow) {
             // 1. Force dark mode frame so DWM compositing uses black/dark fallback instead of white
             const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
             let dark_mode = 1i32;
-            let _ = DwmSetWindowAttribute(
+            let res_dark = DwmSetWindowAttribute(
                 hwnd_ptr,
                 DWMWA_USE_IMMERSIVE_DARK_MODE,
                 &dark_mode as *const _ as *const std::ffi::c_void,
@@ -948,7 +948,7 @@ pub fn apply_windows_rounded_corners(window: &tauri::WebviewWindow) {
             const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
             const DWMWCP_DONOTROUND: u32 = 1;
             let preference = DWMWCP_DONOTROUND;
-            let _ = DwmSetWindowAttribute(
+            let res_corner = DwmSetWindowAttribute(
                 hwnd_ptr,
                 DWMWA_WINDOW_CORNER_PREFERENCE,
                 &preference as *const _ as *const std::ffi::c_void,
@@ -959,11 +959,15 @@ pub fn apply_windows_rounded_corners(window: &tauri::WebviewWindow) {
             const DWMWA_BORDER_COLOR: u32 = 34;
             const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
             let border_color = DWMWA_COLOR_NONE;
-            let _ = DwmSetWindowAttribute(
+            let res_border = DwmSetWindowAttribute(
                 hwnd_ptr,
                 DWMWA_BORDER_COLOR,
                 &border_color as *const _ as *const std::ffi::c_void,
                 std::mem::size_of_val(&border_color) as u32,
+            );
+
+            tracing::debug!(
+                "apply_windows_rounded_corners: dark={res_dark}, corner={res_corner}, border={res_border}"
             );
         }
     }
