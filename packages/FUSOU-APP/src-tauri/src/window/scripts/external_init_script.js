@@ -283,22 +283,8 @@ const ensureTitlebarStyles = () => {
     }
     body {
       box-sizing: border-box !important;
-      background-color: #0e0e11 !important;
-    }
-    /* Rounded corners when not maximized */
-    html:not(.is-maximized) body {
-      border-radius: 10px !important;
-      overflow: hidden !important;
-      transform: translateZ(0) !important;
-      box-shadow: none !important;
-      border: none !important;
-    }
-    /* Square corners when maximized */
-    html.is-maximized body {
-      border-radius: 0px !important;
-      transform: none !important;
-      box-shadow: none !important;
-      border: none !important;
+      background-color: transparent !important;
+      background: transparent !important;
     }
 
     /* Prevent DMM white container/background bleeding into transparent corners */
@@ -323,6 +309,7 @@ const ensureTitlebarStyles = () => {
     body:not(.fusou-game-mode) {
       padding-top: ${TITLEBAR_HEIGHT}px !important;
       overflow: auto !important;
+      background-color: #0e0e11 !important;
     }
     /* Game mode only: frameless clipping */
     html.fusou-game-mode {
@@ -340,12 +327,13 @@ const ensureTitlebarStyles = () => {
       -ms-overflow-style: none !important;
     }
     html:not(.is-maximized) .fusou-game-mode #game_frame {
+      border-top-left-radius: 0px !important;
+      border-top-right-radius: 0px !important;
       border-bottom-left-radius: 10px !important;
       border-bottom-right-radius: 10px !important;
     }
     html.is-maximized .fusou-game-mode #game_frame {
-      border-bottom-left-radius: 0px !important;
-      border-bottom-right-radius: 0px !important;
+      border-radius: 0px !important;
     }
     html.fusou-game-mode::-webkit-scrollbar,
     body.fusou-game-mode::-webkit-scrollbar,
@@ -381,10 +369,11 @@ const ensureTitlebarStyles = () => {
     html:not(.is-maximized) #fusou-titlebar {
       border-top-left-radius: 10px !important;
       border-top-right-radius: 10px !important;
+      border-bottom-left-radius: 0px !important;
+      border-bottom-right-radius: 0px !important;
     }
     html.is-maximized #fusou-titlebar {
-      border-top-left-radius: 0px !important;
-      border-top-right-radius: 0px !important;
+      border-radius: 0px !important;
     }
     #fusou-titlebar * {
       box-sizing: border-box !important;

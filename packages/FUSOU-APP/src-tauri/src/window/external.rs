@@ -918,8 +918,6 @@ pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
     set_external_window_volume(&app, volume, muted);
 }
 
-
-
 pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
     if browse_webview {
         if let Some(window) = app.get_webview_window("external") {
