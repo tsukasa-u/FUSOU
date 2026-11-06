@@ -79,7 +79,10 @@
         "title": "fusou-app",
         "width": 1200,
         "visible": false,
-        "useHttpsScheme": true
+        "useHttpsScheme": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false
       }
     ],
     "security": {

@@ -35,6 +35,9 @@ commands.allow = [
   "close_debug_window",
   "show_splashscreen",
   "close_splashscreen",
-  "read_emit_file"
+  "read_emit_file",
+  "trigger_external_screenshot",
+  "trigger_external_reload",
+  "set_external_volume"
 ]
 
