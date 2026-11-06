@@ -276,15 +276,49 @@ const ensureTitlebarStyles = () => {
   const style = document.createElement("style");
   style.id = "fusou-titlebar-styles";
   style.textContent = `
-    /* Base window transparency & rounding */
+    /* Global scrollbar suppression across entire window */
+    * {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    *::-webkit-scrollbar,
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar,
+    #game_frame::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    /* Base window transparency & full 100vw x 100vh container */
     html {
+      width: 100vw !important;
+      height: 100vh !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
       background-color: transparent !important;
       background: transparent !important;
     }
     body {
       box-sizing: border-box !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
       background-color: transparent !important;
       background: transparent !important;
+    }
+
+    /* Outer container rounded corners (non-maximized) matching fusou-app #root */
+    html:not(.is-maximized) body {
+      border-radius: 10px !important;
+      overflow: hidden !important;
+    }
+    html.is-maximized body {
+      border-radius: 0px !important;
+      overflow: hidden !important;
     }
 
     /* Prevent DMM white container/background bleeding into transparent corners */
@@ -294,7 +328,8 @@ const ensureTitlebarStyles = () => {
     #ntg-recommend,
     .dmm-ntgnavi,
     #foot,
-    #header {
+    #header,
+    #root {
       background: transparent !important;
       background-color: transparent !important;
       border: none !important;
@@ -323,8 +358,6 @@ const ensureTitlebarStyles = () => {
       overflow: hidden !important;
       margin: 0 !important;
       padding: 0 !important;
-      scrollbar-width: none !important;
-      -ms-overflow-style: none !important;
     }
     html:not(.is-maximized) .fusou-game-mode #game_frame {
       border-top-left-radius: 0px !important;
@@ -334,13 +367,6 @@ const ensureTitlebarStyles = () => {
     }
     html.is-maximized .fusou-game-mode #game_frame {
       border-radius: 0px !important;
-    }
-    html.fusou-game-mode::-webkit-scrollbar,
-    body.fusou-game-mode::-webkit-scrollbar,
-    .fusou-game-mode #game_frame::-webkit-scrollbar {
-      display: none !important;
-      width: 0 !important;
-      height: 0 !important;
     }
     #fusou-titlebar {
       position: fixed !important;
