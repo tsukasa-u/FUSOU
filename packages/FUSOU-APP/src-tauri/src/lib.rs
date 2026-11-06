@@ -211,9 +211,8 @@ pub async fn run() {
             // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
             builder_setup::setup::set_paths(app)?;
 
-            #[cfg(windows)]
             if let Some(main_window) = app.get_webview_window("main") {
-                window::external::apply_windows_rounded_corners(&main_window);
+                window::common::setup_frameless_window(&main_window);
             }
 
             // Initialize AuthManager

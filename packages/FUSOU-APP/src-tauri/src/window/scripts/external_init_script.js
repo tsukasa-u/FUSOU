@@ -279,6 +279,7 @@ const ensureTitlebarStyles = () => {
     /* Base window transparency & rounding */
     html {
       background-color: transparent !important;
+      background: transparent !important;
     }
     body {
       box-sizing: border-box !important;
@@ -288,14 +289,34 @@ const ensureTitlebarStyles = () => {
     html:not(.is-maximized) body {
       border-radius: 10px !important;
       overflow: hidden !important;
+      transform: translateZ(0) !important;
       box-shadow: none !important;
       border: none !important;
     }
     /* Square corners when maximized */
     html.is-maximized body {
       border-radius: 0px !important;
+      transform: none !important;
       box-shadow: none !important;
       border: none !important;
+    }
+
+    /* Prevent DMM white container/background bleeding into transparent corners */
+    #w,
+    #main-ntg,
+    #area-game,
+    #ntg-recommend,
+    .dmm-ntgnavi,
+    #foot,
+    #header {
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
+    }
+
+    #game_frame {
+      background-color: #0e0e11 !important;
+      background: #0e0e11 !important;
     }
 
     /* Non-game pages (login, terms, etc): natural layout with titlebar clearance */

@@ -918,60 +918,7 @@ pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
     set_external_window_volume(&app, volume, muted);
 }
 
-#[cfg(windows)]
-pub fn apply_windows_rounded_corners(window: &tauri::WebviewWindow) {
-    if let Ok(hwnd) = window.hwnd() {
-        #[link(name = "dwmapi")]
-        extern "system" {
-            fn DwmSetWindowAttribute(
-                hwnd: *mut std::ffi::c_void,
-                dwAttribute: u32,
-                pvAttribute: *const std::ffi::c_void,
-                cbAttribute: u32,
-            ) -> i32;
-        }
 
-        unsafe {
-            let hwnd_ptr = hwnd.0 as *mut std::ffi::c_void;
-
-            // 1. Force dark mode frame so DWM compositing uses black/dark fallback instead of white
-            const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
-            let dark_mode = 1i32;
-            let res_dark = DwmSetWindowAttribute(
-                hwnd_ptr,
-                DWMWA_USE_IMMERSIVE_DARK_MODE,
-                &dark_mode as *const _ as *const std::ffi::c_void,
-                std::mem::size_of_val(&dark_mode) as u32,
-            );
-
-            // 2. Prevent DWM from drawing opaque white corner buffers behind our transparent CSS corners
-            const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
-            const DWMWCP_DONOTROUND: u32 = 1;
-            let preference = DWMWCP_DONOTROUND;
-            let res_corner = DwmSetWindowAttribute(
-                hwnd_ptr,
-                DWMWA_WINDOW_CORNER_PREFERENCE,
-                &preference as *const _ as *const std::ffi::c_void,
-                std::mem::size_of_val(&preference) as u32,
-            );
-
-            // 3. Remove DWM default white border outline
-            const DWMWA_BORDER_COLOR: u32 = 34;
-            const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
-            let border_color = DWMWA_COLOR_NONE;
-            let res_border = DwmSetWindowAttribute(
-                hwnd_ptr,
-                DWMWA_BORDER_COLOR,
-                &border_color as *const _ as *const std::ffi::c_void,
-                std::mem::size_of_val(&border_color) as u32,
-            );
-
-            tracing::debug!(
-                "apply_windows_rounded_corners: dark={res_dark}, corner={res_corner}, border={res_border}"
-            );
-        }
-    }
-}
 
 pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
     if browse_webview {
@@ -1017,6 +964,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             "external",
             tauri::WebviewUrl::External(game_url),
         );
+        let external = crate::window::common::configure_frameless_window(external);
 
         let app_configs = configs::get_user_configs_for_app();
         let kc_window = &app_configs.kc_window;
@@ -1029,10 +977,6 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         let external = external
             .fullscreen(false)
             .title("fusou-viewer")
-            .decorations(false)
-            .transparent(true)
-            .shadow(false)
-            .resizable(true)
             .inner_size(
                 inner_winow_size_width,
                 inner_winow_size_height + TITLEBAR_HEIGHT,
@@ -1054,10 +998,9 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         install_linux_webview_key_fallback(&external_result);
 
         #[cfg(windows)]
-        {
-            install_windows_webview_key_fallback(&external_result);
-            apply_windows_rounded_corners(&external_result);
-        }
+        install_windows_webview_key_fallback(&external_result);
+
+        crate::window::common::setup_frameless_window(&external_result);
 
         external_result
             .show()
