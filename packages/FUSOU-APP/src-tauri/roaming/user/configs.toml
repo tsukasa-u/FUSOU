@@ -349,10 +349,6 @@ save_file_location = ""
     default_inner_width = 1200
     default_inner_height = 720
 
-    # The height of the window title bar
-    # This option is used when you use linux platform and the system internally uses wayland instead of X11
-    window_title_bar_height = 68
-
 
 [env]
 # Environment-specific configurations
