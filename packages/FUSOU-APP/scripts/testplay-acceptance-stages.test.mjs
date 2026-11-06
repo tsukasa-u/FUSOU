@@ -24,9 +24,22 @@ test("protocol, identity-bound evidence and remote production delivery have sepa
 test("source assessment neither authorizes gameplay nor waives the retained receipt/provider gates", () => {
   const stages = testplayAcceptanceStages();
   assert.equal(stages.gameplay_authorized, false);
-  assert.ok(stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes("candidate_execution_receipt_gate_retained"));
-  assert.ok(stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes(
+  assert.deepEqual(stages.IDENTITY_BOUND_TESTPLAY.code_blockers, [
+    "complete_19_role_evidence_bundle_collection_not_connected",
+    "candidate_execution_receipt_gate_retained",
+  ]);
+  assert.ok(!stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes(
     "authority_issued_logical_origin_attempt_reservation_missing",
+  ));
+  assert.deepEqual(stages.IDENTITY_BOUND_TESTPLAY.capture_send_contract, {
+    max_origin_sends_per_capture: 1,
+    unknown_outcome: "TERMINAL_NO_RESUME_OR_RESEND",
+    subsequent_client_request: "NEW_CAPTURE_IF_ADMITTED",
+    semantic_duplicate_detection: "NOT_REQUIRED",
+    exactly_once_game_server_processing: "NOT_CLAIMED",
+  });
+  assert.ok(!stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes(
+    "real_material_collection_not_connected",
   ));
   assert.equal(stages.PRODUCTION_EVIDENCE_DELIVERY.production_acceptance, "BLOCKED");
   assert.equal(stages.PRODUCTION_EVIDENCE_DELIVERY.deployment, "NOT_CHECKED");

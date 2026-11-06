@@ -33,10 +33,16 @@ export function testplayAcceptanceStages() {
         "all_19_roles_and_independent_local_verification",
       ],
       code_blockers: [
-        "real_material_collection_not_connected",
+        "complete_19_role_evidence_bundle_collection_not_connected",
         "candidate_execution_receipt_gate_retained",
-        "authority_issued_logical_origin_attempt_reservation_missing",
       ],
+      capture_send_contract: {
+        max_origin_sends_per_capture: 1,
+        unknown_outcome: "TERMINAL_NO_RESUME_OR_RESEND",
+        subsequent_client_request: "NEW_CAPTURE_IF_ADMITTED",
+        semantic_duplicate_detection: "NOT_REQUIRED",
+        exactly_once_game_server_processing: "NOT_CLAIMED",
+      },
       device_proof_owner_handlers: "IMPLEMENTED_AND_CONNECTED",
       owner_proof_migration_and_deployment: "NOT_CHECKED",
       full_bundle_remote_delivery_required_by_local_verifier: false,

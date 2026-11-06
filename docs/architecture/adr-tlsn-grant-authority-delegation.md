@@ -992,6 +992,14 @@ intent. A newly issued binding therefore cannot establish that a repeated
 logical Game Server operation is a new operation. No new endpoint, owner
 policy, key, or trust grant is inferred or implemented.
 
+**Capture policy scope update (2026-11-06):** the user selected one send at
+most per capture, discard/no-resume after failure, and treat a later client
+request as a new capture candidate even when its payload is identical.
+Authority-issued logical-operation reservation and semantic deduplication
+across captures are not required guarantees or Stage blockers. This does not
+claim exactly-once Game Server processing; the preceding authority-boundary
+observation remains true but is outside the selected guarantee.
+
 An ambiguous origin write is still never automatically retried, and the
 Game Server's receipt remains `UNKNOWN` unless independently observed.
 Successful local proxy tests do not alter any native attestation, OIDC,

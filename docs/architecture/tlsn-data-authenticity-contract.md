@@ -63,15 +63,26 @@ The following requirements are fixed for this work:
   processing, verification, signing, or evidence delivery succeeded.
 - APP input correctness, APP process/image authority, measured boot, TPM,
   privileged helpers, and browser integrity are not claims of this contract.
+- A selected capture sends its serialized Game Server request at most once.
+  Once sending starts, timeout, cancellation, disconnect, or an unknown outcome
+  ends that capture; it is never resumed or resent. Evidence failure after a
+  successful response does not resend the game request. A later client request
+  is a new capture candidate, even if its method, path, and body are identical.
+  This does not deduplicate semantic game operations or claim Game Server
+  exactly-once processing.
+- Ordinary-proxy fallback is allowed only when the capture path confirms that
+  no origin request was sent. An unknown post-start outcome never falls back.
+  Existing per-request admission, preparation, concurrency, binding, signature,
+  and replay controls remain in force.
 
 ## Source-observed implementation
 
 | Boundary | Source-observed behavior | Limit of the observation |
 |---|---|---|
-| Route selection | `ExperimentalRequireInfoRoute` checks the exact `POST /kcsapi/api_get_member/require_info` on each request and selects capture only when a prepared forwarder binding is ready. Hudsucker and Rama both use per-request capture admission; clones share the slot, not a consumed listener-wide selection. | This is local process state, not a session/attempt authority or a durable logical-operation reservation. |
+| Route selection | `ExperimentalRequireInfoRoute` checks the exact `POST /kcsapi/api_get_member/require_info` on each request and selects capture only when a prepared forwarder binding is ready. Hudsucker and Rama both use per-request capture admission; clones share the slot, not a consumed listener-wide selection. Each admitted capture is one-send and independent of later requests. | Local capture lifecycle does not identify or deduplicate semantically equivalent game operations across captures, and does not claim Game Server exactly-once processing. That guarantee is not required by the current policy. |
 | Rama body handling | A request is selected only with one bounded `Content-Length` no greater than the 128 KiB TLSN sent-data ceiling. The selected body uses `Body::limited` under a 30-second timeout. Unready/busy/unsupported requests go to ordinary proxying before collection; selected-body collection failure fails closed. | These selected-route controls are not process-wide memory limits. Ordinary fallback is not a successful TLSN capture. |
 | Serialized request | The HTTP/1.1 serializer accounts for the request line, each header and CRLF, generated `Content-Length` where needed, the binding header, the header terminator, and body. Length additions use `checked_add`; the complete serialized length is capped before `Vec::with_capacity`. | The 128 KiB ceiling is for the complete serialized sent request, not a 128 KiB permitted body. A body can be accepted by the collector and later rejected because headers and framing use part of that budget. |
-| TLS transport | The Production origin transport uses the configured DNS identity, system trust roots, and a single-use send path. A local journal send intent is synced before origin I/O; an outcome classified `NotSent` may use ordinary proxying, but an ambiguous outcome never retries or falls back. | Source wiring does not establish a live Game Server or Notary operation. A transport failure after a write begins can leave the remote outcome unknown; the local journal is not an authoritative logical-attempt receipt. |
+| TLS transport | The Production origin transport uses the configured DNS identity, system trust roots, and a single-use send path. A local journal send intent is synced before origin I/O; an outcome classified `NotSent` may use ordinary proxying, but an ambiguous outcome terminates that capture and never retries or falls back. A later client request can use a fresh capture and binding. | Source wiring does not establish a live Game Server or Notary operation. A transport failure after a write begins can leave the remote outcome unknown; the local journal records the capture's outcome, not a cross-capture semantic-operation receipt. |
 | Transcript and response | The transport records exact serialized request and raw response bytes. The verifier boundary compares their hashes to the exchange values. The origin response is returned before the deferred proof pipeline completes. | The browser-visible response is not an attestation or Result receipt. Proof failure after response return cannot undo the response already delivered. |
 | Presentation verification | `RealAlpha15DedicatedVerifier` verifies the actual Presentation against the trusted Notary key and compares its observed server identity and transcript hashes with the expected values and captured exchange. It checks the binding session and nonce. | External Notary availability, deployed verifier behavior, and real Presentation evidence are not established by this source review. |
 | Generic Result validators and signing bytes | Complete Result v2 and Sparse Result v3 include both inventory/approval digest slots in canonical JSON and signing bytes. Both generic validators reject a half-present pair but permit both digests to be absent. | Generic validation alone does not require Production provenance. This is distinct from the local Production Evidence Bundle checks below and from Worker-side generation/signing. |
@@ -181,6 +192,25 @@ asynchronous verification correlation. Neither is an approved logical
 
 ## Nonblocking request admission, failure, and recovery contract
 
+### Capture-scoped single-send policy (user-confirmed 2026-11-06)
+
+One capture may attempt the Game Server send no more than once. A failure
+before origin I/O may leave the send count at zero. Once sending starts, an
+ambiguous result ends the capture: FUSOU does not retry, resume it after
+restart, or use ordinary proxying as a fallback. If the origin response
+succeeds but proof, Notary, Worker, Result, or delivery processing fails, the
+game response is preserved and that capture's evidence is not accepted; the
+Game Server request is not resent to create evidence.
+
+After local capture work is confirmed finished, a later client request may be
+admitted as a new capture even when its method, path, and body are identical.
+This intentionally provides no cross-capture semantic duplicate detection or
+Game Server exactly-once guarantee. It does not require a logical operation ID
+or a new reservation authority. Existing admission/preparation/concurrency
+limits and Session, Device Proof, Result, Evidence, and replay bindings remain
+unchanged. If local cleanup is unconfirmed, the capture resources remain
+unavailable; an unknown remote outcome alone is not a permanent local block.
+
 The APP starts the ordinary proxy before background Runtime Config refresh,
 preflight, Worker health checks and TLSN dependency construction. It installs
 the capture forwarder only after those checks pass. Initialization failure
@@ -211,25 +241,30 @@ cannot be reused. `response_received` persistence runs asynchronously after
 the browser response, so a crash before that update is conservatively
 recovered as `unknown`. A journal write failure before transport prevents the
 origin send. A transport error classified `NotSent` may use the ordinary
-proxy; an ambiguous outcome never falls back or automatically retries.
+proxy as the first send; an ambiguous outcome terminates the current capture
+and never falls back, resumes, or automatically retries. After cleanup, a new
+client request may be processed as a new capture.
 
 | Failure point | Observed consequence | Recovery guarantee |
 |---|---|---|
 | Background Runtime Config/health/Session prewarm unavailable | Capture remains uninstalled or not ready; request follows ordinary proxy before body read. | Ordinary traffic is not held for TLSN initialization; no capture/evidence claim is made. |
 | Capture slot or TLSN ingress unavailable; unsupported/oversized body framing | Request remains unconsumed and follows ordinary proxy. | One ordinary path; no TLSN attempt is made. |
 | Selected body read fails/times out/exceeds limit | Body may be partially consumed; request fails closed before TLSN origin transport. | No empty-body forwarding and no retry. |
-| Binding claim/serialization fails before send | The selected capture attempt is abandoned; route may forward the untouched/reconstructed request ordinarily only where the body is available and the forwarder reports `NotSent`. | No authority rollback or logical-operation idempotency is established. |
+| Binding claim/serialization fails before send | The selected capture is abandoned; ordinary proxying may make the request's first send only when the route has the request and the forwarder confirms `NotSent`. | A used binding is not restored by capture failure. A later client request is a separate capture candidate. |
 | Journal send-intent write fails | No origin transport call is made; capture fails closed. | The request is not retried through another route after a durable-state failure. |
-| Origin write/response fails after send may begin | Outcome is `Unknown`; no ordinary fallback or automatic resend. | Game Server receipt remains `UNKNOWN`; local journal restart recovery does not prove receipt. |
-| Origin response succeeds; proof/Notary/Result fails | Browser response is already returned; the evidence pipeline records a separate failure. | Response delivery is not evidence completion, archive retention or acceptance. |
-| Process restart with unfinished journal record | Recovery appends `unknown` and rejects reuse of the same binding-derived attempt digest. | This is local per-binding replay protection only, not a stable logical-operation reservation. |
+| Origin write/response fails after send may begin | Outcome is `Unknown`; the capture is abandoned with no fallback, resume, or resend. | Game Server receipt remains `UNKNOWN`; local journal restart recovery does not prove receipt. A later request may start a new capture, not retry the old one. |
+| Origin response succeeds; proof/Notary/Result fails | Browser response is preserved; that capture's evidence is not accepted and its request is not resent. | Response delivery is not evidence completion, archive retention or acceptance. A subsequent request is independent. |
+| Process restart with unfinished journal record | Recovery appends `unknown`, the unfinished capture is not resumed or replayed, and the same binding-derived attempt digest is rejected. | This is local per-binding replay protection, not proof of remote receipt or semantic duplicate detection across captures. |
 
 The existing Worker Binding Authority durably stores per-binding/session
-records, but its contract does not bind a stable Game Server operation ID,
-request digest or origin-send intent. The APP journal cannot identify the same
-logical game operation when it is presented after restart with a newly issued
-binding. This remains an unresolved authority/idempotency boundary; no new
-Worker endpoint, enrollment rule or ownership policy was invented.
+records, but its contract does not bind a stable Game Server operation ID or
+semantic operation across captures. The APP journal records each capture's
+binding-derived send and cannot determine whether a later identical request
+means the same game operation. Under the current policy, this is intentional:
+later client requests are new capture candidates and semantic deduplication,
+cross-capture exactly-once processing, and a logical origin reservation are
+not required guarantees. No Worker endpoint, enrollment rule or new authority
+was added.
 
 ## Conservative local delivery policy v1 (2026-10-25)
 
@@ -264,16 +299,19 @@ human design decision again.
 
 ## Q1-Q5 implementation follow-up
 
-The current user-directed contract fixes the intended policy: authority-durable
-logical attempts, no resend after uncertain origin I/O, independent origin/evidence
-outcomes, authority-bound expiry and measured resource bounds. The questions below
-are the historical design inventory, **not** a request to choose those policies again.
+The current user-directed contract fixes capture-scoped single-send behavior:
+no same-capture resend after uncertain origin I/O, independent origin/evidence
+outcomes, and a new capture candidate for each later client request. It does
+not require authority-durable logical-operation reservation, semantic
+deduplication across captures, or exactly-once Game Server processing. The
+authority-level Q1/Q2 questions below are historical inventory, not current
+acceptance blockers or a request to add those guarantees.
 This follow-up started at `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
 
 | Requirement | Implemented / verified now | Remaining code, not an approval inferred from tests |
 |---|---|---|
-| Q1 | WEB proof consumption is durable, atomic and device/context unique; existing DO owns session/binding consumption. APP now has a durable local send-intent journal keyed by a binding digest. | Neither constitutes a durable **logical origin attempt** reservation. The Worker record and local journal do not bind a stable Game Server operation ID; a newly issued binding cannot be correlated to the same logical request after restart. |
-| Q2 | Independent `NotSent`, `Unknown`, `ResponseReceived` origin states; real transport reports `AmbiguousOriginSend` after send starts; no origin retry. Unfinished local send-intent recovers as `Unknown` and blocks reuse of that attempt digest. | Authority-correlated operation transitions and reconciliation remain absent; no claim that an unknown send was received or not received. |
+| Q1 | WEB proof consumption is durable, atomic and device/context unique; existing DO owns session/binding consumption. APP has a durable local send-intent journal keyed by a binding digest. | A stable cross-capture logical Game Server operation ID and reservation are not part of the selected guarantee. Semantically identical later requests are not deduplicated; exactly-once Game Server processing is not claimed. |
+| Q2 | Independent `NotSent`, `Unknown`, `ResponseReceived` outcomes; an ambiguous outcome ends the current capture without fallback or resend. Unfinished local send-intent recovers as `Unknown` and blocks reuse of that attempt digest. | A later client request may begin a new capture after local cleanup. It is not a retry or reconciliation of the previous capture, and its remote game effect may be duplicated. |
 | Q3 | Controlled proof/Worker/signing/archive failure tests receive the complete origin response first, preserve `ResponseReceived`, and record distinct evidence failure. APP Runtime Config/health/Session binding preparation is backgrounded; unavailable capture uses ordinary proxy before body collection. | A selected body read error after partial consumption fails closed. Complete archive/readback/Evidence Complete stages are not all connected. |
 | Q4 | Existing signed Session/consume times, DO expiry, nonce window and registry/manifest/Result validity checks remain; audit consumption uses DB time. | The APP still uses local wall time for portions of validation. No new trusted time anchor/skew/restart protocol was implemented; do not claim local monotonic exchange time is authority wall time. |
 | Q5 | TLSN-selected request bodies require a single Content-Length no greater than the 128 KiB sent-data ceiling; the Hudsucker collector additionally caps body collection at 1 MiB / 10 s idle / 30 s completion / 8 reservations. Ordinary/non-target requests bypass these TLSN-specific limits. Worker proof responses remain capped at 16 KiB, fetch 10 s. | The serialized request also has a 128 KiB total ceiling. Full concurrent connection/queue/TLSN/MPC/serializer/archive memory accounting, per-attempt budgets and process-wide memory bounds are not established. Input caps and mux windows are not process RSS guarantees. |
@@ -282,29 +320,36 @@ These remaining requirements are `BLOCKED_CODE`, not newly invented human
 policy choices. Existing external signer/root/deployment approvals are separate.
 No new auth fallback, process/image authority, privileged helper or retry was added.
 
-### Historical broader design inventory
+### Historical broader authority-level design inventory
+
+The following Q1/Q2 reservation and reconciliation questions predate the
+2026-11-06 capture policy decision. They remain boundaries of what is not
+implemented, but are not blockers for the selected capture-scoped guarantee.
 
 The local defaults above settle the consumer's fail-closed behavior. The
 following original questions describe broader issuer, runtime and product
-semantics not established by that adapter; those parts remain `BLOCKED`.
+semantics outside the selected capture policy. They are not additional
+requirements for this testplay scope.
 
-### Q1 — What is the authoritative attempt identity and scope?
+### Historical Q1 — authority-level logical attempt identity (not required)
 
 Capture selection is now per-request rather than listener-global. The current
 code also records a local attempt key derived from the authority binding and
 recovers an unfinished send as `Unknown`. Those facts still do not define a
 stable logical Game Server operation identity, its issuer, lifetime, request
 binding or cross-process/restart idempotency. Connection IDs and Worker job IDs
-are not substitutes for that missing logical attempt contract.
+are not substitutes for such an identity. The selected policy does not require
+one: each later client request may begin a new capture even when its payload
+matches a prior request.
 
-### Q2 — Which failures consume an attempt, and how can a retry be authorized?
+### Historical Q2 — authority-level retry reconciliation (superseded)
 
-Define the transition and recovery rule for body overflow, timeout, stream
-error, binding/receipt uncertainty, serialization failure, pre-write failure,
-partial send, origin response, Notary/Presentation failure, deferred Worker
-verification, Result signing, and delivery. In particular, define how an
-operator determines whether the Game Server may already have processed a
-request before authorizing a new one.
+The current capture policy resolves these events locally: pre-send failure may
+leave the capture at zero sends; after send starts, an unknown result ends that
+capture without fallback, resume, or resend. Proof/Notary/Worker/Result failure
+after a successful game response does not resend it. No operator reconciliation
+or retry authorization is part of the selected guarantee. A later client
+request is a separate capture, not a retry of the previous one.
 
 ### Q3 — What is the authoritative relationship between response and evidence?
 

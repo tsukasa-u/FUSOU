@@ -36,6 +36,31 @@ Relevant sources:
 * [Bundle verifier](src/evidence_bundle.rs), [finalizer](src/evidence_bundle/finalization.rs),
   [existing authenticity contract](../../docs/architecture/tlsn-data-authenticity-contract.md).
 
+## Current capture-scoped send policy (user-confirmed 2026-11-06)
+
+The current requirement is one Game Server send at most per capture. Once
+origin sending starts, timeout, cancellation, disconnect, or an unknown outcome
+ends that capture; it is not resumed or resent, including after process restart.
+If the Game Server response succeeded but proof, Worker, Result, or delivery
+processing fails, preserve the game response and reject that capture's
+incomplete evidence without resending the request.
+
+After local capture work is confirmed finished, the next client request may be
+a new capture even when its method, path, and body are identical. FUSOU does
+not deduplicate semantic game operations across captures and does not claim
+exactly-once Game Server processing. No logical operation ID or new origin
+reservation authority is required. Existing capture admission, preparation,
+concurrency, Session/Device Proof/Result/Evidence binding and replay controls
+remain in force. Ordinary-proxy fallback is allowed only when no origin send
+is confirmed; an unknown outcome cannot fall back. Cleanup-unconfirmed local
+resources remain unavailable, but remote `Unknown` alone does not permanently
+block later independent captures.
+
+This decision supersedes prior audit notes that listed a missing
+authority-issued logical origin-attempt reservation as a Stage B blocker.
+Historical findings below remain records of their earlier scope and do not
+override this selected policy.
+
 ## 1. Three acceptance stages, not three bypass switches
 
 | Stage | Acceptance evidence | Current reachability / status | Not implied |
@@ -554,6 +579,12 @@ whether a request is eligible to enter that existing capture pipeline:
   Server operation ID, request digest or origin-send intent. A retry of the
   same logical game operation with a newly issued binding is not identifiable
   from the current contract; no endpoint or ownership policy was invented.
+  This prior finding is not a blocker under the current capture-scoped policy:
+  the old capture is never resumed or resent, while a later client request may
+  begin a fresh capture even if its payload is identical. Semantic
+  cross-capture deduplication and exactly-once Game Server processing are not
+  required. An unknown remote outcome alone does not permanently block later
+  captures after local cleanup is confirmed.
 
 | Follow-up check | Result | Evidence boundary |
 |---|---|---|

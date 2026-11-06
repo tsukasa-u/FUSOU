@@ -1,6 +1,139 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Current identity-bound testplay continuation — audit base `bbf1811cdbb6503ccec5851929da5b755dfc4496`
+## Current capture-scoped send policy — user-confirmed 2026-11-06
+
+The selected contract is one Game Server send at most per capture. A pre-send
+failure may send zero times. Once a send starts, timeout, cancellation,
+disconnect, or an unknown outcome terminates that capture; it is not resumed
+or resent, including after restart. If the Game Server response succeeds but
+proof, Notary, Worker, Result, or delivery handling fails, preserve the game
+response and reject that capture's incomplete evidence without another origin
+send.
+
+After local capture work is confirmed finished, the next client request may be
+a new capture even when its method, path, and body are identical. This does not
+deduplicate semantic game operations or claim Game Server exactly-once
+processing. A logical operation ID or new origin reservation authority is not
+required. Existing admission/preparation/concurrency restrictions and
+Session/Device Proof/Result/Evidence binding and replay protections remain.
+Ordinary-proxy fallback is allowed only when no origin send is confirmed;
+ambiguous sends never fall back. Cleanup-unconfirmed local resources remain
+unavailable, but remote `Unknown` alone does not permanently block later
+independent captures.
+
+This decision supersedes the earlier audit's
+`authority_issued_logical_origin_attempt_reservation_missing` Stage B blocker.
+Stage B remains **BLOCKED** for the separate complete 19-role collection and
+candidate execution-receipt requirements. Stage A/C and Production acceptance
+are not promoted by this policy.
+
+### Current implementation and local verification
+
+The Proxy [experimental capture forwarder](../FUSOU-PROXY/proxy-https/src/experimental_tlsn.rs)
+now keeps state, origin outcome, lifecycle, and proof-task ownership per
+capture. An `Unknown` origin outcome does not block a new capture after local
+cleanup is confirmed. An active capture or `CleanupUnconfirmed` state still
+blocks capture admission; dropping a task after send start leaves its local
+slot unavailable. A binding is completed and prepared again only after local
+cleanup is confirmed. The durable send journal remains responsible for
+unfinished-send `Unknown` recovery and binding-attempt replay rejection.
+
+Regression tests were added for an ambiguous send followed by an identical
+new request with a fresh binding, reuse of a binding, old-capture state
+isolation, task drop, not-sent versus ambiguous fallback, and
+cleanup-unconfirmed admission. The existing durable send journal is responsible
+for restart recovery; its separate tests were not run in this task.
+
+The [isolated capture test harness](../FUSOU-PROXY/proxy-https/capture-test-harness/README.md)
+uses relative `include!` wrappers for the actual Proxy source and nested
+lifecycle tests.
+Its separate lock pins the direct dependencies to versions resolved in the
+Proxy lock; it is a focused module harness, not a `proxy-https` package
+integration test. This avoids compiling the Proxy build script/dependency
+graph, which includes [`configs.rs`](../configs/src/configs.rs) and its
+protected APP roaming config.
+
+Local harness verification with Rust 1.98.1:
+
+- The lifecycle assertion now reads the lifecycle from the active
+  `CaptureExecution`, fixing the stale `forwarder.lifecycle` E0609 reference.
+- `cargo check --locked --offline --lib`: **PASS** for the isolated source
+  modules; this is not a full Proxy type-check.
+- `cargo test --locked --offline --lib`: **29 passed, 0 failed, 0 ignored**.
+  The first run had **27 passed, 2 failed, 0 ignored** because two existing
+  pre-send failure assertions expected `Ready`; capture-local terminal state is
+  `Unattested`. They now assert that explicit terminal state; neither test was
+  removed, skipped, or weakened.
+- `rustfmt --check`: **PASS**. Formatting/syntax validation is distinct from
+  the successful harness type-check and test run.
+
+The candidate workflow now has a separate job to fetch the harness lockfile
+and run its offline type-check and tests. The workflow was not run on a hosted
+runner; `actionlint` was unavailable locally. The existing acceptance-stage
+tests passed **3/3**, and the updated JavaScript syntax checks passed.
+Production acceptance and Stage A/B/C remain **BLOCKED**.
+
+## Previous independent remediation audit — pre-decision snapshot at baseline `7c54b933e01762ce65968c4a3f3a2a76fc50a7dd` (2026-11-06)
+
+The following audit is retained as a historical record from before the
+capture-scoped policy was selected. Its authority-reservation blocker and
+validation results do not override the current policy above.
+
+This is the newest source-backed assessment in this file. The dated sections
+below are historical snapshots at their stated baselines; their test results
+and status labels are not evidence for the current HEAD.
+
+### Git and scope
+
+- Repository: `tsukasa-u/FUSOU`
+- Branch: `tlsn-first-testplay-candidate`
+- Starting HEAD: `7c54b933e01762ce65968c4a3f3a2a76fc50a7dd`
+- Parent: `bbf1811cdbb6503ccec5851929da5b755dfc4496`
+- The index and working tree were clean at audit start when checked with the
+  protected paths excluded. No `.codegraph/` directory or `AGENTS.md` was
+  found.
+- The root `justfile` and APP roaming `configs.toml` were not inspected,
+  searched, listed by Git status/diff, tested, built, changed, or staged.
+- No Production resource, secret, deployment, migration, real Game Server,
+  Notary, game traffic, or human gameplay was used.
+
+### Current source findings
+
+| Area | Current evidence | Status and boundary |
+|---|---|---|
+| Production identity and Result binding | Worker [index](../FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts) derives identity from the inspected TLSN Presentation, resolves it against the independently pinned Origin Inventory and Target Approval, and checks the prepared Result against exact Presentation bytes and both digests. Production task validation requires both digests. The Rust Complete v2 / Sparse v3 Result serializers and verifier retain the signing-domain and digest checks. | **OBSERVED in source; synthetic tests only.** No real Presentation or Production Result was verified. |
+| Origin attempt and retry | The APP/Proxy [origin journal](../FUSOU-PROXY/proxy-https/src/production_tlsn.rs) records a binding-derived digest, canonical target, and serialized request digest before origin I/O. Restart converts an unfinished send to `Unknown`; that attempt is not replayable. | **NOT an authority-issued reservation.** A new binding yields a new local attempt key. No approved API binds authenticated subject/session, exact request, target, and durable logical operation ID before send. The Stage B blocker remains. |
+| Candidate materials | The verified APP Runtime Config supplies seven exact public artifacts to the Proxy [candidate writer](../FUSOU-PROXY/proxy-https/src/real_tlsn.rs); the writer also records the existing five candidate role inputs. The offline [finalizer](./src/evidence_bundle/finalization.rs) still requires the complete 19-role bundle and its external material. | **PARTIAL CONNECTION; full collection NOT_IMPLEMENTED.** The machine-readable blocker now says `complete_19_role_evidence_bundle_collection_not_connected`; seven Runtime Config artifacts are not seven new Evidence roles. |
+| Execution receipt | Candidate finalization still requires exact receipt bytes and the matching header encoding. The Worker receipt implementation remains Canary-scoped; no approved Production receipt issuer/verification contract was found. | **BLOCKED.** No Canary-to-Production promotion, synthetic receipt, or receipt-gate bypass was added. |
+| Runtime Config Freshness / P2 | APP [Freshness verifier](../FUSOU-APP/src-tauri/src/tlsn_runtime_config_freshness.rs) sends a nonce-bound request and verifies signed response, Manifest, and referenced artifacts. The checked-in Worker source has no Production Freshness route/authority/Journal/HSM adapter. P1 [signer request types](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts) have no issue operation ID, lease ID, fence, or finalization receipt; `VerifiedCurrentFreshnessState` is structurally constructible. | APP local verification is **OBSERVED**; Production service and P2 recovery are **NOT_IMPLEMENTED**. |
+| Freshness deadlines | APP creates its 10-second monotonic deadline immediately before the Freshness POST and checks it through verification and the pre-replace guard. State persistence then writes/fsyncs a temporary file, renames it, and syncs the parent directory. No deadline check follows rename and parent-directory sync before successful return. If the parent sync fails after rename, the writer returns an error although the local high-water may already have advanced; it is not rolled back. | **No worst-case 10-second durable-acceptance guarantee is established.** Rename, durability completion, return, and use of the verified config are distinct. Performance is **NOT MEASURED**; no post-rename error or high-water rollback was introduced. |
+| Eight-second issue lease | The normative Phase 0 protocol specifies an at-most-eight-second lease and post-sign check. The P2 DO design describes eight seconds as an operational target/SLO without approval. | **UNRESOLVED protocol decision.** The SLO wording is not adopted as a normative reinterpretation; Production Freshness remains blocked. |
+| Historical `undefined.length` failure | The previously reported smoke/finalizer test names and error text were not found in the current tracked source/workflow search. | **NOT_CHECKED against historical run logs.** This audit does not claim that the old CI failure was fixed or reproduced. |
+
+### Local validation and current readiness
+
+| Check | Result | Scope |
+|---|---|---|
+| APP acceptance-stage and pre-capture tests, Worker Freshness and Production evidence graph tests, new Production Result contract tests (`node --test`) | **95 passed, 0 failed** | Synthetic/local contracts; no live service or Production evidence. |
+| Runtime Config domain typecheck | **PASS** | Shared TypeScript wire/domain package. |
+| Runtime Config domain golden-vector tests | **6 passed, 0 failed** | JS validators and shared vectors; not a Production authority test. |
+| Worker TypeScript typecheck | **PASS** | `tsc --noEmit`; no deployment. |
+| Independent Verifier library and candidate finalizer (`cargo +1.98.1 test --locked --offline --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml --lib`) | **140 passed, 0 failed, 0 ignored** | Synthetic/local fixtures; does not establish real evidence validity. |
+| APP/Proxy Cargo tests or builds | **NOT RUN** | The APP/Proxy dependency graph includes `packages/configs`, whose Rust source uses compile-time `include_str!` on the protected APP roaming config. |
+| Hosted CI for this local working tree | **NOT RUN** | Workflow edits are local and have no corresponding hosted run. Older run #108 is not evidence for this baseline. |
+| Production resources, real Game Server/Notary, real capture, human gameplay | **NOT RUN** | No Production acceptance evidence was created. |
+
+The candidate [CI workflow](../../.github/workflows/tlsn-testplay-candidate.yml)
+now includes the Freshness, Production Result, trust-graph, acceptance-stage,
+pre-capture, and independent Verifier library checks. The Stage B blocker wording was narrowed to reflect the seven connected
+Runtime Config artifacts without claiming a complete 19-role collector.
+
+`IDENTITY_BOUND_TESTPLAY_READY` remains **BLOCKED_CODE /
+BLOCKED_EXTERNAL_INPUTS**. Stage A, Stage B, Stage C, and Production acceptance
+remain **BLOCKED**. Browser integrity and APP process/image authority remain
+outside scope; AD-5 remains **OUT_OF_SCOPE**.
+
+## Historical identity-bound testplay snapshot — audit base `bbf1811cdbb6503ccec5851929da5b755dfc4496`
 
 This continuation rechecked the current source path and readiness boundary
 without registering Production trust, changing a service, or performing a
@@ -417,7 +550,7 @@ support, not evidence that any stage completed against the real services.
 | APP E2E variables, `FUSOU_TLSN_EVIDENCE_BUNDLE`, and `FUSOU_TLSN_ROUNDTRIP_CONFIG_PATH` | Test harnesses and evidence CLI only | Test/CLI inputs, not production runtime configuration and not proof of real service readiness. No values were inspected. |
 | `artifact_output_path` and capture toggles | APP user configuration and local filesystem sink | Local path/behavior inputs; protected user configuration values were not inspected. No real artifact path or output was created. |
 
-## Current local implementation validation
+## Historical local implementation validation — baseline `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`
 
 Follow-up baseline: `fc29aac29d454bf949510e0d97acbd3cd7e68e5b`.
 The earlier hosted candidate run at that SHA passed; it is not CI for these
@@ -891,7 +1024,7 @@ new ignored tests, fake Production inputs or network dependency acquisition.
 No protected configuration, real launcher/evidence verifier, external service,
 privileged host operation, deployment or publication was used.
 
-## Current finalization audit validation
+## Historical finalization audit validation
 
 The new runner was isolated under the session's `evidence-finalization-gate`,
 using Rust 1.98.1 GNU, `env -i`, private HOME/TMPDIR/CARGO_HOME, separate

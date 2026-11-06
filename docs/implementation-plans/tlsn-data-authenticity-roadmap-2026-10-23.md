@@ -1,10 +1,10 @@
 # FUSOU TLSN Data Authenticity Implementation Roadmap
 
 **Status:** Exact-owner proof APIs/atomic DB claims, independent origin outcome,
-partial approved-material collector and active mux-fork removal implemented.
-Authority-durable origin attempts, complete Evidence assembly, trusted-time
-coverage and full resource accounting remain `BLOCKED_CODE`; external execution
-and Production acceptance remain blocked.
+capture-scoped single-send lifecycle, partial approved-material collector and
+active mux-fork removal implemented locally. Complete Evidence assembly,
+trusted-time coverage and full resource accounting remain `BLOCKED_CODE`;
+external execution and Production acceptance remain blocked.
 **Source baseline:** `tlsn-first-testplay-candidate` at
 `e1d985bf326378346d1cf86b2e5269e3fe03cd95`.
 **Contract:** [`tlsn-data-authenticity-contract.md`](../architecture/tlsn-data-authenticity-contract.md).
@@ -29,11 +29,14 @@ user-directed implementation policy; do not ask the user to select it again.
    Nineteen-role completion and all independent pins remain mandatory.
 3. **Completed locally:** separate origin outcomes, explicit ambiguous send and
    post-response evidence failure tests. No second origin send.
-4. **Next code, highest priority:** replace listener-global capture refusal with
-   authority-durable logical-attempt reservation and a crash-safe APP pre-send
-   journal; bind user/device, session/binding, approved target/profile and exact
-   request digest. Reject concurrent duplicate/restart reuse; do not create a
-   fresh attempt to hide an uncertain write. Preserve normal distinct operations.
+4. **Implemented locally under the user-confirmed capture policy:** keep
+   origin outcome and lifecycle per capture; after local cleanup is confirmed,
+   a later request may use a fresh binding even when its bytes are identical.
+   Never resume or resend a failed capture, and never fall back after an
+   ambiguous send. Unconfirmed local cleanup still blocks resource reuse.
+   Authority-durable logical-attempt reservation and cross-capture semantic
+   deduplication are not required guarantees or current blockers. Rust
+   type-checking and tests for this change remain `NOT_CHECKED`.
 5. **Then:** move approved Session preparation outside the selected request's
    latency-critical phase, revalidate authority validity immediately before send,
    and preserve explicit refusal/reconciliation instead of silent auth fallback.
@@ -5742,6 +5745,13 @@ authority contract:
    repeated logical operation is new. No endpoint, signer or ownership policy
    was added to fill that gap. Ambiguous writes remain non-retryable and the
    Game Server receipt remains `UNKNOWN`.
+
+**Scope update (2026-11-06):** the reservation limitation above is retained as
+an authority-boundary observation, but it is no longer a blocker under the
+user-selected capture-scoped contract. One capture sends at most once and is
+discarded after failure; the next client request may start a fresh capture,
+even with identical bytes. Cross-capture semantic deduplication and
+exactly-once Game Server processing are not required.
 
 The source/test follow-up is locally verified: Proxy default library tests
 122/122 pass, `rama-experimental` Proxy library tests 155/155 pass, the APP
