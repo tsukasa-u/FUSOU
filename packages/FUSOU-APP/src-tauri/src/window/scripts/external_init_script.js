@@ -288,12 +288,14 @@ const ensureTitlebarStyles = () => {
     html:not(.is-maximized) body {
       border-radius: 10px !important;
       overflow: hidden !important;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4) !important;
+      box-shadow: none !important;
+      border: none !important;
     }
     /* Square corners when maximized */
     html.is-maximized body {
       border-radius: 0px !important;
       box-shadow: none !important;
+      border: none !important;
     }
 
     /* Non-game pages (login, terms, etc): natural layout with titlebar clearance */
@@ -336,7 +338,7 @@ const ensureTitlebarStyles = () => {
       font-size: 12px !important;
       user-select: none !important;
       -webkit-user-select: none !important;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.25) !important;
+      border-bottom: none !important;
       box-sizing: border-box !important;
       cursor: default !important;
       -webkit-app-region: drag !important;

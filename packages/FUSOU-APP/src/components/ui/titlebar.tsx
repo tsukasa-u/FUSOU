@@ -138,8 +138,8 @@ export function CustomTitlebar(props: Props) {
   return (
     <header
       data-tauri-drag-region
-      class={`h-8 bg-[#27272a] text-[#f1f5f9] border-b border-black/25 select-none flex items-center justify-between px-2.5 z-9999 text-xs ${
-        props.isMaximized ? "rounded-none" : "rounded-t-[9px]"
+      class={`h-8 bg-[#27272a] text-[#f1f5f9] select-none flex items-center justify-between px-2.5 z-9999 text-xs ${
+        props.isMaximized ? "rounded-none" : "rounded-t-[10px]"
       }`}
       onDblClick={() => appWindow.toggleMaximize()}
     >
