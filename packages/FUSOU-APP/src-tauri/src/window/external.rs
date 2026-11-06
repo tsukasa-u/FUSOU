@@ -1001,8 +1001,8 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             .fullscreen(false)
             .title("fusou-viewer")
             .decorations(false)
-            .transparent(false)
-            .shadow(true)
+            .transparent(true)
+            .shadow(false)
             .resizable(true)
             .inner_size(
                 inner_winow_size_width,

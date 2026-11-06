@@ -276,10 +276,30 @@ const ensureTitlebarStyles = () => {
   const style = document.createElement("style");
   style.id = "fusou-titlebar-styles";
   style.textContent = `
+    /* Base window transparency & rounding */
+    html {
+      background-color: transparent !important;
+    }
+    body {
+      box-sizing: border-box !important;
+      background-color: #0e0e11 !important;
+    }
+    /* Rounded corners when not maximized */
+    html:not(.is-maximized) body {
+      border-radius: 10px !important;
+      overflow: hidden !important;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4) !important;
+    }
+    /* Square corners when maximized */
+    html.is-maximized body {
+      border-radius: 0px !important;
+      box-shadow: none !important;
+    }
+
     /* Non-game pages (login, terms, etc): natural layout with titlebar clearance */
     body:not(.fusou-game-mode) {
       padding-top: ${TITLEBAR_HEIGHT}px !important;
-      box-sizing: border-box !important;
+      overflow: auto !important;
     }
     /* Game mode only: frameless clipping */
     html.fusou-game-mode, body.fusou-game-mode {
@@ -316,10 +336,18 @@ const ensureTitlebarStyles = () => {
       font-size: 12px !important;
       user-select: none !important;
       -webkit-user-select: none !important;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.25) !important;
       box-sizing: border-box !important;
       cursor: default !important;
       -webkit-app-region: drag !important;
+    }
+    html:not(.is-maximized) #fusou-titlebar {
+      border-top-left-radius: 10px !important;
+      border-top-right-radius: 10px !important;
+    }
+    html.is-maximized #fusou-titlebar {
+      border-top-left-radius: 0px !important;
+      border-top-right-radius: 0px !important;
     }
     #fusou-titlebar * {
       box-sizing: border-box !important;
@@ -489,10 +517,15 @@ const ensureTitlebarStyles = () => {
 
 const updateMaximizeIcon = () => {
   const maxBtn = document.getElementById("fusou-win-max-btn");
-  if (!maxBtn) return;
   const isMax =
     window.outerWidth >= screen.availWidth - 4 &&
     window.outerHeight >= screen.availHeight - 4;
+  if (isMax) {
+    document.documentElement.classList.add("is-maximized");
+  } else {
+    document.documentElement.classList.remove("is-maximized");
+  }
+  if (!maxBtn) return;
   maxBtn.innerHTML = isMax ? RESTORE_SVG : MAXIMIZE_SVG;
   maxBtn.title = isMax ? "Restore" : "Maximize";
 };
