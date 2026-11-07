@@ -26,8 +26,11 @@ const setupWebAudioInterception = () => {
     window.AudioContext || window.webkitAudioContext;
   if (!OriginalAudioContext || OriginalAudioContext.__fusouPatched) return;
 
-  function PatchedAudioContext(...args) {
-    const ctx = new OriginalAudioContext(...args);
+  const origConnect = AudioNode.prototype.connect;
+
+  const getOrCreateMasterGain = (ctx) => {
+    if (!ctx) return null;
+    if (ctx.__fusouMasterGain) return ctx.__fusouMasterGain;
     try {
       const masterGain = ctx.createGain();
       const effVol = fusouIsMuted ? 0 : fusouCurrentVolume;
@@ -36,21 +39,33 @@ const setupWebAudioInterception = () => {
       } catch (_) {}
       masterGain.gain.value = effVol;
 
-      // Connect masterGain to the true hardware destination
-      masterGain.connect(ctx.destination);
-
-      // Mask the destination property on this context instance so that
-      // all connections to context.destination automatically route to our masterGain
-      Object.defineProperty(ctx, "destination", {
-        get: () => masterGain,
-        configurable: true,
-        enumerable: true,
-      });
+      // Connect masterGain directly to the hardware destination via unpatched connect
+      origConnect.call(masterGain, ctx.destination);
 
       ctx.__fusouMasterGain = masterGain;
       activeFusouGainNodes.add(masterGain);
+      return masterGain;
+    } catch (err) {
+      console.warn("[fusou] audio patching error:", err);
+      return null;
+    }
+  };
+
+  function PatchedAudioContext(...args) {
+    const ctx = new OriginalAudioContext(...args);
+    try {
+      const masterGain = getOrCreateMasterGain(ctx);
+      if (masterGain) {
+        try {
+          Object.defineProperty(ctx, "destination", {
+            get: () => masterGain,
+            configurable: true,
+            enumerable: true,
+          });
+        } catch (_) {}
+      }
     } catch (e) {
-      console.warn("[fusou] audio patching error:", e);
+      console.warn("[fusou] audio context patching error:", e);
     }
     return ctx;
   }
@@ -78,24 +93,23 @@ const setupWebAudioInterception = () => {
     window.webkitAudioContext = PatchedAudioContext;
   }
 
-  // Backup interceptor on AudioNode.prototype.connect for direct destination connections
+  // Intercept all connections to destination (essential for WebKit where ctx.destination cannot be redefined)
   try {
-    const origConnect = AudioNode.prototype.connect;
     if (!AudioNode.prototype.__fusouConnectPatched) {
       AudioNode.prototype.connect = function (dest, ...rest) {
-        if (
-          dest &&
-          dest instanceof AudioDestinationNode &&
-          this.context &&
-          this.context.__fusouMasterGain &&
-          this !== this.context.__fusouMasterGain
-        ) {
-          return origConnect.call(
-            this,
-            this.context.__fusouMasterGain,
-            ...rest
-          );
-        }
+        try {
+          if (
+            dest &&
+            (dest instanceof AudioDestinationNode ||
+              dest === this.context?.destination ||
+              dest.constructor?.name === "AudioDestinationNode")
+          ) {
+            const masterGain = getOrCreateMasterGain(this.context);
+            if (masterGain && this !== masterGain) {
+              return origConnect.call(this, masterGain, ...rest);
+            }
+          }
+        } catch (e) {}
         return origConnect.call(this, dest, ...rest);
       };
       AudioNode.prototype.__fusouConnectPatched = true;
@@ -1484,9 +1498,19 @@ if (!isTopWindow()) {
       if (window.top && window.top !== window) {
         window.top.postMessage({ type: "fusou-register-frame" }, "*");
       }
+      if (
+        window.parent &&
+        window.parent !== window &&
+        window.parent !== window.top
+      ) {
+        window.parent.postMessage({ type: "fusou-register-frame" }, "*");
+      }
     } catch (e) {}
   };
   registerWithTop();
-  const regTimer = setInterval(registerWithTop, 1000);
-  setTimeout(() => clearInterval(regTimer), 15000);
+  const regTimer = setInterval(registerWithTop, 1500);
+  setTimeout(() => {
+    clearInterval(regTimer);
+    setInterval(registerWithTop, 5000);
+  }, 30000);
 }
