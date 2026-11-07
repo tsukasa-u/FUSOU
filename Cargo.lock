@@ -212,6 +212,7 @@ name = "app"
 version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
+ "cairo-rs",
  "chrono",
  "chrono-tz",
  "clap",

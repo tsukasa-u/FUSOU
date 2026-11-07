@@ -14,7 +14,10 @@ use std::collections::HashSet;
 use chrono::Local;
 
 #[cfg(target_os = "linux")]
-use webkit2gtk::{gio, SnapshotOptions, SnapshotRegion, WebViewExt};
+use webkit2gtk::{
+    gio, SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt,
+    UserScript, UserScriptInjectionTime, WebViewExt,
+};
 
 #[cfg(target_os = "linux")]
 use gtk::prelude::WidgetExt;
@@ -327,6 +330,38 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
     } else {
         tracing::warn!(
             "installed linux webview key fallback for external window {}",
+            window_label
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn install_linux_webview_scripts(external: &tauri::WebviewWindow) {
+    let window_label = external.label().to_string();
+    let init_script = include_str!("./scripts/external_init_script.js");
+    let install_result = external.with_webview(move |webview| {
+        let wv = webview.inner();
+        if let Some(manager) = wv.user_content_manager() {
+            let script = UserScript::new(
+                init_script,
+                UserContentInjectedFrames::AllFrames,
+                UserScriptInjectionTime::Start,
+                &[],
+                &[],
+            );
+            manager.add_script(&script);
+        }
+    });
+
+    if let Err(error) = install_result {
+        tracing::warn!(
+            "failed to install linux webview scripts for {}: {}",
+            window_label,
+            error
+        );
+    } else {
+        tracing::info!(
+            "installed linux webview scripts (all frames) for external window {}",
             window_label
         );
     }
@@ -650,13 +685,26 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                     );
                     match snapshot_result {
                     Ok(surface) => {
-                        let Some(pixbuf) = gdk::pixbuf_get_from_surface(
-                            &surface,
-                            0,
-                            titlebar_height_px,
-                            capture_width,
-                            cropped_height,
-                        ) else {
+                        let pixbuf = match cairo::ImageSurface::try_from(surface) {
+                            Ok(img) => {
+                                let w = img.width();
+                                let h = img.height();
+                                let src_y = titlebar_height_px.min(h);
+                                let crop_h = (h - src_y).max(1);
+                                gdk::pixbuf_get_from_surface(&img, 0, src_y, w, crop_h)
+                            }
+                            Err(surf) => {
+                                gdk::pixbuf_get_from_surface(
+                                    &surf,
+                                    0,
+                                    titlebar_height_px,
+                                    capture_width,
+                                    cropped_height,
+                                )
+                            }
+                        };
+
+                        let Some(pixbuf) = pixbuf else {
                             tracing::warn!(
                                 "failed to convert webview snapshot into pixbuf for {}",
                                 output_path_for_snapshot.display(),
@@ -1070,6 +1118,9 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             #[cfg(target_os = "linux")]
             install_linux_webview_key_fallback(&window);
 
+            #[cfg(target_os = "linux")]
+            install_linux_webview_scripts(&window);
+
             #[cfg(windows)]
             install_windows_webview_key_fallback(&window);
 
@@ -1140,6 +1191,9 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
 
         #[cfg(target_os = "linux")]
         install_linux_webview_key_fallback(&external_result);
+
+        #[cfg(target_os = "linux")]
+        install_linux_webview_scripts(&external_result);
 
         #[cfg(windows)]
         install_windows_webview_key_fallback(&external_result);

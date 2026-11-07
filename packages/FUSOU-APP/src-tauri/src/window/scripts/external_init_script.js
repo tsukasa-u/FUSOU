@@ -1,3 +1,7 @@
+(() => {
+if (window.__fusouInitScriptLoaded) return;
+window.__fusouInitScriptLoaded = true;
+
 const GAME_FRAME_HEIGHT = 720;
 const GAME_FRAME_WIDTH = 1200;
 const TITLEBAR_HEIGHT = 32;
@@ -98,18 +102,25 @@ const setupWebAudioInterception = () => {
     if (!AudioNode.prototype.__fusouConnectPatched) {
       AudioNode.prototype.connect = function (dest, ...rest) {
         try {
-          if (
-            dest &&
-            (dest instanceof AudioDestinationNode ||
-              dest === this.context?.destination ||
-              dest.constructor?.name === "AudioDestinationNode")
-          ) {
-            const masterGain = getOrCreateMasterGain(this.context);
+          const ctx = this.context || (dest && dest.context);
+          const isDestination =
+            (dest && ctx && dest === ctx.destination) ||
+            (dest &&
+              typeof AudioDestinationNode !== "undefined" &&
+              dest instanceof AudioDestinationNode) ||
+            (dest &&
+              dest.constructor &&
+              dest.constructor.name === "AudioDestinationNode");
+
+          if (isDestination && ctx) {
+            const masterGain = getOrCreateMasterGain(ctx);
             if (masterGain && this !== masterGain) {
               return origConnect.call(this, masterGain, ...rest);
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn("[fusou] audio connect error:", e);
+        }
         return origConnect.call(this, dest, ...rest);
       };
       AudioNode.prototype.__fusouConnectPatched = true;
@@ -1510,3 +1521,4 @@ if (!isTopWindow()) {
     setInterval(registerWithTop, 5000);
   }, 30000);
 }
+})();

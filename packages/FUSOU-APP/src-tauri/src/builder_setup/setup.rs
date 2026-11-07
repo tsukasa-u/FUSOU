@@ -9,7 +9,6 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
@@ -815,15 +814,11 @@ fn ensure_autostart_initialized(app: &tauri::App) -> Result<(), Box<dyn std::err
 }
 
 fn notify_startup(app: &tauri::App) {
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title("FUSOU")
-        .body("FUSOU is running in the background. Use the tray for controls.")
-        .show()
-    {
-        tracing::warn!("Failed to show startup notification: {}", e);
-    }
+    crate::notify::show(
+        app.handle(),
+        "FUSOU",
+        "FUSOU is running in the background. Use the tray for controls.",
+    );
 }
 
 pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
