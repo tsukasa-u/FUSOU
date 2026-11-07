@@ -19,12 +19,16 @@ pub fn show<R: tauri::Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
         let title = title.to_string();
         let body = body.to_string();
         std::thread::spawn(move || {
-            if let Err(error) = app.notification().builder().title(&title).body(&body).show() {
+            let res = app.notification().builder().title(&title).body(&body).show();
+            if let Err(error) = res {
                 tracing::warn!(
                     notification_title = title,
                     error = %error,
-                    "failed to show notification"
+                    "failed to show notification via tauri plugin, attempting notify-send"
                 );
+                let _ = std::process::Command::new("notify-send")
+                    .args(["-a", "FUSOU", &title, &body])
+                    .spawn();
             }
         });
         return;

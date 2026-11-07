@@ -660,7 +660,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
     {
         const TITLEBAR_HEIGHT: f64 = 32.0;
         let scale_factor = external.scale_factor().unwrap_or(1.0);
-        let titlebar_height_px = (TITLEBAR_HEIGHT * scale_factor).round() as i32;
+        let titlebar_height_px = (TITLEBAR_HEIGHT * scale_factor).round() as f64;
 
         let (capture_width, capture_height) = external
             .inner_size()
@@ -668,7 +668,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
             .map(|size| (size.width as i32, size.height as i32))
             .unwrap_or((1200, 752));
 
-        let cropped_height = (capture_height - titlebar_height_px).max(1);
+        let cropped_height = (capture_height - titlebar_height_px as i32).max(1);
 
         let output_path_for_snapshot = output_path.clone();
         let app_handle_for_snapshot = app.clone();
@@ -683,41 +683,51 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                     let _ = external_cleanup.eval(
                         "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
                     );
-                    match snapshot_result {
-                    Ok(surface) => {
-                        let pixbuf = match cairo::ImageSurface::try_from(surface) {
-                            Ok(img) => {
-                                let w = img.width();
-                                let h = img.height();
-                                let src_y = titlebar_height_px.min(h);
-                                let crop_h = (h - src_y).max(1);
-                                gdk::pixbuf_get_from_surface(&img, 0, src_y, w, crop_h)
-                            }
-                            Err(surf) => {
-                                gdk::pixbuf_get_from_surface(
-                                    &surf,
-                                    0,
-                                    titlebar_height_px,
-                                    capture_width,
-                                    cropped_height,
-                                )
-                            }
-                        };
+                    let surface = match snapshot_result {
+                        Ok(surface) => surface,
+                        Err(error) => {
+                            tracing::warn!("failed to snapshot external webview: {}", error);
+                            crate::notify::show(
+                                &app_handle_for_snapshot,
+                                "External window",
+                                "Failed to snapshot external webview.",
+                            );
+                            return;
+                        }
+                    };
 
-                        let Some(pixbuf) = pixbuf else {
-                            tracing::warn!(
-                                "failed to convert webview snapshot into pixbuf for {}",
-                                output_path_for_snapshot.display(),
+                    let save_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                        let target = cairo::ImageSurface::create(
+                            cairo::Format::ARgb32,
+                            capture_width,
+                            cropped_height,
+                        )?;
+                        let cr = cairo::Context::new(&target)?;
+                        cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
+                        cr.paint()?;
+                        target.flush();
+
+                        let mut file = fs::File::create(&output_path_for_snapshot)?;
+                        target.write_to_png(&mut file)?;
+                        Ok(())
+                    })();
+
+                    match save_result {
+                        Ok(()) => {
+                            tracing::info!(
+                                "saved external screenshot: {}",
+                                output_path_for_snapshot.display()
                             );
                             crate::notify::show(
                                 &app_handle_for_snapshot,
                                 "External window",
-                                "Failed to capture screenshot.",
+                                &format!(
+                                    "Screenshot saved to:\n{}",
+                                    output_path_for_snapshot.display()
+                                ),
                             );
-                            return;
-                        };
-
-                        if let Err(error) = pixbuf.savev(&output_path_for_snapshot, "png", &[]) {
+                        }
+                        Err(error) => {
                             tracing::warn!(
                                 "failed to save screenshot {}: {}",
                                 output_path_for_snapshot.display(),
@@ -728,31 +738,9 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                                 "External window",
                                 "Failed to save screenshot.",
                             );
-                            return;
                         }
-
-                        tracing::info!(
-                            "saved external screenshot: {}",
-                            output_path_for_snapshot.display()
-                        );
-                        crate::notify::show(
-                            &app_handle_for_snapshot,
-                            "External window",
-                            &format!(
-                                "Screenshot saved to:\n{}",
-                                output_path_for_snapshot.display()
-                            ),
-                        );
                     }
-                    Err(error) => {
-                        tracing::warn!("failed to snapshot external webview: {}", error);
-                        crate::notify::show(
-                            &app_handle_for_snapshot,
-                            "External window",
-                            "Failed to snapshot external webview.",
-                        );
-                    }
-                }},
+                },
             );
         });
 
