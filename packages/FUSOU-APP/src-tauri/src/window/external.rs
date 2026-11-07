@@ -617,6 +617,10 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
     );
     let output_path = output_dir.join(filename);
 
+    let _ = external.eval(
+        "if (typeof window.__fusouPrepareScreenshot === 'function') { window.__fusouPrepareScreenshot(); } else { document.documentElement.classList.add('fusou-screenshot-mode'); }"
+    );
+
     #[cfg(target_os = "linux")]
     {
         const TITLEBAR_HEIGHT: f64 = 32.0;
@@ -633,13 +637,18 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
         let output_path_for_snapshot = output_path.clone();
         let app_handle_for_snapshot = app.clone();
+        let external_cleanup = external.clone();
         let schedule_result = external.with_webview(move |webview| {
             let webview = webview.inner();
             webview.snapshot(
                 SnapshotRegion::Visible,
                 SnapshotOptions::NONE,
                 None::<&gio::Cancellable>,
-                move |snapshot_result| match snapshot_result {
+                move |snapshot_result| {
+                    let _ = external_cleanup.eval(
+                        "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
+                    );
+                    match snapshot_result {
                     Ok(surface) => {
                         let Some(pixbuf) = gdk::pixbuf_get_from_surface(
                             &surface,
@@ -695,7 +704,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                             "Failed to snapshot external webview.",
                         );
                     }
-                },
+                }},
             );
         });
 
@@ -719,6 +728,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
         let output_path_for_callback = output_path.clone();
         let app_handle_for_callback = app.clone();
+        let external_cleanup = external.clone();
         let schedule_result = external.with_webview(move |platform_webview| {
             let controller = platform_webview.controller();
             let webview = unsafe {
@@ -736,6 +746,9 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
             let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
                 move |status, result_json: String| {
+                    let _ = external_cleanup.eval(
+                        "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
+                    );
                     if let Err(error) = status {
                         tracing::warn!(
                             "windows screenshot devtools call failed with status: {}",

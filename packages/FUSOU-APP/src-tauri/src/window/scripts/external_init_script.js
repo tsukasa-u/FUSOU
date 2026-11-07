@@ -349,14 +349,16 @@ const ensureTitlebarStyles = () => {
     }
 
     /* Clip entire window surface strictly to 10px rounded rectangle (eliminates square corner bleed) */
-    html:not(.is-maximized) {
+    html:not(.is-maximized):not(.fusou-screenshot-mode) {
       clip-path: inset(0 round 10px) !important;
     }
-    html:not(.is-maximized) body {
+    html:not(.is-maximized):not(.fusou-screenshot-mode) body {
       clip-path: inset(0 round 10px) !important;
     }
     html.is-maximized,
-    html.is-maximized body {
+    html.is-maximized body,
+    html.fusou-screenshot-mode,
+    html.fusou-screenshot-mode body {
       clip-path: none !important;
     }
 
@@ -390,9 +392,11 @@ const ensureTitlebarStyles = () => {
     html.fusou-game-mode #fusou-window-frame {
       border: 1px solid rgba(255, 255, 255, 0.15) !important;
     }
-    html.is-maximized #fusou-window-frame {
+    html.is-maximized #fusou-window-frame,
+    html.fusou-screenshot-mode #fusou-window-frame {
       border-radius: 0px !important;
       border: none !important;
+      display: none !important;
     }
 
     /* Non-game default canvas background (white with bottom 10px rounded corners) */
@@ -409,14 +413,14 @@ const ensureTitlebarStyles = () => {
       box-sizing: border-box !important;
       z-index: -1000 !important;
     }
-    html:not(.is-maximized) #fusou-canvas-bg {
+    html:not(.is-maximized):not(.fusou-screenshot-mode) #fusou-canvas-bg {
       border-top-left-radius: 0px !important;
       border-top-right-radius: 0px !important;
       border-bottom-left-radius: 10px !important;
       border-bottom-right-radius: 10px !important;
-      clip-path: inset(0 round 0px 0px 10px 10px) !important;
     }
-    html.is-maximized #fusou-canvas-bg {
+    html.is-maximized #fusou-canvas-bg,
+    html.fusou-screenshot-mode #fusou-canvas-bg {
       border-radius: 0px !important;
       clip-path: none !important;
     }
@@ -429,14 +433,14 @@ const ensureTitlebarStyles = () => {
       padding-top: ${TITLEBAR_HEIGHT}px !important;
       overflow: auto !important;
     }
-    html:not(.is-maximized) body:not(.fusou-game-mode) {
+    html:not(.is-maximized):not(.fusou-screenshot-mode) body:not(.fusou-game-mode) {
       border-top-left-radius: 0px !important;
       border-top-right-radius: 0px !important;
       border-bottom-left-radius: 10px !important;
       border-bottom-right-radius: 10px !important;
-      clip-path: inset(0 round 0px 0px 10px 10px) !important;
     }
-    html.is-maximized body:not(.fusou-game-mode) {
+    html.is-maximized body:not(.fusou-game-mode),
+    html.fusou-screenshot-mode body:not(.fusou-game-mode) {
       border-radius: 0px !important;
       clip-path: none !important;
     }
@@ -459,23 +463,10 @@ const ensureTitlebarStyles = () => {
       z-index: 1000 !important;
       box-sizing: border-box !important;
       border: none !important;
-      isolation: isolate !important;
-      contain: paint !important;
-    }
-
-    html:not(.is-maximized) #area-game,
-    html:not(.is-maximized) .fusou-game-container {
-      border-top-left-radius: 0px !important;
-      border-top-right-radius: 0px !important;
-      border-bottom-left-radius: 10px !important;
-      border-bottom-right-radius: 10px !important;
-      clip-path: inset(0 round 0px 0px 10px 10px) !important;
-    }
-
-    html.is-maximized #area-game,
-    html.is-maximized .fusou-game-container {
       border-radius: 0px !important;
       clip-path: none !important;
+      isolation: isolate !important;
+      contain: paint !important;
     }
 
     /* Game frame placed inside game container */
@@ -493,17 +484,6 @@ const ensureTitlebarStyles = () => {
       transform-origin: 0 0 !important;
       background-color: #0e0e11 !important;
       background: #0e0e11 !important;
-    }
-    html:not(.is-maximized) #area-game #game_frame,
-    html:not(.is-maximized) .fusou-game-container #game_frame {
-      border-top-left-radius: 0px !important;
-      border-top-right-radius: 0px !important;
-      border-bottom-left-radius: 10px !important;
-      border-bottom-right-radius: 10px !important;
-      clip-path: inset(0 round 0px 0px 10px 10px) !important;
-    }
-    html.is-maximized #area-game #game_frame,
-    html.is-maximized .fusou-game-container #game_frame {
       border-radius: 0px !important;
       clip-path: none !important;
     }
@@ -1245,6 +1225,17 @@ const forceRenderRefresh = () => {
 
 window.__fusouForceRenderRefresh = forceRenderRefresh;
 
+window.__fusouPrepareScreenshot = () => {
+  document.documentElement.classList.add("fusou-screenshot-mode");
+  setTimeout(() => {
+    document.documentElement.classList.remove("fusou-screenshot-mode");
+  }, 1000);
+};
+
+window.__fusouFinishScreenshot = () => {
+  document.documentElement.classList.remove("fusou-screenshot-mode");
+};
+
 const stopKeyEvent = (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -1295,7 +1286,12 @@ const shortcutActions = [
         !event.altKey
       );
     },
-    run: () => requestNativeShortcut("screenshot"),
+    run: () => {
+      if (typeof window.__fusouPrepareScreenshot === "function") {
+        window.__fusouPrepareScreenshot();
+      }
+      requestNativeShortcut("screenshot");
+    },
   },
 ];
 
