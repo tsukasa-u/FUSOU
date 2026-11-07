@@ -270,13 +270,13 @@ const CLOSE_SVG = `
 </svg>
 `;
 
-const ensureTitlebarStyles = () => {
-  if (!isTopWindow()) return;
-  if (document.getElementById("fusou-titlebar-styles")) return;
+const ensureScrollbarSuppressionStyles = () => {
+  if (document.getElementById("fusou-scrollbar-styles")) return;
+  const target = document.head || document.documentElement || document.body;
+  if (!target) return;
   const style = document.createElement("style");
-  style.id = "fusou-titlebar-styles";
+  style.id = "fusou-scrollbar-styles";
   style.textContent = `
-    /* Global scrollbar suppression across entire window */
     * {
       scrollbar-width: none !important;
       -ms-overflow-style: none !important;
@@ -284,12 +284,35 @@ const ensureTitlebarStyles = () => {
     *::-webkit-scrollbar,
     html::-webkit-scrollbar,
     body::-webkit-scrollbar,
-    #game_frame::-webkit-scrollbar {
+    iframe::-webkit-scrollbar,
+    ::-webkit-scrollbar,
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-thumb,
+    ::-webkit-scrollbar-corner,
+    ::-webkit-resizer {
       display: none !important;
       width: 0 !important;
       height: 0 !important;
+      background: transparent !important;
     }
+  `;
+  target.appendChild(style);
+};
 
+ensureScrollbarSuppressionStyles();
+
+const ensureTitlebarStyles = () => {
+  if (!isTopWindow()) {
+    ensureScrollbarSuppressionStyles();
+    return;
+  }
+  ensureScrollbarSuppressionStyles();
+  if (document.getElementById("fusou-titlebar-styles")) return;
+  const target = document.head || document.documentElement || document.body;
+  if (!target) return;
+  const style = document.createElement("style");
+  style.id = "fusou-titlebar-styles";
+  style.textContent = `
     /* Base window transparency & full 100vw x 100vh container */
     html {
       width: 100vw !important;
@@ -311,63 +334,176 @@ const ensureTitlebarStyles = () => {
       background: transparent !important;
     }
 
-    /* Outer container rounded corners (non-maximized) matching fusou-app #root */
-    html:not(.is-maximized) body {
-      border-radius: 10px !important;
-      overflow: hidden !important;
+    /* Clip entire window surface strictly to 10px rounded rectangle (eliminates square corner bleed) */
+    html:not(.is-maximized) {
+      clip-path: inset(0 round 10px) !important;
     }
+    html:not(.is-maximized) body {
+      clip-path: inset(0 round 10px) !important;
+    }
+    html.is-maximized,
     html.is-maximized body {
-      border-radius: 0px !important;
-      overflow: hidden !important;
+      clip-path: none !important;
     }
 
     /* Prevent DMM white container/background bleeding into transparent corners */
     #w,
     #main-ntg,
-    #area-game,
-    #ntg-recommend,
-    .dmm-ntgnavi,
-    #foot,
-    #header,
     #root {
       background: transparent !important;
       background-color: transparent !important;
       border: none !important;
+      box-shadow: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
     }
 
-    #game_frame {
-      background-color: #0e0e11 !important;
-      background: #0e0e11 !important;
+    /* Subtle window outline frame (10px rounded corners) */
+    #fusou-window-frame {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      pointer-events: none !important;
+      box-sizing: border-box !important;
+      z-index: 2147483647 !important;
+      border: 1px solid rgba(0, 0, 0, 0.18) !important;
+      border-radius: 10px !important;
+    }
+    html.fusou-game-mode #fusou-window-frame {
+      border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    }
+    html.is-maximized #fusou-window-frame {
+      border-radius: 0px !important;
+      border: none !important;
+    }
+
+    /* Non-game default canvas background (white with bottom 10px rounded corners) */
+    #fusou-canvas-bg {
+      position: fixed !important;
+      top: ${TITLEBAR_HEIGHT}px !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: calc(100vh - ${TITLEBAR_HEIGHT}px) !important;
+      background-color: #ffffff !important;
+      pointer-events: none !important;
+      box-sizing: border-box !important;
+      z-index: -1000 !important;
+    }
+    html:not(.is-maximized) #fusou-canvas-bg {
+      border-top-left-radius: 0px !important;
+      border-top-right-radius: 0px !important;
+      border-bottom-left-radius: 10px !important;
+      border-bottom-right-radius: 10px !important;
+      clip-path: inset(0 round 0px 0px 10px 10px) !important;
+    }
+    html.is-maximized #fusou-canvas-bg {
+      border-radius: 0px !important;
+      clip-path: none !important;
+    }
+    html.fusou-game-mode #fusou-canvas-bg {
+      display: none !important;
     }
 
     /* Non-game pages (login, terms, etc): natural layout with titlebar clearance */
     body:not(.fusou-game-mode) {
       padding-top: ${TITLEBAR_HEIGHT}px !important;
       overflow: auto !important;
-      background-color: #0e0e11 !important;
     }
-    /* Game mode only: frameless clipping */
-    html.fusou-game-mode {
-      background-color: transparent !important;
-      overflow: hidden !important;
-      margin: 0 !important;
-      padding: 0 !important;
-    }
-    body.fusou-game-mode {
-      background-color: #0e0e11 !important;
-      overflow: hidden !important;
-      margin: 0 !important;
-      padding: 0 !important;
-    }
-    html:not(.is-maximized) .fusou-game-mode #game_frame {
+    html:not(.is-maximized) body:not(.fusou-game-mode) {
       border-top-left-radius: 0px !important;
       border-top-right-radius: 0px !important;
       border-bottom-left-radius: 10px !important;
       border-bottom-right-radius: 10px !important;
+      clip-path: inset(0 round 0px 0px 10px 10px) !important;
     }
-    html.is-maximized .fusou-game-mode #game_frame {
+    html.is-maximized body:not(.fusou-game-mode) {
       border-radius: 0px !important;
+      clip-path: none !important;
     }
+
+    /* Game Content Container (equivalent to fusou-app .window-content-container) */
+    #area-game,
+    .fusou-game-container {
+      position: fixed !important;
+      top: ${TITLEBAR_HEIGHT}px !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: calc(100vh - ${TITLEBAR_HEIGHT}px) !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background-color: #0e0e11 !important;
+      background: #0e0e11 !important;
+      overflow: hidden !important;
+      z-index: 1000 !important;
+      box-sizing: border-box !important;
+      border: none !important;
+      isolation: isolate !important;
+      contain: paint !important;
+    }
+
+    html:not(.is-maximized) #area-game,
+    html:not(.is-maximized) .fusou-game-container {
+      border-top-left-radius: 0px !important;
+      border-top-right-radius: 0px !important;
+      border-bottom-left-radius: 10px !important;
+      border-bottom-right-radius: 10px !important;
+      clip-path: inset(0 round 0px 0px 10px 10px) !important;
+    }
+
+    html.is-maximized #area-game,
+    html.is-maximized .fusou-game-container {
+      border-radius: 0px !important;
+      clip-path: none !important;
+    }
+
+    /* Game frame placed inside game container */
+    #area-game #game_frame,
+    .fusou-game-container #game_frame {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+      outline: none !important;
+      width: ${GAME_FRAME_WIDTH}px !important;
+      height: ${GAME_FRAME_HEIGHT}px !important;
+      transform-origin: 0 0 !important;
+      background-color: #0e0e11 !important;
+      background: #0e0e11 !important;
+    }
+    html:not(.is-maximized) #area-game #game_frame,
+    html:not(.is-maximized) .fusou-game-container #game_frame {
+      border-top-left-radius: 0px !important;
+      border-top-right-radius: 0px !important;
+      border-bottom-left-radius: 10px !important;
+      border-bottom-right-radius: 10px !important;
+      clip-path: inset(0 round 0px 0px 10px 10px) !important;
+    }
+    html.is-maximized #area-game #game_frame,
+    html.is-maximized .fusou-game-container #game_frame {
+      border-radius: 0px !important;
+      clip-path: none !important;
+    }
+
+    /* Hide unnecessary DMM clutter in game mode so they never bleed white rectangles */
+    .fusou-game-mode #ntg-recommend,
+    .fusou-game-mode #foot,
+    .fusou-game-mode #header,
+    .fusou-game-mode .dmm-ntgnavi,
+    .fusou-game-mode aside,
+    .fusou-game-mode footer {
+      display: none !important;
+    }
+
     #fusou-titlebar {
       position: fixed !important;
       top: 0 !important;
@@ -387,6 +523,7 @@ const ensureTitlebarStyles = () => {
       font-size: 12px !important;
       user-select: none !important;
       -webkit-user-select: none !important;
+      border: none !important;
       border-bottom: none !important;
       box-sizing: border-box !important;
       cursor: default !important;
@@ -620,9 +757,28 @@ const updateVolumeUI = (vol, muted) => {
   }
 };
 
+const ensureWindowFrameElements = () => {
+  if (!isTopWindow()) return;
+  const parent = document.body || document.documentElement;
+  if (!parent) return;
+
+  if (!document.getElementById("fusou-window-frame")) {
+    const frame = document.createElement("div");
+    frame.id = "fusou-window-frame";
+    parent.appendChild(frame);
+  }
+
+  if (!document.getElementById("fusou-canvas-bg")) {
+    const bg = document.createElement("div");
+    bg.id = "fusou-canvas-bg";
+    parent.appendChild(bg);
+  }
+};
+
 const injectTitlebar = () => {
   if (!isTopWindow()) return;
   ensureTitlebarStyles();
+  ensureWindowFrameElements();
 
   if (document.getElementById("fusou-titlebar")) return;
   const parent = document.body || document.documentElement;
@@ -955,6 +1111,20 @@ const applyLayout = () => {
       document.body.classList.add("fusou-game-mode");
     }
 
+    // Assign fusou-game-container class to gameFrame parent (matches fusou-app layout)
+    const container =
+      gameFrame.parentElement &&
+      gameFrame.parentElement !== document.body &&
+      gameFrame.parentElement !== document.documentElement
+        ? gameFrame.parentElement
+        : gameFrame;
+    if (
+      container !== gameFrame &&
+      !container.classList.contains("fusou-game-container")
+    ) {
+      container.classList.add("fusou-game-container");
+    }
+
     // Hide extra DMM outer navigation bars in game mode
     const rootElement = document.getElementById("root");
     if (rootElement) {
@@ -973,16 +1143,17 @@ const applyLayout = () => {
       }
     }
 
-    if (gameFrame.style.position !== "fixed") {
-      gameFrame.style.position = "fixed";
+    if (gameFrame.style.position !== "absolute") {
+      gameFrame.style.position = "absolute";
       gameFrame.style.margin = "0";
       gameFrame.style.padding = "0";
       gameFrame.style.border = "none";
       gameFrame.style.outline = "none";
-      gameFrame.style.top = `${TITLEBAR_HEIGHT}px`;
+      gameFrame.style.top = "0";
       gameFrame.style.left = "0";
       gameFrame.style.transformOrigin = "0 0";
       gameFrame.style.width = `${GAME_FRAME_WIDTH}px`;
+      gameFrame.style.height = `${GAME_FRAME_HEIGHT}px`;
       gameFrame.setAttribute("scrolling", "no");
     }
 
@@ -1032,6 +1203,11 @@ window.addEventListener("resize", () => {
   if (isTopWindow()) {
     adjustGameFrameScale();
     updateMaximizeIcon();
+  }
+});
+window.addEventListener("scroll", () => {
+  if (isTopWindow() && (window.scrollX !== 0 || window.scrollY !== 0)) {
+    window.scrollTo(0, 0);
   }
 });
 window.addEventListener("urlChange", applyLayout);
@@ -1085,7 +1261,12 @@ const shortcutActions = [
     id: "force-refresh",
     match: (event) => {
       const key = event.key?.toLowerCase();
-      return key === "r" && (event.ctrlKey || event.metaKey);
+      return (
+        key === "r" &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      );
     },
     run: () => requestNativeShortcut("force-refresh"),
   },
@@ -1093,7 +1274,12 @@ const shortcutActions = [
     id: "screenshot",
     match: (event) => {
       const key = event.key?.toLowerCase();
-      return key === "s" && (event.ctrlKey || event.metaKey);
+      return (
+        key === "s" &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      );
     },
     run: () => requestNativeShortcut("screenshot"),
   },
