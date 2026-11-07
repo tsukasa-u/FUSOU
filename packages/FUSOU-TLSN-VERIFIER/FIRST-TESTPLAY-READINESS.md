@@ -976,6 +976,72 @@ identity still comes from Web PKI/TLSN Presentation verification and is matched
 against Inventory/Approval. URLs, ports, IPs, wildcards, certificate fingerprints
 and custom CA roots are not Production target identities.
 
+### Local Workers runtime disconnect check — current follow-up
+
+The real Gateway source is exercised through a local Miniflare HTTPS listener
+and an explicitly test-only Service Binding Worker. A separate minimal signal
+probe contains no Gateway, domain validation, or Signer. Local versions were
+Node `v22.21.1`, Miniflare `5.20261104.0-beta`, workerd `1.20261104.1`, and
+esbuild `0.28.2`; the candidate workflow pins Node `22.16.0`. The harness
+binds only to `127.0.0.1` on runtime-assigned ports. It checks the Production
+Gateway's `wrangler.toml` and passes its unchanged `2026-11-06` compatibility
+date and `enable_request_signal` flag to every local Worker. The reserved
+`.test` name is sent as Host/SNI without DNS.
+
+The HTTP client explicitly owns its `ClientRequest`, Agent, TLS socket, and
+underlying TCP socket. After test-Worker request-arrival observation, it
+separately calls `net.Socket.destroy()` or
+[`net.Socket.resetAndDestroy()`](https://nodejs.org/download/release/v22.16.0/docs/api/net.html#socketresetanddestroy).
+Node documents the latter as sending a TCP RST; no packet capture independently
+confirmed the wire packet. Ordinary `destroy()` produced no incoming
+`Request.signal` event within the 7.5-second probe window via either the
+Miniflare entry or direct Worker socket; its wire close type is unknown.
+Explicit reset produced an incoming signal via
+both paths.
+The test accepts either a consistent `signal` or `watchdog` result for ordinary
+`destroy()`; for `resetAndDestroy()`, an incoming signal and
+`outcome="signal"` are mandatory. The ordinary-destroy result above records
+that run only and is not a guarantee for other runtimes.
+The runner is limited to 120 seconds; interruption or timeout signals its
+isolated test process group, waits 5 seconds for runtime cleanup, then escalates
+to `SIGKILL`. The supervisor removes its temporary root only after child exit.
+Both signal paths were exercised (exit codes 130 and 143); the 120-second
+timeout escalation was not run separately.
+
+| Boundary | Result |
+|---|---|
+| Minimal probe: ordinary `destroy()` | **LOCAL_WORKERS_RUNTIME_VERIFIED** for the pinned local runtime only: no signal observed within 7.5 seconds through the Miniflare entry or direct socket. The wire close type is unknown. |
+| Minimal probe: `resetAndDestroy()` | **LOCAL_WORKERS_RUNTIME_VERIFIED**: incoming `Request.signal` abort observed through both the normal entry and direct Worker socket. |
+| Normal Gateway response | **LOCAL_WORKERS_RUNTIME_VERIFIED** for exact bytes only: actual Gateway response length and SHA-256 match the test Signer's whitespace/newline-containing bytes. No signature or APP acceptance is asserted. |
+| Gateway-owned deadline | **LOCAL_WORKERS_RUNTIME_VERIFIED** for the 7-second `504`: the Service Binding request received the deadline abort, the test Signer observed it, `waitUntil` cleanup settled, and a later exact-byte request succeeded in the same Gateway isolate. This does not claim full 16-slot recovery. |
+| Explicit reset during request-body read | **LOCAL_WORKERS_RUNTIME_VERIFIED**: incoming signal, body cancellation, reader release, and `waitUntil` settlement were observed; the Signer was not called. |
+| Explicit reset while Signer headers were pending | **LOCAL_WORKERS_RUNTIME_VERIFIED**: incoming signal reached the Gateway's internal signal and Service Binding request, the Signer wait ended, and `waitUntil` settled. |
+| Explicit reset while Signer body was being read | **UNVERIFIED** for signal propagation. The body read rejected before an incoming signal was observed; reader cancellation then rejected, the reader lock was released, the isolate admission slot was retained, and the handler returned `502`. No Service Binding signal, Signer cancellation, or test-Signer pull settlement was observed. `waitUntil` was absent because the read-error operation completed as `502`, not because the test assumed cleanup had settled. |
+
+The prior expectation that every socket close would produce an incoming
+`Request.signal` was incorrect for the chosen ordinary `destroy()` operation;
+the minimal probe now distinguishes that from explicit TCP reset. The
+Signer-body observation is a separate order: read rejection, failed cancel,
+reader release, slot-retention log, then handler response. The Gateway's
+fail-closed slot behavior is confirmed; cleanup of the test Signer's pending
+pull is not. The test now allows signal-first or read-error-first outcomes,
+requires `waitUntil` only for the interrupted response path, and records the
+actual body/cancel/slot events. The exact lower-layer cause (workerd,
+Miniflare listener, or Service Binding stream cancellation) remains unknown;
+the result does not establish a Production defect or guarantee. No Gateway
+Production code or trust boundary was weakened.
+
+Reproduce with
+`pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run test:runtime`.
+The required candidate-workflow step invokes this command without skip or
+continue-on-error. The selected **11/11 Gateway handler regressions** are
+**NODE_UNIT_VERIFIED**; Node `AbortController` tests do not substitute for the
+real HTTP cases. No APP Cargo target was selected or run, and no APP Rust
+source was changed. Gateway source is **SOURCE_IMPLEMENTED**. Hosted CI is
+**NOT_CHECKED**; `HOSTED_CI_VERIFIED` and `PRODUCTION_VERIFIED` are not
+established. Production Signer/Journal registration, real service execution,
+Stage A/B/C, and Production acceptance remain **BLOCKED**.
+
 ## APP to services: source exists, execution not checked
 
 | Boundary | Current source and contract | Real condition still required |
