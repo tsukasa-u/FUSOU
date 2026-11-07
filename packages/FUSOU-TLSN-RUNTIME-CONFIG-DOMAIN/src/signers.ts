@@ -1,10 +1,10 @@
 import type {
   FreshnessRequest,
-  FreshnessResponseEnvelope,
   PendingReleaseAttemptBinding,
   ReleaseCommitRecordEnvelope,
   VerifiedDelegation,
   VerifiedJournalHeadBinding,
+  VerifiedReleaseCommitRecord,
 } from "./domain.ts";
 
 export interface ReleaseAuthorizationSignerRequest {
@@ -22,9 +22,54 @@ export interface ReleaseAuthorizationSignerResponse {
 
 export interface FreshnessResponseSignerRequest {
   readonly operation: "ISSUE_LATEST_AT_ISSUANCE";
+  readonly issue: FreshnessIssueOperationBinding;
   readonly challenge: FreshnessRequest;
-  readonly verifiedCurrentState: VerifiedCurrentFreshnessState;
-  readonly freshnessDelegation: VerifiedDelegation<"freshness-response-v1">;
+  readonly lease: FreshnessIssueLeaseBinding;
+  readonly currentState: FreshnessIssueCurrentStateBinding;
+}
+
+export interface FreshnessIssueOperationBinding {
+  readonly operationId: string;
+  readonly signerOperationId: string;
+  readonly requestSha256: string;
+  readonly requestNonce: string;
+  readonly environment: "production";
+  readonly audienceManifestUrlSha256: string;
+}
+
+export interface FreshnessAntiRollbackWitnessBinding {
+  readonly sourceId: string;
+  readonly restoreEpoch: string;
+  readonly generation: string;
+  readonly recordSha256: string;
+}
+
+export interface FreshnessIssueCurrentStateBinding {
+  readonly environment: "production";
+  readonly generation: string;
+  readonly journalHeadSha256: string;
+  readonly releaseCommitId: string;
+  readonly releaseCommitRecordSha256: string;
+  readonly journalAppendedAt: string;
+  readonly manifestEpoch: string;
+  readonly manifestSha256: string;
+  readonly manifestRef: string;
+  readonly pointerEtag: string;
+  readonly pointerGeneration: string;
+  readonly antiRollbackWitness: FreshnessAntiRollbackWitnessBinding;
+  readonly stateSha256: string;
+}
+
+export interface FreshnessIssueLeaseBinding {
+  readonly operation: FreshnessIssueOperationBinding;
+  readonly leaseId: string;
+  readonly fencingToken: string;
+  readonly acquiredAtMs: number;
+  readonly expiresAtMs: number;
+  readonly clockId: string;
+  readonly clockEpoch: string;
+  readonly clockUncertaintyMs: number;
+  readonly currentState: FreshnessIssueCurrentStateBinding;
 }
 
 export interface VerifiedCurrentFreshnessState {
@@ -33,6 +78,7 @@ export interface VerifiedCurrentFreshnessState {
   readonly environment: "production";
   readonly journalHead: VerifiedJournalHeadBinding;
   readonly releaseCommitRecord: ReleaseCommitRecordEnvelope;
+  readonly verifiedReleaseCommitRecord: VerifiedReleaseCommitRecord;
   readonly releaseCommitRecordSha256: string;
   readonly journalAppendedAt: string;
   readonly manifestBytes: Uint8Array;
@@ -41,13 +87,70 @@ export interface VerifiedCurrentFreshnessState {
   readonly pointerEtag: string;
   readonly pointerGeneration: string;
   readonly manifestEpoch: string;
+  readonly antiRollbackWitness: FreshnessAntiRollbackWitnessBinding;
 }
 
-export interface FreshnessResponseSignerResponse {
-  readonly response: FreshnessResponseEnvelope;
-  readonly challengeNonce: string;
-  readonly issuedAt: string;
-  readonly expiresAt: string;
+export interface FreshnessResponseSignerCallContext {
+  readonly signal?: AbortSignal;
+}
+
+export interface FreshnessResponseSignerCompleted {
+  readonly outcome: "COMPLETED";
+  readonly issueOperationId: string;
+  readonly signerOperationId: string;
+  readonly requestSha256: string;
+  readonly responseBytes: Uint8Array;
+  readonly responseSha256: string;
+  readonly signedAtMs: number;
+  readonly clockId: string;
+  readonly clockEpoch: string;
+  readonly clockUncertaintyMs: number;
+}
+
+export interface FreshnessResponseSignerUnknown {
+  readonly outcome: "UNKNOWN";
+  readonly issueOperationId: string;
+  readonly signerOperationId: string;
+  readonly requestSha256: string;
+}
+
+export type FreshnessResponseSignerResponse =
+  | FreshnessResponseSignerCompleted
+  | FreshnessResponseSignerUnknown;
+
+export interface FreshnessCurrentStateEvidence {
+  readonly journalHead: {
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+    readonly appendedAt: string;
+    readonly appendReceiptBytes: Uint8Array;
+  };
+  readonly coordinatorHead: {
+    readonly environment: string;
+    readonly generation: string;
+    readonly recordSha256: string;
+    readonly manifestEpoch: string;
+    readonly writerPending: boolean;
+    readonly restoreEpoch: string;
+  };
+  readonly pointer: {
+    readonly environment: string;
+    readonly etag: string;
+    readonly generation: string;
+    readonly bytes: Uint8Array;
+  };
+  readonly immutableSnapshot: {
+    readonly reference: string;
+    readonly bytes: Uint8Array;
+  };
+  readonly manifestBytes: Uint8Array;
+  readonly antiRollbackWitness: {
+    readonly sourceId: string;
+    readonly restoreEpoch: string;
+    readonly generation: string;
+    readonly recordSha256: string;
+    readonly signedBytes: Uint8Array;
+  };
 }
 
 export type RuntimeConfigSignerErrorCode =
@@ -80,6 +183,7 @@ export interface ProductionFreshnessResponseSigner {
   readonly purpose: "freshness-response-v1";
   issueLatestAtIssuance(
     request: FreshnessResponseSignerRequest,
+    context?: FreshnessResponseSignerCallContext,
   ): Promise<FreshnessResponseSignerResponse>;
 }
 
@@ -96,5 +200,6 @@ export interface TestOnlyFreshnessResponseSigner {
   readonly purpose: "freshness-response-v1";
   issueLatestAtIssuance(
     request: FreshnessResponseSignerRequest,
+    context?: FreshnessResponseSignerCallContext,
   ): Promise<FreshnessResponseSignerResponse>;
 }
