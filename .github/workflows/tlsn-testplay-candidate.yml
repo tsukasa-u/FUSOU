@@ -275,6 +275,12 @@ jobs:
           --features tlsn-production
           tlsn_runtime --lib
 
+      - name: Verify local Workers reset and Gateway disconnect boundaries
+        run: >-
+          pnpm --dir
+          packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY
+          run test:runtime
+
   proxy-capture-source-unit-tests:
     runs-on: ubuntu-24.04
     steps:
