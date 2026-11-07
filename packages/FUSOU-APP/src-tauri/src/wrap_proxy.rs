@@ -22,7 +22,7 @@ use proxy_https::{
         FilesystemOriginSendJournal, FilesystemPresentationArtifactSink,
         HandoffPresentationProvider, OriginTarget, OriginTlsConfig, OriginTransportConfig,
         ProductionTlsnDependencies, RuntimeIdentifiers, ServerIdentityPolicy,
-        WorkerHealthObservation,
+        WorkerHealthObservation, MAX_WORKER_HEALTH_RESPONSE_BYTES,
     },
     real_tlsn::{
         FilesystemResultDelivery, RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
@@ -257,6 +257,14 @@ fn build_production_tlsn_dependencies(
     worker_health_observation: WorkerHealthObservation,
     public_configuration_fingerprints: AppPublicConfigurationFingerprints,
 ) -> Result<ProductionTlsnDependencies, Box<dyn std::error::Error>> {
+    if !worker_health_observation
+        .exact_response_body()
+        .is_some_and(|body| !body.is_empty() && body.len() <= MAX_WORKER_HEALTH_RESPONSE_BYTES)
+    {
+        return Err(production_configuration_error(
+            "validated TLSN Worker health response bytes are unavailable or invalid",
+        ));
+    }
     let lifecycle_policy = crate::tlsn_preflight::explicit_exchange_policy()
         .map_err(production_configuration_error)?;
     let attestation_limit = crate::tlsn_preflight::explicit_notary_attestation_limit()

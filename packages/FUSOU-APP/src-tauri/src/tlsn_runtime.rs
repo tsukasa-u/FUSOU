@@ -5,7 +5,8 @@ use crate::tlsn_worker_identity::{
     health_http_client, validate_active_version_pin, validate_worker_endpoints, WorkerRole,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use proxy_https::production_tlsn::WorkerHealthObservation;
+use futures::StreamExt;
+use proxy_https::production_tlsn::{WorkerHealthObservation, MAX_WORKER_HEALTH_RESPONSE_BYTES};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -135,11 +136,46 @@ pub async fn fetch_and_validate_health_observation(
             response.status()
         ));
     }
-    let health = response
-        .json::<WorkerHealth>()
-        .await
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_WORKER_HEALTH_RESPONSE_BYTES as u64)
+    {
+        return Err("TLSN Worker health response exceeds the byte limit".to_owned());
+    }
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|error| format!("TLSN Worker health response body failed: {error}"))?;
+        append_bounded_health_chunk(&mut body, &chunk)?;
+    }
+    validate_worker_health_response(&body, expected)
+}
+
+fn append_bounded_health_chunk(body: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
+    let size = body
+        .len()
+        .checked_add(chunk.len())
+        .filter(|size| *size <= MAX_WORKER_HEALTH_RESPONSE_BYTES)
+        .ok_or_else(|| "TLSN Worker health response exceeds the byte limit".to_owned())?;
+    body.reserve(size - body.len());
+    body.extend_from_slice(chunk);
+    Ok(())
+}
+
+fn validate_worker_health_response(
+    body: &[u8],
+    expected: &ExpectedWorkerIdentity<'_>,
+) -> Result<WorkerHealthObservation, String> {
+    if body.is_empty() {
+        return Err("TLSN Worker health response is empty".to_owned());
+    }
+    if body.len() > MAX_WORKER_HEALTH_RESPONSE_BYTES {
+        return Err("TLSN Worker health response exceeds the byte limit".to_owned());
+    }
+    let health = serde_json::from_slice::<WorkerHealth>(body)
         .map_err(|error| format!("TLSN Worker health JSON is invalid: {error}"))?;
-    validate_worker_health(&health, expected)
+    Ok(validate_worker_health(&health, expected)?.with_exact_response_body(body.to_vec()))
 }
 
 fn validate_worker_health(
@@ -470,11 +506,11 @@ mod tests {
         assert!(validate_health_endpoint("https://worker.example/health").is_ok());
     }
 
-    fn health_for(expected: &ExpectedWorkerIdentity<'_>) -> WorkerHealth {
+    fn health_json_for(expected: &ExpectedWorkerIdentity<'_>) -> serde_json::Value {
         let role = WorkerRole::from_binding_mode(expected.binding_mode)
             .unwrap()
             .as_str();
-        serde_json::from_value(serde_json::json!({
+        serde_json::json!({
             "schema_version": 3, "ok": true, "environment": "production",
             "deployment_role": role, "binding_mode": expected.binding_mode,
             "git_commit_sha": expected.git_commit_sha, "deployment_id": expected.deployment_id,
@@ -490,7 +526,11 @@ mod tests {
                 "result_signer_key_id": expected.result_signer_key_id,
                 "result_key_registry_sha256": URL_SAFE_NO_PAD.encode(Sha256::digest(expected.result_key_registry.as_bytes())),
             },
-        })).unwrap()
+        })
+    }
+
+    fn health_for(expected: &ExpectedWorkerIdentity<'_>) -> WorkerHealth {
+        serde_json::from_value(health_json_for(expected)).unwrap()
     }
 
     #[test]
@@ -576,6 +616,7 @@ mod tests {
                 let error = validate_worker_health(&value, &pin).expect_err(name);
                 assert!(error.contains(boundary), "{mode} {name}: {error}");
             }
+
             let other = expected(if mode == "random" {
                 "fixed_canary"
             } else {
@@ -591,6 +632,58 @@ mod tests {
                 .unwrap_err()
                 .contains("role/binding"));
         }
+    }
+
+    #[test]
+    fn validated_health_response_retains_exact_whitespace_and_field_order() {
+        let pin = expected("fixed_canary");
+        let value = health_json_for(&pin);
+        let fields = value
+            .as_object()
+            .unwrap()
+            .iter()
+            .rev()
+            .map(|(key, value)| format!("{}: {value}", serde_json::to_string(key).unwrap()))
+            .collect::<Vec<_>>()
+            .join(",\n  ");
+        let body = format!(" {{\n  {fields}\n}} \n");
+
+        let snapshot = validate_worker_health_response(body.as_bytes(), &pin).unwrap();
+
+        assert_eq!(snapshot.exact_response_body(), Some(body.as_bytes()));
+        assert_ne!(
+            body.as_bytes(),
+            serde_json::to_vec(&value).unwrap().as_slice(),
+            "fixture must differ from a compact reserialization",
+        );
+    }
+
+    #[test]
+    fn malformed_oversized_and_identity_mismatched_health_responses_are_rejected() {
+        let pin = expected("fixed_canary");
+        assert!(validate_worker_health_response(b"{invalid", &pin)
+            .unwrap_err()
+            .contains("JSON is invalid"));
+
+        let oversized = vec![b' '; MAX_WORKER_HEALTH_RESPONSE_BYTES + 1];
+        assert!(validate_worker_health_response(&oversized, &pin)
+            .unwrap_err()
+            .contains("exceeds the byte limit"));
+        let mut bounded = Vec::new();
+        assert!(append_bounded_health_chunk(
+            &mut bounded,
+            &vec![b'x'; MAX_WORKER_HEALTH_RESPONSE_BYTES + 1]
+        )
+        .is_err());
+        assert!(bounded.is_empty());
+
+        let mut mismatched = health_json_for(&pin);
+        mismatched["deployment_identity"]["worker_name"] =
+            serde_json::Value::String("other-worker".to_owned());
+        let bytes = serde_json::to_vec(&mismatched).unwrap();
+        assert!(validate_worker_health_response(&bytes, &pin)
+            .unwrap_err()
+            .contains("deployment identity"));
     }
 
     #[test]

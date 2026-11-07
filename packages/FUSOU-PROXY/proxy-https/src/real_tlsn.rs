@@ -13,6 +13,7 @@ use crate::{
         Alpha15OriginTransportFactory, OriginTransportConfig, PresentationHandoff,
         PresentationVerificationInput, ProductionResultSigner, ResultSignerError,
         ResultSignerFuture, SignedTlsnResult, TlsnPresentation, TlsnVerificationBackend,
+        MAX_WORKER_HEALTH_RESPONSE_BYTES,
     },
 };
 use authenticity_core::is_valid_key_id;
@@ -1031,11 +1032,17 @@ async fn write_production_capture_bundle(
         existing_names.push(entry.file_name());
     }
     existing_names.sort();
-    let expected_names = [
+    let expected_names_without_health = [
         std::ffi::OsString::from("metadata.json"),
         std::ffi::OsString::from("presentation.bin"),
     ];
-    if existing_names != expected_names {
+    let expected_names_with_health = [
+        std::ffi::OsString::from("metadata.json"),
+        std::ffi::OsString::from("presentation.bin"),
+        std::ffi::OsString::from("worker-health.json"),
+    ];
+    let has_health = existing_names == expected_names_with_health;
+    if existing_names != expected_names_without_health && !has_health {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
             "candidate Presentation directory is not empty",
@@ -1044,6 +1051,20 @@ async fn write_production_capture_bundle(
     validate_private_candidate_file(&directory.join("presentation.bin")).await?;
     validate_private_candidate_file(&directory.join("metadata.json")).await?;
     let write_result = async {
+    let health_bytes = if has_health {
+        let path = directory.join("worker-health.json");
+        validate_private_candidate_file(&path).await?;
+        let bytes = tokio::fs::read(path).await?;
+        if bytes.is_empty() || bytes.len() > MAX_WORKER_HEALTH_RESPONSE_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "candidate Worker health response is empty or oversized",
+            ));
+        }
+        Some(bytes)
+    } else {
+        None
+    };
     let session_json = serde_json::json!({
         "session_id": session.session_id(),
         "canonical_user_id": session.session_receipt.canonical_user_id,
@@ -1196,6 +1217,15 @@ async fn write_production_capture_bundle(
             }),
         );
     }
+    if let Some(bytes) = &health_bytes {
+        manifest_artifacts.insert(
+            "worker-health.json".to_owned(),
+            serde_json::json!({
+                "size_bytes": bytes.len(),
+                "sha256": URL_SAFE_NO_PAD.encode(sha256(bytes)),
+            }),
+        );
+    }
     let manifest = serde_json::json!({
         "schema_version": 2,
         "scope": "fusou-tlsn-human-test-play-candidate",
@@ -1221,11 +1251,11 @@ async fn write_production_capture_bundle(
         &serde_json::to_vec_pretty(&manifest)?,
     )
     .await?;
-    Ok::<(), std::io::Error>(())
+    Ok::<Option<Vec<u8>>, std::io::Error>(health_bytes)
     }
     .await;
     match write_result {
-        Ok(()) => Ok(()),
+        Ok(_) => Ok(()),
         Err(error) => match tokio::fs::remove_dir_all(&directory).await {
             Ok(()) => Err(error),
             Err(cleanup) => Err(std::io::Error::other(format!(
@@ -2281,7 +2311,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn candidate_bundle_preserves_exact_response_and_receipt_without_overwrite() {
+    async fn candidate_bundle_preserves_exact_response_receipt_and_health_without_overwrite() {
         let artifact_root = std::env::temp_dir().join(format!(
             "fusou-tlsn-candidate-bundle-{}-{}",
             std::process::id(),
@@ -2303,6 +2333,10 @@ mod tests {
         write_private_candidate_file(&directory.join("presentation.bin"), presentation_bytes)
             .await
             .expect("write presentation fixture");
+        let health_raw = b"{ \"schema_version\": 3, \"ok\": true }\n";
+        write_private_candidate_file(&directory.join("worker-health.json"), health_raw)
+            .await
+            .expect("write exact Worker health response fixture");
 
         let presentation =
             TlsnPresentation::new(presentation_identifier, presentation_bytes.to_vec())
@@ -2378,6 +2412,9 @@ mod tests {
             )
             .await
             .expect("restore metadata fixture");
+            write_private_candidate_file(&directory.join("worker-health.json"), health_raw)
+                .await
+                .expect("restore Worker health fixture");
         }
         let args = (
             &artifact_root,
@@ -2492,6 +2529,12 @@ mod tests {
             .expect("read exact response bytes");
         assert_eq!(stored_response, exact_response);
         assert_eq!(
+            tokio::fs::read(directory.join("worker-health.json"))
+                .await
+                .expect("read exact Worker health response"),
+            health_raw,
+        );
+        assert_eq!(
             tokio::fs::read(directory.join("verifier-execution-receipt-header.txt"))
                 .await
                 .expect("read raw receipt header"),
@@ -2516,6 +2559,14 @@ mod tests {
         assert_eq!(manifest["approval_status"], "UNAPPROVED");
         assert_eq!(manifest["readiness_effect"], "NONE");
         assert_eq!(manifest["schema_version"], 2);
+        assert_eq!(
+            manifest["artifacts"]["worker-health.json"]["size_bytes"],
+            health_raw.len(),
+        );
+        assert_eq!(
+            manifest["artifacts"]["worker-health.json"]["sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(health_raw)),
+        );
         let identity_bytes = tokio::fs::read(directory.join("candidate-identity.json"))
             .await
             .expect("read candidate identity artifact");

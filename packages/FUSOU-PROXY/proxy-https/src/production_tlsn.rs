@@ -23,6 +23,8 @@ use std::{
     },
 };
 
+pub const MAX_WORKER_HEALTH_RESPONSE_BYTES: usize = 1_048_576;
+
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
@@ -404,6 +406,7 @@ pub struct WorkerHealthObservation {
     git_commit_sha: String,
     binding_mode: String,
     runtime_version_id: String,
+    exact_response_body: Option<Arc<[u8]>>,
 }
 
 impl WorkerHealthObservation {
@@ -420,7 +423,13 @@ impl WorkerHealthObservation {
             git_commit_sha,
             binding_mode,
             runtime_version_id,
+            exact_response_body: None,
         }
+    }
+
+    pub fn with_exact_response_body(mut self, body: Vec<u8>) -> Self {
+        self.exact_response_body = Some(Arc::from(body));
+        self
     }
 
     pub fn deployment_id(&self) -> &str {
@@ -441,6 +450,10 @@ impl WorkerHealthObservation {
 
     pub fn runtime_version_id(&self) -> &str {
         &self.runtime_version_id
+    }
+
+    pub fn exact_response_body(&self) -> Option<&[u8]> {
+        self.exact_response_body.as_deref()
     }
 }
 
@@ -970,6 +983,16 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
             if !enabled {
                 return Ok(());
             }
+            let worker_health_body = context
+                .identifiers()
+                .worker_health_observation()
+                .and_then(WorkerHealthObservation::exact_response_body)
+                .map(<[u8]>::to_vec);
+            if worker_health_body.as_ref().is_some_and(|body| {
+                body.is_empty() || body.len() > MAX_WORKER_HEALTH_RESPONSE_BYTES
+            }) {
+                return Err(PresentationExportError::Failed);
+            }
             ensure_private_candidate_root(&root)
                 .await
                 .map_err(|_| PresentationExportError::Failed)?;
@@ -1068,7 +1091,7 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                 },
             });
 
-            let export_result = async {
+            let export_result: Result<(), io::Error> = async {
                 write_private_candidate_file(
                     &directory.join("presentation.bin"),
                     presentation.bytes(),
@@ -1078,7 +1101,12 @@ impl PresentationArtifactSink for FilesystemPresentationArtifactSink {
                     &directory.join("metadata.json"),
                     &canonical_json_bytes(&metadata),
                 )
-                .await
+                .await?;
+                if let Some(body) = worker_health_body.as_deref() {
+                    write_private_candidate_file(&directory.join("worker-health.json"), body)
+                        .await?;
+                }
+                Ok(())
             }
             .await;
             if export_result.is_err() {
@@ -2037,11 +2065,36 @@ mod tests {
         ) -> TlsnTransportFuture {
             self.calls.fetch_add(1, Ordering::SeqCst);
             *self.request.lock().unwrap() = Some(request.bytes().to_vec());
-            Box::pin(async {
+            let mut captured_exchange = exchange();
+            captured_exchange.transcript.request_sha256 = sha256(request.bytes());
+            Box::pin(async move {
                 Ok(TlsnOriginCapture {
-                    exchange: exchange(),
+                    exchange: captured_exchange,
                     proof: ProofContinuation::completed(),
                 })
+            })
+        }
+    }
+
+    struct SignalingPresentationArtifactSink {
+        inner: FilesystemPresentationArtifactSink,
+        completed: tokio::sync::mpsc::UnboundedSender<bool>,
+    }
+
+    impl PresentationArtifactSink for SignalingPresentationArtifactSink {
+        fn export(
+            &self,
+            context: PresentationRequestContext,
+            presentation: TlsnPresentation,
+        ) -> PresentationExportFuture {
+            let export = self.inner.export(context, presentation);
+            let completed = self.completed.clone();
+            Box::pin(async move {
+                let result = export.await;
+                completed
+                    .send(result.is_err())
+                    .expect("health artifact export test receiver remains active");
+                result
             })
         }
     }
@@ -2315,6 +2368,82 @@ mod tests {
         assert!(forwarder.forward(42, request).await.unwrap().is_none());
     }
 
+    #[tokio::test]
+    async fn health_artifact_export_failure_does_not_resend_origin_request() {
+        let factory = Arc::new(RecordingFactory {
+            calls: AtomicUsize::new(0),
+            request: Mutex::new(None),
+        });
+        let artifact_root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-health-export-failure-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel();
+        let health = WorkerHealthObservation::new(
+            "deployment-1".to_owned(),
+            "worker-1".to_owned(),
+            "0123456789abcdef0123456789abcdef01234567".to_owned(),
+            "fixed_canary".to_owned(),
+            "version-1".to_owned(),
+        )
+        .with_exact_response_body(vec![b' '; MAX_WORKER_HEALTH_RESPONSE_BYTES + 1]);
+        let forwarder = ProductionTlsnDependencies::new(
+            origin_config(true),
+            Arc::new(Binding),
+            Arc::clone(&factory) as Arc<dyn Alpha15OriginTransportFactory>,
+            Arc::new(RecordingPresentationProvider {
+                calls: AtomicUsize::new(0),
+                context: Mutex::new(None),
+            }),
+            Arc::new(RecordingDedicatedVerifier {
+                calls: AtomicUsize::new(0),
+                presentation: Mutex::new(None),
+            }),
+            Arc::new(UnconfiguredProductionResultSigner),
+            Arc::new(UnconfiguredProductionResultDelivery),
+        )
+        .with_identifiers(RuntimeIdentifiers::default().with_worker_health_observation(health))
+        .with_presentation_artifact_sink(Arc::new(SignalingPresentationArtifactSink {
+            inner: FilesystemPresentationArtifactSink::new(&artifact_root),
+            completed: completed_tx,
+        }))
+        .with_origin_send_journal(Arc::new(TestOriginSendJournal))
+        .build_forwarder()
+        .unwrap();
+        let client_request = hudsucker::hyper::Request::builder()
+            .method("POST")
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+            .header("Host", "game.example.test")
+            .body(Bytes::new())
+            .unwrap();
+
+        forwarder.start_preparation();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !forwarder.capture_ready() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("binding preparation did not complete");
+        let response = forwarder
+            .forward(42, client_request)
+            .await
+            .expect("origin response should be returned despite evidence export failure")
+            .expect("capture request should receive the origin response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), &Bytes::from_static(b"ok"));
+        let export_failed =
+            tokio::time::timeout(std::time::Duration::from_secs(1), completed_rx.recv())
+                .await
+                .expect("health artifact export did not finish")
+                .expect("health artifact export completion must be reported");
+
+        assert!(export_failed);
+        assert_eq!(factory.calls.load(Ordering::SeqCst), 1);
+        assert!(!artifact_root.exists());
+    }
+
     #[test]
     fn production_dependencies_require_an_artifact_sink() {
         let result = ProductionTlsnDependencies::new(
@@ -2578,17 +2707,21 @@ mod tests {
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
+        let health_raw = b"{ \"schema_version\": 3, \"ok\": true }\n".to_vec();
         let request = request();
         let exchange = exchange();
         let binding = AttestationBinding::new("binding-value".to_owned()).unwrap();
         let identifiers = RuntimeIdentifiers::default()
-            .with_worker_health_observation(WorkerHealthObservation::new(
-                "deployment-1".to_owned(),
-                "worker-1".to_owned(),
-                "0123456789abcdef0123456789abcdef01234567".to_owned(),
-                "fixed_canary".to_owned(),
-                "version-1".to_owned(),
-            ))
+            .with_worker_health_observation(
+                WorkerHealthObservation::new(
+                    "deployment-1".to_owned(),
+                    "worker-1".to_owned(),
+                    "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                    "fixed_canary".to_owned(),
+                    "version-1".to_owned(),
+                )
+                .with_exact_response_body(health_raw.clone()),
+            )
             .with_app_public_configuration_fingerprints(AppPublicConfigurationFingerprints {
                 schema_version: 2,
                 scope: "fusou-tlsn-app-public-configuration".to_owned(),
@@ -2625,6 +2758,13 @@ mod tests {
         assert_eq!(health["source"], "unsigned-https-health-response");
         assert_eq!(health["signature_valid"], false);
         assert_eq!(health["authority_status"], "UNVERIFIED");
+        assert_eq!(
+            tokio::fs::read(root.join("candidate-metadata").join("worker-health.json"))
+                .await
+                .unwrap(),
+            health_raw,
+            "candidate must store the exact health response bytes",
+        );
 
         let fingerprints = &proxy["app_public_configuration_fingerprints"];
         assert_eq!(fingerprints["schema_version"], 2);
@@ -2634,6 +2774,62 @@ mod tests {
         assert_eq!(fingerprints["combined_sha256"], "combined-fingerprint");
         assert_eq!(fingerprints["candidate_binding_status"], "UNBOUND");
 
+        tokio::fs::remove_dir_all(&root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn health_snapshots_remain_owned_by_their_capture_after_refresh() {
+        let root = std::env::temp_dir().join(format!(
+            "fusou-tlsn-health-snapshot-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let sink = FilesystemPresentationArtifactSink::new(&root);
+        let health_a = b"{\"deployment_id\":\"snapshot-a\"}\n".to_vec();
+        let health_b = b"{ \"deployment_id\" : \"snapshot-b\" }\n".to_vec();
+
+        for (capture_id, connection_id, health) in [
+            ("capture-health-a", 10, health_a.as_slice()),
+            ("capture-health-b", 11, health_b.as_slice()),
+        ] {
+            let identifiers = RuntimeIdentifiers::default().with_worker_health_observation(
+                WorkerHealthObservation::new(
+                    format!("deployment-{capture_id}"),
+                    "worker-1".to_owned(),
+                    "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                    "fixed_canary".to_owned(),
+                    "version-1".to_owned(),
+                )
+                .with_exact_response_body(health.to_vec()),
+            );
+            let binding = AttestationBinding::new(format!("binding-{capture_id}")).unwrap();
+            let request = request();
+            let exchange = exchange();
+            let context = PresentationRequestContext::from_exchange(
+                identifiers,
+                connection_id,
+                &binding,
+                &request,
+                &exchange,
+                origin_config(true).target(),
+            );
+            let presentation =
+                TlsnPresentation::new(capture_id.to_owned(), vec![connection_id as u8]).unwrap();
+            sink.export(context, presentation).await.unwrap();
+        }
+
+        assert_eq!(
+            tokio::fs::read(root.join("capture-health-a").join("worker-health.json"))
+                .await
+                .unwrap(),
+            health_a,
+        );
+        assert_eq!(
+            tokio::fs::read(root.join("capture-health-b").join("worker-health.json"))
+                .await
+                .unwrap(),
+            health_b,
+        );
         tokio::fs::remove_dir_all(&root).await.unwrap();
     }
 
