@@ -80,6 +80,7 @@ custom-protocol = [ "tauri/custom-protocol" ]
 default = ["kc-api-epoch-20250627"]
 grpc-channel = ["proxy-https/grpc"]
 tlsn-production = ["proxy-https/alpha15-tlsn", "dep:bincode", "dep:k256", "dep:tlsn-attestation"]
+freshness-gateway-integration-test = []
 kc-api-epoch-genesis = [
 	"kc_api/genesis",
 	"proxy-https/kc-api-epoch-genesis",

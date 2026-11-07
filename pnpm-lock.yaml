@@ -188,6 +188,12 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/FUSOU-TLSN-VERIFICATION-WORKER:
     dependencies:
       hono:

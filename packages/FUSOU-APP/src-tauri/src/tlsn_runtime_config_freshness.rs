@@ -1351,6 +1351,80 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "freshness-gateway-integration-test")]
+    #[test]
+    fn gateway_route_output_is_accepted_by_app_verifier() {
+        let fixture_path = std::env::var("FUSOU_RUNTIME_CONFIG_FRESHNESS_ROUTE_FIXTURE")
+            .expect("Gateway integration test fixture path is required");
+        let fixture: Value = serde_json::from_slice(&fs::read(fixture_path).unwrap()).unwrap();
+        assert_eq!(fixture["test_only"].as_bool(), Some(true));
+
+        let manifest_url = fixture["manifest_url"].as_str().unwrap();
+        let trusted_signer: crate::tlsn_runtime_config_manifest::RuntimeConfigTrustedSigner =
+            serde_json::from_value(fixture["root_signer"].clone()).unwrap();
+        let bootstrap =
+            RuntimeConfigBootstrap::for_test(manifest_url, trusted_signer.clone()).unwrap();
+        let request_raw = golden_bytes(&fixture["request_raw_base64url"]);
+        let request: FreshnessRequest =
+            parse_canonical_json(&request_raw, "Gateway integration request").unwrap();
+        let response_raw = golden_bytes(&fixture["response_raw_base64url"]);
+        let app_now =
+            DateTime::<Utc>::from_timestamp_millis(fixture["now_ms"].as_i64().unwrap()).unwrap();
+        let verified_response =
+            verify_freshness_response(&response_raw, &bootstrap, &request, app_now, None).unwrap();
+        assert_eq!(
+            verified_response.payload.request_nonce,
+            request.request_nonce
+        );
+
+        let manifest_raw = golden_bytes(&fixture["manifest_raw_base64url"]);
+        let inputs = &fixture["inputs_base64url"];
+        let worker_reference = golden_bytes(&inputs["worker_reference_raw"]);
+        let origin_inventory = golden_bytes(&inputs["origin_inventory_raw"]);
+        let target_approval = golden_bytes(&inputs["target_approval_raw"]);
+        let security_registry_set = golden_bytes(&inputs["security_registry_set_raw"]);
+        let result_registry_envelope = golden_bytes(&inputs["result_registry_envelope_raw"]);
+        let independent_inputs =
+            crate::tlsn_runtime_config_manifest::RuntimeConfigIndependentVerificationInputs {
+                worker_reference_raw: Some(&worker_reference),
+                origin_inventory_raw: Some(&origin_inventory),
+                target_approval_raw: Some(&target_approval),
+                security_registry_set_raw: Some(&security_registry_set),
+                result_registry_envelope_raw: Some(&result_registry_envelope),
+            };
+        let policy = RuntimeConfigVerificationPolicy {
+            now: app_now,
+            last_accepted_epoch: "0".to_owned(),
+            last_accepted_manifest_sha256: None,
+            max_lifetime_seconds: MAX_MANIFEST_LIFETIME_SECONDS,
+            max_clock_skew_seconds: MAX_CLOCK_SKEW_SECONDS,
+            max_reference_age_seconds: MAX_WORKER_REFERENCE_AGE_SECONDS,
+            max_envelope_bytes: MAX_MANIFEST_ENVELOPE_BYTES,
+        };
+        let verified_manifest =
+            crate::tlsn_runtime_config_manifest::verify_runtime_config_manifest(
+                &manifest_raw,
+                &trusted_signer,
+                &policy,
+                Some(&independent_inputs),
+            )
+            .unwrap();
+        verify_freshness_manifest_metadata(
+            &verified_response,
+            verified_manifest.payload(),
+            verified_manifest.manifest_sha256(),
+        )
+        .unwrap();
+        assert_eq!(
+            verified_manifest.epoch(),
+            verified_response.payload.latest_epoch
+        );
+        assert_eq!(
+            verified_manifest.manifest_sha256(),
+            verified_response.payload.manifest_sha256
+        );
+    }
+
     #[test]
     fn rejects_shared_noncanonical_and_malformed_request_vectors() {
         let golden = golden_vectors();

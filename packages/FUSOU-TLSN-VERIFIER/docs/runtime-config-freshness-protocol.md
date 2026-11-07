@@ -1,6 +1,6 @@
 # Runtime Config Freshness Protocol — Phase 0 Specification
 
-- **Status:** Phase 0 design selected; local Phase 1 implementation is partial; Production implementation and approval pending
+- **Status:** Phase 0 design selected; local APP verification and a separate Freshness Gateway source route are implemented; Production signer/authority implementation, endpoint/binding registration and approval remain pending
 - **Updated:** 2026-11-01
 - **Repository HEAD at review start:** `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`
 - **Parent at review start:** `891ec66a729da4dc832cb70fbd6ff5cd3e620cae`
@@ -22,6 +22,112 @@ Worker-side test protocol are not Production services: no Production key,
 Release Journal, DO, R2 authority, endpoint, binding or registration was
 created. No deployment, live Freshness response, or real-game readiness is
 implied.
+
+## Current source state — Freshness Gateway connection (2026-11-06)
+
+- A separate `FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY` Worker source entry
+  now owns the Freshness request path. It validates the configured Manifest
+  URL and same-origin audience, enforces the shared request/response byte
+  limits, validates the challenge through the shared Runtime Config domain,
+  forwards only the canonical validated challenge through an optional private
+  signer Service Binding, rejects redirects/non-200 or malformed-size
+  responses, and returns the signer's exact response bytes without
+  reserialization.
+- The new Worker configuration deliberately has no public route or signer
+  Service Binding. Its production handler therefore fails closed with
+  `503` until those externally approved registrations exist. The existing
+  `FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts` remains unchanged and does not
+  host Freshness authority behavior.
+- A local integration test explicitly injects
+  `InMemoryRuntimeConfigFreshnessAuthorityForTest`; it does not select that
+  test implementation from the Gateway Worker. The actual Gateway handler's
+  output bytes are passed to the APP Rust verifier, which verifies the nonce,
+  signatures/delegations, Release Commit Record, Manifest signature and
+  independent artifacts. This is synthetic evidence, not a Production
+  Freshness response.
+- APP's 2-second connect timeout, 10-second request/acceptance deadline,
+  redirect prohibition, 65,536-byte response limit, Manifest checks and
+  artifact limits remain unchanged. The capture forwarder is still installed
+  only after APP refresh and preflight succeed.
+- **Still NOT_IMPLEMENTED / NOT_REGISTERED:** the separate Production
+  Freshness Signer Worker and adapters for the approved Freshness key,
+  Release Journal, dedicated DO state/issue lease, read-only Runtime Config
+  R2 access, public route/domain and private Service Binding. No external
+  authority or trust input was substituted with test material.
+- **Readiness:** local Gateway-to-APP verification is `VERIFIED` for the
+  synthetic fixture only. Production service response and real APP capture
+  remain `UNVERIFIED` / `BLOCKED`; Stage A/B/C and Production acceptance remain
+  `BLOCKED`. No Production resource was created or deployed.
+
+## Freshness Gateway request controls (2026-11-07)
+
+- The Gateway retains `compatibility_date = "2026-11-06"` and explicitly
+  enables `enable_request_signal`. Cloudflare's
+  [November 2, 2026 changelog](https://developers.cloudflare.com/changelog/post/2026-11-02-request-signal-default/)
+  says incoming disconnect events become the default only for compatibility
+  dates on or after November 17, 2026; no date-wide upgrade was made.
+- Each admitted request has one 7,000 ms monotonic Gateway deadline, started
+  before audience hashing and request-body reading and never reset between
+  phases. It covers the bounded request body, challenge validation, signer
+  Service Binding fetch, signer response body read, and creation of the exact
+  response. The Gateway mirrors client disconnect and deadline into one
+  internal `AbortSignal`, passes it to the signer, races stream reads against
+  it, and cancels request/response readers on interruption. Success, failure,
+  and response completion clear the deadline timer and remove the disconnect
+  listener.
+- The Gateway deadline is separate from APP's 10-second end-to-end
+  verification/persistence deadline and the signer's at-most-8-second issue
+  lease. It does not assert that APP persistence completes within 7 or 10
+  seconds and does not change the lease contract.
+- Admission is capped at 16 in-flight requests **per Worker isolate**. The
+  counter is acquired synchronously, has no queue, and returns `503` without
+  contacting the signer when full. A slot is released once only after the
+  operation settles and every body stream owned by it is either consumed to
+  EOF or successfully canceled; any acquired reader must also release its
+  lock. If a signer or stream does not honor cancellation, the response
+  deadline still returns `504` (client disconnect returns `499`), but its slot
+  remains occupied rather than being reused while work is pending. The handler
+  attaches pending cleanup to
+  [`ctx.waitUntil()`](https://developers.cloudflare.com/workers/runtime-apis/context/);
+  Cloudflare documents a 30-second limit after response/disconnect, which is
+  not a bound on total request time. If cleanup
+  cannot be confirmed before the runtime limit, this implementation does not
+  claim remote cancellation or release the slot. The per-isolate cap is not a
+  service-wide cap; no shared limiter or new coordination authority was
+  introduced. If a service-wide upper bound is required, that remains an
+  unimplemented external coordination contract.
+- Each acquired Signer response body has one owner from the moment `fetch()`
+  resolves, including a response that arrives after disconnect/deadline. The
+  owner cancels an unread body directly, or cancels through its reader after
+  reading has begun; it memoizes the cancellation so rejection and interruption
+  paths cannot double-cancel or call `ReadableStream.cancel()` on a locked
+  stream. A normal response is accepted only after the finite bounded body is
+  read to EOF. Header/status/redirect/Content-Length rejection cancels the body
+  before returning `502` when cancellation completes.
+- The HTTP deadline and cleanup completion are separate. A pending
+  `cancel()` does not delay a deadline/disconnect response: the operation
+  remains attached to `ctx.waitUntil()` and keeps its admission slot until
+  cancellation and reader release settle. If cancellation rejects, or an
+  acquired reader cannot release its lock, resource release is unconfirmed:
+  the operation fails closed and permanently retains that slot for the
+  lifetime of the isolate. No retry, background queue, or automatic slot
+  reclamation is used. A permanently retained slot can reduce the isolate's
+  available capacity up to the existing 16-request limit.
+- Local Node tests use explicit `AbortController` signals and synthetic
+  signer bindings. They cover incomplete request and response streams, a
+  non-settling signer fetch, late resolve/reject, late streaming responses,
+  Content-Length early rejection, delayed/rejected cleanup, admission
+  overflow, cleanup-gated slot retention/release, and the existing
+  Gateway-to-APP exact-byte verification.
+  Wrangler configuration/type generation and packaging are checked locally,
+  but incoming disconnect propagation in a local or deployed Workers runtime
+  has not been exercised. The explicit `enable_request_signal` configuration
+  is verified separately from Node's AbortController behavior.
+- The candidate workflow installs `libwebkit2gtk-4.1-dev`,
+  `libappindicator3-dev`, `librsvg2-dev`, and `patchelf` in the
+  `node-contract-tests` job because its Freshness Node integration test invokes
+  the APP Rust verifier. The integration assertion remains enabled; Hosted CI
+  has not been run.
 
 ## Phase 1 local implementation record
 

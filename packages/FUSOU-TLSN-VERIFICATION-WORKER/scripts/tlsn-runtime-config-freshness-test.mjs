@@ -2,9 +2,17 @@
 
 import assert from "node:assert/strict";
 import { createHash, randomBytes, sign } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { canonicalJson } from "./production-trust-contract.mjs";
+import freshnessGateway, {
+  FRESHNESS_GATEWAY_DEADLINE_MS,
+  FRESHNESS_GATEWAY_MAX_IN_FLIGHT,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/src/index.ts";
 import {
   TLSN_RUNTIME_CONFIG_FRESHNESS as C,
   createRuntimeConfigFreshnessRequest,
@@ -47,10 +55,97 @@ function hash(bytes) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((resolvePromise) => {
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return {
+    promise,
+    resolve,
+    reject: (error) => reject(error),
+  };
+}
+
+function makeGatewayTestContext() {
+  const pending = [];
+  return {
+    pending,
+    waitUntil(promise) {
+      pending.push(promise);
+    },
+  };
+}
+
+function fetchGateway(request, bindings, context = makeGatewayTestContext()) {
+  return freshnessGateway.fetch(request, bindings, context);
+}
+
+function validGatewaySignerResponse() {
+  return new Response("{}", {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function assertGatewayAdmissionCapacity(setup, availableSlots) {
+  const gates = Array.from({ length: availableSlots }, () => deferred());
+  const started = deferred();
+  const refused = deferred();
+  let signerCalls = 0;
+  const bindings = {
+    TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+    TLSN_FRESHNESS_SIGNER: {
+      fetch() {
+        const index = signerCalls++;
+        if (index < availableSlots) {
+          if (signerCalls === availableSlots) started.resolve();
+          return gates[index].promise;
+        }
+        return Promise.resolve(validGatewaySignerResponse());
+      },
+    },
+  };
+  const pending = Array.from(
+    { length: availableSlots },
+    () => fetchGateway(makeGatewayRequest(setup), bindings),
+  );
+  for (const request of pending) {
+    void request.then(
+      (response) => {
+        if (response.status === 503) refused.resolve();
+      },
+      () => refused.resolve(),
+    );
+  }
+
+  await Promise.race([started.promise, refused.promise]);
+  const overLimit = await fetchGateway(makeGatewayRequest(setup), bindings);
+  const callsAtLimit = signerCalls;
+  for (const gate of gates) gate.resolve(validGatewaySignerResponse());
+  const admitted = await Promise.all(pending);
+
+  assert.deepEqual(
+    admitted.map((response) => response.status),
+    Array(availableSlots).fill(200),
+  );
+  assert.equal(overLimit.status, 503);
+  assert.equal(callsAtLimit, availableSlots);
+}
+
+function makeGatewayRequest(setup, { body = setup.request.raw, signal } = {}) {
+  const init = {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "cache-control": "no-store",
+      "content-type": "application/json",
+    },
+    body,
+    ...(signal ? { signal } : {}),
+  };
+  if (body instanceof ReadableStream) init.duplex = "half";
+  return new Request(new URL(C.requestPath, MANIFEST_URL), init);
 }
 
 function signManifest(payload, signer) {
@@ -1075,5 +1170,844 @@ test("APP response expiry is checked against the signed expiry at verification t
       nowMs,
     }),
     /outside its permitted time window/,
+  );
+});
+
+test("Freshness Gateway routes a verified challenge and preserves the exact APP-verifiable response", async () => {
+  const setup = await committedHarness();
+  const forwardedResponses = [];
+  const signerBinding = {
+    async fetch(request) {
+      assert.equal(request.method, "POST");
+      assert.equal(
+        new URL(request.url).pathname,
+        C.requestPath,
+      );
+      const forwardedRequest = Buffer.from(await request.arrayBuffer());
+      assert.deepEqual(forwardedRequest, Buffer.from(setup.request.raw));
+      const response = await setup.authority.issueFreshness(forwardedRequest);
+      forwardedResponses.push(Buffer.from(response));
+      return new Response(response, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  };
+  const bindings = {
+    TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+    TLSN_FRESHNESS_SIGNER: signerBinding,
+  };
+  const freshnessUrl = new URL(C.requestPath, MANIFEST_URL);
+  const makeRequest = ({ body = setup.request.raw, signal } = {}) => new Request(freshnessUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "cache-control": "no-store",
+      "content-type": "application/json",
+    },
+    body,
+    ...(signal ? { signal } : {}),
+  });
+
+  const response = await fetchGateway(makeRequest(), bindings);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("content-type"), "application/json");
+  const responseRaw = Buffer.from(await response.arrayBuffer());
+  assert.equal(forwardedResponses.length, 1);
+  assert.deepEqual(responseRaw, forwardedResponses[0]);
+  assert.equal(responseRaw.byteLength, forwardedResponses[0].byteLength);
+  assert.equal(hash(responseRaw), hash(forwardedResponses[0]));
+
+  const verified = verifyRuntimeConfigFreshnessResponse(responseRaw, {
+    bootstrapSigner: setup.rootSigner,
+    manifestUrl: MANIFEST_URL,
+    request: setup.request.request,
+    nowMs: setup.sharedClock.now(),
+  });
+  assert.equal(verified.payload.request_nonce, setup.request.request.request_nonce);
+  const appProjection = setup.authority.verifyAppResponse(
+    responseRaw,
+    setup.request.request,
+    { nowMs: setup.sharedClock.now() },
+  );
+  assert.deepEqual(appProjection.raw_manifest, setup.manifestRaw);
+
+  const otherRequest = await createRuntimeConfigFreshnessRequest({
+    environment: "production",
+    manifestUrl: MANIFEST_URL,
+    requestNonce: randomBytes(32),
+  });
+  assert.throws(
+    () => verifyRuntimeConfigFreshnessResponse(responseRaw, {
+      bootstrapSigner: setup.rootSigner,
+      manifestUrl: MANIFEST_URL,
+      request: otherRequest.request,
+      nowMs: setup.sharedClock.now(),
+    }),
+    /does not bind the outstanding APP challenge/,
+  );
+
+  const missingBinding = await fetchGateway(makeRequest(), {
+    TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+  });
+  assert.equal(missingBinding.status, 503);
+  const missingAllBindings = await fetchGateway(makeRequest(), {});
+  assert.equal(missingAllBindings.status, 503);
+
+  const wrongAudienceRaw = Buffer.from(canonicalJson({
+    ...setup.request.request,
+    audience_manifest_url_sha256: hash(Buffer.from(
+      "https://other.example.com/tlsn/runtime-config/v2/manifest.json",
+    )),
+  }), "utf8");
+  const wrongAudienceResponse = await fetchGateway(makeRequest({
+    body: wrongAudienceRaw,
+  }), bindings);
+  assert.equal(wrongAudienceResponse.status, 400);
+
+  const oversizedRequest = await fetchGateway(makeRequest({
+    body: Buffer.alloc(C.maxRequestBytes + 1),
+  }), bindings);
+  assert.equal(oversizedRequest.status, 413);
+
+  const redirectResponse = await fetchGateway(makeRequest(), {
+    ...bindings,
+    TLSN_FRESHNESS_SIGNER: {
+      async fetch() {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://unapproved.example/" },
+        });
+      },
+    },
+  });
+  assert.equal(redirectResponse.status, 502);
+
+  const oversizedResponse = await fetchGateway(makeRequest(), {
+    ...bindings,
+    TLSN_FRESHNESS_SIGNER: {
+      async fetch() {
+        return new Response(new Uint8Array(C.maxResponseBytes + 1), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
+  });
+  assert.equal(oversizedResponse.status, 502);
+
+  const mismatchedLengthResponse = await fetchGateway(makeRequest(), {
+    ...bindings,
+    TLSN_FRESHNESS_SIGNER: {
+      async fetch() {
+        return new Response("{}", {
+          status: 200,
+          headers: {
+            "content-length": "1",
+            "content-type": "application/json",
+          },
+        });
+      },
+    },
+  });
+  assert.equal(mismatchedLengthResponse.status, 502);
+
+  const abortController = new AbortController();
+  const signerStarted = deferred();
+  const abortContext = makeGatewayTestContext();
+  const pendingAbort = fetchGateway(
+    makeRequest({ signal: abortController.signal }),
+    {
+      ...bindings,
+      TLSN_FRESHNESS_SIGNER: {
+        async fetch(request) {
+          signerStarted.resolve();
+          if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          return new Promise((_, reject) => {
+            request.signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        },
+      },
+    },
+    abortContext,
+  );
+  await signerStarted.promise;
+  abortController.abort();
+  const abortedResponse = await pendingAbort;
+  assert.equal(abortedResponse.status, 499);
+
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "fusou-freshness-gateway-"));
+  const fixturePath = join(fixtureDirectory, "route-fixture.json");
+  const encode = (bytes) => Buffer.from(bytes).toString("base64url");
+  const fixture = {
+    test_only: true,
+    manifest_url: MANIFEST_URL,
+    now_ms: setup.sharedClock.now(),
+    root_signer: setup.rootSigner,
+    request_raw_base64url: encode(setup.request.raw),
+    response_raw_base64url: encode(responseRaw),
+    manifest_raw_base64url: encode(setup.manifestRaw),
+    inputs_base64url: Object.fromEntries(
+      Object.entries(VECTOR_INPUTS).map(([name, bytes]) => [name, encode(bytes)]),
+    ),
+  };
+  writeFileSync(fixturePath, JSON.stringify(fixture), { mode: 0o600 });
+  const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  try {
+    const rustOutput = execFileSync(
+      "cargo",
+      [
+        "+1.98.1",
+        "test",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        join(repositoryRoot, "packages/FUSOU-APP/src-tauri/Cargo.toml"),
+        "--features",
+        "tlsn-production,freshness-gateway-integration-test",
+        "--lib",
+        "tlsn_runtime_config_manifest::freshness::tests::gateway_route_output_is_accepted_by_app_verifier",
+        "--",
+        "--exact",
+      ],
+      {
+        cwd: repositoryRoot,
+        env: {
+          ...process.env,
+          CARGO_NET_OFFLINE: "true",
+          FUSOU_RUNTIME_CONFIG_FRESHNESS_ROUTE_FIXTURE: fixturePath,
+          RUSTUP_AUTO_INSTALL: "0",
+        },
+        encoding: "utf8",
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    );
+    assert.match(rustOutput, /test result: ok\. 1 passed; 0 failed;/);
+  } finally {
+    rmSync(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Freshness Gateway deadline cancels an incomplete request body before calling the signer", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const startedAt = performance.now();
+  const pull = deferred();
+  const cancelled = deferred();
+  const body = new ReadableStream({
+    pull() {
+      return pull.promise;
+    },
+    cancel() {
+      pull.resolve();
+      cancelled.resolve();
+    },
+  });
+  let signerCalls = 0;
+  const context = makeGatewayTestContext();
+  const response = await fetchGateway(
+    makeGatewayRequest(setup, { body }),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        async fetch() {
+          signerCalls += 1;
+          return new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+    },
+    context,
+  );
+
+  assert.equal(response.status, 504);
+  assert.ok(performance.now() - startedAt < FRESHNESS_GATEWAY_DEADLINE_MS + 2_000);
+  assert.equal(signerCalls, 0);
+  await cancelled.promise;
+  await Promise.all(context.pending);
+});
+
+test("Freshness Gateway deadline cancels a stalled signer response body", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const startedAt = performance.now();
+  const pull = deferred();
+  const cancelled = deferred();
+  let signerSignal;
+  const responseBody = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([0x7b]));
+    },
+    pull() {
+      return pull.promise;
+    },
+    cancel() {
+      pull.resolve();
+      cancelled.resolve();
+    },
+  });
+  const context = makeGatewayTestContext();
+  const response = await fetchGateway(
+    makeGatewayRequest(setup),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        async fetch(request) {
+          signerSignal = request.signal;
+          return new Response(responseBody, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+    },
+    context,
+  );
+
+  assert.equal(response.status, 504);
+  assert.ok(performance.now() - startedAt < FRESHNESS_GATEWAY_DEADLINE_MS + 2_000);
+  assert.equal(signerSignal.aborted, true);
+  await cancelled.promise;
+  await Promise.all(context.pending);
+});
+
+test("Freshness Gateway cancels a late streaming response after client disconnect and holds admission until cleanup", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const signerStarted = deferred();
+  const lateResponse = deferred();
+  const cancelStarted = deferred();
+  const cleanup = deferred();
+  const abortController = new AbortController();
+  const context = makeGatewayTestContext();
+  let pullCalls = 0;
+  const request = fetchGateway(
+    makeGatewayRequest(setup, { signal: abortController.signal }),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        fetch() {
+          signerStarted.resolve();
+          return lateResponse.promise;
+        },
+      },
+    },
+    context,
+  );
+
+  await signerStarted.promise;
+  abortController.abort();
+  const disconnected = await request;
+  assert.equal(disconnected.status, 499);
+  assert.equal(context.pending.length, 1);
+
+  const body = new ReadableStream({
+    pull() {
+      pullCalls += 1;
+      return new Promise(() => {});
+    },
+    cancel() {
+      cancelStarted.resolve();
+      return cleanup.promise;
+    },
+  }, { highWaterMark: 0 });
+  lateResponse.resolve(new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+
+  let cleanupSettled = false;
+  const cleanupObserved = context.pending[0].then(() => {
+    cleanupSettled = true;
+  });
+  try {
+    await cancelStarted.promise;
+    await Promise.resolve();
+    assert.equal(pullCalls, 0);
+    assert.equal(cleanupSettled, false);
+    await assertGatewayAdmissionCapacity(
+      setup,
+      FRESHNESS_GATEWAY_MAX_IN_FLIGHT - 1,
+    );
+  } finally {
+    cleanup.resolve();
+    await cleanupObserved;
+  }
+
+  assert.equal(cleanupSettled, true);
+  await assertGatewayAdmissionCapacity(setup, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+});
+
+test("Freshness Gateway cancels a late streaming response after deadline and holds admission until cleanup", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const signerStarted = deferred();
+  const lateResponse = deferred();
+  const cancelStarted = deferred();
+  const cleanup = deferred();
+  const context = makeGatewayTestContext();
+  let pullCalls = 0;
+  const startedAt = performance.now();
+  const request = fetchGateway(
+    makeGatewayRequest(setup),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        fetch() {
+          signerStarted.resolve();
+          return lateResponse.promise;
+        },
+      },
+    },
+    context,
+  );
+
+  await signerStarted.promise;
+  const timedOut = await request;
+  assert.equal(timedOut.status, 504);
+  assert.ok(performance.now() - startedAt < FRESHNESS_GATEWAY_DEADLINE_MS + 2_000);
+  assert.equal(context.pending.length, 1);
+
+  const body = new ReadableStream({
+    pull() {
+      pullCalls += 1;
+      return new Promise(() => {});
+    },
+    cancel() {
+      cancelStarted.resolve();
+      return cleanup.promise;
+    },
+  }, { highWaterMark: 0 });
+  lateResponse.resolve(new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+
+  let cleanupSettled = false;
+  const cleanupObserved = context.pending[0].then(() => {
+    cleanupSettled = true;
+  });
+  try {
+    await cancelStarted.promise;
+    await Promise.resolve();
+    assert.equal(pullCalls, 0);
+    assert.equal(cleanupSettled, false);
+    await assertGatewayAdmissionCapacity(
+      setup,
+      FRESHNESS_GATEWAY_MAX_IN_FLIGHT - 1,
+    );
+  } finally {
+    cleanup.resolve();
+    await cleanupObserved;
+  }
+
+  assert.equal(cleanupSettled, true);
+  await assertGatewayAdmissionCapacity(setup, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+});
+
+test("Freshness Gateway cancels malformed and oversized Content-Length bodies before reading", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const invalidLengths = [
+    "not-a-length",
+    String(C.maxResponseBytes + 1),
+  ];
+
+  for (const contentLength of invalidLengths) {
+    const cancelStarted = deferred();
+    const cleanup = deferred();
+    const context = makeGatewayTestContext();
+    let pullCalls = 0;
+    let cancelCalls = 0;
+    const body = new ReadableStream({
+      pull() {
+        pullCalls += 1;
+        return new Promise(() => {});
+      },
+      cancel() {
+        cancelCalls += 1;
+        cancelStarted.resolve();
+        return cleanup.promise;
+      },
+    }, { highWaterMark: 0 });
+    const responsePromise = fetchGateway(
+      makeGatewayRequest(setup),
+      {
+        TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+        TLSN_FRESHNESS_SIGNER: {
+          async fetch() {
+            return new Response(body, {
+              status: 200,
+              headers: {
+                "content-length": contentLength,
+                "content-type": "application/json",
+              },
+            });
+          },
+        },
+      },
+      context,
+    );
+
+    await cancelStarted.promise;
+    let capacityError;
+    try {
+      await assertGatewayAdmissionCapacity(
+        setup,
+        FRESHNESS_GATEWAY_MAX_IN_FLIGHT - 1,
+      );
+    } catch (error) {
+      capacityError = error;
+    } finally {
+      cleanup.resolve();
+    }
+
+    const response = await responsePromise;
+    assert.equal(response.status, 502);
+    assert.equal(pullCalls, 0);
+    assert.equal(cancelCalls, 1);
+    if (capacityError) throw capacityError;
+    await assertGatewayAdmissionCapacity(setup, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+  }
+});
+
+test("Freshness Gateway cancels rejected status, redirect, and Content-Type bodies", async () => {
+  const setup = await committedHarness();
+  const rejectedResponses = [
+    { status: 503, contentType: "application/json", redirected: false },
+    { status: 302, contentType: "application/json", redirected: false },
+    { status: 200, contentType: "text/plain", redirected: false },
+    { status: 200, contentType: "application/json", redirected: true },
+  ];
+
+  for (const rejected of rejectedResponses) {
+    const cancelStarted = deferred();
+    const cleanup = deferred();
+    let pullCalls = 0;
+    let cancelCalls = 0;
+    const body = new ReadableStream({
+      pull() {
+        pullCalls += 1;
+        return new Promise(() => {});
+      },
+      cancel() {
+        cancelCalls += 1;
+        cancelStarted.resolve();
+        return cleanup.promise;
+      },
+    }, { highWaterMark: 0 });
+    const signerResponse = new Response(body, {
+      status: rejected.status,
+      headers: { "content-type": rejected.contentType },
+    });
+    if (rejected.redirected) {
+      Object.defineProperty(signerResponse, "redirected", { value: true });
+    }
+
+    const responsePromise = fetchGateway(
+      makeGatewayRequest(setup),
+      {
+        TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+        TLSN_FRESHNESS_SIGNER: {
+          async fetch() {
+            return signerResponse;
+          },
+        },
+      },
+    );
+    await cancelStarted.promise;
+    assert.equal(pullCalls, 0);
+    assert.equal(cancelCalls, 1);
+    cleanup.resolve();
+
+    const response = await responsePromise;
+    assert.equal(response.status, 502);
+  }
+});
+
+test("Freshness Gateway returns its deadline response while signer body cleanup is unsettled", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const cancelStarted = deferred();
+  const cleanup = deferred();
+  const context = makeGatewayTestContext();
+  let pullCalls = 0;
+  const body = new ReadableStream({
+    pull() {
+      pullCalls += 1;
+      return new Promise(() => {});
+    },
+    cancel() {
+      cancelStarted.resolve();
+      return cleanup.promise;
+    },
+  }, { highWaterMark: 0 });
+  const startedAt = performance.now();
+  const request = fetchGateway(
+    makeGatewayRequest(setup),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        async fetch() {
+          return new Response(body, {
+            status: 200,
+            headers: {
+              "content-length": "malformed",
+              "content-type": "application/json",
+            },
+          });
+        },
+      },
+    },
+    context,
+  );
+
+  let response;
+  try {
+    response = await request;
+    assert.equal(response.status, 504);
+    assert.ok(performance.now() - startedAt < FRESHNESS_GATEWAY_DEADLINE_MS + 2_000);
+    await cancelStarted.promise;
+    assert.equal(pullCalls, 0);
+    assert.equal(context.pending.length, 1);
+    await assertGatewayAdmissionCapacity(
+      setup,
+      FRESHNESS_GATEWAY_MAX_IN_FLIGHT - 1,
+    );
+  } finally {
+    cleanup.resolve();
+    await Promise.all(context.pending);
+  }
+
+  assert.equal(response.status, 504);
+  await assertGatewayAdmissionCapacity(setup, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+});
+
+test("Freshness Gateway uses one deadline across request, signer, and response body phases", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const bodyCancelled = deferred();
+  const delayedBody = (bytes, delayMs, onCancel = () => {}) => {
+    let timer;
+    let delivered = false;
+    let resolvePull = () => {};
+    return new ReadableStream({
+      pull(controller) {
+        if (delivered) return;
+        delivered = true;
+        return new Promise((resolve) => {
+          resolvePull = resolve;
+          timer = setTimeout(() => {
+            controller.enqueue(bytes);
+            controller.close();
+            resolvePull();
+          }, delayMs);
+        });
+      },
+      cancel() {
+        clearTimeout(timer);
+        resolvePull();
+        onCancel();
+      },
+    });
+  };
+  const context = makeGatewayTestContext();
+  const startedAt = performance.now();
+  const response = await fetchGateway(
+    makeGatewayRequest(setup, {
+      body: delayedBody(new Uint8Array(setup.request.raw), 3_000),
+    }),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        async fetch(request) {
+          await request.arrayBuffer();
+          await new Promise((resolve) => setTimeout(resolve, 3_000));
+          return new Response(delayedBody(
+            new TextEncoder().encode("{}"),
+            3_000,
+            () => bodyCancelled.resolve(),
+          ), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+    },
+    context,
+  );
+
+  assert.equal(response.status, 504);
+  assert.ok(performance.now() - startedAt < FRESHNESS_GATEWAY_DEADLINE_MS + 2_000);
+  await bodyCancelled.promise;
+  await Promise.all(context.pending);
+});
+
+test("Freshness Gateway caps in-flight work and retains slots until late signer work settles", {
+  timeout: 20_000,
+}, async () => {
+  const setup = await committedHarness();
+  const gates = Array.from(
+    { length: FRESHNESS_GATEWAY_MAX_IN_FLIGHT },
+    () => deferred(),
+  );
+  const started = deferred();
+  const signerSignals = [];
+  let signerCalls = 0;
+  const context = makeGatewayTestContext();
+  const signer = {
+    fetch(request) {
+      signerCalls += 1;
+      signerSignals.push(request.signal);
+      if (signerCalls <= FRESHNESS_GATEWAY_MAX_IN_FLIGHT) {
+        if (signerCalls === FRESHNESS_GATEWAY_MAX_IN_FLIGHT) started.resolve();
+        return gates[signerCalls - 1].promise;
+      }
+      return Promise.resolve(new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    },
+  };
+  const bindings = {
+    TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+    TLSN_FRESHNESS_SIGNER: signer,
+  };
+  const pending = Array.from(
+    { length: FRESHNESS_GATEWAY_MAX_IN_FLIGHT },
+    () => fetchGateway(makeGatewayRequest(setup), bindings, context),
+  );
+
+  await started.promise;
+  assert.equal(signerCalls, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+  const overLimit = await fetchGateway(makeGatewayRequest(setup), bindings, context);
+  assert.equal(overLimit.status, 503);
+  assert.equal(signerCalls, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+
+  const timedOut = await Promise.all(pending);
+  assert.deepEqual(timedOut.map((response) => response.status), Array(
+    FRESHNESS_GATEWAY_MAX_IN_FLIGHT,
+  ).fill(504));
+  assert.equal(signerSignals.every((signal) => signal.aborted), true);
+  assert.equal(context.pending.length, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+
+  const stillFull = await fetchGateway(makeGatewayRequest(setup), bindings, context);
+  assert.equal(stillFull.status, 503);
+  assert.equal(signerCalls, FRESHNESS_GATEWAY_MAX_IN_FLIGHT);
+
+  gates[0].reject(new Error("late signer failure"));
+  for (const gate of gates.slice(1)) {
+    gate.resolve(new Response("late response", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+  }
+  await Promise.all(context.pending);
+
+  const afterCleanup = await fetchGateway(makeGatewayRequest(setup), bindings, context);
+  assert.equal(afterCleanup.status, 200);
+  assert.equal(signerCalls, FRESHNESS_GATEWAY_MAX_IN_FLIGHT + 1);
+});
+
+test("Freshness Gateway propagates client disconnect and rejects already-aborted requests", async () => {
+  const setup = await committedHarness();
+  const started = deferred();
+  const abortController = new AbortController();
+  let signerSignal;
+  let signerCalls = 0;
+  const context = makeGatewayTestContext();
+  const bindings = {
+    TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+    TLSN_FRESHNESS_SIGNER: {
+      fetch(request) {
+        signerCalls += 1;
+        signerSignal = request.signal;
+        started.resolve();
+        return new Promise((_, reject) => {
+          request.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    },
+  };
+  const pending = fetchGateway(
+    makeGatewayRequest(setup, { signal: abortController.signal }),
+    bindings,
+    context,
+  );
+  await started.promise;
+  abortController.abort();
+
+  const disconnected = await pending;
+  assert.equal(disconnected.status, 499);
+  assert.equal(signerSignal.aborted, true);
+  await Promise.all(context.pending);
+
+  const alreadyAbortedController = new AbortController();
+  alreadyAbortedController.abort();
+  const alreadyAborted = await fetchGateway(
+    makeGatewayRequest(setup, { signal: alreadyAbortedController.signal }),
+    bindings,
+    context,
+  );
+  assert.equal(alreadyAborted.status, 499);
+  assert.equal(signerCalls, 1);
+});
+
+test("Freshness Gateway retains admission when signer body cleanup cannot be confirmed", async () => {
+  const setup = await committedHarness();
+  const cancelStarted = deferred();
+  let pullCalls = 0;
+  const body = new ReadableStream({
+    pull() {
+      pullCalls += 1;
+      return new Promise(() => {});
+    },
+    cancel() {
+      cancelStarted.resolve();
+      return Promise.reject(new Error("body cleanup failed"));
+    },
+  }, { highWaterMark: 0 });
+  const response = await fetchGateway(
+    makeGatewayRequest(setup),
+    {
+      TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
+      TLSN_FRESHNESS_SIGNER: {
+        async fetch() {
+          return new Response(body, {
+            status: 200,
+            headers: {
+              "content-length": "malformed",
+              "content-type": "application/json",
+            },
+          });
+        },
+      },
+    },
+  );
+
+  assert.equal(response.status, 502);
+  await cancelStarted.promise;
+  assert.equal(pullCalls, 0);
+  await assertGatewayAdmissionCapacity(
+    setup,
+    FRESHNESS_GATEWAY_MAX_IN_FLIGHT - 1,
   );
 });

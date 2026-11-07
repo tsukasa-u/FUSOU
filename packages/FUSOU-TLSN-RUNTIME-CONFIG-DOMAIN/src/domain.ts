@@ -805,7 +805,6 @@ export async function createRuntimeConfigFreshnessRequest(options: {
   readonly manifestUrl: string;
   readonly requestNonce: Uint8Array;
 }): Promise<{ readonly request: FreshnessRequest; readonly raw: Uint8Array }> {
-  const url = validateManifestUrl(options.manifestUrl);
   if (options.requestNonce.byteLength !== 32) {
     invalid("INVALID_WIRE", "Freshness request nonce must be 32 bytes");
   }
@@ -813,8 +812,8 @@ export async function createRuntimeConfigFreshnessRequest(options: {
     schema_version: 1,
     scope: REQUEST_SCOPE,
     environment: "production",
-    audience_manifest_url_sha256: await sha256Base64Url(
-      new TextEncoder().encode(url),
+    audience_manifest_url_sha256: await runtimeConfigManifestAudienceSha256(
+      options.manifestUrl,
     ),
     request_nonce: encodeBase64Url(options.requestNonce),
   });
@@ -846,6 +845,13 @@ function validateManifestUrl(value: string): string {
     invalid("INVALID_WIRE", "Freshness request Manifest URL is invalid");
   }
   return value;
+}
+
+export async function runtimeConfigManifestAudienceSha256(
+  manifestUrl: string,
+): Promise<string> {
+  const validatedUrl = validateManifestUrl(manifestUrl);
+  return sha256Base64Url(new TextEncoder().encode(validatedUrl));
 }
 
 export async function verifyRuntimeConfigFreshnessRequest(
