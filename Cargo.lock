@@ -226,6 +226,7 @@ dependencies = [
  "hex",
  "kc-api",
  "once_cell",
+ "png",
  "proxy-https",
  "regex",
  "reqwest 0.12.28",

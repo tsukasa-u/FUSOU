@@ -77,6 +77,12 @@ const VK_RCONTROL: u32 = 0xA3;
 const VK_LWIN: u32 = 0x5B;
 #[cfg(windows)]
 const VK_RWIN: u32 = 0x5C;
+#[cfg(windows)]
+const VK_SHIFT: u32 = 0x10;
+#[cfg(windows)]
+const VK_LSHIFT: u32 = 0xA0;
+#[cfg(windows)]
+const VK_RSHIFT: u32 = 0xA1;
 
 fn get_game_url() -> String {
     GAME_URL
@@ -278,6 +284,8 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                 let has_ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
                 let has_meta = modifiers.contains(gdk::ModifierType::META_MASK)
                     || modifiers.contains(gdk::ModifierType::SUPER_MASK);
+                let has_shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+                let has_alt = modifiers.contains(gdk::ModifierType::MOD1_MASK);
 
                 if key == gdk::keys::constants::F5 {
                     tracing::warn!("linux webview key fallback pressed: F5 (external reload)");
@@ -286,7 +294,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                 }
 
                 let is_r = key == gdk::keys::constants::r || key == gdk::keys::constants::R;
-                if is_r && (has_ctrl || has_meta) {
+                if is_r && (has_ctrl || has_meta) && !has_shift && !has_alt {
                     tracing::warn!(
                         "linux webview key fallback pressed: Ctrl/Super+R (external force refresh)"
                     );
@@ -295,7 +303,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                 }
 
                 let is_s = key == gdk::keys::constants::s || key == gdk::keys::constants::S;
-                if is_s && (has_ctrl || has_meta) {
+                if is_s && (has_ctrl || has_meta) && !has_shift && !has_alt {
                     tracing::warn!(
                         "linux webview key fallback pressed: Ctrl/Super+S (external screenshot)"
                     );
@@ -355,6 +363,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
         let callback_window_label = callback_window_label.clone();
         let mut ctrl_down = false;
         let mut win_down = false;
+        let mut shift_down = false;
 
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_controller, args| {
             let Some(args) = args else {
@@ -381,6 +390,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                 match virtual_key {
                     VK_CONTROL | VK_LCONTROL | VK_RCONTROL => ctrl_down = true,
                     VK_LWIN | VK_RWIN => win_down = true,
+                    VK_SHIFT | VK_LSHIFT | VK_RSHIFT => shift_down = true,
                     VK_F5 => {
                         tracing::warn!("windows webview key fallback pressed: F5 (external reload)");
                         handle_external_reload_shortcut(&app_handle);
@@ -388,7 +398,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                             let _ = args.SetHandled(true);
                         }
                     }
-                    VK_R if ctrl_down || win_down => {
+                    VK_R if (ctrl_down || win_down) && !shift_down => {
                         tracing::warn!(
                             "windows webview key fallback pressed: Ctrl/Super+R (external force refresh)"
                         );
@@ -397,7 +407,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                             let _ = args.SetHandled(true);
                         }
                     }
-                    VK_S if ctrl_down || win_down => {
+                    VK_S if (ctrl_down || win_down) && !shift_down => {
                         tracing::warn!(
                             "windows webview key fallback pressed: Ctrl/Super+S (external screenshot)"
                         );
@@ -414,6 +424,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                 match virtual_key {
                     VK_CONTROL | VK_LCONTROL | VK_RCONTROL => ctrl_down = false,
                     VK_LWIN | VK_RWIN => win_down = false,
+                    VK_SHIFT | VK_LSHIFT | VK_RSHIFT => shift_down = false,
                     _ => {}
                 }
             }
@@ -527,6 +538,179 @@ pub fn force_refresh_focused_external_window(app: &AppHandle) -> bool {
     true
 }
 
+#[cfg(any(target_os = "linux", windows))]
+fn apply_rounded_corners_to_rgba(
+    buf: &mut [u8],
+    width: u32,
+    height: u32,
+    radius: f64,
+) {
+    if radius <= 0.0 {
+        return;
+    }
+
+    let w = width as f64;
+    let h = height as f64;
+    let r = radius.min(w / 2.0).min(h / 2.0);
+
+    for y in 0..height {
+        let py = y as f64 + 0.5;
+        let is_top = py < r;
+        let is_bottom = py > h - r;
+        if !is_top && !is_bottom {
+            continue;
+        }
+
+        let corner_dy = if is_top {
+            r - py
+        } else {
+            py - (h - r)
+        };
+
+        for x in 0..width {
+            let px = x as f64 + 0.5;
+            let is_left = px < r;
+            let is_right = px > w - r;
+            if !is_left && !is_right {
+                continue;
+            }
+
+            let corner_dx = if is_left {
+                r - px
+            } else {
+                px - (w - r)
+            };
+
+            let dist = (corner_dx * corner_dx + corner_dy * corner_dy).sqrt();
+            let idx = ((y * width + x) as usize) * 4;
+            let alpha_idx = idx + 3;
+
+            if dist >= r + 0.5 {
+                buf[alpha_idx] = 0;
+            } else if dist > r - 0.5 {
+                let factor = (r + 0.5 - dist).clamp(0.0, 1.0);
+                let orig_alpha = buf[alpha_idx] as f64;
+                buf[alpha_idx] = (orig_alpha * factor).round() as u8;
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn apply_rounded_corners_to_png(
+    png_bytes: &[u8],
+    corner_radius_px: f64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let cursor = std::io::Cursor::new(png_bytes);
+    let decoder = png::Decoder::new(cursor);
+    let mut reader = decoder.read_info()?;
+    let buf_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "image too large"))?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader.next_frame(&mut buf)?;
+
+    let mut rgba_buf = match info.color_type {
+        png::ColorType::Rgba => buf,
+        png::ColorType::Rgb => {
+            let mut v = Vec::with_capacity(info.width as usize * info.height as usize * 4);
+            for pixel in buf.chunks_exact(3) {
+                v.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            }
+            v
+        }
+        _ => return Ok(png_bytes.to_vec()),
+    };
+
+    apply_rounded_corners_to_rgba(&mut rgba_buf, info.width, info.height, corner_radius_px);
+
+    let mut output = Vec::new();
+    let mut encoder = png::Encoder::new(&mut output, info.width, info.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&rgba_buf)?;
+    drop(writer);
+
+    Ok(output)
+}
+
+#[cfg(windows)]
+fn crop_top_from_png(
+    png_bytes: &[u8],
+    titlebar_logical_height: f64,
+    window_logical_height: f64,
+    round_corners: bool,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let cursor = std::io::Cursor::new(png_bytes);
+    let decoder = png::Decoder::new(cursor);
+    let mut reader = decoder.read_info()?;
+    let buf_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "image too large"))?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader.next_frame(&mut buf)?;
+
+    let bytes_per_pixel = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Indexed => 1,
+    } * (info.bit_depth as usize / 8).max(1);
+
+    let crop_ratio = (titlebar_logical_height / window_logical_height.max(1.0)).clamp(0.0, 1.0);
+    let crop_rows = ((info.height as f64) * crop_ratio).round() as usize;
+    let crop_rows = crop_rows.min(info.height as usize);
+
+    let row_bytes = info.width as usize * bytes_per_pixel;
+    let start_offset = crop_rows * row_bytes;
+
+    let cropped_buf = if start_offset < buf.len() {
+        &buf[start_offset..]
+    } else {
+        &buf[..]
+    };
+    let new_height = (info.height - crop_rows as u32).max(1);
+
+    let (final_buf, final_color_type) = if round_corners && info.bit_depth == png::BitDepth::Eight {
+        let mut rgba_buf = match info.color_type {
+            png::ColorType::Rgba => cropped_buf.to_vec(),
+            png::ColorType::Rgb => {
+                let mut v = Vec::with_capacity(info.width as usize * new_height as usize * 4);
+                for pixel in cropped_buf.chunks_exact(3) {
+                    v.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                }
+                v
+            }
+            _ => cropped_buf.to_vec(),
+        };
+
+        if info.color_type == png::ColorType::Rgba || info.color_type == png::ColorType::Rgb {
+            const CORNER_RADIUS_LOGICAL: f64 = 10.0;
+            let effective_scale = (info.height as f64) / window_logical_height.max(1.0);
+            let corner_radius_px = (CORNER_RADIUS_LOGICAL * effective_scale).round();
+
+            apply_rounded_corners_to_rgba(&mut rgba_buf, info.width, new_height, corner_radius_px);
+            (rgba_buf, png::ColorType::Rgba)
+        } else {
+            (rgba_buf, info.color_type)
+        }
+    } else {
+        (cropped_buf.to_vec(), info.color_type)
+    };
+
+    let mut output = Vec::new();
+    let mut encoder = png::Encoder::new(&mut output, info.width, new_height);
+    encoder.set_color(final_color_type);
+    encoder.set_depth(info.bit_depth);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&final_buf)?;
+    drop(writer);
+
+    Ok(output)
+}
+
 pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<PathBuf> {
     let Some(external) = get_visible_external_window(app) else {
         tracing::debug!("skip external screenshot: external window not found or not visible");
@@ -560,16 +744,23 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
     #[cfg(target_os = "linux")]
     {
-        let capture_size = external
+        const TITLEBAR_HEIGHT: f64 = 32.0;
+        const CORNER_RADIUS_LOGICAL: f64 = 10.0;
+        let scale_factor = external.scale_factor().unwrap_or(1.0);
+        let titlebar_height_px = (TITLEBAR_HEIGHT * scale_factor).round() as i32;
+
+        let (capture_width, capture_height) = external
             .inner_size()
             .ok()
             .map(|size| (size.width as i32, size.height as i32))
-            .unwrap_or((1200, 720));
+            .unwrap_or((1200, 752));
+
+        let cropped_height = (capture_height - titlebar_height_px).max(1);
+        let round_corners = !external.is_maximized().unwrap_or(false);
 
         let output_path_for_snapshot = output_path.clone();
         let schedule_result = external.with_webview(move |webview| {
             let webview = webview.inner();
-            let (capture_width, capture_height) = capture_size;
             webview.snapshot(
                 SnapshotRegion::Visible,
                 SnapshotOptions::NONE,
@@ -579,9 +770,9 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                         let Some(pixbuf) = gdk::pixbuf_get_from_surface(
                             &surface,
                             0,
-                            0,
+                            titlebar_height_px,
                             capture_width,
-                            capture_height,
+                            cropped_height,
                         ) else {
                             tracing::warn!(
                                 "failed to convert webview snapshot into pixbuf for {}",
@@ -597,6 +788,25 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                                 error
                             );
                             return;
+                        }
+
+                        if round_corners {
+                            if let Ok(saved_bytes) = fs::read(&output_path_for_snapshot) {
+                                let corner_radius_px = (CORNER_RADIUS_LOGICAL * scale_factor).round();
+                                if let Ok(rounded_bytes) =
+                                    apply_rounded_corners_to_png(&saved_bytes, corner_radius_px)
+                                {
+                                    if let Err(error) =
+                                        fs::write(&output_path_for_snapshot, rounded_bytes)
+                                    {
+                                        tracing::warn!(
+                                            "failed to save rounded corner screenshot {}: {}",
+                                            output_path_for_snapshot.display(),
+                                            error
+                                        );
+                                    }
+                                }
+                            }
                         }
 
                         tracing::info!(
@@ -621,6 +831,15 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
     #[cfg(windows)]
     {
+        const TITLEBAR_HEIGHT: f64 = 32.0;
+        let scale_factor = external.scale_factor().unwrap_or(1.0);
+        let logical_height = external
+            .inner_size()
+            .ok()
+            .map(|size| size.to_logical::<f64>(scale_factor).height)
+            .unwrap_or(752.0);
+        let round_corners = !external.is_maximized().unwrap_or(false);
+
         let output_path_for_callback = output_path.clone();
         let schedule_result = external.with_webview(move |platform_webview| {
             let controller = platform_webview.controller();
@@ -676,7 +895,23 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                             }
                         };
 
-                    if let Err(error) = fs::write(&output_path_for_callback, &image_bytes) {
+                    let final_image_bytes = match crop_top_from_png(
+                        &image_bytes,
+                        TITLEBAR_HEIGHT,
+                        logical_height,
+                        round_corners,
+                    ) {
+                        Ok(cropped) => cropped,
+                        Err(error) => {
+                            tracing::warn!(
+                                "failed to crop titlebar from windows screenshot: {}",
+                                error
+                            );
+                            image_bytes
+                        }
+                    };
+
+                    if let Err(error) = fs::write(&output_path_for_callback, &final_image_bytes) {
                         tracing::warn!(
                             "failed to save windows screenshot {}: {}",
                             output_path_for_callback.display(),
@@ -899,7 +1134,19 @@ pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
 
 #[tauri::command]
 pub fn trigger_external_screenshot(app: AppHandle) {
-    handle_external_screenshot_shortcut(&app);
+    if let Some(path) = capture_focused_external_window_screenshot(&app) {
+        crate::notify::show(
+            &app,
+            "External window",
+            &format!("Screenshot saved to:\n{}", path.display()),
+        );
+    } else {
+        crate::notify::show(
+            &app,
+            "External window",
+            "Failed to capture screenshot. Ensure the game window is open.",
+        );
+    }
 }
 
 #[tauri::command]
