@@ -631,6 +631,9 @@ const injectTitlebar = () => {
     setTimeout(() => {
       screenshotBtn.style.transform = "";
     }, 250);
+    if (typeof window.__fusouPrepareScreenshot === "function") {
+      window.__fusouPrepareScreenshot();
+    }
     requestNativeShortcut("screenshot");
   };
 
@@ -1029,13 +1032,23 @@ window.__fusouForceRenderRefresh = forceRenderRefresh;
 
 window.__fusouPrepareScreenshot = () => {
   document.documentElement.classList.add("fusou-screenshot-mode");
+  if (document.body) {
+    document.body.classList.add("fusou-screenshot-mode");
+  }
+  void document.documentElement.offsetHeight;
   setTimeout(() => {
     document.documentElement.classList.remove("fusou-screenshot-mode");
+    if (document.body) {
+      document.body.classList.remove("fusou-screenshot-mode");
+    }
   }, 1000);
 };
 
 window.__fusouFinishScreenshot = () => {
   document.documentElement.classList.remove("fusou-screenshot-mode");
+  if (document.body) {
+    document.body.classList.remove("fusou-screenshot-mode");
+  }
 };
 
 const stopKeyEvent = (event) => {
@@ -1123,6 +1136,38 @@ bindShortcutHandlers();
 // Set of direct window proxies for all child/nested frames (maintained by top window)
 const registeredFusouFrames = new Set();
 
+// Safely postMessage recursively to all reachable frames (including nested cross-origin iframes)
+const postMessageRecursive = (win, msg, depth = 0) => {
+  if (!win || depth > 6) return;
+  try {
+    win.postMessage(msg, "*");
+  } catch (e) {}
+
+  // Explore sub-frames via WindowProxy array
+  try {
+    const len = win.frames ? win.frames.length : 0;
+    for (let i = 0; i < len; i++) {
+      try {
+        postMessageRecursive(win.frames[i], msg, depth + 1);
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  // If same-origin or DOM accessible, also iterate iframe elements
+  try {
+    if (win.document && typeof win.document.querySelectorAll === "function") {
+      const iframes = win.document.querySelectorAll("iframe");
+      iframes.forEach((frame) => {
+        try {
+          if (frame.contentWindow) {
+            postMessageRecursive(frame.contentWindow, msg, depth + 1);
+          }
+        } catch (e) {}
+      });
+    }
+  } catch (e) {}
+};
+
 // Broadcast a message to all accessible frames and windows
 const broadcastToAllFrames = (msg) => {
   // 1. Direct postMessage to all registered frames (bypasses cross-origin nesting limits)
@@ -1134,25 +1179,15 @@ const broadcastToAllFrames = (msg) => {
     }
   });
 
-  // 2. Direct child frames
-  try {
-    for (let i = 0; i < window.frames.length; i++) {
-      try {
-        window.frames[i].postMessage(msg, "*");
-      } catch (e) {}
-    }
-  } catch (e) {}
+  // 2. Full recursive traversal of all frames starting from current window
+  postMessageRecursive(window, msg);
 
-  // 3. DOM iframes
-  try {
-    document.querySelectorAll("iframe").forEach((frame) => {
-      try {
-        if (frame.contentWindow) {
-          frame.contentWindow.postMessage(msg, "*");
-        }
-      } catch (e) {}
-    });
-  } catch (e) {}
+  // 3. If in a sub-frame, also request top to broadcast if possible
+  if (!isTopWindow() && window.top) {
+    try {
+      window.top.postMessage(msg, "*");
+    } catch (e) {}
+  }
 };
 
 // Apply volume directly to all audio nodes and media elements in this frame
@@ -1168,26 +1203,52 @@ const applyVolumeToPage = (volume, muted) => {
   // 1. KanColle SoundJS / CreateJS volume control
   try {
     if (window.createjs && window.createjs.Sound) {
-      if (typeof window.createjs.Sound.setVolume === "function") {
-        window.createjs.Sound.setVolume(effectiveVolume);
-      } else {
+      let applied = false;
+
+      // Direct property assignment (KanColle kcs2 primary SoundJS volume setter)
+      try {
         window.createjs.Sound.volume = effectiveVolume;
-      }
-      if (typeof window.createjs.Sound.setMute === "function") {
-        window.createjs.Sound.setMute(fusouIsMuted);
-      } else {
+        applied = true;
+      } catch (e) {}
+
+      // setVolume method if present
+      try {
+        if (typeof window.createjs.Sound.setVolume === "function") {
+          window.createjs.Sound.setVolume(effectiveVolume);
+          applied = true;
+        }
+      } catch (e) {}
+
+      // Mute flags
+      try {
         window.createjs.Sound.muted = fusouIsMuted;
-      }
-      if (
-        window.createjs.Sound.activePlugin &&
-        window.createjs.Sound.activePlugin.gainNode &&
-        window.createjs.Sound.activePlugin.gainNode.gain
-      ) {
-        window.createjs.Sound.activePlugin.gainNode.gain.value = effectiveVolume;
+      } catch (e) {}
+      try {
+        if (typeof window.createjs.Sound.setMute === "function") {
+          window.createjs.Sound.setMute(fusouIsMuted);
+        }
+      } catch (e) {}
+
+      // WebAudio plugin gain node
+      try {
+        if (
+          window.createjs.Sound.activePlugin &&
+          window.createjs.Sound.activePlugin.gainNode &&
+          window.createjs.Sound.activePlugin.gainNode.gain
+        ) {
+          window.createjs.Sound.activePlugin.gainNode.gain.value = effectiveVolume;
+          applied = true;
+        }
+      } catch (e) {}
+
+      if (applied) {
+        console.debug(
+          `[FUSOU-AUDIO] SoundJS volume updated: vol=${effectiveVolume}, muted=${fusouIsMuted}`
+        );
       }
     }
   } catch (e) {
-    console.warn("[fusou] SoundJS volume control error:", e);
+    console.warn("[FUSOU-AUDIO] SoundJS volume control error:", e);
   }
 
   // 2. Standard DOM HTMLMediaElements (<audio>, <video>)
@@ -1239,10 +1300,33 @@ window.addEventListener("message", (e) => {
   if (!e.data || typeof e.data !== "object") return;
 
   // Handle frame registration (Top window records newly created iframes)
-  if (e.data.type === "fusou-register-frame" && isTopWindow()) {
+  if (e.data.type === "fusou-register-frame") {
+    if (isTopWindow()) {
+      if (e.source) {
+        registeredFusouFrames.add(e.source);
+        // Immediately reply with current volume configuration
+        try {
+          e.source.postMessage(
+            {
+              type: "fusou-set-volume",
+              volume: fusouCurrentVolume,
+              muted: fusouIsMuted,
+            },
+            "*"
+          );
+        } catch (err) {}
+      }
+    } else if (window.top && window.top !== window) {
+      // Intermediate frames relay registration up towards top window
+      try {
+        window.top.postMessage(e.data, "*");
+      } catch (err) {}
+    }
+  }
+
+  // Handle volume query from newly loaded child frames
+  if (e.data.type === "fusou-get-volume") {
     if (e.source) {
-      registeredFusouFrames.add(e.source);
-      // Immediately reply with current volume configuration
       try {
         e.source.postMessage(
           {
@@ -1260,32 +1344,25 @@ window.addEventListener("message", (e) => {
   if (e.data.type === "fusou-set-volume") {
     applyVolumeToPage(e.data.volume, e.data.muted);
 
-    // Relay to any child frames contained within this window
+    // If this is an intermediate or top frame, relay downward to all child frames
     try {
-      for (let i = 0; i < window.frames.length; i++) {
+      const len = window.frames ? window.frames.length : 0;
+      for (let i = 0; i < len; i++) {
         try {
           window.frames[i].postMessage(e.data, "*");
         } catch (err) {}
       }
     } catch (err) {}
-    try {
-      document.querySelectorAll("iframe").forEach((frame) => {
-        try {
-          if (frame.contentWindow) {
-            frame.contentWindow.postMessage(e.data, "*");
-          }
-        } catch (err) {}
-      });
-    } catch (err) {}
   }
 });
 
-// If this is an iframe (e.g. KanColle game_frame or osapi frame), register with Top window
+// If this is an iframe (e.g. KanColle game_frame or osapi frame), register and query volume
 if (!isTopWindow()) {
-  const registerWithTop = () => {
+  const syncWithTop = () => {
     try {
       if (window.top && window.top !== window) {
         window.top.postMessage({ type: "fusou-register-frame" }, "*");
+        window.top.postMessage({ type: "fusou-get-volume" }, "*");
       }
       if (
         window.parent &&
@@ -1293,14 +1370,15 @@ if (!isTopWindow()) {
         window.parent !== window.top
       ) {
         window.parent.postMessage({ type: "fusou-register-frame" }, "*");
+        window.parent.postMessage({ type: "fusou-get-volume" }, "*");
       }
     } catch (e) {}
   };
-  registerWithTop();
-  const regTimer = setInterval(registerWithTop, 1500);
+  syncWithTop();
+  const regTimer = setInterval(syncWithTop, 1500);
   setTimeout(() => {
     clearInterval(regTimer);
-    setInterval(registerWithTop, 5000);
+    setInterval(syncWithTop, 5000);
   }, 30000);
 }
 })();

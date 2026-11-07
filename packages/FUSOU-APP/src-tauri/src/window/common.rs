@@ -12,9 +12,9 @@ pub fn configure_frameless_window<'a, R: Runtime, M: Manager<R>>(
 }
 
 /// Setup OS-level attributes and behaviors for any custom frameless window
-pub fn setup_frameless_window(window: &WebviewWindow) {
+pub fn setup_frameless_window(_window: &WebviewWindow) {
     #[cfg(windows)]
-    apply_windows_rounded_corners(window);
+    apply_windows_rounded_corners(_window);
 }
 
 #[cfg(windows)]

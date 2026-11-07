@@ -653,7 +653,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
     let output_path = output_dir.join(filename);
 
     let _ = external.eval(
-        "if (typeof window.__fusouPrepareScreenshot === 'function') { window.__fusouPrepareScreenshot(); } else { document.documentElement.classList.add('fusou-screenshot-mode'); }"
+        "if (typeof window.__fusouPrepareScreenshot === 'function') { window.__fusouPrepareScreenshot(); } else { document.documentElement.classList.add('fusou-screenshot-mode'); } void document.documentElement.offsetHeight;"
     );
 
     #[cfg(target_os = "linux")]
@@ -674,74 +674,85 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
         let app_handle_for_snapshot = app.clone();
         let external_cleanup = external.clone();
         let schedule_result = external.with_webview(move |webview| {
-            let webview = webview.inner();
-            webview.snapshot(
-                SnapshotRegion::Visible,
-                SnapshotOptions::NONE,
-                None::<&gio::Cancellable>,
-                move |snapshot_result| {
-                    let _ = external_cleanup.eval(
-                        "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
-                    );
-                    let surface = match snapshot_result {
-                        Ok(surface) => surface,
-                        Err(error) => {
-                            tracing::warn!("failed to snapshot external webview: {}", error);
-                            crate::notify::show(
-                                &app_handle_for_snapshot,
-                                "External window",
-                                "Failed to snapshot external webview.",
-                            );
-                            return;
-                        }
-                    };
+            let webview = webview.inner().clone();
+            // A small delay (50ms) ensures WebKitGTK has completed CSS reflow and compositing
+            // for `.fusou-screenshot-mode` (which disables window corner clip-paths) before capturing.
+            webkit2gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
+                webview.snapshot(
+                    SnapshotRegion::Visible,
+                    SnapshotOptions::NONE,
+                    None::<&gio::Cancellable>,
+                    move |snapshot_result| {
+                        let _ = external_cleanup.eval(
+                            "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
+                        );
+                        let surface = match snapshot_result {
+                            Ok(surface) => surface,
+                            Err(error) => {
+                                tracing::warn!("failed to snapshot external webview: {}", error);
+                                crate::notify::show(
+                                    &app_handle_for_snapshot,
+                                    "External window",
+                                    "Failed to snapshot external webview.",
+                                );
+                                return;
+                            }
+                        };
 
-                    let save_result = (|| -> Result<(), Box<dyn std::error::Error>> {
-                        let target = cairo::ImageSurface::create(
-                            cairo::Format::ARgb32,
-                            capture_width,
-                            cropped_height,
-                        )?;
-                        let cr = cairo::Context::new(&target)?;
-                        cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
-                        cr.paint()?;
-                        target.flush();
+                        let save_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                            let target = cairo::ImageSurface::create(
+                                cairo::Format::ARgb32,
+                                capture_width,
+                                cropped_height,
+                            )?;
+                            let cr = cairo::Context::new(&target)?;
 
-                        let mut file = fs::File::create(&output_path_for_snapshot)?;
-                        target.write_to_png(&mut file)?;
-                        Ok(())
-                    })();
+                            // Fill solid dark background (#0e0e11) first to eliminate any possible
+                            // transparent corner bleeding from window rounding or compositor antialiasing.
+                            cr.set_source_rgb(14.0 / 255.0, 14.0 / 255.0, 17.0 / 255.0);
+                            cr.paint()?;
 
-                    match save_result {
-                        Ok(()) => {
-                            tracing::info!(
-                                "saved external screenshot: {}",
-                                output_path_for_snapshot.display()
-                            );
-                            crate::notify::show(
-                                &app_handle_for_snapshot,
-                                "External window",
-                                &format!(
-                                    "Screenshot saved to:\n{}",
+                            // Paint cropped webview surface (offsetting top titlebar)
+                            cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
+                            cr.paint()?;
+                            target.flush();
+
+                            let mut file = fs::File::create(&output_path_for_snapshot)?;
+                            target.write_to_png(&mut file)?;
+                            Ok(())
+                        })();
+
+                        match save_result {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "saved external screenshot: {}",
                                     output_path_for_snapshot.display()
-                                ),
-                            );
+                                );
+                                crate::notify::show(
+                                    &app_handle_for_snapshot,
+                                    "External window",
+                                    &format!(
+                                        "Screenshot saved to:\n{}",
+                                        output_path_for_snapshot.display()
+                                    ),
+                                );
+                            }
+                            Err(error) => {
+                                tracing::warn!(
+                                    "failed to save screenshot {}: {}",
+                                    output_path_for_snapshot.display(),
+                                    error
+                                );
+                                crate::notify::show(
+                                    &app_handle_for_snapshot,
+                                    "External window",
+                                    "Failed to save screenshot.",
+                                );
+                            }
                         }
-                        Err(error) => {
-                            tracing::warn!(
-                                "failed to save screenshot {}: {}",
-                                output_path_for_snapshot.display(),
-                                error
-                            );
-                            crate::notify::show(
-                                &app_handle_for_snapshot,
-                                "External window",
-                                "Failed to save screenshot.",
-                            );
-                        }
-                    }
-                },
-            );
+                    },
+                );
+            });
         });
 
         if let Err(error) = schedule_result {

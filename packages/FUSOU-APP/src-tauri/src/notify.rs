@@ -19,16 +19,43 @@ pub fn show<R: tauri::Runtime>(app: &AppHandle<R>, title: &str, body: &str) {
         let title = title.to_string();
         let body = body.to_string();
         std::thread::spawn(move || {
-            let res = app.notification().builder().title(&title).body(&body).show();
-            if let Err(error) = res {
+            // First attempt notify-send as it reliably displays desktop notification banners
+            // across desktop environments (GNOME, KDE, Sway, etc.) even when no .desktop file exists
+            // or when the window is currently focused.
+            let notify_send_res = std::process::Command::new("notify-send")
+                .args(["-a", "FUSOU", "-i", "camera-photo", &title, &body])
+                .status();
+
+            match notify_send_res {
+                Ok(status) if status.success() => {
+                    tracing::info!(
+                        notification_title = %title,
+                        "notification displayed via notify-send"
+                    );
+                    return;
+                }
+                Ok(status) => {
+                    tracing::warn!(
+                        notification_title = %title,
+                        status = %status,
+                        "notify-send exited with non-zero status, falling back to tauri notification plugin"
+                    );
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        notification_title = %title,
+                        error = %error,
+                        "notify-send not available or failed to spawn, falling back to tauri notification plugin"
+                    );
+                }
+            }
+
+            if let Err(error) = app.notification().builder().title(&title).body(&body).show() {
                 tracing::warn!(
                     notification_title = title,
                     error = %error,
-                    "failed to show notification via tauri plugin, attempting notify-send"
+                    "failed to show notification via tauri plugin"
                 );
-                let _ = std::process::Command::new("notify-send")
-                    .args(["-a", "FUSOU", &title, &body])
-                    .spawn();
             }
         });
         return;
