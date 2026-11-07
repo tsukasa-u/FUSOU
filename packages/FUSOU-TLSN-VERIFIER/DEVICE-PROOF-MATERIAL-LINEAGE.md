@@ -66,7 +66,7 @@ override this selected policy.
 | Stage | Acceptance evidence | Current reachability / status | Not implied |
 |---|---|---|---|
 | A: `TLSN_PROTOCOL_TESTPLAY` | Real Game Server Presentation; trusted Notary signature; observed canonical DNS/Web PKI identity; real signed Result and exact Presentation binding | `BLOCKED_CODE`: no independent APP protocol-only entry. The actual APP always constructs Remote Session Binding and Worker verification. Both proof APIs are needed before this route can finish. Runtime Config/target/keys/services are also external prerequisites. | User/device ownership, a complete Bundle, execution-provider authority, full-Bundle remote retention |
-| B: `IDENTITY_BOUND_TESTPLAY` | A plus authenticated/non-revoked owner/device, Session/Binding signatures, possession/challenge/replay, all 19 roles, local finalization and independent actual-evidence verification | `BLOCKED_CODE`: complete real-material assembly is not connected; candidate receipt gate deliberately retained. Owner handlers now exist, but real deployment and exact-owner enrollment remain external prerequisites. | Production delivery, formal builder/provider approval |
+| B: `IDENTITY_BOUND_TESTPLAY` | A plus authenticated/non-revoked owner/device, Session/Binding signatures, possession/challenge/replay, all 19 roles, local finalization and independent actual-evidence verification | `BLOCKED_CODE`: eleven candidate roles are connected; the finalizer can generate one semantic report and an explicit collector can supply replay material offline. Both are locally verified only. Six roles still require independent external input, no real Production replay response is acquired, and the candidate receipt gate is retained. Owner handlers exist, but real deployment and exact-owner enrollment remain external prerequisites. | Production delivery, formal builder/provider approval |
 | C: `PRODUCTION_EVIDENCE_DELIVERY` | B plus complete-Bundle remote readback/retention, independently verifiable delivery receipt, approved applicable execution/signer/builder/provider and operational acceptance | `BLOCKED_CODE`: full-Bundle uploader/retention receipt and Production execution-receipt authority contract missing; approval/configuration also outstanding | Nothing is promoted by local status, elapsed time or a successful CLI return |
 
 These are assessments of source contracts. The additive
@@ -229,12 +229,50 @@ and later signed Session/Binding material have different responsibilities.
 | Invalid success schema/user/device | 403 owner mismatch | 403 owner mismatch |
 | Success digest from a different proof/context | N/A | 503 `device_possession_unavailable`, no authority start |
 
-The client has no retry loop. A narrow existing replay acknowledgement helper
-accepts 409 only against an exact previously expected digest; it never turns a
-revoked response into success. Current routed calls do not supply that optional
-expected-digest argument. Separate Worker cached-result logic requires the
-stored subject/session/binding/challenge/Presentation/profile/digest context;
-cached authoritative 200 is not the Bundle's required 409 replay observation.
+The ordinary Worker proof client has no retry loop and always treats
+`device_proof_replayed` as a rejection. A locally computed digest cannot turn a
+409 into successful proof authentication. The Worker has a separate cached
+Result path: only its synchronous response mode, outside the replay deployment
+role, can return the exact saved Result as HTTP 200 after Binding Authority
+context checks. That 200 is a saved-result retrieval, not replay evidence.
+
+### Explicit replay-observation collector
+
+The collector operates only on a successful saved candidate. It reads the
+candidate's exact possession proof, Session, signed Result, consume receipt,
+Presentation and execution-receipt sidecars; it checks their stored
+lengths/digests and that the consume receipt references the candidate
+Presentation. It never calls the Worker verification endpoint, Game Server or
+Notary, and it does not resume a capture.
+
+The collector makes one explicit authenticated POST to WEB's
+`/anonymous-sync/v2/tlsn-device-proof` endpoint with
+`X-FUSOU-TLSN-Replay-Observation: true`. That mode is accepted only for a
+possession proof, after normal authenticated non-anonymous user, owner, current
+device-key, revocation and Ed25519 signature checks. It calls a read-only
+database function that returns HTTP 409 `device_proof_replayed` only when the
+saved consumption row exactly matches user, device, key, proof digest,
+session, binding hash and challenge hash. An unconsumed proof returns 404; the
+observation path never invokes the consume function. The ordinary headerless
+POST remains unchanged: first consumption can return 200 and duplicate
+consumption can return a generic 409 without the stored row, neither of which
+is collector evidence.
+
+The collector requires exactly that 409 code and matching stored-row
+projection. It preserves the exact response body bytes, HTTP status, byte
+length and SHA-256 in a create-only sidecar; no bearer token is stored. The
+sidecar's `stored_replay_digest_hex` is taken from the authority row in that
+response, not merely copied from the locally calculated proof digest. The
+Verifier rechecks those bytes/projections and ties the proof/session to the
+consume receipt's Presentation ID. The observation remains unsigned: neither
+HTTPS nor JSON/hash consistency creates a signed authority receipt.
+
+Collection has a 10-second timeout, no redirects, one request and a 16 KiB
+response-body bound. It never retries or falls back to another endpoint.
+Finalization accepts a supplied sidecar only through
+`--replay-observation`; if the material manifest already supplies `replay`,
+the bytes must be identical. Missing roles, a conflicting external role or
+any verification failure prevents publication.
 
 ## 3. Earlier owner API proposal and remaining policy approvals
 
@@ -306,36 +344,80 @@ descriptor length/SHA-256 and provenance checking. Final output location is
 `artifacts/<role>.bin`; runtime candidate filenames below are input artifacts,
 not new manifest roles.
 
-Status vocabulary: `IMPLEMENTED_AND_CONNECTED`, `IMPLEMENTED_BUT_NOT_CONNECTED`,
-`EXTERNAL_INPUT_REQUIRED`, `OWNER_API_MISSING`, `HUMAN_APPROVAL_REQUIRED`,
-`NOT_IMPLEMENTED`, and `UNKNOWN` (insufficient source evidence to decide).
+Candidate/external readiness uses `AVAILABLE_AND_CONNECTED`,
+`AVAILABLE_NOT_CONNECTED`, `EXTERNAL_INPUT_REQUIRED`, and
+`SOURCE_NOT_IMPLEMENTED`. `OFFLINE_COLLECTION_SOURCE` separately identifies a
+producer that can collect a role from an explicit local invocation. It does
+not mean the resulting artifact was acquired. Connected means code forwards
+or deterministically derives material into the existing finalizer; it does not
+mean a real Production artifact was acquired or accepted.
 
-| Role | Producer | Generation event | Storage | Collector | Binding | Independent verification | Status |
-|---|---|---|---|---|---|---|---|
-| `presentation` | Actual APP prover | Deferred real proof completes | Candidate `presentation.bin`; Worker raw archive | APP writer -> finalizer override | Exact bytes/hash/length, transcript/Notary identity | Actual Presentation cryptography + Web PKI/observed DNS | IMPLEMENTED_AND_CONNECTED |
-| `result` | Worker verifier/signer | Presentation verification/signing; response released after authority commit | APP compact `result.json`; raw **outer** response separately | APP admission -> finalizer override | Inner V2/V3 signature, Presentation hash, Inventory/Approval pair | Canonical parse/signature, registry root, independently re-derived Result | IMPLEMENTED_AND_CONNECTED |
-| `result_registry` | Approved registry publisher | Manifest independently verified | Candidate `runtime-result-registry.json`, exact raw input | APP verified manifest -> signer capture -> operator material descriptor | Candidate length/hash; envelope authorizes exact registry hash | Independent root envelope + signer resolution; no candidate-root default | IMPLEMENTED_AND_CONNECTED |
-| `result_registry_envelope` | Approved independent registry-root signer | Manifest and envelope independently verified | Candidate `runtime-result-registry-envelope.json` | APP verified manifest -> signer capture -> operator material descriptor | Exact registry digest, root ID/SPKI, schema/domain/signature | Independent evidence-root pin, not a candidate-provided root | IMPLEMENTED_AND_CONNECTED |
-| `notary_registry` | Approved Notary publication owner | Key publication | Approved external raw file | Explicit material and external CLI input | Byte equality, key ID/serialized key, Presentation | Pinned registry and actual Notary signature | EXTERNAL_INPUT_REQUIRED |
-| `health` | Worker `/health` | Actual health observation for this approved service/version | Response not automatically saved as full role; APP metadata keeps a reduced unsigned observation | Existing APP observer is not connected to complete-role material collection | Result/root/Notary/Session/Binding identities and registry hashes | Cross-check against independent pins and verified Result; not a signed receipt | IMPLEMENTED_BUT_NOT_CONNECTED |
-| `session` | Worker Session Authority + DO | Authenticated owner proof accepted, binding issued | APP `session.json` | APP verified binding state -> writer -> finalizer override | Signed user/device/auth nonce/session/binding/challenge/times | External Session registry/key and receipt signature/context | IMPLEMENTED_AND_CONNECTED |
-| `authenticated_user` | Supabase authenticated-user service | Actual non-anonymous bearer validation | Worker observation is not saved as this role | No approved observation-to-material handoff | Externally pinned canonical user equals signed session/Result | Existing verifier checks external pin and signed graph; boolean alone is not independent authority | IMPLEMENTED_BUT_NOT_CONNECTED |
-| `device_identity` | WEB `user_devices` owner service | Approved owner/key/non-revoked observation | DB row; APP local identity explicitly UNVERIFIED | No approved owner observation/export for Bundle | Canonical owner/device, raw key hash, non-revoked state, session/Result | Independent device/user/key pins and proof/receipts | HUMAN_APPROVAL_REQUIRED |
-| `device_authentication` | WEB exact-owner proof API plus Worker session observation | Nonce signature accepted and HTTP 201 session issued | APP `device-authentication.json`; private DB proof audit; external role material still required | Matching handler/DB/consumer connected; complete external role collector still missing; finalizer compares external request with candidate | Nonce/device signature, exact captured request, Session receipt | Device signature and signed session/context; local acceptance JSON is not service proof | IMPLEMENTED_BUT_NOT_CONNECTED |
-| `possession_proof` | Registered device via APP | Current session/binding/device challenge available | APP `possession-proof.json` | APP writer -> finalizer override | Framed signature and both digest encodings | Pinned device key, current Result/session/challenge | IMPLEMENTED_AND_CONNECTED |
-| `consume_receipt` | Worker Binding Authority | Successful verified binding consumption | APP `consume-receipt.json`; outer response | APP writer -> finalizer override | Signed user/device/session/binding/nonce/Presentation hash/use time | External Binding registry/key, signature and context | IMPLEMENTED_AND_CONNECTED |
-| `replay` | Approved negative-observation collector, not implemented | Actual same-proof/context rejection | Required external role not produced by APP polling | No approved actual 409 acquisition/assembly path | Expected 409/error, current context and stored message digest | Canonical proof digests, session/device/binding and allowed rejection | NOT_IMPLEMENTED |
-| `session_authority_registry` | Approved Session authority key publisher | Key publication/rotation | Explicit raw file, not just health key fields | Operator material + independent CLI input | Byte equality and historical signer validity | Independently pinned key/registry and Session signature | EXTERNAL_INPUT_REQUIRED |
-| `binding_authority_registry` | Approved Binding authority key publisher | Key publication/rotation | Explicit raw file | Operator material + independent CLI input | Byte equality and historical signer validity | Independently pinned key/registry and consume signature | EXTERNAL_INPUT_REQUIRED |
-| `capture_metadata` | Real capture mapper | Actual capture start/finish and HTTP profile observations | APP `metadata.json` is a different schema | Partial source observation exists; complete role mapping not wired | Presentation digest, production/non-synthetic flags, fixed request/response profile/times | Existing metadata predicates and graph checks | IMPLEMENTED_BUT_NOT_CONNECTED |
-| `semantic_verification` | Independent actual-Presentation analysis writer not established | After real cryptographic/semantic derivation | Required external material not produced here | Rust re-derives/checks semantics but does not publish this input report | Exact Presentation size/hash, unsigned Result, disclosed ranges/member/Notary/profile | Re-derived authenticated transcript/Result and mandatory predicates | NOT_IMPLEMENTED |
-| `trust_root` | Independently approved Web PKI anchor owner | Trust-set approval | Explicit DER file, also supplied independently | Operator material + trust-anchor CLI option | Exact DER byte equality and actual TLS chain | TLSN Presentation server-certificate verifier | EXTERNAL_INPUT_REQUIRED |
-| `subject` | Verified capture/evidence-context writer not established | Derive current signed subject context | Required external material not assembled | No connected production writer | User/device/session/member/binding hashes match signed Result | Existing subject and trust-graph cross-checks | NOT_IMPLEMENTED |
+| Role | Actual generator / current storage | Representation and capture binding | Independent trust / verification | Classification |
+|---|---|---|---|---|
+| `presentation` | APP prover; candidate `presentation.bin`; Worker archive also stores exact raw bytes | Exact Presentation bytes; candidate ID, session and request context are in metadata | Notary publication, externally pinned Web PKI DER, observed canonical DNS identity and transcript verification | `AVAILABLE_AND_CONNECTED` |
+| `result` | Worker verifier/signer; candidate compact `result.json`; exact outer response is separate | Contract-defined canonical inner Result; V2/V3 binds exact Presentation and Production Inventory/Approval digest pair | Result registry/root/signature checks and independent Result derivation | `AVAILABLE_AND_CONNECTED` |
+| `result_registry` | Verified Runtime Config; candidate `runtime-result-registry.json` | Exact raw bytes from verified manifest input; candidate length/hash checked | Signed envelope and external evidence-root pin; candidate bytes are not a root pin | `AVAILABLE_AND_CONNECTED` |
+| `result_registry_envelope` | Verified Runtime Config; candidate `runtime-result-registry-envelope.json` | Exact raw envelope bytes | Envelope signature checked against external evidence-root ID/SPKI and exact registry digest | `AVAILABLE_AND_CONNECTED` |
+| `notary_registry` | Approved Notary publication; raw file must be supplied separately | Exact raw registry bytes; key ID must match the Presentation Notary key | Byte equality with external CLI pin and actual Notary signature | `EXTERNAL_INPUT_REQUIRED` |
+| `health` | APP fetches Worker `/health` once during proxy initialization, validates it against independently configured identity/version/Result registry pins, and attaches an immutable exact-body snapshot to capture context; candidate stores `worker-health.json` | Exact response body bytes, bounded to the existing 1 MiB APP Runtime Config artifact limit and recorded in candidate inventory by length/SHA-256; no reserialization | APP validation is not a signature; the finalizer passes the body to the existing verifier, which cross-checks Result and external registry identities/hashes | `AVAILABLE_AND_CONNECTED` |
+| `session` | Worker Session Authority; candidate `session.json` | Contract-defined JSON object with signed Session receipt; receipt binds user/device/auth nonce/session/binding/challenge/times | External Session registry/key and receipt signature/context | `AVAILABLE_AND_CONNECTED` |
+| `authenticated_user` | Supabase authenticated-user service; no authoritative role file is currently retained | Contract-defined user observation tied to the canonical user in Session/Result | External canonical-user pin; a local `authoritative` boolean is not a trust input | `EXTERNAL_INPUT_REQUIRED` |
+| `device_identity` | WEB `user_devices` owner service; APP local `device-identity.json` is explicitly `UNVERIFIED` | External owner/key/non-revoked observation tied to canonical user/device and current session | Independent device/user/key pins plus proof and receipts | `EXTERNAL_INPUT_REQUIRED` |
+| `device_authentication` | APP device signature and actual Worker Session issuance; candidate `device-authentication.json` | Contract-defined request/acceptance projection; nonce/device request is captured and bound to the signed Session receipt; not the raw HTTP body | Device signature, externally pinned device key, and signed Session/context verification | `AVAILABLE_AND_CONNECTED` |
+| `possession_proof` | Registered device via APP; candidate `possession-proof.json` | Contract-defined JSON with framed message digest/signature bound to session, device, binding and challenge | External device key pin and Ed25519 verification | `AVAILABLE_AND_CONNECTED` |
+| `consume_receipt` | Worker Binding Authority; candidate `consume-receipt.json` | Signed receipt object; binds subject/session/binding/nonce/Presentation hash/use time | External Binding registry/key, signature and context | `AVAILABLE_AND_CONNECTED` |
+| `replay` | Explicit offline collector uses the successful candidate proof and authenticated WEB read-only observation; not an APP candidate artifact | Exact 409 response body bytes, length and SHA-256 plus a role projection of the authority-stored proof digest/context and consume receipt Presentation ID | Verifier checks the response/projection bytes against the exact proof, user/device/session/binding/challenge and consume receipt; observation is unsigned | `SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED; REAL_OBSERVATION_NOT_CHECKED` |
+| `session_authority_registry` | Approved Session authority publisher; raw file is not in the seven Runtime Config materials | Exact raw JSON registry bytes | Exact byte equality with independent CLI input and historical key validity | `EXTERNAL_INPUT_REQUIRED` |
+| `binding_authority_registry` | Approved Binding authority publisher; raw file is not in the seven Runtime Config materials | Exact raw JSON registry bytes | Exact byte equality with independent CLI input and key/receipt verification | `EXTERNAL_INPUT_REQUIRED` |
+| `capture_metadata` | APP `FilesystemPresentationArtifactSink`; candidate `metadata.json` | Exact canonical JSON bytes; includes Presentation hash, capture ID, request profile and explicit unverified proxy provenance | Existing metadata predicates and trust-graph checks; proxy process authority remains unverified | `AVAILABLE_AND_CONNECTED` |
+| `semantic_verification` | Offline `finalize_candidate` producer; not an APP candidate artifact | Generates the existing report contract from the exact Presentation and Result facts re-derived by the shared independent verification core; records exact Presentation hash/length, disclosed ranges, member/Notary/profile and local verifier/time metadata | Report generation follows successful cryptographic, Web PKI/Notary, target-approval, registry/signature, Result-derivation and Session-binding checks; ordinary complete-Bundle verification then validates all 19 roles before publication. Provenance/time fields are not execution authority or external time proof. | `AVAILABLE_AND_CONNECTED` |
+| `trust_root` | Independently approved Web PKI owner; raw DER file supplied separately | Exact DER bytes used as the TLS trust anchor | Byte equality with independent trust-anchor option and actual Presentation certificate-chain verification | `EXTERNAL_INPUT_REQUIRED` |
+| `subject` | Finalizer derives from strict candidate Result parsing; no external file required | JSON serialization of SHA-256 values for canonical user/device/session/member/binding fields | Existing verifier rechecks every value against its independently verified signed Result | `AVAILABLE_AND_CONNECTED` |
 
 The independent verifier's 19-role requirement is now one private constant and
 one inventory check. A regression removes **each of the 19 roles** and requires
 the exact missing-role error. This inventory test is not a proof-verification
 success or a material generator.
+
+The candidate finalizer also has an actual-entry diagnostic regression. It
+loads a well-formed `NOT_CHECKED` material manifest, merges candidate-supplied
+roles, and reports the stable-order remainder of roles that cannot be generated;
+an absent `semantic_verification` is handled by the eligible offline producer.
+When both Result registry roles are absent, both are included, while a one-sided
+pair is rejected explicitly. Structural manifest/status/timestamp/predicate
+checks remain first. Role completeness is then reported before evidence-item
+artifact dependencies, and those dependencies are still required before
+publication.
+
+The full-path success regression uses only test-scoped, ephemeral values: an
+in-process duplex TLSN Presentation generated with a test CA/server certificate
+and Notary key, plus temporary Result, registry, Session/Binding, device,
+receipt, and trust-root material. The semantic report is intentionally absent
+from the successful input and is built only after the actual independent
+verification core succeeds. Its test-only Worker health body is supplied by
+the candidate health artifact; the normal verifier checks the health role's
+Result, registry, server, and authority identity bindings. The fixture also
+exercises the external-health fallback and rejects candidate/external byte
+disagreement. It calls the real `finalize_candidate`, checks all 19 published
+raw artifacts against their lengths and digests, then uses ordinary
+`verify_bundle` to independently re-read and verify that output. Complete and
+Sparse Result cases are covered, without inventing full Sparse transcript
+digests. Negative variants reject role absence and foreign session/user/device
+context, Presentation/Result mutation, trust-root and Notary-pin mismatch,
+profile and target-identity mismatch, an invalid supplied semantic report, and
+missing or mismatched candidate receipt bytes without publishing output. These
+schema-valid synthetic fixtures are **not** Production materials, approved
+authorities, or service observations; they do not establish real Production
+finalization. Overall, Production-evidence, P0-05, Stage A/B/C, and Production
+acceptance statuses remain **BLOCKED**.
+
+The Complete and Sparse success regressions also pass each actual finalized
+manifest and semantic report to the Worker's Node
+`assertProductionEvidenceManifest` contract. This checks Rust/Node schema
+compatibility on published output in addition to Rust's independent Bundle
+verification. Sparse trust-graph member identity uses the v2 sparse response
+parser authority; Complete retains the v1 response parser authority. These
+local synthetic checks do not imply Hosted CI success or Production readiness.
 
 ### Auxiliary inputs and collector boundaries
 
@@ -347,10 +429,23 @@ success or a material generator.
   registries/key IDs/SPKIs, Web PKI DER, profile digests and verifier key ID must
   all come from approved independent sources. Runtime Config trust is not
   automatically the Result-registry evidence root.
-* APP supplies five override roles; the other fourteen descriptors/bytes and
-  full manifest/evidence predicates must already exist in approved material.
-  Candidate device identity, reduced health metadata, local delivery status or
-  semantic assertions cannot be copied into an authoritative role.
+* APP candidate capture connects eleven roles: the five existing capture overrides,
+  `device_authentication`, `capture_metadata`, exact Result registry/envelope,
+  the exact `worker-health.json` response body, and a `subject` projection
+  derived from the candidate Result. Candidate role descriptors are added to
+  the in-memory manifest when absent; any supplied descriptor for the same role
+  must match the exact candidate bytes. Candidate identity declarations and
+  unsigned health bytes are not trust anchors.
+* Offline `finalize_candidate` generates the semantic report as one additional
+  role after actual Presentation/Result verification. The report comes from
+  re-derived facts, not candidate declarations or fixture constants; the
+  ordinary strict verifier still requires and rechecks all 19 roles before
+  publishing.
+* Six roles still require independently sourced material. Replay has an
+  explicit offline collection source, but no real Production replay response
+  has been acquired. Its response is unsigned and must not be presented as a
+  signed authority receipt. No missing role is replaced with a placeholder or
+  success flag.
 * A new, connected **partial collector** retains seven verified public inputs:
   signed Runtime Config envelope, Worker reference, Origin Inventory, Target
   Approval, security registry set, exact Result registry and its signed envelope.
@@ -360,14 +455,14 @@ success or a material generator.
   its manifest, including each exact byte length/hash. No reserialization,
   new endpoint, secret export or nineteenth-role replacement is used.
   Capture accepts only those seven names, nonempty files and a 16 MiB aggregate
-  snapshot bound. The finalizer still has **five**, not six, APP overrides:
-  external authentication is not replaced with the same local file it checks.
-  Operators can collect the two registry roles and Inventory/Approval from these
-  snapshots, but independent CLI trust pins and byte equality remain mandatory.
+  snapshot bound. The exact Result registry and envelope now flow from candidate
+  capture directly into the finalizer; Inventory/Approval remain separate
+  independent CLI inputs. Registry/root pins and byte equality remain mandatory.
   These files are not a complete Bundle or an execution/delivery receipt.
-* No duplicate role reuse is implemented: candidate `metadata.json` is not
-  `capture_metadata`; APP `device-identity.json` is not authoritative
-  `device_identity`; Worker archived outer JSON is not inner `result`.
+* Candidate `metadata.json` is now the source for `capture_metadata` because
+  its exact schema satisfies the existing role predicates. APP
+  `device-identity.json` is still not authoritative `device_identity`; Worker
+  archived outer JSON is still not inner `result`.
 * Worker archive currently contains raw Presentation, exact outer response and
   authority catalog/generation context, not all nineteen materials. Status
   retrieval preserves authoritative bytes, not a complete Bundle.
@@ -378,8 +473,12 @@ success or a material generator.
   a trusted verifier interface, not a real missing-material producer.
 * No new collector is implemented against an unapproved endpoint. Local file
   acquisition and finalization already exist. Actual owner observations,
-  replay evidence, complete metadata/semantic/subject assembly and coordinated
-  snapshot provenance still need an approved, connected collection contract.
+  replay evidence, external trust pins and coordinated snapshot provenance
+  still need approved, connected collection contracts. The semantic report is
+  generated offline from successful independent verification, but it does not
+  supply missing external authorities. Candidate metadata and the
+  Result-derived subject projection are connected, but they do not supply these
+  missing authorities.
 
 ## 5. Receipt guarantees must remain distinct
 

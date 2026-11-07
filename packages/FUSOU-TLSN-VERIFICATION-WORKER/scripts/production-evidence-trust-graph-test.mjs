@@ -88,6 +88,12 @@ for (const mode of ["complete", "sparse"]) {
     assert.equal(nodes.get("result").identity.result_sha256, digest(inputs.resultBytes));
     assert.equal(nodes.get("session").identity.binding_sha256, nodes.get("presentation").identity.binding_sha256);
     assert.equal(nodes.get("binding").identity.binding_sha256, nodes.get("presentation").identity.binding_sha256);
+    assert.equal(
+      nodes.get("member-id").authority,
+      mode === "sparse"
+        ? "fusou-require-info-v2-sparse-response-parser"
+        : "fusou-require-info-v1-response-parser",
+    );
     assert.equal(nodes.get("production-proxy").identity.cryptographic_status, "UNVERIFIED");
     assert.equal(nodes.get("remote-attestation").identity.status, "UNVERIFIED");
     const edge = graph.edges.find(({ id }) => id === "session-binding-authenticates-presentation");

@@ -150,7 +150,6 @@ export async function authenticateTlsnDeviceProof(
   proof: PossessionProof,
   endpoint: string,
   replayDigestHex: string,
-  expectedReplayDigestHex?: string,
   fetcher: typeof fetch = fetch,
 ): Promise<DevicePossessionAuthenticationResult> {
   if (!/^[a-f0-9]{64}$/.test(replayDigestHex)) {
@@ -180,14 +179,6 @@ export async function authenticateTlsnDeviceProof(
         return { ok: false, status: 409, error: "device_possession_revoked" };
       }
       if (response.status === 409 && error === "device_proof_replayed") {
-        if (replayDigestHex === expectedReplayDigestHex) {
-          return {
-            ok: true,
-            canonicalUserId: subject.canonicalUserId,
-            deviceId: proof.device_id,
-            replayDigestHex,
-          };
-        }
         return { ok: false, status: 409, error: "device_possession_replayed" };
       }
       if (response.status >= 500) {

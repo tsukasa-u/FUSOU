@@ -40,6 +40,13 @@ function rpcSql(body: Record<string, unknown>): string {
   )`;
 }
 
+function replayObservationSql(body: Record<string, unknown>): string {
+  return `SELECT public.rpc_observe_tlsn_device_proof_replay(
+    ${["p_user_id", "p_device_id", "p_expected_key", "p_proof_digest", "p_session_id",
+      "p_binding_sha256", "p_challenge_sha256"].map((key) => literal(body[key])).join(",")}
+  )`;
+}
+
 async function databaseFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   const url = new URL(request.url);
@@ -66,6 +73,9 @@ async function databaseFetch(input: RequestInfo | URL, init?: RequestInit): Prom
     consumeCalls++;
     beforeConsume?.();
     return Response.json(db.sql(rpcSql(body as Record<string, unknown>)));
+  }
+  if (url.pathname === "/rest/v1/rpc/rpc_observe_tlsn_device_proof_replay") {
+    return Response.json(JSON.parse(db.sql(replayObservationSql(body as Record<string, unknown>))));
   }
   throw new Error(`unexpected local adapter path: ${url.pathname}`);
 }
@@ -104,6 +114,18 @@ function post(path: string, body: unknown, token = "offline-test-only") {
   }, environment);
 }
 
+function postReplayObservation(proof: unknown, token = "offline-test-only") {
+  return app.request("/anonymous-sync/v2/tlsn-device-proof", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "X-FUSOU-TLSN-Replay-Observation": "true",
+    },
+    body: JSON.stringify(proof),
+  }, environment);
+}
+
 beforeAll(async () => { await db.start(); }, 30_000);
 afterAll(() => { vi.unstubAllGlobals(); db.stop(); });
 beforeEach(() => {
@@ -137,13 +159,89 @@ describe("actual owner handlers, signatures, PostgreSQL transactions and Worker 
     const digest = Buffer.from(await crypto.subtle.digest("SHA-256",
       new Uint8Array(tlsnDeviceProofSigningBytes(proof, Buffer.from(proof.challenge, "base64url"))))).toString("hex");
     expect(await authenticateTlsnDeviceProof(subject, proof, endpoint("tlsn-device-proof"),
-      digest, undefined, handlerFetch)).toEqual({
+      digest, handlerFetch)).toEqual({
       ok: true, canonicalUserId: userId, deviceId, replayDigestHex: digest,
     });
     expect(await authenticateTlsnDeviceProof(subject, proof, endpoint("tlsn-device-proof"),
-      digest, undefined, handlerFetch)).toMatchObject({
+      digest, handlerFetch)).toMatchObject({
       ok: false, status: 409, error: "device_possession_replayed",
     });
+  });
+
+  it("observes only the exact stored proof row without consuming or changing it", async () => {
+    const proof = possessionProof();
+    expect((await post("tlsn-device-proof", proof)).status).toBe(200);
+    const consumptionCount = db.sql("SELECT count(*) FROM public.tlsn_device_proof_consumptions");
+    const proofDigest = Buffer.from(await crypto.subtle.digest("SHA-256",
+      new Uint8Array(tlsnDeviceProofSigningBytes(proof, Buffer.from(proof.challenge, "base64url"))))).toString("hex");
+    const bindingDigest = Buffer.from(await crypto.subtle.digest("SHA-256",
+      new TextEncoder().encode(proof.binding_value))).toString("hex");
+    const challenge = Buffer.from(proof.challenge, "base64url");
+    const challengeDigest = Buffer.from(await crypto.subtle.digest("SHA-256", challenge)).toString("hex");
+
+    const response = await postReplayObservation(proof);
+    expect(response.status).toBe(409);
+    const body = await response.json() as { error: string; stored_proof: Record<string, unknown> };
+    expect(body.error).toBe("device_proof_replayed");
+    expect(body.stored_proof).toMatchObject({
+      canonical_user_id: userId,
+      device_id: deviceId,
+      proof_kind: "possession",
+      proof_digest: proofDigest,
+      session_id: sessionId,
+      binding_sha256: bindingDigest,
+      challenge_sha256: challengeDigest,
+    });
+    expect(Number.isFinite(Date.parse(String(body.stored_proof["consumed_at"])))).toBe(true);
+    expect(consumeCalls).toBe(1);
+    expect(db.sql("SELECT count(*) FROM public.tlsn_device_proof_consumptions")).toBe(consumptionCount);
+  });
+
+  it("does not consume an unused proof during replay observation", async () => {
+    const response = await postReplayObservation(possessionProof());
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "device_proof_not_consumed" });
+    expect(consumeCalls).toBe(0);
+    expect(db.sql("SELECT count(*) FROM public.tlsn_device_proof_consumptions")).toBe("0");
+  });
+
+  it("does not disclose stored state for another signed proof context", async () => {
+    const consumedProof = possessionProof();
+    expect((await post("tlsn-device-proof", consumedProof)).status).toBe(200);
+    const challenge = Buffer.alloc(32, 8);
+    const changedContext = {
+      ...consumedProof,
+      binding_value: "another-binding",
+      challenge: challenge.toString("base64url"),
+    };
+    const changedProof = {
+      ...changedContext,
+      sig: signature(tlsnDeviceProofSigningBytes(changedContext, challenge)),
+    };
+    const response = await postReplayObservation(changedProof);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "device_proof_not_consumed" });
+    expect(consumeCalls).toBe(1);
+  });
+
+  it("does not disclose a stored proof to another authenticated user", async () => {
+    const proof = possessionProof();
+    expect((await post("tlsn-device-proof", proof)).status).toBe(200);
+    authUser = { id: otherUser, is_anonymous: false };
+    const response = await postReplayObservation(proof);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "device_owner_mismatch" });
+    expect(consumeCalls).toBe(1);
+  });
+
+  it("checks revocation before exposing a replay observation", async () => {
+    const proof = possessionProof();
+    expect((await post("tlsn-device-proof", proof)).status).toBe(200);
+    db.sql(`UPDATE public.user_devices SET revoked_at=now(),revoked_reason='offline-test'`);
+    const response = await postReplayObservation(proof);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "device_revoked" });
+    expect(consumeCalls).toBe(1);
   });
 
   it.each(["device-proof", "tlsn-device-proof"])("rejects absent bearer at %s", async (path) => {

@@ -25,9 +25,54 @@ test("source assessment neither authorizes gameplay nor waives the retained rece
   const stages = testplayAcceptanceStages();
   assert.equal(stages.gameplay_authorized, false);
   assert.deepEqual(stages.IDENTITY_BOUND_TESTPLAY.code_blockers, [
-    "complete_19_role_evidence_bundle_collection_not_connected",
+    "six_required_external_evidence_roles_not_acquired",
     "candidate_execution_receipt_gate_retained",
   ]);
+  assert.deepEqual(stages.IDENTITY_BOUND_TESTPLAY.material_collection, {
+    status: "BLOCKED",
+    required_role_count: 19,
+    candidate_roles_connected: [
+      "presentation",
+      "result",
+      "result_registry",
+      "result_registry_envelope",
+      "health",
+      "session",
+      "device_authentication",
+      "possession_proof",
+      "consume_receipt",
+      "capture_metadata",
+      "subject",
+    ],
+    offline_generated_roles: ["semantic_verification"],
+    offline_collection_source_roles: ["replay"],
+    available_but_not_connected_roles: [],
+    external_input_required_roles: [
+      "notary_registry",
+      "authenticated_user",
+      "device_identity",
+      "session_authority_registry",
+      "binding_authority_registry",
+      "trust_root",
+    ],
+    source_not_implemented_roles: [],
+    additional_external_trust_inputs: [
+      "origin_inventory_and_target_approval_raw_bytes",
+      "evidence_root_key_id_and_public_key",
+      "canonical_user_and_device_public_key_pins",
+      "profile_hashes_and_verifier_key_id",
+    ],
+  });
+  assert.deepEqual(stages.IDENTITY_BOUND_TESTPLAY.replay_observation_collection, {
+    source_implementation: "IMPLEMENTED",
+    local_authority_and_mock_validation: "VERIFIED",
+    production_rejection_observation: "NOT_CHECKED",
+    observation_authority: "UNSIGNED",
+    origin_request_or_retry: "NOT_PERFORMED",
+  });
+  assert.ok(!stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes(
+    "complete_19_role_evidence_bundle_collection_not_connected",
+  ));
   assert.ok(!stages.IDENTITY_BOUND_TESTPLAY.code_blockers.includes(
     "authority_issued_logical_origin_attempt_reservation_missing",
   ));

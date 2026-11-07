@@ -400,7 +400,7 @@ fn map_response_read_error(error: std::io::Error) -> ProverTransportError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::experimental::{ExperimentalRequireInfoEvidence, ExperimentalRequireInfoProbe};
     use crate::parse_binding_value;
@@ -501,20 +501,28 @@ mod tests {
     }
 
     fn actual_request(binding: &str) -> Vec<u8> {
+        actual_request_for(SERVER_IDENTITY, binding)
+    }
+
+    fn actual_request_for(server_identity: &str, binding: &str) -> Vec<u8> {
         format!(
-            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {SERVER_IDENTITY}\r\nX-Attestation-Binding: {binding}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {server_identity}\r\nX-Attestation-Binding: {binding}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         )
         .into_bytes()
     }
 
     fn server_credentials() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        server_credentials_for(SERVER_IDENTITY)
+    }
+
+    fn server_credentials_for(server_identity: &str) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         let mut root_params = CertificateParams::default();
         root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         root_params.key_usages = vec![KeyUsagePurpose::KeyCertSign];
         let root_key_pair = KeyPair::generate().unwrap();
         let root_certificate = root_params.self_signed(&root_key_pair).unwrap();
 
-        let mut server_params = CertificateParams::new(vec![SERVER_IDENTITY.to_owned()]).unwrap();
+        let mut server_params = CertificateParams::new(vec![server_identity.to_owned()]).unwrap();
         server_params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
         let server_key_pair = KeyPair::generate().unwrap();
@@ -556,8 +564,7 @@ mod tests {
             }
         }
 
-        let body =
-            b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}}}";
+        let body = b"svdata={\"api_result\":1,\"api_data\":{\"api_basic\":{\"api_member_id\":16189463}},\"fixture_opaque\":\"not disclosed\"}";
         let mut response = if chunked {
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n"
                 .to_vec()
@@ -592,6 +599,239 @@ mod tests {
         }
         stream.shutdown().await.unwrap();
         (request, response)
+    }
+
+    pub(crate) struct SyntheticPresentation {
+        pub(crate) presentation: Vec<u8>,
+        pub(crate) trust_anchor_der: Vec<u8>,
+        pub(crate) notary_key: Vec<u8>,
+    }
+
+    pub(crate) async fn build_synthetic_presentation(
+        server_identity: &str,
+        sparse_disclosure: bool,
+    ) -> SyntheticPresentation {
+        let binding = binding_value();
+        let probe = ExperimentalRequireInfoProbe::from_actual_request(
+            server_identity,
+            &parse_binding_value(&binding).unwrap(),
+            actual_request_for(server_identity, &binding),
+        )
+        .unwrap();
+        let expected_request = probe.request().to_vec();
+        let (root_certificate, server_certificate, private_key) =
+            server_credentials_for(server_identity);
+        let root_store = RootCertStore {
+            roots: vec![CertificateDer(root_certificate.clone())],
+        };
+        let proxy_config = ProxyTlsConfig::builder()
+            .server_name(DnsName::try_from(server_identity).unwrap())
+            .build()
+            .unwrap();
+        let (prover_socket, verifier_socket) = tokio::io::duplex(2 << 23);
+        let mut prover_session = Session::new(prover_socket.compat());
+        let mut verifier_session = Session::new(verifier_socket.compat());
+        let prover = prover_session
+            .new_prover(ProverConfig::builder().build().unwrap())
+            .unwrap();
+        let verifier = verifier_session
+            .new_verifier(
+                VerifierConfig::builder()
+                    .root_store(root_store.clone())
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+        let (prover_driver, prover_handle) = prover_session.split();
+        let (verifier_driver, verifier_handle) = verifier_session.split();
+        tokio::spawn(prover_driver);
+        tokio::spawn(verifier_driver);
+
+        let (origin_socket, verifier_origin_socket) = tokio::io::duplex(2 << 16);
+        let origin_task = tokio::spawn(serve_origin(
+            origin_socket,
+            server_certificate,
+            private_key,
+            false,
+            None,
+        ));
+        let prover_root_store = root_store.clone();
+        let prover_server_identity = server_identity.to_owned();
+        let attestation_server_identity = server_identity.to_owned();
+        let prover_task = tokio::spawn(async move {
+            let prover = prover.commit(proxy_config).await.unwrap();
+            let (connection, prover) = prover
+                .connect(
+                    TlsClientConfig::builder()
+                        .server_name(ServerName::Dns(
+                            DnsName::try_from(prover_server_identity.as_str()).unwrap(),
+                        ))
+                        .root_store(prover_root_store)
+                        .build()
+                        .unwrap(),
+                )
+                .unwrap();
+            let prover_task = tokio::spawn(prover.into_future());
+            let evidence = probe.run(connection).await.unwrap();
+            let mut prover = prover_task.await.unwrap().unwrap();
+            let sent_len = prover.transcript().sent().len();
+            let received_len = prover.transcript().received().len();
+            let response_ranges = if sparse_disclosure {
+                let ranges = crate::plan_require_info_response_sparse_ranges(
+                    &evidence.response,
+                    &crate::ParserLimits::default(),
+                )
+                .unwrap();
+                assert!(
+                    ranges.iter().map(std::ops::Range::len).sum::<usize>()
+                        < evidence.response.len(),
+                    "synthetic sparse Presentation must omit opaque response bytes"
+                );
+                ranges
+            } else {
+                vec![0..received_len]
+            };
+            let mut transcript_commit = TranscriptCommitConfig::builder(prover.transcript());
+            transcript_commit.commit_sent(0..sent_len).unwrap();
+            for range in &response_ranges {
+                transcript_commit.commit_recv(range.clone()).unwrap();
+            }
+            let mut prove_config = ProveConfig::builder(prover.transcript());
+            prove_config.transcript_commit(transcript_commit.build().unwrap());
+            prove_config.server_identity();
+            prove_config.reveal_sent(0..sent_len).unwrap();
+            for range in &response_ranges {
+                prove_config.reveal_recv(range.clone()).unwrap();
+            }
+            let prove_config = prove_config.build().unwrap();
+            let prover_output = prover.prove(&prove_config).await.unwrap();
+            let prover_transcript = prover.transcript().clone();
+            let tls_transcript = prover.tls_transcript().clone();
+            prover.close().await.unwrap();
+
+            let tlsn::prover::ProverOutput {
+                transcript_commitments,
+                transcript_secrets,
+            } = prover_output;
+            let request_config = RequestConfig::builder().build().unwrap();
+            let mut request_builder = AttestationRequest::builder(&request_config);
+            request_builder
+                .server_name(ServerName::Dns(
+                    DnsName::try_from(attestation_server_identity.as_str()).unwrap(),
+                ))
+                .handshake_data(HandshakeData {
+                    certs: tls_transcript
+                        .server_cert_chain()
+                        .expect("server cert chain is present")
+                        .to_vec(),
+                    sig: tls_transcript
+                        .server_signature()
+                        .expect("server signature is present")
+                        .clone(),
+                    binding: tls_transcript.certificate_binding().clone(),
+                })
+                .transcript(prover_transcript)
+                .transcript_commitments(transcript_secrets, transcript_commitments);
+            let (attestation_request, secrets) =
+                request_builder.build(&CryptoProvider::default()).unwrap();
+            (evidence, attestation_request, secrets, tls_transcript)
+        });
+        let verifier_task = tokio::spawn(async move {
+            let verifier = verifier.commit().await.unwrap();
+            let VerifierCommitStart::Proxy(verifier) = verifier else {
+                panic!("expected proxy verifier");
+            };
+            let verifier = verifier
+                .accept()
+                .await
+                .unwrap()
+                .run(verifier_origin_socket.compat())
+                .await
+                .unwrap();
+            let (output, verifier) = verifier.verify().await.unwrap().accept().await.unwrap();
+            verifier.close().await.unwrap();
+            output
+        });
+
+        let (prover_result, verifier_result) = tokio::join!(prover_task, verifier_task);
+        let (_evidence, attestation_request, secrets, tls_transcript) = prover_result.unwrap();
+        let verifier_output = verifier_result.unwrap();
+        let (origin_request, origin_response) = origin_task.await.unwrap();
+        assert_eq!(origin_request, expected_request);
+        assert_eq!(origin_response, _evidence.response);
+        assert_eq!(_evidence.request, origin_request);
+        prover_handle.close();
+        verifier_handle.close();
+
+        let mut provider = CryptoProvider::default();
+        provider.cert = ServerCertVerifier::new(&root_store).unwrap();
+        provider.signer.set_secp256k1(&[1_u8; 32]).unwrap();
+        let mut attestation_config = AttestationConfig::builder();
+        attestation_config
+            .supported_signature_algs(Vec::from_iter(provider.signer.supported_algs()));
+        let attestation_config = attestation_config.build().unwrap();
+        let CertBinding::V1_2(cert_binding) = tls_transcript.certificate_binding() else {
+            panic!("unsupported certificate binding version");
+        };
+        let sent_len = tls_transcript
+            .sent()
+            .iter()
+            .filter_map(|record| {
+                (record.typ == ContentType::ApplicationData).then_some(record.ciphertext.len())
+            })
+            .sum::<usize>();
+        let received_len = tls_transcript
+            .recv()
+            .iter()
+            .filter_map(|record| {
+                (record.typ == ContentType::ApplicationData).then_some(record.ciphertext.len())
+            })
+            .sum::<usize>();
+        let mut attestation_builder = Attestation::builder(&attestation_config)
+            .accept_request(attestation_request.clone())
+            .unwrap();
+        attestation_builder
+            .connection_info(ConnectionInfo {
+                time: tls_transcript.time(),
+                version: tls_transcript.version(),
+                transcript_length: TranscriptLength {
+                    sent: sent_len as u32,
+                    received: received_len as u32,
+                },
+            })
+            .server_ephemeral_key(cert_binding.server_ephemeral_key.clone())
+            .transcript_commitments(verifier_output.transcript_commitments);
+        let attestation = attestation_builder.build(&provider).unwrap();
+        attestation_request
+            .validate(&attestation, &provider)
+            .unwrap();
+        let mut presentation_builder = Presentation::builder(&provider, &attestation);
+        presentation_builder.identity_proof(secrets.identity_proof());
+        let mut transcript_proof = secrets.transcript_proof_builder();
+        transcript_proof
+            .reveal_sent(0..secrets.transcript().sent().len())
+            .unwrap();
+        if sparse_disclosure {
+            let response_ranges = crate::plan_require_info_response_sparse_ranges(
+                &_evidence.response,
+                &crate::ParserLimits::default(),
+            )
+            .unwrap();
+            for range in response_ranges {
+                transcript_proof.reveal_recv(range).unwrap();
+            }
+        } else {
+            transcript_proof
+                .reveal_recv(0..secrets.transcript().received().len())
+                .unwrap();
+        }
+        presentation_builder.transcript_proof(transcript_proof.build().unwrap());
+        let presentation = presentation_builder.build().unwrap();
+        SyntheticPresentation {
+            presentation: bincode::serialize(&presentation).unwrap(),
+            trust_anchor_der: root_certificate,
+            notary_key: bincode::serialize(presentation.verifying_key()).unwrap(),
+        }
     }
 
     #[test]

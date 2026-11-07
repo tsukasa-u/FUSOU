@@ -13,6 +13,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt, fs,
     path::{Component, Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 pub mod finalization;
@@ -56,6 +57,8 @@ const ALPHA15_K256_PUBLIC_KEY_LENGTH: u64 = 33;
 const KEY_ID_MAX_LENGTH: usize = 128;
 const PRODUCTION_SEMANTIC_SCHEMA_VERSION: u64 = 2;
 const PRODUCTION_SEMANTIC_KIND: &str = "tlsn-production-semantic-verification";
+const OFFLINE_SEMANTIC_VERIFIER_IDENTITY: &str = "fusou-tlsn-verifier-offline-finalizer";
+const OFFLINE_SEMANTIC_SOURCE: &str = "offline_finalizer";
 const ORIGIN_INVENTORY_SOURCE: &str =
     "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
 const TARGET_APPROVAL_AUTHORITY_MODEL: &str = "FUSOU_DEPLOYMENT_OPERATOR";
@@ -416,9 +419,37 @@ pub fn verify_bundle_bytes(bytes: BundleBytes, options: &BundleVerifierOptions) 
 }
 
 fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) -> Result<Value> {
-    validate_manifest(&bundle.manifest)?;
-    require_bundle_artifacts(bundle)?;
+    verify_loaded_bundle_with_status(bundle, options, "VERIFIED")
+}
 
+fn verify_material_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) -> Result<Value> {
+    verify_loaded_bundle_with_status(bundle, options, "NOT_CHECKED")
+}
+
+fn verify_loaded_bundle_with_status(
+    bundle: &LoadedBundle,
+    options: &BundleVerifierOptions,
+    required_verification_status: &str,
+) -> Result<Value> {
+    validate_manifest(&bundle.manifest, required_verification_status)?;
+    require_bundle_artifacts(bundle)?;
+    validate_manifest_artifact_dependencies(&bundle.manifest)?;
+
+    let verified = verify_bundle_core(bundle, options, true)?;
+    Ok(verified.report)
+}
+
+struct VerifiedBundleCore {
+    report: Value,
+    derived_result: ParsedVerifierResult,
+    notary_key: Vec<u8>,
+}
+
+fn verify_bundle_core(
+    bundle: &LoadedBundle,
+    options: &BundleVerifierOptions,
+    require_semantic_artifact: bool,
+) -> Result<VerifiedBundleCore> {
     let presentation = artifact_bytes(&bundle, "presentation")?;
     let result_bytes = artifact_bytes(&bundle, "result")?;
     let registry_raw = artifact_bytes(&bundle, "result_registry")?;
@@ -604,6 +635,15 @@ fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) 
             result_view.server_identity(),
         ));
     }
+    if authenticated.server_identity() != options.server_identity {
+        return Err(BundleVerificationError::mismatch(
+            "server_identity",
+            Some("presentation"),
+            "authenticated Presentation server identity does not match the external verifier configuration",
+            &options.server_identity,
+            authenticated.server_identity(),
+        ));
+    }
     verify_result_presentation_binding(result_view.presentation_sha256(), presentation)?;
     if result_view.profile_sha256() != &profile_sha256
         || result_view.verifier_key_id() != options.verifier_key_id
@@ -677,7 +717,9 @@ fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) 
         &options.binding_authority_key_id,
         &options.binding_authority_public_key_spki,
     )?;
-    verify_semantic_artifact(&bundle, result_view, &notary_key)?;
+    if require_semantic_artifact {
+        verify_semantic_artifact(bundle, result_view, &notary_key)?;
+    }
     verify_capture_metadata(&bundle, presentation)?;
     verify_health_identities(
         &bundle,
@@ -721,9 +763,12 @@ fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) 
         "derived": {
             "result_signer_key_id": resolved_key.key_id,
             "result_signing_key_status": resolved_key.status,
+            "result_signature_valid": true,
+            "result_public_key_spki": resolved_key.public_key_spki,
             "result_key_registry_sha256": registry_sha256,
             "result_key_registry_envelope_sha256": sha256_base64url(envelope_raw),
             "result_registry_root_key_id": object_string(&envelope, "root_key_id", "result_registry_root", "result_registry_envelope")?,
+            "result_registry_root_public_key_spki": object_string(&envelope, "root_public_key_spki", "result_registry_root", "result_registry_envelope")?,
             "notary_key_id": notary_key_id,
             "notary_key_sha256": sha256_base64url(&notary_key),
             "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(result_view.tlsn_attestation_id()),
@@ -740,7 +785,570 @@ fn verify_loaded_bundle(bundle: &LoadedBundle, options: &BundleVerifierOptions) 
     } else {
         report["derived"]["disclosure_mode"] = Value::String("sparse".to_owned());
     }
-    Ok(report)
+    Ok(VerifiedBundleCore {
+        report,
+        derived_result,
+        notary_key,
+    })
+}
+
+fn generate_semantic_verification_for_finalization(
+    bundle: &mut LoadedBundle,
+    options: &BundleVerifierOptions,
+) -> Result<()> {
+    if bundle.artifacts.contains_key("semantic_verification")
+        || bundle.manifest["artifacts"]
+            .as_object()
+            .is_some_and(|artifacts| artifacts.contains_key("semantic_verification"))
+    {
+        return Err(BundleVerificationError::new(
+            "semantic_verification",
+            Some("manifest"),
+            "refusing to replace declared external semantic verification material",
+        ));
+    }
+
+    validate_manifest_for_semantic_generation(&bundle.manifest, "NOT_CHECKED")?;
+    require_bundle_artifacts_except_semantic_verification(bundle)?;
+    validate_manifest_artifact_dependencies_except_semantic_verification(&bundle.manifest)?;
+
+    let verified = verify_bundle_core(bundle, options, false)?;
+    let presentation = artifact_bytes(bundle, "presentation")?;
+    let semantic = build_semantic_verification(&verified, presentation)?;
+    let semantic_raw = serde_json::to_vec(&semantic).map_err(|error| {
+        BundleVerificationError::new(
+            "semantic_verification",
+            Some("semantic_verification"),
+            format!("generated semantic report serialization failed: {error}"),
+        )
+    })?;
+    let verifier_identity = semantic["verifier_identity"]
+        .as_str()
+        .expect("generated verifier identity is a string");
+    let verified_at = semantic["verified_at"]
+        .as_str()
+        .expect("generated verification timestamp is a string");
+    bundle.manifest["semantic_predicates"] = semantic["predicates"].clone();
+    bundle.manifest["semantic_verification"] = serde_json::json!({
+        "status": "VERIFIED",
+        "artifact": "semantic_verification",
+        "verifier_identity": verifier_identity,
+        "verified_at": verified_at,
+        "source": OFFLINE_SEMANTIC_SOURCE,
+    });
+    bundle.manifest["artifacts"]["semantic_verification"] = serde_json::json!({
+        "path": "artifacts/semantic_verification.bin",
+        "artifact_sha256": sha256_base64url(&semantic_raw),
+        "byte_length": semantic_raw.len(),
+        "provenance": OFFLINE_SEMANTIC_SOURCE,
+    });
+    bundle.artifacts.insert(
+        "semantic_verification".to_owned(),
+        Artifact {
+            bytes: semantic_raw,
+        },
+    );
+    Ok(())
+}
+
+fn build_semantic_verification(
+    verified: &VerifiedBundleCore,
+    presentation: &[u8],
+) -> Result<Value> {
+    let result = verified.derived_result.view();
+    let presentation_sha256 = sha256_base64url(presentation);
+    let unsigned_result = parse_json(
+        result.unsigned_canonical_json()?.as_bytes(),
+        "result",
+        "semantic_verification",
+    )?;
+    let mut derived_from_presentation = serde_json::json!({
+        "presentation_sha256": presentation_sha256,
+        "tlsn_attestation_id": URL_SAFE_NO_PAD.encode(result.tlsn_attestation_id()),
+        "server_identity": result.server_identity(),
+        "notary_key_sha256": sha256_base64url(&verified.notary_key),
+        "verified_member_id": result.verified_member_id(),
+        "request_transcript_size": result.request_transcript_size().to_string(),
+        "response_transcript_size": result.response_transcript_size().to_string(),
+        "revealed_request_ranges": revealed_ranges_value(result.revealed_request_ranges()),
+        "revealed_response_ranges": revealed_ranges_value(result.revealed_response_ranges()),
+    });
+    if let Some((request_digest, response_digest)) = result.full_transcript_sha256() {
+        derived_from_presentation["request_transcript_sha256"] =
+            Value::String(URL_SAFE_NO_PAD.encode(request_digest));
+        derived_from_presentation["response_transcript_sha256"] =
+            Value::String(URL_SAFE_NO_PAD.encode(response_digest));
+    }
+    let verified_at = current_rfc3339_timestamp()?;
+    let http_profile = serde_json::json!({
+        "request_method": "POST",
+        "request_target": crate::REQUIRE_INFO_TARGET,
+        "request_http_version": "HTTP/1.1",
+        "response_status_line": "HTTP/1.1 200 OK",
+        "response_member_path": "svdata.api_data.api_basic.api_member_id",
+        "host": result.server_identity(),
+    });
+    let predicates = verified_semantic_predicates(
+        verified,
+        presentation,
+        &unsigned_result,
+        &http_profile,
+        &verified_at,
+    )?;
+    Ok(serde_json::json!({
+        "schema_version": PRODUCTION_SEMANTIC_SCHEMA_VERSION,
+        "kind": PRODUCTION_SEMANTIC_KIND,
+        "status": "VERIFIED",
+        "verifier_identity": OFFLINE_SEMANTIC_VERIFIER_IDENTITY,
+        "verified_at": verified_at,
+        "generation_origin": OFFLINE_SEMANTIC_SOURCE,
+        "input": {
+            "presentation_sha256": presentation_sha256,
+            "presentation_size_bytes": presentation.len(),
+        },
+        "semantic_result": unsigned_result,
+        "derived_from_presentation": derived_from_presentation,
+        "http_profile": http_profile,
+        "predicates": predicates,
+    }))
+}
+
+fn current_rfc3339_timestamp() -> Result<String> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| {
+            BundleVerificationError::new(
+                "semantic_verification",
+                Some("clock"),
+                format!("system clock is before the Unix epoch: {error}"),
+            )
+        })?;
+    let days = i64::try_from(elapsed.as_secs() / 86_400).map_err(|_| {
+        BundleVerificationError::new(
+            "semantic_verification",
+            Some("clock"),
+            "system clock is outside the supported timestamp range",
+        )
+    })?;
+    let shifted_days = days + 719_468;
+    let era = if shifted_days >= 0 {
+        shifted_days
+    } else {
+        shifted_days - 146_096
+    } / 146_097;
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    if !(0..=9999).contains(&year) {
+        return Err(BundleVerificationError::new(
+            "semantic_verification",
+            Some("clock"),
+            "system clock is outside the supported RFC3339 year range",
+        ));
+    }
+    let seconds_of_day = elapsed.as_secs() % 86_400;
+    let timestamp = format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        seconds_of_day / 3_600,
+        seconds_of_day / 60 % 60,
+        seconds_of_day % 60,
+        elapsed.subsec_millis(),
+    );
+    if !is_valid_rfc3339_timestamp(&timestamp) {
+        return Err(BundleVerificationError::new(
+            "semantic_verification",
+            Some("clock"),
+            "system clock produced an invalid RFC3339 timestamp",
+        ));
+    }
+    Ok(timestamp)
+}
+
+fn semantic_predicate_definitions(sparse: bool) -> Value {
+    let mut definitions = serde_json::json!({
+        "presentation_cryptography": {
+            "required_artifacts": ["presentation"],
+            "required_fields": ["presentation_sha256", "tlsn_attestation_id"],
+            "verification_method": "alpha15 Presentation::verify with complete authenticated transcript disclosure and the verifier's built-in Mozilla Web PKI chain validation",
+            "authority_identity": "tlsn-alpha15-verifier",
+            "derived_fields": ["presentation_sha256", "tlsn_attestation_id", "request_transcript_sha256", "response_transcript_sha256"],
+        },
+        "notary_identity": {
+            "required_artifacts": ["presentation", "health", "notary_registry"],
+            "required_fields": ["notary_key_id", "notary_key_sha256"],
+            "verification_method": "Presentation verifying key fingerprint equals the trusted Notary registry entry",
+            "authority_identity": "tlsn-alpha15-presentation-notary-key",
+            "derived_fields": ["notary_key_sha256", "notary_key_id"],
+        },
+        "server_identity": {
+            "required_artifacts": ["presentation", "health"],
+            "required_fields": ["server_identity"],
+            "verification_method": "alpha15 verified server_name equals the trusted production server identity",
+            "authority_identity": "tlsn-alpha15-presentation-server-identity",
+            "derived_fields": ["server_identity"],
+        },
+        "require_info_http_profile": {
+            "required_artifacts": ["presentation"],
+            "required_fields": ["profile_id", "profile_sha256", "http_profile", "request_transcript_sha256", "response_transcript_sha256"],
+            "verification_method": "strict parser over alpha15 authenticated request and response transcript bytes",
+            "authority_identity": "fusou-require-info-v1",
+            "derived_fields": ["server_identity", "request_transcript_sha256", "response_transcript_sha256"],
+        },
+        "presentation_binding_to_session": {
+            "required_artifacts": ["presentation", "session", "result"],
+            "required_fields": ["session_id", "binding_value", "request_transcript_sha256"],
+            "verification_method": "authenticated request X-Attestation-Binding equals the current Session Authority binding and encoded session identity",
+            "authority_identity": "offline-production-evidence-verifier",
+            "derived_fields": ["attestation_session_id", "binding_value", "request_transcript_sha256"],
+        },
+        "authenticated_member_id": {
+            "required_artifacts": ["presentation"],
+            "required_fields": ["verified_member_id", "response_transcript_sha256"],
+            "verification_method": "api_member_id derived from the alpha15 authenticated response transcript",
+            "authority_identity": "fusou-require-info-v1-response-parser",
+            "derived_fields": ["verified_member_id", "response_transcript_sha256"],
+        },
+        "result_presentation_binding": {
+            "required_artifacts": ["presentation", "result"],
+            "required_fields": ["tlsn_attestation_id", "verified_member_id", "binding_value"],
+            "verification_method": "independent Presentation-derived Result fields equal the Worker Result payload",
+            "authority_identity": "offline-production-evidence-verifier",
+            "derived_fields": ["verified_member_id", "tlsn_attestation_id", "server_identity", "request_transcript_sha256", "response_transcript_sha256"],
+        },
+        "result_registry_root_authentication": {
+            "required_artifacts": ["health", "result_registry", "result_registry_envelope"],
+            "required_fields": ["result_key_registry_sha256", "result_key_registry_envelope_sha256", "result_registry_root_key_id", "result_registry_root_public_key_spki"],
+            "verification_method": "externally pinned Evidence Root signature authenticates the exact Result registry bytes and published Root identity",
+            "authority_identity": "fusou-result-registry-root",
+            "derived_fields": ["result_key_registry_sha256", "result_key_registry_envelope_sha256", "result_registry_root_key_id", "result_registry_root_public_key_spki"],
+        },
+        "result_signature": {
+            "required_artifacts": ["result", "result_registry"],
+            "required_fields": ["signature", "result_signer_key_id", "result_key_registry_sha256"],
+            "verification_method": "Worker Result signature verifies against the trusted result-key registry",
+            "authority_identity": "production-result-signing-key-registry",
+            "derived_fields": ["result_signature_valid", "result_signer_key_id"],
+        },
+        "result_key_publication": {
+            "required_artifacts": ["health", "result_registry"],
+            "required_fields": ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
+            "verification_method": "Worker-published Result key identity equals the externally pinned active Result registry entry",
+            "authority_identity": "production-result-signing-key-registry",
+            "derived_fields": ["result_public_key_spki", "result_signer_key_id", "result_key_registry_sha256"],
+        },
+    });
+    if sparse {
+        definitions["presentation_cryptography"] = serde_json::json!({
+            "required_artifacts": ["presentation"],
+            "required_fields": ["presentation_sha256", "tlsn_attestation_id", "revealed_request_ranges", "revealed_response_ranges"],
+            "verification_method": "alpha15 Presentation::verify with authenticated sparse transcript ranges",
+            "authority_identity": "tlsn-alpha15-verifier",
+            "derived_fields": ["presentation_sha256", "tlsn_attestation_id", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
+        });
+        definitions["require_info_http_profile"] = serde_json::json!({
+            "required_artifacts": ["presentation"],
+            "required_fields": ["profile_id", "profile_sha256", "disclosure_mode", "http_profile", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
+            "verification_method": "strict sparse parser over authenticated HTTP headers and JSON ranges; hidden ranges fail closed",
+            "authority_identity": "fusou-require-info-v2-sparse",
+            "derived_fields": ["server_identity", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
+        });
+        definitions["presentation_binding_to_session"] = serde_json::json!({
+            "required_artifacts": ["presentation", "session", "result"],
+            "required_fields": ["session_id", "binding_value", "revealed_request_ranges"],
+            "verification_method": "authenticated sparse request headers bind X-Attestation-Binding to the current Session Authority binding",
+            "authority_identity": "offline-production-evidence-verifier",
+            "derived_fields": ["attestation_session_id", "binding_value", "revealed_request_ranges"],
+        });
+        definitions["authenticated_member_id"] = serde_json::json!({
+            "required_artifacts": ["presentation"],
+            "required_fields": ["verified_member_id", "revealed_response_ranges"],
+            "verification_method": "api_member_id derived by the strict alpha15 sparse response parser",
+            "authority_identity": "fusou-require-info-v2-sparse-response-parser",
+            "derived_fields": ["verified_member_id", "revealed_response_ranges"],
+        });
+        definitions["result_presentation_binding"] = serde_json::json!({
+            "required_artifacts": ["presentation", "result"],
+            "required_fields": ["tlsn_attestation_id", "presentation_sha256", "verified_member_id", "binding_value", "revealed_request_ranges", "revealed_response_ranges"],
+            "verification_method": "independent sparse Presentation-derived Result fields equal the Worker Result payload",
+            "authority_identity": "offline-production-evidence-verifier",
+            "derived_fields": ["verified_member_id", "tlsn_attestation_id", "server_identity", "presentation_sha256", "revealed_request_ranges", "revealed_response_ranges"],
+        });
+    }
+    definitions
+}
+
+fn verified_semantic_predicates(
+    verified: &VerifiedBundleCore,
+    presentation: &[u8],
+    semantic_result: &Value,
+    http_profile: &Value,
+    verified_at: &str,
+) -> Result<Value> {
+    let result = verified.derived_result.view();
+    let derived = verified
+        .report
+        .get("derived")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "semantic_verification",
+                Some("verification_result"),
+                "verified derived fields are missing",
+            )
+        })?;
+    let derived_value = |name: &str| {
+        derived.get(name).cloned().ok_or_else(|| {
+            BundleVerificationError::new(
+                "semantic_verification",
+                Some("verification_result"),
+                format!("verified derived field is missing: {name}"),
+            )
+        })
+    };
+    let required_result_value = |name: &str| {
+        semantic_result.get(name).cloned().ok_or_else(|| {
+            BundleVerificationError::new(
+                "semantic_verification",
+                Some("result"),
+                format!("verified Result field is missing: {name}"),
+            )
+        })
+    };
+    let presentation_sha256 = Value::String(sha256_base64url(presentation));
+    let attestation_id = Value::String(URL_SAFE_NO_PAD.encode(result.tlsn_attestation_id()));
+    let server_identity = Value::String(result.server_identity().to_owned());
+    let request_ranges = revealed_ranges_value(result.revealed_request_ranges());
+    let response_ranges = revealed_ranges_value(result.revealed_response_ranges());
+    let request_size = Value::String(result.request_transcript_size().to_string());
+    let response_size = Value::String(result.response_transcript_size().to_string());
+    let session_id = Value::String(result.attestation_session_id().to_string());
+    let binding_value = Value::String(result.binding_value().to_owned());
+
+    let transcript_hash_observations = match result.full_transcript_sha256() {
+        Some((request_digest, response_digest)) => Some((
+            Value::String(URL_SAFE_NO_PAD.encode(request_digest)),
+            Value::String(URL_SAFE_NO_PAD.encode(response_digest)),
+        )),
+        None if result.is_sparse() => None,
+        None => {
+            return Err(BundleVerificationError::new(
+                "semantic_verification",
+                Some("result"),
+                "Complete Result is missing full transcript digests",
+            ));
+        }
+    };
+    if result.is_sparse() && transcript_hash_observations.is_some() {
+        return Err(BundleVerificationError::new(
+            "semantic_verification",
+            Some("result"),
+            "Sparse Result unexpectedly contains full transcript digests",
+        ));
+    }
+
+    let mut observations = serde_json::json!({
+        "presentation_cryptography": {
+            "presentation_sha256": presentation_sha256,
+            "tlsn_attestation_id": attestation_id,
+        },
+        "notary_identity": {
+            "notary_key_id": derived_value("notary_key_id")?,
+            "notary_key_sha256": derived_value("notary_key_sha256")?,
+        },
+        "server_identity": {
+            "server_identity": server_identity,
+        },
+        "require_info_http_profile": {
+            "profile_id": required_result_value("profile_id")?,
+            "profile_sha256": Value::String(URL_SAFE_NO_PAD.encode(result.profile_sha256())),
+            "http_profile": http_profile,
+            "server_identity": server_identity,
+        },
+        "presentation_binding_to_session": {
+            "session_id": session_id,
+            "attestation_session_id": session_id,
+            "binding_value": binding_value,
+        },
+        "authenticated_member_id": {
+            "verified_member_id": Value::String(result.verified_member_id().to_owned()),
+        },
+        "result_presentation_binding": {
+            "tlsn_attestation_id": attestation_id,
+            "presentation_sha256": presentation_sha256,
+            "verified_member_id": Value::String(result.verified_member_id().to_owned()),
+            "binding_value": binding_value,
+            "server_identity": server_identity,
+        },
+        "result_registry_root_authentication": {
+            "result_key_registry_sha256": derived_value("result_key_registry_sha256")?,
+            "result_key_registry_envelope_sha256": derived_value("result_key_registry_envelope_sha256")?,
+            "result_registry_root_key_id": derived_value("result_registry_root_key_id")?,
+            "result_registry_root_public_key_spki": derived_value("result_registry_root_public_key_spki")?,
+        },
+        "result_signature": {
+            "result_signature_valid": derived_value("result_signature_valid")?,
+            "result_signer_key_id": derived_value("result_signer_key_id")?,
+            "result_key_registry_sha256": derived_value("result_key_registry_sha256")?,
+        },
+        "result_key_publication": {
+            "result_public_key_spki": derived_value("result_public_key_spki")?,
+            "result_signer_key_id": derived_value("result_signer_key_id")?,
+            "result_key_registry_sha256": derived_value("result_key_registry_sha256")?,
+        },
+    });
+    if let Some((request_digest, response_digest)) = transcript_hash_observations {
+        observations["presentation_cryptography"]["request_transcript_sha256"] =
+            request_digest.clone();
+        observations["presentation_cryptography"]["response_transcript_sha256"] =
+            response_digest.clone();
+        observations["require_info_http_profile"]["request_transcript_sha256"] =
+            request_digest.clone();
+        observations["require_info_http_profile"]["response_transcript_sha256"] =
+            response_digest.clone();
+        observations["presentation_binding_to_session"]["request_transcript_sha256"] =
+            request_digest.clone();
+        observations["authenticated_member_id"]["response_transcript_sha256"] =
+            response_digest.clone();
+        observations["result_presentation_binding"]["request_transcript_sha256"] = request_digest;
+        observations["result_presentation_binding"]["response_transcript_sha256"] = response_digest;
+    } else {
+        observations["presentation_cryptography"]["request_transcript_size"] = request_size.clone();
+        observations["presentation_cryptography"]["response_transcript_size"] =
+            response_size.clone();
+        observations["presentation_cryptography"]["revealed_request_ranges"] =
+            request_ranges.clone();
+        observations["presentation_cryptography"]["revealed_response_ranges"] =
+            response_ranges.clone();
+        observations["require_info_http_profile"]["disclosure_mode"] =
+            required_result_value("disclosure_mode")?;
+        observations["require_info_http_profile"]["request_transcript_size"] = request_size.clone();
+        observations["require_info_http_profile"]["response_transcript_size"] =
+            response_size.clone();
+        observations["require_info_http_profile"]["revealed_request_ranges"] =
+            request_ranges.clone();
+        observations["require_info_http_profile"]["revealed_response_ranges"] =
+            response_ranges.clone();
+        observations["presentation_binding_to_session"]["revealed_request_ranges"] =
+            request_ranges.clone();
+        observations["authenticated_member_id"]["revealed_response_ranges"] =
+            response_ranges.clone();
+        observations["result_presentation_binding"]["revealed_request_ranges"] =
+            request_ranges.clone();
+        observations["result_presentation_binding"]["revealed_response_ranges"] =
+            response_ranges.clone();
+    }
+
+    let mut predicates = semantic_predicate_definitions(result.is_sparse());
+    let definitions = predicates.as_object_mut().ok_or_else(|| {
+        BundleVerificationError::new(
+            "semantic_verification",
+            Some("contract"),
+            "semantic predicate contract definitions are invalid",
+        )
+    })?;
+    for (name, predicate) in definitions {
+        let predicate = predicate.as_object_mut().ok_or_else(|| {
+            BundleVerificationError::new(
+                "semantic_verification",
+                Some("contract"),
+                format!("semantic predicate definition is invalid: {name}"),
+            )
+        })?;
+        let observed = observations.get(name).cloned().ok_or_else(|| {
+            BundleVerificationError::new(
+                "semantic_verification",
+                Some("verification_result"),
+                format!("verified observations are missing: {name}"),
+            )
+        })?;
+        predicate.insert("status".to_owned(), Value::String("PASS".to_owned()));
+        predicate.insert(
+            "evidence_artifacts".to_owned(),
+            Value::Array(
+                semantic_predicate_artifacts(name)
+                    .iter()
+                    .map(|role| Value::String((*role).to_owned()))
+                    .collect(),
+            ),
+        );
+        predicate.insert(
+            "verified_at".to_owned(),
+            Value::String(verified_at.to_owned()),
+        );
+        predicate.insert(
+            "detail".to_owned(),
+            Value::String(semantic_predicate_detail(name, result.is_sparse()).to_owned()),
+        );
+        predicate.insert("observed".to_owned(), observed);
+    }
+    Ok(predicates)
+}
+
+fn semantic_predicate_artifacts(name: &str) -> &'static [&'static str] {
+    match name {
+        "presentation_cryptography" => &["presentation", "trust_root", "notary_registry"],
+        "notary_identity" => &["presentation", "health", "notary_registry"],
+        "server_identity" => &["presentation", "health"],
+        "require_info_http_profile" => &["presentation"],
+        "presentation_binding_to_session" => &["presentation", "session", "result"],
+        "authenticated_member_id" => &["presentation"],
+        "result_presentation_binding" => &["presentation", "result"],
+        "result_registry_root_authentication" => {
+            &["health", "result_registry", "result_registry_envelope"]
+        }
+        "result_signature" => &["result", "result_registry"],
+        "result_key_publication" => &["health", "result_registry"],
+        _ => &[],
+    }
+}
+
+fn semantic_predicate_detail(name: &str, sparse: bool) -> &'static str {
+    match name {
+        "presentation_cryptography" => {
+            "TLSN Presentation cryptography and certificate-chain verification succeeded."
+        }
+        "notary_identity" => {
+            "The Presentation Notary key matched the independently pinned Notary registry."
+        }
+        "server_identity" => {
+            "The Presentation-observed server identity matched independent target approval."
+        }
+        "require_info_http_profile" if sparse => {
+            "Authenticated disclosed ranges satisfied the sparse require_info profile."
+        }
+        "require_info_http_profile" => {
+            "The authenticated request and response transcript satisfied the require_info profile."
+        }
+        "presentation_binding_to_session" if sparse => {
+            "Authenticated sparse request ranges matched the signed Session binding."
+        }
+        "presentation_binding_to_session" => {
+            "The authenticated Presentation request binding matched the signed Session context."
+        }
+        "authenticated_member_id" if sparse => {
+            "Member ID was derived from the authenticated sparse Presentation response."
+        }
+        "authenticated_member_id" => {
+            "Member ID was derived from the authenticated Presentation response."
+        }
+        "result_presentation_binding" => {
+            "Presentation-derived Result fields matched the signed Result."
+        }
+        "result_registry_root_authentication" => {
+            "The independent root pin authenticated the exact Result registry and envelope."
+        }
+        "result_signature" => "The Result signature verified against the trusted signer registry.",
+        "result_key_publication" => {
+            "The Result key matched the independently pinned active registry entry."
+        }
+        _ => "The corresponding independent semantic verification succeeded.",
+    }
 }
 
 fn parse_result_profile(input: &[u8]) -> Result<ParsedVerifierResult> {
@@ -803,7 +1411,65 @@ fn load_bundle_with_artifacts(
             format!("read failed: {error}"),
         )
     })?;
-    let manifest = parse_json(&manifest_raw, "manifest", "bundle_manifest")?;
+    let mut manifest = parse_json(&manifest_raw, "manifest", "bundle_manifest")?;
+    let has_external_health_descriptor = manifest
+        .get("artifacts")
+        .and_then(Value::as_object)
+        .is_some_and(|descriptors| descriptors.contains_key("health"));
+    let manifest_changed = {
+        let descriptors = manifest
+            .get_mut("artifacts")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| {
+                BundleVerificationError::new(
+                    "artifact_manifest",
+                    Some("manifest"),
+                    "manifest artifacts are missing",
+                )
+            })?;
+        let mut changed = false;
+        for (name, bytes) in supplied {
+            if !is_safe_artifact_name(name) {
+                return Err(BundleVerificationError::new(
+                    "artifact_manifest",
+                    Some(name),
+                    "candidate-supplied artifact name is unsafe",
+                ));
+            }
+            if !descriptors.contains_key(name) {
+                descriptors.insert(
+                    name.clone(),
+                    serde_json::json!({
+                        "path": format!("artifacts/{name}.bin"),
+                        "artifact_sha256": sha256_base64url(bytes),
+                        "byte_length": bytes.len(),
+                        "provenance": "production",
+                    }),
+                );
+                changed = true;
+            }
+        }
+        changed
+    };
+    let manifest_raw = if manifest_changed {
+        serde_json::to_vec(&manifest).map_err(|error| {
+            BundleVerificationError::new(
+                "bundle_manifest",
+                Some("manifest"),
+                format!("material manifest serialization failed: {error}"),
+            )
+        })?
+    } else {
+        manifest_raw
+    };
+    let canonical_root = fs::canonicalize(&root).map_err(|error| {
+        BundleVerificationError::new(
+            "artifact_manifest",
+            Some("manifest"),
+            format!("bundle root is invalid: {error}"),
+        )
+    })?;
+    let mut artifacts = BTreeMap::new();
     let descriptors = manifest
         .get("artifacts")
         .and_then(Value::as_object)
@@ -814,14 +1480,6 @@ fn load_bundle_with_artifacts(
                 "manifest artifacts are missing",
             )
         })?;
-    let canonical_root = fs::canonicalize(&root).map_err(|error| {
-        BundleVerificationError::new(
-            "artifact_manifest",
-            Some("manifest"),
-            format!("bundle root is invalid: {error}"),
-        )
-    })?;
-    let mut artifacts = BTreeMap::new();
     for (name, descriptor) in descriptors {
         let path = descriptor
             .get("path")
@@ -849,6 +1507,38 @@ fn load_bundle_with_artifacts(
             ));
         }
         if let Some(bytes) = supplied.get(name) {
+            if name == "health" && has_external_health_descriptor {
+                let external_path = root.join(relative_path);
+                let canonical_path = fs::canonicalize(&external_path).map_err(|error| {
+                    BundleVerificationError::new(
+                        "artifact_manifest",
+                        Some(name),
+                        format!("read path failed: {error}"),
+                    )
+                })?;
+                if !canonical_path.starts_with(&canonical_root) {
+                    return Err(BundleVerificationError::new(
+                        "artifact_manifest",
+                        Some(name),
+                        "artifact path escapes the bundle directory",
+                    ));
+                }
+                let external_bytes = read(&canonical_path).map_err(|error| {
+                    BundleVerificationError::new(
+                        "artifact_manifest",
+                        Some(name),
+                        format!("read failed: {error}"),
+                    )
+                })?;
+                validate_artifact_bytes(name, descriptor, &external_bytes)?;
+                if external_bytes != *bytes {
+                    return Err(BundleVerificationError::new(
+                        "artifact_manifest",
+                        Some(name),
+                        "candidate health bytes differ from external health material",
+                    ));
+                }
+            }
             validate_artifact_bytes(name, descriptor, bytes)?;
             artifacts.insert(name.clone(), bytes.clone());
             continue;
@@ -878,28 +1568,63 @@ fn load_bundle_with_artifacts(
         validate_artifact_bytes(name, descriptor, &bytes)?;
         artifacts.insert(name.clone(), bytes);
     }
-    load_bundle_bytes(BundleBytes { manifest: manifest_raw, artifacts }, manifest_path)
+    load_bundle_bytes(
+        BundleBytes {
+            manifest: manifest_raw,
+            artifacts,
+        },
+        manifest_path,
+    )
+}
+
+fn is_safe_artifact_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 fn load_bundle_bytes(bytes: BundleBytes, manifest_path: PathBuf) -> Result<LoadedBundle> {
     let manifest = parse_json(&bytes.manifest, "manifest", "bundle_manifest")?;
-    let descriptors = manifest.get("artifacts").and_then(Value::as_object).ok_or_else(|| {
-        BundleVerificationError::new("artifact_manifest", Some("manifest"), "manifest artifacts are missing")
-    })?;
+    let descriptors = manifest
+        .get("artifacts")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "artifact_manifest",
+                Some("manifest"),
+                "manifest artifacts are missing",
+            )
+        })?;
     if descriptors.len() != bytes.artifacts.len()
-        || descriptors.keys().any(|name| !bytes.artifacts.contains_key(name))
+        || descriptors
+            .keys()
+            .any(|name| !bytes.artifacts.contains_key(name))
     {
         return Err(BundleVerificationError::new(
-            "artifact_manifest", Some("manifest"), "artifact byte inventory differs from manifest",
+            "artifact_manifest",
+            Some("manifest"),
+            "artifact byte inventory differs from manifest",
         ));
     }
     let mut artifacts = BTreeMap::new();
     for (name, raw) in bytes.artifacts {
         let descriptor = descriptors.get(&name).ok_or_else(|| {
-            BundleVerificationError::new("artifact_manifest", Some(&name), "artifact descriptor is missing")
+            BundleVerificationError::new(
+                "artifact_manifest",
+                Some(&name),
+                "artifact descriptor is missing",
+            )
         })?;
         if descriptor.get("path").and_then(Value::as_str).is_none() {
-            return Err(BundleVerificationError::new("artifact_manifest", Some(&name), "artifact path is missing"));
+            return Err(BundleVerificationError::new(
+                "artifact_manifest",
+                Some(&name),
+                "artifact path is missing",
+            ));
         }
         validate_artifact_bytes(&name, descriptor, &raw)?;
         artifacts.insert(name, Artifact { bytes: raw });
@@ -954,12 +1679,28 @@ fn validate_artifact_bytes(name: &str, descriptor: &Value, raw: &[u8]) -> Result
     Ok(())
 }
 
-fn validate_manifest(manifest: &Value) -> Result<()> {
+fn validate_manifest(manifest: &Value, required_verification_status: &str) -> Result<()> {
+    validate_manifest_with_semantic_predicates(manifest, required_verification_status, true)
+}
+
+fn validate_manifest_for_semantic_generation(
+    manifest: &Value,
+    required_verification_status: &str,
+) -> Result<()> {
+    validate_manifest_with_semantic_predicates(manifest, required_verification_status, false)
+}
+
+fn validate_manifest_with_semantic_predicates(
+    manifest: &Value,
+    required_verification_status: &str,
+    validate_semantic_predicates: bool,
+) -> Result<()> {
     if manifest.get("schema_version").and_then(Value::as_u64) != Some(1)
         || manifest.get("scope").and_then(Value::as_str) != Some(EVIDENCE_SCOPE)
         || manifest.get("status").and_then(Value::as_str) != Some("BLOCKED")
         || manifest.get("capture_status").and_then(Value::as_str) != Some("PASS")
-        || manifest.get("verification_status").and_then(Value::as_str) != Some("VERIFIED")
+        || manifest.get("verification_status").and_then(Value::as_str)
+            != Some(required_verification_status)
         || manifest.get("capture_provenance").and_then(Value::as_str) != Some("production")
         || manifest
             .get("production_evidence_status")
@@ -996,7 +1737,10 @@ fn validate_manifest(manifest: &Value) -> Result<()> {
             )
         })?;
     for (name, descriptor) in artifacts {
-        if descriptor.get("provenance").and_then(Value::as_str) != Some("production") {
+        let provenance = descriptor.get("provenance").and_then(Value::as_str);
+        if provenance != Some("production")
+            && !(name == "semantic_verification" && provenance == Some(OFFLINE_SEMANTIC_SOURCE))
+        {
             return Err(BundleVerificationError::new(
                 "artifact_manifest",
                 Some(name),
@@ -1024,7 +1768,7 @@ fn validate_manifest(manifest: &Value) -> Result<()> {
         "real_production_binding_authority",
         "real_production_session_authority",
         "real_production_binding_receipt_authority",
-        "real_production_verifier_trust_root",
+        "real_production_origin_web_pki_validation",
         "real_production_result_signing_key",
         "real_production_result_registry_authentication",
         "real_production_public_key_publication",
@@ -1066,7 +1810,7 @@ fn validate_manifest(manifest: &Value) -> Result<()> {
                     format!("production evidence artifact dependency is invalid: {requirement}"),
                 )
             })?;
-            if !artifacts.contains_key(artifact) {
+            if !artifacts.contains_key(artifact) && !REQUIRED_ARTIFACT_NAMES.contains(&artifact) {
                 return Err(BundleVerificationError::new(
                     "evidence_contract",
                     Some("manifest"),
@@ -1077,24 +1821,25 @@ fn validate_manifest(manifest: &Value) -> Result<()> {
             }
         }
     }
-    verify_predicate_statuses(
-        manifest,
-        "semantic_predicates",
-        &[
-            "presentation_cryptography",
-            "notary_identity",
-            "server_identity",
-            "require_info_http_profile",
-            "presentation_binding_to_session",
-            "authenticated_member_id",
-            "result_presentation_binding",
-            "result_registry_root_authentication",
-            "result_signature",
-            "result_key_publication",
-            "trust_root_publication",
-        ],
-        false,
-    )?;
+    if validate_semantic_predicates {
+        verify_predicate_statuses(
+            manifest,
+            "semantic_predicates",
+            &[
+                "presentation_cryptography",
+                "notary_identity",
+                "server_identity",
+                "require_info_http_profile",
+                "presentation_binding_to_session",
+                "authenticated_member_id",
+                "result_presentation_binding",
+                "result_registry_root_authentication",
+                "result_signature",
+                "result_key_publication",
+            ],
+            false,
+        )?;
+    }
     verify_predicate_statuses(
         manifest,
         "device_predicates",
@@ -1115,6 +1860,75 @@ fn validate_manifest(manifest: &Value) -> Result<()> {
         &["proxy_provenance_cryptographic_authentication"],
         true,
     )?;
+    Ok(())
+}
+
+fn validate_manifest_artifact_dependencies(manifest: &Value) -> Result<()> {
+    validate_manifest_artifact_dependencies_with_semantic_generation(manifest, false)
+}
+
+fn validate_manifest_artifact_dependencies_except_semantic_verification(
+    manifest: &Value,
+) -> Result<()> {
+    validate_manifest_artifact_dependencies_with_semantic_generation(manifest, true)
+}
+
+fn validate_manifest_artifact_dependencies_with_semantic_generation(
+    manifest: &Value,
+    allow_missing_semantic_verification: bool,
+) -> Result<()> {
+    let artifacts = manifest
+        .get("artifacts")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "artifact_manifest",
+                Some("manifest"),
+                "manifest artifacts are missing",
+            )
+        })?;
+    let evidence = manifest
+        .get("evidence")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            BundleVerificationError::new(
+                "evidence_contract",
+                Some("manifest"),
+                "production evidence items are missing",
+            )
+        })?;
+    for (requirement, item) in evidence {
+        let required_artifacts = item
+            .get("required_artifacts")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                BundleVerificationError::new(
+                    "evidence_contract",
+                    Some("manifest"),
+                    format!("production evidence artifact dependencies are missing: {requirement}"),
+                )
+            })?;
+        for artifact in required_artifacts {
+            let artifact = artifact.as_str().ok_or_else(|| {
+                BundleVerificationError::new(
+                    "evidence_contract",
+                    Some("manifest"),
+                    format!("production evidence artifact dependency is invalid: {requirement}"),
+                )
+            })?;
+            if !artifacts.contains_key(artifact)
+                && !(allow_missing_semantic_verification && artifact == "semantic_verification")
+            {
+                return Err(BundleVerificationError::new(
+                    "evidence_contract",
+                    Some("manifest"),
+                    format!(
+                        "production evidence item is missing an artifact: {requirement}/{artifact}"
+                    ),
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1151,8 +1965,34 @@ fn verify_predicate_statuses(
 }
 
 fn require_bundle_artifacts(bundle: &LoadedBundle) -> Result<()> {
-    for name in REQUIRED_ARTIFACT_NAMES {
-        require_artifact(bundle, name)?;
+    require_bundle_artifacts_with_semantic_generation(bundle, false)
+}
+
+fn require_bundle_artifacts_except_semantic_verification(bundle: &LoadedBundle) -> Result<()> {
+    require_bundle_artifacts_with_semantic_generation(bundle, true)
+}
+
+fn require_bundle_artifacts_with_semantic_generation(
+    bundle: &LoadedBundle,
+    allow_missing_semantic_verification: bool,
+) -> Result<()> {
+    let missing = REQUIRED_ARTIFACT_NAMES
+        .iter()
+        .copied()
+        .filter(|name| {
+            !bundle.artifacts.contains_key(*name)
+                && !(allow_missing_semantic_verification && *name == "semantic_verification")
+        })
+        .collect::<Vec<_>>();
+    if let Some(first) = missing.first() {
+        return Err(BundleVerificationError::new(
+            "artifact_manifest",
+            Some(first),
+            format!(
+                "required evidence roles are missing: {}",
+                missing.join(", ")
+            ),
+        ));
     }
     Ok(())
 }
@@ -1176,12 +2016,16 @@ fn artifact_bytes<'a>(bundle: &'a LoadedBundle, name: &str) -> Result<&'a [u8]> 
 }
 
 fn parse_json(bytes: &[u8], label: &str, edge: &str) -> Result<Value> {
-    crate::strict_json::parse_json(bytes, crate::strict_json::JsonLimits {
-        max_bytes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
-        max_nodes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
-        max_depth: crate::MAX_JSON_DEPTH,
-        max_string_bytes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
-    }).map_err(|error| {
+    crate::strict_json::parse_json(
+        bytes,
+        crate::strict_json::JsonLimits {
+            max_bytes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
+            max_nodes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
+            max_depth: crate::MAX_JSON_DEPTH,
+            max_string_bytes: crate::MAX_VERIFIER_RESULT_JSON_BYTES,
+        },
+    )
+    .map_err(|error| {
         BundleVerificationError::new(edge, Some(label), format!("invalid JSON: {error}"))
     })
 }
@@ -2725,18 +3569,10 @@ fn verify_authority_artifacts(
         binding_authority_public_key_spki,
     )?;
     let replay = parse_json(artifact_bytes(bundle, "replay")?, "replay", "replay")?;
-    let expected_replay_digest = sha256_base64url(&device_possession_signing_bytes(
-        device_id,
-        session_id,
-        binding,
-        device_challenge,
-    )?);
-    let expected_replay_digest_hex = hex_digest(&device_possession_signing_bytes(
-        device_id,
-        session_id,
-        binding,
-        device_challenge,
-    )?);
+    let possession_signing_bytes =
+        device_possession_signing_bytes(device_id, session_id, binding, device_challenge)?;
+    let expected_replay_digest = sha256_base64url(&possession_signing_bytes);
+    let expected_replay_digest_hex = hex_digest(&possession_signing_bytes);
     for (field, expected) in [
         ("session_id", session_id),
         ("device_id", device_id),
@@ -2761,10 +3597,19 @@ fn verify_authority_artifacts(
             ));
         }
     }
-    if replay.get("status").and_then(Value::as_i64) != Some(409)
+    if replay.get("schema_version").and_then(Value::as_u64) != Some(1)
+        || replay.get("observation_type").and_then(Value::as_str)
+            != Some("tlsn-device-proof-replay-observation")
+        || replay.get("observation_source").and_then(Value::as_str)
+            != Some("authenticated_web_read_only_observation")
+        || replay
+            .get("authority_observation_signed")
+            .and_then(Value::as_bool)
+            != Some(false)
+        || replay.get("status").and_then(Value::as_i64) != Some(409)
         || !matches!(
             replay.get("error").and_then(Value::as_str),
-            Some("binding_consumed") | Some("device_possession_replayed")
+            Some("binding_consumed") | Some("device_proof_replayed")
         )
         || replay
             .get("consume_receipt_presentation_id")
@@ -2774,7 +3619,113 @@ fn verify_authority_artifacts(
         return Err(BundleVerificationError::new(
             "replay_digest",
             Some("replay"),
-            "replay rejection is not bound to the consumed proof",
+            "replay observation metadata is not bound to the consumed proof",
+        ));
+    }
+
+    let response_body_encoded = object_string(
+        &replay,
+        "response_body_base64url",
+        "replay",
+        "replay_digest",
+    )?;
+    let response_body = URL_SAFE_NO_PAD.decode(response_body_encoded).map_err(|_| {
+        BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "exact replay response body is not canonical base64url",
+        )
+    })?;
+    if URL_SAFE_NO_PAD.encode(&response_body) != response_body_encoded
+        || replay
+            .get("response_body_byte_length")
+            .and_then(Value::as_u64)
+            != Some(response_body.len() as u64)
+        || replay.get("response_body_sha256").and_then(Value::as_str)
+            != Some(sha256_base64url(&response_body).as_str())
+        || replay
+            .get("response_body_sha256_hex")
+            .and_then(Value::as_str)
+            != Some(hex_digest(&response_body).as_str())
+    {
+        return Err(BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "exact replay response body bytes, length, or digest do not match",
+        ));
+    }
+
+    let response = parse_json(&response_body, "replay_response_body", "replay_digest")?;
+    let response_object = response.as_object().ok_or_else(|| {
+        BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "replay response body is not an object",
+        )
+    })?;
+    let stored_proof = response.get("stored_proof").ok_or_else(|| {
+        BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "replay response does not include the authority's stored proof observation",
+        )
+    })?;
+    let stored_object = stored_proof.as_object().ok_or_else(|| {
+        BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "authority's stored proof observation is not an object",
+        )
+    })?;
+    if response_object.len() != 2
+        || response.get("error").and_then(Value::as_str)
+            != replay.get("error").and_then(Value::as_str)
+        || replay.get("authority_observation") != Some(stored_proof)
+        || stored_object.len() != 8
+    {
+        return Err(BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "replay response body and authority-state projection differ",
+        ));
+    }
+    let challenge_bytes = URL_SAFE_NO_PAD.decode(device_challenge).map_err(|_| {
+        BundleVerificationError::new(
+            "device_challenge",
+            Some("session"),
+            "device challenge is not canonical base64url",
+        )
+    })?;
+    let expected_binding_sha256 = hex_digest(binding.as_bytes());
+    let expected_challenge_sha256 = hex_digest(&challenge_bytes);
+    for (field, expected) in [
+        ("canonical_user_id", canonical_user_id),
+        ("device_id", device_id),
+        ("proof_kind", "possession"),
+        ("proof_digest", expected_replay_digest_hex.as_str()),
+        ("session_id", session_id),
+        ("binding_sha256", expected_binding_sha256.as_str()),
+        ("challenge_sha256", expected_challenge_sha256.as_str()),
+    ] {
+        if stored_proof.get(field).and_then(Value::as_str) != Some(expected) {
+            return Err(BundleVerificationError::mismatch(
+                "replay_digest",
+                Some("replay"),
+                &format!("authority stored-proof observation differs: {field}"),
+                expected,
+                stored_proof
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .unwrap_or("<missing>"),
+            ));
+        }
+    }
+    let consumed_at = object_string(stored_proof, "consumed_at", "replay", "replay_digest")?;
+    if parse_timestamp(consumed_at).is_err() {
+        return Err(BundleVerificationError::new(
+            "replay_digest",
+            Some("replay"),
+            "authority stored-proof observation has an invalid consumed_at value",
         ));
     }
     Ok(())
@@ -3169,6 +4120,32 @@ fn verify_semantic_artifact(
             ));
         }
     }
+    let semantic_provenance = bundle
+        .manifest
+        .get("artifacts")
+        .and_then(|artifacts| artifacts.get("semantic_verification"))
+        .and_then(|descriptor| descriptor.get("provenance"))
+        .and_then(Value::as_str);
+    if semantic.get("generation_origin").and_then(Value::as_str) == Some(OFFLINE_SEMANTIC_SOURCE) {
+        if manifest_metadata.get("source").and_then(Value::as_str) != Some(OFFLINE_SEMANTIC_SOURCE)
+            || semantic_provenance != Some(OFFLINE_SEMANTIC_SOURCE)
+        {
+            return Err(BundleVerificationError::new(
+                "semantic_verification",
+                Some("manifest"),
+                "offline semantic report origin does not match manifest metadata",
+            ));
+        }
+    } else if manifest_metadata.get("source").and_then(Value::as_str)
+        == Some(OFFLINE_SEMANTIC_SOURCE)
+        || semantic_provenance == Some(OFFLINE_SEMANTIC_SOURCE)
+    {
+        return Err(BundleVerificationError::new(
+            "semantic_verification",
+            Some("manifest"),
+            "offline semantic report provenance is incomplete",
+        ));
+    }
 
     let presentation = artifact_bytes(bundle, "presentation")?;
     let input = semantic
@@ -3374,7 +4351,6 @@ fn verify_semantic_artifact(
         "result_registry_root_authentication",
         "result_signature",
         "result_key_publication",
-        "trust_root_publication",
     ] {
         if predicates
             .get(name)
@@ -3995,7 +4971,7 @@ fn verify_trust_graph(
                 "trust graph nodes are missing",
             )
         })?;
-    let expected_nodes = [
+    let mut expected_nodes = [
         (
             "authenticated-user",
             "authenticated_user",
@@ -4076,6 +5052,18 @@ fn verify_trust_graph(
             "health",
         ),
     ];
+    if result.is_sparse() {
+        for node in &mut expected_nodes {
+            if node.0 == "member-id" {
+                *node = (
+                    node.0,
+                    node.1,
+                    "fusou-require-info-v2-sparse-response-parser",
+                    node.3,
+                );
+            }
+        }
+    }
     if nodes.len() != expected_nodes.len() {
         return Err(BundleVerificationError::new(
             "trust_graph",
@@ -4519,8 +5507,63 @@ mod tests {
             let error = require_bundle_artifacts(&bundle).unwrap_err();
             assert_eq!(error.edge, "artifact_manifest");
             assert_eq!(error.artifact.as_deref(), Some(omitted));
-            assert_eq!(error.message, "required artifact is missing");
+            assert_eq!(
+                error.message,
+                format!("required evidence roles are missing: {omitted}")
+            );
         }
+    }
+
+    #[test]
+    fn material_manifest_cannot_claim_verification_before_finalization() {
+        let mut manifest = serde_json::json!({
+            "schema_version": 1,
+            "scope": EVIDENCE_SCOPE,
+            "status": "BLOCKED",
+            "capture_status": "PASS",
+            "verification_status": "NOT_CHECKED",
+            "capture_provenance": "production",
+            "production_evidence_status": "BLOCKED",
+            "p0_05_status": "BLOCKED",
+        });
+        let error = validate_manifest(&manifest, "VERIFIED").unwrap_err();
+        assert_eq!(
+            error.message,
+            "manifest is not a completed production capture contract"
+        );
+
+        assert!(validate_manifest(&manifest, "NOT_CHECKED")
+            .unwrap_err()
+            .message
+            .contains("capture_started_at"));
+        manifest["verification_status"] = Value::String("VERIFIED".to_owned());
+        assert_eq!(
+            validate_manifest(&manifest, "NOT_CHECKED")
+                .unwrap_err()
+                .message,
+            "manifest is not a completed production capture contract"
+        );
+    }
+
+    #[test]
+    fn evidence_dependencies_are_still_checked_after_the_role_inventory_is_complete() {
+        let artifacts = REQUIRED_ARTIFACT_NAMES
+            .into_iter()
+            .map(|name| (name.to_owned(), serde_json::json!({})))
+            .collect::<Map<_, _>>();
+        let manifest = serde_json::json!({
+            "artifacts": artifacts,
+            "evidence": {
+                "fixture_requirement": {
+                    "required_artifacts": ["undeclared-material"],
+                },
+            },
+        });
+        let error = validate_manifest_artifact_dependencies(&manifest).unwrap_err();
+        assert_eq!(
+            error.message,
+            "production evidence item is missing an artifact: fixture_requirement/undeclared-material"
+        );
     }
 
     mod acquisition {
@@ -4534,7 +5577,8 @@ mod tests {
 
         impl Fixture {
             fn new() -> Self {
-                let root = std::env::temp_dir().join(format!("fusou-loader-test-{}", uuid::Uuid::new_v4()));
+                let root = std::env::temp_dir()
+                    .join(format!("fusou-loader-test-{}", uuid::Uuid::new_v4()));
                 fs::create_dir(&root).expect("create synthetic loader directory");
                 let raw = b"synthetic acquisition bytes, not Production evidence".to_vec();
                 let fixture = Self {
@@ -4551,9 +5595,15 @@ mod tests {
                 fixture
             }
 
-            fn bundle(&self) -> PathBuf { self.root.join("bundle") }
+            fn bundle(&self) -> PathBuf {
+                self.root.join("bundle")
+            }
             fn write_manifest(&self) {
-                fs::write(self.bundle().join("manifest.json"), serde_json::to_vec(&self.manifest).unwrap()).unwrap();
+                fs::write(
+                    self.bundle().join("manifest.json"),
+                    serde_json::to_vec(&self.manifest).unwrap(),
+                )
+                .unwrap();
             }
             fn bytes(&self, raw: Vec<u8>) -> BundleBytes {
                 BundleBytes {
@@ -4572,12 +5622,23 @@ mod tests {
         #[test]
         fn path_and_bytes_loaders_preserve_owned_artifacts_and_manifest_selection() {
             let fixture = Fixture::new();
-            let owned = load_bundle_bytes(fixture.bytes(fixture.raw.clone()), PathBuf::from("synthetic")).unwrap();
+            let owned = load_bundle_bytes(
+                fixture.bytes(fixture.raw.clone()),
+                PathBuf::from("synthetic"),
+            )
+            .unwrap();
             let loaded = load_bundle(&fixture.bundle().join("manifest.json")).unwrap();
             assert_eq!(loaded.manifest, owned.manifest);
-            assert_eq!(loaded.artifacts["synthetic"].bytes, owned.artifacts["synthetic"].bytes);
+            assert_eq!(
+                loaded.artifacts["synthetic"].bytes,
+                owned.artifacts["synthetic"].bytes
+            );
             let mut previous = fixture.bundle().join("manifest.json");
-            for name in ["tlsn-production-evidence.json", "manifest.json", "evidence-manifest.json"] {
+            for name in [
+                "tlsn-production-evidence.json",
+                "manifest.json",
+                "evidence-manifest.json",
+            ] {
                 let path = fixture.bundle().join(name);
                 fs::rename(&previous, &path).unwrap();
                 let selected = load_bundle(&fixture.bundle()).unwrap();
@@ -4585,27 +5646,44 @@ mod tests {
                 assert_eq!(selected.artifacts["synthetic"].bytes, fixture.raw);
                 previous = path;
             }
-            fs::write(fixture.bundle().join("artifact.bin"), b"changed after acquisition").unwrap();
+            fs::write(
+                fixture.bundle().join("artifact.bin"),
+                b"changed after acquisition",
+            )
+            .unwrap();
             assert_eq!(loaded.artifacts["synthetic"].bytes, fixture.raw);
             assert_eq!(owned.artifacts["synthetic"].bytes, fixture.raw);
             let mut extra = fixture.bytes(fixture.raw.clone());
             extra.artifacts.insert("undeclared".to_owned(), Vec::new());
-            assert!(load_bundle_bytes(extra, PathBuf::from("synthetic")).err().unwrap()
-                .to_string().contains("inventory differs"));
+            assert!(load_bundle_bytes(extra, PathBuf::from("synthetic"))
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("inventory differs"));
         }
 
         #[test]
         fn path_and_bytes_loaders_reject_digest_and_length_mismatch() {
             let mut fixture = Fixture::new();
             for length_mismatch in [false, true] {
-                let raw = if length_mismatch { fixture.raw.clone() } else { b"tampered".to_vec() };
+                let raw = if length_mismatch {
+                    fixture.raw.clone()
+                } else {
+                    b"tampered".to_vec()
+                };
                 fixture.manifest["artifacts"]["synthetic"]["byte_length"] =
                     serde_json::json!(fixture.raw.len() + usize::from(length_mismatch));
                 fixture.write_manifest();
                 fs::write(fixture.bundle().join("artifact.bin"), &raw).unwrap();
                 let path_error = load_bundle(&fixture.bundle()).err().unwrap();
-                let bytes_error = load_bundle_bytes(fixture.bytes(raw), PathBuf::from("synthetic")).err().unwrap();
-                let expected = if length_mismatch { "byte length" } else { "SHA-256" };
+                let bytes_error = load_bundle_bytes(fixture.bytes(raw), PathBuf::from("synthetic"))
+                    .err()
+                    .unwrap();
+                let expected = if length_mismatch {
+                    "byte length"
+                } else {
+                    "SHA-256"
+                };
                 assert!(path_error.to_string().contains(expected));
                 assert!(bytes_error.to_string().contains(expected));
             }
@@ -4614,10 +5692,17 @@ mod tests {
         #[test]
         fn path_loader_rejects_traversal_and_absolute_artifacts() {
             let mut fixture = Fixture::new();
-            for path in ["../outside.bin".to_owned(), fixture.root.join("outside.bin").display().to_string()] {
+            for path in [
+                "../outside.bin".to_owned(),
+                fixture.root.join("outside.bin").display().to_string(),
+            ] {
                 fixture.manifest["artifacts"]["synthetic"]["path"] = Value::String(path);
                 fixture.write_manifest();
-                assert!(load_bundle(&fixture.bundle()).err().unwrap().to_string().contains("must be relative"));
+                assert!(load_bundle(&fixture.bundle())
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("must be relative"));
             }
         }
 
@@ -4628,9 +5713,14 @@ mod tests {
             let outside = fixture.root.join("outside.bin");
             fs::write(&outside, &fixture.raw).unwrap();
             std::os::unix::fs::symlink(outside, fixture.bundle().join("linked.bin")).unwrap();
-            fixture.manifest["artifacts"]["synthetic"]["path"] = Value::String("linked.bin".to_owned());
+            fixture.manifest["artifacts"]["synthetic"]["path"] =
+                Value::String("linked.bin".to_owned());
             fixture.write_manifest();
-            assert!(load_bundle(&fixture.bundle()).err().unwrap().to_string().contains("escapes the bundle"));
+            assert!(load_bundle(&fixture.bundle())
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("escapes the bundle"));
         }
     }
 

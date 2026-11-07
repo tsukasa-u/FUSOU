@@ -24,8 +24,8 @@ const digest = (value) => createHash("sha256")
   .update(tlsnDeviceProofSigningBytes(value, Buffer.from(value.challenge, "base64url")))
   .digest("hex");
 const reply = (status, body) => async () => Response.json(body, { status });
-const possess = (fetcher, value = proof, expected) =>
-  authenticateTlsnDeviceProof(subject, value, endpoint, digest(value), expected, fetcher);
+const possess = (fetcher, value = proof) =>
+  authenticateTlsnDeviceProof(subject, value, endpoint, digest(value), fetcher);
 
 test("caller forwards the exact proof and bearer once, without following a redirect", async () => {
   let calls = 0;
@@ -129,10 +129,11 @@ for (const [status, error, expectedStatus, expectedError] of [
   });
 }
 
-test("replay acknowledgement is limited to the exact previously expected digest, never revocation", async () => {
-  assert.equal((await possess(reply(409, { error: "device_proof_replayed" }), proof, digest(proof))).ok, true);
-  assert.equal((await possess(reply(409, { error: "device_proof_replayed" }), proof, "c".repeat(64))).ok, false);
-  assert.equal((await possess(reply(409, { error: "device_revoked" }), proof, digest(proof))).ok, false);
+test("a locally computed digest never turns a replay response into proof authentication", async () => {
+  assert.deepEqual(await possess(reply(409, { error: "device_proof_replayed" })),
+    { ok: false, status: 409, error: "device_possession_replayed" });
+  assert.deepEqual(await possess(reply(409, { error: "device_revoked" })),
+    { ok: false, status: 409, error: "device_possession_revoked" });
 });
 
 test("proof framing matches the Rust u16 big-endian fields and excludes signature bytes", () => {

@@ -98,6 +98,7 @@ export class ProofPostgres {
       "20260824180000_anon_sync_nonce_refresh_results.sql",
       "20260822150000_anon_sync_atomic_rate_limits.sql",
       "20261030000000_tlsn_device_proofs.sql",
+      "20261107000000_tlsn_device_proof_replay_observation.sql",
     ]) this.sql(readFileSync(join(migrations, migration), "utf8"));
   }
 }

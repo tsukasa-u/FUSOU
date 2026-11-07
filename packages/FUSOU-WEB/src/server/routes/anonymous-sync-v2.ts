@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { SignJWT } from "jose";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import {
   firstSchemaError,
   RevokeRequestSchema,
@@ -48,6 +49,28 @@ const NONCE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const API_MEMBER_ID_PATTERN = /^[0-9]{1,16}$/;
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const TlsnReplayObservationResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("device_proof_replayed"),
+    canonical_user_id: z.string().uuid(),
+    device_id: z.string().uuid(),
+    proof_kind: z.literal("possession"),
+    proof_digest: z.string().regex(/^[a-f0-9]{64}$/),
+    session_id: z.string().uuid(),
+    binding_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    challenge_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    consumed_at: z.string().refine((value) => Number.isFinite(Date.parse(value))),
+  }).strict(),
+  z.object({
+    status: z.enum([
+      "device_unknown",
+      "device_owner_mismatch",
+      "device_revoked",
+      "device_key_changed",
+      "device_proof_not_consumed",
+    ]),
+  }).strict(),
+]);
 
 let lastNonceCleanupAt = 0;
 
@@ -1026,6 +1049,12 @@ for (const kind of ["authentication", "possession"] as const) {
         : TlsnDeviceProofRequestSchema.safeParse(bodyResult.body);
       if (!parsed.success) return c.json({ error: "invalid_device_proof" }, 400);
       const body = parsed.data;
+      const replayObservationHeader = c.req.header("X-FUSOU-TLSN-Replay-Observation");
+      if (replayObservationHeader !== undefined &&
+          (replayObservationHeader !== "true" || kind !== "possession")) {
+        return c.json({ error: "invalid_device_proof_mode" }, 400);
+      }
+      const replayObservationRequested = replayObservationHeader === "true";
       const rateOk = await consumeRateLimit({
         supabaseAdmin,
         keys: [`${path}:ip:${requestClientKey(c)}`, `${path}:device:${body.device_id}`],
@@ -1076,6 +1105,36 @@ for (const kind of ["authentication", "possession"] as const) {
         return c.json({ error: "signature_invalid" }, 401);
       }
       const proofDigest = await hexDigest(message);
+      if (replayObservationRequested) {
+        const observed = await supabaseAdmin.rpc("rpc_observe_tlsn_device_proof_replay", {
+          p_user_id: user.id,
+          p_device_id: body.device_id,
+          p_expected_key: device.data.device_pubkey,
+          p_proof_digest: proofDigest,
+          p_session_id: sessionId,
+          p_binding_sha256: bindingDigest,
+          p_challenge_sha256: challengeDigest,
+        });
+        if (observed.error) return c.json({ error: "service_unavailable" }, 503);
+        const parsedObservation = TlsnReplayObservationResultSchema.safeParse(observed.data);
+        if (!parsedObservation.success) return c.json({ error: "service_unavailable" }, 503);
+        switch (parsedObservation.data.status) {
+          case "device_proof_replayed": {
+            const { status: _status, ...storedProof } = parsedObservation.data;
+            return c.json({ error: "device_proof_replayed", stored_proof: storedProof }, 409);
+          }
+          case "device_proof_not_consumed":
+            return c.json({ error: "device_proof_not_consumed" }, 404);
+          case "device_unknown":
+            return c.json({ error: "device_unknown" }, 404);
+          case "device_owner_mismatch":
+            return c.json({ error: "device_owner_mismatch" }, 403);
+          case "device_revoked":
+            return c.json({ error: "device_revoked" }, 409);
+          case "device_key_changed":
+            return c.json({ error: "device_key_changed" }, 401);
+        }
+      }
       const consumed = await supabaseAdmin.rpc("rpc_consume_tlsn_device_proof", {
         p_kind: kind,
         p_user_id: user.id,

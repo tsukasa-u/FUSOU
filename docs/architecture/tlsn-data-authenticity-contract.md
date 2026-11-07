@@ -180,6 +180,36 @@ requires verified storage keys, sizes, digests, retention and readback, plus
 independent offline verification. A local filesystem sink or synthetic
 Presentation is not a substitute.
 
+### Local 19-role material assembly
+
+The independent verifier's 19-role schema remains mandatory. The candidate
+finalizer now forwards ten role materials from a successful capture: exact
+Presentation, signed Result, Session, device-authentication request, possession
+proof, consume receipt, exact Result registry and envelope, capture metadata,
+and a subject-hash projection derived from the candidate Result. Existing
+candidate bytes are used directly; supplied descriptors must match their exact
+length and digest. Missing candidate-role descriptors are added only in memory
+for finalization. The `subject` projection is rechecked against the Result that
+the independent verifier parses and verifies; it is not an identity authority.
+
+Nine roles remain unavailable or disconnected: `health` (the APP currently
+retains only reduced, unsigned health metadata), `notary_registry`,
+`authenticated_user`, `device_identity`, `session_authority_registry`,
+`binding_authority_registry`, `trust_root`, `replay`, and
+`semantic_verification`. The last two have no approved producer connected.
+External registry keys, user/device pins, the trust anchor, and the raw
+Origin Inventory/Target Approval pair must come from separately approved
+sources. Candidate fields, a Bundle's own keys, or filenames do not create
+trust. All 19 role checks and trust-graph predicates remain enforced.
+
+The material input manifest is marked `verification_status: NOT_CHECKED`.
+The finalizer invokes the independent verifier first and sets the published
+manifest to `VERIFIED` only after successful verification; overall Production
+and P0-05 statuses remain `BLOCKED`. Candidate execution receipt is a separate
+mandatory gate, not a 20th role, and its Canary producer is not a Production
+authority. No complete synthetic 19-role success fixture or real Production
+finalization is established by the material-handoff tests.
+
 ### Authentication and replay
 
 The APP-side binding client verifies Auth/device/session material and signed

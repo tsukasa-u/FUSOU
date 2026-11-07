@@ -489,6 +489,11 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS = Object.freeze([
   ["production-evidence", "evidence_manifest", "production-evidence-signer"],
   ["remote-attestation", "remote_attestation", "remote-attestation-signer"],
 ].map(([id, type, authority]) => Object.freeze({ id, type, authority })));
+export const PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_NODE_DEFINITIONS = Object.freeze(
+  PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map((node) => node.id === "member-id"
+    ? Object.freeze({ ...node, authority: "fusou-require-info-v2-sparse-response-parser" })
+    : node),
+);
 export const PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS = PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id }) => id);
 export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
   { id: "user-owns-device", source: "authenticated-user", target: "device", binding_fields: ["user_id", "device_id", "device_public_key_sha256"], evidence_artifact: "device_identity", verification_predicate: "device_identity_ownership", authority: "fusou-web-user-devices" },
@@ -533,6 +538,12 @@ function trustGraphEdgeDefinitions(graph) {
   return graph?.edges?.some((edge) => edge?.binding_fields?.includes("revealed_request_ranges"))
     ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
     : PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS;
+}
+
+function trustGraphNodeDefinitions(graph) {
+  return trustGraphEdgeDefinitions(graph) === PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
+    ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_NODE_DEFINITIONS
+    : PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS;
 }
 
 function assertTimestamp(value, label) {
@@ -697,6 +708,9 @@ export function deriveProductionTrustGraph({
     throw new Error("device authentication does not match the device identity");
   }
   const sparse = semanticResult.disclosure_mode === "sparse";
+  const nodeDefinitions = sparse
+    ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_NODE_DEFINITIONS
+    : PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS;
   const edgeDefinitions = sparse
     ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
     : PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS;
@@ -735,7 +749,7 @@ export function deriveProductionTrustGraph({
     "remote-attestation": "health",
   };
   return createTrustGraph({
-    nodes: PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.map(({ id, type, authority }) => ({
+    nodes: nodeDefinitions.map(({ id, type, authority }) => ({
       id,
       type,
       authority,
@@ -750,15 +764,16 @@ export function assertTrustGraph(graph, { artifactNames = null } = {}) {
   if (graph?.schema_version !== 2 || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
     throw new Error("production evidence trust graph schema is invalid");
   }
-  if (graph.nodes.length !== PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.length) {
+  const nodeDefinitions = trustGraphNodeDefinitions(graph);
+  const nodeIds = new Set();
+  if (graph.nodes.length !== nodeDefinitions.length) {
     throw new Error("production evidence trust graph node topology is invalid");
   }
-  const nodeIds = new Set();
   for (const node of graph.nodes) {
     if (!PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_IDS.includes(node?.id) || nodeIds.has(node.id)) {
       throw new Error("production evidence trust graph node ID is invalid");
     }
-    const definition = PRODUCTION_EVIDENCE_TRUST_GRAPH_NODE_DEFINITIONS.find((candidate) => candidate.id === node.id);
+    const definition = nodeDefinitions.find((candidate) => candidate.id === node.id);
     if (node.type !== definition.type || node.authority !== definition.authority) {
       throw new Error(`production evidence trust graph node authority or type is invalid: ${node.id}`);
     }
@@ -1034,13 +1049,13 @@ export function assertProductionEvidenceManifest(manifest) {
   if (Date.parse(manifest.capture_finished_at) < Date.parse(manifest.capture_started_at)) {
     throw new Error("capture_finished_at precedes capture_started_at");
   }
-  if (JSON.stringify(manifest.evidence_domains) !== JSON.stringify(PRODUCTION_EVIDENCE_DOMAINS)) {
+  if (!isDeepStrictEqual(manifest.evidence_domains, PRODUCTION_EVIDENCE_DOMAINS)) {
     throw new Error("production evidence domains are invalid");
   }
-  if (JSON.stringify(manifest.authority_compromise_definitions) !== JSON.stringify(AUTHORITY_COMPROMISE_DEFINITIONS)) {
+  if (!isDeepStrictEqual(manifest.authority_compromise_definitions, AUTHORITY_COMPROMISE_DEFINITIONS)) {
     throw new Error("production evidence authority compromise definitions are invalid");
   }
-  if (JSON.stringify(manifest.worker_authority_boundary) !== JSON.stringify(WORKER_AUTHORITY_BOUNDARY)) {
+  if (!isDeepStrictEqual(manifest.worker_authority_boundary, WORKER_AUTHORITY_BOUNDARY)) {
     throw new Error("production evidence Worker authority boundary is invalid");
   }
   const declaredArtifactNames = Object.keys(manifest.artifacts ?? {});

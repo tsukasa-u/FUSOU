@@ -12,6 +12,7 @@ enum Invocation {
 struct Arguments {
     bundle: String,
     finalize_candidate: Option<String>,
+    replay_observation: Option<String>,
     output: Option<String>,
     evidence_root_key_id: String,
     evidence_root_public_key_spki: String,
@@ -35,7 +36,7 @@ struct Arguments {
 }
 
 fn usage() -> &'static str {
-    "usage: verify_fusou_tlsn_evidence --bundle PATH [--finalize-candidate PATH --output NEW_DIRECTORY] --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
+    "usage: verify_fusou_tlsn_evidence --bundle PATH [--finalize-candidate PATH [--replay-observation PATH] --output NEW_DIRECTORY] --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
 }
 
 fn required_value<I>(arguments: &mut I, flag: &str) -> Result<String, String>
@@ -65,6 +66,7 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
     let mut seen = HashSet::new();
     let mut bundle = None;
     let mut finalize_candidate = None;
+    let mut replay_observation = None;
     let mut output = None;
     let mut evidence_root_key_id = None;
     let mut evidence_root_public_key_spki = None;
@@ -97,6 +99,7 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
         match flag.as_str() {
             "--bundle" => bundle = Some(value),
             "--finalize-candidate" => finalize_candidate = Some(value),
+            "--replay-observation" => replay_observation = Some(value),
             "--output" => output = Some(value),
             "--evidence-root-key-id" => evidence_root_key_id = Some(value),
             "--evidence-root-public-key-spki" => evidence_root_public_key_spki = Some(value),
@@ -127,9 +130,13 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
     if finalize_candidate.is_some() != output.is_some() {
         return Err("--finalize-candidate and --output must be supplied together".to_owned());
     }
+    if replay_observation.is_some() && finalize_candidate.is_none() {
+        return Err("--replay-observation requires --finalize-candidate".to_owned());
+    }
     Ok(Arguments {
         bundle: bundle.ok_or_else(|| format!("missing --bundle\n{}", usage()))?,
         finalize_candidate,
+        replay_observation,
         output,
         evidence_root_key_id: evidence_root_key_id
             .ok_or_else(|| format!("missing --evidence-root-key-id\n{}", usage()))?,
@@ -237,11 +244,13 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
         verifier_key_id: arguments.verifier_key_id,
         trust_anchor_der,
     };
+    let replay_observation = arguments.replay_observation.map(std::path::PathBuf::from);
     match (arguments.finalize_candidate, arguments.output) {
         (Some(candidate), Some(output)) => {
-            fusou_tlsn_verifier::evidence_bundle::finalization::finalize_candidate(
+            fusou_tlsn_verifier::evidence_bundle::finalization::finalize_candidate_with_replay_observation(
                 candidate,
                 arguments.bundle,
+                replay_observation.as_deref(),
                 output,
                 &options,
             )
@@ -327,6 +336,7 @@ mod tests {
                     panic!("legacy arguments must select path mode");
                 };
                 assert_eq!(parsed.sparse_profile_sha256, sparse.then(|| "sparse-profile".to_owned()));
+                assert_eq!(parsed.replay_observation, None);
                 assert_eq!(vec![
                     parsed.bundle, parsed.evidence_root_key_id, parsed.evidence_root_public_key_spki,
                     parsed.trusted_notary_registry, parsed.session_authority_registry,
@@ -389,7 +399,28 @@ mod tests {
             panic!("finalization must use explicit path inputs");
         };
         assert_eq!(parsed.finalize_candidate.as_deref(), Some("candidate"));
+        assert_eq!(parsed.replay_observation, None);
         assert_eq!(parsed.output.as_deref(), Some("new-output"));
+        let mut with_replay = args.clone();
+        with_replay.extend(
+            ["--replay-observation", "replay.json"]
+                .into_iter()
+                .map(str::to_owned),
+        );
+        let Invocation::Path(parsed) = parse_arguments_from(with_replay).unwrap() else {
+            panic!("replay collection sidecar must use finalization path mode");
+        };
+        assert_eq!(parsed.replay_observation.as_deref(), Some("replay.json"));
+        let mut replay_without_finalization = legacy_arguments();
+        replay_without_finalization.extend(
+            ["--replay-observation", "replay.json"]
+                .into_iter()
+                .map(str::to_owned),
+        );
+        assert!(parse_arguments_from(replay_without_finalization)
+            .err()
+            .unwrap()
+            .contains("requires --finalize-candidate"));
         args.push("--fd-abi-v1".to_owned());
         assert!(parse_arguments_from(args).is_err());
     }
