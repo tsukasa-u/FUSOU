@@ -83,6 +83,13 @@ jobs:
       - name: Run APP clean-capture tests
         run: pnpm --dir packages/FUSOU-APP run test:clean-capture
 
+      - name: Fetch locked APP Rust verifier dependencies
+        run: cargo +1.98.1 fetch --locked --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "false"
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
       - name: Install isolated proof test database tools
         run: |
           sudo apt-get update
@@ -142,11 +149,12 @@ jobs:
           RUSTUP_TOOLCHAIN: "1.98.1"
           RUSTUP_AUTO_INSTALL: "0"
 
-      - name: Test independent TLSN verifier and candidate finalizer
+      - name: Test independent TLSN verifier, CLI, and candidate finalizer
         run: >-
           cargo +1.98.1 test --locked --offline
           --manifest-path packages/FUSOU-TLSN-VERIFIER/Cargo.toml
           --lib
+          --bin verify_fusou_tlsn_evidence
         env:
           CARGO_NET_OFFLINE: "true"
           RUSTUP_TOOLCHAIN: "1.98.1"
@@ -185,21 +193,29 @@ jobs:
           RUSTUP_AUTO_INSTALL: "0"
           CC_wasm32_unknown_unknown: clang-18
 
-      - name: Verify bounded Worker proof clients
+      - name: Verify bounded Worker proof clients and replay collection
         run: |
           pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck
           node --experimental-strip-types --test \
+            packages/FUSOU-TLSN-VERIFIER/scripts/collect-replay-observation.test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs \
             scripts/release-worker-source.test.mjs \
             scripts/release-worker-integration.test.mjs
+
+      - name: Install APP Rust integration build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Test Freshness, Production Result, and candidate readiness contracts
         run: |
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run typecheck
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run test
-          node --test \
+          pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run typecheck
+          node --experimental-strip-types --test \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-result-contract.test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs \
             packages/FUSOU-APP/scripts/testplay-acceptance-stages.test.mjs \
             packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.test.mjs
@@ -252,6 +268,13 @@ jobs:
           --features tlsn-production
           tlsn_preflight --lib
 
+      - name: Test exact Worker health snapshot capture
+        run: >-
+          cargo test --locked
+          --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
+          --features tlsn-production
+          tlsn_runtime --lib
+
   proxy-capture-source-unit-tests:
     runs-on: ubuntu-24.04
     steps:
@@ -287,5 +310,25 @@ jobs:
         env:
           CARGO_NET_OFFLINE: "true"
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-capture-harness-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Fetch locked Proxy health evidence test dependencies
+        run: >-
+          cargo +1.98.1 fetch --locked
+          --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "false"
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Run Proxy health snapshot and candidate artifact tests
+        run: >-
+          cargo +1.98.1 test --locked --offline --lib --features alpha15-tlsn
+          --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml
+          health
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
           RUSTUP_TOOLCHAIN: "1.98.1"
           RUSTUP_AUTO_INSTALL: "0"
