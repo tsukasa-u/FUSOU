@@ -76,6 +76,58 @@ runner; `actionlint` was unavailable locally. The existing acceptance-stage
 tests passed **3/3**, and the updated JavaScript syntax checks passed.
 Production acceptance and Stage A/B/C remain **BLOCKED**.
 
+## Current Runtime Config Freshness issuer-core status
+
+The shared
+[Runtime Config domain package](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/index.ts)
+now exports a provider-independent
+[Freshness issue core](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts)
+and purpose-specific
+[signer/operation bindings](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts).
+The core verifies the canonical Production challenge rather than trusting a
+caller-supplied “verified” value, binds the operation and signer IDs to the
+exact request digest/nonce/environment/audience, and reads/verifies current
+Journal, coordination, R2 pointer/snapshot, Manifest, and anti-rollback
+evidence through an injected adapter. It checks the issue lease and current
+state after signing, verifies the exact signed response bytes with the shared
+Freshness verifier, and returns bytes only after a matching finalization
+receipt. A mismatched signer operation or unknown signer/persistence outcome
+returns no bytes and retains the modeled blocker; same-operation retries do
+not re-sign.
+
+| Boundary | Current contract |
+|---|---|
+| APP | Existing single 10-second monotonic request/verification deadline. It is not a new guarantee that state persistence always returns within 10 seconds. |
+| Freshness Gateway | Separate 7-second HTTP response deadline. Client disconnect/timeout does not prove signer work stopped or release an issue blocker. |
+| Freshness signer lease | Maximum 8 seconds from acquisition, bounded by the selected clock's uncertainty. This is an authorization bound, not an SLO; expiry rejects signing/finalization but does not erase an unresolved operation. |
+| Final response | Only exact bytes/digest durably finalized for the same operation, request, lease, release generation, and fence may be returned. |
+| External signer | The model enforces logical return-path fencing only. It does not claim that HSM work physically stops. |
+
+Local model: the test injects a fake clock, test signer, map-backed operation
+store, and synthetic witness. Restart tests restore a snapshot into a new fake
+coordinator; this does not verify process or Durable Object persistence,
+Production clock bounds, HSM idempotency/cancellation, or Production PITR
+resistance. The rollback test checks a fixture mismatch against a separate
+test witness only.
+
+| Evidence | Status |
+|---|---|
+| Shared issuer source | **SOURCE_IMPLEMENTED** |
+| Domain Node tests and type-check | **NODE_UNIT_VERIFIED**; 24 tests pass locally |
+| Local Workers runtime for this issuer authority | **NOT_CHECKED**; no Production issuer runtime or DO adapter is wired |
+| Hosted CI | **NOT_CHECKED** |
+| Production signer, Journal, DO/coordinator, R2 adapter, trusted clock, independent witness, routes and registrations | **NOT_IMPLEMENTED / BLOCKED** |
+| Stage A/B/C and Production acceptance | **BLOCKED** |
+
+The next concrete implementation is an adapter-conformance boundary for an
+approved durable coordinator, trusted clock, signer operation ledger,
+Release Journal, R2 reader, and independent rollback witness. Do not select or
+register a provider from the local test model. The checked-in
+[Web device-proof route](../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts)
+and [Worker device-proof client](../FUSOU-TLSN-VERIFICATION-WORKER/src/device-proof-client.ts)
+exist in source; their existence does not establish deployment, domain
+routing, production authorization, or real service verification.
+
 ## Successful-capture material handoff — source implementation
 
 The local finalizer consumes the exact candidate bytes and overlays them onto
@@ -296,9 +348,9 @@ and status labels are not evidence for the current HEAD.
 | Origin attempt and retry | The APP/Proxy [origin journal](../FUSOU-PROXY/proxy-https/src/production_tlsn.rs) records a binding-derived digest, canonical target, and serialized request digest before origin I/O. Restart converts an unfinished send to `Unknown`; that attempt is not replayable. | **No authority-issued reservation.** A new binding yields a new local attempt key. Under the selected capture-scoped contract, cross-capture semantic deduplication and exactly-once operation authority are not requirements and are not Stage B blockers. |
 | Candidate materials | The verified APP Runtime Config supplies seven exact public artifacts to the Proxy [candidate writer](../FUSOU-PROXY/proxy-https/src/real_tlsn.rs). The offline [finalizer](./src/evidence_bundle/finalization.rs) forwards eleven candidate-available roles, including the exact bounded Worker health response, and derives subject hashes from the strict Result. When absent, it generates `semantic_verification` only after its shared independent verification core succeeds. A separate explicit collector accepts a read-only replay sidecar for `replay`; it does not run during capture. | **PARTIAL CONNECTION; full collection remains BLOCKED.** Six roles require independent external input, and no real Production replay response is acquired. Runtime Config artifacts remain supporting material, not seven new roles; the offline report is not an APP candidate artifact or Production authority. |
 | Execution receipt | Candidate finalization still requires exact receipt bytes and the matching header encoding. The Worker receipt implementation remains Canary-scoped; no approved Production receipt issuer/verification contract was found. | **BLOCKED.** No Canary-to-Production promotion, synthetic receipt, or receipt-gate bypass was added. |
-| Runtime Config Freshness / P2 | APP [Freshness verifier](../FUSOU-APP/src-tauri/src/tlsn_runtime_config_freshness.rs) sends a nonce-bound request and verifies signed response, Manifest, and referenced artifacts. The checked-in Worker source has no Production Freshness route/authority/Journal/HSM adapter. P1 [signer request types](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts) have no issue operation ID, lease ID, fence, or finalization receipt; `VerifiedCurrentFreshnessState` is structurally constructible. | APP local verification is **OBSERVED**; Production service and P2 recovery are **NOT_IMPLEMENTED**. |
+| Runtime Config Freshness / P2 | At this earlier audit snapshot, the signer interface lacked operation/lease/fence/finalization bindings and no issuer core existed. | **Historical snapshot only; superseded by “Current Runtime Config Freshness issuer-core status” above.** The current shared core is locally verified; Production adapters remain **NOT_IMPLEMENTED / BLOCKED**. |
 | Freshness deadlines | APP creates its 10-second monotonic deadline immediately before the Freshness POST and checks it through verification and the pre-replace guard. State persistence then writes/fsyncs a temporary file, renames it, and syncs the parent directory. No deadline check follows rename and parent-directory sync before successful return. If the parent sync fails after rename, the writer returns an error although the local high-water may already have advanced; it is not rolled back. | **No worst-case 10-second durable-acceptance guarantee is established.** Rename, durability completion, return, and use of the verified config are distinct. Performance is **NOT MEASURED**; no post-rename error or high-water rollback was introduced. |
-| Eight-second issue lease | The normative Phase 0 protocol specifies an at-most-eight-second lease and post-sign check. The P2 DO design describes eight seconds as an operational target/SLO without approval. | **UNRESOLVED protocol decision.** The SLO wording is not adopted as a normative reinterpretation; Production Freshness remains blocked. |
+| Eight-second issue lease | At the time of this earlier snapshot, the P2 design's SLO wording conflicted with the normative at-most-eight-second lease. | **Historical note:** the SLO interpretation is rejected. The maximum eight-second authorization lease remains the contract; Production clock/finalization adapters are unselected and blocked. |
 | Historical `undefined.length` failure | The previously reported smoke/finalizer test names and error text were not found in the current tracked source/workflow search. | **NOT_CHECKED against historical run logs.** This audit does not claim that the old CI failure was fixed or reproduced. |
 
 ### Earlier local validation snapshot (before evidence material handoff)

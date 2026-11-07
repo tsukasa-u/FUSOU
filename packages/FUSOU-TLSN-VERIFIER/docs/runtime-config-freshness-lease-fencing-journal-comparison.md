@@ -23,12 +23,11 @@ are retained as the original comparison; Sections 14 and 15 control where
 earlier wording leaves either distinction ambiguous. No candidate is thereby
 selected for Production.
 
-The eight-second value is **UNRESOLVED as a human decision**. It is not
-assumed that it must be retained, removed, or changed. The current normative
-protocol describes a lease with a maximum eight-second lifetime and a
-post-sign validation; the P2 DO design's description of eight seconds as an
-“operational target/SLO” conflicts with that protocol and is not an approved
-reinterpretation.
+**Current-source precedence:** Section 16 records the later local issuer-core
+implementation and supersedes earlier P1 interface/current-source statements
+in Sections 1–15. The maximum eight-second lease is fixed as an authorization
+bound, not an SLO; its Production clock/provider enforcement remains
+unselected. Production authority and acceptance remain blocked.
 
 ## 1. Baseline and inspected sources
 
@@ -68,9 +67,9 @@ reinterpretation.
 - The protected `justfile` and APP roaming `configs.toml` were not read or
   diffed. The review's repository status check excluded both paths.
 
-### Source inventory
+### Source inventory at the Section 14 baseline
 
-| Source | Current evidence |
+| Source | Evidence at that baseline |
 |---|---|
 | [Freshness protocol](./runtime-config-freshness-protocol.md) | Normative `LATEST_AT_ISSUANCE`; Release Journal append is the Release commit point; DO `COMMITTED` is post-commit state; `issued_at` is sampled during an at-most-eight-second issue lease; the same lease is rechecked after signing; an expired signature is discarded. |
 | [DO coordination design](./runtime-config-freshness-do-coordination-design.md) | Candidate `writer_pending`, operation/fence records, exact-response finalization, and PITR blockers. It calls eight seconds an operational target/SLO, which conflicts with the normative lease description and is not approved. |
@@ -637,9 +636,11 @@ Production implementation.
 | Existing tests/vectors | The test [suite](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test.mjs) covers in-memory lease/release ordering and rejection of a test signing delay beyond eight seconds. The shared [golden vectors](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/test/fixtures/freshness-v1-golden.json) cover the present wire request, response, delegations, Release record, and malformed cases. | They do not prove physical signer quiescence or exercise B1/B2/C-read/C-log receipts. No test is added or run by this document update. |
 | Production status | The checked-in Worker runtime still has no Runtime Config Production route, authority DO, Journal provider, or Freshness signer service. [Readiness](../FIRST-TESTPLAY-READINESS.md) keeps Production acceptance and Stage A/B/C blocked. | Test-adapter success is not Production acceptance. |
 
-The P2 DO design's use of “operational target/SLO” for eight seconds remains
-in conflict with the normative “at most 8-second issue lease.” This
-supplement does not resolve that conflict or reinterpret the protocol.
+At the Section 14 review, the P2 DO design's use of “operational target/SLO”
+for eight seconds conflicted with the normative “at most 8-second issue
+lease”; that supplement did not resolve the conflict. Section 16 now rejects
+the SLO interpretation. Production clock/provider enforcement remains
+unselected.
 
 ### 14.2 Linearization-point vocabulary
 
@@ -2063,7 +2064,7 @@ described as test-adapter behavior.
 - **Event sequence:** The old issue request is replayed to a Worker whose current-state view is also restored or stale.
 - **Safety risk:** Re-signing the same internal operation or stale release state can produce an unauthorized delayed result; replaying an old response against a different APP request must also be rejected.
 - **Current source can prevent:** APP verifies the current outstanding `request_nonce`; a response for a different nonce does not satisfy that challenge. The test adapter validates a current lease/head and post-sign lease again.
-- **Current source cannot prevent:** P1 signer request has no durable issue operation ID/fence; no Production DO replay ledger or PITR epoch is present. A valid late response for the same still-outstanding nonce is not distinguished by an internal operation ledger.
+- **At the Section 15 source baseline:** the P1 signer request had no durable issue operation ID/fence, and no Production DO replay ledger or PITR epoch was present. A valid late response for the same outstanding nonce was not distinguished by a durable operation ledger. The later shared-core status is recorded in Section 16; Production durability remains unimplemented.
 - **Required gate / fence / checkpoint:** External epoch and full issue-operation ledger, checked at signer ingress and the universal output finalizer; preserve exact response bytes for exact retry.
 - **Safe recovery conditions:** Reject an old epoch or return the exact previously finalized result for the same operation; APP must still accept only its outstanding nonce and valid time window.
 - **Recovery impossible / quarantine conditions:** Epoch/history is missing or a late signature can bypass finalization; do not issue or deliver a replacement response.
@@ -2165,9 +2166,42 @@ rotation and retention, administrative permission boundary, and any APP
 wire/receipt change. Existing TLSN Result keys or verification callback
 secrets must not be reused for Runtime Config authority.
 
-**Readiness remains:** Production Freshness **BLOCKED**; Production Release
-Journal and Runtime Config authority **NOT_IMPLEMENTED**; Stages A, B, and C
-**BLOCKED**; Production acceptance **BLOCKED**. Normal APP/game traffic is
-not made dependent on this unimplemented Runtime Config path by this
-documentation review. No source, test, wire, setting, resource, or readiness
-file was changed; no test, deployment, or Production operation was run.
+**Readiness at this historical review:** Production Freshness **BLOCKED**;
+Production Release Journal and Runtime Config authority
+**NOT_IMPLEMENTED**; Stages A, B, and C **BLOCKED**; Production acceptance
+**BLOCKED**. Normal APP/game traffic was not made dependent on this
+unimplemented Runtime Config path by that documentation review. The
+implementation and verification status is updated in Section 16.
+
+## 16. Current issuer-core implementation update
+
+This update supersedes earlier P1 interface and “no local issuer core”
+statements in this document. It does not change the Freshness APP wire
+schema, signature domain, or Production registration.
+
+| Area | Current contract or source status | Evidence boundary |
+|---|---|---|
+| Time limits | APP request/verification deadline remains 10 seconds; Gateway HTTP deadline remains 7 seconds; Freshness issue lease is at most 8,000 ms and is an authorization bound, not an SLO. Lease validity is checked before signing and again before finalization. | Production monotonic-clock behavior and enforcement are not selected or verified. Lease expiry, caller abort, HTTP disconnect, and timeout do not prove signer quiescence or release an unresolved coordination blocker. |
+| Request binding | Shared domain contracts now bind a stable issue operation ID to the canonical challenge/request digest, nonce, environment/audience, and expected operation. The issuer core obtains current-state evidence from its injected trusted-state adapter and checks that evidence against the request; an input `verified` or `production` declaration is not accepted as proof. | These are internal contracts. No APP wire field or signature domain was added. TypeScript types alone are not runtime evidence. |
+| Lease and generation | The issue lease, clock reading, current Release state, generation/head, and fence are obtained through injected adapters and rechecked after signing. The signer result is bound to the operation and exact response bytes/digest. | The fake clock, fence, and state evidence verify local transition logic only; they do not establish Production time, Journal, or anti-rollback guarantees. |
+| Finalization | The core verifies the signed response with the existing Freshness verifier and returns only the exact bytes accepted by successful finalization. A mismatch, expired lease, changed state, stale fence, or unknown persistence result returns no response bytes and retains an unresolved/unknown blocker. A caller abort alone does not clear it. | This is logical output fencing in the provider-independent core, not physical HSM cancellation and not proof that an external result cannot exist. |
+| Duplicate and recovery behavior | A repeated operation ID with a different request is rejected. Re-entry for the same operation does not automatically invoke signing again; only a matching durably finalized exact result can be returned. Pending or ambiguous outcomes remain nonterminal across the local restart model. | Local snapshot/restart tests use injected in-memory state. They do not prove cross-isolate durability, Production restart behavior, or rollback resistance. |
+| Provider boundary | The core defines adapter requirements for current-state verification, bounded clock evidence, operation admission, lease/fence revalidation, exact result persistence/retrieval, and atomic finalization. Unknown write/append outcomes must fail closed. Production adapters must also serialize against Release updates and provide an independent anti-rollback witness/checkpoint. | No Production Durable Object, Journal/sequencer, HSM, clock provider, witness, key provider, or route was selected or registered. Restoring a DO and its same rollback domain is not an independent witness. |
+| Local tests | Domain issuer-core tests cover finalized exact-byte return, invalid request/state/lease/operation bindings, duplicate IDs, state or lease changes during signing, unknown finalization, restart-pending state, delayed results, caller abort, and local witness mismatch. | The domain suite passed 24 tests; domain typecheck passed; existing Worker Freshness regressions passed 42 tests. These are local results, not Hosted CI or Production evidence. |
+| Readiness | The local issuer core is implemented and locally verified. Production Freshness/Release authority, independent external material, execution-receipt completeness, complete-bundle remote delivery, and real-service verification remain unimplemented or unverified. | Hosted CI is **NOT_CHECKED**. Stage A/B/C and Production acceptance remain **BLOCKED**. |
+
+The former Section 15.7 recommendation to obtain a human decision about
+whether the eight-second maximum is an SLO is superseded: it is not an SLO.
+The unresolved Production question is how a selected provider proves and
+enforces the lease's bounded clock and what safe recovery is possible when
+external signing work remains in doubt. No time-based cleanup may erase that
+blocker. The local map-backed restart and rollback-witness tests are candidate
+coordination models only, not evidence of Production persistence or PITR
+resistance.
+
+The next Production implementation unit remains provider selection and
+registration under explicit approval: a durable operation/finalization
+adapter, a Release-serialized Journal and independent rollback witness, and a
+clock/signer adapter with the required operation-status and exact-result
+semantics. Until those dependencies are selected and verified, the
+Production path must fail closed.

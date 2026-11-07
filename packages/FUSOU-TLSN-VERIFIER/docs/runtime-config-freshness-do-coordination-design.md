@@ -7,21 +7,22 @@ does not implement or register a Durable Object, migration, binding, RPC,
 Journal, R2 adapter, signer, route, secret, or deployment. It does not change
 the APP/Worker wire contract or Production readiness.
 
-The Phase 0 protocol remains the normative wire specification. This design
-finds that its current “at most 8-second issue lease” description cannot safely
-be implemented as a DO wall-clock expiry that automatically removes an
-in-flight lease. The P2 implementation must preserve the 8-second operational
-target without using expiry as a lock-release event. If the protocol owner
-requires a hard 8-second authorization cutoff, a trusted clock and a
-demonstrable signer cancellation/fencing contract are still required; neither
-is established by the current source or Cloudflare documentation. Until that
-conflict is resolved, P2 Production implementation is **BLOCKED**.
+The [current issuer-core follow-up](./runtime-config-freshness-protocol.md#current-freshness-issuer-core-2026-11-07)
+is authoritative for the local implementation. The Phase 0 protocol remains
+the normative wire specification: an issue lease is **at most 8 seconds**,
+not an SLO. A trusted clock with an explicit uncertainty bound is still
+unselected for Production. Lease expiry denies signing/finalization but never
+deletes an unresolved operation or proves that an external signer stopped.
+Production remains **BLOCKED** until adapters can enforce the lease and the
+same durable finalization fence on every response path.
 
 The selected safe coordination candidate is an explicit, durable issue
 operation with a fencing token, a persisted writer gate, and no time-based
-automatic lease release. A signer timeout or crash leaves the operation
-unsettled and blocks Release until recovery proves the old signer cannot
-produce or return a response. This favors safety over availability.
+automatic blocker release. A signer timeout, caller disconnect, or unknown
+write leaves the operation unsettled and blocks Release. A known terminal
+result can release the blocker only after exact operation/fence/result state is
+durably recorded; that logical return-path fence does not prove physical HSM
+cancellation.
 
 ## Baseline
 
@@ -65,9 +66,9 @@ produce or return a response. This favors safety over availability.
    The system cannot claim rollback-resistant RPC replay protection until an
    external anti-rollback control is selected and tested.
 8. The APP's existing single 10-second request-to-acceptance deadline and
-   existing Freshness response contract remain unchanged. Eight seconds is an
-   operational budget, not permission to extend the APP deadline or accept a
-   stale response.
+   existing Freshness response contract remain unchanged. The signer's
+   maximum 8-second issue lease is a separate authorization bound, not an SLO
+   or permission to extend the APP deadline or accept a stale response.
 
 ## Source investigation
 
@@ -76,11 +77,12 @@ for this design.
 
 | Source | Observed fact |
 |---|---|
-| `docs/runtime-config-freshness-protocol.md` | Section 5.3 requires an at-most-8-second issue lease, reads the Journal/DO/R2/snapshot/Manifest, samples `issued_at` while the lease is valid, checks the same lease after signing, and discards a signature if the lease or delegation expires. Sections 6–7 define `PREPARED`, `POINTER_COMMITTED`, `COMMITTED`, recovery, and Journal append as Release commit point. |
+| `docs/runtime-config-freshness-protocol.md` | Section 5.3 requires an at-most-8-second issue lease, reads the Journal/DO/R2/snapshot/Manifest, samples `issued_at` while the lease is valid, checks the same lease after signing, and discards a signature if the lease or delegation expires. The current issuer-core addendum additionally requires durable exact-response finalization; expiry does not clear an unresolved operation. Sections 6–7 define `PREPARED`, `POINTER_COMMITTED`, `COMMITTED`, recovery, and Journal append as Release commit point. |
 | `docs/runtime-config-freshness-production-authority-design.md` | The design assigns coordination to a per-environment DO, sets a writer gate before external mutation, and requires role-specific HMAC RPC. It identifies Production DO, Journal, R2, and signer services as unimplemented. This document links to the present clock/replay/PITR follow-up. |
 | `FIRST-TESTPLAY-READINESS.md` | The inspected readiness record reports the in-memory Freshness/release tests as test-only and Production Freshness as `NOT_IMPLEMENTED`; trust-owner/Production registration and Stage A/B/C remain `BLOCKED`. Its recorded audit base predates this P2 baseline; it was not updated here. |
 | `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts` | P1 exports wire/domain types and validation contracts, including string-encoded generation values and verified-result interfaces. These are TypeScript-level values, not runtime proof at a Worker/RPC trust boundary. |
-| `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts` | P1 Release and Freshness signer requests are purpose-specific, but contain structurally constructible `PendingReleaseAttemptBinding`, `VerifiedJournalHeadBinding`, `VerifiedDelegation`, and `VerifiedCurrentFreshnessState` values. A Production signer must independently reload and verify trusted facts; it must not accept those structures as proof. |
+| `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts` | Purpose-specific requests now carry issue/signer operation IDs, canonical request digest/nonce, environment/audience, lease/clock, release-generation/current-state digest, fencing token, and exact signer-result fields. `VerifiedCurrentFreshnessState` remains structurally constructible; a signer must independently reload and verify trusted facts rather than accept the TypeScript value as proof. |
+| `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts` | A provider-independent issuer core now verifies the challenge and current-state evidence, checks lease/state before and after signing, verifies exact signed response bytes, and returns bytes only after finalization. Its fake clock, test signer, map-backed store, and test witness establish only Node-local behavior, not Production durability, clock quality, or rollback resistance. |
 | `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/test/fixtures/freshness-v1-golden.json` | P1 has shared wire vectors. This design makes no changes to them and does not claim new cross-language test results. |
 | Worker `src/index.ts` and `wrangler.toml` | The inspected Worker has no Runtime Config Freshness route, Runtime Config authority binding, Runtime Config Journal, or Runtime Config signer service binding. Existing `TLSN_BINDINGS` is for verification/session binding and is not the Runtime Config authority. |
 | Worker `src/binding_authority.ts` | `TlsnBindingAuthorityDurableObject` implements a different verification-binding lifecycle. It uses its own state and alarm behavior; it is not a Freshness coordination implementation and must not be reused as one. |
@@ -88,7 +90,10 @@ for this design.
 | Worker `scripts/tlsn-runtime-config-release.mjs` and `scripts/tlsn-runtime-config-r2-store.mjs` | The existing publisher/object-store paths are Node/test-oriented, with injected signer and S3-compatible client interfaces. They are not a Worker Runtime Config authority, a Production Journal, or a Worker R2 adapter. |
 | Worker `package.json` | The inspected package provides typecheck/build scripts but no configured Cloudflare Vitest DO integration suite for this authority. |
 
-No source or readiness file was changed for this task.
+The source inventory above describes the review baseline, not the current
+working tree. The later issuer-core addendum updates the interface/core status;
+it does not revise this document into a Production implementation or promote
+the historical readiness snapshot.
 
 ## Cloudflare runtime facts and consequences
 
@@ -110,8 +115,9 @@ checkpoint. None of those guarantees is assumed here.
 
 ## Lease/fencing candidates
 
-The current protocol's eight-second bound is kept as an operational target.
-It is **not** treated as a safe automatic unlock. The APP's 10-second deadline
+The protocol's at-most-eight-second authorization bound is not reinterpreted
+as an operational target. It is **not** treated as a safe automatic unlock.
+The APP's 10-second deadline
 is not extended to compensate for a longer server request.
 
 | Candidate | Safety | Availability / crash recovery | Clock and signer behavior | Decision |
@@ -119,7 +125,7 @@ is not extended to compensate for a longer server request.
 | **A. DO wall-clock deadline** | Unsafe as an automatic release condition. A forward jump or a timer advancing after I/O can expire a row while the signer is still processing. A backward/frozen timer can retain it indefinitely. | Appears available when the row expires, but can let Release mutate while an old signer can still return. Restart does not repair the proof. | Requires bounded DO wall-clock behavior and a relation to signer/HSM time that Cloudflare does not document. An alarm is not exact. | Reject as a correctness boundary. |
 | **B. Generation/fencing token alone** | Rejects an old token only if every signer result and response path checks it at a trusted finalization gate. A token alone does not stop a signer that already holds a signature from returning it outside that gate. DO counter rollback under PITR can revive old values. | Good for detecting stale local operations in a non-rolled-back database; recovery still needs an external anchor. | Does not require a clock, but requires all response sinks and signer calls to obey the fence. A delayed signer may keep running. | Use fencing as a necessary check, not as the only lease/recovery protocol. |
 | **C. Two-phase DO and signer-clock validation** | A pre-sign check and post-sign check do not by themselves serialize Release with a signature already in flight. Separate clocks cannot atomically prove that the lease remains live. | Can reject late responses if the signer stops, but timeout/cancellation of the HSM or downstream response path is unproven. | Requires signer clock bounds and cancellation semantics. A DO-side comparison still has no documented cross-worker clock bound. | Use independent signature-time validation as defense in depth; do not use it to release the DO blocker. |
-| **D. Explicit durable operation, writer-pending, fencing, explicit completion/recovery** | Safe under the stated gate: Release waits for every pre-existing issue operation; only the exact fenced operation can finalize and return; an unsettled signer blocks. No wall clock can clear it. PITR remains a separate anti-rollback gap. | Fail-closed but may block Release indefinitely after signer/HSM/network failure. Restart preserves the blocker. Recovery needs proof that the old signer cannot return or deliver. | No lease-expiry clock is assumed. The 8-second target can trigger an operational timeout/alert only; timeout does not free the blocker. | **Selected P2 candidate.** |
+| **D. Explicit durable operation, writer-pending, fencing, explicit completion/recovery** | Safe under the stated gate: Release waits for every pre-existing issue operation; only the exact fenced operation can finalize and return; an unsettled signer blocks. No wall clock can clear it. PITR remains a separate anti-rollback gap. | Fail-closed but may block Release indefinitely after signer/HSM/network failure. Restart preserves the blocker. Recovery needs a durable fence that every return path enforces; physical HSM cancellation is not claimed. | The at-most-eight-second lease remains a hard authorization bound; expiry rejects signing/finalization but is not an automatic blocker release. | **Selected local model; Production adapter unimplemented.** |
 | **E. External linearizable lease/cancellation or signer executor** | Could support safe revocation only if every signing/response sink enforces a fencing generation and the external authority proves old work is quiescent before reuse. | Can improve recovery if provider is durable and independently operated; provider outage still fails closed. | Requires an approved provider with documented monotonic state, cancellation semantics, and restore/rollback controls. | Not selected or assumed. Provider and trust boundary are unresolved. |
 
 ### Selected lease semantics
@@ -129,29 +135,32 @@ is not extended to compensate for a longer server request.
   and fencing token.
 - The lease does **not** disappear when a timestamp passes, an alarm fires, an
   isolate restarts, a request times out, or an RPC caller disconnects.
-- The eight-second value is an issuance-operation budget/SLO. A service may
-  stop waiting and mark the operation `IN_DOUBT` at that budget, but it may
-  not infer that the HSM/signer stopped or that a signature cannot still be
-  delivered.
+- The issue lease has a hard maximum duration of 8 seconds under the approved
+  lease clock; it is not a request-latency SLO. The provider and its clock
+  uncertainty bounds are not selected. Expiry rejects signing/finalization,
+  but a timeout or elapsed timestamp does not clear the durable operation
+  blocker or prove the signer stopped.
 - A response is eligible only after exact post-sign finalization under the
   same live operation and fence. The signer/gateway must have no alternate
   return path that bypasses this finalization.
-- Normal terminal states are `COMPLETED` or `ABORTED_SAFE`. `ABORTED_SAFE` is
-  allowed after signing begins only when the signer/HSM integration proves
-  that outstanding signing and response delivery have been cancelled or
-  fenced. Otherwise the state is `IN_DOUBT` and blocks Release.
+- A known completed signer result may be durably rejected after expiry or
+  state mismatch, which proves that operation's returned result will not be
+  finalized. An unknown signer or persistence result remains `IN_DOUBT` and
+  blocks Release. This is a logical response-path property, not proof that
+  remote HSM computation physically stopped.
 - Release can set `writer_pending` while issues exist. This blocks new grants
   but does not revoke a lease granted earlier; the existing issue may finish
   under the old current generation. Release pointer CAS and Journal append
   wait until all such issues are terminal.
 - A forced recovery transition increments the durable fence and tombstones
-  the old lease only after an independently verified quiescence/revocation
-  event. Updating the DO row alone is not proof that a remote signer stopped.
+  the old operation only after the external adapter proves the prior result
+  cannot pass any finalization/response path. Updating a local row alone is not
+  Production proof of that property.
 - This changes only internal coordination semantics; it does not add fields
-  to the APP request/response. The current normative “at most 8 seconds”
-  requirement remains a P2 blocker until its hard authorization meaning is
-  either supported by approved clock/cancellation evidence or formally
-  revised. The design does not silently redefine it as a guaranteed timeout.
+  to the APP request/response. The normative at-most-8-second authorization
+  bound is not reinterpreted as an SLO. Production enforcement remains blocked
+  on an approved clock and finalization adapter contract; the local fake clock
+  does not satisfy those requirements.
 
 ## RPC authentication and replay model
 
@@ -492,13 +501,16 @@ P2/P5 signer requirements:
 
 ## Unresolved blockers
 
-1. **Eight-second contract:** Cloudflare's deployed timers and the absence of
-   a DO/signer clock bound do not prove an exact 8-second lease. No
-   auto-expiry is safe. The normative contract needs either approved clock and
-   cancellation evidence or a formally approved internal semantic revision.
-2. **Signer cancellation/quiescence:** No HSM/provider contract proves that a
-   timed-out signing operation cannot later produce or deliver a signature.
-   Until then `IN_DOUBT` blocks Release; there is no safe automatic recovery.
+1. **Trusted lease clock:** Cloudflare's deployed timers and the absence of a
+   DO/signer clock bound do not enforce the fixed maximum 8-second lease with
+   a known uncertainty. Production needs an approved clock adapter and tests
+   proving expired operations cannot finalize; expiry itself must not clear an
+   unresolved blocker.
+2. **Signer result/finalization:** No HSM/provider contract supplies durable
+   operation status/idempotency or proves every Production response path uses
+   the finalization fence. Physical HSM cancellation is not claimed or
+   required as evidence that an unknown result is complete; `IN_DOUBT` blocks
+   Release until an approved fence/recovery transition.
 3. **PITR anti-rollback:** DO-only operation IDs, replay cache, tombstones, and
    counters can roll back. No independent operation checkpoint or mandatory
    controlled-restore/epoch rotation mechanism is registered.
@@ -526,7 +538,7 @@ No item below is implemented by this design. Do not bind the new class to
 
 | Order | Proposed files/component | Implementation and required tests |
 |---|---|---|
-| 0. Resolve semantics and external gates | Update the normative protocol/authority design only after explicit approval; select Journal and restore/replay control. | Decide whether eight seconds is a hard authorization cutoff or an operational target. Approve signer cancellation/quiescence and controlled PITR procedure. No Production activation while unresolved. |
+| 0. Resolve external enforcement gates | Select a trusted clock and explicit uncertainty bound for the fixed maximum eight-second lease; select Journal and restore/replay control. | Approve the logical finalization fence and controlled PITR procedure. Do not reinterpret the lease as an SLO or claim physical signer cancellation. No Production activation while unresolved. |
 | 1. Coordinator state/SQLite | New package `packages/FUSOU-TLSN-RUNTIME-CONFIG-AUTHORITY/src/coordinator-durable-object.ts`, `src/state-model.ts`, and a separate Wrangler config/migration. | Schema constraints; safe decimal/uint64 parse; state initialization; no missing-state genesis; restart/hydration; transaction-local CAS; prove no HSM/R2/Journal call occurs inside transactions. |
 | 2. Authenticated RPC DTOs | `src/rpc-auth.ts`, `src/rpc-contract.ts`, and role-specific RPC methods in the coordinator package. | Golden HMAC bytes; exact canonical schema; unknown field; wrong MAC/domain/key ID/role/environment/operation; body-digest mismatch; malformed base64url; key overlap; no secret/MAC logging; test platform MAC verification contract. |
 | 3. Replay/idempotency and fencing | `src/operation-ledger.ts` and SQLite operation/lease records. | Exact retry returns one result; same ID/different body rejects; duplicate lease ID rejects forever; stale fence rejects; crash at each local transaction; no clock- or alarm-driven lease deletion; overflow does not wrap. |
@@ -546,11 +558,11 @@ as part of the local P2 implementation until trust-owner/provider approvals.
 | Area | Status after this design |
 |---|---|
 | P2 DO coordination design | **OBSERVED / DESIGN ONLY** — candidate model and failure modes documented; no DO behavior is implemented or runtime-verified. |
-| Eight-second hard expiry | **UNVERIFIED / BLOCKED** — no clock/cancellation proof; auto-release rejected. |
+| Maximum 8-second lease enforcement | **UNVERIFIED / BLOCKED** — no trusted clock provider or Production finalization adapter; lease expiry does not auto-release an operation. |
 | RPC replay after PITR | **BLOCKED** — DO-only replay records can roll back; external checkpoint/controlled restore is not registered. |
 | Runtime Config Production DO, Journal, R2 adapter, signer, route, secrets | **NOT_IMPLEMENTED**. |
 | Release Journal provider and independent checkpoint | **NOT_CHECKED / BLOCKED** — provider and trust owner remain external dependencies. |
-| P1 signer inputs as runtime trust proof | **UNVERIFIED** — interfaces are structurally constructible; Production signers do not exist. |
+| P1 signer inputs as runtime trust proof | **UNVERIFIED for Production** — the shared core independently verifies injected evidence locally, but `VerifiedCurrentFreshnessState` remains structurally constructible and Production adapters/signers do not exist. |
 | Production Freshness acceptance | **BLOCKED**. |
 | Stage A — protocol-only testplay | **BLOCKED**. |
 | Stage B — identity-bound testplay | **BLOCKED**. |

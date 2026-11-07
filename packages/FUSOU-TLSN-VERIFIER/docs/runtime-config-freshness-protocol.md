@@ -59,6 +59,49 @@ implied.
   remain `UNVERIFIED` / `BLOCKED`; Stage A/B/C and Production acceptance remain
   `BLOCKED`. No Production resource was created or deployed.
 
+## Current Freshness issuer core (2026-11-07)
+
+The shared Runtime Config domain package now contains a provider-independent
+issuer core and test-only adapters. It does not create or register a
+Production signer, Journal, Durable Object, clock, R2 adapter, anti-rollback
+witness, key provider, route, or deployment.
+
+| Boundary | Contract and current evidence |
+|---|---|
+| APP | The existing single 10-second monotonic request/verification deadline remains unchanged. It is not a promise that local persistence returns within 10 seconds, and a Gateway timeout does not extend it. |
+| Freshness Gateway | The separate 7-second HTTP response deadline remains a transport boundary. Client disconnect or timeout is not evidence that signer work stopped, a lease ended, or coordination may be released. |
+| Signer issue lease | The normative maximum is 8,000 ms from lease acquisition, bounded by the clock's declared uncertainty. It is an authorization lease, not an SLO or permission to complete signing later. Expiry rejects signing/finalization; it does not by itself clear an unresolved operation blocker. |
+| Coordination blocker | The durable adapter must retain an unresolved operation through expiry, caller abort, HTTP disconnect, process restart, and unknown signer/persistence outcomes. It may clear the blocker only after a known terminal result has been durably recorded; elapsed time, an alarm, or a request cancellation is not completion evidence. |
+| Final response | After signing, the core rechecks the lease and independently re-reads/re-verifies current state. Only the exact response bytes, digest, operation/request binding, lease, fence, and current-state binding atomically persisted by successful finalization may be returned. Unknown or rejected finalization returns no bytes. |
+| HSM/provider | This is logical response-path fencing, not proof that a remote HSM physically stopped. A signer result with an unknown or mismatched operation binding leaves the expected operation unresolved. Production clock bounds, idempotency, durable finalization, and restore-resistant state remain external adapter requirements. |
+
+The issuer contract is represented by
+[freshness-issue.ts](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts)
+and the purpose-specific bindings in
+[signers.ts](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts).
+The core verifies the canonical Production challenge itself; it does not
+accept a caller-provided `VerifiedCurrentFreshnessState` as proof. Its state
+reader must fetch and verify the exact Release Journal head/append evidence,
+coordination head and restore epoch, R2 pointer, immutable snapshot, Manifest,
+and independent anti-rollback witness, then bind those facts to the request.
+The operation ID, signer operation ID, request digest/nonce, environment,
+lease ID/clock, release generation, fence, exact signer bytes/digest, and
+finalization receipt are internal bindings and do not alter APP wire bytes or
+signature domains.
+
+The local model uses explicit fake time, a test-only signer, a map-backed
+coordinator, and synthetic witness bytes. Restart tests restore a snapshot
+into a new fake coordinator; they are not evidence of process durability,
+Durable Object persistence, PITR resistance, real signer idempotency, or
+HSM cancellation. The local rollback test checks a fixture mismatch against a
+separate test witness; it is not a Production rollback test.
+
+**Status:** issuer core is `SOURCE_IMPLEMENTED`; its package tests and
+type-check are `NODE_UNIT_VERIFIED`. Hosted CI is `NOT_CHECKED`. No
+`LOCAL_WORKERS_RUNTIME_VERIFIED` or `PRODUCTION_VERIFIED` claim is made for
+the issuer authority. Production Freshness, Stage A/B/C, and Production
+acceptance remain `BLOCKED`.
+
 ## Freshness Gateway request controls (2026-11-07)
 
 - The Gateway retains `compatibility_date = "2026-11-06"` and explicitly
@@ -506,9 +549,12 @@ provider are **NOT_REGISTERED** and require human approval before Phase 1.
    a new SQLite-backed Durable Object namespace, separate from the existing
    `TLSN_BINDINGS` session/proof DO. One DO instance per environment is the
    coordination atom for that environment's single current Manifest. It
-   persists `PREPARED`, `POINTER_COMMITTED`, and `COMMITTED` state and tracks
-   expiring Freshness issue leases. It has no signing private key. Signer
-   Workers bind directly to this same namespace for their typed read/lease
+   persists `PREPARED`, `POINTER_COMMITTED`, and `COMMITTED` state plus
+   Freshness issue operations. Each issue lease is no longer than 8 seconds;
+   expiry rejects authorization but does not erase an unresolved operation or
+   release its blocker. The adapter may clear it only on a durable, known
+   terminal transition. It has no signing private key. Signer Workers bind
+   directly to this same namespace for their typed read/lease/finalization
    RPCs; they do not obtain DO state from the Authority Worker's HTTP route.
 3. **Online Release Authority signer service:** a managed HSM signer with a
    non-exportable Release Authority child key and a separately deployed
@@ -643,8 +689,11 @@ For every request, the signer itself:
    `expires_at = min(issued_at + 30s, freshness_delegation.not_after)`. Refuse
    to sign if the remaining delegation validity is nonpositive;
 10. signs the exact response with the Freshness delegated key, then confirms
-    the same issue lease is still valid and the signer clock remains in the
-    half-open Freshness delegation interval before returning. Because the
+    the same issue lease, current-state binding, and signer clock remain valid;
+    it durably finalizes the exact response bytes/digest under the operation,
+    request, generation, lease, and fence before returning. If the lease has
+    expired, current state changed, or finalization is unknown, it returns no
+    response bytes and retains an unresolved operation blocker as required.. Because the
     lease prevents a release commit between the `issued_at` sample and
     signature completion, both observe the same head. Release the lease
     through the authenticated DO RPC after signing. If the lease or
@@ -743,7 +792,7 @@ interpreted as permission to initialize epoch `0`.
 
 | State | Meaning and durable data | Allowed transition and CAS | Signer may respond? |
 |---|---|---|---|
-| `PREPARED` | Candidate Manifest/artifact/snapshot bytes were validated and written immutably. DO records candidate epoch/digest/ref, attempt ID, expected previous generation/digest/ETag, and `pointer_write_started=false`. No commit is authoritative. | `beginRelease` compares the current head and lease table in a DO transaction. If no lease exists, that transaction admits the attempt as `PREPARED`; if a lease exists, it sets writer-pending/`WAITING_FOR_LEASES` and the same attempt is retried after leases drain, where a DO transaction changes it to `PREPARED`. `PREPARED -> POINTER_COMMITTED` requires R2 `If-Match` on the expected ETag (or authorized genesis `If-None-Match: *`) and exact pointer/snapshot readback. | **No.** Any pending attempt blocks Freshness. |
+| `PREPARED` | Candidate Manifest/artifact/snapshot bytes were validated and written immutably. DO records candidate epoch/digest/ref, attempt ID, expected previous generation/digest/ETag, and `pointer_write_started=false`. No commit is authoritative. | `beginRelease` compares the current head and issue-operation ledger in a DO transaction. If no unsettled issue operation exists, that transaction admits the attempt as `PREPARED`; otherwise it sets writer-pending/`WAITING_FOR_ISSUES` and the same attempt remains blocked until each earlier operation reaches a durable terminal state. Lease expiry alone does not drain an operation. `PREPARED -> POINTER_COMMITTED` requires R2 `If-Match` on the expected ETag (or authorized genesis `If-None-Match: *`) and exact pointer/snapshot readback. | **No.** Any pending attempt blocks Freshness. |
 | `POINTER_COMMITTED` | R2 mutable pointer and immutable snapshot contain the exact candidate bytes; actual ETag is recorded. Journal does not yet contain this release. | The Release Authority signer may issue an HSM-signed `AUTHORIZE_JOURNAL_APPEND` authorization only after direct DO/R2/prior-Journal checks. Journal append is a separate operation and the release commit point. After a successful append/readback, DO verifies the exact current Journal record and R2 state, then separately CASes this row to `COMMITTED`. | **No.** A signed authorization or pointer without a canonical Journal append is not a committed release. |
 | `COMMITTED` | DO coordination row agrees with the current Journal head/record, authenticated Journal append metadata, R2 pointer, immutable Manifest snapshot and Manifest signature at the same environment, generation, epoch, digest and commit ID. The Journal append already committed the release. | Next release requires generation `current+1`, strictly greater Manifest epoch, matching previous digest/generation and CAS against current ETag. Same epoch/different bytes rejects. | **Yes**, only after the Freshness signer sees the current Journal record and matching DO `COMMITTED` state, plus all Section 5.3 R2/snapshot checks. |
 | `ABORTED` (terminal attempt) | A pre-pointer attempt was cancelled after proving the pointer write was never started and the old pointer is unchanged. Record attempt ID and reason; never lower current generation. | A new attempt starts with a new attempt ID and current generation. An ambiguous/in-flight write cannot be aborted automatically. | Only if the current `COMMITTED` head and all sources still agree. |
@@ -754,8 +803,8 @@ have their own independent linearization points.
 
 | Operation | Start condition | Success and linearization point | Failure/crash result |
 |---|---|---|---|
-| `beginRelease` | Immutable artifacts and Manifest snapshot have been create-only written and byte-readback verified; attempt ID and expected prior head are fixed. | A DO transaction sets `writer_pending`. If leases exist, it records `WAITING_FOR_LEASES`; otherwise the same transaction also creates `PREPARED`. Its commit is the admission point. | No pointer or Journal change. If waiting, retry the same attempt after leases drain; if the head changed, reject and leave only immutable orphans. |
-| `PREPARED` | `writer_pending` is set, no valid issue lease remains, and the expected generation/digest/ETag still equal the DO current head. | A DO transaction stores the exact candidate, prior-head fields, and `pointer_write_started=false`; on a waiting attempt this is the retry transaction. Its commit is the `PREPARED` point. | If the transaction does not commit, there is no PREPARED attempt; immutable objects remain uncommitted orphans. |
+| `beginRelease` | Immutable artifacts and Manifest snapshot have been create-only written and byte-readback verified; attempt ID and expected prior head are fixed. | A DO transaction sets `writer_pending`. If an issue operation is unsettled, it records `WAITING_FOR_ISSUES`; otherwise the same transaction also creates `PREPARED`. Its commit is the admission point. | No pointer or Journal change. A waiting attempt resumes only after every earlier issue has a durable terminal state; expiry, alarm, caller abort, or process restart does not count. If the head changed, reject and leave only immutable orphans. |
+| `PREPARED` | `writer_pending` is set, no unsettled issue operation remains, and the expected generation/digest/ETag still equal the DO current head. | A DO transaction stores the exact candidate, prior-head fields, and `pointer_write_started=false`; on a waiting attempt this is the retry transaction. Its commit is the `PREPARED` point. | If the transaction does not commit, there is no PREPARED attempt; immutable objects remain uncommitted orphans. |
 | R2 pointer CAS | `PREPARED`; a DO transaction first sets `pointer_write_started=true`; no lease can be active. | The successful conditional `PutObject` (`If-Match` or authorized genesis `If-None-Match: *`) is the R2 pointer linearization point. | A conflict is not retried against a new head. On an ambiguous result, keep the attempt pending and read back; do not assume failure. |
 | `POINTER_COMMITTED` | R2 CAS may have succeeded; Authority Worker directly reads pointer and snapshot. | After exact bytes, digest and actual ETag match, a DO transaction records the observation. That transaction commit is the coordination-state point, not the release commit. | A crash after R2 CAS leaves `PREPARED`; recovery re-reads R2 and advances only on exact match. Mismatch/unknown stays blocked. |
 | Release Authority HSM signing | `POINTER_COMMITTED`; signer directly checks pending DO attempt, pointer/snapshot, prior Journal head and delegation validity. | HSM signature creation is an authorization artifact only. It has no release-commit linearization point. | A returned but unappended signature is an orphan authorization. Do not send it to APP or mark DO `COMMITTED`. |
@@ -763,20 +812,21 @@ have their own independent linearization points.
 | Journal compare-and-append | Exact signed authorization bytes are read from DO and verify; Journal head still equals the authorization's previous generation/hash; generation and Manifest epoch advance; append time is within the delegation. | The Journal's atomic successful append of exact record and delegation bytes is the **release commit linearization point**. Journal position plus authenticated append metadata establishes canonical membership. | On an ambiguous result, query the linearizable head. Exact bytes at the expected position mean append succeeded; unchanged prior head permits retrying only the exact stored bytes; conflicting head blocks for recovery. A signature alone never commits. |
 | DO `COMMITTED` | Journal confirms the exact authorization is the canonical committed record; R2 pointer/snapshot and expected attempt match it. | A DO compare-and-set transaction stores the Journal record digest and clears the pending attempt. This is post-commit coordination completion, not a second or replacement commit point. | If the process crashes or the transaction fails after Journal append, Freshness remains blocked. Recovery reconstructs this DO row from the exact Journal record/delegation and R2 readback without allocating a new generation. |
 | Freshness issue lease acquisition | No writer-pending release, pending attempt, recovery gate, or stale state. | One DO transaction verifies the current `COMMITTED` generation and inserts the bounded lease. Its commit is the lease grant point. | If release/recovery gate won first, reject. If lease won first, release/recovery must wait; no R2 CAS or Journal append is allowed. |
-| Freshness response signing | Active lease; signer has verified the Journal's current head, DO `COMMITTED` row, R2 pointer/snapshot, Manifest signature and active Freshness delegation. | Sampling `issued_at` immediately after those checks is the `LATEST_AT_ISSUANCE` currentness linearization point. The HSM must return the signature while the same lease and delegation remain valid; no release commit can interleave between the sample and signature. | If signing fails, the lease/delegation expires, or state mismatches, discard the signature and return no response. A process crash before HTTP delivery leaves no APP acceptance; the lease is released explicitly or expires. |
-| Issue lease release | A lease exists for the exact request. | A DO transaction deletes that lease after response signing; its commit releases the serialization guard. | If the release RPC fails or the process crashes, expiry removes the guard; a release writer must still revalidate all expected head values. |
-| Recovery admission | Freshness issuance is disabled by the controlled kill switch. | A DO transaction sets a recovery/writer-pending gate only when no valid lease exists; that transaction is the recovery admission point. Recovery then performs external reads/writes outside SQLite transactions and finalizes each DO change with an expected-head CAS. | If a lease exists, recovery waits or fails closed; it cannot bypass or delete the lease. A Journal-absent authorization can never be promoted to `COMMITTED`. |
+| Freshness response signing | Active lease; signer has verified the Journal's current head, DO `COMMITTED` row, R2 pointer/snapshot, Manifest signature and active Freshness delegation. | Sampling `issued_at` immediately after those checks is the `LATEST_AT_ISSUANCE` currentness linearization point. The signer must return its result within the same lease; the same operation/generation/fence and current-state binding must then be durably finalized before any response path returns bytes. | If signing is unknown, the lease/delegation expires, or state mismatches, no response is returned. A known completed but invalid result may be durably rejected; unknown signer or persistence state remains a blocker. A caller disconnect or process crash is not completion evidence. |
+| Issue lease release | A lease exists for the exact request. | The durable coordinator records the terminal result and exact finalized bytes, or a known rejection, for the matching operation/lease/fence. | Lease expiry alone never removes an unresolved operation. Unknown signer/finalization results retain the blocker until an approved recovery proves the old result cannot be finalized or returned. |
+| Recovery admission | Freshness issuance is disabled by the controlled kill switch. | A DO transaction sets a recovery/writer-pending gate only when no unsettled issue operation exists; that transaction is the recovery admission point. Recovery then performs external reads/writes outside SQLite transactions and finalizes each DO change with an expected-head CAS. | If an issue operation is unsettled, recovery waits or fails closed; it cannot bypass or delete the operation based on expiry. A Journal-absent authorization can never be promoted to `COMMITTED`. |
 
-If `beginRelease` arrives while issue leases exist, the DO enters a bounded
-`WAITING_FOR_LEASES` admission substate: it marks a writer pending, blocks new
-leases, and performs no pointer write. After the existing leases finish or
-expire, the caller retries the same attempt ID; the DO revalidates the
-committed generation, digest and ETag before creating `PREPARED`. The wait expires after 10 seconds; if `pointer_write_started=false` and no
-valid issue lease remains, expiry atomically marks only that attempt `ABORTED`
-and clears its writer-pending gate, leaving immutable objects as uncommitted
-orphans. If a valid lease remains, keep the gate and wait/fail closed. If
-pointer writing started, the attempt cannot be auto-aborted; direct R2
-readback/recovery remains required.
+If `beginRelease` arrives while issue operations are unsettled, the DO enters
+a bounded `WAITING_FOR_ISSUES` admission substate: it marks a writer pending,
+blocks new leases, and performs no pointer write. After the existing
+operations reach durable terminal states, the caller retries the same attempt
+ID; the DO revalidates the committed generation, digest and ETag before
+creating `PREPARED`. The 10-second Release-wait timeout may abort only that
+Release attempt if `pointer_write_started=false` and no issue operation
+remains unsettled. It must not clear an unresolved issue blocker because its
+lease expired. If an issue remains unresolved, keep the writer gate and
+fail closed. If pointer writing started, the attempt cannot be auto-aborted;
+direct R2 readback/recovery remains required.
 
 Each DO state transition is one synchronous SQLite transaction or conditional
 SQL operation that checks the expected head/attempt and commits its state
@@ -790,40 +840,46 @@ cross-service ACID transaction. `PREPARED` records
 immediately before the R2 CAS. ETags are exact CAS values; body digests are
 recomputed from bytes.
 
-Freshness issue leases are separate from release states and expire after at
-most 8 seconds. Lease acquisition and `beginRelease`/recovery gates use
-transactions on the same per-environment DO, so they are totally ordered:
-if lease acquisition commits first, `beginRelease` sets writer-pending,
-refuses later leases and waits for that lease to finish/expire; if
-writer-pending commits first, lease acquisition rejects. The same rule applies
-to recovery. The DO allows multiple bounded readers of one committed
-generation, but no pointer CAS or Journal append while any valid lease exists.
-The Gateway enforces a finite in-flight limit and returns unavailable above it.
-The signer acquires the lease before its final Journal/DO/R2 checks and keeps
-it through response signing. It releases the lease after successful signing
-or lets bounded expiry release it after failure. It checks the lease again
-after the HSM returns and discards the signature if the lease expired during
-signing. The APP's 10-second monotonic response deadline is longer than the
-signer's bounded lease budget. No DO storage transaction is held across R2,
+Freshness issue leases are separate from release states and last no longer
+than 8 seconds under the approved clock and uncertainty bound. Lease
+acquisition and `beginRelease`/recovery gates use transactions on the same
+per-environment DO, so they are totally ordered: if lease acquisition commits
+first, `beginRelease` sets writer-pending, refuses later leases, and waits for
+the issue operation to reach a durable terminal state; if writer-pending
+commits first, lease acquisition rejects. The same rule applies to recovery.
+Expiry rejects a new signature/finalization but does not remove an unresolved
+operation blocker. The DO may allow multiple bounded readers of one committed
+generation, but no pointer CAS or Journal append while any issue operation is
+unsettled. The Gateway enforces a finite in-flight limit and returns
+unavailable above it. The signer acquires the lease before its final
+Journal/DO/R2 checks, checks it after signing, and returns bytes only after
+the same operation/request/generation/fence and exact response bytes/digest
+are durably finalized. A known completed but invalid response may be
+terminally rejected; unknown signer or persistence state remains blocked.
+This logical return-path fence does not claim that a remote HSM physically
+stopped. The APP's 10-second monotonic response deadline is independent of
+the signer's maximum lease. No DO storage transaction is held across R2,
 Journal, or signer I/O.
 
-The Authority Worker's sole `commitRelease` operation checks the lease table
+The Authority Worker's sole `commitRelease` operation checks the issue-operation ledger
 and writer-pending attempt before R2 CAS, Journal append, and the later DO
 `COMMITTED` update. It is an orchestrator for separate operations, not one
 transaction spanning those services. Only this operation has the Journal
 append credential; the Release Authority HSM returns an authorization but
 cannot append/update/delete. The Authority Worker persists the exact signed
 bytes in the pending DO attempt before calling Journal append. The Freshness
-signer can only read Journal state and acquire/release its lease. While that
-lease remains valid, no authorized pointer or Journal-head update can commit
-between its final consistency read and response signing. If the lease expires
-while the HSM call is in flight, a release may proceed, but the signer
-discards the signature after the post-call lease check and emits no response.
+signer can only read Journal state and acquire/check/finalize its issue
+operation. While that operation remains unsettled, no authorized pointer or
+Journal-head update can commit between its final consistency read and response
+finalization. If the lease expires while the HSM call is in flight, the signer
+discards the result; Release remains blocked until that operation's terminal
+rejection is durably recorded or an approved recovery fences it.
 
 Recovery enters the same DO serialization gate: disable new Freshness
-issuance, atomically set `recovery_pending`/writer-pending only when no valid
-lease exists, and wait rather than bypassing an active lease. Perform recovery
-I/O outside the DO transaction, then finalize with an expected-head CAS.
+issuance, atomically set `recovery_pending`/writer-pending only when no
+unsettled issue operation exists, and wait rather than bypassing an operation
+whose lease has merely expired. Perform recovery I/O outside the DO
+transaction, then finalize with an expected-head CAS.
 Re-enable Freshness only after Journal, DO, R2 pointer and snapshot agree.
 `POINTER_COMMITTED` is provisional and cannot authorize Freshness. The
 Release Authority signature alone is not a commit; Journal append is the
@@ -844,7 +900,7 @@ Freshness response.
 | 8. HSM authorization succeeds, then the process crashes or Journal append fails | If the authorization was not stored in the pending DO attempt, it is an orphan; if stored, it remains pending and uncommitted. | Never return it to APP. Keep Freshness blocked. If stored, retry only the exact bytes after revalidating the attempt and unchanged prior Journal head; if not stored, reauthorize only after the same revalidation. |
 | 9. Process crashes immediately before/after Journal append or append outcome is ambiguous | Query the Journal's linearizable head by environment/generation/commit ID. | Exact same bytes at the expected next position means append committed; unchanged prior head means it did not and permits only exact-byte retry; any competing/mismatched head remains BLOCKED. |
 | 10. Journal append succeeds, then DO `COMMITTED` update fails or crashes | Journal contains the canonical commit, while DO is still `POINTER_COMMITTED`/pending. | No Freshness response. Recovery verifies Journal entry, delegation, append metadata, pointer and snapshot, then repairs the DO to `COMMITTED` at the same generation; never append a second generation. |
-| 11. Recovery races an active Freshness lease | The DO transaction observes a valid lease or a pre-existing recovery/writer-pending gate. | Recovery cannot bypass the lease. Disable issuance, wait for release/expiry, then re-read all authorities before recovery admission. |
+| 11. Recovery races an unsettled Freshness operation | The DO transaction observes an unresolved operation or a pre-existing recovery/writer-pending gate. | Recovery cannot bypass the operation. Disable issuance, wait for a durable terminal state or an approved fence/recovery transition, then re-read all authorities. |
 | 12. DO ledger is lost, R2 pointer remains | No current DO state; Journal retains the signed commit chain/head. | Freshness stays blocked. Restore DO only from a verified Journal chain plus pointer/snapshot readback; do not initialize at zero. |
 | 13. R2 pointer is lost, ledger/Journal remain | Missing mutable `manifest.json`; current generation remains nonzero. | Freshness stays blocked. Restore the exact content-addressed snapshot with conditional create, verify ETag/body, then re-enable only after all sources agree. |
 | 14. R2 backup restore makes an old pointer visible | DO/Journal head has greater generation/digest. | Detect mismatch and block. A restore of DO or Journal state too must be treated as an authority incident; compare the independent WORM checkpoint. If every independent source has been rolled back, no automatic cryptographic recovery exists. |
@@ -1357,12 +1413,12 @@ requires explicit approval for a disposable bucket.
 | Release/Freshness signer uses the wrong DO operation credential or attempts a release mutation | Reject; no pointer, DO release state or Journal change. | DO RPC authorization integration |
 | Release signer receives forged DO/pointer/Journal claims from its caller | Ignore caller state and independently read its DO binding, R2 and Journal; do not sign on mismatch. | Release signer integration |
 | Root-signed Manifest modified after record creation | Exact digest/signature mismatch; no Freshness response. | Signer unit |
-| Publish attempt starts while an issue lease is active | DO denies pointer preparation/CAS until leases end; no pointer mutation occurs. | DO concurrency test |
+| Publish attempt starts while an issue operation is unsettled | DO denies pointer preparation/CAS until the operation is durably terminal; lease expiry alone does not unblock Release. | DO concurrency test |
 | Freshness request starts after a release is pending | DO refuses a new lease; no response signature. | DO + signer integration |
-| `beginRelease` and issue-lease acquisition race in both serialization orders | If lease wins, release sets writer-pending and waits; if writer-pending wins, lease is rejected. No pointer CAS/Journal append overlaps a valid lease. | DO concurrency test |
-| Recovery admission races with issue-lease acquisition | The same DO transaction order decides the winner; recovery waits/rejects if a lease exists and cannot bypass it. | DO recovery concurrency test |
-| Issue lease expires before response signature | Signer discards any produced signature; no response; release may proceed after lease expiry. | Signer/DO fault-injection test |
-| Concurrent Freshness readers with a waiting release | Existing leases can finish; writer-pending rejects new leases and then proceeds. | DO concurrency test |
+| `beginRelease` and issue-lease acquisition race in both serialization orders | If lease wins, release sets writer-pending and waits for durable terminal state; if writer-pending wins, lease is rejected. No pointer CAS/Journal append overlaps an unsettled issue operation. | DO concurrency test |
+| Recovery admission races with issue-lease acquisition | The same DO transaction order decides the winner; recovery waits/rejects while any issue operation is unsettled and cannot bypass it based on expiry. | DO recovery concurrency test |
+| Issue lease expires while signer work is unresolved | No response or finalization is allowed; the issue blocker remains until a known completion/rejection or independently authorized fence is durably recorded. | Signer/DO fault-injection test |
+| Concurrent Freshness readers with a waiting release | Writer-pending rejects new leases; Release proceeds only after all existing issue operations are durably terminal, not merely after their lease durations elapse. | DO concurrency test |
 | Valid nonce-bound response with current record and exact immutable Manifest snapshot | APP accepts after all existing Manifest/artifact checks and persists state once. | APP unit + integration |
 | Nonce mismatch, invalid length, duplicate/consumed nonce, or response from another APP request | Reject and do not update persistent state. | APP unit |
 | Response replay with a previously valid response and fresh nonce | Reject nonce mismatch. | APP integration |
@@ -1392,8 +1448,8 @@ requires explicit approval for a disposable bucket.
 | Deadline expires immediately before atomic state rename | Remove the temporary state file; the prior canonical state is unchanged. | APP state-store unit test with monotonic clock |
 | Parent-directory `fsync` fails after rename | Return a state durability error and do not expose readiness/capture; next refresh reads the canonical file and reconciles with a fresh authority proof without rollback. | APP state-store fault-injection test |
 | POST, snapshot and artifact requests attempt to restart their own timeout | Reject at the original 10-second operation deadline; each request receives only the remaining time. | Freshness client unit/integration |
-| Release tries to update R2 or append Journal while an issue lease is active | Authority blocks mutation until lease end/expiry; no commit is visible during the signature interval. | DO + Authority Worker concurrency test |
-| Recovery tries to bypass an active issue lease | Recovery remains blocked until issue leases expire and Freshness is disabled by the controlled kill switch. | Recovery/Authority integration |
+| Release tries to update R2 or append Journal while an issue operation is unsettled | Authority blocks mutation until the operation is durably terminal; lease expiry alone does not clear the blocker. | DO + Authority Worker concurrency test |
+| Recovery tries to bypass an unsettled issue operation | Recovery remains blocked until the operation is durably terminal or an approved fence is recorded and Freshness is disabled by the controlled kill switch. | Recovery/Authority integration |
 | APP ordinary game request has ambiguous network outcome | No resend due to freshness failure or runtime configuration retry. | APP proxy integration |
 | Freshness key attempts to sign Manifest/Result/Notary payload | APP Manifest verifier and Worker Result/Notary verifiers reject the child key/domain. | Cross-language + Worker contract |
 | Freshness Worker receives caller-supplied epoch/digest/URI/ledger state | Strict request schema rejects; signer derives them independently. | Worker security test |

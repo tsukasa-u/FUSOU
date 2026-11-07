@@ -12,9 +12,10 @@ boundaries that are still absent.
 
 For the later P2 design-only review of DO lease clocks, RPC replay, and PITR
 rollback, see [Runtime Config Freshness DO Coordination — P2 Design](./runtime-config-freshness-do-coordination-design.md).
-That review does not implement or register Production services and records
-the eight-second lease-expiry assumption as unresolved pending a safe clock
-and signer-cancellation contract.
+That review does not implement or register Production services. The current
+[issuer-core contract](./runtime-config-freshness-protocol.md#current-freshness-issuer-core-2026-11-07)
+fixes the maximum eight-second lease as an authorization bound, not an SLO;
+the trusted clock and durable adapter that enforce it remain unselected.
 
 The source of truth for this review was the checked-out source at the baseline
 below, not commit-message wording or historical audit summaries. No secret
@@ -35,11 +36,13 @@ values or environment-variable values were read.
 
 ## Outcome
 
-The APP-side Freshness verifier and the Worker-side in-memory protocol model
-exist in source. The Production Freshness route, Runtime Config coordination
-DO, Production Release Journal adapter, Runtime Config R2 adapter, and
-Freshness/Release signer services do not exist in the checked-in Worker
-runtime. The Worker-side test adapters are not substitutes for those services.
+The APP-side Freshness verifier, Worker-side in-memory protocol model, and
+provider-independent shared-domain issuer core exist in source. The core is
+locally unit-tested only. The Production Freshness route, Runtime Config
+coordination DO, Production Release Journal adapter, Runtime Config R2
+adapter, and Freshness/Release signer services do not exist in the checked-in
+Worker runtime. The Worker-side test adapters are not substitutes for those
+services.
 
 The implementation must preserve the already selected Option B design:
 
@@ -212,8 +215,10 @@ All new DO compare-and-set operations are local storage transactions only.
 R2, Journal, HSM, service-binding, and network operations happen outside the
 DO transaction; after each external result, a new DO transaction validates
 the same attempt/fencing token and records the observation. `alarm()` may
-reap expired leases or retry reconciliation, but lease validity is checked
-inside every operation; alarm delivery is not the correctness boundary.
+reconcile lease/operation state, but it must not delete an unresolved issue
+or release its blocker solely because a lease expired; lease validity is
+checked inside every operation, and alarm delivery is not the correctness
+boundary.
 
 ### R2
 
@@ -352,8 +357,8 @@ Journal, HSM, or network I/O.
 
 | Operation | Start condition | Success / linearization point | Failure and recovery |
 |---|---|---|---|
-| `beginRelease` | Candidate Manifest/artifacts and immutable snapshot have been validated and exact prior head/ETag fixed. | DO transaction sets `writer_pending`; if no lease exists, stores `PREPARED`, otherwise records `WAITING_FOR_LEASES`. Transaction commit admits that attempt. | A waiting attempt remains the same attempt and resumes only after leases drain and head is rechecked. A changed head rejects it. No R2 pointer mutation occurs. |
-| `PREPARED` | Writer gate active; no valid issue lease; expected current generation/digest/ETag still match. | DO transaction stores candidate bytes/reference, prior head, attempt ID, `pointer_write_started=false`. | Failed transaction leaves only immutable orphan objects. Pending or recovery state blocks Freshness. |
+| `beginRelease` | Candidate Manifest/artifacts and immutable snapshot have been validated and exact prior head/ETag fixed. | DO transaction sets `writer_pending`; if no issue operation is unsettled, stores `PREPARED`, otherwise records `WAITING_FOR_ISSUES`. Transaction commit admits that attempt. | A waiting attempt remains the same attempt and resumes only after prior operations are durably terminal and the head is rechecked. Lease expiry alone does not drain an operation. A changed head rejects it. No R2 pointer mutation occurs. |
+| `PREPARED` | Writer gate active; no unsettled issue operation; expected current generation/digest/ETag still match. | DO transaction stores candidate bytes/reference, prior head, attempt ID, `pointer_write_started=false`. | Failed transaction leaves only immutable orphan objects. Pending or recovery state blocks Freshness. |
 | Pointer write intent | `PREPARED`; no active lease. | DO transaction sets `pointer_write_started=true` before calling R2. | If restart sees `false`, no CAS was admitted. If `true`, treat the result as possibly in flight until reconciled. |
 | R2 pointer CAS | Durable pointer-write intent; expected prior ETag (or approved genesis create). | Successful `R2Bucket.put` with `onlyIf: If-Match: <exact-etag>` or authorized genesis `If-None-Match: *`. The successful conditional R2 write is the pointer linearization point. | A failed precondition is a conflict. On timeout/unknown result, read back exact pointer and snapshot; candidate bytes/ETag confirms success. Prior pointer or unavailable readback after an admitted CAS remains pending/blocked; do not assume failure or silently retry. |
 | `POINTER_COMMITTED` | Pointer and content-addressed snapshot have exact matching bytes/digest; actual pointer ETag observed. | DO transaction records the ETag and `POINTER_COMMITTED`. | Crash after R2 success but before DO update is reconciled from R2 readback; mismatch stays blocked. This is not release commit. |
@@ -361,17 +366,18 @@ Journal, HSM, or network I/O.
 | Persist authorization | Valid HSM result for current attempt. | DO transaction stores exact signed bytes and digest as retry material. | Storage failure leaves an orphan signature. Do not append or expose it. |
 | Journal compare-and-append | Exact stored bytes verify; Journal head matches previous generation/hash; generation and Manifest epoch advance; append time is inside Release delegation. | Journal atomically appends the exact record and delegation sidecar at the expected chain position. This is the **release commit linearization point**. | On ambiguous result, query the linearizable head. Exact bytes at the expected position mean success; an unchanged prior head permits retrying only the exact stored bytes against that expected head; conflict/unavailability blocks. |
 | DO `COMMITTED` | Journal confirms the exact record and authenticated append metadata; R2 pointer/snapshot and attempt match. | DO compare-and-set transaction stores the Journal head and clears pending/writer state. This is post-commit coordination completion, not a second commit. | If Journal append succeeded but DO update failed, Freshness stays blocked; recovery verifies Journal/R2 then reconstructs the same generation in DO. Never allocate another generation. |
-| Freshness lease acquisition | No writer/recovery gate or pending attempt; current head is `COMMITTED`. | DO transaction inserts the bounded lease for the current generation. Its commit grants the lease. | If release/recovery gate commits first, reject. If lease commits first, release/recovery must wait; no pointer CAS or Journal append is allowed while any valid lease remains. |
-| Freshness signing | Lease active; signer has verified Journal head, DO, R2 pointer/snapshot, Manifest signature, and delegation. | Sampling `issued_at` after final current-state checks is the `LATEST_AT_ISSUANCE` point. HSM signing and lease validation must complete while the same lease and delegation remain valid. | Expiry, mismatch, signer failure, or failed lease validation discards the signature and returns no success response. |
-| Issue lease release | Exact lease exists. | DO transaction deletes the lease after signing/validation. | If release RPC fails/crashes, the lease expires under the approved clock policy; no response is returned unless the same lease was confirmed valid and release completed. |
-| Recovery admission | Pending release or source mismatch; no new freshness issuance may begin. | DO transaction sets `recovery_pending` and `writer_pending`; recovery proceeds only after valid leases drain. | Recovery cannot bypass an active lease. It re-reads Journal/R2 before every repair and fails closed on unknown or conflicting state. |
+| Freshness lease acquisition | No writer/recovery gate or pending attempt; current head is `COMMITTED`. | DO transaction inserts the issue operation and lease for the current generation. The lease is at most 8 seconds under the approved clock. | If release/recovery gate commits first, reject. If issue admission commits first, release/recovery waits for its durable terminal result; lease expiry alone does not unblock pointer CAS or Journal append. |
+| Freshness signing | Lease active; signer has verified Journal head, DO, R2 pointer/snapshot, Manifest signature, and delegation. | Sampling `issued_at` after final current-state checks is the `LATEST_AT_ISSUANCE` point. HSM signing, post-sign rechecks, and exact-byte finalization must complete while the same lease and delegation remain valid. | Expiry or mismatch discards the signature. Unknown signer/finalization state yields no response and retains the operation blocker; a known completed rejection may be terminally recorded. |
+| Issue completion | Exact operation, request digest, nonce, lease, and fence exist. | DO transaction stores exact response bytes/digest or a known rejection and marks the operation terminal. | A timeout, caller disconnect, alarm, or lease expiry does not itself release the blocker. |
+| Recovery admission | Pending release or source mismatch; no new freshness issuance may begin. | DO transaction sets `recovery_pending` and `writer_pending`; recovery proceeds only after no issue operation remains unsettled. | Recovery cannot bypass an operation whose lease expired but whose result is unknown. It re-reads Journal/R2 before every repair and fails closed on unknown or conflicting state. |
 
 ### Concurrency and crash cases
 
 - **Lease acquisition vs `beginRelease`:** both contend on the same DO
   transaction. If the lease wins, release records writer-pending/waiting but
-  cannot CAS R2 or append Journal until every lease is released or validly
-  expires. If release admission wins, new leases are denied. There is no
+  cannot CAS R2 or append Journal until every earlier issue operation is
+  durably terminal; expiry alone does not clear an unresolved blocker. If
+  release admission wins, new leases are denied. There is no
   overlap.
 - **Writer-pending vs a new lease:** the same serialized DO transaction
   decides the winner. Writer-pending prevents all later lease grants.
@@ -407,8 +413,9 @@ Journal, HSM, or network I/O.
   signature. The lease is checked after signing; a delayed signer cannot turn
   an expired lease into a response.
 - **Several Freshness requests race a release:** each lease grant serializes
-  in the DO. Release waits for all active leases; after writer-pending is
-  stored, no new lease can join.
+  in the DO. Release waits for every unsettled issue operation to become
+  durably terminal; lease expiry alone does not clear a blocker. After
+  writer-pending is stored, no new lease can join.
 - **Recovery races a Freshness lease:** recovery first installs the gate in
   the same DO transaction, waits for existing leases, and denies new ones.
   Recovery never runs as an out-of-band bypass.
@@ -464,12 +471,12 @@ stable. Production signing and external writes remain gated until approved.
 
 | Phase | Files / component | Depends on | Completion conditions and required tests | External dependency |
 |---|---|---|---|---|
-| **P1 — domain, validation, signer interfaces** | New `FUSOU-TLSN-RUNTIME-CONFIG-AUTHORITY/src/` contract and validation modules; Release/Freshness signer request types and test vectors. | None. | Strict canonical schemas, exact domains/preimages, base64url, delegation/record validation, digest/epoch/time parsing. Shared golden vectors must match APP Rust and Worker JavaScript. Test-only keys only. | None for local implementation. |
+| **P1 — domain, validation, signer interfaces and issuer core** | `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts`, `freshness-issue.ts`, and Node contract tests. | None. | Strict canonical request validation; issue/signer IDs, request/nonce/environment binding, lease/clock/fence/current-state evidence, exact response verification and durable-finalization-only return. Current fake adapters are local-only; no Production authority is connected. | None for local implementation. |
 | **P2 — coordination DO** | Authority Worker's new SQLite-backed coordinator class, role-checked RPCs, `wrangler.toml` migration and generated binding types. | P1. | Atomic pending/current/lease/writer/recovery transitions; race tests for lease vs release; restart/persistence tests; multiple leases; crash after every DO transition; alarm retry/cleanup. Do not hold a DO transaction across external I/O. | Cloudflare namespace/binding registration before deployed tests. |
 | **P3 — Release Journal adapter** | Authority Worker's `journal-client.ts` and provider adapter/conformance tests. | P1/P2. | Multi-generation chain, exact record/delegation bytes, append timestamp, compare-and-append, same-byte idempotency, conflict, unavailable/ambiguous result, corruption and recovery tests. | Approved independent provider, retention, clock, and checkpoint. |
 | **P4 — R2 immutable/pointer adapters** | Authority Worker's R2 writer; scoped read-only R2 client for signers/object reader; immutable Manifest snapshot support; object-key allowlists. | P1; may run beside P3. | `If-None-Match: *` immutable create, `If-Match` pointer CAS, exact readback, ETag preservation, pointer/snapshot equality, ambiguous outcomes and no-auto-retry policy. Include the APP-required `manifests/<digest>` object, currently absent from the publisher. | Dedicated bucket, R2 permissions/tokens, and authorized disposable-bucket integration test. |
 | **P5 — Release Authority orchestration** | `FUSOU-TLSN-RUNTIME-CONFIG-AUTHORITY/src/release-authority.ts`; separate `FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-SIGNER/src/index.ts` and commit verifier; authenticated release submission script. | P1–P4. | Test exact attempt binding, signer checks before HSM, orphan signatures, persisted authorization, Journal append point, DO post-append repair, all crash/ambiguous boundaries, genesis approval, and no Freshness before `COMMITTED`. | Release key/HSM, operator identity, Journal, DO and R2 registration. |
-| **P6 — Freshness Authority/signer** | Separate `FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-SIGNER` Worker, read-only Journal/R2 adapters, direct DO read/lease RPC, typed HSM client. | P1–P5. | Test `LATEST_AT_ISSUANCE`, exact nonce/audience, current Journal/DO/R2/snapshot/Manifest agreement, 8-second lease expiry, concurrent release, delegation/time limits, and no response on any missing/contradictory read. | Freshness key/HSM, trusted clock, scoped read-only access and same DO/Journal resources. |
+| **P6 — Freshness Authority/signer** | Separate `FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-SIGNER` Worker, read-only Journal/R2 adapters, direct DO read/issue/finalization RPC, typed HSM client. | P1–P5. | Test `LATEST_AT_ISSUANCE`, exact nonce/audience, current Journal/DO/R2/snapshot/Manifest agreement, maximum 8-second authorization lease, rejection after expiry, retained blocker for unknown work, concurrent release, delegation/time limits, and no response on any missing/contradictory read. | Freshness key/HSM, trusted clock with uncertainty bounds, scoped read-only access and same DO/Journal resources. |
 | **P7 — HTTP and immutable object delivery** | Separate `FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY` Worker and `FUSOU-TLSN-RUNTIME-CONFIG-OBJECT-READER` (`src/index.ts`, `src/r2-readonly.ts`, `wrangler.toml`, tests); same-host route configuration. | P4/P6. | Worker-runtime tests for POST/GET methods, canonical/unknown/oversize requests, 200/no redirect/no-store response, 64 KiB response bound, allowed object paths/cache headers, unknown environment, Gateway isolation, and signer outage. | Approved domain, route and read-only R2 object origin. |
 | **P8 — APP ↔ Worker contract integration** | Shared JS/Rust golden vectors; APP test-only transport seam if needed; Worker runtime integration tests across Gateway/signer/DO/R2/Journal fakes. | P1–P7. | Feed Worker-produced exact response bytes to the APP verifier; test signatures, sidecars, expiry/skew, nonce, every artifact digest, one shared 10-second deadline, final rename, and state preservation on failure. No live services required for the local suite. | Hosted CI registration is separate; Production acceptance still requires live evidence. |
 
@@ -482,16 +489,17 @@ compatibility date at implementation time.
 
 ## Readiness and scope boundary
 
-- `FIRST-TESTPLAY-READINESS.md` was not modified. Its existing
-  Production-Freshness status remains `NOT_IMPLEMENTED`; trust-owner and
-  Production registrations remain blocked. Its Phase 1 follow-up table is a
-  historical source record, not a test run performed in this task.
+- The readiness rows recorded in this design are historical to its stated
+  review baseline. The current readiness boundary is maintained in
+  [`FIRST-TESTPLAY-READINESS.md`](../FIRST-TESTPLAY-READINESS.md): the shared
+  issuer core is source-implemented and locally Node-tested, while Production
+  Freshness and all registrations remain blocked.
 - Stage A, Stage B, Stage C, Production acceptance, deployment, real
   Presentation/Result verification, and real-game testplay remain
   **BLOCKED**. This design does not promote any readiness status.
-- Production APP source, Production Worker source, Freshness HTTP endpoint,
-  Runtime Config protocol, DO/R2/HSM services, credentials, bindings, and
-  external services were not changed or operated.
+- No Production APP/Worker route, DO/R2/HSM service, credential, binding, or
+  external service was changed or operated. The shared-domain core does not
+  register or select any of them.
 - Browser integrity, APP process/image authority, TPM/measured boot, and
   privileged helpers remain out of scope. Freshness failure gates TLSN
   capture/readiness only; it does not change ordinary APP-to-Game-Server
