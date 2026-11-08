@@ -496,9 +496,6 @@ fn setup_tray(
                     //     let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
                     // }
                     "open-license" => {
-                        #[cfg(dev)]
-                        let url = "http://localhost:4321/docs/license/fusou_app";
-                        #[cfg(not(dev))]
                         let url = "https://fusou.dev/docs/license/fusou_app";
 
                         if let Err(e) = tray.app_handle().opener().open_url(url, None::<&str>) {
