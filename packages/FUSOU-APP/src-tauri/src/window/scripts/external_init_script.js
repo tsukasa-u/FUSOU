@@ -174,7 +174,7 @@ function requestNativeShortcut(action) {
   }
 
   invoke("external_window_shortcut", { action }).catch((error) => {
-    console.error(`Failed to handle external ${action} shortcut:`, error);
+    console.error("Failed to handle external %s shortcut:", action, error);
   });
 }
 
