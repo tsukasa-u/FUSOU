@@ -14,13 +14,10 @@ use tokio::{
     time::{self, Duration},
 };
 
-static EXTERNAL_WINDOW_SIZE_BEFORE: LazyLock<Mutex<tauri::PhysicalSize<u32>>> =
-    LazyLock::new(|| {
-        Mutex::new(tauri::PhysicalSize::<u32> {
-            width: 1200,
-            height: 720,
-        })
-    });
+const TITLEBAR_HEIGHT: f64 = 32.0;
+
+static EXTERNAL_WINDOW_SIZE_BEFORE: LazyLock<Mutex<Option<tauri::PhysicalSize<u32>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 type ResizeContext = Option<(tauri::Window, tauri::PhysicalSize<u32>)>;
 static LAST_RESIZE_CONTEXT: LazyLock<Mutex<ResizeContext>> = LazyLock::new(|| Mutex::new(None));
@@ -152,8 +149,7 @@ fn handle_external_resize() {
     if let Ok(is_maximized) = window.is_maximized() {
         if is_maximized {
             if let Ok(mut stored) = EXTERNAL_WINDOW_SIZE_BEFORE.lock() {
-                stored.height = size.height;
-                stored.width = size.width;
+                *stored = Some(size);
             }
             return;
         }
@@ -165,60 +161,55 @@ fn handle_external_resize() {
         }
     }
 
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let titlebar_physical = (TITLEBAR_HEIGHT * scale_factor).round();
+
     let app_configs = configs::get_user_configs_for_app();
     let kc_window = &app_configs.kc_window;
-    let inner_winow_size_width = app_configs.kc_window.get_default_inner_width() as f64;
+    let inner_winow_size_width = kc_window.get_default_inner_width() as f64;
     let inner_winow_size_height = kc_window.get_default_inner_height() as f64;
-    #[cfg(target_os = "linux")]
-    let window_title_bar_height = kc_window.get_window_title_bar_height() as f64;
-
-    #[cfg(target_os = "linux")]
-    let window_system_type = configs::get_user_env().get_window_system_type();
-    #[cfg(target_os = "linux")]
-    let linux_window_title_bar_height =
-        if let Some(configs::WindowsSystem::Wayland) = window_system_type {
-            window_title_bar_height
-        } else {
-            0.0
-        };
 
     let target_size = {
-        let mut size_before = EXTERNAL_WINDOW_SIZE_BEFORE
+        let mut size_before_guard = EXTERNAL_WINDOW_SIZE_BEFORE
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if size.width != size_before.width {
-            size_before.width = size.width;
-            #[cfg(target_os = "linux")]
-            {
-                size_before.height = (size.width as f64 * inner_winow_size_height
-                    / inner_winow_size_width
-                    + linux_window_title_bar_height)
-                    .round() as u32;
+
+        let mut new_physical = size;
+        let expected_height_from_width = (size.width as f64 * inner_winow_size_height
+            / inner_winow_size_width
+            + titlebar_physical)
+            .round() as u32;
+
+        match *size_before_guard {
+            Some(size_before) => {
+                if size.width != size_before.width {
+                    new_physical.height = expected_height_from_width;
+                } else if size.height != size_before.height {
+                    let game_height = (size.height as f64 - titlebar_physical).max(1.0);
+                    new_physical.width = (game_height * inner_winow_size_width
+                        / inner_winow_size_height)
+                        .round() as u32;
+                } else {
+                    return;
+                }
             }
-            #[cfg(not(target_os = "linux"))]
-            {
-                size_before.height = (size.width as f64 * inner_winow_size_height
-                    / inner_winow_size_width)
-                    .round() as u32;
+            None => {
+                if size.height != expected_height_from_width {
+                    new_physical.height = expected_height_from_width;
+                } else {
+                    *size_before_guard = Some(size);
+                    return;
+                }
             }
-        } else {
-            #[cfg(target_os = "linux")]
-            {
-                size_before.width = ((size.height as f64 - linux_window_title_bar_height)
-                    * inner_winow_size_width
-                    / inner_winow_size_height)
-                    .round() as u32;
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                size_before.width = (size.height as f64 * inner_winow_size_width
-                    / inner_winow_size_height)
-                    .round() as u32;
-            }
-            size_before.height = size.height;
         }
-        *size_before
+
+        *size_before_guard = Some(new_physical);
+        new_physical
     };
+
+    if size == target_size {
+        return;
+    }
 
     #[cfg(target_os = "linux")]
     {

@@ -11,15 +11,50 @@ import Updater from "./pages/update.tsx";
 import Policy from "./pages/policy.tsx";
 
 import "./global.css";
-import { ErrorBoundary, onMount } from "solid-js";
+import { createSignal, ErrorBoundary, onCleanup, onMount } from "solid-js";
 
 import { fetch_font } from "./utility/google_font.ts";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ErrorFallback } from "./utility/ErrorFallback.tsx";
+import { CustomTitlebar } from "./components/ui/titlebar.tsx";
+import { WindowResizeBorders } from "./components/ui/window_resize_borders.tsx";
 
 render(
   () => {
+    const [isMaximized, setIsMaximized] = createSignal(false);
+
     onMount(async () => {
+      const appWindow = getCurrentWindow();
+      const rootEl = document.getElementById("root");
+
+      const updateMaximizedState = async () => {
+        try {
+          const max = await appWindow.isMaximized();
+          setIsMaximized(max);
+          if (rootEl) {
+            if (max) {
+              rootEl.classList.add("is-maximized");
+            } else {
+              rootEl.classList.remove("is-maximized");
+            }
+          }
+        } catch (e) {
+          console.warn("Error checking window maximized state:", e);
+        }
+      };
+
+      await updateMaximizedState();
+
+      try {
+        const unlisten = await appWindow.onResized(async () => {
+          await updateMaximizedState();
+        });
+        onCleanup(() => unlisten());
+      } catch (e) {
+        console.warn("Failed to listen window resize:", e);
+      }
+
       const cachedTheme = localStorage.getItem("fusou-app-theme");
       if (cachedTheme) {
         document.documentElement.setAttribute("data-theme", cachedTheme);
@@ -55,7 +90,15 @@ render(
           <ErrorFallback error={error} reset={reset} />
         )}
       >
-        <Router>
+        <Router
+          root={(props) => (
+            <>
+              <WindowResizeBorders isMaximized={isMaximized()} />
+              <CustomTitlebar isMaximized={isMaximized()} />
+              <div class="window-content-container">{props.children}</div>
+            </>
+          )}
+        >
           <Route path="/app" component={App} />
           <Route path="/" component={Start} />
           <Route path="*" component={NotFound} />

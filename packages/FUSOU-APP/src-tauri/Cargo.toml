@@ -57,6 +57,7 @@ clap = { version = "4.5.20", features = ["derive"] }
 sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
+png = "0.18"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
@@ -88,6 +89,7 @@ tauri-plugin-updater = "2.9.0"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
+windows-core = "0.62"
 winreg = "0.52"
 windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_Console"] }
 
@@ -95,3 +97,4 @@ windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Syste
 webkit2gtk = "2.0.1"
 gtk = "0.18"
 gdk = "0.18"
+cairo = { package = "cairo-rs", version = "0.18", features = ["png"] }

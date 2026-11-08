@@ -89,3 +89,176 @@
   --noise: 0;
 }
 
+/* Custom Frameless Window & Rounded Corners */
+:root,
+html,
+body {
+  background-color: transparent !important;
+}
+
+#root {
+  background-color: transparent !important;
+  border-radius: 10px;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+  border: none;
+  box-sizing: border-box;
+}
+
+#root.is-maximized {
+  border-radius: 0px !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.window-content-container {
+  flex: 1 1 0%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  background-color: var(--color-base-100);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+#root.is-maximized .window-content-container {
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}
+
+/* Fusou custom titlebar & tool buttons matching external */
+.fusou-tool-btn {
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 6px !important;
+  border-radius: 4px !important;
+  border: none !important;
+  background: transparent !important;
+  color: #e5e7eb !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  font-size: 12px !important;
+  font-family: inherit !important;
+  transition: all 0.15s ease !important;
+  box-sizing: border-box !important;
+  text-transform: none !important;
+  line-height: 1 !important;
+}
+.fusou-tool-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+.fusou-tool-btn.fusou-active {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.fusou-win-btn {
+  width: 40px !important;
+  height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  background: transparent !important;
+  color: #e5e7eb !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  transition: background 0.15s ease, color 0.15s ease !important;
+  box-sizing: border-box !important;
+}
+.fusou-win-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+.fusou-win-btn:active {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+.fusou-win-close:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+}
+.fusou-win-close:active {
+  background: #dc2626 !important;
+}
+
+/* Fusou custom volume popover elements matching external */
+.fusou-custom-range {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 100% !important;
+  height: 16px !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  margin: 2px 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+.fusou-custom-range:focus {
+  outline: none !important;
+}
+.fusou-custom-range::-webkit-slider-runnable-track {
+  width: 100% !important;
+  height: 8px !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border-radius: 9999px !important;
+}
+.fusou-custom-range::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 50% !important;
+  background-color: #96c54e !important;
+  border: 2px solid #1d1c1c !important;
+  margin-top: -4px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+  transition: transform 0.1s ease !important;
+}
+.fusou-custom-range::-webkit-slider-thumb:hover {
+  transform: scale(1.1) !important;
+}
+
+.fusou-custom-mute-btn {
+  width: 100% !important;
+  height: 24px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background-color: transparent !important;
+  color: #f1f5f9 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.15s ease !important;
+  font-family: inherit !important;
+  text-transform: none !important;
+  box-sizing: border-box !important;
+  line-height: 1 !important;
+}
+.fusou-custom-mute-btn:hover {
+  background-color: #f1f5f9 !important;
+  color: #1d1c1c !important;
+  border-color: #f1f5f9 !important;
+}
+.fusou-custom-mute-btn.is-muted {
+  background-color: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+.fusou-custom-mute-btn.is-muted:hover {
+  background-color: #dc2626 !important;
+}
+
+
+

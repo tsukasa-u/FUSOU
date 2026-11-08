@@ -11,5 +11,9 @@
     ]
   },
   "windows": ["external"],
-  "permissions": ["allow-external-window-shortcut"]
+  "permissions": [
+    "allow-external-window-shortcut",
+    "core:window:allow-start-dragging",
+    "notification:default"
+  ]
 }

@@ -14,7 +14,10 @@ use std::collections::HashSet;
 use chrono::Local;
 
 #[cfg(target_os = "linux")]
-use webkit2gtk::{gio, SnapshotOptions, SnapshotRegion, WebViewExt};
+use webkit2gtk::{
+    gio, SettingsExt, SnapshotOptions, SnapshotRegion, UserContentInjectedFrames,
+    UserContentManagerExt, UserScript, UserScriptInjectionTime, WebViewExt,
+};
 
 #[cfg(target_os = "linux")]
 use gtk::prelude::WidgetExt;
@@ -77,6 +80,12 @@ const VK_RCONTROL: u32 = 0xA3;
 const VK_LWIN: u32 = 0x5B;
 #[cfg(windows)]
 const VK_RWIN: u32 = 0x5C;
+#[cfg(windows)]
+const VK_SHIFT: u32 = 0x10;
+#[cfg(windows)]
+const VK_LSHIFT: u32 = 0xA0;
+#[cfg(windows)]
+const VK_RSHIFT: u32 = 0xA1;
 
 fn get_game_url() -> String {
     GAME_URL
@@ -278,6 +287,8 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                 let has_ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
                 let has_meta = modifiers.contains(gdk::ModifierType::META_MASK)
                     || modifiers.contains(gdk::ModifierType::SUPER_MASK);
+                let has_shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+                let has_alt = modifiers.contains(gdk::ModifierType::MOD1_MASK);
 
                 if key == gdk::keys::constants::F5 {
                     tracing::warn!("linux webview key fallback pressed: F5 (external reload)");
@@ -286,7 +297,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                 }
 
                 let is_r = key == gdk::keys::constants::r || key == gdk::keys::constants::R;
-                if is_r && (has_ctrl || has_meta) {
+                if is_r && (has_ctrl || has_meta) && !has_shift && !has_alt {
                     tracing::warn!(
                         "linux webview key fallback pressed: Ctrl/Super+R (external force refresh)"
                     );
@@ -295,7 +306,7 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
                 }
 
                 let is_s = key == gdk::keys::constants::s || key == gdk::keys::constants::S;
-                if is_s && (has_ctrl || has_meta) {
+                if is_s && (has_ctrl || has_meta) && !has_shift && !has_alt {
                     tracing::warn!(
                         "linux webview key fallback pressed: Ctrl/Super+S (external screenshot)"
                     );
@@ -319,6 +330,46 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
     } else {
         tracing::warn!(
             "installed linux webview key fallback for external window {}",
+            window_label
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn install_linux_webview_scripts(external: &tauri::WebviewWindow) {
+    let window_label = external.label().to_string();
+    let init_script = include_str!("./scripts/external_init_script.js");
+    let install_result = external.with_webview(move |webview| {
+        let wv = webview.inner();
+
+        if let Some(settings) = WebViewExt::settings(&wv) {
+            settings.set_enable_webaudio(true);
+            settings.set_media_playback_requires_user_gesture(false);
+            settings.set_media_playback_allows_inline(true);
+            settings.set_enable_developer_extras(true);
+        }
+
+        if let Some(manager) = wv.user_content_manager() {
+            let script = UserScript::new(
+                init_script,
+                UserContentInjectedFrames::AllFrames,
+                UserScriptInjectionTime::Start,
+                &[],
+                &[],
+            );
+            manager.add_script(&script);
+        }
+    });
+
+    if let Err(error) = install_result {
+        tracing::warn!(
+            "failed to install linux webview scripts for {}: {}",
+            window_label,
+            error
+        );
+    } else {
+        tracing::info!(
+            "installed linux webview scripts (all frames) for external window {}",
             window_label
         );
     }
@@ -355,6 +406,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
         let callback_window_label = callback_window_label.clone();
         let mut ctrl_down = false;
         let mut win_down = false;
+        let mut shift_down = false;
 
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_controller, args| {
             let Some(args) = args else {
@@ -381,6 +433,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                 match virtual_key {
                     VK_CONTROL | VK_LCONTROL | VK_RCONTROL => ctrl_down = true,
                     VK_LWIN | VK_RWIN => win_down = true,
+                    VK_SHIFT | VK_LSHIFT | VK_RSHIFT => shift_down = true,
                     VK_F5 => {
                         tracing::warn!("windows webview key fallback pressed: F5 (external reload)");
                         handle_external_reload_shortcut(&app_handle);
@@ -388,7 +441,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                             let _ = args.SetHandled(true);
                         }
                     }
-                    VK_R if ctrl_down || win_down => {
+                    VK_R if (ctrl_down || win_down) && !shift_down => {
                         tracing::warn!(
                             "windows webview key fallback pressed: Ctrl/Super+R (external force refresh)"
                         );
@@ -397,7 +450,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                             let _ = args.SetHandled(true);
                         }
                     }
-                    VK_S if ctrl_down || win_down => {
+                    VK_S if (ctrl_down || win_down) && !shift_down => {
                         tracing::warn!(
                             "windows webview key fallback pressed: Ctrl/Super+S (external screenshot)"
                         );
@@ -414,6 +467,7 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
                 match virtual_key {
                     VK_CONTROL | VK_LCONTROL | VK_RCONTROL => ctrl_down = false,
                     VK_LWIN | VK_RWIN => win_down = false,
+                    VK_SHIFT | VK_LSHIFT | VK_RSHIFT => shift_down = false,
                     _ => {}
                 }
             }
@@ -527,6 +581,54 @@ pub fn force_refresh_focused_external_window(app: &AppHandle) -> bool {
     true
 }
 
+#[cfg(windows)]
+fn crop_top_from_png(
+    png_bytes: &[u8],
+    titlebar_logical_height: f64,
+    window_logical_height: f64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let cursor = std::io::Cursor::new(png_bytes);
+    let decoder = png::Decoder::new(cursor);
+    let mut reader = decoder.read_info()?;
+    let buf_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "image too large"))?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader.next_frame(&mut buf)?;
+
+    let bytes_per_pixel = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Indexed => 1,
+    } * (info.bit_depth as usize / 8).max(1);
+
+    let crop_ratio = (titlebar_logical_height / window_logical_height.max(1.0)).clamp(0.0, 1.0);
+    let crop_rows = ((info.height as f64) * crop_ratio).round() as usize;
+    let crop_rows = crop_rows.min(info.height as usize);
+
+    let row_bytes = info.width as usize * bytes_per_pixel;
+    let start_offset = crop_rows * row_bytes;
+
+    let cropped_buf = if start_offset < buf.len() {
+        &buf[start_offset..]
+    } else {
+        &buf[..]
+    };
+    let new_height = (info.height - crop_rows as u32).max(1);
+
+    let mut output = Vec::new();
+    let mut encoder = png::Encoder::new(&mut output, info.width, new_height);
+    encoder.set_color(info.color_type);
+    encoder.set_depth(info.bit_depth);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(cropped_buf)?;
+    drop(writer);
+
+    Ok(output)
+}
+
 pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<PathBuf> {
     let Some(external) = get_visible_external_window(app) else {
         tracing::debug!("skip external screenshot: external window not found or not visible");
@@ -558,57 +660,107 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
     );
     let output_path = output_dir.join(filename);
 
+    let _ = external.eval(
+        "if (typeof window.__fusouPrepareScreenshot === 'function') { window.__fusouPrepareScreenshot(); } else { document.documentElement.classList.add('fusou-screenshot-mode'); } void document.documentElement.offsetHeight;"
+    );
+
     #[cfg(target_os = "linux")]
     {
-        let capture_size = external
+        const TITLEBAR_HEIGHT: f64 = 32.0;
+        let scale_factor = external.scale_factor().unwrap_or(1.0);
+        let titlebar_height_px = (TITLEBAR_HEIGHT * scale_factor).round() as f64;
+
+        let (capture_width, capture_height) = external
             .inner_size()
             .ok()
             .map(|size| (size.width as i32, size.height as i32))
-            .unwrap_or((1200, 720));
+            .unwrap_or((1200, 752));
+
+        let cropped_height = (capture_height - titlebar_height_px as i32).max(1);
 
         let output_path_for_snapshot = output_path.clone();
+        let app_handle_for_snapshot = app.clone();
+        let external_cleanup = external.clone();
         let schedule_result = external.with_webview(move |webview| {
-            let webview = webview.inner();
-            let (capture_width, capture_height) = capture_size;
-            webview.snapshot(
-                SnapshotRegion::Visible,
-                SnapshotOptions::NONE,
-                None::<&gio::Cancellable>,
-                move |snapshot_result| match snapshot_result {
-                    Ok(surface) => {
-                        let Some(pixbuf) = gdk::pixbuf_get_from_surface(
-                            &surface,
-                            0,
-                            0,
-                            capture_width,
-                            capture_height,
-                        ) else {
-                            tracing::warn!(
-                                "failed to convert webview snapshot into pixbuf for {}",
-                                output_path_for_snapshot.display(),
-                            );
-                            return;
+            let webview = webview.inner().clone();
+            // A small delay (50ms) ensures WebKitGTK has completed CSS reflow and compositing
+            // for `.fusou-screenshot-mode` (which disables window corner clip-paths) before capturing.
+            webkit2gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
+                webview.snapshot(
+                    SnapshotRegion::Visible,
+                    SnapshotOptions::NONE,
+                    None::<&gio::Cancellable>,
+                    move |snapshot_result| {
+                        let _ = external_cleanup.eval(
+                            "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
+                        );
+                        let surface = match snapshot_result {
+                            Ok(surface) => surface,
+                            Err(error) => {
+                                tracing::warn!("failed to snapshot external webview: {}", error);
+                                crate::notify::show(
+                                    &app_handle_for_snapshot,
+                                    "External window",
+                                    "Failed to snapshot external webview.",
+                                );
+                                return;
+                            }
                         };
 
-                        if let Err(error) = pixbuf.savev(&output_path_for_snapshot, "png", &[]) {
-                            tracing::warn!(
-                                "failed to save screenshot {}: {}",
-                                output_path_for_snapshot.display(),
-                                error
-                            );
-                            return;
-                        }
+                        let save_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                            let target = cairo::ImageSurface::create(
+                                cairo::Format::ARgb32,
+                                capture_width,
+                                cropped_height,
+                            )?;
+                            let cr = cairo::Context::new(&target)?;
 
-                        tracing::info!(
-                            "saved external screenshot: {}",
-                            output_path_for_snapshot.display()
-                        );
-                    }
-                    Err(error) => {
-                        tracing::warn!("failed to snapshot external webview: {}", error);
-                    }
-                },
-            );
+                            // Fill solid dark background (#0e0e11) first to eliminate any possible
+                            // transparent corner bleeding from window rounding or compositor antialiasing.
+                            cr.set_source_rgb(14.0 / 255.0, 14.0 / 255.0, 17.0 / 255.0);
+                            cr.paint()?;
+
+                            // Paint cropped webview surface (offsetting top titlebar)
+                            cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
+                            cr.paint()?;
+                            target.flush();
+
+                            let mut file = fs::File::create(&output_path_for_snapshot)?;
+                            target.write_to_png(&mut file)?;
+                            Ok(())
+                        })();
+
+                        match save_result {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "saved external screenshot: {}",
+                                    output_path_for_snapshot.display()
+                                );
+                                crate::notify::show(
+                                    &app_handle_for_snapshot,
+                                    "External window",
+                                    &format!(
+                                        "Screenshot saved to:\n{}",
+                                        output_path_for_snapshot.display()
+                                    ),
+                                );
+                            }
+                            Err(error) => {
+                                tracing::warn!(
+                                    "failed to save screenshot {}: {}",
+                                    output_path_for_snapshot.display(),
+                                    error
+                                );
+                                crate::notify::show(
+                                    &app_handle_for_snapshot,
+                                    "External window",
+                                    "Failed to save screenshot.",
+                                );
+                            }
+                        }
+                    },
+                );
+            });
         });
 
         if let Err(error) = schedule_result {
@@ -621,7 +773,17 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
     #[cfg(windows)]
     {
+        const TITLEBAR_HEIGHT: f64 = 32.0;
+        let scale_factor = external.scale_factor().unwrap_or(1.0);
+        let logical_height = external
+            .inner_size()
+            .ok()
+            .map(|size| size.to_logical::<f64>(scale_factor).height)
+            .unwrap_or(752.0);
+
         let output_path_for_callback = output_path.clone();
+        let app_handle_for_callback = app.clone();
+        let external_cleanup = external.clone();
         let schedule_result = external.with_webview(move |platform_webview| {
             let controller = platform_webview.controller();
             let webview = unsafe {
@@ -639,10 +801,18 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
             let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
                 move |status, result_json: String| {
+                    let _ = external_cleanup.eval(
+                        "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
+                    );
                     if let Err(error) = status {
                         tracing::warn!(
                             "windows screenshot devtools call failed with status: {}",
                             error
+                        );
+                        crate::notify::show(
+                            &app_handle_for_callback,
+                            "External window",
+                            "Failed to capture screenshot.",
                         );
                         return Ok(());
                     }
@@ -660,6 +830,11 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                             tracing::warn!(
                                 "windows screenshot response does not contain base64 image data"
                             );
+                            crate::notify::show(
+                                &app_handle_for_callback,
+                                "External window",
+                                "Failed to process screenshot data.",
+                            );
                             return Ok(());
                         }
                     };
@@ -672,15 +847,40 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                                     "failed to decode windows screenshot base64 payload: {}",
                                     error
                                 );
+                                crate::notify::show(
+                                    &app_handle_for_callback,
+                                    "External window",
+                                    "Failed to decode screenshot data.",
+                                );
                                 return Ok(());
                             }
                         };
 
-                    if let Err(error) = fs::write(&output_path_for_callback, &image_bytes) {
+                    let final_image_bytes = match crop_top_from_png(
+                        &image_bytes,
+                        TITLEBAR_HEIGHT,
+                        logical_height,
+                    ) {
+                        Ok(cropped) => cropped,
+                        Err(error) => {
+                            tracing::warn!(
+                                "failed to crop titlebar from windows screenshot: {}",
+                                error
+                            );
+                            image_bytes
+                        }
+                    };
+
+                    if let Err(error) = fs::write(&output_path_for_callback, &final_image_bytes) {
                         tracing::warn!(
                             "failed to save windows screenshot {}: {}",
                             output_path_for_callback.display(),
                             error
+                        );
+                        crate::notify::show(
+                            &app_handle_for_callback,
+                            "External window",
+                            "Failed to save screenshot.",
                         );
                         return Ok(());
                     }
@@ -688,6 +888,14 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                     tracing::info!(
                         "saved external screenshot: {}",
                         output_path_for_callback.display()
+                    );
+                    crate::notify::show(
+                        &app_handle_for_callback,
+                        "External window",
+                        &format!(
+                            "Screenshot saved to:\n{}",
+                            output_path_for_callback.display()
+                        ),
                     );
 
                     Ok(())
@@ -744,19 +952,140 @@ pub fn handle_external_force_refresh_shortcut(app: &AppHandle) {
 }
 
 pub fn handle_external_screenshot_shortcut(app: &AppHandle) {
-    if !is_external_window_focused(app) {
-        return;
+    if capture_focused_external_window_screenshot(app).is_none() {
+        crate::notify::show(
+            app,
+            "External window",
+            "Failed to capture screenshot. Ensure the game window is open.",
+        );
     }
+}
 
-    let Some(path) = capture_focused_external_window_screenshot(app) else {
-        return;
-    };
+#[cfg(target_os = "linux")]
+pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
+    let vol_clamped = volume.clamp(0.0, 1.0);
+    let is_muted = muted || vol_clamped <= 0.0001;
 
-    crate::notify::show(
-        app,
-        "External window",
-        &format!("Screenshot capture started. Target: {}", path.display()),
-    );
+    std::thread::spawn(move || {
+        let mut target_ids: Vec<u32> = Vec::new();
+
+        // 1a. Try pw-dump Node (PipeWire structured JSON)
+        if let Ok(output) = std::process::Command::new("pw-dump").arg("Node").output() {
+            if output.status.success() {
+                if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(nodes) = json_val.as_array() {
+                        for node in nodes {
+                            let props = &node["info"]["props"];
+                            if props["media.class"].as_str() == Some("Stream/Output/Audio") {
+                                let name = props["application.name"].as_str().unwrap_or("");
+                                let bin = props["application.process.binary"].as_str().unwrap_or("");
+                                let name_lower = name.to_lowercase();
+                                let bin_lower = bin.to_lowercase();
+                                if name_lower == "app"
+                                    || name_lower == "fusou"
+                                    || name_lower.contains("fusou")
+                                    || bin_lower.contains("webkit")
+                                    || bin_lower.contains("fusou")
+                                    || name_lower.contains("app")
+                                {
+                                    if let Some(id) = node["id"].as_u64() {
+                                        target_ids.push(id as u32);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1b. Fallback: Parse wpctl status output if pw-dump didn't match
+        if target_ids.is_empty() {
+            if let Ok(output) = std::process::Command::new("wpctl").arg("status").output() {
+                if output.status.success() {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    let mut in_streams = false;
+                    for line in text.lines() {
+                        if line.contains("Streams:") {
+                            in_streams = true;
+                            continue;
+                        }
+                        if in_streams {
+                            if line.contains("Video") || line.contains("Settings") {
+                                break;
+                            }
+                            let line_lower = line.to_lowercase();
+                            if line_lower.contains("app")
+                                || line_lower.contains("fusou")
+                                || line_lower.contains("webkit")
+                            {
+                                let trimmed = line.trim();
+                                if let Some((id_part, _)) = trimmed.split_once('.') {
+                                    if let Ok(id) = id_part.trim().parse::<u32>() {
+                                        target_ids.push(id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply volume and mute to all matching PipeWire stream nodes
+        for id in &target_ids {
+            let vol_str = format!("{:.2}", vol_clamped);
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-volume", &id.to_string(), &vol_str])
+                .status();
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-mute", &id.to_string(), if is_muted { "1" } else { "0" }])
+                .status();
+            tracing::info!(
+                stream_id = id,
+                volume = vol_clamped,
+                muted = is_muted,
+                "applied linux pipewire stream volume"
+            );
+        }
+
+        // Method 2: PulseAudio fallback (pactl list sink-inputs)
+        if let Ok(output) = std::process::Command::new("pactl").args(["list", "sink-inputs"]).output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let mut current_sink_input: Option<u32> = None;
+                for line in text.lines() {
+                    let line = line.trim();
+                    if line.starts_with("Sink Input #") {
+                        if let Some(num_str) = line.strip_prefix("Sink Input #") {
+                            current_sink_input = num_str.parse::<u32>().ok();
+                        }
+                    } else if (line.contains("application.name = \"app\"")
+                        || line.contains("application.name = \"fusou\"")
+                        || line.to_lowercase().contains("fusou")
+                        || line.contains("WebKitWebProcess"))
+                        && current_sink_input.is_some()
+                    {
+                        if let Some(sink_id) = current_sink_input {
+                            let percent = (vol_clamped * 100.0).round() as u32;
+                            let _ = std::process::Command::new("pactl")
+                                .args(["set-sink-input-volume", &sink_id.to_string(), &format!("{}%", percent)])
+                                .status();
+                            let _ = std::process::Command::new("pactl")
+                                .args(["set-sink-input-mute", &sink_id.to_string(), if is_muted { "1" } else { "0" }])
+                                .status();
+                            tracing::info!(
+                                sink_input = sink_id,
+                                volume = percent,
+                                muted = is_muted,
+                                "applied linux pulseaudio sink-input volume"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -768,10 +1097,77 @@ pub fn external_window_shortcut(
         return Err("shortcut actions are only available to the external window".to_string());
     }
 
-    let app = window.app_handle();
-    if !is_external_window_focused(app) {
+    if action == "start-dragging" {
+        let _ = window.start_dragging();
         return Ok(());
     }
+
+    if action == "minimize" {
+        let _ = window.minimize();
+        return Ok(());
+    }
+
+    if action == "toggle-maximize" {
+        if window.is_maximized().unwrap_or(false) {
+            let _ = window.unmaximize();
+        } else {
+            let _ = window.maximize();
+        }
+        return Ok(());
+    }
+
+    if action == "close" {
+        let _ = window.close();
+        return Ok(());
+    }
+
+    if action.starts_with("volume:") {
+        let parts: Vec<&str> = action.split(':').collect();
+        if parts.len() >= 3 {
+            let vol = parts[1].parse::<f64>().unwrap_or(1.0);
+            let muted = parts[2] == "true";
+            let is_muted = muted || vol <= 0.0001;
+
+            #[cfg(windows)]
+            {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+                use windows_core::Interface;
+                let _ = window.with_webview(move |platform_webview| {
+                    let controller = platform_webview.controller();
+                    let webview = match unsafe { controller.CoreWebView2() } {
+                        Ok(wv) => wv,
+                        Err(_) => return,
+                    };
+                    if let Ok(wv8) = webview.cast::<ICoreWebView2_8>() {
+                        let _ = unsafe { wv8.SetIsMuted(is_muted) };
+                    }
+                });
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                use webkit2gtk::WebViewExt;
+                let _ = window.with_webview(move |platform_webview| {
+                    let webview = platform_webview.inner();
+                    webview.set_is_muted(is_muted);
+                });
+                set_linux_app_audio_volume(vol, muted);
+            }
+
+            let app_handle = window.app_handle();
+            use tauri::Emitter;
+            let _ = app_handle.emit(
+                "fusou-volume-changed",
+                serde_json::json!({
+                    "volume": vol,
+                    "muted": muted
+                }),
+            );
+        }
+        return Ok(());
+    }
+
+    let app = window.app_handle();
 
     match action.as_str() {
         "reload" => handle_external_reload_shortcut(app),
@@ -783,11 +1179,83 @@ pub fn external_window_shortcut(
     Ok(())
 }
 
+pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
+    let Some(external) = get_visible_external_window(app) else {
+        return;
+    };
+
+    let is_muted = muted || volume <= 0.0001;
+
+    #[cfg(windows)]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+        use windows_core::Interface;
+        let _ = external.with_webview(move |platform_webview| {
+            let controller = platform_webview.controller();
+            let webview = match unsafe { controller.CoreWebView2() } {
+                Ok(wv) => wv,
+                Err(_) => return,
+            };
+            if let Ok(wv8) = webview.cast::<ICoreWebView2_8>() {
+                let _ = unsafe { wv8.SetIsMuted(is_muted) };
+            }
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use webkit2gtk::WebViewExt;
+        let _ = external.with_webview(move |platform_webview| {
+            let webview = platform_webview.inner();
+            webview.set_is_muted(is_muted);
+        });
+        set_linux_app_audio_volume(volume, muted);
+    }
+
+    let script = format!(
+        "if (typeof window.__fusouSetVolume === 'function') {{ window.__fusouSetVolume({}, {}, true); }}",
+        volume, muted
+    );
+    if let Err(e) = external.eval(&script) {
+        tracing::warn!("failed to eval volume script: {}", e);
+    }
+}
+
+#[tauri::command]
+pub fn trigger_external_screenshot(app: AppHandle) {
+    if capture_focused_external_window_screenshot(&app).is_none() {
+        crate::notify::show(
+            &app,
+            "External window",
+            "Failed to capture screenshot. Ensure the game window is open.",
+        );
+    }
+}
+
+#[tauri::command]
+pub fn trigger_external_reload(app: AppHandle) {
+    if !reload_focused_external_window(&app) {
+        crate::notify::show(
+            &app,
+            "External window",
+            "Failed to reload external window. Ensure the game window is open.",
+        );
+    }
+}
+
+#[tauri::command]
+pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
+    set_external_window_volume(&app, volume, muted);
+}
+
 pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
     if browse_webview {
         if let Some(window) = app.get_webview_window("external") {
             #[cfg(target_os = "linux")]
             install_linux_webview_key_fallback(&window);
+
+            #[cfg(target_os = "linux")]
+            install_linux_webview_scripts(&window);
 
             #[cfg(windows)]
             install_windows_webview_key_fallback(&window);
@@ -827,6 +1295,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             "external",
             tauri::WebviewUrl::External(game_url),
         );
+        let external = crate::window::common::configure_frameless_window(external);
 
         let app_configs = configs::get_user_configs_for_app();
         let kc_window = &app_configs.kc_window;
@@ -835,13 +1304,20 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         let max_window_size_width = kc_window.get_max_inner_width() as f64;
         let max_window_size_height = kc_window.get_max_inner_height() as f64;
 
+        const TITLEBAR_HEIGHT: f64 = 32.0;
         let external = external
             .fullscreen(false)
             .title("fusou-viewer")
-            .inner_size(inner_winow_size_width, inner_winow_size_height)
-            .max_inner_size(max_window_size_width, max_window_size_height)
+            .inner_size(
+                inner_winow_size_width,
+                inner_winow_size_height + TITLEBAR_HEIGHT,
+            )
+            .max_inner_size(
+                max_window_size_width,
+                max_window_size_height + TITLEBAR_HEIGHT,
+            )
             .visible(false)
-            .initialization_script(init_script);
+            .initialization_script_for_all_frames(init_script);
         #[cfg(dev)]
         let external = external.devtools(true);
 
@@ -852,8 +1328,13 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         #[cfg(target_os = "linux")]
         install_linux_webview_key_fallback(&external_result);
 
+        #[cfg(target_os = "linux")]
+        install_linux_webview_scripts(&external_result);
+
         #[cfg(windows)]
         install_windows_webview_key_fallback(&external_result);
+
+        crate::window::common::setup_frameless_window(&external_result);
 
         external_result
             .show()

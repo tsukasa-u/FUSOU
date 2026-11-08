@@ -870,7 +870,6 @@ pub struct ConfigsAppWindow {
     max_inner_height: Option<u32>,
     default_inner_width: Option<u32>,
     default_inner_height: Option<u32>,
-    window_title_bar_height: Option<u32>,
 }
 
 impl ConfigsAppWindow {
@@ -922,16 +921,6 @@ impl ConfigsAppWindow {
                 .app
                 .kc_window
                 .default_inner_height
-                .unwrap()
-        })
-    }
-    #[cfg(target_os = "linux")]
-    pub fn get_window_title_bar_height(&self) -> u32 {
-        self.window_title_bar_height.unwrap_or_else(|| {
-            get_default_configs()
-                .app
-                .kc_window
-                .window_title_bar_height
                 .unwrap()
         })
     }
@@ -1700,7 +1689,6 @@ mod tests {
             max_inner_height: None,
             default_inner_width: None,
             default_inner_height: None,
-            window_title_bar_height: None,
         };
 
         assert_eq!(

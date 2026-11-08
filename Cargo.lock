@@ -212,6 +212,7 @@ name = "app"
 version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
+ "cairo-rs",
  "chrono",
  "chrono-tz",
  "clap",
@@ -226,6 +227,7 @@ dependencies = [
  "hex",
  "kc-api",
  "once_cell",
+ "png",
  "proxy-https",
  "regex",
  "reqwest 0.12.28",
@@ -258,6 +260,7 @@ dependencies = [
  "webbrowser",
  "webkit2gtk",
  "webview2-com",
+ "windows-core 0.62.2",
  "windows-sys 0.59.0",
  "winreg 0.52.0",
 ]

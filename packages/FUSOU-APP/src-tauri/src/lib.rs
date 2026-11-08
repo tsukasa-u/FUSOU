@@ -143,7 +143,14 @@ pub async fn run() {
                 ])
                 .build(),
         )
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::DECORATIONS,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -194,12 +201,19 @@ pub async fn run() {
             #[cfg(dev)]
             cmd::tauri_cmd::read_emit_file,
             window::external::external_window_shortcut,
+            window::external::trigger_external_screenshot,
+            window::external::trigger_external_reload,
+            window::external::set_external_volume,
         ])
         .setup(move |app: &mut tauri::App| {
             crate::notify::set_app_handle(app.handle().clone());
 
             // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
             builder_setup::setup::set_paths(app)?;
+
+            if let Some(main_window) = app.get_webview_window("main") {
+                window::common::setup_frameless_window(&main_window);
+            }
 
             // Initialize AuthManager
             let session_path = util::get_ROAMING_DIR().join("fusou-auth-session.json");
