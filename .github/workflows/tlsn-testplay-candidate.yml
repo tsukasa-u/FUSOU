@@ -212,6 +212,8 @@ jobs:
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run typecheck
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run test
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run typecheck
+          pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run typecheck
+          pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run test:runtime
           node --experimental-strip-types --test \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-result-contract.test.mjs \
