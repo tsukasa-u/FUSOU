@@ -1,0 +1,12 @@
+name = "fusou-freshness-coordinator-local-test"
+main = "tests/runtime/worker.ts"
+compatibility_date = "2026-11-08"
+workers_dev = false
+
+[[durable_objects.bindings]]
+name = "FRESHNESS_ISSUE_COORDINATOR"
+class_name = "LocalTestFreshnessIssueCoordinatorDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LocalTestFreshnessIssueCoordinatorDO"]
