@@ -458,7 +458,8 @@ No human decision is inferred from this investigation.
 | Area | Status |
 |---|---|
 | P2 prerequisites | **UNRESOLVED / BLOCKED** as detailed above. |
-| Production DO / migration / binding | **NOT_IMPLEMENTED**. |
+| Local SQLite coordinator adapter | **LOCAL_WORKERS_RUNTIME_VERIFIED**; the real issue core and DO adapter pass 16 pinned local-runtime integration cases, including concurrency and runtime recreation. This is not Production registration or authority. |
+| Production DO / migration / binding | **NOT_IMPLEMENTED / NOT_REGISTERED**; the Production Worker still has no Runtime Config coordinator binding. |
 | Production Release Journal and trusted append time | **NOT_IMPLEMENTED / BLOCKED**. |
 | Production R2 Runtime Config adapter | **NOT_IMPLEMENTED**; R2 CAS is a candidate capability, not a registered adapter. |
 | Production Release/Freshness signer and HSM | **NOT_IMPLEMENTED**. |
@@ -471,6 +472,14 @@ No human decision is inferred from this investigation.
 The readiness record's local/test-only results are not Production acceptance.
 No readiness promotion, wire-contract change, trust-boundary change, or live
 verification was performed.
+
+The local DO tests use an explicitly configured fake clock and witness and a
+temporary SQLite storage path. They verify persistence across Miniflare/workerd
+recreation for the same DO ID, but do not establish trusted Production time,
+independent rollback resistance, Journal durability, or HSM behavior. Hosted
+CI is **NOT_CHECKED**. Production clock, Journal/checkpoint, witness/restore
+epoch, HSM/signer, bindings, and deployment remain unresolved; Production
+acceptance and Stages A/B/C remain **BLOCKED**.
 
 ## 11. Official specifications checked 2026-11-02
 

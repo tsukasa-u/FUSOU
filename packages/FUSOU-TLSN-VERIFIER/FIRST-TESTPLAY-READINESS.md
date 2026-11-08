@@ -103,26 +103,34 @@ not re-sign.
 | Final response | Only exact bytes/digest durably finalized for the same operation, request, lease, release generation, and fence may be returned. |
 | External signer | The model enforces logical return-path fencing only. It does not claim that HSM work physically stops. |
 
-Local model: the test injects a fake clock, test signer, map-backed operation
-store, and synthetic witness. Restart tests restore a snapshot into a new fake
-coordinator; this does not verify process or Durable Object persistence,
-Production clock bounds, HSM idempotency/cancellation, or Production PITR
-resistance. The rollback test checks a fixture mismatch against a separate
-test witness only.
+The provider-independent core's Node tests inject a fake clock, test signer,
+map-backed operation store, and synthetic witness. Those snapshot-restoration
+tests remain protocol-model evidence only. Separately, a dedicated
+SQLite-backed Durable Object adapter now runs through the pinned local
+Miniflare/workerd runtime, with a temporary storage path and explicitly
+test-only clock, witness, bootstrap, Release controls, and fault injection.
+Its 16 integration cases verify concurrent operation admission, blocker
+retention, exact finalized-byte persistence, and operation lookup after
+disposing and recreating the runtime with the same Durable Object ID. This is
+local runtime evidence, not Production clock bounds, independent PITR
+resistance, HSM idempotency/cancellation, or deployed authority.
 
 | Evidence | Status |
 |---|---|
 | Shared issuer source | **SOURCE_IMPLEMENTED** |
 | Domain Node tests and type-check | **NODE_UNIT_VERIFIED**; 24 tests pass locally |
-| Local Workers runtime for this issuer authority | **NOT_CHECKED**; no Production issuer runtime or DO adapter is wired |
+| Local SQLite DO adapter and issuer-core integration | **LOCAL_WORKERS_RUNTIME_VERIFIED**; 16 pinned Miniflare/workerd integration cases pass, including concurrency and runtime recreation; no Production binding is wired |
 | Hosted CI | **NOT_CHECKED** |
-| Production signer, Journal, DO/coordinator, R2 adapter, trusted clock, independent witness, routes and registrations | **NOT_IMPLEMENTED / BLOCKED** |
+| Production signer, Journal, DO binding/coordinator authority, R2 adapter, trusted clock, independent witness, routes and registrations | **NOT_IMPLEMENTED / BLOCKED** |
 | Stage A/B/C and Production acceptance | **BLOCKED** |
 
-The next concrete implementation is an adapter-conformance boundary for an
-approved durable coordinator, trusted clock, signer operation ledger,
-Release Journal, R2 reader, and independent rollback witness. Do not select or
-register a provider from the local test model. The checked-in
+Reproduce the local adapter suite with
+`pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run test:runtime`.
+Hosted CI has not been run. The next implementation boundary is reviewed
+Production adapter conformance and registration for the trusted clock, signer
+operation ledger/HSM, Release Journal/checkpoint, R2 reader, and independent
+rollback witness. Do not select or register a provider from the local test
+model. The checked-in
 [Web device-proof route](../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts)
 and [Worker device-proof client](../FUSOU-TLSN-VERIFICATION-WORKER/src/device-proof-client.ts)
 exist in source; their existence does not establish deployment, domain

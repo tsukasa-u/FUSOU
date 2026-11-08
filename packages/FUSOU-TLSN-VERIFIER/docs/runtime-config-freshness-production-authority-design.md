@@ -448,14 +448,14 @@ caller timestamp or unverified test clock.
 | Bootstrap trust root and APP pin | APP reads three build-time `option_env!` values; protocol requires offline root custody. | Public pin/build registration is **NOT_CHECKED** here; readiness history records Production registration as **NOT_REGISTERED**. Trust-owner approval and APP release are required. No private root key is in source. |
 | Release Authority HSM key and signer | No Production signer Worker/service or HSM binding in the verification Worker. | **NOT_IMPLEMENTED / NOT_REGISTERED**; key custody, provider, delegation, and typed signing policy require approval. |
 | Freshness HSM key and signer | No Production Freshness signer or HSM binding. | **NOT_IMPLEMENTED / NOT_REGISTERED**; separate key/provider and renewal process require approval. |
-| Runtime Config coordination DO | Only the verification-binding DO is declared. | New namespace/class/migration and role-specific access are **NOT_IMPLEMENTED / NOT_REGISTERED**. |
+| Runtime Config coordination DO | The Production Worker still declares only the verification-binding DO; a separate SQLite coordinator package and local-only runtime configuration now exist. | The local adapter is **LOCAL_WORKERS_RUNTIME_VERIFIED**. Production namespace/class/migration and role-specific access remain **NOT_IMPLEMENTED / NOT_REGISTERED**. |
 | Runtime Config R2 bucket | Existing Worker R2 binding is for TLSN archives; a separate script adapter expects named S3 credentials. | Dedicated bucket, object retention, writer/read-only token scopes, and availability are **NOT_CHECKED**. No R2 values were read or writes attempted. |
 | Public object origin | APP requires snapshot/artifact GETs on the Bootstrap hostname. No corresponding route is declared in the inspected Worker config. | Same-host domain/path routing and read-only origin are **NOT_REGISTERED / NOT_CHECKED**. |
 | Release Journal | No Production Journal provider or adapter exists. | Provider, independently administered retention, authenticated linearizable `getHead`, atomic compare-and-append, append-time clock, and recovery checkpoint require human approval. |
 | Trusted time | No Freshness/Release/Journal clock binding or provider exists in the Worker source. | **UNKNOWN / NOT_CHECKED**; trust owner must approve UTC source and clock bounds for signer, Journal, and bounded issue leases. |
 | Worker environment/service bindings | Existing `wrangler.toml` declares only verification DO/R2 and Production version metadata. | New role-specific Worker/service bindings, deploy identities, and same-host routes are **NOT_REGISTERED**. No deploy/configuration was changed. |
 | DO RPC credentials | The current verifier callback secret is route-specific and is not a DO role credential. | Distinct Authority, Release-signer, and Freshness-signer HMAC secrets are **NOT_REGISTERED**; register them only through the approved secret store. |
-| Runtime tests/observability | Current package has no Cloudflare Vitest integration or configured Workers Logs/Traces. | Test harness and per-service observability must be added during implementation; no live tests were run. |
+| Runtime tests/observability | A dedicated Miniflare/workerd harness now exercises the SQLite coordinator locally; Production Workers Logs/Traces are not configured. | The local adapter is **LOCAL_WORKERS_RUNTIME_VERIFIED**. No hosted or live Production tests were run; Production observability remains future work. |
 
 The only human-authority decisions that should remain are approval/registration
 of trust custody, HSM providers and keys, the independent Journal and its
@@ -472,7 +472,7 @@ stable. Production signing and external writes remain gated until approved.
 | Phase | Files / component | Depends on | Completion conditions and required tests | External dependency |
 |---|---|---|---|---|
 | **P1 — domain, validation, signer interfaces and issuer core** | `FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts`, `freshness-issue.ts`, and Node contract tests. | None. | Strict canonical request validation; issue/signer IDs, request/nonce/environment binding, lease/clock/fence/current-state evidence, exact response verification and durable-finalization-only return. Current fake adapters are local-only; no Production authority is connected. | None for local implementation. |
-| **P2 — coordination DO** | Authority Worker's new SQLite-backed coordinator class, role-checked RPCs, `wrangler.toml` migration and generated binding types. | P1. | Atomic pending/current/lease/writer/recovery transitions; race tests for lease vs release; restart/persistence tests; multiple leases; crash after every DO transition; alarm retry/cleanup. Do not hold a DO transaction across external I/O. | Cloudflare namespace/binding registration before deployed tests. |
+| **P2 — coordination DO** | Dedicated SQLite-backed coordinator package and local-only runtime configuration; Production Authority Worker's role-checked RPCs, `wrangler.toml` migration and generated binding types remain future work. | P1. | Local adapter currently verifies atomic operation admission/finalization, active blockers, restart persistence, exact result retrieval, and selected Release/fence races. Production completion still requires reviewed role access, recovery transitions, full crash-boundary tests, and no transaction held across external I/O. | Cloudflare namespace/binding registration and trusted external providers before deployed tests. |
 | **P3 — Release Journal adapter** | Authority Worker's `journal-client.ts` and provider adapter/conformance tests. | P1/P2. | Multi-generation chain, exact record/delegation bytes, append timestamp, compare-and-append, same-byte idempotency, conflict, unavailable/ambiguous result, corruption and recovery tests. | Approved independent provider, retention, clock, and checkpoint. |
 | **P4 — R2 immutable/pointer adapters** | Authority Worker's R2 writer; scoped read-only R2 client for signers/object reader; immutable Manifest snapshot support; object-key allowlists. | P1; may run beside P3. | `If-None-Match: *` immutable create, `If-Match` pointer CAS, exact readback, ETag preservation, pointer/snapshot equality, ambiguous outcomes and no-auto-retry policy. Include the APP-required `manifests/<digest>` object, currently absent from the publisher. | Dedicated bucket, R2 permissions/tokens, and authorized disposable-bucket integration test. |
 | **P5 — Release Authority orchestration** | `FUSOU-TLSN-RUNTIME-CONFIG-AUTHORITY/src/release-authority.ts`; separate `FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-SIGNER/src/index.ts` and commit verifier; authenticated release submission script. | P1–P4. | Test exact attempt binding, signer checks before HSM, orphan signatures, persisted authorization, Journal append point, DO post-append repair, all crash/ambiguous boundaries, genesis approval, and no Freshness before `COMMITTED`. | Release key/HSM, operator identity, Journal, DO and R2 registration. |
@@ -480,10 +480,12 @@ stable. Production signing and external writes remain gated until approved.
 | **P7 — HTTP and immutable object delivery** | Separate `FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY` Worker and `FUSOU-TLSN-RUNTIME-CONFIG-OBJECT-READER` (`src/index.ts`, `src/r2-readonly.ts`, `wrangler.toml`, tests); same-host route configuration. | P4/P6. | Worker-runtime tests for POST/GET methods, canonical/unknown/oversize requests, 200/no redirect/no-store response, 64 KiB response bound, allowed object paths/cache headers, unknown environment, Gateway isolation, and signer outage. | Approved domain, route and read-only R2 object origin. |
 | **P8 — APP ↔ Worker contract integration** | Shared JS/Rust golden vectors; APP test-only transport seam if needed; Worker runtime integration tests across Gateway/signer/DO/R2/Journal fakes. | P1–P7. | Feed Worker-produced exact response bytes to the APP verifier; test signatures, sidecars, expiry/skew, nonce, every artifact digest, one shared 10-second deadline, final rename, and state preservation on failure. No live services required for the local suite. | Hosted CI registration is separate; Production acceptance still requires live evidence. |
 
-Use Cloudflare's Workers Vitest integration for actual DO persistence,
-concurrency, migration, and route tests; the current Node in-memory adapter
-suite is retained as a fast protocol model, not as evidence of Worker runtime
-behavior. Generated binding types must match the selected Wrangler schema.
+The dedicated Miniflare/workerd suite now verifies selected DO persistence,
+concurrency, state transitions, and runtime recreation against the local
+Workers runtime; the provider-independent Node in-memory suite remains a fast
+protocol model. Add Workers Vitest coverage if needed for future migration or
+route-specific behaviors, but neither local suite is evidence of Production
+registration or authority. Generated binding types must match the selected Wrangler schema.
 New services should enable structured Logs and Traces; update and test their
 compatibility date at implementation time.
 
@@ -492,8 +494,15 @@ compatibility date at implementation time.
 - The readiness rows recorded in this design are historical to its stated
   review baseline. The current readiness boundary is maintained in
   [`FIRST-TESTPLAY-READINESS.md`](../FIRST-TESTPLAY-READINESS.md): the shared
-  issuer core is source-implemented and locally Node-tested, while Production
-  Freshness and all registrations remain blocked.
+  issuer core is source-implemented and locally Node-tested; the dedicated
+  SQLite DO adapter is local-Workers-runtime verified; Production Freshness
+  and all registrations remain blocked.
+- The local adapter's fake clock, witness, bootstrap, and Release controls
+  exist only in the local test Worker/configuration. Runtime recreation
+  verifies local storage persistence, not Production PITR resistance,
+  independent anti-rollback, an 8-second Production clock guarantee, or HSM
+  physical cancellation. Hosted CI remains **NOT_CHECKED**; Stage A/B/C and
+  Production acceptance remain **BLOCKED**.
 - Stage A, Stage B, Stage C, Production acceptance, deployment, real
   Presentation/Result verification, and real-game testplay remain
   **BLOCKED**. This design does not promote any readiness status.

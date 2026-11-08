@@ -1774,3 +1774,42 @@ APP Rust source was changed. Gateway source is **SOURCE_IMPLEMENTED**.
 Hosted CI is **NOT_CHECKED**; no case is **PRODUCTION_VERIFIED**. Production
 Signer/Journal registration and Stage A/B/C and Production acceptance remain
 **BLOCKED**.
+
+## Local SQLite-backed Freshness issue coordinator — current verification
+
+The provider-independent `FreshnessIssueCoordinator` core remains
+**SOURCE_IMPLEMENTED / NODE_UNIT_VERIFIED**. A dedicated SQLite-backed
+Durable Object adapter is now **LOCAL_WORKERS_RUNTIME_VERIFIED** in the pinned
+local Workers runtime: Miniflare `5.20261104.0-beta`, workerd `1.20261104.1`,
+compatibility date `2026-11-08`, with no compatibility flags. The runtime
+suite has 16 passing integration cases and is reproducible with
+`pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run test:runtime`.
+
+The local suite invokes the real issue core through the Durable Object RPC
+adapter and uses SQLite-backed storage transactions for operation admission,
+state transitions, and atomic finalization. It verifies one signer call for
+concurrent calls under the same operation ID; request conflicts; exact
+finalized bytes, length, and digest; retained `IN_PROGRESS` and
+`RESULT_UNKNOWN` blockers after a newly constructed runtime reopens the same
+temporary storage and Durable Object ID; exact `FINALIZED` result retrieval
+without re-signing; and recovery after a committed finalization response is
+lost. The suite also exercises unknown persistence outcomes, lease/fence
+rejection, Release writer contention, and local witness mismatch. Test clock,
+witness, bootstrap, Release operations, and fault injection are explicitly
+confined to the local test Worker/configuration.
+
+This verifies the adapter's local behavior, not Production authority or
+Cloudflare Production guarantees. No Production namespace, migration,
+binding, credential, service, or deployment was created or registered.
+Production still lacks an approved trusted clock with an uncertainty bound
+for the maximum 8-second issue lease, the Release Journal and authenticated
+append-time/checkpoint guarantees, an independent anti-rollback witness and
+restore epoch, and a registered Freshness HSM/signer. In particular, a local
+fake clock or witness, successful local SQLite reload, or logical rejection
+of a delayed signer result does not prove a Production clock bound,
+PITR-resistance, or physical HSM cancellation.
+
+Hosted CI is **NOT_CHECKED**. Production acceptance and Stages A/B/C remain
+**BLOCKED**. The local adapter does not change the wire contract, APP's
+10-second request deadline, Gateway's 7-second deadline, or the Freshness
+issue lease rule; 8 seconds is not reclassified as an SLO.
