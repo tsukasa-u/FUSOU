@@ -15,8 +15,8 @@ use chrono::Local;
 
 #[cfg(target_os = "linux")]
 use webkit2gtk::{
-    gio, SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt,
-    UserScript, UserScriptInjectionTime, WebViewExt,
+    gio, SettingsExt, SnapshotOptions, SnapshotRegion, UserContentInjectedFrames,
+    UserContentManagerExt, UserScript, UserScriptInjectionTime, WebViewExt,
 };
 
 #[cfg(target_os = "linux")]
@@ -341,6 +341,14 @@ fn install_linux_webview_scripts(external: &tauri::WebviewWindow) {
     let init_script = include_str!("./scripts/external_init_script.js");
     let install_result = external.with_webview(move |webview| {
         let wv = webview.inner();
+
+        if let Some(settings) = WebViewExt::settings(&wv) {
+            settings.set_enable_webaudio(true);
+            settings.set_media_playback_requires_user_gesture(false);
+            settings.set_media_playback_allows_inline(true);
+            settings.set_enable_developer_extras(true);
+        }
+
         if let Some(manager) = wv.user_content_manager() {
             let script = UserScript::new(
                 init_script,
@@ -953,6 +961,133 @@ pub fn handle_external_screenshot_shortcut(app: &AppHandle) {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
+    let vol_clamped = volume.clamp(0.0, 1.0);
+    let is_muted = muted || vol_clamped <= 0.0001;
+
+    std::thread::spawn(move || {
+        let mut target_ids: Vec<u32> = Vec::new();
+
+        // 1a. Try pw-dump Node (PipeWire structured JSON)
+        if let Ok(output) = std::process::Command::new("pw-dump").arg("Node").output() {
+            if output.status.success() {
+                if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(nodes) = json_val.as_array() {
+                        for node in nodes {
+                            let props = &node["info"]["props"];
+                            if props["media.class"].as_str() == Some("Stream/Output/Audio") {
+                                let name = props["application.name"].as_str().unwrap_or("");
+                                let bin = props["application.process.binary"].as_str().unwrap_or("");
+                                let name_lower = name.to_lowercase();
+                                let bin_lower = bin.to_lowercase();
+                                if name_lower == "app"
+                                    || name_lower == "fusou"
+                                    || name_lower.contains("fusou")
+                                    || bin_lower.contains("webkit")
+                                    || bin_lower.contains("fusou")
+                                    || name_lower.contains("app")
+                                {
+                                    if let Some(id) = node["id"].as_u64() {
+                                        target_ids.push(id as u32);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1b. Fallback: Parse wpctl status output if pw-dump didn't match
+        if target_ids.is_empty() {
+            if let Ok(output) = std::process::Command::new("wpctl").arg("status").output() {
+                if output.status.success() {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    let mut in_streams = false;
+                    for line in text.lines() {
+                        if line.contains("Streams:") {
+                            in_streams = true;
+                            continue;
+                        }
+                        if in_streams {
+                            if line.contains("Video") || line.contains("Settings") {
+                                break;
+                            }
+                            let line_lower = line.to_lowercase();
+                            if line_lower.contains("app")
+                                || line_lower.contains("fusou")
+                                || line_lower.contains("webkit")
+                            {
+                                let trimmed = line.trim();
+                                if let Some((id_part, _)) = trimmed.split_once('.') {
+                                    if let Ok(id) = id_part.trim().parse::<u32>() {
+                                        target_ids.push(id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply volume and mute to all matching PipeWire stream nodes
+        for id in &target_ids {
+            let vol_str = format!("{:.2}", vol_clamped);
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-volume", &id.to_string(), &vol_str])
+                .status();
+            let _ = std::process::Command::new("wpctl")
+                .args(["set-mute", &id.to_string(), if is_muted { "1" } else { "0" }])
+                .status();
+            tracing::info!(
+                stream_id = id,
+                volume = vol_clamped,
+                muted = is_muted,
+                "applied linux pipewire stream volume"
+            );
+        }
+
+        // Method 2: PulseAudio fallback (pactl list sink-inputs)
+        if let Ok(output) = std::process::Command::new("pactl").args(["list", "sink-inputs"]).output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let mut current_sink_input: Option<u32> = None;
+                for line in text.lines() {
+                    let line = line.trim();
+                    if line.starts_with("Sink Input #") {
+                        if let Some(num_str) = line.strip_prefix("Sink Input #") {
+                            current_sink_input = num_str.parse::<u32>().ok();
+                        }
+                    } else if (line.contains("application.name = \"app\"")
+                        || line.contains("application.name = \"fusou\"")
+                        || line.to_lowercase().contains("fusou")
+                        || line.contains("WebKitWebProcess"))
+                        && current_sink_input.is_some()
+                    {
+                        if let Some(sink_id) = current_sink_input {
+                            let percent = (vol_clamped * 100.0).round() as u32;
+                            let _ = std::process::Command::new("pactl")
+                                .args(["set-sink-input-volume", &sink_id.to_string(), &format!("{}%", percent)])
+                                .status();
+                            let _ = std::process::Command::new("pactl")
+                                .args(["set-sink-input-mute", &sink_id.to_string(), if is_muted { "1" } else { "0" }])
+                                .status();
+                            tracing::info!(
+                                sink_input = sink_id,
+                                volume = percent,
+                                muted = is_muted,
+                                "applied linux pulseaudio sink-input volume"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 #[tauri::command]
 pub fn external_window_shortcut(
     window: tauri::WebviewWindow,
@@ -1016,6 +1151,7 @@ pub fn external_window_shortcut(
                     let webview = platform_webview.inner();
                     webview.set_is_muted(is_muted);
                 });
+                set_linux_app_audio_volume(vol, muted);
             }
 
             let app_handle = window.app_handle();
@@ -1073,6 +1209,7 @@ pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
             let webview = platform_webview.inner();
             webview.set_is_muted(is_muted);
         });
+        set_linux_app_audio_volume(volume, muted);
     }
 
     let script = format!(
@@ -1180,7 +1317,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
                 max_window_size_height + TITLEBAR_HEIGHT,
             )
             .visible(false)
-            .initialization_script(init_script);
+            .initialization_script_for_all_frames(init_script);
         #[cfg(dev)]
         let external = external.devtools(true);
 

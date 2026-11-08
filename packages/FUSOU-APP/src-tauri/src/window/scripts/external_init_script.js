@@ -2,13 +2,6 @@
 if (window.__fusouInitScriptLoaded) return;
 window.__fusouInitScriptLoaded = true;
 
-const GAME_FRAME_HEIGHT = 720;
-const GAME_FRAME_WIDTH = 1200;
-const TITLEBAR_HEIGHT = 32;
-let oldUrl = "";
-let isInitialized = false;
-let areShortcutsBound = false;
-
 const isTopWindow = () => {
   try {
     return window.self === window.top;
@@ -16,9 +9,299 @@ const isTopWindow = () => {
     return false;
   }
 };
+const isTop = isTopWindow();
 
 let fusouCurrentVolume = 1.0;
 let fusouIsMuted = false;
+
+// KanColle's kcs_cda.js expects event.data to be a string and executes event.data.split("\t")
+// Sending raw JavaScript objects will throw TypeError: event.data.split is not a function.
+// Therefore, we MUST serialize all fusou cross-frame IPC messages to JSON strings.
+const safePostMessage = (targetWindow, payload) => {
+  try {
+    if (!targetWindow || typeof targetWindow.postMessage !== "function") return;
+    const serialized = typeof payload === "string" ? payload : JSON.stringify(payload);
+    targetWindow.postMessage(serialized, "*");
+  } catch (e) {}
+};
+
+// Apply volume to standard HTML media elements and SoundJS if directly accessible
+const applyVolumeToPage = (volume, muted) => {
+  if (typeof volume === "number") {
+    fusouCurrentVolume = Math.max(0, Math.min(1, volume));
+  }
+  if (typeof muted === "boolean") {
+    fusouIsMuted = muted;
+  }
+  const effectiveVolume = fusouIsMuted ? 0 : fusouCurrentVolume;
+
+  try {
+    if (window.createjs && window.createjs.Sound) {
+      window.createjs.Sound.volume = effectiveVolume;
+      window.createjs.Sound.muted = fusouIsMuted;
+    }
+  } catch (_) {}
+
+  try {
+    document.querySelectorAll("audio, video").forEach((el) => {
+      try {
+        el.volume = effectiveVolume;
+        el.muted = fusouIsMuted;
+      } catch (_) {}
+    });
+  } catch (_) {}
+};
+
+if (!isTop) {
+  // =========================================================================
+  // SUBFRAME EXECUTION PATH (osapi.dmm.com / KanColle kcs2 / index.php)
+  // =========================================================================
+
+  // Message listener for cross-frame coordination in subframe
+  window.addEventListener("message", (e) => {
+    let data = e.data;
+    if (typeof data === "string") {
+      if (data.includes("fusou-")) {
+        try {
+          data = JSON.parse(data);
+        } catch (_) {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+    if (!data || typeof data !== "object") return;
+
+    // Handle volume change broadcast from parent/top
+    if (data.type === "fusou-set-volume") {
+      applyVolumeToPage(data.volume, data.muted);
+
+      // Relay downward to all nested child frames (e.g. osapi.dmm.com -> kcs2)
+      try {
+        const len = window.frames ? window.frames.length : 0;
+        for (let i = 0; i < len; i++) {
+          safePostMessage(window.frames[i], data);
+        }
+      } catch (_) {}
+      try {
+        if (typeof document.querySelectorAll === "function") {
+          document.querySelectorAll("iframe").forEach((f) => {
+            if (f && f.contentWindow) {
+              safePostMessage(f.contentWindow, data);
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
+    // Intermediate frame relays registration upwards
+    if (data.type === "fusou-register-frame") {
+      if (window.top && window.top !== window) {
+        safePostMessage(window.top, data);
+      }
+    }
+  });
+
+  // Forward keyboard shortcuts from subframe to top window
+  const forwardShortcut = (action) => {
+    if (window.top && window.top !== window) {
+      safePostMessage(window.top, { type: "fusou-shortcut", action });
+    }
+  };
+
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "F5") {
+        event.preventDefault();
+        event.stopPropagation();
+        forwardShortcut("reload");
+      } else if (
+        event.key?.toLowerCase() === "r" &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        forwardShortcut("force-refresh");
+      } else if (
+        event.key?.toLowerCase() === "s" &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        forwardShortcut("screenshot");
+      }
+    },
+    { capture: true }
+  );
+
+  // Ensure scrollbars are suppressed inside game iframe
+  const suppressScrollbars = () => {
+    if (document.getElementById("fusou-scrollbar-styles")) return;
+    const target = document.head || document.documentElement || document.body;
+    if (!target) return;
+    const style = document.createElement("style");
+    style.id = "fusou-scrollbar-styles";
+    style.textContent = `
+      * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+    `;
+    target.appendChild(style);
+  };
+  suppressScrollbars();
+  if (document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", suppressScrollbars);
+  }
+
+  // Subframe initialization complete!
+  return;
+}
+
+// =========================================================================
+// TOP WINDOW EXECUTION PATH (play.games.dmm.com)
+// =========================================================================
+
+function requestNativeShortcut(action) {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (typeof invoke !== "function") {
+    console.error("Native shortcut handler is unavailable.");
+    return;
+  }
+
+  invoke("external_window_shortcut", { action }).catch((error) => {
+    console.error(`Failed to handle external ${action} shortcut:`, error);
+  });
+}
+
+// Set of direct window proxies for all child/nested frames (maintained by top window)
+const registeredFusouFrames = new Set();
+
+function postMessageRecursive(win, msg, depth = 0) {
+  if (!win || depth > 6) return;
+  safePostMessage(win, msg);
+
+  try {
+    const len = win.frames ? win.frames.length : 0;
+    for (let i = 0; i < len; i++) {
+      try {
+        postMessageRecursive(win.frames[i], msg, depth + 1);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  try {
+    if (win.document && typeof win.document.querySelectorAll === "function") {
+      const iframes = win.document.querySelectorAll("iframe");
+      iframes.forEach((frame) => {
+        try {
+          if (frame && frame.contentWindow) {
+            postMessageRecursive(frame.contentWindow, msg, depth + 1);
+          }
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
+}
+
+function broadcastToAllFrames(msg) {
+  registeredFusouFrames.forEach((frameProxy) => {
+    safePostMessage(frameProxy, msg);
+  });
+  postMessageRecursive(window, msg);
+  try {
+    const gameFrame = document.getElementById("game_frame");
+    if (gameFrame && gameFrame.contentWindow) {
+      safePostMessage(gameFrame.contentWindow, msg);
+      try {
+        const subLen = gameFrame.contentWindow.frames ? gameFrame.contentWindow.frames.length : 0;
+        for (let i = 0; i < subLen; i++) {
+          safePostMessage(gameFrame.contentWindow.frames[i], msg);
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+window.__fusouSetVolume = (volume, muted, fromRust = false) => {
+  if (typeof volume === "number") {
+    fusouCurrentVolume = Math.max(0, Math.min(1, volume));
+  }
+  if (typeof muted === "boolean") {
+    fusouIsMuted = muted;
+  }
+  const volPercent = Math.round(fusouCurrentVolume * 100);
+
+  if (typeof updateVolumeUI === "function") {
+    updateVolumeUI(volPercent, fusouIsMuted);
+  }
+  if (!fromRust) {
+    requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
+  }
+
+  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+
+  broadcastToAllFrames({
+    type: "fusou-set-volume",
+    volume: fusouCurrentVolume,
+    muted: fusouIsMuted,
+  });
+};
+
+window.addEventListener("message", (e) => {
+  let data = e.data;
+  if (typeof data === "string") {
+    if (data.includes("fusou-")) {
+      try {
+        data = JSON.parse(data);
+      } catch (_) {
+        return;
+      }
+    } else {
+      return;
+    }
+  }
+  if (!data || typeof data !== "object") return;
+
+  if (data.type === "fusou-register-frame") {
+    if (e.source) {
+      registeredFusouFrames.add(e.source);
+      safePostMessage(e.source, {
+        type: "fusou-set-volume",
+        volume: fusouCurrentVolume,
+        muted: fusouIsMuted,
+      });
+    }
+  }
+
+  if (data.type === "fusou-get-volume") {
+    if (e.source) {
+      safePostMessage(e.source, {
+        type: "fusou-set-volume",
+        volume: fusouCurrentVolume,
+        muted: fusouIsMuted,
+      });
+    }
+  }
+
+  if (data.type === "fusou-shortcut") {
+    if (data.action === "screenshot" && typeof window.__fusouPrepareScreenshot === "function") {
+      window.__fusouPrepareScreenshot();
+    }
+    requestNativeShortcut(data.action);
+  }
+});
+
+const GAME_FRAME_HEIGHT = 720;
+const GAME_FRAME_WIDTH = 1200;
+const TITLEBAR_HEIGHT = 32;
+let oldUrl = "";
+let isInitialized = false;
+let areShortcutsBound = false;
 
 const FUSOU_LOGO_SVG = `
 <svg viewBox="0 0 1000 1000" width="16" height="16" xmlns="http://www.w3.org/2000/svg" style="display:inline-block; vertical-align:middle; flex-shrink:0; pointer-events:none;">
@@ -756,6 +1039,11 @@ const injectTitlebar = () => {
     updateVolumeUI(initVol, initMuted);
     applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
     requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
+    broadcastToAllFrames({
+      type: "fusou-set-volume",
+      volume: fusouCurrentVolume,
+      muted: fusouIsMuted,
+    });
 
     if (slider) {
       const startDrag = () => {
@@ -820,15 +1108,17 @@ const injectTitlebar = () => {
 
         applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
 
-        // Debounce IPC calls and broadcasts
+        // Immediate broadcast to all child frames for real-time responsiveness
+        broadcastToAllFrames({
+          type: "fusou-set-volume",
+          volume: fusouCurrentVolume,
+          muted: fusouIsMuted,
+        });
+
+        // Debounce IPC call to native engine
         if (volumeDebounceTimer) clearTimeout(volumeDebounceTimer);
         volumeDebounceTimer = setTimeout(() => {
           requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
-          broadcastToAllFrames({
-            type: "fusou-set-volume",
-            volume: fusouCurrentVolume,
-            muted: fusouIsMuted,
-          });
         }, 30);
       };
 
@@ -1059,18 +1349,6 @@ const stopKeyEvent = (event) => {
   }
 };
 
-const requestNativeShortcut = (action) => {
-  const invoke = window.__TAURI_INTERNALS__?.invoke;
-  if (typeof invoke !== "function") {
-    console.error("Native shortcut handler is unavailable.");
-    return;
-  }
-
-  invoke("external_window_shortcut", { action }).catch((error) => {
-    console.error(`Failed to handle external ${action} shortcut:`, error);
-  });
-};
-
 const shortcutActions = [
   {
     id: "reload",
@@ -1128,262 +1406,4 @@ const bindShortcutHandlers = () => {
 };
 
 bindShortcutHandlers();
-
-/* =========================================================================
- * Multi-frame Direct Audio Control (KanColle WebAudio + HTML5 Media + SoundJS)
- * ========================================================================= */
-
-// Set of direct window proxies for all child/nested frames (maintained by top window)
-const registeredFusouFrames = new Set();
-
-// KanColle's kcs_cda.js expects event.data to be a string and executes event.data.split("\t")
-// Sending raw JavaScript objects will throw TypeError: event.data.split is not a function.
-// Therefore, we MUST serialize all fusou cross-frame IPC messages to JSON strings.
-const safePostMessage = (targetWindow, payload) => {
-  if (!targetWindow || typeof targetWindow.postMessage !== "function") return;
-  try {
-    const serialized = typeof payload === "string" ? payload : JSON.stringify(payload);
-    targetWindow.postMessage(serialized, "*");
-  } catch (e) {}
-};
-
-// Safely postMessage recursively to all reachable frames (including nested cross-origin iframes)
-const postMessageRecursive = (win, msg, depth = 0) => {
-  if (!win || depth > 6) return;
-  safePostMessage(win, msg);
-
-  // Explore sub-frames via WindowProxy array
-  try {
-    const len = win.frames ? win.frames.length : 0;
-    for (let i = 0; i < len; i++) {
-      try {
-        postMessageRecursive(win.frames[i], msg, depth + 1);
-      } catch (e) {}
-    }
-  } catch (e) {}
-
-  // If same-origin or DOM accessible, also iterate iframe elements
-  try {
-    if (win.document && typeof win.document.querySelectorAll === "function") {
-      const iframes = win.document.querySelectorAll("iframe");
-      iframes.forEach((frame) => {
-        try {
-          if (frame.contentWindow) {
-            postMessageRecursive(frame.contentWindow, msg, depth + 1);
-          }
-        } catch (e) {}
-      });
-    }
-  } catch (e) {}
-};
-
-// Broadcast a message to all accessible frames and windows
-const broadcastToAllFrames = (msg) => {
-  // 1. Direct postMessage to all registered frames (bypasses cross-origin nesting limits)
-  registeredFusouFrames.forEach((frameProxy) => {
-    try {
-      safePostMessage(frameProxy, msg);
-    } catch (e) {
-      registeredFusouFrames.delete(frameProxy);
-    }
-  });
-
-  // 2. Full recursive traversal of all frames starting from current window
-  postMessageRecursive(window, msg);
-
-  // 3. If in a sub-frame, also request top to broadcast if possible
-  if (!isTopWindow() && window.top) {
-    safePostMessage(window.top, msg);
-  }
-};
-
-// Apply volume directly to all audio nodes and media elements in this frame
-const applyVolumeToPage = (volume, muted) => {
-  if (typeof volume === "number") {
-    fusouCurrentVolume = Math.max(0, Math.min(1, volume));
-  }
-  if (typeof muted === "boolean") {
-    fusouIsMuted = muted;
-  }
-  const effectiveVolume = fusouIsMuted ? 0 : fusouCurrentVolume;
-
-  // 1. KanColle SoundJS / CreateJS volume control
-  try {
-    if (window.createjs && window.createjs.Sound) {
-      let applied = false;
-
-      // Direct property assignment (KanColle kcs2 primary SoundJS volume setter)
-      try {
-        window.createjs.Sound.volume = effectiveVolume;
-        applied = true;
-      } catch (e) {}
-
-      // setVolume method if present
-      try {
-        if (typeof window.createjs.Sound.setVolume === "function") {
-          window.createjs.Sound.setVolume(effectiveVolume);
-          applied = true;
-        }
-      } catch (e) {}
-
-      // Mute flags
-      try {
-        window.createjs.Sound.muted = fusouIsMuted;
-      } catch (e) {}
-      try {
-        if (typeof window.createjs.Sound.setMute === "function") {
-          window.createjs.Sound.setMute(fusouIsMuted);
-        }
-      } catch (e) {}
-
-      // WebAudio plugin gain node
-      try {
-        if (
-          window.createjs.Sound.activePlugin &&
-          window.createjs.Sound.activePlugin.gainNode &&
-          window.createjs.Sound.activePlugin.gainNode.gain
-        ) {
-          window.createjs.Sound.activePlugin.gainNode.gain.value = effectiveVolume;
-          applied = true;
-        }
-      } catch (e) {}
-
-      if (applied) {
-        console.debug(
-          `[FUSOU-AUDIO] SoundJS volume updated: vol=${effectiveVolume}, muted=${fusouIsMuted}`
-        );
-      }
-    }
-  } catch (e) {
-    console.warn("[FUSOU-AUDIO] SoundJS volume control error:", e);
-  }
-
-  // 2. Standard DOM HTMLMediaElements (<audio>, <video>)
-  try {
-    document.querySelectorAll("audio, video").forEach((el) => {
-      try {
-        el.volume = effectiveVolume;
-        el.muted = fusouIsMuted;
-      } catch (_) {}
-    });
-  } catch (e) {}
-};
-
-// Periodic synchronization to catch late-initializing SoundJS in game frames
-setInterval(() => {
-  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
-}, 1000);
-
-// Global setter called from external titlebar or Rust evaluation
-window.__fusouSetVolume = (volume, muted, fromRust = false) => {
-  if (typeof volume === "number") {
-    fusouCurrentVolume = Math.max(0, Math.min(1, volume));
-  }
-  if (typeof muted === "boolean") {
-    fusouIsMuted = muted;
-  }
-  const volPercent = Math.round(fusouCurrentVolume * 100);
-
-  if (isTopWindow()) {
-    updateVolumeUI(volPercent, fusouIsMuted);
-    // Request Rust to apply native webview engine mute (SetIsMuted) only if NOT called from Rust
-    if (!fromRust) {
-      requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
-    }
-  }
-
-  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
-
-  // Broadcast to all frames
-  broadcastToAllFrames({
-    type: "fusou-set-volume",
-    volume: fusouCurrentVolume,
-    muted: fusouIsMuted,
-  });
-};
-
-// Message listener for cross-frame coordination
-window.addEventListener("message", (e) => {
-  let data = e.data;
-  if (typeof data === "string") {
-    if (data.includes("fusou-")) {
-      try {
-        data = JSON.parse(data);
-      } catch (_) {
-        return;
-      }
-    } else {
-      return;
-    }
-  }
-  if (!data || typeof data !== "object") return;
-
-  // Handle frame registration (Top window records newly created iframes)
-  if (data.type === "fusou-register-frame") {
-    if (isTopWindow()) {
-      if (e.source) {
-        registeredFusouFrames.add(e.source);
-        // Immediately reply with current volume configuration
-        safePostMessage(e.source, {
-          type: "fusou-set-volume",
-          volume: fusouCurrentVolume,
-          muted: fusouIsMuted,
-        });
-      }
-    } else if (window.top && window.top !== window) {
-      // Intermediate frames relay registration up towards top window
-      safePostMessage(window.top, data);
-    }
-  }
-
-  // Handle volume query from newly loaded child frames
-  if (data.type === "fusou-get-volume") {
-    if (e.source) {
-      safePostMessage(e.source, {
-        type: "fusou-set-volume",
-        volume: fusouCurrentVolume,
-        muted: fusouIsMuted,
-      });
-    }
-  }
-
-  // Handle volume change broadcast
-  if (data.type === "fusou-set-volume") {
-    applyVolumeToPage(data.volume, data.muted);
-
-    // If this is an intermediate or top frame, relay downward to all child frames
-    try {
-      const len = window.frames ? window.frames.length : 0;
-      for (let i = 0; i < len; i++) {
-        safePostMessage(window.frames[i], data);
-      }
-    } catch (err) {}
-  }
-});
-
-// If this is an iframe (e.g. KanColle game_frame or osapi frame), register and query volume
-if (!isTopWindow()) {
-  const syncWithTop = () => {
-    try {
-      if (window.top && window.top !== window) {
-        safePostMessage(window.top, { type: "fusou-register-frame" });
-        safePostMessage(window.top, { type: "fusou-get-volume" });
-      }
-      if (
-        window.parent &&
-        window.parent !== window &&
-        window.parent !== window.top
-      ) {
-        safePostMessage(window.parent, { type: "fusou-register-frame" });
-        safePostMessage(window.parent, { type: "fusou-get-volume" });
-      }
-    } catch (e) {}
-  };
-  syncWithTop();
-  const regTimer = setInterval(syncWithTop, 1500);
-  setTimeout(() => {
-    clearInterval(regTimer);
-    setInterval(syncWithTop, 5000);
-  }, 30000);
-}
 })();
