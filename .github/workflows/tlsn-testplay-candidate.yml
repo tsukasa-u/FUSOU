@@ -212,6 +212,7 @@ jobs:
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run typecheck
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN run test
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run typecheck
+          pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run test:runtime
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run typecheck
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run test:runtime
           node --experimental-strip-types --test \
@@ -277,12 +278,6 @@ jobs:
           --features tlsn-production
           tlsn_runtime --lib
 
-      - name: Verify local Workers reset and Gateway disconnect boundaries
-        run: >-
-          pnpm --dir
-          packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY
-          run test:runtime
-
   proxy-capture-source-unit-tests:
     runs-on: ubuntu-24.04
     steps:
@@ -291,6 +286,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+
+      - name: Verify Proxy Cargo.lock is committed and not ignored
+        shell: bash
+        run: |
+          set -euo pipefail
+          lockfile=packages/FUSOU-PROXY/proxy-https/Cargo.lock
+          git ls-files --error-unmatch -- "$lockfile"
+          if git check-ignore --quiet --no-index -- "$lockfile"; then
+            echo "Proxy Cargo.lock is still ignored" >&2
+            exit 1
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then
+              exit "$status"
+            fi
+          fi
+
+      - name: Fetch locked Proxy package dependencies
+        run: >-
+          cargo +1.98.1 fetch --locked
+          --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "false"
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
 
       - name: Fetch locked isolated capture harness dependencies
         run: >-
