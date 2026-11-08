@@ -1,5 +1,46 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Candidate CI incident and local follow-up
+
+Hosted run [#113](https://github.com/tsukasa-u/FUSOU/actions/runs/42456497746)
+for `886e9e40669188e9ffdf254a32cf63b5a6b9aff2` failed in three jobs:
+
+- `rust-tlsn-preflight` could not run the Gateway runtime test because `pnpm`
+  was not installed in that job (`pnpm: command not found`, exit 127).
+- `proxy-capture-source-unit-tests` passed the isolated capture harness
+  (29/29), then `cargo fetch --locked` for the Proxy package failed because
+  `packages/FUSOU-PROXY/proxy-https/Cargo.lock` was ignored and not tracked.
+- `node-contract-tests` reported 148 Verifier tests passed and one failed:
+  `experimental_probe_runs_on_a_prover_owned_connection`, with forwarding
+  `BrokenPipe`/`WriteZero` and a panicking task. The later Freshness and
+  Coordinator step did not run.
+
+The local follow-up moves the Gateway runtime command into
+`node-contract-tests`, after that job's pinned Node/pnpm setup and frozen
+dependency install; it is not duplicated in the Rust-only job. The Proxy
+package lockfile exception is now explicit, and the workflow checks that the
+lockfile is tracked and not ignored before fetching with `--locked`. The
+existing local lockfile passed that fetch and the health/candidate selector;
+it remains untracked until included in a user-created commit.
+
+The Verifier failure was not reproduced in the pre-fix local standalone or
+parallel test runs. Source review found that the test origin shut down as soon
+as it wrote the response while the probe was still completing its owned
+connection, and the failing test detached both Session driver tasks. The
+fixture now waits for the client close before shutting down the origin, and
+the test joins both drivers. Exact request/response and binding assertions
+remain unchanged. After the change, the standalone regression test passed
+1/1, and the parallel Verifier library/CLI suites passed 149/149 and 5/5.
+
+Local Freshness checks passed: Domain typecheck and 24/24 tests, Gateway
+typecheck/runtime test, and Coordinator typecheck and 16/16 runtime tests.
+The Proxy health/candidate selector passed 4/4; the isolated capture harness
+type-check passed and its 29/29 tests passed. The workflow parsed with PyYAML;
+`actionlint` is unavailable locally.
+
+Post-fix Hosted CI is **NOT_CHECKED**; no workflow rerun or dispatch was made.
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Current capture-scoped send policy — user-confirmed 2026-11-06
 
 The selected contract is one Game Server send at most per capture. A pre-send
@@ -70,11 +111,12 @@ Local harness verification with Rust 1.98.1:
 - `rustfmt --check`: **PASS**. Formatting/syntax validation is distinct from
   the successful harness type-check and test run.
 
-The candidate workflow now has a separate job to fetch the harness lockfile
-and run its offline type-check and tests. The workflow was not run on a hosted
-runner; `actionlint` was unavailable locally. The existing acceptance-stage
-tests passed **3/3**, and the updated JavaScript syntax checks passed.
-Production acceptance and Stage A/B/C remain **BLOCKED**.
+The candidate workflow has a separate job to fetch the harness lockfile and
+run its offline type-check and tests. Hosted run #113 passed those harness
+tests but failed later when fetching the main Proxy package dependencies; see
+the current CI status above. The existing acceptance-stage tests passed
+**3/3**, and the updated JavaScript syntax checks passed. Production acceptance
+and Stage A/B/C remain **BLOCKED**.
 
 ## Current Runtime Config Freshness issuer-core status
 

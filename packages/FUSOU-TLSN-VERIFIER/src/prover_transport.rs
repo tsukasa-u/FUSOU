@@ -596,6 +596,10 @@ pub(crate) mod tests {
         }
         if let Some(release_close) = release_close {
             release_close.await.unwrap();
+        } else {
+            let mut close_signal = [0_u8; 1];
+            let count = stream.read(&mut close_signal).await.unwrap();
+            assert_eq!(count, 0, "origin should wait for the client to finish");
         }
         stream.shutdown().await.unwrap();
         (request, response)
@@ -1481,8 +1485,8 @@ pub(crate) mod tests {
             .unwrap();
         let (prover_driver, prover_handle) = prover_session.split();
         let (verifier_driver, verifier_handle) = verifier_session.split();
-        tokio::spawn(prover_driver);
-        tokio::spawn(verifier_driver);
+        let prover_driver_task = tokio::spawn(prover_driver);
+        let verifier_driver_task = tokio::spawn(verifier_driver);
 
         let (origin_socket, verifier_origin_socket) = tokio::io::duplex(2 << 16);
         let origin_task = tokio::spawn(serve_origin(
@@ -1550,6 +1554,8 @@ pub(crate) mod tests {
         let (origin_request, origin_response) = origin_task.await.unwrap();
         prover_handle.close();
         verifier_handle.close();
+        let _prover_session_io = prover_driver_task.await.unwrap().unwrap();
+        let _verifier_session_io = verifier_driver_task.await.unwrap().unwrap();
 
         assert_eq!(origin_request, expected_request);
         assert_eq!(evidence.request, origin_request);
