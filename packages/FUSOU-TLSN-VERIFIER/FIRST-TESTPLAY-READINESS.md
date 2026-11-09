@@ -178,6 +178,51 @@ and [Worker device-proof client](../FUSOU-TLSN-VERIFICATION-WORKER/src/device-pr
 exist in source; their existence does not establish deployment, domain
 routing, production authorization, or real service verification.
 
+## Current Release reader and snapshot status — 2026-11-08
+
+Hosted run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+passed all three candidate jobs for baseline
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`. That run predates this follow-up;
+the current changes have not been run on Hosted CI (**NOT_CHECKED**).
+
+The shared
+[current-state reader](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-current-state-reader.ts)
+now verifies the exact Release Commit Record/delegation, injected Journal
+receipt and latest-head proof, signed Manifest, R2 pointer/ETag and
+content-addressed immutable Manifest envelope, Coordinator snapshot, and
+injected external-witness evidence. The issue core performs the verification
+before and after signing; tests confirm that changed or invalid current state
+does not release response bytes. The local test Journal and witness
+signatures are test-only and are not an approved Production evidence format.
+
+The SQLite-backed
+[Coordinator snapshot RPC](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/src/sqlite-freshness-issue-coordinator.ts)
+checks the operation, lease, fence, writer state, current head, witness, and
+restore epoch in one synchronous storage transaction. It is a private DO RPC,
+not an HTTP endpoint. The Node
+[R2 store](../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs)
+now reads the exact current signed-envelope pointer and immutable snapshot;
+the publisher writes and verifies the immutable snapshot before pointer CAS.
+The mutable pointer's body is still the signed Manifest envelope itself.
+
+| Evidence | Status |
+|---|---|
+| Freshness issue core | **SOURCE_IMPLEMENTED / NODE_UNIT_VERIFIED**; Domain typecheck and 26/26 tests pass locally |
+| Provider-neutral Release reader | **SOURCE_IMPLEMENTED**; local issue-core integration uses test-only Journal/witness adapters |
+| SQLite Coordinator snapshot and reader/core integration | **LOCAL_WORKERS_RUNTIME_VERIFIED**; 20/20 pinned Miniflare/workerd integration cases pass, including snapshot RPC, runtime recreation, issue/replay, and state-change rejection |
+| Node R2 read adapter and immutable Manifest publication | **SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED**; R2-store tests 12/12 and Manifest/publisher tests 25/25 pass against fake clients |
+| Production Journal/latest-head and authenticated append-time contract | **UNRESOLVED / NOT_IMPLEMENTED** |
+| Production trusted clock, independent witness/checkpoint and restore epoch | **NOT_IMPLEMENTED / BLOCKED** |
+| Production R2 permissions/registration, HSM/signer, Release authority and deployment | **NOT_IMPLEMENTED / BLOCKED** |
+| Hosted CI after this follow-up | **NOT_CHECKED** |
+| Production acceptance and Stage A/B/C | **BLOCKED** |
+
+No Production R2, Journal, DO, signer/HSM, or deployment operation was
+performed. The local snapshot reload does not prove Production PITR
+resistance or independent anti-rollback. APP's 10-second deadline, Gateway's
+7-second deadline, and the 8-second issue authorization bound are unchanged;
+the lease is not an SLO.
+
 ## Successful-capture material handoff — source implementation
 
 The local finalizer consumes the exact candidate bytes and overlays them onto
@@ -1970,3 +2015,86 @@ No Hosted CI run exists for the follow-up commit because it was not pushed.
 No Production Worker Binding change, R2 write, deployment, Notary/Game Server
 connection or gameplay was performed. Bootstrap registration, fresh-client
 replay protection and Stage A/B/C acceptance remain **BLOCKED**.
+
+## Journal and independent rollback-witness follow-up — 2026-11-08
+
+The current reader/verifier contract now receives a fresh read nonce plus
+environment, chain, issue operation, request digest/nonce, lease/fence and
+clock context for Journal and witness reads. It rejects context replay,
+wrong configured provider/chain/time/witness source, invalid head position or
+predecessor, unauthenticated observation time, and append-time uncertainty
+outside the signed Release delegation. The test-only signature fixture
+exercises these checks through the issue core and real local SQLite-backed
+Workers RPC.
+
+The local Coordinator runtime suite passes 21/21. Domain typecheck passes.
+These results do not establish an AWS/Cloudflare provider's
+linearizability, trusted commit time, current-head response, account/restore
+separation, or independent witness durability. The bounded DynamoDB
+conditional-append prototype is a recommendation only; no provider, account,
+time source, witness, trust pin or Production binding is approved or
+registered. The detailed contract, source links, candidate comparison,
+conformance matrix and approval decisions are in
+[runtime-config-freshness-journal-witness-contract.md](./docs/runtime-config-freshness-journal-witness-contract.md).
+
+Hosted run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+still refers only to baseline `8a87314a055f45d37f1ae5b0524561575ab9b7ea`.
+Post-change Hosted CI is **NOT_CHECKED**. Production acceptance and
+Stages A/B/C remain **BLOCKED**.
+
+## Local SQLite Release ledger and binding-install prototypes — 2026-11-09
+
+The existing issue Coordinator now has a local-only Release ledger prototype
+in the same SQLite-backed DO. It durably records exact signed Release bytes,
+operation ID/request binding, predecessor, position/generation, fencing state,
+and per-operation results. R2 publication is outside the SQLite transaction:
+the prototype records intent, performs conditional pointer and immutable
+snapshot writes, verifies exact bytes/ETag, then rechecks operation, fence,
+predecessor, and head before changing durable state.
+
+`LEDGER_COMMITTED` means only that the Release entry and head committed in the
+local DO transaction. It does not open Freshness issuance. `AVAILABLE` means
+that this local prototype also completed exact R2 readback; it still does not
+by itself install an independently verified current-state binding or satisfy
+Production Journal/witness, trusted-clock, or key-custody requirements.
+Unknown outcomes and quarantine retain the writer gate. Local
+`localAppendObservedAt` is not an authenticated provider receipt.
+
+The same Coordinator now has a separate local-only binding-install path.
+Release evidence is independently verified without manufacturing an issue
+lease; bootstrap and advance use a distinct install context. The install
+transaction rechecks the still-`AVAILABLE` head and operation, exact Release
+and R2 bindings, fences, restore epoch, expected old binding, and issue
+blockers before installing. The normal issue reader still verifies its
+issue-specific operation, lease and Coordinator snapshot before and after
+signing, and only exact finalized response bytes are returned. Bootstrap
+requires an explicit test-only initial Release checkpoint; absent or corrupt
+current state is not automatic genesis, and old install results cannot roll
+back a later advance.
+
+Coordinator typecheck passes; the pinned Workers runtime suite passes 56/56.
+It covers the earlier concurrent append/idempotency/Unknown/R2/restart cases
+plus explicit bootstrap, advance, issue-core signing/finalization,
+response-loss recovery, stale or mismatched proof/head/fence/restore/R2
+evidence, retained blockers, and missing/corrupt-state refusal. All Release
+keys, initial checkpoint authority, clock, witness, and fault injection are
+test-only. These results are local model evidence, not proof of deployed
+Cloudflare guarantees.
+
+The RPC lifetime follow-up on 2026-11-09 reran the same 56 cases successfully
+with no undisposed-stub warning. The direct Node-side Miniflare DO proxy
+could not expose Workers' `Symbol.dispose`; R2-only cleanup and fixture-only
+R2 reads did not resolve that ownership boundary. The test-only Worker now
+owns each real DO RPC call/result, encodes its data and exact byte arrays,
+and explicitly disposes the handles before returning data to Node. The
+loopback harness uses Miniflare's Worker fetch API for this allowlisted test
+transport; no Production endpoint, wire contract or verification gate changed.
+All child logs are forwarded, and the supervisor fails the run if the RPC
+warning recurs even when assertions pass.
+
+The candidate workflow already invokes Coordinator typecheck and runtime
+tests, but it was not run for this working tree. Hosted run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+remains evidence for baseline `8a87314a055f45d37f1ae5b0524561575ab9b7ea`
+only. The non-normative implementation proposal and next unit are described
+in [runtime-config-freshness-contract-revision-proposal.md](./docs/runtime-config-freshness-contract-revision-proposal.md).
+Stage A/B/C and Production acceptance remain **BLOCKED**.

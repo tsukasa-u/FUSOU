@@ -502,3 +502,64 @@ acceptance and Stages A/B/C remain **BLOCKED**.
 - [Secrets Store access control](https://developers.cloudflare.com/secrets-store/access-control/)
 - [Workers Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
 - [Web Cryptography API](https://www.w3.org/TR/webcrypto/)
+
+## Current local implementation follow-up — 2026-11-08
+
+This addendum updates implementation evidence only; it does not resolve any
+Production prerequisite or adopt a provider. The earlier `Readiness impact`
+table remains a snapshot of its 2026-11-02 review. The Coordinator now has
+20 passing pinned local Workers-runtime cases, including the read-only
+current-state snapshot RPC and reader/core integration. Runtime recreation
+reopens the same temporary SQLite-backed DO state. This is
+**LOCAL_WORKERS_RUNTIME_VERIFIED**, not PITR or independent rollback-witness
+verification.
+
+The shared reader now compares the Release Record/delegation, injected
+Journal append/head verification, Coordinator lease/fence/head snapshot,
+R2 pointer and immutable Manifest envelope, Manifest signature, and injected
+independent witness verifier. The Node R2 publisher/read adapter stores and
+reads the exact signed Manifest envelope at the content-addressed
+`manifest_ref`; the mutable pointer remains the envelope itself and is bound
+with its opaque ETag. Local fake-S3 and publisher tests pass 12/12 and 25/25,
+respectively. No live R2 operation was performed.
+
+The Journal's authenticated latest-head/append-time format, trusted clock,
+independent witness trust root and restore-epoch service, HSM/signer
+idempotency, external checkpoint, and Production adapter registrations
+remain **UNRESOLVED / NOT_IMPLEMENTED**. These interfaces fail closed when
+missing or when verification does not bind the exact evidence. The test-only
+signatures used locally do not constitute a Production contract.
+
+Hosted run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+passed three jobs for baseline
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`; it predates this addendum's
+source changes. Post-change Hosted CI is **NOT_CHECKED**. Production
+acceptance and Stage A/B/C remain **BLOCKED**.
+
+## Journal and independent witness contract follow-up — 2026-11-08
+
+The detailed append, latest-head, ambiguous-outcome, witness independence,
+provider comparison, conformance matrix, and next adapter proposal are in
+[runtime-config-freshness-journal-witness-contract.md](./runtime-config-freshness-journal-witness-contract.md).
+This adds provider-specific evidence without selecting or registering a
+Production provider.
+
+The earlier DynamoDB single-Region conditional-append proposal was never
+adopted and is not a required next task; AWS is not an assumed project
+provider. The current Cloudflare-first trust-model review is in
+[runtime-config-freshness-contract-revision-proposal.md](./runtime-config-freshness-contract-revision-proposal.md).
+It is a non-normative proposal, not a Production provider or trust-root
+selection. Cloudflare-only storage still does not establish the hard lease
+clock, non-exportable HSM custody, or independent detection of common
+multi-resource rollback.
+
+The reader contract now passes a per-read nonce, issue operation, lease/fence,
+chain identity and clock context into Journal and witness reads/verifiers.
+The verifier output is checked for context binding, configured pins,
+authenticated observation time, append-time uncertainty, canonical position
+and predecessor digest. Test-only runtime coverage is **21/21 PASS**,
+including replayed proof rejection and time/pin mismatch rejection. This is
+local Workers-runtime verification only; provider linearizability, trusted
+Production clock, append-time authority, witness trust root and rollback
+resistance remain **UNVERIFIED / NOT_IMPLEMENTED**. Post-change Hosted CI is
+**NOT_CHECKED**; Production acceptance and Stage A/B/C remain **BLOCKED**.

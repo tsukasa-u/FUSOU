@@ -513,3 +513,39 @@ compatibility date at implementation time.
   privileged helpers remain out of scope. Freshness failure gates TLSN
   capture/readiness only; it does not change ordinary APP-to-Game-Server
   traffic or the existing TLSN evidence chain.
+
+## Current reader implementation follow-up — 2026-11-08
+
+The earlier source inventory and readiness rows above remain observations of
+their stated historical baselines. On the current local source, the shared
+domain includes a provider-neutral current-Release reader and the dedicated
+SQLite Coordinator exposes a read-only snapshot RPC. The reader verifies
+raw Release Record/delegation bytes, authenticated Journal claims, Manifest
+signature and structure, exact mutable-pointer/immutable-snapshot bytes,
+ETag/reference/digest bindings, Coordinator operation/lease/fence/state, and
+external witness claims. It is called by the issue core before and after
+signing; a changed state or failed verification returns no response bytes.
+
+The Node R2 publisher now creates and reads back the immutable signed
+Manifest envelope at its content-addressed `manifest_ref` before the mutable
+pointer CAS. The current pointer is still the signed envelope itself, with
+its ETag used as a binding; it is not a JSON pointer document. The
+provider-neutral reader is not itself a Production service, and the Node
+S3-compatible R2 adapter is not a Worker binding or registered
+least-privilege Production reader.
+
+The pinned local suite verifies the reader through the issue core and actual
+SQLite-backed DO RPC, including recreation, evidence mutations, and a
+current-Release change during signing. The test Journal receipt/head proof and
+rollback witness use test-only keys. Their wire formats do not establish an
+approved Production Journal or witness contract. The local tests do not
+verify provider freshness/linearizability, trusted append time, independent
+checkpoint durability, Production restore behavior, or live R2 access.
+
+Hosted run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+passed all three jobs for baseline
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`, before these follow-up changes.
+Post-change Hosted CI is **NOT_CHECKED**. Production clock, Journal,
+independent witness/checkpoint, signer/HSM, service bindings, and Release
+publication authority remain unselected/unregistered; Production acceptance
+and Stage A/B/C remain **BLOCKED**.

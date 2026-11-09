@@ -1813,3 +1813,77 @@ Hosted CI is **NOT_CHECKED**. Production acceptance and Stages A/B/C remain
 **BLOCKED**. The local adapter does not change the wire contract, APP's
 10-second request deadline, Gateway's 7-second deadline, or the Freshness
 issue lease rule; 8 seconds is not reclassified as an SLO.
+
+## Current Release reader and immutable Manifest snapshot — 2026-11-08
+
+This follow-up records local source and test evidence on baseline
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`. Hosted run
+[#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660) completed
+all three jobs successfully for that baseline only. It does not verify these
+uncommitted source changes; post-change Hosted CI is **NOT_CHECKED**.
+
+The shared domain now has a provider-neutral
+[current-state reader](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-current-state-reader.ts).
+It verifies the exact Release Commit Record and delegation using the pinned
+root, checks the authenticated Journal append receipt/current-head claims
+through an injected verifier, independently verifies the signed Manifest
+envelope, and compares the pointer, content-addressed immutable snapshot,
+Coordinator snapshot, restore epoch, and independently verified witness.
+An adapter that only returns a `Verified`-named value or nonempty proof bytes
+is insufficient: the reader checks verifier output against hashes of the
+exact supplied bytes and all signed Release bindings.
+
+The dedicated Coordinator
+[snapshot RPC](../../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/src/sqlite-freshness-issue-coordinator.ts)
+reads the operation, lease, fence, current state, witness, restore epoch and
+writer state together in a synchronous SQLite transaction. It rejects
+uninitialized, stale, pending-writer, mismatched-lease, expired, or
+inconsistent state; returns copies; and is not exposed as an HTTP route. The
+issue core invokes the reader before and after signing, so a changed current
+Release prevents response bytes from being returned.
+
+The existing Node R2 publisher now writes the exact signed Manifest envelope
+as an immutable object at `tlsn/runtime-config/v2/manifests/<sha256-base64url>`
+before conditionally updating `tlsn/runtime-config/v2/manifest.json`. The
+mutable pointer remains the signed envelope itself, not a JSON reference; its
+ETag is retained as the Release binding. The new
+[R2 read adapter](../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs)
+returns exact pointer and snapshot bytes and rejects snapshot references or
+keys that do not match the content digest. Local fake-S3 tests validate this
+adapter and the publisher readback; no live R2 bucket was accessed.
+
+The pinned local suite now has 20 passing real Workers-runtime Coordinator
+integration cases, including direct snapshot RPC, runtime recreation, issue
+core execution through the reader, pre-sign evidence rejection, and
+post-sign current-Release change rejection. Domain typecheck and all 26
+Domain tests pass; the R2-store suite passes 12/12 and Manifest/publisher
+tests pass 25/25. These tests use explicitly test-only Journal and witness
+signatures and a fake R2 client. They do not authenticate a Production Journal
+head, establish trusted append time, select independent witness trust roots,
+or prove Production R2 consistency/permissions.
+
+The reader and adapters are **SOURCE_IMPLEMENTED** and locally verified only.
+Production clock, Release Journal and authenticated append-time/checkpoint,
+independent rollback witness and restore epoch, HSM/signer, bindings,
+registration, deployment, and real Freshness evidence remain
+**NOT_IMPLEMENTED / BLOCKED**. Hosted CI after this follow-up is
+**NOT_CHECKED**. Production acceptance and Stage A/B/C remain **BLOCKED**.
+
+## Journal current-read and witness contract follow-up — 2026-11-08
+
+The reader now supplies a unique per-read nonce and the issue
+operation/request, lease/fence, chain identity and clock context to the
+Journal and independent-witness adapters. It checks the authenticated
+context digest, configured provider/source pins, head position and predecessor
+digest, authenticated read time, and append-time uncertainty against the
+Release delegation. This prevents a test adapter from replaying a previously
+signed proof for a different read context; it does not make a provider's
+stale cache linearizable.
+
+The actual provider contract, threat/failure-domain analysis, official
+candidate comparison and conformance cases are recorded in
+[runtime-config-freshness-journal-witness-contract.md](./runtime-config-freshness-journal-witness-contract.md).
+Production provider freshness, trusted clock/append time, independent witness
+and restore epoch remain **UNVERIFIED / NOT_IMPLEMENTED**. The local
+test-only Workers runtime passed 21/21 cases; post-change Hosted CI is
+**NOT_CHECKED**. Production acceptance and Stage A/B/C remain **BLOCKED**.
