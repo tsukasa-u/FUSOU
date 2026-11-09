@@ -72,6 +72,111 @@ export interface FreshnessIssueLeaseBinding {
   readonly currentState: FreshnessIssueCurrentStateBinding;
 }
 
+export interface FreshnessCurrentStateProofContext {
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly operation: FreshnessIssueOperationBinding;
+  readonly lease: FreshnessIssueLeaseBinding;
+  readonly clock: {
+    readonly clockId: string;
+    readonly clockEpoch: string;
+    readonly nowMs: number;
+    readonly uncertaintyMs: number;
+  };
+  readonly readNonce: string;
+  readonly readContextSha256: string;
+}
+
+export interface FreshnessCurrentStateInstallProofContext {
+  readonly mode: "BOOTSTRAP" | "ADVANCE";
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly installOperationId: string;
+  readonly installFencingToken: string;
+  readonly releaseOperationId: string;
+  readonly releaseFencingToken: string;
+  readonly targetPosition: string;
+  readonly targetGeneration: string;
+  readonly targetRecordSha256: string;
+  readonly expectedRestoreEpoch: string;
+  readonly expectedCurrentStateSha256: string | null;
+  readonly clock: {
+    readonly clockId: string;
+    readonly clockEpoch: string;
+    readonly nowMs: number;
+    readonly uncertaintyMs: number;
+  };
+  readonly readNonce: string;
+  readonly readContextSha256: string;
+}
+
+export type FreshnessCurrentStateReadProofContext =
+  | FreshnessCurrentStateProofContext
+  | FreshnessCurrentStateInstallProofContext;
+
+export interface FreshnessReleaseStateEvidence {
+  readonly proofContext: FreshnessCurrentStateReadProofContext;
+  readonly journalHead: {
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+    readonly appendedAt: string;
+    readonly appendReceiptBytes: Uint8Array;
+    readonly currentHeadProofBytes: Uint8Array;
+  };
+  readonly pointer: {
+    readonly environment: string;
+    readonly etag: string;
+    readonly bytes: Uint8Array;
+  };
+  readonly immutableSnapshot: {
+    readonly reference: string;
+    readonly bytes: Uint8Array;
+  };
+  readonly manifestBytes: Uint8Array;
+  readonly antiRollbackWitness: {
+    readonly sourceId: string;
+    readonly restoreEpoch: string;
+    readonly generation: string;
+    readonly recordSha256: string;
+    readonly signedBytes: Uint8Array;
+  };
+}
+
+export interface FreshnessIssueCoordinatorSnapshot {
+  readonly operation: FreshnessIssueOperationBinding;
+  readonly lease: FreshnessIssueLeaseBinding;
+  readonly operationStatus: "IN_PROGRESS";
+  readonly blocker: "RETAINED";
+  readonly environment: "production";
+  readonly currentState: FreshnessIssueCurrentStateBinding;
+  readonly witness: FreshnessAntiRollbackWitnessBinding;
+  readonly restoreEpoch: string;
+  readonly writerPending: boolean;
+}
+
+export interface VerifiedFreshnessReleaseState {
+  readonly source: "verified-release-journal-r2-witness";
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly journalHead: VerifiedJournalHeadBinding & {
+    readonly position: string;
+  };
+  readonly releaseCommitRecord: ReleaseCommitRecordEnvelope;
+  readonly verifiedReleaseCommitRecord: VerifiedReleaseCommitRecord;
+  readonly recordBytes: Uint8Array;
+  readonly releaseCommitRecordSha256: string;
+  readonly releaseDelegationBytes: Uint8Array;
+  readonly journalAppendedAt: string;
+  readonly manifestBytes: Uint8Array;
+  readonly manifestSha256: string;
+  readonly manifestRef: string;
+  readonly pointerEtag: string;
+  readonly pointerGeneration: string;
+  readonly manifestEpoch: string;
+  readonly antiRollbackWitness: FreshnessAntiRollbackWitnessBinding;
+  readonly proofContextSha256: string;
+}
+
 export interface VerifiedCurrentFreshnessState {
   readonly source: "verified-journal-do-r2-snapshot";
   readonly freshnessSemantics: "LATEST_AT_ISSUANCE";
@@ -118,13 +223,9 @@ export type FreshnessResponseSignerResponse =
   | FreshnessResponseSignerCompleted
   | FreshnessResponseSignerUnknown;
 
-export interface FreshnessCurrentStateEvidence {
-  readonly journalHead: {
-    readonly recordBytes: Uint8Array;
-    readonly releaseDelegationBytes: Uint8Array;
-    readonly appendedAt: string;
-    readonly appendReceiptBytes: Uint8Array;
-  };
+export interface FreshnessCurrentStateEvidence extends FreshnessReleaseStateEvidence {
+  readonly proofContext: FreshnessCurrentStateProofContext;
+  readonly coordinatorSnapshot: FreshnessIssueCoordinatorSnapshot;
   readonly coordinatorHead: {
     readonly environment: string;
     readonly generation: string;
@@ -133,23 +234,8 @@ export interface FreshnessCurrentStateEvidence {
     readonly writerPending: boolean;
     readonly restoreEpoch: string;
   };
-  readonly pointer: {
-    readonly environment: string;
-    readonly etag: string;
+  readonly pointer: FreshnessReleaseStateEvidence["pointer"] & {
     readonly generation: string;
-    readonly bytes: Uint8Array;
-  };
-  readonly immutableSnapshot: {
-    readonly reference: string;
-    readonly bytes: Uint8Array;
-  };
-  readonly manifestBytes: Uint8Array;
-  readonly antiRollbackWitness: {
-    readonly sourceId: string;
-    readonly restoreEpoch: string;
-    readonly generation: string;
-    readonly recordSha256: string;
-    readonly signedBytes: Uint8Array;
   };
 }
 

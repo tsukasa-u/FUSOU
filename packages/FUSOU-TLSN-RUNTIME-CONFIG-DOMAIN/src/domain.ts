@@ -11,11 +11,18 @@ const RELEASE_ENVELOPE_SCOPE =
   "fusou-tlsn-runtime-config-release-commit-envelope-v1";
 const RELEASE_PAYLOAD_SCOPE =
   "fusou-tlsn-runtime-config-release-commit-v1";
+const RUNTIME_CONFIG_MANIFEST_ENVELOPE_SCOPE =
+  "fusou-tlsn-runtime-config-envelope-v2";
+const RUNTIME_CONFIG_MANIFEST_PAYLOAD_SCOPE =
+  "fusou-tlsn-runtime-config-manifest-v2";
 const FRESHNESS_DELEGATION_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-DELEGATION-V1\0",
 );
 const RELEASE_COMMIT_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-COMMIT-V1\0",
+);
+const RUNTIME_CONFIG_MANIFEST_DOMAIN = new TextEncoder().encode(
+  "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0",
 );
 const FRESHNESS_RESPONSE_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-RESPONSE-V1\0",
@@ -98,6 +105,27 @@ const RELEASE_PAYLOAD_FIELDS = [
   "authorized_at",
   "release_authority_delegation_id",
   "release_authority_delegation_sha256",
+];
+const RUNTIME_CONFIG_MANIFEST_ENVELOPE_FIELDS = [
+  "schema_version",
+  "scope",
+  "signature_algorithm",
+  "signer_key_id",
+  "payload_base64url",
+  "signature_base64url",
+];
+const RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS = [
+  "schema_version",
+  "scope",
+  "environment",
+  "epoch",
+  "issued_at",
+  "not_before",
+  "expires_at",
+  "source",
+  "compile_inputs",
+  "production_authority_pins",
+  "result_registry_pins",
 ];
 const RESPONSE_ENVELOPE_FIELDS = [
   "schema_version",
@@ -260,6 +288,11 @@ export interface RuntimeConfigRootSigner {
   readonly scope: "fusou-tlsn-runtime-config-signing-root-v2";
   readonly key_id: string;
   readonly public_key_spki: string;
+}
+
+export interface VerifiedRuntimeConfigManifestEpochPointer {
+  readonly epoch: string;
+  readonly manifestSha256: string;
 }
 
 export interface VerifiedDelegation<P extends DelegationPurpose = DelegationPurpose> {
@@ -462,6 +495,62 @@ function isReleaseEnvelope(
     typeof value.signer_key_id === "string" &&
     typeof value.payload_base64url === "string" &&
     typeof value.signature_base64url === "string"
+  );
+}
+
+interface RuntimeConfigManifestEnvelope {
+  readonly schema_version: 2;
+  readonly scope: typeof RUNTIME_CONFIG_MANIFEST_ENVELOPE_SCOPE;
+  readonly signature_algorithm: "Ed25519";
+  readonly signer_key_id: string;
+  readonly payload_base64url: string;
+  readonly signature_base64url: string;
+}
+
+interface RuntimeConfigManifestPayload {
+  readonly schema_version: 2;
+  readonly scope: typeof RUNTIME_CONFIG_MANIFEST_PAYLOAD_SCOPE;
+  readonly environment: string;
+  readonly epoch: string;
+  readonly issued_at: string;
+  readonly not_before: string;
+  readonly expires_at: string;
+  readonly source: unknown;
+  readonly compile_inputs: unknown;
+  readonly production_authority_pins: unknown;
+  readonly result_registry_pins: unknown;
+}
+
+function isRuntimeConfigManifestEnvelope(
+  value: unknown,
+): value is RuntimeConfigManifestEnvelope {
+  return (
+    isRecord(value) &&
+    value.schema_version === 2 &&
+    value.scope === RUNTIME_CONFIG_MANIFEST_ENVELOPE_SCOPE &&
+    value.signature_algorithm === "Ed25519" &&
+    typeof value.signer_key_id === "string" &&
+    typeof value.payload_base64url === "string" &&
+    typeof value.signature_base64url === "string"
+  );
+}
+
+function isRuntimeConfigManifestPayload(
+  value: unknown,
+): value is RuntimeConfigManifestPayload {
+  return (
+    isRecord(value) &&
+    value.schema_version === 2 &&
+    value.scope === RUNTIME_CONFIG_MANIFEST_PAYLOAD_SCOPE &&
+    typeof value.environment === "string" &&
+    typeof value.epoch === "string" &&
+    typeof value.issued_at === "string" &&
+    typeof value.not_before === "string" &&
+    typeof value.expires_at === "string" &&
+    "source" in value &&
+    "compile_inputs" in value &&
+    "production_authority_pins" in value &&
+    "result_registry_pins" in value
   );
 }
 
@@ -1097,6 +1186,79 @@ export async function verifyRuntimeConfigReleaseCommitRecord(options: {
     delegation,
     digest: await sha256Base64Url(options.raw),
     appendedAtMs,
+  });
+}
+
+export async function verifyRuntimeConfigManifestEpochPointer(options: {
+  readonly raw: Uint8Array;
+  readonly trustedSigner: RuntimeConfigRootSigner;
+  readonly maxEnvelopeBytes?: number;
+}): Promise<VerifiedRuntimeConfigManifestEpochPointer> {
+  const maxEnvelopeBytes = options.maxEnvelopeBytes ?? 1_048_576;
+  if (
+    !Number.isSafeInteger(maxEnvelopeBytes) ||
+    maxEnvelopeBytes < 1 ||
+    options.raw.byteLength > maxEnvelopeBytes
+  ) {
+    invalid("INVALID_WIRE", "Runtime Config Manifest envelope byte limit is invalid");
+  }
+  if (
+    options.trustedSigner.scope !==
+    "fusou-tlsn-runtime-config-signing-root-v2"
+  ) {
+    invalid("INVALID_BINDING", "Manifest signer is not scoped to Runtime Config");
+  }
+  assertKeyId(options.trustedSigner.key_id, "Manifest signer key ID");
+
+  const envelope = parseCanonicalObject(
+    options.raw,
+    RUNTIME_CONFIG_MANIFEST_ENVELOPE_FIELDS,
+    "Runtime Config Manifest envelope",
+    maxEnvelopeBytes,
+    isRuntimeConfigManifestEnvelope,
+  );
+  if (envelope.signer_key_id !== options.trustedSigner.key_id) {
+    invalid(
+      "INVALID_BINDING",
+      "Manifest signer key ID does not match the external trust pin",
+    );
+  }
+  const payloadBytes = decodeCanonicalBase64Url(
+    envelope.payload_base64url,
+    "Runtime Config Manifest payload",
+  );
+  await verifyEd25519(
+    options.trustedSigner.public_key_spki,
+    RUNTIME_CONFIG_MANIFEST_DOMAIN,
+    envelope.signer_key_id,
+    payloadBytes,
+    envelope.signature_base64url,
+    "Runtime Config Manifest",
+  );
+  const payload = parseCanonicalObject(
+    payloadBytes,
+    RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS,
+    "Runtime Config Manifest payload",
+    maxEnvelopeBytes,
+    isRuntimeConfigManifestPayload,
+  );
+  if (payload.environment !== "production") {
+    invalid("INVALID_BINDING", "Runtime Config Manifest environment is invalid");
+  }
+  parseCanonicalUnsignedDecimal(payload.epoch, "Runtime Config Manifest epoch");
+  const issuedAtMs = parseTimestamp(payload.issued_at, "Manifest issued_at");
+  const notBeforeMs = parseTimestamp(payload.not_before, "Manifest not_before");
+  const expiresAtMs = parseTimestamp(payload.expires_at, "Manifest expires_at");
+  if (issuedAtMs > notBeforeMs || notBeforeMs >= expiresAtMs) {
+    invalid(
+      "INVALID_TIME",
+      "Runtime Config Manifest validity timestamps are invalid",
+    );
+  }
+
+  return Object.freeze({
+    epoch: payload.epoch,
+    manifestSha256: await sha256Base64Url(options.raw),
   });
 }
 

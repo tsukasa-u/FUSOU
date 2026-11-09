@@ -751,6 +751,26 @@ test("publication objects use signed content-addressed keys and publish the muta
   const manifest = objects.at(-1);
   assert.equal(manifest.key, "tlsn/runtime-config/v2/manifest.json");
   assert.equal(manifest.cache_control, "no-store");
+  const immutableSnapshot = objects.at(-2);
+  const manifestDigest = createHash("sha256")
+    .update(vector.manifest_envelope_utf8)
+    .digest("base64url");
+  assert.equal(
+    immutableSnapshot.key,
+    `tlsn/runtime-config/v2/manifests/${manifestDigest}`,
+  );
+  assert.deepEqual(
+    immutableSnapshot.body,
+    Buffer.from(vector.manifest_envelope_utf8),
+  );
+  assert.equal(
+    immutableSnapshot.content_type,
+    "application/octet-stream",
+  );
+  assert.equal(
+    immutableSnapshot.cache_control,
+    "public, max-age=31536000, immutable",
+  );
   for (const artifact of objects.slice(0, -1)) {
     const digest = createHash("sha256").update(artifact.body).digest("base64url");
     assert.equal(artifact.key.endsWith(`/${digest}`), true);
@@ -894,6 +914,13 @@ test("Runtime Config publisher reads back immutable artifacts before atomic mani
   const casIndex = store.events.indexOf("manifest-cas");
   assert.equal(store.events[casIndex + 1], "read-manifest-state");
   assert.equal(result.object_keys.at(-1), "tlsn/runtime-config/v2/manifest.json");
+  const immutableManifestKey =
+    `tlsn/runtime-config/v2/manifests/${result.manifest_sha256}`;
+  assert.deepEqual(
+    store.objects.get(immutableManifestKey),
+    store.manifestBody,
+  );
+  assert(store.events.includes(`read:${immutableManifestKey}`));
   assert.equal(
     createHash("sha256").update(store.manifestBody).digest("base64url"),
     result.manifest_sha256,
@@ -1003,7 +1030,7 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
   const corruptStore = new FakeRuntimeConfigObjectStore({ corruptArtifactReadback: true });
   await assert.rejects(
     () => publishTlsnRuntimeConfigForTest({ ...options, objectStore: corruptStore }),
-    /immutable Runtime Config artifact readback mismatch/,
+    /immutable Runtime Config publication readback mismatch/,
   );
   assert.equal(corruptStore.manifestETag, null);
   assert.equal(corruptStore.events.includes("manifest-cas"), false);

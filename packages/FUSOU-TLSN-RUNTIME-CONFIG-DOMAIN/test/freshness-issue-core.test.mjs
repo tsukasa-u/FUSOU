@@ -73,6 +73,7 @@ function makeEvidence(overrides = {}) {
       releaseDelegationBytes: Uint8Array.from(releaseDelegationBytes),
       appendedAt: vector.release_commit_record_appended_at,
       appendReceiptBytes: Buffer.from("test-only-exact-append-receipt"),
+      currentHeadProofBytes: Buffer.from("test-only-current-head-proof"),
     },
     coordinatorHead: {
       environment: "production",
@@ -206,6 +207,9 @@ function copyEvidence(evidence) {
       appendReceiptBytes: Uint8Array.from(
         evidence.journalHead.appendReceiptBytes,
       ),
+      currentHeadProofBytes: Uint8Array.from(
+        evidence.journalHead.currentHeadProofBytes,
+      ),
     },
     coordinatorHead: { ...evidence.coordinatorHead },
     pointer: {
@@ -230,9 +234,40 @@ class FixtureCurrentStateReader {
     this.readCount = 0;
   }
 
-  async readCurrentState() {
+  async readCurrentState(input) {
     this.readCount += 1;
-    return copyEvidence(this.evidence);
+    const evidence = copyEvidence(this.evidence);
+    evidence.coordinatorSnapshot = {
+      operation: { ...input.operation },
+      lease: {
+        ...input.lease,
+        operation: { ...input.lease.operation },
+        currentState: {
+          ...input.lease.currentState,
+          antiRollbackWitness: {
+            ...input.lease.currentState.antiRollbackWitness,
+          },
+        },
+      },
+      operationStatus: "IN_PROGRESS",
+      blocker: "RETAINED",
+      environment: "production",
+      currentState: {
+        ...input.lease.currentState,
+        antiRollbackWitness: {
+          ...input.lease.currentState.antiRollbackWitness,
+        },
+      },
+      witness: {
+        sourceId: evidence.antiRollbackWitness.sourceId,
+        restoreEpoch: evidence.antiRollbackWitness.restoreEpoch,
+        generation: evidence.antiRollbackWitness.generation,
+        recordSha256: evidence.antiRollbackWitness.recordSha256,
+      },
+      restoreEpoch: evidence.antiRollbackWitness.restoreEpoch,
+      writerPending: false,
+    };
+    return evidence;
   }
 
   async verifyCurrentState(evidence) {

@@ -4,6 +4,16 @@ import {
 import {
   SqliteFreshnessIssueCoordinatorDO,
 } from "../../src/sqlite-freshness-issue-coordinator.ts";
+import type { CoordinatorEnv } from "../../src/sqlite-freshness-issue-coordinator.ts";
+import {
+  RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+  RuntimeConfigR2ReleaseStore,
+} from "../../src/r2-release-store.ts";
+import type {
+  ReleaseLedgerActionResult,
+  ReleaseLedgerHead,
+  ReleaseLedgerOperation,
+} from "../../src/release-ledger.ts";
 import type {
   FreshnessIssueBeginInput,
   FreshnessIssueBeginResult,
@@ -50,6 +60,18 @@ export interface LocalCoordinatorSeed {
 export interface LocalReleaseStartResult {
   readonly status: "READY" | "WAITING_FOR_ISSUES" | "CONFLICT";
   readonly fencingToken?: string;
+}
+
+export interface LocalReleaseLedgerSeed {
+  readonly operationId: string;
+  readonly requestSha256: string;
+  readonly chainId: string;
+  readonly head: ReleaseLedgerHead;
+}
+
+export interface LocalInitialReleaseCheckpointSeed extends LocalReleaseLedgerSeed {
+  readonly restoreEpoch: string;
+  readonly clock: FreshnessIssueClockReading;
 }
 
 export interface LocalCoordinatorSnapshot {
@@ -151,6 +173,230 @@ export class LocalTestFreshnessIssueCoordinatorDO
     });
   }
 
+  async bootstrapReleaseLedgerForLocalTest(
+    seed: LocalReleaseLedgerSeed,
+    initialCheckpoint?: Pick<
+      LocalInitialReleaseCheckpointSeed,
+      "restoreEpoch" | "clock"
+    >,
+  ): Promise<void> {
+    const head = seed.head;
+    assertUuid(seed.operationId);
+    if (
+      !/^[A-Za-z0-9_-]{43}$/u.test(seed.requestSha256) ||
+      seed.chainId.length === 0 ||
+      head.environment !== "production" ||
+      head.chainId !== seed.chainId ||
+      head.position !== head.generation ||
+      head.previousRecordSha256 !== null ||
+      head.recordBytes.byteLength === 0 ||
+      head.releaseDelegationBytes.byteLength === 0 ||
+      head.manifestBytes.byteLength === 0 ||
+      head.pointerEtag.length === 0 ||
+      head.manifestRef.length === 0 ||
+      (initialCheckpoint !== undefined &&
+        (head.position !== "1" ||
+          head.generation !== "1" ||
+          head.previousRecordSha256 !== null ||
+          initialCheckpoint.restoreEpoch.length === 0))
+    ) {
+      throw new Error("Local Release ledger baseline is invalid");
+    }
+
+    this.ctx.storage.transactionSync(() => {
+      const stateRows = this.ctx.storage.sql
+        .exec<{ readonly singleton: number }>(
+          "SELECT singleton FROM coordinator_state WHERE singleton = 1",
+        )
+        .toArray();
+      if (initialCheckpoint === undefined) {
+        const state = requireStateRow(this.ctx.storage.sql);
+        const currentState = parseCurrentState(state.current_state_json);
+        if (
+          currentState.generation !== head.generation ||
+          currentState.journalHeadSha256 !== head.recordSha256 ||
+          currentState.releaseCommitRecordSha256 !== head.recordSha256 ||
+          currentState.releaseCommitId !== head.releaseCommitId ||
+          currentState.manifestEpoch !== head.manifestEpoch ||
+          currentState.manifestSha256 !== head.manifestSha256 ||
+          currentState.manifestRef !== head.manifestRef ||
+          currentState.pointerEtag !== head.pointerEtag
+        ) {
+          throw new Error(
+            "Local Release ledger baseline differs from its test current-state binding",
+          );
+        }
+      } else if (stateRows.length !== 0) {
+        throw new Error(
+          "Initial Release checkpoint must not seed current-state binding",
+        );
+      }
+      const existing = this.ctx.storage.sql
+        .exec<{ readonly count: number }>(
+          `SELECT
+             (SELECT COUNT(*) FROM release_ledger_operations) +
+             (SELECT COUNT(*) FROM release_ledger_entries) +
+             (SELECT COUNT(*) FROM release_ledger_head) AS count`,
+        )
+        .toArray();
+      if (existing.length !== 1 || existing[0]!.count !== 0) {
+        throw new Error("Local Release ledger is already initialized");
+      }
+
+      const bytes = (value: Uint8Array) => {
+        const buffer = new ArrayBuffer(value.byteLength);
+        new Uint8Array(buffer).set(value);
+        return buffer;
+      };
+      this.ctx.storage.sql.exec(
+        `INSERT INTO release_ledger_operations (
+           operation_id, request_sha256, environment, chain_id, status,
+           reason, unknown_stage, resume_status, fencing_token,
+           expected_position, expected_generation, expected_record_sha256,
+           expected_pointer_etag, manifest_bytes, manifest_length,
+           manifest_sha256, manifest_epoch, manifest_ref, pointer_bytes,
+           pointer_etag, snapshot_bytes, record_bytes, record_length,
+           record_sha256, record_appended_at, release_delegation_bytes,
+           position, generation, previous_record_sha256, release_commit_id
+         ) VALUES (?, ?, 'production', ?, 'AVAILABLE', NULL, NULL, NULL,
+                   ?, NULL, NULL, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?, NULL, ?)`,
+        seed.operationId,
+        seed.requestSha256,
+        seed.chainId,
+        initialCheckpoint === undefined ? null : "1",
+        bytes(head.manifestBytes),
+        head.manifestBytes.byteLength,
+        head.manifestSha256,
+        head.manifestEpoch,
+        head.manifestRef,
+        bytes(head.manifestBytes),
+        head.pointerEtag,
+        bytes(head.manifestBytes),
+        bytes(head.recordBytes),
+        head.recordBytes.byteLength,
+        head.recordSha256,
+        head.localAppendObservedAt,
+        bytes(head.releaseDelegationBytes),
+        head.position,
+        head.generation,
+        head.releaseCommitId,
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO release_ledger_entries (
+           position, environment, chain_id, operation_id, generation,
+           record_sha256, record_appended_at, record_bytes, record_length,
+           release_delegation_bytes, previous_record_sha256,
+           release_commit_id, manifest_epoch, manifest_sha256, manifest_ref,
+           pointer_etag, manifest_bytes, pointer_bytes, snapshot_bytes
+         ) VALUES (?, 'production', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?,
+                   ?, ?, ?, ?, ?)`,
+        head.position,
+        seed.chainId,
+        seed.operationId,
+        head.generation,
+        head.recordSha256,
+        head.localAppendObservedAt,
+        bytes(head.recordBytes),
+        head.recordBytes.byteLength,
+        bytes(head.releaseDelegationBytes),
+        head.releaseCommitId,
+        head.manifestEpoch,
+        head.manifestSha256,
+        head.manifestRef,
+        head.pointerEtag,
+        bytes(head.manifestBytes),
+        bytes(head.manifestBytes),
+        bytes(head.manifestBytes),
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO release_ledger_head (
+           singleton, environment, chain_id, position, generation,
+           record_sha256, previous_record_sha256, release_commit_id,
+           manifest_epoch, manifest_sha256, manifest_ref, pointer_etag
+         ) VALUES (1, 'production', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+        seed.chainId,
+        head.position,
+        head.generation,
+        head.recordSha256,
+        head.releaseCommitId,
+        head.manifestEpoch,
+        head.manifestSha256,
+        head.manifestRef,
+        head.pointerEtag,
+      );
+      if (initialCheckpoint !== undefined) {
+        assertClock(initialCheckpoint.clock);
+        this.ctx.storage.sql.exec(
+          `INSERT INTO current_state_bootstrap_authorizations (
+             singleton, operation_id, chain_id, position, generation,
+             record_sha256, restore_epoch, clock_id, clock_epoch,
+             clock_now_ms, clock_uncertainty_ms
+           ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          seed.operationId,
+          seed.chainId,
+          head.position,
+          head.generation,
+          head.recordSha256,
+          initialCheckpoint.restoreEpoch,
+          initialCheckpoint.clock.clockId,
+          initialCheckpoint.clock.clockEpoch,
+          initialCheckpoint.clock.nowMs,
+          initialCheckpoint.clock.uncertaintyMs,
+        );
+      }
+    });
+
+    const observed = await this.readReleaseLedgerHead();
+    if (
+      observed === null ||
+      observed.recordSha256 !== head.recordSha256 ||
+      !equalBytes(observed.recordBytes, head.recordBytes) ||
+      !equalBytes(observed.manifestBytes, head.manifestBytes)
+    ) {
+      throw new Error("Local Release ledger baseline failed source verification");
+    }
+  }
+
+  async bootstrapInitialReleaseCheckpointForLocalTest(
+    seed: LocalInitialReleaseCheckpointSeed,
+  ): Promise<void> {
+    await this.bootstrapReleaseLedgerForLocalTest(seed, {
+      restoreEpoch: seed.restoreEpoch,
+      clock: seed.clock,
+    });
+  }
+
+  deleteReleaseLedgerHeadForLocalTest(): void {
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec("DELETE FROM release_ledger_head WHERE singleton = 1");
+    });
+  }
+
+  corruptReleaseOperationBindingForLocalTest(
+    operationId: string,
+    binding: "MANIFEST_DIGEST" | "MANIFEST_REFERENCE",
+  ): void {
+    assertUuid(operationId);
+    this.ctx.storage.transactionSync(() => {
+      const field = binding === "MANIFEST_DIGEST"
+        ? "manifest_sha256"
+        : "manifest_ref";
+      const value = binding === "MANIFEST_DIGEST"
+        ? "A".repeat(43)
+        : "tlsn/runtime-config/v2/manifests/corrupt";
+      const result = this.ctx.storage.sql.exec(
+        `UPDATE release_ledger_operations SET ${field} = ?
+         WHERE operation_id = ?`,
+        value,
+        operationId,
+      );
+      if (result.rowsWritten !== 1) {
+        throw new Error("Local Release operation corruption target is missing");
+      }
+    });
+  }
+
   async setClockForLocalTest(
     reading: FreshnessIssueClockReading,
   ): Promise<void> {
@@ -218,6 +464,27 @@ export class LocalTestFreshnessIssueCoordinatorDO
         JSON.stringify(state),
         state.environment,
       );
+    });
+  }
+
+  deleteCoordinatorStateForLocalTest(): void {
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        "DELETE FROM coordinator_state WHERE singleton = 1",
+      );
+    });
+  }
+
+  corruptCoordinatorStateForLocalTest(): void {
+    this.ctx.storage.transactionSync(() => {
+      const result = this.ctx.storage.sql.exec(
+        `UPDATE coordinator_state SET current_state_json = ?
+         WHERE singleton = 1`,
+        "{",
+      );
+      if (result.rowsWritten !== 1) {
+        throw new Error("Local coordinator corruption target is missing");
+      }
     });
   }
 
@@ -437,12 +704,313 @@ export class LocalTestFreshnessIssueCoordinatorDO
   }
 }
 
+type R2FaultMode =
+  | "NONE"
+  | "DELAY_POINTER_WRITE"
+  | "FAIL_NEXT_READBACK"
+  | "WRONG_POINTER_ETAG";
+
+interface LocalR2FaultState {
+  mode: R2FaultMode;
+  remainingReadFailures: number;
+  loseNextAppendResponse: boolean;
+  startedPromise: Promise<void> | null;
+  signalStarted: (() => void) | null;
+  releasePromise: Promise<void> | null;
+  releaseWrite: (() => void) | null;
+}
+
+export class LocalTestReleaseLedgerCoordinatorDO
+  extends LocalTestFreshnessIssueCoordinatorDO
+{
+  readonly #fault: LocalR2FaultState;
+  readonly #releaseBucket: R2Bucket;
+
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    const fault: LocalR2FaultState = {
+      mode: "NONE",
+      remainingReadFailures: 0,
+      loseNextAppendResponse: false,
+      startedPromise: null,
+      signalStarted: null,
+      releasePromise: null,
+      releaseWrite: null,
+    };
+    const bucket = env.RELEASE_LEDGER_R2;
+    if (bucket === undefined) {
+      throw new Error("Local Release test Worker requires its R2 binding");
+    }
+    const faultingBucket = new Proxy(bucket, {
+      get(target, property) {
+        if (property === "put") {
+          return async (...args: Parameters<R2Bucket["put"]>) => {
+            const [key] = args;
+            if (
+              key === RUNTIME_CONFIG_MANIFEST_POINTER_KEY &&
+              fault.mode === "DELAY_POINTER_WRITE"
+            ) {
+              fault.mode = "NONE";
+              fault.signalStarted?.();
+              await fault.releasePromise;
+              await Reflect.apply(target.put, target, args);
+              throw new Error(
+                "Local test simulated lost R2 pointer-write response",
+              );
+            }
+            return Reflect.apply(target.put, target, args);
+          };
+        }
+        if (property === "get") {
+          return async (...args: Parameters<R2Bucket["get"]>) => {
+            if (fault.mode === "FAIL_NEXT_READBACK") {
+              fault.remainingReadFailures -= 1;
+              if (fault.remainingReadFailures === 0) {
+                fault.mode = "NONE";
+              }
+              throw new Error("Local test simulated R2 readback failure");
+            }
+            const object = await Reflect.apply(target.get, target, args);
+            if (
+              object !== null &&
+              fault.mode === "WRONG_POINTER_ETAG" &&
+              args[0] === RUNTIME_CONFIG_MANIFEST_POINTER_KEY
+            ) {
+              fault.mode = "NONE";
+              return new Proxy(object, {
+                get(targetObject, key) {
+                  if (key === "etag") return `${targetObject.etag}-mismatch`;
+                  const value = Reflect.get(targetObject, key, targetObject);
+                  return typeof value === "function"
+                    ? value.bind(targetObject)
+                    : value;
+                },
+              });
+            }
+            return object;
+          };
+        }
+        if (property === "delete") {
+          return (...args: Parameters<R2Bucket["delete"]>) =>
+            Reflect.apply(target.delete, target, args);
+        }
+        return Reflect.get(target, property, target);
+      },
+    });
+    super(ctx, { ...env, RELEASE_LEDGER_R2: faultingBucket });
+    this.#fault = fault;
+    this.#releaseBucket = faultingBucket;
+  }
+
+  publishBaselineManifestForLocalTest(
+    manifestRef: string,
+    manifestBytes: Uint8Array,
+  ): Promise<{
+    readonly pointerBytes: Uint8Array;
+    readonly pointerEtag: string;
+    readonly snapshotBytes: Uint8Array;
+  }> {
+    return new RuntimeConfigR2ReleaseStore(this.#releaseBucket).publishManifest(
+      manifestRef,
+      manifestBytes,
+      "",
+    );
+  }
+
+  async clearReleasePointerForLocalTest(): Promise<void> {
+    const deleteCall = this.#releaseBucket.delete(
+      RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    );
+    try {
+      await deleteCall;
+    } finally {
+      disposeLocalRpcResult(deleteCall);
+    }
+  }
+
+  async attemptClearReleasePointerForLocalTest(): Promise<
+    LocalTestCallOutcome<null>
+  > {
+    try {
+      await this.clearReleasePointerForLocalTest();
+      return { status: "RETURNED", value: null };
+    } catch (error) {
+      return localTestErrorOutcome(error);
+    }
+  }
+
+  async writeReleaseObjectForLocalTest(
+    key: string,
+    bytes: Uint8Array,
+  ): Promise<void> {
+    if (
+      key !== RUNTIME_CONFIG_MANIFEST_POINTER_KEY &&
+      !key.startsWith("tlsn/runtime-config/v2/manifests/")
+    ) {
+      throw new Error("Local test R2 mutation is outside the Release namespace");
+    }
+    const putCall = this.#releaseBucket.put(key, bytes);
+    let putResult: R2Object | null = null;
+    try {
+      putResult = await putCall;
+    } finally {
+      disposeLocalRpcResult(putResult);
+      disposeLocalRpcResult(putCall);
+    }
+  }
+
+  override async appendReleaseRecord(
+    input: Parameters<
+      SqliteFreshnessIssueCoordinatorDO["appendReleaseRecord"]
+    >[0],
+  ) {
+    const result = await super.appendReleaseRecord(input);
+    if (
+      this.#fault.loseNextAppendResponse &&
+      result.status === "LEDGER_COMMITTED"
+    ) {
+      this.#fault.loseNextAppendResponse = false;
+      throw new Error("Local test simulated lost Release append response");
+    }
+    return result;
+  }
+
+  loseNextAppendResponseForLocalTest(): void {
+    if (this.#fault.loseNextAppendResponse) {
+      throw new Error("A lost append response is already armed");
+    }
+    this.#fault.loseNextAppendResponse = true;
+  }
+
+  async attemptBeginReleaseOperationForLocalTest(
+    input: Parameters<
+      SqliteFreshnessIssueCoordinatorDO["beginReleaseOperation"]
+    >[0],
+  ): Promise<LocalTestCallOutcome<ReleaseLedgerActionResult>> {
+    try {
+      return {
+        status: "RETURNED",
+        value: await this.beginReleaseOperation(input),
+      };
+    } catch (error) {
+      return localTestErrorOutcome(error);
+    }
+  }
+
+  async attemptStageReleaseManifestForLocalTest(
+    input: Parameters<
+      SqliteFreshnessIssueCoordinatorDO["stageReleaseManifest"]
+    >[0],
+  ): Promise<LocalTestCallOutcome<ReleaseLedgerActionResult>> {
+    try {
+      return {
+        status: "RETURNED",
+        value: await this.stageReleaseManifest(input),
+      };
+    } catch (error) {
+      return localTestErrorOutcome(error);
+    }
+  }
+
+  async attemptAppendReleaseRecordForLocalTest(
+    input: Parameters<
+      SqliteFreshnessIssueCoordinatorDO["appendReleaseRecord"]
+    >[0],
+  ): Promise<LocalTestCallOutcome<ReleaseLedgerActionResult>> {
+    try {
+      return {
+        status: "RETURNED",
+        value: await this.appendReleaseRecord(input),
+      };
+    } catch (error) {
+      return localTestErrorOutcome(error);
+    }
+  }
+
+  async attemptReadReleaseLedgerHeadForLocalTest(): Promise<
+    LocalTestCallOutcome<ReleaseLedgerHead | null>
+  > {
+    try {
+      return {
+        status: "RETURNED",
+        value: await this.readReleaseLedgerHead(),
+      };
+    } catch (error) {
+      return localTestErrorOutcome(error);
+    }
+  }
+
+  async attemptGetReleaseOperationForLocalTest(
+    operationId: string,
+  ): Promise<LocalTestCallOutcome<ReleaseLedgerOperation | null>> {
+    try {
+      return {
+        status: "RETURNED",
+        value: await this.getReleaseOperation(operationId),
+      };
+    } catch (error) {
+      return localTestErrorOutcome(error);
+    }
+  }
+
+  armDelayedPointerWriteForLocalTest(): void {
+    if (this.#fault.mode !== "NONE") {
+      throw new Error("An R2 fault is already armed");
+    }
+    this.#fault.mode = "DELAY_POINTER_WRITE";
+    this.#fault.startedPromise = new Promise((resolve) => {
+      this.#fault.signalStarted = resolve;
+    });
+    this.#fault.releasePromise = new Promise((resolve) => {
+      this.#fault.releaseWrite = resolve;
+    });
+  }
+
+  waitForDelayedPointerWriteForLocalTest(): Promise<void> {
+    if (this.#fault.startedPromise === null) {
+      throw new Error("No delayed R2 pointer write has been armed");
+    }
+    return this.#fault.startedPromise;
+  }
+
+  releaseDelayedPointerWriteForLocalTest(): void {
+    if (this.#fault.releaseWrite === null) {
+      throw new Error("No delayed R2 pointer write is waiting");
+    }
+    this.#fault.releaseWrite();
+    this.#fault.releaseWrite = null;
+    this.#fault.releasePromise = null;
+  }
+
+  failNextR2ReadbackForLocalTest(): void {
+    if (this.#fault.mode !== "NONE") {
+      throw new Error("An R2 fault is already armed");
+    }
+    this.#fault.mode = "FAIL_NEXT_READBACK";
+    this.#fault.remainingReadFailures = 2;
+  }
+
+  mismatchNextPointerEtagForLocalTest(): void {
+    if (this.#fault.mode !== "NONE") {
+      throw new Error("An R2 fault is already armed");
+    }
+    this.#fault.mode = "WRONG_POINTER_ETAG";
+  }
+}
+
 function localTestErrorOutcome(error: unknown): LocalTestCallOutcome<never> {
   return {
     status: "THREW",
     errorName: error instanceof Error ? error.name : "NonErrorThrow",
     errorMessage: error instanceof Error ? error.message : String(error),
   };
+}
+
+function disposeLocalRpcResult(value: object | null | undefined): void {
+  if (value == null) return;
+  const dispose = Reflect.get(value, Symbol.for("dispose"));
+  if (typeof dispose === "function") {
+    Reflect.apply(dispose, value, []);
+  }
 }
 
 function assertSeed(seed: LocalCoordinatorSeed): void {
@@ -544,6 +1112,14 @@ function assertClock(
   ) {
     throw new Error("Local clock reading is invalid");
   }
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
 }
 
 function assertUuid(value: string): void {

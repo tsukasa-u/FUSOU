@@ -16,13 +16,36 @@ import {
   encodeBase64Url,
   parseCanonicalUnsignedDecimal,
   runtimeConfigFreshnessWire,
+  RuntimeConfigDomainError,
+  verifyRuntimeConfigManifestEpochPointer,
+  verifyRuntimeConfigReleaseCommitRecord,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+import {
+  createFreshnessIssueCurrentStateBindingFromReleaseState,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts";
+import type { RuntimeConfigRootSigner } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 import type {
   FreshnessAntiRollbackWitnessBinding,
+  FreshnessCurrentStateInstallProofContext,
+  FreshnessIssueCoordinatorSnapshot,
   FreshnessIssueCurrentStateBinding,
   FreshnessIssueLeaseBinding,
   FreshnessIssueOperationBinding,
+  VerifiedFreshnessReleaseState,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
+import {
+  RuntimeConfigR2ReleaseConflictError,
+  RuntimeConfigR2ReleaseIntegrityError,
+  RuntimeConfigR2ReleaseStore,
+} from "./r2-release-store.ts";
+import type {
+  ReleaseBindingInstallActionResult,
+  ReleaseBindingInstallOperation,
+  ReleaseLedgerActionResult,
+  ReleaseLedgerHead,
+  ReleaseLedgerOperation,
+  ReleaseLedgerStatus,
+} from "./release-ledger.ts";
 
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const UUID_V4_PATTERN =
@@ -45,7 +68,8 @@ export class FreshnessIssueCoordinatorStorageError extends Error {
     | "ILLEGAL_TRANSITION"
     | "FENCE_EXHAUSTED"
     | "RELEASE_CONFLICT"
-    | "RELEASE_BLOCKED";
+    | "RELEASE_BLOCKED"
+    | "MISSING_ADAPTER";
 
   constructor(
     code: FreshnessIssueCoordinatorStorageError["code"],
@@ -57,7 +81,121 @@ export class FreshnessIssueCoordinatorStorageError extends Error {
   }
 }
 
-interface CoordinatorEnv {}
+export interface CoordinatorEnv {
+  readonly RELEASE_LEDGER_CHAIN_ID?: string;
+  readonly RELEASE_LEDGER_ROOT_KEY_ID?: string;
+  readonly RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI?: string;
+  readonly RELEASE_LEDGER_MANIFEST_KEY_ID?: string;
+  readonly RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI?: string;
+  readonly RELEASE_LEDGER_R2?: R2Bucket;
+}
+
+interface ReleaseLedgerOperationRow {
+  readonly [column: string]: string | number | ArrayBuffer | null;
+  readonly operation_id: string;
+  readonly request_sha256: string;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly unknown_stage: string | null;
+  readonly resume_status: string | null;
+  readonly fencing_token: string | null;
+  readonly expected_position: string | null;
+  readonly expected_generation: string | null;
+  readonly expected_record_sha256: string | null;
+  readonly expected_pointer_etag: string;
+  readonly manifest_bytes: ArrayBuffer;
+  readonly manifest_length: number;
+  readonly manifest_sha256: string;
+  readonly manifest_epoch: string;
+  readonly manifest_ref: string;
+  readonly pointer_bytes: ArrayBuffer | null;
+  readonly pointer_etag: string | null;
+  readonly snapshot_bytes: ArrayBuffer | null;
+  readonly record_bytes: ArrayBuffer | null;
+  readonly record_length: number | null;
+  readonly record_sha256: string | null;
+  readonly record_appended_at: string | null;
+  readonly release_delegation_bytes: ArrayBuffer | null;
+  readonly position: string | null;
+  readonly generation: string | null;
+  readonly previous_record_sha256: string | null;
+  readonly release_commit_id: string | null;
+}
+
+interface ReleaseLedgerHeadRow {
+  readonly [column: string]: string | number | ArrayBuffer | null;
+  readonly operation_id: string;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly position: string;
+  readonly generation: string;
+  readonly record_sha256: string;
+  readonly record_appended_at: string;
+  readonly record_bytes: ArrayBuffer;
+  readonly record_length: number;
+  readonly release_delegation_bytes: ArrayBuffer;
+  readonly previous_record_sha256: string | null;
+  readonly release_commit_id: string;
+  readonly manifest_epoch: string;
+  readonly manifest_sha256: string;
+  readonly manifest_ref: string;
+  readonly pointer_etag: string;
+  readonly manifest_bytes: ArrayBuffer;
+  readonly pointer_bytes: ArrayBuffer;
+  readonly snapshot_bytes: ArrayBuffer;
+}
+
+interface ReleaseLedgerHeadMetadataRow {
+  readonly [column: string]: string | null;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly position: string;
+  readonly generation: string;
+  readonly record_sha256: string;
+  readonly previous_record_sha256: string | null;
+  readonly release_commit_id: string;
+  readonly manifest_epoch: string;
+  readonly manifest_sha256: string;
+  readonly manifest_ref: string;
+  readonly pointer_etag: string;
+}
+
+interface ReleaseBindingInstallRow {
+  readonly [column: string]: string | ArrayBuffer | null;
+  readonly operation_id: string;
+  readonly request_sha256: string;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly mode: string;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly release_operation_id: string;
+  readonly release_fencing_token: string;
+  readonly install_fencing_token: string;
+  readonly expected_current_state_sha256: string | null;
+  readonly expected_restore_epoch: string;
+  readonly target_position: string;
+  readonly target_generation: string;
+  readonly target_record_sha256: string;
+  readonly proof_context_sha256: string | null;
+  readonly installed_state_json: string | null;
+}
+
+interface CurrentStateBootstrapAuthorizationRow {
+  readonly [column: string]: string | number;
+  readonly operation_id: string;
+  readonly chain_id: string;
+  readonly position: string;
+  readonly generation: string;
+  readonly record_sha256: string;
+  readonly restore_epoch: string;
+  readonly clock_id: string;
+  readonly clock_epoch: string;
+  readonly clock_now_ms: number;
+  readonly clock_uncertainty_ms: number;
+}
 
 interface CoordinatorStateRow {
   readonly [column: string]: string | number | ArrayBuffer | null;
@@ -103,8 +241,11 @@ interface IssueOperationRow {
 }
 
 export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<CoordinatorEnv> {
+  readonly #env: CoordinatorEnv;
+
   constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
     super(ctx, env);
+    this.#env = env;
     ctx.blockConcurrencyWhile(async () => {
       ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS coordinator_state (
@@ -151,7 +292,1282 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         );
         CREATE INDEX IF NOT EXISTS freshness_issue_blockers
           ON freshness_issue_operations(blocker, status);
+        CREATE TABLE IF NOT EXISTS release_ledger_operations (
+          operation_id TEXT PRIMARY KEY,
+          request_sha256 TEXT NOT NULL,
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN (
+              'INTENT', 'R2_WRITE_PENDING', 'R2_STAGED',
+              'LEDGER_COMMITTED', 'R2_READBACK_PENDING', 'AVAILABLE',
+              'RESULT_UNKNOWN', 'QUARANTINED', 'CONFLICT'
+            )
+          ),
+          reason TEXT,
+          unknown_stage TEXT CHECK (
+            unknown_stage IS NULL OR unknown_stage IN
+              ('R2_WRITE', 'RELEASE_SIGNER', 'R2_READBACK')
+          ),
+          resume_status TEXT,
+          fencing_token TEXT,
+          expected_position TEXT,
+          expected_generation TEXT,
+          expected_record_sha256 TEXT,
+          expected_pointer_etag TEXT NOT NULL,
+          manifest_bytes BLOB NOT NULL,
+          manifest_length INTEGER NOT NULL,
+          manifest_sha256 TEXT NOT NULL,
+          manifest_epoch TEXT NOT NULL,
+          manifest_ref TEXT NOT NULL,
+          pointer_bytes BLOB,
+          pointer_etag TEXT,
+          snapshot_bytes BLOB,
+          record_bytes BLOB,
+          record_length INTEGER,
+          record_sha256 TEXT,
+          record_appended_at TEXT,
+          release_delegation_bytes BLOB,
+          position TEXT,
+          generation TEXT,
+          previous_record_sha256 TEXT,
+          release_commit_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS release_ledger_entries (
+          position TEXT PRIMARY KEY,
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL UNIQUE,
+          generation TEXT NOT NULL UNIQUE,
+          record_sha256 TEXT NOT NULL UNIQUE,
+          record_appended_at TEXT NOT NULL,
+          record_bytes BLOB NOT NULL,
+          record_length INTEGER NOT NULL,
+          release_delegation_bytes BLOB NOT NULL,
+          previous_record_sha256 TEXT,
+          release_commit_id TEXT NOT NULL,
+          manifest_epoch TEXT NOT NULL,
+          manifest_sha256 TEXT NOT NULL,
+          manifest_ref TEXT NOT NULL,
+          pointer_etag TEXT NOT NULL,
+          manifest_bytes BLOB NOT NULL,
+          pointer_bytes BLOB NOT NULL,
+          snapshot_bytes BLOB NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS release_ledger_head (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          position TEXT NOT NULL,
+          generation TEXT NOT NULL,
+          record_sha256 TEXT NOT NULL,
+          previous_record_sha256 TEXT,
+          release_commit_id TEXT NOT NULL,
+          manifest_epoch TEXT NOT NULL,
+          manifest_sha256 TEXT NOT NULL,
+          manifest_ref TEXT NOT NULL,
+          pointer_etag TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS current_state_binding_installs (
+          operation_id TEXT PRIMARY KEY,
+          request_sha256 TEXT NOT NULL,
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          mode TEXT NOT NULL CHECK (mode IN ('BOOTSTRAP', 'ADVANCE')),
+          status TEXT NOT NULL CHECK (
+            status IN ('VERIFYING', 'INSTALLED', 'QUARANTINED', 'CONFLICT')
+          ),
+          reason TEXT,
+          release_operation_id TEXT NOT NULL,
+          release_fencing_token TEXT NOT NULL,
+          install_fencing_token TEXT NOT NULL,
+          expected_current_state_sha256 TEXT,
+          expected_restore_epoch TEXT NOT NULL,
+          target_position TEXT NOT NULL,
+          target_generation TEXT NOT NULL,
+          target_record_sha256 TEXT NOT NULL,
+          proof_context_sha256 TEXT,
+          installed_state_json TEXT
+        );
+        CREATE INDEX IF NOT EXISTS current_state_binding_install_status
+          ON current_state_binding_installs(status);
+        CREATE TABLE IF NOT EXISTS current_state_binding_install_meta (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          next_fencing_token TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO current_state_binding_install_meta
+          (singleton, next_fencing_token) VALUES (1, '0');
+        CREATE TABLE IF NOT EXISTS current_state_bootstrap_authorizations (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          operation_id TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          position TEXT NOT NULL,
+          generation TEXT NOT NULL,
+          record_sha256 TEXT NOT NULL,
+          restore_epoch TEXT NOT NULL,
+          clock_id TEXT NOT NULL,
+          clock_epoch TEXT NOT NULL,
+          clock_now_ms INTEGER NOT NULL,
+          clock_uncertainty_ms INTEGER NOT NULL
+        );
       `);
+    });
+  }
+
+  async readReleaseLedgerHead(): Promise<ReleaseLedgerHead | null> {
+    const row = this.ctx.storage.transactionSync(() =>
+      this.readReleaseLedgerHeadRow(),
+    );
+    if (row === null) return null;
+    return this.verifiedReleaseHead(row);
+  }
+
+  async getReleaseOperation(
+    operationId: string,
+  ): Promise<ReleaseLedgerOperation | null> {
+    assertUuid(operationId, "Release operation ID");
+    const row = this.ctx.storage.transactionSync(() =>
+      this.findReleaseOperation(operationId),
+    );
+    if (row === null) return null;
+    const operation = releaseOperationFromRow(row);
+    await this.verifyStoredReleaseOperation(operation);
+    return operation;
+  }
+
+  async beginReleaseBindingInstall(input: {
+    readonly operationId: string;
+    readonly mode: "BOOTSTRAP" | "ADVANCE";
+    readonly releaseOperationId: string;
+    readonly expectedCurrentStateSha256: string | null;
+    readonly expectedRestoreEpoch: string;
+  }): Promise<ReleaseBindingInstallActionResult> {
+    assertUuid(input.operationId, "Current-state install operation ID");
+    assertUuid(input.releaseOperationId, "Release operation ID");
+    if (
+      (input.mode !== "BOOTSTRAP" && input.mode !== "ADVANCE") ||
+      (input.mode === "BOOTSTRAP" &&
+        input.expectedCurrentStateSha256 !== null) ||
+      (input.mode === "ADVANCE" &&
+        (input.expectedCurrentStateSha256 === null ||
+          !SHA256_BASE64URL_PATTERN.test(input.expectedCurrentStateSha256))) ||
+      typeof input.expectedRestoreEpoch !== "string" ||
+      input.expectedRestoreEpoch.length === 0
+    ) {
+      throw invalidInput("Current-state install request is invalid");
+    }
+
+    const releaseOperation = await this.getReleaseOperation(
+      input.releaseOperationId,
+    );
+    if (releaseOperation === null || releaseOperation.status !== "AVAILABLE") {
+      return { status: "CONFLICT" };
+    }
+    if (releaseOperation.fencingToken === null) {
+      throw corruptStorage("Available Release operation has no persisted fence");
+    }
+    const environment = "production" as const;
+    const chainId = this.requireReleaseChainId();
+    const requestSha256 = await sha256Base64Url(
+      canonicalJsonBytes({
+        operationId: input.operationId,
+        mode: input.mode,
+        releaseOperationId: input.releaseOperationId,
+        releaseFencingToken: releaseOperation.fencingToken,
+        expectedCurrentStateSha256: input.expectedCurrentStateSha256,
+        expectedRestoreEpoch: input.expectedRestoreEpoch,
+        environment,
+        chainId,
+      }),
+    );
+
+    return this.ctx.storage.transactionSync(() => {
+      const existing = this.findReleaseBindingInstall(input.operationId);
+      if (existing !== null) {
+        if (existing.request_sha256 !== requestSha256) {
+          return {
+            status: "CONFLICT" as const,
+            operation: releaseBindingInstallFromRow(existing),
+          };
+        }
+        return releaseBindingInstallActionFromRow(existing);
+      }
+
+      const storedRelease = this.findReleaseOperation(input.releaseOperationId);
+      const head = this.readReleaseLedgerHeadRow();
+      if (
+        storedRelease === null ||
+        storedRelease.status !== "AVAILABLE" ||
+        storedRelease.fencing_token !== releaseOperation.fencingToken ||
+        head === null ||
+        !releaseHeadMatchesOperation(head, storedRelease) ||
+        storedRelease.position === null ||
+        storedRelease.generation === null ||
+        storedRelease.record_sha256 === null
+      ) {
+        return { status: "CONFLICT" as const };
+      }
+      if (this.hasPendingReleaseBindingInstall()) {
+        return { status: "CONFLICT" as const };
+      }
+      if (this.hasRetainedIssueBlockers()) {
+        return { status: "WAITING_FOR_ISSUES" as const };
+      }
+
+      const stateRow = this.readStateRow();
+      let state: ReturnType<typeof this.decodeCoordinatorState> | null = null;
+      if (input.mode === "BOOTSTRAP") {
+        if (
+          stateRow !== null ||
+          this.hasCurrentStateInstallHistory() ||
+          !this.bootstrapAuthorizationMatches(
+            storedRelease,
+            input.expectedRestoreEpoch,
+          )
+        ) {
+          return { status: "CONFLICT" as const };
+        }
+      } else {
+        if (stateRow === null) {
+          return { status: "CONFLICT" as const };
+        }
+        state = this.decodeCoordinatorState(stateRow);
+        if (
+          state.writerPending ||
+          state.currentState.stateSha256 !==
+            input.expectedCurrentStateSha256 ||
+          !releaseOperationPredecessorMatchesState(storedRelease, state.currentState)
+        ) {
+          return { status: "CONFLICT" as const };
+        }
+      }
+
+      const installFencingToken = this.nextInstallFencingToken(
+        state?.nextFencingToken ?? "0",
+      );
+      this.sql.exec(
+        `INSERT INTO current_state_binding_installs (
+           operation_id, request_sha256, environment, chain_id, mode,
+           status, reason, release_operation_id, release_fencing_token,
+           install_fencing_token, expected_current_state_sha256,
+           expected_restore_epoch, target_position, target_generation,
+           target_record_sha256, proof_context_sha256, installed_state_json
+         ) VALUES (?, ?, ?, ?, ?, 'VERIFYING', NULL, ?, ?, ?, ?, ?, ?, ?, ?,
+                   NULL, NULL)`,
+        input.operationId,
+        requestSha256,
+        environment,
+        chainId,
+        input.mode,
+        input.releaseOperationId,
+        releaseOperation.fencingToken,
+        installFencingToken,
+        input.expectedCurrentStateSha256,
+        input.expectedRestoreEpoch,
+        storedRelease.position,
+        storedRelease.generation,
+        storedRelease.record_sha256,
+      );
+      if (stateRow !== null) {
+        this.sql.exec(
+          `UPDATE coordinator_state
+           SET writer_pending = 1, writer_operation_id = ?,
+               next_fencing_token = ?, write_fencing_token = ?
+           WHERE singleton = 1 AND writer_pending = 0`,
+          `current-state-install:${input.operationId}`,
+          installFencingToken,
+          installFencingToken,
+        );
+      }
+      return releaseBindingInstallActionFromRow(
+        this.requireReleaseBindingInstall(input.operationId),
+      );
+    });
+  }
+
+  async finalizeReleaseBindingInstall(input: {
+    readonly proofContext: FreshnessCurrentStateInstallProofContext;
+    readonly verifiedState: VerifiedFreshnessReleaseState;
+  }): Promise<ReleaseBindingInstallActionResult> {
+    assertCurrentStateInstallProofContext(input.proofContext);
+    const verifiedState = input.verifiedState;
+    const installedState =
+      await createFreshnessIssueCurrentStateBindingFromReleaseState(
+        verifiedState,
+      );
+    if (
+      verifiedState.proofContextSha256 !==
+      input.proofContext.readContextSha256
+    ) {
+      throw invalidInput(
+        "Verified Release evidence is bound to a different install proof context",
+      );
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const attempt = this.findReleaseBindingInstall(
+        input.proofContext.installOperationId,
+      );
+      if (attempt === null) {
+        throw invalidInput("Current-state install operation does not exist");
+      }
+      if (
+        attempt.status === "INSTALLED" &&
+        installProofMatchesOperation(input.proofContext, attempt)
+      ) {
+        return releaseBindingInstallActionFromRow(attempt);
+      }
+      if (attempt.status === "INSTALLED") {
+        return {
+          status: "CONFLICT",
+          operation: releaseBindingInstallFromRow(attempt),
+        };
+      }
+      if (
+        attempt.status !== "VERIFYING" ||
+        !installProofMatchesOperation(input.proofContext, attempt)
+      ) {
+        return this.quarantineReleaseBindingInstall(
+          attempt,
+          "Current-state install attempt or fence is stale",
+        );
+      }
+
+      const storedRelease = this.findReleaseOperation(
+        attempt.release_operation_id,
+      );
+      const head = this.readReleaseLedgerHeadRow();
+      if (
+        storedRelease === null ||
+        storedRelease.status !== "AVAILABLE" ||
+        storedRelease.fencing_token !== attempt.release_fencing_token ||
+        head === null ||
+        !releaseHeadMatchesOperation(head, storedRelease) ||
+        !verifiedReleaseStateMatchesOperation(
+          verifiedState,
+          storedRelease,
+          head,
+          input.proofContext,
+        ) ||
+        this.hasRetainedIssueBlockers()
+      ) {
+        return this.quarantineReleaseBindingInstall(
+          attempt,
+          "Verified Release evidence, available head, or issue gate changed before install",
+        );
+      }
+
+      const stateRow = this.readStateRow();
+      const clock = input.proofContext.clock;
+      if (attempt.mode === "BOOTSTRAP") {
+        const authorization = this.readBootstrapAuthorization();
+        if (
+          stateRow !== null ||
+          authorization === null ||
+          authorization.clock_id !== clock.clockId ||
+          authorization.clock_epoch !== clock.clockEpoch ||
+          authorization.clock_now_ms !== clock.nowMs ||
+          authorization.clock_uncertainty_ms !== clock.uncertaintyMs ||
+          !bootstrapAuthorizationMatchesInstall(
+            authorization,
+            storedRelease,
+            input.proofContext.expectedRestoreEpoch,
+          )
+        ) {
+          return this.quarantineReleaseBindingInstall(
+            attempt,
+            "Explicit test-only initial Release checkpoint is missing or changed",
+          );
+        }
+        this.sql.exec(
+          `INSERT INTO coordinator_state (
+             singleton, environment, current_state_json, witness_json,
+             restore_epoch, clock_id, clock_epoch, clock_now_ms,
+             clock_uncertainty_ms, next_fencing_token, write_fencing_token,
+             writer_pending, writer_operation_id
+           ) VALUES (1, 'production', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)`,
+          JSON.stringify(installedState),
+          JSON.stringify(installedState.antiRollbackWitness),
+          installedState.antiRollbackWitness.restoreEpoch,
+          authorization.clock_id,
+          authorization.clock_epoch,
+          authorization.clock_now_ms,
+          authorization.clock_uncertainty_ms,
+          attempt.install_fencing_token,
+          attempt.install_fencing_token,
+        );
+        this.sql.exec(
+          "DELETE FROM current_state_bootstrap_authorizations WHERE singleton = 1",
+        );
+      } else {
+        if (
+          stateRow === null ||
+          !this.currentStateInstallWriterMatches(stateRow, attempt) ||
+          stateRow.clock_id !== clock.clockId ||
+          stateRow.clock_epoch !== clock.clockEpoch
+        ) {
+          return this.quarantineReleaseBindingInstall(
+            attempt,
+            "Current-state install writer, clock epoch, or existing binding changed",
+          );
+        }
+        const state = this.decodeCoordinatorState(stateRow);
+        if (
+          state.currentState.stateSha256 !==
+            attempt.expected_current_state_sha256 ||
+          !releaseOperationPredecessorMatchesState(
+            storedRelease,
+            state.currentState,
+          )
+        ) {
+          return this.quarantineReleaseBindingInstall(
+            attempt,
+            "Expected previous current-state binding no longer matches",
+          );
+        }
+        this.sql.exec(
+          `UPDATE coordinator_state
+           SET current_state_json = ?, witness_json = ?, restore_epoch = ?,
+               writer_pending = 0, writer_operation_id = NULL
+           WHERE singleton = 1 AND writer_pending = 1
+             AND writer_operation_id = ? AND write_fencing_token = ?`,
+          JSON.stringify(installedState),
+          JSON.stringify(installedState.antiRollbackWitness),
+          installedState.antiRollbackWitness.restoreEpoch,
+          `current-state-install:${attempt.operation_id}`,
+          attempt.install_fencing_token,
+        );
+      }
+      this.sql.exec(
+        `UPDATE current_state_binding_installs
+         SET status = 'INSTALLED', reason = NULL, proof_context_sha256 = ?,
+             installed_state_json = ?
+         WHERE operation_id = ? AND status = 'VERIFYING'
+           AND install_fencing_token = ?`,
+        input.proofContext.readContextSha256,
+        JSON.stringify(installedState),
+        attempt.operation_id,
+        attempt.install_fencing_token,
+      );
+      return releaseBindingInstallActionFromRow(
+        this.requireReleaseBindingInstall(attempt.operation_id),
+      );
+    });
+  }
+
+  async getReleaseBindingInstall(
+    operationId: string,
+  ): Promise<ReleaseBindingInstallOperation | null> {
+    assertUuid(operationId, "Current-state install operation ID");
+    const row = this.ctx.storage.transactionSync(() =>
+      this.findReleaseBindingInstall(operationId),
+    );
+    return row === null ? null : releaseBindingInstallFromRow(row);
+  }
+
+  async beginReleaseOperation(input: {
+    readonly operationId: string;
+    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly manifestBytes: Uint8Array;
+  }): Promise<ReleaseLedgerActionResult> {
+    assertUuid(input.operationId, "Release operation ID");
+    if (
+      !(input.manifestBytes instanceof Uint8Array) ||
+      input.manifestBytes.byteLength === 0 ||
+      input.manifestBytes.byteLength > 1_048_576
+    ) {
+      throw invalidInput("Release Manifest bytes are empty or exceed the wire limit");
+    }
+
+    const environment = "production" as const;
+    const chainId = this.requireReleaseChainId();
+    const manifestBytes = copyBytes(input.manifestBytes);
+    const manifestSigner = this.requireManifestRootSigner();
+    const verifiedManifest = await verifyRuntimeConfigManifestEpochPointer({
+      raw: manifestBytes,
+      trustedSigner: manifestSigner,
+    });
+    const manifestRef =
+      `${runtimeConfigFreshnessWire.immutableManifestPrefix}${verifiedManifest.manifestSha256}`;
+    const expectedHead = copyReleaseHead(input.expectedHead);
+    const requestSha256 = await sha256Base64Url(
+      canonicalJsonBytes({
+        operationId: input.operationId,
+        environment,
+        chainId,
+        expectedHead: expectedHead === null
+          ? null
+          : {
+              position: expectedHead.position,
+              generation: expectedHead.generation,
+              recordSha256: expectedHead.recordSha256,
+              pointerEtag: expectedHead.pointerEtag,
+            },
+        manifestLength: manifestBytes.byteLength,
+        manifestSha256: verifiedManifest.manifestSha256,
+        manifestEpoch: verifiedManifest.epoch,
+        manifestRef,
+      }),
+    );
+
+    const result = this.ctx.storage.transactionSync(() => {
+      const existing = this.findReleaseOperation(input.operationId);
+      if (existing !== null) {
+        const sameRequest =
+          existing.request_sha256 === requestSha256 &&
+          existing.environment === environment &&
+          existing.chain_id === chainId &&
+          equalBytes(bytesFromArrayBuffer(existing.manifest_bytes), manifestBytes);
+        return sameRequest
+          ? this.releaseActionForRow(existing)
+          : { status: "CONFLICT" as const, operation: releaseOperationFromRow(existing) };
+      }
+
+      const stateRow = this.readStateRow();
+      if (stateRow === null) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "NOT_INITIALIZED",
+          "Coordinator state must be initialized before a Release operation",
+        );
+      }
+      const state = this.decodeCoordinatorState(stateRow);
+      const currentHead = this.readReleaseLedgerHeadRow();
+      if (
+        currentHead === null ||
+        expectedHead === null ||
+        !sameReleaseHeadBinding(currentHead, expectedHead)
+      ) {
+        return this.insertReleaseConflict({
+          operationId: input.operationId,
+          requestSha256,
+          environment,
+          chainId,
+          expectedHead,
+          manifestBytes,
+          manifestSha256: verifiedManifest.manifestSha256,
+          manifestEpoch: verifiedManifest.epoch,
+          manifestRef,
+        });
+      }
+      if (!coordinatorStateMatchesReleaseHead(state.currentState, currentHead)) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_BLOCKED",
+          "Coordinator current state does not match the persisted Release ledger head",
+        );
+      }
+      if (state.writerPending) {
+        return this.insertReleaseConflict({
+          operationId: input.operationId,
+          requestSha256,
+          environment,
+          chainId,
+          expectedHead,
+          manifestBytes,
+          manifestSha256: verifiedManifest.manifestSha256,
+          manifestEpoch: verifiedManifest.epoch,
+          manifestRef,
+        });
+      }
+
+      const fencingToken = incrementCounter(state.nextFencingToken);
+      this.sql.exec(
+        `INSERT INTO release_ledger_operations (
+           operation_id, request_sha256, environment, chain_id, status,
+           reason, unknown_stage, resume_status, fencing_token,
+           expected_position, expected_generation, expected_record_sha256,
+           expected_pointer_etag, manifest_bytes, manifest_length,
+           manifest_sha256, manifest_epoch, manifest_ref
+         ) VALUES (?, ?, ?, ?, 'INTENT', NULL, NULL, NULL, ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?)`,
+        input.operationId,
+        requestSha256,
+        environment,
+        chainId,
+        fencingToken,
+        expectedHead.position,
+        expectedHead.generation,
+        expectedHead.recordSha256,
+        expectedHead.pointerEtag,
+        arrayBufferFromBytes(manifestBytes),
+        manifestBytes.byteLength,
+        verifiedManifest.manifestSha256,
+        verifiedManifest.epoch,
+        manifestRef,
+      );
+      this.sql.exec(
+        `UPDATE coordinator_state
+         SET writer_pending = 1, writer_operation_id = ?,
+             next_fencing_token = ?, write_fencing_token = ?
+         WHERE singleton = 1 AND writer_pending = 0`,
+        input.operationId,
+        fencingToken,
+        fencingToken,
+      );
+      const operation = this.requireReleaseOperation(input.operationId);
+      return this.hasRetainedIssueBlockers()
+        ? { status: "WAITING_FOR_ISSUES" as const, operation: releaseOperationFromRow(operation) }
+        : { status: "STARTED" as const, operation: releaseOperationFromRow(operation) };
+    });
+    return result;
+  }
+
+  async stageReleaseManifest(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+  }): Promise<ReleaseLedgerActionResult> {
+    const prepared = this.ctx.storage.transactionSync(() => {
+      const operation = this.requireReleaseOperation(input.operationId);
+      this.requireReleaseWriter(operation, input.fencingToken);
+      if (operation.status === "R2_STAGED") {
+        return { result: this.releaseActionForRow(operation) } as const;
+      }
+      if (operation.status === "R2_WRITE_PENDING") {
+        return { result: this.releaseActionForRow(operation) } as const;
+      }
+      if (
+        operation.status === "RESULT_UNKNOWN" &&
+        operation.unknown_stage === "R2_WRITE"
+      ) {
+        return { reconcile: true } as const;
+      }
+      if (operation.status !== "INTENT") {
+        return { result: this.releaseActionForRow(operation) } as const;
+      }
+      if (this.hasRetainedIssueBlockers()) {
+        return {
+          result: {
+            status: "WAITING_FOR_ISSUES" as const,
+            operation: releaseOperationFromRow(operation),
+          },
+        } as const;
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'R2_WRITE_PENDING', reason = NULL
+         WHERE operation_id = ? AND status = 'INTENT'`,
+        input.operationId,
+      );
+      return {
+        operation: releaseOperationFromRow(
+          this.requireReleaseOperation(input.operationId),
+        ),
+      } as const;
+    });
+    if ("result" in prepared) return prepared.result;
+    if ("reconcile" in prepared) {
+      return this.reconcileReleaseOperation(input);
+    }
+
+    const operation = prepared.operation;
+    let readback: {
+      readonly pointerBytes: Uint8Array;
+      readonly pointerEtag: string;
+      readonly snapshotBytes: Uint8Array;
+    };
+    try {
+      await this.verifyOperationManifest(operation);
+      readback = await this.requireReleaseStore().publishManifest(
+        operation.manifestRef,
+        operation.manifestBytes,
+        operation.expectedPointerEtag,
+      );
+    } catch (error) {
+      if (
+        error instanceof RuntimeConfigR2ReleaseConflictError ||
+        error instanceof RuntimeConfigR2ReleaseIntegrityError ||
+        error instanceof RuntimeConfigDomainError
+      ) {
+        return this.quarantineReleaseOperation(
+          input.operationId,
+          input.fencingToken,
+          "R2 publication did not match the exact Release intent",
+        );
+      }
+      return this.markReleaseOperationUnknown({
+        ...input,
+        stage: "R2_WRITE",
+      });
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const operationRow = this.requireReleaseOperation(input.operationId);
+      if (operationRow.status === "R2_STAGED") {
+        if (
+          operationRow.pointer_bytes !== null &&
+          operationRow.snapshot_bytes !== null &&
+          equalBytes(
+            bytesFromArrayBuffer(operationRow.pointer_bytes),
+            readback.pointerBytes,
+          ) &&
+          equalBytes(
+            bytesFromArrayBuffer(operationRow.snapshot_bytes),
+            readback.snapshotBytes,
+          ) &&
+          operationRow.pointer_etag === readback.pointerEtag
+        ) {
+          return this.releaseActionForRow(operationRow);
+        }
+        return this.quarantineReleaseOperationInTransaction(
+          operationRow,
+          "Concurrent R2 publication produced different readback bytes",
+        );
+      }
+      if (
+        operationRow.status !== "R2_WRITE_PENDING" &&
+        !(
+          operationRow.status === "RESULT_UNKNOWN" &&
+          operationRow.unknown_stage === "R2_WRITE"
+        )
+      ) {
+        return this.releaseActionForRow(operationRow);
+      }
+      this.requireReleaseWriter(operationRow, input.fencingToken);
+      this.requireExpectedReleaseHead(operationRow);
+      if (
+        this.hasRetainedIssueBlockers()
+      ) {
+        return this.quarantineReleaseOperationInTransaction(
+          operationRow,
+          "Coordinator changed before R2 publication could be recorded",
+        );
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'R2_STAGED', reason = NULL, unknown_stage = NULL,
+             resume_status = NULL, pointer_bytes = ?, pointer_etag = ?,
+             snapshot_bytes = ?
+         WHERE operation_id = ? AND status IN
+           ('R2_WRITE_PENDING', 'RESULT_UNKNOWN')
+           AND fencing_token = ?`,
+        arrayBufferFromBytes(readback.pointerBytes),
+        readback.pointerEtag,
+        arrayBufferFromBytes(readback.snapshotBytes),
+        input.operationId,
+        input.fencingToken,
+      );
+      return this.releaseActionForRow(
+        this.requireReleaseOperation(input.operationId),
+      );
+    });
+  }
+
+  async markReleaseOperationUnknown(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly stage: "R2_WRITE" | "RELEASE_SIGNER" | "R2_READBACK";
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.ctx.storage.transactionSync(() => {
+      const operation = this.requireReleaseOperation(input.operationId);
+      this.requireReleaseWriter(operation, input.fencingToken);
+      if (operation.status === "RESULT_UNKNOWN") {
+        if (operation.unknown_stage !== input.stage) {
+          throw transitionError(
+            "Release operation already has a different unresolved stage",
+          );
+        }
+        return this.releaseActionForRow(operation);
+      }
+      const allowedStatusByStage = {
+        R2_WRITE: ["INTENT", "R2_WRITE_PENDING"],
+        RELEASE_SIGNER: ["R2_STAGED"],
+        R2_READBACK: ["LEDGER_COMMITTED", "R2_READBACK_PENDING"],
+      } as const;
+      if (
+        !allowedStatusByStage[input.stage].includes(
+          operation.status as never,
+        )
+      ) {
+        throw transitionError(
+          "Release operation cannot become unknown at this stage",
+        );
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'RESULT_UNKNOWN', reason = ?, unknown_stage = ?,
+             resume_status = ?
+         WHERE operation_id = ? AND fencing_token = ?`,
+        `Unresolved ${input.stage} outcome`,
+        input.stage,
+        operation.status,
+        input.operationId,
+        input.fencingToken,
+      );
+      return this.releaseActionForRow(
+        this.requireReleaseOperation(input.operationId),
+      );
+    });
+  }
+
+  async appendReleaseRecord(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+  }): Promise<ReleaseLedgerActionResult> {
+    const operation = await this.getReleaseOperation(input.operationId);
+    if (operation === null) {
+      throw invalidInput("Release operation does not exist");
+    }
+    if (
+      operation.status === "LEDGER_COMMITTED" ||
+      operation.status === "R2_READBACK_PENDING" ||
+      operation.status === "AVAILABLE"
+    ) {
+      if (
+        operation.recordBytes !== null &&
+        operation.releaseDelegationBytes !== null &&
+        equalBytes(operation.recordBytes, input.recordBytes) &&
+        equalBytes(
+          operation.releaseDelegationBytes,
+          input.releaseDelegationBytes,
+        )
+      ) {
+        return releaseActionFromOperation(operation);
+      }
+      return { status: "CONFLICT", operation };
+    }
+    if (
+      operation.status !== "R2_STAGED" &&
+      !(
+        operation.status === "RESULT_UNKNOWN" &&
+        operation.unknownStage === "RELEASE_SIGNER" &&
+        operation.resumeStatus === "R2_STAGED"
+      )
+    ) {
+      return releaseActionFromOperation(operation);
+    }
+
+    this.requireReleaseRootSigner();
+    const recordBytes = copyBytes(input.recordBytes);
+    const releaseDelegationBytes = copyBytes(input.releaseDelegationBytes);
+    const appendReading = await this.readClock();
+    const localAppendObservedAt = timestampFromMilliseconds(
+      appendReading.nowMs,
+    );
+    let verifiedRecord;
+    try {
+      verifiedRecord = await verifyRuntimeConfigReleaseCommitRecord({
+        raw: recordBytes,
+        rootSigner: this.requireReleaseRootSigner(),
+        environment: operation.environment,
+        releaseDelegationRaw: releaseDelegationBytes,
+        appendedAt: localAppendObservedAt,
+      });
+      assertReleaseRecordMatchesOperation(
+        verifiedRecord,
+        operation,
+        recordBytes,
+        releaseDelegationBytes,
+      );
+    } catch (error) {
+      await this.quarantineReleaseOperation(
+        input.operationId,
+        input.fencingToken,
+        "Release Record or delegation verification failed",
+      );
+      throw error;
+    }
+
+    const recordSha256 = verifiedRecord.digest;
+    return this.ctx.storage.transactionSync(() => {
+      const storedOperation = this.requireReleaseOperation(input.operationId);
+      if (
+        storedOperation.status === "LEDGER_COMMITTED" ||
+        storedOperation.status === "R2_READBACK_PENDING" ||
+        storedOperation.status === "AVAILABLE"
+      ) {
+        return storedOperation.record_sha256 === recordSha256 &&
+            storedOperation.record_bytes !== null &&
+            storedOperation.release_delegation_bytes !== null &&
+            equalBytes(
+              bytesFromArrayBuffer(storedOperation.record_bytes),
+              recordBytes,
+            ) &&
+            equalBytes(
+              bytesFromArrayBuffer(storedOperation.release_delegation_bytes),
+              releaseDelegationBytes,
+            )
+          ? this.releaseActionForRow(storedOperation)
+          : { status: "CONFLICT" as const, operation: releaseOperationFromRow(storedOperation) };
+      }
+      this.requireReleaseWriter(storedOperation, input.fencingToken);
+      this.requireExpectedReleaseHead(storedOperation);
+      const currentHead = this.readReleaseLedgerHeadRow();
+      if (
+        !sameReleaseHeadBinding(
+          currentHead,
+          storedOperation.expected_position === null
+            ? null
+            : releaseExpectedHeadFromRow(storedOperation),
+        )
+      ) {
+        return this.quarantineReleaseOperationInTransaction(
+          storedOperation,
+          "Release predecessor changed before ledger append",
+        );
+      }
+      if (this.hasRetainedIssueBlockers()) {
+        return {
+          status: "WAITING_FOR_ISSUES" as const,
+          operation: releaseOperationFromRow(storedOperation),
+        };
+      }
+      if (
+        storedOperation.status !== "R2_STAGED" &&
+        !(
+          storedOperation.status === "RESULT_UNKNOWN" &&
+          storedOperation.unknown_stage === "RELEASE_SIGNER" &&
+          storedOperation.resume_status === "R2_STAGED"
+        )
+      ) {
+        return this.releaseActionForRow(storedOperation);
+      }
+
+      const expectedGeneration =
+        storedOperation.expected_generation === null
+          ? 1n
+          : parseCanonicalUnsignedDecimal(
+              storedOperation.expected_generation,
+              "Release predecessor generation",
+            ) + 1n;
+      const position =
+        storedOperation.expected_position === null
+          ? "1"
+          : (
+              parseCanonicalUnsignedDecimal(
+                storedOperation.expected_position,
+                "Release predecessor position",
+              ) + 1n
+            ).toString(10);
+      if (
+        verifiedRecord.payload.commit_generation !==
+          expectedGeneration.toString(10) ||
+        (storedOperation.expected_generation === null
+          ? verifiedRecord.payload.previous_commit_generation !== null ||
+            verifiedRecord.payload.previous_commit_record_sha256 !== null
+          : verifiedRecord.payload.previous_commit_generation !==
+              storedOperation.expected_generation ||
+            verifiedRecord.payload.previous_commit_record_sha256 !==
+              storedOperation.expected_record_sha256)
+      ) {
+        return this.quarantineReleaseOperationInTransaction(
+          storedOperation,
+          "Release Record predecessor or generation is stale",
+        );
+      }
+      this.sql.exec(
+        `INSERT INTO release_ledger_entries (
+           position, environment, chain_id, operation_id, generation,
+           record_sha256, record_appended_at, record_bytes, record_length,
+           release_delegation_bytes, previous_record_sha256,
+           release_commit_id, manifest_epoch, manifest_sha256, manifest_ref,
+           pointer_etag, manifest_bytes, pointer_bytes, snapshot_bytes
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        position,
+        storedOperation.environment,
+        storedOperation.chain_id,
+        storedOperation.operation_id,
+        verifiedRecord.payload.commit_generation,
+        recordSha256,
+        localAppendObservedAt,
+        arrayBufferFromBytes(recordBytes),
+        recordBytes.byteLength,
+        arrayBufferFromBytes(releaseDelegationBytes),
+        verifiedRecord.payload.previous_commit_record_sha256,
+        verifiedRecord.payload.release_commit_id,
+        storedOperation.manifest_epoch,
+        storedOperation.manifest_sha256,
+        storedOperation.manifest_ref,
+        storedOperation.pointer_etag!,
+        storedOperation.manifest_bytes,
+        storedOperation.pointer_bytes!,
+        storedOperation.snapshot_bytes!,
+      );
+      this.sql.exec(
+        `INSERT INTO release_ledger_head (
+           singleton, environment, chain_id, position, generation,
+           record_sha256, previous_record_sha256, release_commit_id,
+           manifest_epoch, manifest_sha256, manifest_ref, pointer_etag
+         ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET
+           environment = excluded.environment,
+           chain_id = excluded.chain_id,
+           position = excluded.position,
+           generation = excluded.generation,
+           record_sha256 = excluded.record_sha256,
+           previous_record_sha256 = excluded.previous_record_sha256,
+           release_commit_id = excluded.release_commit_id,
+           manifest_epoch = excluded.manifest_epoch,
+           manifest_sha256 = excluded.manifest_sha256,
+           manifest_ref = excluded.manifest_ref,
+           pointer_etag = excluded.pointer_etag`,
+        storedOperation.environment,
+        storedOperation.chain_id,
+        position,
+        verifiedRecord.payload.commit_generation,
+        recordSha256,
+        verifiedRecord.payload.previous_commit_record_sha256,
+        verifiedRecord.payload.release_commit_id,
+        storedOperation.manifest_epoch,
+        storedOperation.manifest_sha256,
+        storedOperation.manifest_ref,
+        storedOperation.pointer_etag!,
+      );
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'LEDGER_COMMITTED', reason = NULL,
+             unknown_stage = NULL, resume_status = NULL,
+             record_bytes = ?, record_length = ?, record_sha256 = ?,
+             record_appended_at = ?,
+             release_delegation_bytes = ?, position = ?, generation = ?,
+             previous_record_sha256 = ?, release_commit_id = ?
+         WHERE operation_id = ? AND status IN ('R2_STAGED', 'RESULT_UNKNOWN')
+           AND fencing_token = ?`,
+        arrayBufferFromBytes(recordBytes),
+        recordBytes.byteLength,
+        recordSha256,
+        localAppendObservedAt,
+        arrayBufferFromBytes(releaseDelegationBytes),
+        position,
+        verifiedRecord.payload.commit_generation,
+        verifiedRecord.payload.previous_commit_record_sha256,
+        verifiedRecord.payload.release_commit_id,
+        input.operationId,
+        input.fencingToken,
+      );
+      return this.releaseActionForRow(
+        this.requireReleaseOperation(input.operationId),
+      );
+    });
+  }
+
+  async finalizeReleaseR2Readback(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+  }): Promise<ReleaseLedgerActionResult> {
+    const prepared = this.ctx.storage.transactionSync(() => {
+      const operation = this.requireReleaseOperation(input.operationId);
+      if (operation.status === "AVAILABLE") {
+        return { result: this.releaseActionForRow(operation) } as const;
+      }
+      this.requireReleaseWriter(operation, input.fencingToken);
+      if (
+        operation.status !== "LEDGER_COMMITTED" &&
+        operation.status !== "R2_READBACK_PENDING" &&
+        !(
+          operation.status === "RESULT_UNKNOWN" &&
+          operation.unknown_stage === "R2_READBACK" &&
+          (
+            operation.resume_status === "LEDGER_COMMITTED" ||
+            operation.resume_status === "R2_READBACK_PENDING"
+          )
+        )
+      ) {
+        return { result: this.releaseActionForRow(operation) } as const;
+      }
+      if (this.hasRetainedIssueBlockers()) {
+        return {
+          result: {
+            status: "WAITING_FOR_ISSUES" as const,
+            operation: releaseOperationFromRow(operation),
+          },
+        } as const;
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'R2_READBACK_PENDING', reason = NULL
+             , unknown_stage = NULL, resume_status = NULL
+         WHERE operation_id = ? AND status IN
+           ('LEDGER_COMMITTED', 'R2_READBACK_PENDING', 'RESULT_UNKNOWN')`,
+        input.operationId,
+      );
+      return {
+        operation: releaseOperationFromRow(
+          this.requireReleaseOperation(input.operationId),
+        ),
+      } as const;
+    });
+    if ("result" in prepared) return prepared.result;
+    if ("reconcile" in prepared) {
+      return this.reconcileReleaseOperation(input);
+    }
+
+    const operation = prepared.operation;
+    let readback: {
+      readonly pointerBytes: Uint8Array;
+      readonly pointerEtag: string;
+      readonly snapshotBytes: Uint8Array;
+    };
+    try {
+      await this.verifyOperationManifest(operation);
+      readback = await this.requireReleaseStore().verifyExactReadback({
+        manifestRef: operation.manifestRef,
+        manifestBytes: operation.manifestBytes,
+        pointerEtag: operation.pointerEtag!,
+      });
+      await this.verifyStoredReleaseOperation(operation);
+    } catch (error) {
+      if (
+        error instanceof RuntimeConfigR2ReleaseIntegrityError ||
+        error instanceof RuntimeConfigDomainError
+      ) {
+        return this.quarantineReleaseOperation(
+          input.operationId,
+          input.fencingToken,
+          "Post-append R2 readback did not match the committed Release",
+        );
+      }
+      return this.markReleaseOperationUnknown({
+        ...input,
+        stage: "R2_READBACK",
+      });
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const storedOperation = this.requireReleaseOperation(input.operationId);
+      if (storedOperation.status === "AVAILABLE") {
+        return this.releaseActionForRow(storedOperation);
+      }
+      this.requireReleaseWriter(storedOperation, input.fencingToken);
+      this.requireCommittedReleaseHead(storedOperation);
+      const head = this.readReleaseLedgerHeadRow();
+      if (
+        storedOperation.status !== "R2_READBACK_PENDING" ||
+        head === null ||
+        head.operation_id !== input.operationId ||
+        head.record_sha256 !== storedOperation.record_sha256 ||
+        !equalBytes(readback.pointerBytes, operation.manifestBytes) ||
+        !equalBytes(readback.snapshotBytes, operation.manifestBytes) ||
+        readback.pointerEtag !== storedOperation.pointer_etag
+      ) {
+        return this.quarantineReleaseOperationInTransaction(
+          storedOperation,
+          "Release attempt, fence, head, or R2 binding changed before finalization",
+        );
+      }
+      if (this.hasRetainedIssueBlockers()) {
+        return {
+          status: "WAITING_FOR_ISSUES" as const,
+          operation: releaseOperationFromRow(storedOperation),
+        };
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'AVAILABLE', reason = NULL,
+             unknown_stage = NULL, resume_status = NULL,
+             pointer_bytes = ?, snapshot_bytes = ?
+         WHERE operation_id = ? AND status = 'R2_READBACK_PENDING'
+           AND fencing_token = ?`,
+        arrayBufferFromBytes(readback.pointerBytes),
+        arrayBufferFromBytes(readback.snapshotBytes),
+        input.operationId,
+        input.fencingToken,
+      );
+      this.sql.exec(
+        `UPDATE coordinator_state
+         SET writer_pending = 0, writer_operation_id = NULL
+         WHERE singleton = 1 AND writer_pending = 1
+           AND writer_operation_id = ? AND write_fencing_token = ?`,
+        input.operationId,
+        input.fencingToken,
+      );
+      return this.releaseActionForRow(
+        this.requireReleaseOperation(input.operationId),
+      );
+    });
+  }
+
+  async reconcileReleaseOperation(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+  }): Promise<ReleaseLedgerActionResult> {
+    const operation = await this.getReleaseOperation(input.operationId);
+    if (operation === null) {
+      throw invalidInput("Release operation does not exist");
+    }
+    if (operation.fencingToken !== input.fencingToken) {
+      throw invalidInput("Release operation fencing token does not match");
+    }
+    if (
+      operation.status === "LEDGER_COMMITTED" ||
+      operation.status === "R2_READBACK_PENDING" ||
+      (operation.status === "RESULT_UNKNOWN" &&
+        operation.unknownStage === "R2_READBACK")
+    ) {
+      return this.finalizeReleaseR2Readback(input);
+    }
+    if (
+      operation.status !== "R2_WRITE_PENDING" &&
+      !(
+        operation.status === "RESULT_UNKNOWN" &&
+        operation.unknownStage === "R2_WRITE"
+      )
+    ) {
+      return releaseActionFromOperation(operation);
+    }
+
+    let state: Awaited<ReturnType<RuntimeConfigR2ReleaseStore["readState"]>>;
+    try {
+      state = await this.requireReleaseStore().readState(operation.manifestRef);
+    } catch {
+      return this.markReleaseOperationUnknown({
+        ...input,
+        stage: "R2_WRITE",
+      });
+    }
+    const pointerIsExpected =
+      state.pointer !== null &&
+      equalBytes(state.pointer.bytes, operation.manifestBytes);
+    const snapshotIsExpected =
+      state.snapshotBytes !== null &&
+      equalBytes(state.snapshotBytes, operation.manifestBytes);
+    if (pointerIsExpected && snapshotIsExpected) {
+      return this.ctx.storage.transactionSync(() => {
+        const row = this.requireReleaseOperation(input.operationId);
+        this.requireReleaseWriter(row, input.fencingToken);
+        this.requireExpectedReleaseHead(row);
+        if (
+          row.status !== "R2_WRITE_PENDING" &&
+          !(
+            row.status === "RESULT_UNKNOWN" &&
+            row.unknown_stage === "R2_WRITE"
+          )
+        ) {
+          return this.releaseActionForRow(row);
+        }
+        this.sql.exec(
+          `UPDATE release_ledger_operations
+           SET status = 'R2_STAGED', reason = NULL,
+               unknown_stage = NULL, resume_status = NULL,
+               pointer_bytes = ?, pointer_etag = ?, snapshot_bytes = ?
+           WHERE operation_id = ? AND fencing_token = ?`,
+          arrayBufferFromBytes(state.pointer!.bytes),
+          state.pointer!.etag,
+          arrayBufferFromBytes(state.snapshotBytes!),
+          input.operationId,
+          input.fencingToken,
+        );
+        return this.releaseActionForRow(
+          this.requireReleaseOperation(input.operationId),
+        );
+      });
+    }
+    const oldPointerStillCurrent =
+      operation.expectedPointerEtag.length === 0
+        ? state.pointer === null
+        : state.pointer?.etag === operation.expectedPointerEtag;
+    const conflictingSnapshot =
+      state.snapshotBytes !== null && !snapshotIsExpected;
+    if (!oldPointerStillCurrent || conflictingSnapshot) {
+      return this.quarantineReleaseOperation(
+        input.operationId,
+        input.fencingToken,
+        "R2 readback conflicts with both the prior head and the pending Release",
+      );
+    }
+    return this.markReleaseOperationUnknown({
+      ...input,
+      stage: "R2_WRITE",
     });
   }
 
@@ -192,7 +1608,8 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       const currentStateIsUsable =
         !state.writerPending &&
         sameWitness(state.currentState.antiRollbackWitness, state.witness) &&
-        state.restoreEpoch === state.witness.restoreEpoch;
+        state.restoreEpoch === state.witness.restoreEpoch &&
+        this.releaseHeadAvailableInTransaction(state.currentState);
       if (!currentStateIsUsable) {
         const reason = state.writerPending
           ? "CURRENT_STATE_UNAVAILABLE"
@@ -348,6 +1765,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         state.writerPending ||
         compareCounters(persistedLease.fencingToken, state.writeFencingToken) <=
           0 ||
+        !this.releaseHeadAvailableInTransaction(state.currentState) ||
         !sameStateBinding(state.currentState, persistedLease.currentState) ||
         !sameWitness(state.currentState.antiRollbackWitness, state.witness) ||
         state.restoreEpoch !== state.witness.restoreEpoch ||
@@ -373,6 +1791,73 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         fencingToken: persistedLease.fencingToken,
         reading,
       };
+    });
+  }
+
+  async readCurrentStateSnapshot(input: {
+    readonly operation: FreshnessIssueOperationBinding;
+    readonly lease: FreshnessIssueLeaseBinding;
+  }): Promise<FreshnessIssueCoordinatorSnapshot> {
+    assertLeaseShape(input.lease);
+    return this.ctx.storage.transactionSync(() => {
+      const stateRow = this.readStateRow();
+      if (!stateRow) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "NOT_INITIALIZED",
+          "Coordinator current state is not initialized",
+        );
+      }
+      const state = this.decodeCoordinatorState(stateRow);
+      const row = this.findOperation(input.operation.operationId);
+      if (!row) {
+        throw invalidInput("Current-state snapshot operation does not exist");
+      }
+      const operation = operationFromRow(row);
+      const lease = leaseFromRow(row);
+      if (
+        !sameOperation(operation, input.operation) ||
+        !lease ||
+        !sameLease(lease, input.lease)
+      ) {
+        throw invalidInput("Current-state snapshot operation or lease does not match");
+      }
+      if (
+        operationStatusFromRow(row) !== "IN_PROGRESS" ||
+        blockerFromRow(row) !== "RETAINED"
+      ) {
+        throw transitionError(
+          "Current-state snapshot requires an in-progress retained issue",
+        );
+      }
+      const reading = clockFromState(stateRow);
+      if (
+        state.writerPending ||
+        compareCounters(lease.fencingToken, state.writeFencingToken) <= 0 ||
+        !this.releaseHeadAvailableInTransaction(state.currentState) ||
+        !sameStateBinding(state.currentState, lease.currentState) ||
+        !sameWitness(state.currentState.antiRollbackWitness, state.witness) ||
+        state.restoreEpoch !== state.witness.restoreEpoch ||
+        !clockMatchesLease(reading, lease)
+      ) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_BLOCKED",
+          "Current Release state or issue lease is not eligible for a snapshot",
+        );
+      }
+
+      const currentState = copyCurrentStateBinding(state.currentState);
+      const copiedLease = copyLeaseBinding(lease);
+      return Object.freeze({
+        operation: { ...operation },
+        lease: copiedLease,
+        operationStatus: "IN_PROGRESS",
+        blocker: "RETAINED",
+        environment: state.environment,
+        currentState,
+        witness: { ...state.witness },
+        restoreEpoch: state.restoreEpoch,
+        writerPending: state.writerPending,
+      });
     });
   }
 
@@ -576,6 +2061,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         state.writerPending ||
         compareCounters(input.lease.fencingToken, state.writeFencingToken) <=
           0 ||
+        !this.releaseHeadAvailableInTransaction(state.currentState) ||
         !sameStateBinding(state.currentState, input.currentState) ||
         !sameWitness(state.currentState.antiRollbackWitness, state.witness) ||
         state.restoreEpoch !== state.witness.restoreEpoch
@@ -629,6 +2115,721 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     });
   }
 
+  private requireReleaseChainId(): string {
+    const chainId = this.#env.RELEASE_LEDGER_CHAIN_ID;
+    if (
+      typeof chainId !== "string" ||
+      chainId.length === 0 ||
+      chainId.trim() !== chainId
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Release ledger chain identity is not configured",
+      );
+    }
+    return chainId;
+  }
+
+  private releaseLedgerConfigured(): boolean {
+    return (
+      this.#env.RELEASE_LEDGER_CHAIN_ID !== undefined ||
+      this.#env.RELEASE_LEDGER_ROOT_KEY_ID !== undefined ||
+      this.#env.RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI !== undefined ||
+      this.#env.RELEASE_LEDGER_MANIFEST_KEY_ID !== undefined ||
+      this.#env.RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI !== undefined ||
+      this.#env.RELEASE_LEDGER_R2 !== undefined
+    );
+  }
+
+  private releaseHeadAvailableInTransaction(
+    currentState: FreshnessIssueCurrentStateBinding,
+  ): boolean {
+    if (!this.releaseLedgerConfigured()) return true;
+    const head = this.readReleaseLedgerHeadRow();
+    if (head === null) return false;
+    const operation = this.requireReleaseOperation(head.operation_id);
+    return (
+      operation.status === "AVAILABLE" &&
+      coordinatorStateMatchesReleaseHead(currentState, head)
+    );
+  }
+
+  private requireReleaseRootSigner(): RuntimeConfigRootSigner {
+    const keyId = this.#env.RELEASE_LEDGER_ROOT_KEY_ID;
+    const publicKeySpki = this.#env.RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI;
+    if (
+      typeof keyId !== "string" ||
+      keyId.length === 0 ||
+      typeof publicKeySpki !== "string" ||
+      publicKeySpki.length === 0
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Release root trust pin is not configured",
+      );
+    }
+    return {
+      scope: "fusou-tlsn-runtime-config-signing-root-v2",
+      key_id: keyId,
+      public_key_spki: publicKeySpki,
+    };
+  }
+
+  private requireManifestRootSigner(): RuntimeConfigRootSigner {
+    const keyId = this.#env.RELEASE_LEDGER_MANIFEST_KEY_ID;
+    const publicKeySpki =
+      this.#env.RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI;
+    if (
+      typeof keyId !== "string" ||
+      keyId.length === 0 ||
+      typeof publicKeySpki !== "string" ||
+      publicKeySpki.length === 0
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Manifest root trust pin is not configured",
+      );
+    }
+    return {
+      scope: "fusou-tlsn-runtime-config-signing-root-v2",
+      key_id: keyId,
+      public_key_spki: publicKeySpki,
+    };
+  }
+
+  private requireReleaseStore(): RuntimeConfigR2ReleaseStore {
+    const bucket = this.#env.RELEASE_LEDGER_R2;
+    if (bucket === undefined) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Release ledger R2 binding is not configured",
+      );
+    }
+    return new RuntimeConfigR2ReleaseStore(bucket);
+  }
+
+  private async verifyOperationManifest(
+    operation: ReleaseLedgerOperation,
+  ): Promise<void> {
+    const manifest = await verifyRuntimeConfigManifestEpochPointer({
+      raw: operation.manifestBytes,
+      trustedSigner: this.requireManifestRootSigner(),
+    });
+    const digest = await sha256Base64Url(operation.manifestBytes);
+    if (
+      operation.manifestLength !== operation.manifestBytes.byteLength ||
+      digest !== operation.manifestSha256 ||
+      manifest.manifestSha256 !== operation.manifestSha256 ||
+      manifest.epoch !== operation.manifestEpoch ||
+      operation.manifestRef !==
+        `${runtimeConfigFreshnessWire.immutableManifestPrefix}${operation.manifestSha256}`
+    ) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "Release operation does not bind the exact signed Manifest bytes",
+      );
+    }
+  }
+
+  private readReleaseLedgerHeadRow(): ReleaseLedgerHeadRow | null {
+    const chainId = this.requireReleaseChainId();
+    const rows = this.sql
+      .exec<ReleaseLedgerHeadMetadataRow>(
+        `SELECT environment, chain_id, position, generation,
+                record_sha256, previous_record_sha256, release_commit_id,
+                manifest_epoch, manifest_sha256, manifest_ref, pointer_etag
+         FROM release_ledger_head WHERE singleton = 1`,
+      )
+      .toArray();
+    if (rows.length === 0) {
+      const entries = this.sql
+        .exec<{ readonly count: number }>(
+          "SELECT COUNT(*) AS count FROM release_ledger_entries",
+        )
+        .toArray();
+      const committedOperations = this.sql
+        .exec<{ readonly count: number }>(
+          `SELECT COUNT(*) AS count FROM release_ledger_operations
+           WHERE status IN ('LEDGER_COMMITTED', 'R2_READBACK_PENDING', 'AVAILABLE')
+              OR (status = 'RESULT_UNKNOWN'
+                  AND resume_status IN ('LEDGER_COMMITTED', 'R2_READBACK_PENDING'))`,
+        )
+        .toArray();
+      if (
+        entries.length !== 1 ||
+        committedOperations.length !== 1 ||
+        entries[0]!.count !== 0 ||
+        committedOperations[0]!.count !== 0
+      ) {
+        throw corruptStorage(
+          "Release ledger head is missing while committed ledger state remains",
+        );
+      }
+      return null;
+    }
+    if (rows.length !== 1) {
+      throw corruptStorage("Release ledger singleton head is not unique");
+    }
+
+    const head = rows[0]!;
+    const entryRows = this.sql
+      .exec<ReleaseLedgerHeadRow>(
+        `SELECT operation_id, environment, chain_id, position, generation,
+                record_sha256, record_appended_at, record_bytes, record_length,
+                release_delegation_bytes, previous_record_sha256,
+                release_commit_id, manifest_epoch, manifest_sha256,
+                manifest_ref, pointer_etag, manifest_bytes, pointer_bytes,
+                snapshot_bytes
+         FROM release_ledger_entries
+         WHERE position = ? AND record_sha256 = ?`,
+        head.position,
+        head.record_sha256,
+      )
+      .toArray();
+    if (
+      entryRows.length !== 1 ||
+      head.environment !== "production" ||
+      head.chain_id !== chainId
+    ) {
+      throw corruptStorage(
+        "Release ledger head does not identify one entry in the configured chain",
+      );
+    }
+    const entry = entryRows[0]!;
+    if (
+      entry.environment !== head.environment ||
+      entry.chain_id !== head.chain_id ||
+      entry.position !== head.position ||
+      entry.generation !== head.generation ||
+      entry.record_sha256 !== head.record_sha256 ||
+      entry.previous_record_sha256 !== head.previous_record_sha256 ||
+      entry.release_commit_id !== head.release_commit_id ||
+      entry.manifest_epoch !== head.manifest_epoch ||
+      entry.manifest_sha256 !== head.manifest_sha256 ||
+      entry.manifest_ref !== head.manifest_ref ||
+      entry.pointer_etag !== head.pointer_etag
+    ) {
+      throw corruptStorage("Release ledger head differs from its exact entry");
+    }
+
+    const position = parseCanonicalUnsignedDecimal(
+      entry.position,
+      "Stored Release ledger position",
+    );
+    const generation = parseCanonicalUnsignedDecimal(
+      entry.generation,
+      "Stored Release ledger generation",
+    );
+    const entryCountRows = this.sql
+      .exec<{ readonly count: number }>(
+        "SELECT COUNT(*) AS count FROM release_ledger_entries",
+      )
+      .toArray();
+    if (
+      entryCountRows.length !== 1 ||
+      BigInt(entryCountRows[0]!.count) !== position ||
+      generation !== position
+    ) {
+      throw corruptStorage(
+        "Release ledger positions are not contiguous with the persisted head",
+      );
+    }
+
+    return entry;
+  }
+
+  private async verifiedReleaseHead(
+    row: ReleaseLedgerHeadRow,
+  ): Promise<ReleaseLedgerHead> {
+    const recordBytes = bytesFromArrayBuffer(row.record_bytes);
+    const releaseDelegationBytes = bytesFromArrayBuffer(
+      row.release_delegation_bytes,
+    );
+    const manifestBytes = bytesFromArrayBuffer(row.manifest_bytes);
+    const pointerBytes = bytesFromArrayBuffer(row.pointer_bytes);
+    const snapshotBytes = bytesFromArrayBuffer(row.snapshot_bytes);
+    const record = await verifyRuntimeConfigReleaseCommitRecord({
+      raw: recordBytes,
+      rootSigner: this.requireReleaseRootSigner(),
+      environment: "production",
+      releaseDelegationRaw: releaseDelegationBytes,
+      appendedAt: row.record_appended_at,
+    });
+    const manifest = await verifyRuntimeConfigManifestEpochPointer({
+      raw: manifestBytes,
+      trustedSigner: this.requireManifestRootSigner(),
+    });
+    if (
+      record.digest !== row.record_sha256 ||
+      recordBytes.byteLength !== row.record_length ||
+      record.payload.commit_generation !== row.generation ||
+      record.payload.previous_commit_record_sha256 !==
+        row.previous_record_sha256 ||
+      record.payload.release_commit_id !== row.release_commit_id ||
+      record.payload.manifest_epoch !== row.manifest_epoch ||
+      record.payload.manifest_sha256 !== row.manifest_sha256 ||
+      record.payload.manifest_ref !== row.manifest_ref ||
+      record.payload.pointer_etag !== row.pointer_etag ||
+      manifest.epoch !== row.manifest_epoch ||
+      manifest.manifestSha256 !== row.manifest_sha256 ||
+      !equalBytes(pointerBytes, manifestBytes) ||
+      !equalBytes(snapshotBytes, manifestBytes)
+    ) {
+      throw corruptStorage(
+        "Release ledger head fails exact Record, Manifest, or R2 binding verification",
+      );
+    }
+    return {
+      environment: "production",
+      chainId: row.chain_id,
+      position: row.position,
+      generation: row.generation,
+      recordSha256: row.record_sha256,
+      recordBytes,
+      releaseDelegationBytes,
+      previousRecordSha256: row.previous_record_sha256,
+      releaseCommitId: row.release_commit_id,
+      localAppendObservedAt: row.record_appended_at,
+      manifestEpoch: row.manifest_epoch,
+      manifestSha256: row.manifest_sha256,
+      manifestRef: row.manifest_ref,
+      pointerEtag: row.pointer_etag,
+      manifestBytes,
+    };
+  }
+
+  private async verifyStoredReleaseOperation(
+    operation: ReleaseLedgerOperation,
+  ): Promise<void> {
+    const manifest = await verifyRuntimeConfigManifestEpochPointer({
+      raw: operation.manifestBytes,
+      trustedSigner: this.requireManifestRootSigner(),
+    });
+    const manifestSha256 = await sha256Base64Url(operation.manifestBytes);
+    if (
+      manifestSha256 !== operation.manifestSha256 ||
+      manifest.epoch !== operation.manifestEpoch ||
+      manifest.manifestSha256 !== operation.manifestSha256 ||
+      operation.manifestRef !==
+        `tlsn/runtime-config/v2/manifests/${operation.manifestSha256}`
+    ) {
+      throw corruptStorage(
+        "Persisted Release operation Manifest binding is invalid",
+      );
+    }
+    if (
+      operation.recordBytes === null ||
+      operation.releaseDelegationBytes === null
+    ) {
+      if (
+        operation.recordBytes !== null ||
+        operation.releaseDelegationBytes !== null ||
+        operation.recordSha256 !== null ||
+        operation.localAppendObservedAt !== null ||
+        operation.position !== null ||
+        operation.generation !== null
+      ) {
+        throw corruptStorage(
+          "Persisted Release operation has a partial Record binding",
+        );
+      }
+      return;
+    }
+    if (
+      operation.recordSha256 === null ||
+      operation.localAppendObservedAt === null ||
+      operation.position === null ||
+      operation.generation === null
+    ) {
+      throw corruptStorage(
+        "Persisted Release operation has an incomplete Record binding",
+      );
+    }
+    const verifiedRecord = await verifyRuntimeConfigReleaseCommitRecord({
+      raw: operation.recordBytes,
+      rootSigner: this.requireReleaseRootSigner(),
+      environment: operation.environment,
+      releaseDelegationRaw: operation.releaseDelegationBytes,
+      appendedAt: operation.localAppendObservedAt,
+    });
+    assertReleaseRecordMatchesOperation(
+      verifiedRecord,
+      operation,
+      operation.recordBytes,
+      operation.releaseDelegationBytes,
+    );
+    if (
+      verifiedRecord.digest !== operation.recordSha256 ||
+      verifiedRecord.payload.commit_generation !== operation.generation ||
+      verifiedRecord.payload.manifest_epoch !== operation.manifestEpoch ||
+      verifiedRecord.payload.manifest_sha256 !== operation.manifestSha256 ||
+      verifiedRecord.payload.manifest_ref !== operation.manifestRef
+    ) {
+      throw corruptStorage(
+        "Persisted Release operation Record binding is invalid",
+      );
+    }
+  }
+
+  private findReleaseOperation(
+    operationId: string,
+  ): ReleaseLedgerOperationRow | null {
+    const rows = this.sql
+      .exec<ReleaseLedgerOperationRow>(
+        `SELECT operation_id, request_sha256, environment, chain_id, status,
+                reason, unknown_stage, resume_status, fencing_token,
+                expected_position, expected_generation, expected_record_sha256,
+                expected_pointer_etag, manifest_bytes, manifest_length,
+                manifest_sha256, manifest_epoch, manifest_ref, pointer_bytes,
+                pointer_etag, snapshot_bytes, record_bytes, record_length,
+                record_sha256, record_appended_at,
+                release_delegation_bytes, position, generation,
+                previous_record_sha256, release_commit_id
+         FROM release_ledger_operations WHERE operation_id = ?`,
+        operationId,
+      )
+      .toArray();
+    if (rows.length > 1) {
+      throw corruptStorage("Release operation ID is not unique");
+    }
+    if (rows.length === 0) return null;
+    assertReleaseOperationRow(rows[0]!, this.requireReleaseChainId());
+    return rows[0]!;
+  }
+
+  private requireReleaseOperation(
+    operationId: string,
+  ): ReleaseLedgerOperationRow {
+    const operation = this.findReleaseOperation(operationId);
+    if (operation === null) {
+      throw invalidInput("Release operation does not exist");
+    }
+    return operation;
+  }
+
+  private insertReleaseConflict(input: {
+    readonly operationId: string;
+    readonly requestSha256: string;
+    readonly environment: "production";
+    readonly chainId: string;
+    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly manifestBytes: Uint8Array;
+    readonly manifestSha256: string;
+    readonly manifestEpoch: string;
+    readonly manifestRef: string;
+  }): ReleaseLedgerActionResult {
+    this.sql.exec(
+      `INSERT INTO release_ledger_operations (
+         operation_id, request_sha256, environment, chain_id, status, reason,
+         unknown_stage, resume_status, fencing_token, expected_position,
+         expected_generation, expected_record_sha256, expected_pointer_etag,
+         manifest_bytes, manifest_length, manifest_sha256, manifest_epoch,
+         manifest_ref
+       ) VALUES (?, ?, ?, ?, 'CONFLICT', 'Release predecessor or writer is not current',
+                 NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      input.operationId,
+      input.requestSha256,
+      input.environment,
+      input.chainId,
+      input.expectedHead?.position ?? null,
+      input.expectedHead?.generation ?? null,
+      input.expectedHead?.recordSha256 ?? null,
+      input.expectedHead?.pointerEtag ?? "",
+      arrayBufferFromBytes(input.manifestBytes),
+      input.manifestBytes.byteLength,
+      input.manifestSha256,
+      input.manifestEpoch,
+      input.manifestRef,
+    );
+    return {
+      status: "CONFLICT",
+      operation: releaseOperationFromRow(
+        this.requireReleaseOperation(input.operationId),
+      ),
+    };
+  }
+
+  private requireReleaseWriter(
+    operation: ReleaseLedgerOperationRow,
+    fencingToken: string,
+  ): void {
+    parseCanonicalUnsignedDecimal(fencingToken, "Release fencing token");
+    if (operation.fencing_token !== fencingToken) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "RELEASE_CONFLICT",
+        "Release operation fencing token is stale",
+      );
+    }
+    const stateRow = this.readStateRow();
+    if (stateRow === null) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "NOT_INITIALIZED",
+        "Coordinator state is not initialized",
+      );
+    }
+    const state = this.decodeCoordinatorState(stateRow);
+    if (
+      !state.writerPending ||
+      state.writerOperationId !== operation.operation_id ||
+      state.writeFencingToken !== fencingToken
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "RELEASE_CONFLICT",
+        "Release writer gate or fencing token is no longer current",
+      );
+    }
+  }
+
+  private requireExpectedReleaseHead(
+    operation: ReleaseLedgerOperationRow,
+  ): void {
+    const currentHead = this.readReleaseLedgerHeadRow();
+    const expectedHead =
+      operation.expected_position === null
+        ? null
+        : releaseExpectedHeadFromRow(operation);
+    if (!sameReleaseHeadBinding(currentHead, expectedHead)) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "RELEASE_CONFLICT",
+        "Release operation predecessor is no longer the current ledger head",
+      );
+    }
+  }
+
+  private requireCommittedReleaseHead(
+    operation: ReleaseLedgerOperationRow,
+  ): void {
+    const head = this.readReleaseLedgerHeadRow();
+    if (
+      head === null ||
+      head.operation_id !== operation.operation_id ||
+      head.environment !== operation.environment ||
+      head.chain_id !== operation.chain_id ||
+      head.position !== operation.position ||
+      head.generation !== operation.generation ||
+      head.record_sha256 !== operation.record_sha256 ||
+      head.release_commit_id !== operation.release_commit_id ||
+      head.manifest_epoch !== operation.manifest_epoch ||
+      head.manifest_sha256 !== operation.manifest_sha256 ||
+      head.manifest_ref !== operation.manifest_ref ||
+      head.pointer_etag !== operation.pointer_etag
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "RELEASE_CONFLICT",
+        "Persisted Release operation is no longer the current ledger head",
+      );
+    }
+  }
+
+  private hasRetainedIssueBlockers(): boolean {
+    const rows = this.sql
+      .exec<{ readonly count: number }>(
+        `SELECT COUNT(*) AS count FROM freshness_issue_operations
+         WHERE blocker = 'RETAINED'
+           AND status IN ('IN_PROGRESS', 'RESULT_UNKNOWN')`,
+      )
+      .toArray();
+    if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.count)) {
+      throw corruptStorage("Freshness issue blocker count is invalid");
+    }
+    return rows[0]!.count > 0;
+  }
+
+  private releaseActionForRow(
+    row: ReleaseLedgerOperationRow,
+  ): ReleaseLedgerActionResult {
+    return releaseActionFromOperation(releaseOperationFromRow(row));
+  }
+
+  private quarantineReleaseOperationInTransaction(
+    operation: ReleaseLedgerOperationRow,
+    reason: string,
+  ): ReleaseLedgerActionResult {
+    this.sql.exec(
+      `UPDATE release_ledger_operations
+       SET status = 'QUARANTINED', reason = ?, unknown_stage = NULL,
+           resume_status = NULL
+       WHERE operation_id = ? AND status NOT IN ('AVAILABLE', 'CONFLICT')`,
+      reason,
+      operation.operation_id,
+    );
+    return this.releaseActionForRow(
+      this.requireReleaseOperation(operation.operation_id),
+    );
+  }
+
+  private async quarantineReleaseOperation(
+    operationId: string,
+    fencingToken: string,
+    reason: string,
+  ): Promise<ReleaseLedgerActionResult> {
+    return this.ctx.storage.transactionSync(() => {
+      const operation = this.requireReleaseOperation(operationId);
+      this.requireReleaseWriter(operation, fencingToken);
+      return this.quarantineReleaseOperationInTransaction(operation, reason);
+    });
+  }
+
+  private findReleaseBindingInstall(
+    operationId: string,
+  ): ReleaseBindingInstallRow | null {
+    const rows = this.sql
+      .exec<ReleaseBindingInstallRow>(
+        `SELECT operation_id, request_sha256, environment, chain_id, mode,
+                status, reason, release_operation_id, release_fencing_token,
+                install_fencing_token, expected_current_state_sha256,
+                expected_restore_epoch, target_position, target_generation,
+                target_record_sha256, proof_context_sha256,
+                installed_state_json
+         FROM current_state_binding_installs WHERE operation_id = ?`,
+        operationId,
+      )
+      .toArray();
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) {
+      throw corruptStorage("Current-state install operation ID is not unique");
+    }
+    releaseBindingInstallFromRow(rows[0]!);
+    return rows[0]!;
+  }
+
+  private requireReleaseBindingInstall(
+    operationId: string,
+  ): ReleaseBindingInstallRow {
+    const row = this.findReleaseBindingInstall(operationId);
+    if (row === null) {
+      throw corruptStorage("Current-state install operation disappeared");
+    }
+    return row;
+  }
+
+  private currentStateInstallWriterMatches(
+    state: CoordinatorStateRow,
+    attempt: ReleaseBindingInstallRow,
+  ): boolean {
+    return (
+      state.writer_pending === 1 &&
+      state.writer_operation_id ===
+        `current-state-install:${attempt.operation_id}` &&
+      state.write_fencing_token === attempt.install_fencing_token
+    );
+  }
+
+  private nextInstallFencingToken(stateNextFencingToken: string): string {
+    const rows = this.sql
+      .exec<{ readonly next_fencing_token: string }>(
+        `SELECT next_fencing_token
+         FROM current_state_binding_install_meta WHERE singleton = 1`,
+      )
+      .toArray();
+    if (rows.length !== 1) {
+      throw corruptStorage("Current-state install fence metadata is missing");
+    }
+    const installCounter = parseCanonicalUnsignedDecimal(
+      rows[0]!.next_fencing_token,
+      "Stored current-state install fence",
+      true,
+    );
+    const stateCounter = parseCanonicalUnsignedDecimal(
+      stateNextFencingToken,
+      "Coordinator next fence during current-state install",
+      true,
+    );
+    const base = installCounter > stateCounter ? installCounter : stateCounter;
+    const fencingToken = incrementCounter(base.toString(10));
+    this.sql.exec(
+      `UPDATE current_state_binding_install_meta
+       SET next_fencing_token = ? WHERE singleton = 1`,
+      fencingToken,
+    );
+    return fencingToken;
+  }
+
+  private readBootstrapAuthorization():
+    | CurrentStateBootstrapAuthorizationRow
+    | null {
+    const rows = this.sql
+      .exec<CurrentStateBootstrapAuthorizationRow>(
+        `SELECT operation_id, chain_id, position, generation,
+                record_sha256, restore_epoch, clock_id, clock_epoch,
+                clock_now_ms, clock_uncertainty_ms
+         FROM current_state_bootstrap_authorizations WHERE singleton = 1`,
+      )
+      .toArray();
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) {
+      throw corruptStorage(
+        "Current-state bootstrap authorization singleton is not unique",
+      );
+    }
+    const authorization = rows[0]!;
+    if (
+      authorization.restore_epoch.length === 0 ||
+      authorization.clock_id.length === 0 ||
+      authorization.clock_epoch.length === 0 ||
+      !Number.isSafeInteger(authorization.clock_now_ms) ||
+      !Number.isSafeInteger(authorization.clock_uncertainty_ms) ||
+      authorization.clock_uncertainty_ms < 0
+    ) {
+      throw corruptStorage("Current-state bootstrap authorization is corrupt");
+    }
+    return authorization;
+  }
+
+  private bootstrapAuthorizationMatches(
+    release: ReleaseLedgerOperationRow,
+    restoreEpoch: string,
+  ): boolean {
+    const authorization = this.readBootstrapAuthorization();
+    return authorization !== null &&
+      bootstrapAuthorizationMatchesInstall(
+        authorization,
+        release,
+        restoreEpoch,
+      );
+  }
+
+  private hasPendingReleaseBindingInstall(): boolean {
+    const rows = this.sql
+      .exec<{ readonly count: number }>(
+        `SELECT COUNT(*) AS count
+         FROM current_state_binding_installs
+         WHERE status IN ('VERIFYING', 'QUARANTINED')`,
+      )
+      .toArray();
+    if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.count)) {
+      throw corruptStorage("Current-state install blocker count is invalid");
+    }
+    return rows[0]!.count > 0;
+  }
+
+  private hasCurrentStateInstallHistory(): boolean {
+    const rows = this.sql
+      .exec<{ readonly count: number }>(
+        "SELECT COUNT(*) AS count FROM current_state_binding_installs",
+      )
+      .toArray();
+    if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.count)) {
+      throw corruptStorage("Current-state install history count is invalid");
+    }
+    return rows[0]!.count > 0;
+  }
+
+  private quarantineReleaseBindingInstall(
+    attempt: ReleaseBindingInstallRow,
+    reason: string,
+  ): ReleaseBindingInstallActionResult {
+    this.sql.exec(
+      `UPDATE current_state_binding_installs
+       SET status = 'QUARANTINED', reason = ?
+       WHERE operation_id = ? AND status = 'VERIFYING'`,
+      reason,
+      attempt.operation_id,
+    );
+    return releaseBindingInstallActionFromRow(
+      this.requireReleaseBindingInstall(attempt.operation_id),
+    );
+  }
+
   private get sql() {
     return this.ctx.storage.sql;
   }
@@ -679,6 +2880,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       witness,
       restoreEpoch: row.restore_epoch,
       writerPending: row.writer_pending === 1,
+      writerOperationId: row.writer_operation_id,
       nextFencingToken: row.next_fencing_token,
       writeFencingToken: row.write_fencing_token,
     };
@@ -1386,6 +3588,25 @@ function sameWitness(
   );
 }
 
+function copyCurrentStateBinding(
+  state: FreshnessIssueCurrentStateBinding,
+): FreshnessIssueCurrentStateBinding {
+  return {
+    ...state,
+    antiRollbackWitness: { ...state.antiRollbackWitness },
+  };
+}
+
+function copyLeaseBinding(
+  lease: FreshnessIssueLeaseBinding,
+): FreshnessIssueLeaseBinding {
+  return {
+    ...lease,
+    operation: { ...lease.operation },
+    currentState: copyCurrentStateBinding(lease.currentState),
+  };
+}
+
 function incrementCounter(value: string): string {
   const current = parseCanonicalUnsignedDecimal(
     value,
@@ -1416,6 +3637,665 @@ function compareCounters(left: string, right: string): number {
   return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
 }
 
+type ReleaseHeadBinding = Pick<
+  ReleaseLedgerHead,
+  "environment" | "chainId" | "position" | "generation" | "recordSha256" | "pointerEtag"
+>;
+
+const RELEASE_LEDGER_STATUSES: readonly ReleaseLedgerStatus[] = [
+  "INTENT",
+  "R2_WRITE_PENDING",
+  "R2_STAGED",
+  "LEDGER_COMMITTED",
+  "R2_READBACK_PENDING",
+  "AVAILABLE",
+  "RESULT_UNKNOWN",
+  "QUARANTINED",
+  "CONFLICT",
+];
+
+function assertReleaseOperationRow(
+  row: ReleaseLedgerOperationRow,
+  expectedChainId: string,
+): void {
+  if (
+    !UUID_V4_PATTERN.test(row.operation_id) ||
+    !SHA256_BASE64URL_PATTERN.test(row.request_sha256) ||
+    row.environment !== "production" ||
+    row.chain_id !== expectedChainId ||
+    !RELEASE_LEDGER_STATUSES.includes(row.status as ReleaseLedgerStatus) ||
+    !(row.manifest_bytes instanceof ArrayBuffer) ||
+    !Number.isSafeInteger(row.manifest_length) ||
+    row.manifest_length !== row.manifest_bytes.byteLength ||
+    row.manifest_length === 0 ||
+    row.manifest_length > 1_048_576 ||
+    !SHA256_BASE64URL_PATTERN.test(row.manifest_sha256) ||
+    typeof row.manifest_epoch !== "string" ||
+    typeof row.manifest_ref !== "string" ||
+    typeof row.expected_pointer_etag !== "string"
+  ) {
+    throw corruptStorage("Persisted Release operation binding is invalid");
+  }
+  parseCanonicalUnsignedDecimal(row.manifest_epoch, "Stored Manifest epoch");
+  if (row.fencing_token !== null) {
+    parseCanonicalUnsignedDecimal(
+      row.fencing_token,
+      "Stored Release fencing token",
+    );
+  }
+  if (
+    (row.expected_position === null) !==
+      (row.expected_generation === null) ||
+    (row.expected_position === null) !==
+      (row.expected_record_sha256 === null)
+  ) {
+    throw corruptStorage("Persisted Release predecessor binding is incomplete");
+  }
+  if (row.expected_position !== null) {
+    parseCanonicalUnsignedDecimal(
+      row.expected_position,
+      "Stored Release predecessor position",
+    );
+    parseCanonicalUnsignedDecimal(
+      row.expected_generation!,
+      "Stored Release predecessor generation",
+    );
+    if (
+      !SHA256_BASE64URL_PATTERN.test(row.expected_record_sha256!) ||
+      row.expected_pointer_etag.length === 0
+    ) {
+      throw corruptStorage("Persisted Release predecessor binding is invalid");
+    }
+  }
+  if (
+    row.unknown_stage !== null &&
+    row.unknown_stage !== "R2_WRITE" &&
+    row.unknown_stage !== "RELEASE_SIGNER" &&
+    row.unknown_stage !== "R2_READBACK"
+  ) {
+    throw corruptStorage("Persisted Release Unknown stage is invalid");
+  }
+  if (
+    row.resume_status !== null &&
+    !RELEASE_LEDGER_STATUSES.includes(
+      row.resume_status as ReleaseLedgerStatus,
+    )
+  ) {
+    throw corruptStorage("Persisted Release resume status is invalid");
+  }
+  if (
+    (row.status === "RESULT_UNKNOWN") !== (row.unknown_stage !== null) ||
+    (row.status !== "RESULT_UNKNOWN" &&
+      (row.unknown_stage !== null || row.resume_status !== null))
+  ) {
+    throw corruptStorage("Persisted Release Unknown state is inconsistent");
+  }
+
+  const recordFieldsPresent = [
+    row.record_bytes,
+    row.record_length,
+    row.record_sha256,
+    row.record_appended_at,
+    row.release_delegation_bytes,
+    row.position,
+    row.generation,
+    row.release_commit_id,
+  ].every((value) => value !== null);
+  const recordFieldsAbsent = [
+    row.record_bytes,
+    row.record_length,
+    row.record_sha256,
+    row.record_appended_at,
+    row.release_delegation_bytes,
+    row.position,
+    row.generation,
+    row.release_commit_id,
+  ].every((value) => value === null);
+  if (!recordFieldsPresent && !recordFieldsAbsent) {
+    throw corruptStorage("Persisted Release Record binding is incomplete");
+  }
+  if (recordFieldsPresent) {
+    if (
+      !(row.record_bytes instanceof ArrayBuffer) ||
+      row.record_length !== row.record_bytes.byteLength ||
+      row.record_length === 0 ||
+      !SHA256_BASE64URL_PATTERN.test(row.record_sha256!) ||
+      !(row.release_delegation_bytes instanceof ArrayBuffer) ||
+      row.release_delegation_bytes.byteLength === 0 ||
+      !UUID_V4_PATTERN.test(row.release_commit_id!)
+    ) {
+      throw corruptStorage("Persisted Release Record binding is invalid");
+    }
+    parseCanonicalUnsignedDecimal(row.position!, "Stored Release position");
+    parseCanonicalUnsignedDecimal(row.generation!, "Stored Release generation");
+    assertTimestampString(row.record_appended_at!);
+  }
+
+  if (
+    (row.pointer_bytes === null) !== (row.pointer_etag === null) ||
+    (row.pointer_bytes !== null &&
+      (!(row.pointer_bytes instanceof ArrayBuffer) ||
+        row.pointer_bytes.byteLength === 0 ||
+        row.pointer_etag!.length === 0)) ||
+    (row.snapshot_bytes !== null &&
+      (!(row.snapshot_bytes instanceof ArrayBuffer) ||
+        row.snapshot_bytes.byteLength === 0)) ||
+    (row.snapshot_bytes !== null && row.pointer_bytes === null)
+  ) {
+    throw corruptStorage("Persisted Release R2 binding is incomplete");
+  }
+  if (
+    row.status === "R2_STAGED" ||
+    row.status === "LEDGER_COMMITTED" ||
+    row.status === "R2_READBACK_PENDING" ||
+    row.status === "AVAILABLE"
+  ) {
+    if (
+      row.pointer_bytes === null ||
+      row.snapshot_bytes === null ||
+      !equalBytes(
+        bytesFromArrayBuffer(row.pointer_bytes),
+        bytesFromArrayBuffer(row.snapshot_bytes),
+      ) ||
+      !equalBytes(
+        bytesFromArrayBuffer(row.pointer_bytes),
+        bytesFromArrayBuffer(row.manifest_bytes),
+      )
+    ) {
+      throw corruptStorage("Persisted Release R2 bytes differ from the Manifest");
+    }
+  }
+  if (
+    row.status === "AVAILABLE" &&
+    (!recordFieldsPresent ||
+      row.reason !== null ||
+      row.pointer_etag === null)
+  ) {
+    throw corruptStorage("Available Release operation has incomplete proof state");
+  }
+}
+
+function releaseOperationFromRow(
+  row: ReleaseLedgerOperationRow,
+): ReleaseLedgerOperation {
+  if (!RELEASE_LEDGER_STATUSES.includes(row.status as ReleaseLedgerStatus)) {
+    throw corruptStorage("Persisted Release operation status is invalid");
+  }
+  return {
+    operationId: row.operation_id,
+    requestSha256: row.request_sha256,
+    status: row.status as ReleaseLedgerStatus,
+    reason: row.reason,
+    unknownStage: row.unknown_stage as
+      | "R2_WRITE"
+      | "RELEASE_SIGNER"
+      | "R2_READBACK"
+      | null,
+    resumeStatus: row.resume_status as ReleaseLedgerStatus | null,
+    fencingToken: row.fencing_token,
+    expectedHead:
+      row.expected_position === null
+        ? null
+        : {
+            position: row.expected_position,
+            generation: requiredString(
+              row.expected_generation,
+              "expected_generation",
+            ),
+            recordSha256: requiredString(
+              row.expected_record_sha256,
+              "expected_record_sha256",
+            ),
+            pointerEtag: row.expected_pointer_etag,
+          },
+    environment: row.environment as "production",
+    chainId: row.chain_id,
+    manifestBytes: copyBytes(bytesFromArrayBuffer(row.manifest_bytes)),
+    manifestLength: row.manifest_length,
+    manifestSha256: row.manifest_sha256,
+    manifestEpoch: row.manifest_epoch,
+    manifestRef: row.manifest_ref,
+    expectedPointerEtag: row.expected_pointer_etag,
+    pointerBytes:
+      row.pointer_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.pointer_bytes)),
+    pointerEtag: row.pointer_etag,
+    snapshotBytes:
+      row.snapshot_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.snapshot_bytes)),
+    recordBytes:
+      row.record_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.record_bytes)),
+    recordLength: row.record_length,
+    recordSha256: row.record_sha256,
+    localAppendObservedAt: row.record_appended_at,
+    releaseDelegationBytes:
+      row.release_delegation_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.release_delegation_bytes)),
+    position: row.position,
+    generation: row.generation,
+  };
+}
+
+const RELEASE_BINDING_INSTALL_STATUSES = [
+  "VERIFYING",
+  "INSTALLED",
+  "QUARANTINED",
+  "CONFLICT",
+] as const;
+
+function releaseBindingInstallFromRow(
+  row: ReleaseBindingInstallRow,
+): ReleaseBindingInstallOperation {
+  if (
+    !UUID_V4_PATTERN.test(row.operation_id) ||
+    !SHA256_BASE64URL_PATTERN.test(row.request_sha256) ||
+    row.environment !== "production" ||
+    row.chain_id.length === 0 ||
+    (row.mode !== "BOOTSTRAP" && row.mode !== "ADVANCE") ||
+    !RELEASE_BINDING_INSTALL_STATUSES.includes(
+      row.status as (typeof RELEASE_BINDING_INSTALL_STATUSES)[number],
+    ) ||
+    row.release_operation_id.length === 0 ||
+    row.release_fencing_token.length === 0 ||
+    row.install_fencing_token.length === 0 ||
+    row.expected_restore_epoch.length === 0 ||
+    !/^[1-9][0-9]*$/u.test(row.target_position) ||
+    !/^[1-9][0-9]*$/u.test(row.target_generation) ||
+    !SHA256_BASE64URL_PATTERN.test(row.target_record_sha256) ||
+    (row.mode === "BOOTSTRAP" &&
+      row.expected_current_state_sha256 !== null) ||
+    (row.mode === "ADVANCE" &&
+      (row.expected_current_state_sha256 === null ||
+        !SHA256_BASE64URL_PATTERN.test(row.expected_current_state_sha256))) ||
+    (row.proof_context_sha256 !== null &&
+      !SHA256_BASE64URL_PATTERN.test(row.proof_context_sha256)) ||
+    (row.status === "INSTALLED") !== (row.installed_state_json !== null)
+  ) {
+    throw corruptStorage("Persisted current-state install operation is invalid");
+  }
+  const installedState = row.installed_state_json === null
+    ? null
+    : parseCurrentState(row.installed_state_json);
+  if (
+    (row.status === "INSTALLED") !== (row.proof_context_sha256 !== null)
+  ) {
+    throw corruptStorage("Persisted current-state install result is incomplete");
+  }
+  return {
+    operationId: row.operation_id,
+    requestSha256: row.request_sha256,
+    environment: "production",
+    chainId: row.chain_id,
+    mode: row.mode as "BOOTSTRAP" | "ADVANCE",
+    status: row.status as ReleaseBindingInstallOperation["status"],
+    reason: row.reason,
+    releaseOperationId: row.release_operation_id,
+    releaseFencingToken: row.release_fencing_token,
+    installFencingToken: row.install_fencing_token,
+    expectedCurrentStateSha256: row.expected_current_state_sha256,
+    expectedRestoreEpoch: row.expected_restore_epoch,
+    targetPosition: row.target_position,
+    targetGeneration: row.target_generation,
+    targetRecordSha256: row.target_record_sha256,
+    proofContextSha256: row.proof_context_sha256,
+    installedState:
+      installedState === null ? null : copyCurrentStateBinding(installedState),
+  };
+}
+
+function releaseBindingInstallActionFromRow(
+  row: ReleaseBindingInstallRow,
+): ReleaseBindingInstallActionResult {
+  const operation = releaseBindingInstallFromRow(row);
+  if (operation.status === "VERIFYING") {
+    return { status: "STARTED", operation };
+  }
+  if (operation.status === "INSTALLED") {
+    return { status: "INSTALLED", operation };
+  }
+  if (operation.status === "QUARANTINED") {
+    return { status: "QUARANTINED", operation };
+  }
+  return { status: "CONFLICT", operation };
+}
+
+function assertCurrentStateInstallProofContext(
+  context: FreshnessCurrentStateInstallProofContext,
+): void {
+  assertUuid(context.installOperationId, "Current-state install operation ID");
+  assertUuid(context.releaseOperationId, "Release operation ID");
+  const validFence = (value: string) =>
+    typeof value === "string" &&
+    value.length <= 20 &&
+    /^(0|[1-9][0-9]*)$/u.test(value);
+  if (
+    (context.mode !== "BOOTSTRAP" && context.mode !== "ADVANCE") ||
+    context.environment !== "production" ||
+    context.chainId.length === 0 ||
+    !validFence(context.installFencingToken) ||
+    !validFence(context.releaseFencingToken) ||
+    !/^[1-9][0-9]*$/u.test(context.targetPosition) ||
+    !/^[1-9][0-9]*$/u.test(context.targetGeneration) ||
+    !SHA256_BASE64URL_PATTERN.test(context.targetRecordSha256) ||
+    context.expectedRestoreEpoch.length === 0 ||
+    (context.mode === "BOOTSTRAP" &&
+      context.expectedCurrentStateSha256 !== null) ||
+    (context.mode === "ADVANCE" &&
+      (context.expectedCurrentStateSha256 === null ||
+        !SHA256_BASE64URL_PATTERN.test(context.expectedCurrentStateSha256))) ||
+    !SHA256_BASE64URL_PATTERN.test(context.readContextSha256) ||
+    !Number.isSafeInteger(context.clock.nowMs) ||
+    !Number.isSafeInteger(context.clock.uncertaintyMs) ||
+    context.clock.uncertaintyMs < 0
+  ) {
+    throw invalidInput("Current-state install proof context is invalid");
+  }
+}
+
+function installProofMatchesOperation(
+  context: FreshnessCurrentStateInstallProofContext,
+  operation: ReleaseBindingInstallRow,
+): boolean {
+  return (
+    context.installOperationId === operation.operation_id &&
+    context.installFencingToken === operation.install_fencing_token &&
+    context.mode === operation.mode &&
+    context.environment === operation.environment &&
+    context.chainId === operation.chain_id &&
+    context.releaseOperationId === operation.release_operation_id &&
+    context.releaseFencingToken === operation.release_fencing_token &&
+    context.targetPosition === operation.target_position &&
+    context.targetGeneration === operation.target_generation &&
+    context.targetRecordSha256 === operation.target_record_sha256 &&
+    context.expectedRestoreEpoch === operation.expected_restore_epoch &&
+    context.expectedCurrentStateSha256 ===
+      operation.expected_current_state_sha256
+  );
+}
+
+function releaseHeadMatchesOperation(
+  head: ReleaseLedgerHeadRow,
+  operation: ReleaseLedgerOperationRow,
+): boolean {
+  return (
+    head.operation_id === operation.operation_id &&
+    head.environment === operation.environment &&
+    head.chain_id === operation.chain_id &&
+    head.position === operation.position &&
+    head.generation === operation.generation &&
+    head.record_sha256 === operation.record_sha256 &&
+    head.manifest_epoch === operation.manifest_epoch &&
+    head.manifest_sha256 === operation.manifest_sha256 &&
+    head.manifest_ref === operation.manifest_ref &&
+    head.pointer_etag === operation.pointer_etag
+  );
+}
+
+function releaseOperationPredecessorMatchesState(
+  operation: ReleaseLedgerOperationRow,
+  state: FreshnessIssueCurrentStateBinding,
+): boolean {
+  return (
+    operation.expected_position === state.generation &&
+    operation.expected_generation === state.generation &&
+    operation.expected_record_sha256 === state.releaseCommitRecordSha256 &&
+    operation.expected_pointer_etag === state.pointerEtag &&
+    state.journalHeadSha256 === state.releaseCommitRecordSha256
+  );
+}
+
+function verifiedReleaseStateMatchesOperation(
+  state: VerifiedFreshnessReleaseState,
+  operation: ReleaseLedgerOperationRow,
+  head: ReleaseLedgerHeadRow,
+  context: FreshnessCurrentStateInstallProofContext,
+): boolean {
+  const recordPayload = state.verifiedReleaseCommitRecord.payload;
+  if (
+    operation.record_bytes === null ||
+    operation.record_length === null ||
+    operation.record_sha256 === null ||
+    operation.release_delegation_bytes === null ||
+    operation.pointer_bytes === null ||
+    operation.snapshot_bytes === null ||
+    operation.pointer_etag === null ||
+    state.source !== "verified-release-journal-r2-witness" ||
+    state.environment !== "production" ||
+    state.chainId !== operation.chain_id ||
+    state.journalHead.position !== context.targetPosition ||
+    state.journalHead.generation !== operation.generation ||
+    state.journalHead.record_sha256 !== operation.record_sha256 ||
+    state.releaseCommitRecordSha256 !== operation.record_sha256 ||
+    state.releaseCommitRecordSha256 !== head.record_sha256 ||
+    recordPayload.commit_generation !== operation.generation ||
+    recordPayload.previous_commit_record_sha256 !==
+      operation.previous_record_sha256 ||
+    recordPayload.manifest_sha256 !== operation.manifest_sha256 ||
+    recordPayload.manifest_epoch !== operation.manifest_epoch ||
+    recordPayload.manifest_ref !== operation.manifest_ref ||
+    recordPayload.pointer_etag !== operation.pointer_etag ||
+    state.manifestSha256 !== operation.manifest_sha256 ||
+    state.manifestEpoch !== operation.manifest_epoch ||
+    state.manifestRef !== operation.manifest_ref ||
+    state.pointerEtag !== operation.pointer_etag ||
+    state.pointerGeneration !== operation.generation ||
+    state.antiRollbackWitness.generation !== operation.generation ||
+    state.antiRollbackWitness.recordSha256 !== operation.record_sha256 ||
+    state.antiRollbackWitness.restoreEpoch !== context.expectedRestoreEpoch ||
+    state.proofContextSha256 !== context.readContextSha256 ||
+    !equalBytes(state.releaseDelegationBytes, bytesFromArrayBuffer(operation.release_delegation_bytes)) ||
+    !equalBytes(
+      state.recordBytes,
+      bytesFromArrayBuffer(operation.record_bytes),
+    ) ||
+    !equalBytes(
+      state.manifestBytes,
+      bytesFromArrayBuffer(operation.manifest_bytes),
+    ) ||
+    !equalBytes(
+      state.manifestBytes,
+      bytesFromArrayBuffer(operation.pointer_bytes),
+    ) ||
+    !equalBytes(
+      state.manifestBytes,
+      bytesFromArrayBuffer(operation.snapshot_bytes),
+    ) ||
+    !equalBytes(
+      bytesFromArrayBuffer(operation.record_bytes),
+      bytesFromArrayBuffer(head.record_bytes),
+    )
+  ) {
+    return false;
+  }
+  return operation.record_length === operation.record_bytes.byteLength;
+}
+
+function bootstrapAuthorizationMatchesInstall(
+  authorization: CurrentStateBootstrapAuthorizationRow,
+  release: ReleaseLedgerOperationRow,
+  expectedRestoreEpoch: string,
+): boolean {
+  return (
+    release.environment === "production" &&
+    release.position === "1" &&
+    release.generation === "1" &&
+    release.previous_record_sha256 === null &&
+    authorization.operation_id === release.operation_id &&
+    authorization.chain_id === release.chain_id &&
+    authorization.position === release.position &&
+    authorization.generation === release.generation &&
+    authorization.record_sha256 === release.record_sha256 &&
+    authorization.restore_epoch === expectedRestoreEpoch
+  );
+}
+
+function releaseActionFromOperation(
+  operation: ReleaseLedgerOperation,
+): ReleaseLedgerActionResult {
+  const status =
+    operation.status === "INTENT" ? "STARTED" : operation.status;
+  return { status, operation };
+}
+
+function releaseExpectedHeadFromRow(
+  row: ReleaseLedgerOperationRow,
+): ReleaseHeadBinding {
+  if (
+    row.expected_position === null ||
+    row.expected_generation === null ||
+    row.expected_record_sha256 === null
+  ) {
+    throw corruptStorage("Release operation has no complete predecessor");
+  }
+  return {
+    environment: "production",
+    chainId: row.chain_id,
+    position: row.expected_position,
+    generation: row.expected_generation,
+    recordSha256: row.expected_record_sha256,
+    pointerEtag: row.expected_pointer_etag,
+  };
+}
+
+function sameReleaseHeadBinding(
+  left: ReleaseLedgerHeadRow | null,
+  right: ReleaseLedgerHead | ReleaseHeadBinding | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.environment === right.environment &&
+    left.chain_id === right.chainId &&
+    left.position === right.position &&
+    left.generation === right.generation &&
+    left.record_sha256 === right.recordSha256 &&
+    left.pointer_etag === right.pointerEtag
+  );
+}
+
+function coordinatorStateMatchesReleaseHead(
+  currentState: FreshnessIssueCurrentStateBinding,
+  head: ReleaseLedgerHeadRow,
+): boolean {
+  return (
+    currentState.environment === "production" &&
+    currentState.generation === head.generation &&
+    currentState.journalHeadSha256 === head.record_sha256 &&
+    currentState.releaseCommitId === head.release_commit_id &&
+    currentState.releaseCommitRecordSha256 === head.record_sha256 &&
+    currentState.manifestEpoch === head.manifest_epoch &&
+    currentState.manifestSha256 === head.manifest_sha256 &&
+    currentState.manifestRef === head.manifest_ref &&
+    currentState.pointerEtag === head.pointer_etag &&
+    currentState.pointerGeneration === head.generation
+  );
+}
+
+function assertReleaseRecordMatchesOperation(
+  record: Awaited<ReturnType<typeof verifyRuntimeConfigReleaseCommitRecord>>,
+  operation: ReleaseLedgerOperation,
+  recordBytes: Uint8Array,
+  releaseDelegationBytes: Uint8Array,
+): void {
+  if (
+    operation.environment !== "production" ||
+    (operation.recordSha256 !== null &&
+      record.digest !== operation.recordSha256) ||
+    (operation.recordBytes !== null &&
+      !equalBytes(recordBytes, operation.recordBytes)) ||
+    (operation.releaseDelegationBytes !== null &&
+      !equalBytes(
+        releaseDelegationBytes,
+        operation.releaseDelegationBytes,
+      )) ||
+    record.payload.manifest_epoch !== operation.manifestEpoch ||
+    record.payload.manifest_sha256 !== operation.manifestSha256 ||
+    record.payload.manifest_ref !== operation.manifestRef ||
+    (operation.pointerEtag !== null &&
+      record.payload.pointer_etag !== operation.pointerEtag)
+  ) {
+    throw invalidInput("Release Record does not match the stored operation binding");
+  }
+}
+
+function copyReleaseHead(
+  value: ReleaseLedgerHead | null,
+): ReleaseLedgerHead | null {
+  if (value === null) return null;
+  const head: ReleaseLedgerHead = {
+    environment: value.environment,
+    chainId: value.chainId,
+    position: value.position,
+    generation: value.generation,
+    recordSha256: value.recordSha256,
+    recordBytes: copyBytes(value.recordBytes),
+    releaseDelegationBytes: copyBytes(value.releaseDelegationBytes),
+    previousRecordSha256: value.previousRecordSha256,
+    releaseCommitId: value.releaseCommitId,
+    localAppendObservedAt: value.localAppendObservedAt,
+    manifestEpoch: value.manifestEpoch,
+    manifestSha256: value.manifestSha256,
+    manifestRef: value.manifestRef,
+    pointerEtag: value.pointerEtag,
+    manifestBytes: copyBytes(value.manifestBytes),
+  };
+  if (
+    head.environment !== "production" ||
+    head.chainId.length === 0 ||
+    head.position.length === 0 ||
+    head.generation.length === 0 ||
+    !SHA256_BASE64URL_PATTERN.test(head.recordSha256) ||
+    !UUID_V4_PATTERN.test(head.releaseCommitId) ||
+    !SHA256_BASE64URL_PATTERN.test(head.manifestSha256) ||
+    head.manifestEpoch.length === 0 ||
+    head.manifestRef.length === 0 ||
+    head.pointerEtag.length === 0 ||
+    head.recordBytes.byteLength === 0 ||
+    head.releaseDelegationBytes.byteLength === 0 ||
+    head.manifestBytes.byteLength === 0
+  ) {
+    throw invalidInput("Expected Release head binding is invalid");
+  }
+  parseCanonicalUnsignedDecimal(head.position, "Expected Release position");
+  parseCanonicalUnsignedDecimal(head.generation, "Expected Release generation");
+  parseCanonicalUnsignedDecimal(head.manifestEpoch, "Expected Manifest epoch");
+  if (
+    head.previousRecordSha256 !== null &&
+    !SHA256_BASE64URL_PATTERN.test(head.previousRecordSha256)
+  ) {
+    throw invalidInput("Expected Release predecessor digest is invalid");
+  }
+  assertTimestampString(head.localAppendObservedAt);
+  return head;
+}
+
+function assertTimestampString(value: string): void {
+  if (
+    typeof value !== "string" ||
+    !Number.isFinite(Date.parse(value)) ||
+    new Date(value).toISOString() !== value
+  ) {
+    throw corruptStorage("Stored Release append observation time is invalid");
+  }
+}
+
+function timestampFromMilliseconds(value: number): string {
+  if (!Number.isSafeInteger(value)) {
+    throw invalidInput("Release append observation clock is invalid");
+  }
+  try {
+    return new Date(value).toISOString();
+  } catch {
+    throw invalidInput(
+      "Release append observation time is outside the valid range",
+    );
+  }
+}
+
 async function sha256Base64Url(bytes: Uint8Array): Promise<string> {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
@@ -1433,6 +4313,10 @@ function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
   return buffer;
+}
+
+function bytesFromArrayBuffer(buffer: ArrayBuffer): Uint8Array {
+  return new Uint8Array(buffer.slice(0));
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {

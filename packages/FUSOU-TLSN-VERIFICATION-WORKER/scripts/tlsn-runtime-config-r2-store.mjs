@@ -14,8 +14,11 @@ export const RUNTIME_CONFIG_R2_ENV = Object.freeze({
 
 const MANIFEST_KEY = "tlsn/runtime-config/v2/manifest.json";
 const IMMUTABLE_PREFIX = "tlsn/runtime-config/v2/artifacts/";
+const IMMUTABLE_MANIFEST_PREFIX = "tlsn/runtime-config/v2/manifests/";
 const IMMUTABLE_KEY_PATTERN =
   /^tlsn\/runtime-config\/v2\/artifacts\/(?:worker-reference|origin-inventory|target-approval|security-registry-set|result-registry-envelope)\/[A-Za-z0-9_-]{43}$/;
+const IMMUTABLE_MANIFEST_KEY_PATTERN =
+  /^tlsn\/runtime-config\/v2\/manifests\/[A-Za-z0-9_-]{43}$/;
 const ACCOUNT_ID_PATTERN = /^[a-f0-9]{32}$/i;
 const BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const NETWORK_ERROR_CODES = new Set([
@@ -174,7 +177,11 @@ function assertETag(value) {
 }
 
 function assertSupportedKey(key) {
-  if (key !== MANIFEST_KEY && !IMMUTABLE_KEY_PATTERN.test(key)) {
+  if (
+    key !== MANIFEST_KEY &&
+    !IMMUTABLE_KEY_PATTERN.test(key) &&
+    !IMMUTABLE_MANIFEST_KEY_PATTERN.test(key)
+  ) {
     throw new RuntimeConfigR2ConfigurationError(
       "Runtime Config R2 object key is outside the versioned publication namespace",
     );
@@ -200,7 +207,10 @@ function assertImmutableObject(object) {
   if (
     !object ||
     typeof object.key !== "string" ||
-    !object.key.startsWith(IMMUTABLE_PREFIX) ||
+    !(
+      object.key.startsWith(IMMUTABLE_PREFIX) ||
+      object.key.startsWith(IMMUTABLE_MANIFEST_PREFIX)
+    ) ||
     !(object.body instanceof Uint8Array) ||
     object.content_type !== "application/octet-stream" ||
     object.cache_control !== "public, max-age=31536000, immutable"
@@ -451,6 +461,67 @@ export function createR2RuntimeConfigObjectStore({
           "R2 accepted the manifest write without returning a usable ETag",
         ),
       );
+    },
+  });
+}
+
+export function createR2RuntimeConfigFreshnessManifestStore(objectStore) {
+  if (
+    !objectStore ||
+    typeof objectStore.getManifestState !== "function" ||
+    typeof objectStore.getObject !== "function"
+  ) {
+    throw new RuntimeConfigR2ConfigurationError(
+      "Runtime Config Freshness manifest reads require the existing R2 object store",
+    );
+  }
+
+  return Object.freeze({
+    async readCurrentManifestPointer() {
+      const state = await objectStore.getManifestState();
+      if (state === null) return null;
+      if (
+        !state ||
+        !(state.body instanceof Uint8Array) ||
+        typeof state.etag !== "string"
+      ) {
+        throw new RuntimeConfigPointerIntegrityError(
+          "Runtime Config manifest pointer readback is malformed",
+        );
+      }
+      return Object.freeze({
+        etag: assertETag(state.etag),
+        bytes: Uint8Array.from(state.body),
+      });
+    },
+
+    async readImmutableManifestSnapshot(reference) {
+      if (
+        typeof reference !== "string" ||
+        !IMMUTABLE_MANIFEST_KEY_PATTERN.test(reference)
+      ) {
+        throw new RuntimeConfigR2ConfigurationError(
+          "Runtime Config immutable Manifest reference is outside the content-addressed namespace",
+        );
+      }
+      const body = await objectStore.getObject(reference);
+      if (body === null) return null;
+      if (!(body instanceof Uint8Array)) {
+        throw new RuntimeConfigArtifactIntegrityError(
+          "Runtime Config immutable Manifest snapshot is not exact bytes",
+        );
+      }
+      const bytes = Buffer.from(body);
+      const digest = createHash("sha256").update(bytes).digest("base64url");
+      if (reference !== `${IMMUTABLE_MANIFEST_PREFIX}${digest}`) {
+        throw new RuntimeConfigArtifactIntegrityError(
+          "Runtime Config immutable Manifest snapshot key does not match its exact body digest",
+        );
+      }
+      return Object.freeze({
+        reference,
+        bytes: Uint8Array.from(bytes),
+      });
     },
   });
 }

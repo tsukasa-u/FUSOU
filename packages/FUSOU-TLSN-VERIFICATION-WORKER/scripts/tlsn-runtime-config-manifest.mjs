@@ -752,6 +752,15 @@ export function createTlsnRuntimeConfigPublicationObjects(rawEnvelope, verificat
     cache_control: "public, max-age=31536000, immutable",
     body: Buffer.from(body),
   }));
+  const manifestSha256 = createHash("sha256")
+    .update(rawEnvelope)
+    .digest("base64url");
+  objects.push({
+    key: `tlsn/runtime-config/v2/manifests/${manifestSha256}`,
+    content_type: "application/octet-stream",
+    cache_control: "public, max-age=31536000, immutable",
+    body: Buffer.from(rawEnvelope),
+  });
   objects.push({
     key: "tlsn/runtime-config/v2/manifest.json",
     content_type: "application/json",

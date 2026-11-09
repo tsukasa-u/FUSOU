@@ -8,6 +8,7 @@ import {
 } from "./domain.ts";
 import type {
   FreshnessIssueCurrentStateBinding,
+  FreshnessIssueCoordinatorSnapshot,
   FreshnessIssueLeaseBinding,
   FreshnessIssueOperationBinding,
   FreshnessResponseSignerRequest,
@@ -17,6 +18,7 @@ import type {
   ProductionFreshnessResponseSigner,
   TestOnlyFreshnessResponseSigner,
   VerifiedCurrentFreshnessState,
+  VerifiedFreshnessReleaseState,
 } from "./signers.ts";
 import type {
   FreshnessRequest,
@@ -170,6 +172,13 @@ export interface FreshnessIssueCoordinator {
     readonly signedAtMs: number;
     readonly currentState: FreshnessIssueCurrentStateBinding;
   }): Promise<FreshnessIssueFinalizationResult>;
+}
+
+export interface FreshnessIssueCoordinatorSnapshotReader {
+  readCurrentStateSnapshot(input: {
+    readonly operation: FreshnessIssueOperationBinding;
+    readonly lease: FreshnessIssueLeaseBinding;
+  }): Promise<FreshnessIssueCoordinatorSnapshot>;
 }
 
 export interface FreshnessCurrentStateReadInput {
@@ -654,10 +663,38 @@ async function assertCurrentStateEvidence(
   state: VerifiedCurrentFreshnessState,
   lease: FreshnessIssueLeaseBinding,
 ): Promise<void> {
+  const coordinatorSnapshot = evidence.coordinatorSnapshot;
+  const snapshotWitness = coordinatorSnapshot.witness;
   if (
     evidence.journalHead.appendReceiptBytes.byteLength === 0 ||
+    evidence.journalHead.currentHeadProofBytes.byteLength === 0 ||
     evidence.antiRollbackWitness.signedBytes.byteLength === 0 ||
     evidence.coordinatorHead.writerPending ||
+    coordinatorSnapshot.operationStatus !== "IN_PROGRESS" ||
+    coordinatorSnapshot.blocker !== "RETAINED" ||
+    coordinatorSnapshot.writerPending ||
+    coordinatorSnapshot.environment !== "production" ||
+    !sameOperationBinding(coordinatorSnapshot.operation, lease.operation) ||
+    !sameLeaseBinding(coordinatorSnapshot.lease, lease) ||
+    !sameCurrentStateBinding(coordinatorSnapshot.currentState, lease.currentState) ||
+    !sameCurrentStateBinding(
+      coordinatorSnapshot.lease.currentState,
+      lease.currentState,
+    ) ||
+    snapshotWitness.sourceId !== evidence.antiRollbackWitness.sourceId ||
+    snapshotWitness.restoreEpoch !== evidence.antiRollbackWitness.restoreEpoch ||
+    snapshotWitness.generation !== evidence.antiRollbackWitness.generation ||
+    snapshotWitness.recordSha256 !== evidence.antiRollbackWitness.recordSha256 ||
+    coordinatorSnapshot.restoreEpoch !== snapshotWitness.restoreEpoch ||
+    evidence.coordinatorHead.environment !== coordinatorSnapshot.environment ||
+    evidence.coordinatorHead.generation !==
+      coordinatorSnapshot.currentState.generation ||
+    evidence.coordinatorHead.recordSha256 !==
+      coordinatorSnapshot.currentState.journalHeadSha256 ||
+    evidence.coordinatorHead.manifestEpoch !==
+      coordinatorSnapshot.currentState.manifestEpoch ||
+    evidence.coordinatorHead.restoreEpoch !==
+      coordinatorSnapshot.restoreEpoch ||
     evidence.journalHead.appendedAt !== state.journalAppendedAt ||
     evidence.pointer.environment !== "production" ||
     evidence.coordinatorHead.environment !== "production" ||
@@ -696,7 +733,10 @@ async function assertCurrentStateEvidence(
   }
 
   const binding = await createFreshnessIssueCurrentStateBinding(state);
-  if (!sameCurrentStateBinding(binding, lease.currentState)) {
+  if (
+    !sameCurrentStateBinding(binding, lease.currentState) ||
+    !sameCurrentStateBinding(binding, coordinatorSnapshot.currentState)
+  ) {
     throw new FreshnessIssueCoreError(
       "INVALID_STATE",
       "Verified current state does not match the issue lease binding",
@@ -706,6 +746,50 @@ async function assertCurrentStateEvidence(
 
 export async function createFreshnessIssueCurrentStateBinding(
   state: VerifiedCurrentFreshnessState,
+): Promise<FreshnessIssueCurrentStateBinding> {
+  if (
+    state.source !== "verified-journal-do-r2-snapshot" ||
+    state.freshnessSemantics !== "LATEST_AT_ISSUANCE"
+  ) {
+    throw new FreshnessIssueCoreError(
+      "INVALID_STATE",
+      "Current-state issue binding requires issue-scoped verified evidence",
+    );
+  }
+  return createCurrentStateBinding(state);
+}
+
+export async function createFreshnessIssueCurrentStateBindingFromReleaseState(
+  state: VerifiedFreshnessReleaseState,
+): Promise<FreshnessIssueCurrentStateBinding> {
+  if (state.source !== "verified-release-journal-r2-witness") {
+    throw new FreshnessIssueCoreError(
+      "INVALID_STATE",
+      "Release install binding requires independently verified Release evidence",
+    );
+  }
+  return createCurrentStateBinding(state);
+}
+
+type FreshnessCurrentStateBindingClaims = Pick<
+  VerifiedCurrentFreshnessState,
+  | "environment"
+  | "journalHead"
+  | "verifiedReleaseCommitRecord"
+  | "releaseCommitRecord"
+  | "releaseCommitRecordSha256"
+  | "journalAppendedAt"
+  | "manifestBytes"
+  | "manifestSha256"
+  | "manifestRef"
+  | "pointerEtag"
+  | "pointerGeneration"
+  | "manifestEpoch"
+  | "antiRollbackWitness"
+>;
+
+async function createCurrentStateBinding(
+  state: FreshnessCurrentStateBindingClaims,
 ): Promise<FreshnessIssueCurrentStateBinding> {
   const record = state.verifiedReleaseCommitRecord;
   const recordBytes = canonicalJsonBytes(record.envelope);
@@ -734,8 +818,6 @@ export async function createFreshnessIssueCurrentStateBinding(
     antiRollbackWitness: witness,
   };
   if (
-    state.source !== "verified-journal-do-r2-snapshot" ||
-    state.freshnessSemantics !== "LATEST_AT_ISSUANCE" ||
     state.environment !== "production" ||
     record.digest !== recordDigest ||
     record.digest !== state.releaseCommitRecordSha256 ||
@@ -898,6 +980,23 @@ function sameCurrentStateBinding(
   right: FreshnessIssueCurrentStateBinding,
 ): boolean {
   return bytesEqual(canonicalJsonBytes(left), canonicalJsonBytes(right));
+}
+
+function sameLeaseBinding(
+  left: FreshnessIssueLeaseBinding,
+  right: FreshnessIssueLeaseBinding,
+): boolean {
+  return (
+    sameOperationBinding(left.operation, right.operation) &&
+    left.leaseId === right.leaseId &&
+    left.fencingToken === right.fencingToken &&
+    left.acquiredAtMs === right.acquiredAtMs &&
+    left.expiresAtMs === right.expiresAtMs &&
+    left.clockId === right.clockId &&
+    left.clockEpoch === right.clockEpoch &&
+    left.clockUncertaintyMs === right.clockUncertaintyMs &&
+    sameCurrentStateBinding(left.currentState, right.currentState)
+  );
 }
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {

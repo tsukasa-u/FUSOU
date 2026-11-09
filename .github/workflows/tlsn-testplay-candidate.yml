@@ -270,6 +270,7 @@ jobs:
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-endpoint-mapping-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/runtime-config-bootstrap-trust-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-publisher-readiness-test.mjs
 
   rust-tlsn-preflight:

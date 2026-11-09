@@ -11,6 +11,7 @@ import {
 import {
   createCloudflareR2RuntimeConfigObjectStore,
   createR2RuntimeConfigObjectStore,
+  createR2RuntimeConfigFreshnessManifestStore,
   isValidRuntimeConfigR2AccountId,
   isValidRuntimeConfigR2BucketName,
   RuntimeConfigArtifactConflictError,
@@ -313,6 +314,72 @@ test("manifest pointer uses create-if-absent then ETag conditional updates", asy
   await assert.rejects(
     () => store.compareAndSwapManifest(initialETag, manifestObject("stale writer")),
     RuntimeConfigPointerConflictError,
+  );
+});
+
+test("Freshness reads the exact signed Manifest envelope from the pointer and immutable snapshot", async () => {
+  const client = new FakeS3Client();
+  const store = createR2RuntimeConfigObjectStore({
+    bucket: R2_ENV[RUNTIME_CONFIG_R2_ENV.bucket],
+    client,
+  });
+  const manifestBytes = Buffer.from("exact signed Manifest envelope bytes");
+  const digest = createHash("sha256").update(manifestBytes).digest("base64url");
+  const reference = `tlsn/runtime-config/v2/manifests/${digest}`;
+  const pointerETag = '"r2-manifest-pointer-etag"';
+  const snapshotETag = '"r2-immutable-manifest-etag"';
+  const snapshotPut = {
+    key: reference,
+    content_type: "application/octet-stream",
+    cache_control: "public, max-age=31536000, immutable",
+    body: manifestBytes,
+  };
+  assert.equal((await store.putImmutable(snapshotPut)).state, "CREATED");
+  client.objects.set(MANIFEST_KEY, {
+    body: manifestBytes,
+    etag: pointerETag,
+  });
+  assert.equal(
+    client.requests.find((request) => request instanceof PutObjectCommand)
+      .input.IfNoneMatch,
+    "*",
+  );
+  client.objects.get(reference).etag = snapshotETag;
+
+  const manifests = createR2RuntimeConfigFreshnessManifestStore(store);
+  const pointer = await manifests.readCurrentManifestPointer();
+  assert.equal(pointer.etag, pointerETag);
+  assert.deepEqual(Buffer.from(pointer.bytes), manifestBytes);
+  assert.notEqual(pointer.bytes, manifestBytes);
+
+  const snapshot = await manifests.readImmutableManifestSnapshot(reference);
+  assert.equal(snapshot.reference, reference);
+  assert.deepEqual(Buffer.from(snapshot.bytes), manifestBytes);
+  assert.notEqual(snapshot.bytes, manifestBytes);
+
+  await assert.rejects(
+    () =>
+      manifests.readImmutableManifestSnapshot(
+        "tlsn/runtime-config/v2/manifests/not-a-digest",
+      ),
+    RuntimeConfigR2ConfigurationError,
+  );
+  assert.equal(
+    client.requests.filter((request) => request instanceof GetObjectCommand).length,
+    2,
+  );
+
+  client.objects.set(reference, {
+    body: Buffer.from("modified snapshot bytes"),
+    etag: snapshotETag,
+  });
+  await assert.rejects(
+    () => manifests.readImmutableManifestSnapshot(reference),
+    RuntimeConfigArtifactIntegrityError,
+  );
+  assert.equal(
+    client.requests.filter((request) => request instanceof GetObjectCommand).length,
+    3,
   );
 });
 

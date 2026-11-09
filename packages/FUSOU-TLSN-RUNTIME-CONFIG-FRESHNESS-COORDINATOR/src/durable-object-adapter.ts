@@ -3,6 +3,7 @@ import type {
   FreshnessIssueBeginResult,
   FreshnessIssueClockReading,
   FreshnessIssueCoordinator,
+  FreshnessIssueCoordinatorSnapshotReader,
   FreshnessIssueFinalizationResult,
   FreshnessIssueLeaseCheck,
   FreshnessIssueLookupResult,
@@ -11,17 +12,30 @@ import type {
   FreshnessIssueRequestIdentity,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts";
 import type {
+  FreshnessIssueCoordinatorSnapshot,
   FreshnessIssueCurrentStateBinding,
   FreshnessIssueLeaseBinding,
   FreshnessIssueOperationBinding,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
+import type {
+  ReleaseLedgerActionResult,
+  ReleaseBindingInstallActionResult,
+  ReleaseBindingInstallOperation,
+  ReleaseLedgerCoordinator,
+  ReleaseLedgerHead,
+  ReleaseLedgerOperation,
+} from "./release-ledger.ts";
 
 export type FreshnessIssueCoordinatorRpcStub = {
   [Method in keyof FreshnessIssueCoordinator]: FreshnessIssueCoordinator[Method];
-};
+} & FreshnessIssueCoordinatorSnapshotReader &
+  ReleaseLedgerCoordinator;
 
 export class DurableObjectFreshnessIssueCoordinatorAdapter
-  implements FreshnessIssueCoordinator
+  implements
+    FreshnessIssueCoordinator,
+    FreshnessIssueCoordinatorSnapshotReader,
+    ReleaseLedgerCoordinator
 {
   readonly #stub: FreshnessIssueCoordinatorRpcStub;
 
@@ -86,5 +100,90 @@ export class DurableObjectFreshnessIssueCoordinatorAdapter
     readonly currentState: FreshnessIssueCurrentStateBinding;
   }): Promise<FreshnessIssueFinalizationResult> {
     return this.#stub.finalizeIfCurrent(input);
+  }
+
+  readCurrentStateSnapshot(input: {
+    readonly operation: FreshnessIssueOperationBinding;
+    readonly lease: FreshnessIssueLeaseBinding;
+  }): Promise<FreshnessIssueCoordinatorSnapshot> {
+    return this.#stub.readCurrentStateSnapshot(input);
+  }
+
+  readReleaseLedgerHead(): Promise<ReleaseLedgerHead | null> {
+    return this.#stub.readReleaseLedgerHead();
+  }
+
+  beginReleaseBindingInstall(input: {
+    readonly operationId: string;
+    readonly mode: "BOOTSTRAP" | "ADVANCE";
+    readonly releaseOperationId: string;
+    readonly expectedCurrentStateSha256: string | null;
+    readonly expectedRestoreEpoch: string;
+  }): Promise<ReleaseBindingInstallActionResult> {
+    return this.#stub.beginReleaseBindingInstall(input);
+  }
+
+  finalizeReleaseBindingInstall(input: Parameters<
+    ReleaseLedgerCoordinator["finalizeReleaseBindingInstall"]
+  >[0]): Promise<ReleaseBindingInstallActionResult> {
+    return this.#stub.finalizeReleaseBindingInstall(input);
+  }
+
+  getReleaseBindingInstall(
+    operationId: string,
+  ): Promise<ReleaseBindingInstallOperation | null> {
+    return this.#stub.getReleaseBindingInstall(operationId);
+  }
+
+  beginReleaseOperation(input: {
+    readonly operationId: string;
+    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly manifestBytes: Uint8Array;
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.beginReleaseOperation(input);
+  }
+
+  stageReleaseManifest(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.stageReleaseManifest(input);
+  }
+
+  markReleaseOperationUnknown(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly stage: "R2_WRITE" | "RELEASE_SIGNER" | "R2_READBACK";
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.markReleaseOperationUnknown(input);
+  }
+
+  appendReleaseRecord(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.appendReleaseRecord(input);
+  }
+
+  finalizeReleaseR2Readback(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.finalizeReleaseR2Readback(input);
+  }
+
+  reconcileReleaseOperation(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.reconcileReleaseOperation(input);
+  }
+
+  getReleaseOperation(
+    operationId: string,
+  ): Promise<ReleaseLedgerOperation | null> {
+    return this.#stub.getReleaseOperation(operationId);
   }
 }

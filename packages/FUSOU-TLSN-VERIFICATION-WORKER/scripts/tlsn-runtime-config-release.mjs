@@ -250,10 +250,10 @@ async function publishTlsnRuntimeConfigWithMode({
     });
     const actualBody = asBytes(
       await objectStore.getObject(object.key),
-      "immutable Runtime Config artifact",
+      "immutable Runtime Config publication object",
     );
     if (!actualBody.equals(expectedBody)) {
-      throw new Error(`immutable Runtime Config artifact readback mismatch: ${object.key}`);
+      throw new Error(`immutable Runtime Config publication readback mismatch: ${object.key}`);
     }
   }
 
