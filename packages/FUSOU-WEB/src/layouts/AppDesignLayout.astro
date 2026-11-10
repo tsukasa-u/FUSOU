@@ -1,0 +1,122 @@
+---
+import "@/assets/fusou-app-system.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "FUSOU-APP Component Catalog — Design System",
+  description = "FUSOU-APP (Tauri Desktop App) UI Component Catalog based strictly on real FUSOU-APP components and themes.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="ja" class="bg-base-200 text-base-content">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script is:inline>
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme =
+            saved === "light" || saved === "dark"
+              ? saved
+              : prefersDark
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content antialiased">
+    <!-- Top bar using pure FUSOU-APP DaisyUI classes (zero FUSOU-WEB app.css) -->
+    <header class="sticky top-0 z-50 bg-base-100 border-b border-base-300">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3 min-w-0">
+          <a
+            href="/"
+            class="flex items-center gap-2 font-bold text-sm tracking-wide hover:opacity-80 transition-opacity"
+          >
+            <svg width="16" height="16" viewBox="0 0 1000 1000" aria-hidden="true">
+              <rect x="150" y="73" width="750" height="225" rx="75" fill="#B5D95A" />
+              <rect x="150" y="388" width="450" height="225" rx="75" fill="#96C54E" />
+              <rect x="150" y="703" width="225" height="225" rx="75" fill="#76B142" />
+            </svg>
+            <span>FUSOU</span>
+          </a>
+          <span class="text-base-content/30">/</span>
+          <a href="/docs" class="text-xs text-base-content/70 hover:text-base-content">
+            Docs
+          </a>
+          <span class="text-base-content/30">/</span>
+          <span class="text-xs font-medium text-base-content truncate">
+            FUSOU-APP Component Catalog
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <a href="/docs" class="btn btn-ghost btn-xs">
+            ← Docs Index
+          </a>
+          <a href="/design-system" class="btn btn-outline btn-xs">
+            FUSOU-WEB Catalog ↗
+          </a>
+          <button
+            id="app-theme-toggle"
+            type="button"
+            class="btn btn-ghost btn-xs border border-base-300"
+            aria-label="Toggle Light/Dark theme"
+          >
+            <span data-theme-label="light" class="hidden">☀ Light</span>
+            <span data-theme-label="dark" class="hidden">🌙 Dark</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <slot />
+    </main>
+
+    <script is:inline>
+      (function () {
+        var btn = document.getElementById("app-theme-toggle");
+        function syncLabel() {
+          var current =
+            document.documentElement.getAttribute("data-theme") || "light";
+          var lightSpan = btn && btn.querySelector('[data-theme-label="light"]');
+          var darkSpan = btn && btn.querySelector('[data-theme-label="dark"]');
+          if (lightSpan && darkSpan) {
+            lightSpan.classList.toggle("hidden", current !== "light");
+            darkSpan.classList.toggle("hidden", current !== "dark");
+          }
+        }
+        syncLabel();
+        if (btn) {
+          btn.addEventListener("click", function () {
+            var current =
+              document.documentElement.getAttribute("data-theme") || "light";
+            var next = current === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", next);
+            try {
+              localStorage.setItem("theme", next);
+            } catch (e) {}
+            syncLabel();
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>
