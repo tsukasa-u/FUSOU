@@ -7,7 +7,7 @@ import {
   onMount,
 } from "solid-js";
 import "../../css/divider.css";
-import { safeTauriListen } from "../../utility/tauri";
+import { isTauri, safeTauriListen } from "../../utility/tauri";
 import { APP_EVENTS } from "../../utility/app_events";
 import { invoke } from "@tauri-apps/api/core";
 import { VList } from "virtua/solid";
@@ -158,6 +158,7 @@ export function LogViewerComponent() {
 
   // Helper function to reload all logs
   const reloadLogs = async () => {
+    if (!isTauri()) return;
     setIsLoading(true);
     try {
       const allLogs = await invoke<MessageVisitor[]>("get_all_logs");

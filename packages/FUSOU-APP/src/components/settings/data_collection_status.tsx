@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createSignal, For, Show, onMount } from "solid-js";
 import { FadeToast, showFadeToast } from "./fade_toast";
+import { isTauri } from "../../utility/tauri";
 
 type PendingRetryItemStatus = {
   id: string;
@@ -187,6 +188,7 @@ export function DataCollectionStatusComponent() {
   };
 
   const refreshPendingRetryStatus = async () => {
+    if (!isTauri()) return;
     try {
       setLoadingPendingRetryStatus(true);
       const status = await invoke<PendingRetryStatus>(
@@ -205,6 +207,7 @@ export function DataCollectionStatusComponent() {
   };
 
   const refreshShipGrowthStatus = async () => {
+    if (!isTauri()) return;
     try {
       setLoadingShipGrowthStatus(true);
       const status = await invoke<SuppressionStatus | null>(
@@ -223,6 +226,7 @@ export function DataCollectionStatusComponent() {
   };
 
   const refreshQuestTreeStatus = async () => {
+    if (!isTauri()) return;
     try {
       setLoadingQuestTreeStatus(true);
       const status = await invoke<SuppressionStatus | null>(
@@ -241,6 +245,7 @@ export function DataCollectionStatusComponent() {
   };
 
   const refreshRemodelStatus = async () => {
+    if (!isTauri()) return;
     try {
       setLoadingRemodelStatus(true);
       const status = await invoke<SuppressionStatus | null>(

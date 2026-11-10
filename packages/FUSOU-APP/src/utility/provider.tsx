@@ -52,27 +52,33 @@ export function ShipsProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten_set = safeTauriListen<Ships>(APP_EVENTS.SetKcsShips, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsShips);
-      setData(reconcile(event.payload));
-    });
-    const unlisten_add = safeTauriListen<Ships>(APP_EVENTS.AddKcsShips, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsShips);
-      Object.entries(event.payload.ships).forEach(([key1, value1]) => {
-        if (value1) {
-          Object.entries(value1).forEach(([key2, value2]) => {
-            if (value2 !== null) {
-              setData(
-                "ships",
-                Number(key1),
-                key2 as Part<Ship, keyof Ship>,
-                value2,
-              );
-            }
-          });
-        }
-      });
-    });
+    const unlisten_set = safeTauriListen<Ships>(
+      APP_EVENTS.SetKcsShips,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsShips);
+        setData(reconcile(event.payload));
+      },
+    );
+    const unlisten_add = safeTauriListen<Ships>(
+      APP_EVENTS.AddKcsShips,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsShips);
+        Object.entries(event.payload.ships).forEach(([key1, value1]) => {
+          if (value1) {
+            Object.entries(value1).forEach(([key2, value2]) => {
+              if (value2 !== null) {
+                setData(
+                  "ships",
+                  Number(key1),
+                  key2 as Part<Ship, keyof Ship>,
+                  value2,
+                );
+              }
+            });
+          }
+        });
+      },
+    );
     onCleanup(() => {
       unlisten_set();
       unlisten_add();
@@ -102,10 +108,13 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten = safeTauriListen<MstShips>(APP_EVENTS.SetKcsMstShips, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstShips);
-      setData(reconcile(event.payload));
-    });
+    const unlisten = safeTauriListen<MstShips>(
+      APP_EVENTS.SetKcsMstShips,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstShips);
+        setData(reconcile(event.payload));
+      },
+    );
     onCleanup(unlisten);
   });
 
@@ -132,10 +141,13 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten = safeTauriListen<SlotItems>(APP_EVENTS.SetKcsSlotItems, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsSlotItems);
-      setData(reconcile(event.payload));
-    });
+    const unlisten = safeTauriListen<SlotItems>(
+      APP_EVENTS.SetKcsSlotItems,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsSlotItems);
+        setData(reconcile(event.payload));
+      },
+    );
     onCleanup(unlisten);
   });
 
@@ -317,10 +329,13 @@ export function MstStypesProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten = safeTauriListen<MstStypes>(APP_EVENTS.SetKcsMstStypes, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstStypes);
-      setData(reconcile(event.payload));
-    });
+    const unlisten = safeTauriListen<MstStypes>(
+      APP_EVENTS.SetKcsMstStypes,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstStypes);
+        setData(reconcile(event.payload));
+      },
+    );
     onCleanup(unlisten);
   });
 
@@ -437,11 +452,14 @@ export function QuestsProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten = safeTauriListen<Quests>(APP_EVENTS.SetKcsQuests, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsQuests);
+    const unlisten = safeTauriListen<Quests>(
+      APP_EVENTS.SetKcsQuests,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsQuests);
 
-      setData(mergeQuestCache(data, event.payload));
-    });
+        setData(mergeQuestCache(data, event.payload));
+      },
+    );
     onCleanup(unlisten);
   });
 
@@ -468,10 +486,13 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten = safeTauriListen<DeckPorts>(APP_EVENTS.SetKcsDeckPorts, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsDeckPorts);
-      setData(reconcile(event.payload));
-    });
+    const unlisten = safeTauriListen<DeckPorts>(
+      APP_EVENTS.SetKcsDeckPorts,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsDeckPorts);
+        setData(reconcile(event.payload));
+      },
+    );
     onCleanup(unlisten);
   });
 
@@ -536,20 +557,30 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten_cells = safeTauriListen<Cells>(APP_EVENTS.SetKcsCells, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsCells);
-      setData(event.payload);
-    });
-    // eslint-disable-next-line solid/reactivity
-    const unlisten_add_cell = safeTauriListen<Cell>(APP_EVENTS.AddKcsCell, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsCell);
-      setData("cells", event.payload.no, event.payload);
-      setData("cell_index", data.cell_index.length, event.payload.no);
-    });
-    const unlisten_battle = safeTauriListen<Battle>(APP_EVENTS.AddKcsBattle, (event) => {
-      if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsBattle);
-      setData("battles", event.payload.cell_id, event.payload);
-    });
+    const unlisten_cells = safeTauriListen<Cells>(
+      APP_EVENTS.SetKcsCells,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsCells);
+        setData(event.payload);
+      },
+    );
+
+    const unlisten_add_cell = safeTauriListen<Cell>(
+      APP_EVENTS.AddKcsCell,
+      // eslint-disable-next-line solid/reactivity
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsCell);
+        setData("cells", event.payload.no, event.payload);
+        setData("cell_index", data.cell_index.length, event.payload.no);
+      },
+    );
+    const unlisten_battle = safeTauriListen<Battle>(
+      APP_EVENTS.AddKcsBattle,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsBattle);
+        setData("battles", event.payload.cell_id, event.payload);
+      },
+    );
 
     onCleanup(() => {
       unlisten_cells();

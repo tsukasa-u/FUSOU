@@ -2,6 +2,7 @@ import { createStore } from "solid-js/store";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { useDebugApi } from "../../utility/provider";
+import { isTauri } from "../../utility/tauri";
 import { IconXMark } from "../../icons/X-mark";
 import IconChevronRight from "../../icons/chevron_right";
 import IconChevronDoubleRight from "../../icons/chevron_double_right";
@@ -30,7 +31,9 @@ export function DebugApi() {
   const [debug_api] = useDebugApi();
 
   createEffect(() => {
-    invoke("read_dir", { path: "." });
+    if (isTauri()) {
+      invoke("read_dir", { path: "." }).catch(() => {});
+    }
     setPageCounter(1);
   });
 
@@ -60,7 +63,11 @@ export function DebugApi() {
         <select
           class="select select-sm w-full"
           onInput={(e) => {
-            invoke("read_dir", { path: e.currentTarget.value });
+            if (isTauri()) {
+              invoke("read_dir", { path: e.currentTarget.value }).catch(
+                () => {},
+              );
+            }
             setPageCounter(1);
             setFilecheackSignals([
               false,
@@ -340,7 +347,11 @@ export function DebugApi() {
             onClick={() => {
               if (apiCounter() >= fileApi().length) return;
               setApiCounter(apiCounter() + 1);
-              invoke("read_emit_file", { path: fileApi()[apiCounter() - 1] });
+              if (isTauri()) {
+                invoke("read_emit_file", {
+                  path: fileApi()[apiCounter() - 1],
+                }).catch(() => {});
+              }
             }}
           >
             Next

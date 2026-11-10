@@ -43,7 +43,7 @@ export function safeTauriListen<T = unknown>(
     })
     .catch((err) => {
       if (import.meta.env.DEV) {
-          console.warn(`Failed to listen to ${event}:`, err);
+        console.warn(`Failed to listen to ${event}:`, err);
       }
     });
 

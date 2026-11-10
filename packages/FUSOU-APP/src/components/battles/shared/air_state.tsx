@@ -10,6 +10,8 @@ const AIR_STATE_DISPLAY: Partial<
 > = {
   0: { label: "Air Supremacy", class: "text-lime-500 pl-1" },
   1: { label: "Air Superiority", class: "text-lime-500 pl-1" },
+  2: { label: "Air Parity", class: "text-yellow-500 pl-1" },
+  3: { label: "Air Denial", class: "text-orange-500 pl-1" },
   4: { label: "Air Incapability", class: "text-red-500 pl-1" },
 };
 

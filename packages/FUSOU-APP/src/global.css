@@ -13,6 +13,9 @@
 @import "./css/divider.css";
 @import "./css/justify_self_center.css";
 @import "./css/pagination.css";
+@import "./css/specification_table.css";
+@import "./css/fade_toast.css";
+@import "./css/preview.css";
 @plugin "daisyui" {
   themes:
     light --default,

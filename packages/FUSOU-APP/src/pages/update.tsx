@@ -2,6 +2,7 @@ import { createSignal, Show } from "solid-js";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { createAsync } from "@solidjs/router";
+import { isTauri } from "../utility/tauri";
 
 function Updater() {
   const [updateAvailable, setUpdateAvailable] = createSignal(false);
@@ -14,6 +15,10 @@ function Updater() {
 
   // Check for updates
   const checkForUpdate = async () => {
+    if (!isTauri()) {
+      setUpdateAvailable(false);
+      return;
+    }
     setUpdateError(null);
     setInstalled(false);
     setDownloaded(0);

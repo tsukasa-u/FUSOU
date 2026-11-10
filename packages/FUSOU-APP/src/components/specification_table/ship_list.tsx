@@ -21,10 +21,7 @@ import { ComponentShipModal } from "ui";
 
 import { VList } from "virtua/solid";
 import { get_data_set_ship } from "../../utility/get_data_set.tsx";
-import {
-  scroll_fn,
-  drag_scroll_fn,
-} from "../../utility/scroll.tsx";
+import { scroll_fn, drag_scroll_fn } from "../../utility/scroll.tsx";
 import {
   init_range_props,
   search_name_window,
@@ -607,8 +604,12 @@ export function ShipListComponent() {
     return (
       <thead>
         <tr class="flex mt-1">
-          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">{sort_window_elements}</th>
-          <th class="w-32 bg-base-100 z-[4] sticky left-10">{search_name_window_element}</th>
+          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">
+            {sort_window_elements}
+          </th>
+          <th class="w-32 bg-base-100 z-[4] sticky left-10">
+            {search_name_window_element}
+          </th>
           <Show when={check_ship_property["Ship Type"]}>
             <th class="w-[88px]">{set_ship_type_window_element}</th>
           </Show>
@@ -694,16 +695,15 @@ export function ShipListComponent() {
   let vlistWrapperCategorized!: HTMLDivElement;
   let vlistWrapperNoneCategorized!: HTMLDivElement;
 
-  const handle_header_wheel = (
-    e: WheelEvent,
-    isCategorized: boolean,
-  ) => {
+  const handle_header_wheel = (e: WheelEvent, isCategorized: boolean) => {
     if (ship_spec_modal()) return;
     if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
     const wrapper = isCategorized
       ? vlistWrapperCategorized
       : vlistWrapperNoneCategorized;
-    const vlistEl = wrapper?.querySelector(".specification-vlist") as HTMLElement | null;
+    const vlistEl = wrapper?.querySelector(
+      ".specification-vlist",
+    ) as HTMLElement | null;
     if (!vlistEl) return;
     e.preventDefault();
     vlistEl.scrollLeft += e.deltaY;
@@ -712,7 +712,9 @@ export function ShipListComponent() {
   const attach_vlist = (wrapper: HTMLDivElement) => {
     // eslint-disable-next-line solid/reactivity
     queueMicrotask(() => {
-      const vlistEl = wrapper?.querySelector(".specification-vlist") as HTMLDivElement | null;
+      const vlistEl = wrapper?.querySelector(
+        ".specification-vlist",
+      ) as HTMLDivElement | null;
       if (vlistEl) {
         drag_scroll_fn(vlistEl, ship_spec_modal);
         vlistEl.addEventListener("scroll", () => {
