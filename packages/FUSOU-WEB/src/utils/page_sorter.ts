@@ -13,6 +13,8 @@ const segmentOrder: Record<string, number> = {
   support_lbas: 0x05,
   improvement_fit: 0x06,
   others: 0x07,
+  "fusou-web": 0x01,
+  "fusou-app": 0x02,
 };
 
 type SegmentEntry = { segment?: string | null };
