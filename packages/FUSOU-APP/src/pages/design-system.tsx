@@ -870,7 +870,8 @@ export default function DesignSystemPage() {
               01 / Color Palette &amp; Theme Tokens
             </h2>
             <p class="text-xs text-base-content/60 mt-0.5">
-              <code>src/global.css</code> の DaisyUI 5 OKLCH トークンおよびタイトルバー・動作ステータスカラー。
+              <code>src/global.css</code> の DaisyUI 5 OKLCH
+              トークンおよびタイトルバー・動作ステータスカラー。
             </p>
           </div>
 
@@ -1049,7 +1050,8 @@ export default function DesignSystemPage() {
               02 / Typography Hierarchy
             </h2>
             <p class="text-xs text-base-content/60 mt-0.5">
-              通常テーブル・一覧はデフォルト Sans、戦術 SVG バッジのみ Roboto Mono、一部ページのみ font-mono を使用。
+              通常テーブル・一覧はデフォルト Sans、戦術 SVG バッジのみ Roboto
+              Mono、一部ページのみ font-mono を使用。
             </p>
           </div>
 
@@ -1083,16 +1085,24 @@ export default function DesignSystemPage() {
             <div>
               <div class="flex items-center justify-between text-xs text-base-content/50 mb-1">
                 <span>
-                  Explicit Monospace Scopes (Roboto Mono SVG icons, titlebar tabular-nums, ErrorFallback)
+                  Explicit Monospace Scopes (Roboto Mono SVG icons, titlebar
+                  tabular-nums, ErrorFallback)
                 </span>
                 <span>等幅スコープ</span>
               </div>
               <div class="flex flex-wrap items-center gap-4 text-xs">
-                <span class="badge badge-outline tabular-nums">Volume: 80%</span>
+                <span class="badge badge-outline tabular-nums">
+                  Volume: 80%
+                </span>
                 <span class="badge badge-outline font-mono">
                   ErrorFallback.tsx / data_collection_status.tsx
                 </span>
-                <span style={{ "font-family": '"Roboto Mono", monospace', "font-weight": 500 }}>
+                <span
+                  style={{
+                    "font-family": '"Roboto Mono", monospace',
+                    "font-weight": 500,
+                  }}
+                >
                   CL / DD / PA (SVG icons)
                 </span>
               </div>
@@ -2677,7 +2687,8 @@ export default function DesignSystemPage() {
                   戦闘結果サマリー生体表示 (&lt;BattleSummaryComponent /&gt;)
                 </h3>
                 <span class="text-[11px] text-base-content/50 font-mono">
-                  &lt;table class="table table-xs"&gt; • 6カラム (Own Main / HP / Damage / Enemy Main / HP / Damage)
+                  &lt;table class="table table-xs"&gt; • 6カラム (Own Main / HP
+                  / Damage / Enemy Main / HP / Damage)
                 </span>
               </div>
               <p class="text-xs text-base-content/60">
@@ -2700,11 +2711,17 @@ export default function DesignSystemPage() {
                         <div class="flex flex-row pl-2 items-center">
                           <div class="h-4 mt-px pt-px text-xs">cells</div>
                           <IconChevronRightS class="h-4 w-4 m-1" />
-                          <button class="btn btn-xs btn-square rounded-none">A</button>
+                          <button class="btn btn-xs btn-square rounded-none">
+                            A
+                          </button>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          <button class="btn btn-xs btn-square rounded-none">E</button>
+                          <button class="btn btn-xs btn-square rounded-none">
+                            E
+                          </button>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          <button class="btn btn-xs btn-square rounded-none btn-active">G</button>
+                          <button class="btn btn-xs btn-square rounded-none btn-active">
+                            G
+                          </button>
                         </div>
                         <div class="flex flex-nowrap text-xs py-0.5 pl-2">
                           Search : <span class="w-1" />
@@ -2992,7 +3009,9 @@ export default function DesignSystemPage() {
                                           name_flag={true}
                                           show_name={true}
                                           show_param={true}
-                                          mst_slot_item={mockMstSlotItemsDict[701]}
+                                          mst_slot_item={
+                                            mockMstSlotItemsDict[701]
+                                          }
                                         />
                                         <div class="h-px" />
                                         <ComponentEquipmentMstModal
@@ -3002,7 +3021,9 @@ export default function DesignSystemPage() {
                                           name_flag={true}
                                           show_name={true}
                                           show_param={true}
-                                          mst_slot_item={mockMstSlotItemsDict[702]}
+                                          mst_slot_item={
+                                            mockMstSlotItemsDict[702]
+                                          }
                                         />
                                       </div>
                                     </td>
@@ -3453,7 +3474,8 @@ export default function DesignSystemPage() {
               <div class="p-3 bg-base-200/40 rounded-lg border border-base-300 space-y-2">
                 <div class="flex items-center justify-between">
                   <div class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wider">
-                    開幕航空戦ヘッダー実体仕様 (&lt;AirStateComponent /&gt; + touch + CI + &lt;SpriteMotionCounts /&gt;)
+                    開幕航空戦ヘッダー実体仕様 (&lt;AirStateComponent /&gt; +
+                    touch + CI + &lt;SpriteMotionCounts /&gt;)
                   </div>
                   <span class="text-[10px] text-base-content/50 font-mono">
                     opening_air_attack.tsx (L457-L465)
@@ -3597,7 +3619,9 @@ export default function DesignSystemPage() {
                                           size="xs"
                                           attr_onslot={18}
                                           slot_item={mockSlotItemsDict[9001]}
-                                          mst_slot_item={mockMstSlotItemsDict[701]}
+                                          mst_slot_item={
+                                            mockMstSlotItemsDict[701]
+                                          }
                                           name_flag={true}
                                         />
                                       </div>
@@ -3631,7 +3655,9 @@ export default function DesignSystemPage() {
                                           size="xs"
                                           attr_onslot={18}
                                           slot_item={mockSlotItemsDict[9002]}
-                                          mst_slot_item={mockMstSlotItemsDict[702]}
+                                          mst_slot_item={
+                                            mockMstSlotItemsDict[702]
+                                          }
                                           name_flag={true}
                                         />
                                       </div>
@@ -3641,7 +3667,10 @@ export default function DesignSystemPage() {
                                       <div class="flex justify-center w-8 indicator">
                                         <div class="indicator-item indicator-top indicator-end">
                                           <div class="h-4 w-4">
-                                            <IconCautionFill level="middle" size="full" />
+                                            <IconCautionFill
+                                              level="middle"
+                                              size="full"
+                                            />
                                           </div>
                                         </div>
                                         <div class="badge badge-md border-base-300 w-9 text-nowrap">
@@ -3669,7 +3698,9 @@ export default function DesignSystemPage() {
                                           size="xs"
                                           attr_onslot={18}
                                           slot_item={mockSlotItemsDict[9003]}
-                                          mst_slot_item={mockMstSlotItemsDict[703]}
+                                          mst_slot_item={
+                                            mockMstSlotItemsDict[703]
+                                          }
                                           name_flag={true}
                                         />
                                       </div>
@@ -3679,7 +3710,10 @@ export default function DesignSystemPage() {
                                       <div class="flex justify-center w-8 indicator">
                                         <div class="indicator-item indicator-top indicator-end">
                                           <div class="h-4 w-4">
-                                            <IconCautionFill level="high" size="full" />
+                                            <IconCautionFill
+                                              level="high"
+                                              size="full"
+                                            />
                                           </div>
                                         </div>
                                         <div class="badge badge-md border-base-300 w-9 text-nowrap">
@@ -3707,7 +3741,9 @@ export default function DesignSystemPage() {
                                           size="xs"
                                           attr_onslot={4}
                                           slot_item={mockSlotItemsDict[9004]}
-                                          mst_slot_item={mockMstSlotItemsDict[704]}
+                                          mst_slot_item={
+                                            mockMstSlotItemsDict[704]
+                                          }
                                           name_flag={true}
                                         />
                                       </div>
