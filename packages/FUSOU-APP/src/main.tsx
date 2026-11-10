@@ -9,6 +9,7 @@ import NotFound from "./pages/not_found.tsx";
 import Debug from "./pages/debug.tsx";
 import Updater from "./pages/update.tsx";
 import Policy from "./pages/policy.tsx";
+import DesignSystem from "./pages/design-system.tsx";
 
 import "./global.css";
 import { createSignal, ErrorBoundary, onCleanup, onMount } from "solid-js";
@@ -105,6 +106,7 @@ render(
           <Route path="/debug" component={Debug} />
           <Route path="/update" component={Updater} />
           <Route path="/policy" component={Policy} />
+          <Route path="/design-system" component={DesignSystem} />
         </Router>
       </ErrorBoundary>
     );

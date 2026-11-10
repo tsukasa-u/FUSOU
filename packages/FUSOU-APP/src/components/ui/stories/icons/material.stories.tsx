@@ -29,8 +29,6 @@ const IconMaterialCatalog = () => {
 };
 
 const IconMaterialCatalogDetail = () => {
-  console.log(get_data.api_data.api_mst_useitem);
-
   const itemicon_id_name = get_data.api_data.api_mst_useitem.map((icon) => [
     icon.api_id,
     icon.api_name,
