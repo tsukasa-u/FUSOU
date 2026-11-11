@@ -3108,7 +3108,7 @@ export default function DesignSystemPage() {
                             <summary>Opening Air Attack</summary>
                             <ul class="pl-0">
                               <div class="pl-2 text-xs flex flex-nowrap items-center">
-                                <AirStateComponent air_state={0} />
+                                <AirStateComponent air_state={1} />
                                 <div class="divider divider-horizontal mr-0 ml-0" />
                                 touch : <span class="w-1" />
                                 <div class="w-6 flex justify-center">
@@ -3402,20 +3402,11 @@ export default function DesignSystemPage() {
                   <div class="space-y-1 text-xs font-mono">
                     <div class="flex items-center justify-between">
                       <div class="flex items-center gap-1.5">
-                        <span class="text-base-content/60">0:</span>
-                        <AirStateComponent air_state={0} />
-                      </div>
-                      <span class="text-[10px] text-base-content/50">
-                        制空権確保
-                      </span>
-                    </div>
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-1.5">
                         <span class="text-base-content/60">1:</span>
                         <AirStateComponent air_state={1} />
                       </div>
                       <span class="text-[10px] text-base-content/50">
-                        航空優勢
+                        制空権確保
                       </span>
                     </div>
                     <div class="flex items-center justify-between">
@@ -3424,16 +3415,7 @@ export default function DesignSystemPage() {
                         <AirStateComponent air_state={2} />
                       </div>
                       <span class="text-[10px] text-base-content/50">
-                        航空互角
-                      </span>
-                    </div>
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-1.5">
-                        <span class="text-base-content/60">3:</span>
-                        <AirStateComponent air_state={3} />
-                      </div>
-                      <span class="text-[10px] text-base-content/50">
-                        航空劣勢
+                        航空優勢
                       </span>
                     </div>
                     <div class="flex items-center justify-between">
@@ -3443,6 +3425,24 @@ export default function DesignSystemPage() {
                       </div>
                       <span class="text-[10px] text-base-content/50">
                         制空権喪失
+                      </span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-base-content/60">0:</span>
+                        <AirStateComponent air_state={0} />
+                      </div>
+                      <span class="text-[10px] text-base-content/50">
+                        航空均衡 (非表示)
+                      </span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-base-content/60">3:</span>
+                        <AirStateComponent air_state={3} />
+                      </div>
+                      <span class="text-[10px] text-base-content/50">
+                        航空劣勢 (非表示)
                       </span>
                     </div>
                   </div>
@@ -3507,8 +3507,8 @@ export default function DesignSystemPage() {
                     opening_air_attack.tsx (L457-L465)
                   </span>
                 </div>
-                <div class="p-2.5 bg-base-300/40 rounded border border-base-300 flex flex-wrap items-center text-xs">
-                  <AirStateComponent air_state={0} />
+                <div class="p-2.5 bg-base-100 rounded border border-base-300 flex flex-wrap items-center text-xs">
+                  <AirStateComponent air_state={1} />
                   <div class="divider divider-horizontal mr-0 ml-0" />
                   <div class="inline-flex items-center shrink-0">
                     <span>touch :</span>
@@ -3589,7 +3589,7 @@ export default function DesignSystemPage() {
                     }}
                   />
                 </div>
-                <div class="p-2.5 bg-base-300/30 rounded border border-base-300 flex flex-wrap items-center gap-x-2 text-xs">
+                <div class="p-2.5 bg-base-100 rounded border border-base-300 flex flex-wrap items-center gap-x-2 text-xs">
                   <div class="inline-flex items-center shrink-0">
                     <span>Result :</span>
                     <span class="w-1" />
@@ -4341,7 +4341,7 @@ export default function DesignSystemPage() {
                       <code>src/components/battles/shared/air_state.tsx</code>
                     </td>
                     <td>
-                      制空権状態（確保・優勢・互角・劣勢・喪失）の等幅インライン表示
+                      制空権状態（確保・優勢・喪失を表示、均衡・劣勢は非表示）の等幅インライン表示
                     </td>
                     <td>
                       <span class="badge badge-success badge-xs">Covered</span>

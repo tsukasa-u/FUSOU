@@ -37,8 +37,8 @@ Data-dense naval operations desktop client with a calm dark base, frameless nati
 - **ComponentColorBar & Operational Status Classes**:
   - `text-green-500` (`v_now == v_max` or Cond >= 50)
   - `text-lime-500` (`v_now > 0.75 * v_max`, Air Supremacy/Superiority, crossing advantage, launched balloon)
-  - `text-yellow-500` (`v_now > 0.50 * v_max`, Air Parity, Critical hit damage, Kira stars)
-  - `text-orange-500` (`v_now > 0.25 * v_max`, Air Denial, medium caution warning)
+  - `text-yellow-500` (`v_now > 0.50 * v_max`, Critical hit damage, Kira stars)
+  - `text-orange-500` (`v_now > 0.25 * v_max`, medium caution warning)
   - `text-red-500` (`v_now <= 0.25 * v_max`, Air Incapability, zero damage/miss, high caution warning)
 
 ### DaisyUI 5 Theme Tokens (`src/global.css`)
@@ -807,7 +807,7 @@ FUSOU-APP renders dedicated sequential combat phases for aerial operations under
   ```html
   <div class="pl-2 text-xs flex flex-nowrap items-center">
     <!-- Air Superiority State -->
-    <AirStateComponent air_state="{0}" />
+    <AirStateComponent air_state="{1}" />
     <div class="divider divider-horizontal mr-0 ml-0" />
     <!-- Touch Aircraft (<TouchPlaneComponent />) -->
     <!-- Anti-Air Cut-in (AACI, locked widths w-24 ship + w-20 items) -->
@@ -853,11 +853,10 @@ Air State :
 <div class="{class}">{label}</div>
 ```
 
-- `0`: `Air Supremacy` (制空権確保, `class: "text-lime-500 pl-1"`)
-- `1`: `Air Superiority` (航空優勢, `class: "text-lime-500 pl-1"`)
-- `2`: `Air Parity` (航空互角 / 均衡, `class: "text-yellow-500 pl-1"`)
-- `3`: `Air Denial` (航空劣勢, `class: "text-orange-500 pl-1"`)
-- `4`: `Air Incapability` (制空権喪失, `class: "text-red-500 pl-1"`)
+- `1`: `Air Supremacy` (制空権確保, `class: "text-lime-500"`)
+- `2`: `Air Superiority` (航空優勢, `class: "text-lime-500"`)
+- `4`: `Air Incapability` (制空権喪失, `class: "text-red-500"`)
+- `0` (Air Parity / 均衡) & `3` (Air Denial / 劣勢): Not displayed on the game screen; renders the `fallback` / `EmptyValue` placeholder uniformly across `FUSOU-APP` and `FUSOU-WEB`.
 
 ### 5. Tactical Formations (`FormationComponent`, `src/components/battles/shared/formation.tsx`)
 

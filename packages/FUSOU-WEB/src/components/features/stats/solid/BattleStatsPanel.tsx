@@ -1,7 +1,12 @@
 /** @jsxImportSource solid-js */
 import { EmptyState } from "@/components/common/solid/EmptyState";
 import { LoadingState } from "@/components/common/solid/LoadingState";
-import { FORMATION_NAMES, RANK_HEX_COLORS, AIR_COLORS } from "@/features/battles/constants";
+import {
+  AIR_COLORS,
+  AIR_SUPERIORITY_NAMES,
+  FORMATION_NAMES,
+  RANK_HEX_COLORS,
+} from "@/features/battles/constants";
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf, isWithinDateRange } from "../../map-flow/solid/battle-map-flow/dataUtils";
@@ -25,8 +30,6 @@ type StatsState = {
   dayNightRatio: { day: number; night: number };
   mvpDistribution: Record<string, number>;
 };
-
-const AIR_NAMES = AIR_COLORS;
 
 function buildConicGradient(
   entries: Array<[string, number]>,
@@ -172,9 +175,10 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
         (Array.isArray(openingAir?.f_plane_from) && openingAir.f_plane_from.length > 0) ||
         (Array.isArray(openingAir?.e_plane_from) && openingAir.e_plane_from.length > 0);
       const airSup = openingAir?.air_superiority;
-      if ((hasAnyAirDamage || hasAnyAirSortie) && airSup != null) {
-        const name = AIR_NAMES[Number(airSup)] ?? `不明(${airSup})`;
-        airCounts[name] = (airCounts[name] ?? 0) + 1;
+      const airLabel =
+        airSup != null ? AIR_SUPERIORITY_NAMES[Number(airSup)] : undefined;
+      if ((hasAnyAirDamage || hasAnyAirSortie) && airLabel) {
+        airCounts[airLabel] = (airCounts[airLabel] ?? 0) + 1;
       }
 
       // Use env_uuid as the authoritative sortie identifier (so multiple battles in the same sortie group together)

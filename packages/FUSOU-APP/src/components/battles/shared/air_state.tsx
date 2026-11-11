@@ -6,13 +6,13 @@ interface AirStateProps {
   fallback?: JSX.Element;
 }
 
+// KanColle api_disp_seiku: 0=Parity, 1=Supremacy, 2=Superiority, 3=Denial, 4=Incapability.
+// Only Supremacy (1), Superiority (2), and Incapability (4) are displayed on the game screen.
 const AIR_STATE_DISPLAY: Partial<
   Record<number, { label: string; class: string }>
 > = {
-  0: { label: "Air Supremacy", class: "text-lime-500" },
-  1: { label: "Air Superiority", class: "text-lime-500" },
-  2: { label: "Air Parity", class: "text-yellow-500" },
-  3: { label: "Air Denial", class: "text-orange-500" },
+  1: { label: "Air Supremacy", class: "text-lime-500" },
+  2: { label: "Air Superiority", class: "text-lime-500" },
   4: { label: "Air Incapability", class: "text-red-500" },
 };
 
