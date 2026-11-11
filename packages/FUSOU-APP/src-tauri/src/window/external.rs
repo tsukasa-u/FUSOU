@@ -335,10 +335,25 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
     }
 }
 
+fn build_external_init_script() -> String {
+    #[cfg(windows)]
+    let prefix = "window.__fusouPlatform = \"windows\";\n";
+    #[cfg(target_os = "linux")]
+    let prefix = "window.__fusouPlatform = \"linux\";\n";
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let prefix = "window.__fusouPlatform = \"other\";\n";
+
+    let raw_script = include_str!("./scripts/external_init_script.js");
+    let mut combined = String::with_capacity(prefix.len() + raw_script.len());
+    combined.push_str(prefix);
+    combined.push_str(raw_script);
+    combined
+}
+
 #[cfg(target_os = "linux")]
 fn install_linux_webview_scripts(external: &tauri::WebviewWindow) {
     let window_label = external.label().to_string();
-    let init_script = include_str!("./scripts/external_init_script.js");
+    let init_script = build_external_init_script();
     let install_result = external.with_webview(move |webview| {
         let wv = webview.inner();
 
@@ -351,7 +366,7 @@ fn install_linux_webview_scripts(external: &tauri::WebviewWindow) {
 
         if let Some(manager) = wv.user_content_manager() {
             let script = UserScript::new(
-                init_script,
+                &init_script,
                 UserContentInjectedFrames::AllFrames,
                 UserScriptInjectionTime::Start,
                 &[],
@@ -1277,7 +1292,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             tracing::error!("can not get webview windows \"external\"");
         }
 
-        let init_script = include_str!("./scripts/external_init_script.js");
+        let init_script = build_external_init_script();
 
         let game_url = match get_game_url().parse() {
             Ok(url) => url,

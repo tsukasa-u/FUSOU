@@ -11,8 +11,232 @@ const isTopWindow = () => {
 };
 const isTop = isTopWindow();
 
+const isLinuxPlatform =
+  window.__fusouPlatform === "linux" ||
+  (!window.__fusouPlatform &&
+    typeof navigator !== "undefined" &&
+    /Linux/i.test(navigator.userAgent || "") &&
+    !/Windows/i.test(navigator.userAgent || ""));
+// Windows WebView2 lacks a per-webview fractional volume API (only boolean SetIsMuted),
+// so smooth 0%-100% control requires intercepting WebAudio and HTMLMediaElement in JS.
+// Linux uses OS-level PipeWire/PulseAudio stream volume instead and skips prototype patching.
+const enableAudioInterception = !isLinuxPlatform;
+
 let fusouCurrentVolume = 1.0;
 let fusouIsMuted = false;
+
+/* =========================================================================
+ * Web Audio API & HTML5 Media Interception (Windows WebView2 Volume Control)
+ * Must be installed immediately before any game scripts run.
+ * ========================================================================= */
+const activeFusouGainNodes = new Set();
+const activeFusouMediaElements = new Set();
+let nativeMediaVolumeDescriptor = null;
+
+try {
+  nativeMediaVolumeDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLMediaElement.prototype,
+    "volume"
+  );
+} catch (e) {}
+
+const setElementNativeVolume = (el, vol, muted) => {
+  try {
+    const clamped = Math.max(0, Math.min(1, vol));
+    if (nativeMediaVolumeDescriptor && nativeMediaVolumeDescriptor.set) {
+      nativeMediaVolumeDescriptor.set.call(el, clamped);
+    } else {
+      el.volume = clamped;
+    }
+    el.muted = muted;
+  } catch (e) {}
+};
+
+const setupWebAudioInterception = () => {
+  const OriginalAudioContext =
+    window.AudioContext || window.webkitAudioContext;
+  if (!OriginalAudioContext || OriginalAudioContext.__fusouPatched) return;
+
+  const origConnect = AudioNode.prototype.connect;
+
+  const getOrCreateMasterGain = (ctx) => {
+    if (!ctx) return null;
+    if (ctx.__fusouMasterGain) return ctx.__fusouMasterGain;
+    try {
+      const masterGain = ctx.createGain();
+      const effVol = fusouIsMuted ? 0 : fusouCurrentVolume;
+      try {
+        masterGain.gain.setValueAtTime(effVol, ctx.currentTime);
+      } catch (_) {}
+      masterGain.gain.value = effVol;
+
+      // Connect masterGain to the true hardware destination before masking ctx.destination
+      origConnect.call(masterGain, ctx.destination);
+
+      ctx.__fusouMasterGain = masterGain;
+      activeFusouGainNodes.add(masterGain);
+      return masterGain;
+    } catch (err) {
+      console.warn("[fusou] audio patching error:", err);
+      return null;
+    }
+  };
+
+  function PatchedAudioContext(...args) {
+    const ctx = new OriginalAudioContext(...args);
+    try {
+      const masterGain = getOrCreateMasterGain(ctx);
+      if (masterGain) {
+        // Mask the destination property so all connections to ctx.destination route through masterGain
+        try {
+          Object.defineProperty(ctx, "destination", {
+            get: () => masterGain,
+            configurable: true,
+            enumerable: true,
+          });
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn("[fusou] audio context patching error:", e);
+    }
+    return ctx;
+  }
+
+  PatchedAudioContext.prototype = OriginalAudioContext.prototype;
+  PatchedAudioContext.prototype.constructor = PatchedAudioContext;
+  PatchedAudioContext.__fusouPatched = true;
+
+  try {
+    Object.getOwnPropertyNames(OriginalAudioContext).forEach((prop) => {
+      if (!(prop in PatchedAudioContext)) {
+        try {
+          Object.defineProperty(
+            PatchedAudioContext,
+            prop,
+            Object.getOwnPropertyDescriptor(OriginalAudioContext, prop)
+          );
+        } catch (e) {}
+      }
+    });
+  } catch (e) {}
+
+  window.AudioContext = PatchedAudioContext;
+  if (window.webkitAudioContext) {
+    window.webkitAudioContext = PatchedAudioContext;
+  }
+
+  // Backup interceptor on AudioNode.prototype.connect for direct destination connections
+  try {
+    if (!AudioNode.prototype.__fusouConnectPatched) {
+      AudioNode.prototype.connect = function (dest, ...rest) {
+        try {
+          const ctx = this.context || (dest && dest.context);
+          const isDestination =
+            (dest && ctx && dest === ctx.destination) ||
+            (dest &&
+              typeof AudioDestinationNode !== "undefined" &&
+              dest instanceof AudioDestinationNode) ||
+            (dest &&
+              dest.constructor &&
+              dest.constructor.name === "AudioDestinationNode");
+
+          if (isDestination && ctx) {
+            const masterGain = getOrCreateMasterGain(ctx);
+            if (masterGain && this !== masterGain) {
+              return origConnect.call(this, masterGain, ...rest);
+            }
+          }
+        } catch (e) {}
+        return origConnect.call(this, dest, ...rest);
+      };
+      AudioNode.prototype.__fusouConnectPatched = true;
+    }
+  } catch (e) {}
+};
+
+const setupMediaElementInterception = () => {
+  // 1. Monkeypatch HTMLMediaElement.prototype.play to track all elements (even in-memory new Audio())
+  try {
+    const origPlay = HTMLMediaElement.prototype.play;
+    if (!HTMLMediaElement.prototype.__fusouPlayPatched) {
+      HTMLMediaElement.prototype.play = function (...args) {
+        try {
+          activeFusouMediaElements.add(this);
+          const base =
+            typeof this.__fusouBaseVolume === "number"
+              ? this.__fusouBaseVolume
+              : typeof this.volume === "number"
+                ? this.volume
+                : 1.0;
+          this.__fusouBaseVolume = base;
+          const effVol = fusouIsMuted ? 0 : fusouCurrentVolume * base;
+          setElementNativeVolume(this, effVol, fusouIsMuted);
+        } catch (e) {}
+        return origPlay.apply(this, args);
+      };
+      HTMLMediaElement.prototype.__fusouPlayPatched = true;
+    }
+  } catch (e) {}
+
+  // 2. Monkeypatch HTMLMediaElement.prototype.volume descriptor to scale relative volumes
+  try {
+    if (
+      nativeMediaVolumeDescriptor &&
+      !nativeMediaVolumeDescriptor.__fusouPatched
+    ) {
+      Object.defineProperty(HTMLMediaElement.prototype, "volume", {
+        get: function () {
+          return typeof this.__fusouBaseVolume === "number"
+            ? this.__fusouBaseVolume
+            : nativeMediaVolumeDescriptor.get.call(this);
+        },
+        set: function (val) {
+          activeFusouMediaElements.add(this);
+          const base = Number(val);
+          this.__fusouBaseVolume = isNaN(base)
+            ? 1.0
+            : Math.max(0, Math.min(1, base));
+          const effVol = fusouIsMuted
+            ? 0
+            : fusouCurrentVolume * this.__fusouBaseVolume;
+          return nativeMediaVolumeDescriptor.set.call(
+            this,
+            Math.max(0, Math.min(1, effVol))
+          );
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      nativeMediaVolumeDescriptor.__fusouPatched = true;
+    }
+  } catch (e) {}
+
+  // 3. Monkeypatch window.Audio constructor so new Audio() is tracked immediately
+  try {
+    const OriginalAudio = window.Audio;
+    if (OriginalAudio && !OriginalAudio.__fusouPatched) {
+      function PatchedAudio(...args) {
+        const audio = new OriginalAudio(...args);
+        try {
+          activeFusouMediaElements.add(audio);
+          audio.__fusouBaseVolume = 1.0;
+          const effVol = fusouIsMuted ? 0 : fusouCurrentVolume;
+          setElementNativeVolume(audio, effVol, fusouIsMuted);
+        } catch (e) {}
+        return audio;
+      }
+      PatchedAudio.prototype = OriginalAudio.prototype;
+      PatchedAudio.prototype.constructor = PatchedAudio;
+      PatchedAudio.__fusouPatched = true;
+      window.Audio = PatchedAudio;
+    }
+  } catch (e) {}
+};
+
+if (enableAudioInterception) {
+  setupWebAudioInterception();
+  setupMediaElementInterception();
+}
 
 // KanColle's kcs_cda.js expects event.data to be a string and executes event.data.split("\t")
 // Sending raw JavaScript objects will throw TypeError: event.data.split is not a function.
@@ -25,7 +249,7 @@ const safePostMessage = (targetWindow, payload) => {
   } catch (e) {}
 };
 
-// Apply volume to standard HTML media elements and SoundJS if directly accessible
+// Apply volume to all Web Audio master gain nodes, media elements, and SoundJS in this frame
 const applyVolumeToPage = (volume, muted) => {
   if (typeof volume === "number") {
     fusouCurrentVolume = Math.max(0, Math.min(1, volume));
@@ -35,27 +259,87 @@ const applyVolumeToPage = (volume, muted) => {
   }
   const effectiveVolume = fusouIsMuted ? 0 : fusouCurrentVolume;
 
-  try {
-    if (window.createjs && window.createjs.Sound) {
-      window.createjs.Sound.volume = effectiveVolume;
-      window.createjs.Sound.muted = fusouIsMuted;
-    }
-  } catch (_) {}
-
-  try {
-    document.querySelectorAll("audio, video").forEach((el) => {
-      try {
+  const applyToMedia = (el) => {
+    try {
+      if (enableAudioInterception) {
+        const base =
+          typeof el.__fusouBaseVolume === "number" ? el.__fusouBaseVolume : 1.0;
+        const targetVol = fusouIsMuted ? 0 : fusouCurrentVolume * base;
+        setElementNativeVolume(el, targetVol, fusouIsMuted);
+      } else {
         el.volume = effectiveVolume;
         el.muted = fusouIsMuted;
+      }
+    } catch (_) {}
+  };
+
+  // 1. Web Audio API Master Gain Nodes
+  if (enableAudioInterception) {
+    activeFusouGainNodes.forEach((gainNode) => {
+      try {
+        try {
+          gainNode.gain.setValueAtTime(
+            effectiveVolume,
+            gainNode.context.currentTime
+          );
+        } catch (_) {}
+        gainNode.gain.value = effectiveVolume;
       } catch (_) {}
     });
+
+    // 2. Tracked HTML5 Media Elements (including in-memory new Audio() instances)
+    activeFusouMediaElements.forEach(applyToMedia);
+  }
+
+  // 3. DOM HTMLMediaElements (<audio>, <video>)
+  try {
+    document.querySelectorAll("audio, video").forEach(applyToMedia);
+  } catch (_) {}
+
+  // 4. KanColle SoundJS / CreateJS fallback
+  try {
+    if (window.createjs && window.createjs.Sound) {
+      try {
+        window.createjs.Sound.volume = effectiveVolume;
+      } catch (_) {}
+      try {
+        if (typeof window.createjs.Sound.setVolume === "function") {
+          window.createjs.Sound.setVolume(effectiveVolume);
+        }
+      } catch (_) {}
+      try {
+        window.createjs.Sound.muted = fusouIsMuted;
+      } catch (_) {}
+      try {
+        if (typeof window.createjs.Sound.setMute === "function") {
+          window.createjs.Sound.setMute(fusouIsMuted);
+        }
+      } catch (_) {}
+      try {
+        if (
+          window.createjs.Sound.activePlugin &&
+          window.createjs.Sound.activePlugin.gainNode &&
+          window.createjs.Sound.activePlugin.gainNode.gain
+        ) {
+          window.createjs.Sound.activePlugin.gainNode.gain.value =
+            effectiveVolume;
+        }
+      } catch (_) {}
+    }
   } catch (_) {}
 };
+
+if (enableAudioInterception) {
+  setInterval(() => {
+    applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+  }, 1000);
+}
 
 if (!isTop) {
   // =========================================================================
   // SUBFRAME EXECUTION PATH (osapi.dmm.com / KanColle kcs2 / index.php)
   // =========================================================================
+  let hasSyncedVolumeFromTop = false;
 
   // Message listener for cross-frame coordination in subframe
   window.addEventListener("message", (e) => {
@@ -75,6 +359,7 @@ if (!isTop) {
 
     // Handle volume change broadcast from parent/top
     if (data.type === "fusou-set-volume") {
+      hasSyncedVolumeFromTop = true;
       applyVolumeToPage(data.volume, data.muted);
 
       // Relay downward to all nested child frames (e.g. osapi.dmm.com -> kcs2)
@@ -101,7 +386,40 @@ if (!isTop) {
         safePostMessage(window.top, data);
       }
     }
+
+    // Intermediate frame responds to child volume queries once synced from top
+    if (data.type === "fusou-get-volume" && hasSyncedVolumeFromTop && e.source) {
+      safePostMessage(e.source, {
+        type: "fusou-set-volume",
+        volume: fusouCurrentVolume,
+        muted: fusouIsMuted,
+      });
+    }
   });
+
+  // Register this subframe with top window and fetch current volume
+  const syncWithTop = () => {
+    try {
+      if (window.top && window.top !== window) {
+        safePostMessage(window.top, { type: "fusou-register-frame" });
+        safePostMessage(window.top, { type: "fusou-get-volume" });
+      }
+      if (
+        window.parent &&
+        window.parent !== window &&
+        window.parent !== window.top
+      ) {
+        safePostMessage(window.parent, { type: "fusou-register-frame" });
+        safePostMessage(window.parent, { type: "fusou-get-volume" });
+      }
+    } catch (_) {}
+  };
+  syncWithTop();
+  const regTimer = setInterval(syncWithTop, 1500);
+  setTimeout(() => {
+    clearInterval(regTimer);
+    setInterval(syncWithTop, 5000);
+  }, 30000);
 
   // Forward keyboard shortcuts from subframe to top window
   const forwardShortcut = (action) => {
@@ -210,7 +528,15 @@ function postMessageRecursive(win, msg, depth = 0) {
 
 function broadcastToAllFrames(msg) {
   registeredFusouFrames.forEach((frameProxy) => {
-    safePostMessage(frameProxy, msg);
+    try {
+      if (frameProxy && frameProxy.closed) {
+        registeredFusouFrames.delete(frameProxy);
+        return;
+      }
+      safePostMessage(frameProxy, msg);
+    } catch (_) {
+      registeredFusouFrames.delete(frameProxy);
+    }
   });
   postMessageRecursive(window, msg);
   try {
@@ -235,6 +561,14 @@ window.__fusouSetVolume = (volume, muted, fromRust = false) => {
     fusouIsMuted = muted;
   }
   const volPercent = Math.round(fusouCurrentVolume * 100);
+
+  try {
+    localStorage.setItem("fusou-external-volume", volPercent.toString());
+    localStorage.setItem(
+      "fusou-external-muted",
+      fusouIsMuted ? "true" : "false"
+    );
+  } catch (_) {}
 
   if (typeof updateVolumeUI === "function") {
     updateVolumeUI(volPercent, fusouIsMuted);
