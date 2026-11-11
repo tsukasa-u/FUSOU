@@ -3,6 +3,7 @@ import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
 import PageShell from "@/components/common/astro/ui/PageShell.astro";
 
 const year = new Date().getFullYear();
+const appVersion = __FUSOU_APP_VERSION__;
 ---
 
 <PageShell container="medium" paddingY="8">
@@ -13,7 +14,7 @@ const year = new Date().getFullYear();
       <h1 class="fusou-page-title leading-none">FUSOU</h1>
       <span
         class="badge badge-sm badge-outline text-base-content/60 font-mono translate-y-[2px]"
-        >v0.5.0</span
+        >{appVersion}</span
       >
     </div>
   </PageHeader>
