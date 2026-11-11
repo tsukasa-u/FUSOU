@@ -1,0 +1,91 @@
+/* Unified soft-tinted alert styling matching FUSOU-WEB */
+
+.alert {
+  border-radius: 0.75rem;
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--color-base-300);
+  background-color: var(--color-base-100);
+  color: color-mix(in oklch, var(--color-base-content) 85%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  box-shadow: none;
+  background-image: none;
+}
+
+.alert.alert-info {
+  background-color: color-mix(in oklch, var(--color-info) 10%, transparent);
+  border-color: var(--color-info);
+  color: color-mix(in oklch, var(--color-base-content) 85%, transparent);
+}
+
+.alert.alert-info > svg {
+  color: var(--color-info);
+}
+
+.alert.alert-success {
+  background-color: color-mix(in oklch, var(--color-success) 10%, transparent);
+  border-color: var(--color-success);
+  color: color-mix(in oklch, var(--color-base-content) 85%, transparent);
+}
+
+.alert.alert-success > svg {
+  color: var(--color-success);
+}
+
+.alert.alert-warning {
+  background-color: color-mix(in oklch, var(--color-warning) 10%, transparent);
+  border-color: var(--color-warning);
+  color: color-mix(in oklch, var(--color-base-content) 85%, transparent);
+}
+
+.alert.alert-warning > svg {
+  color: var(--color-warning);
+}
+
+.alert.alert-error {
+  background-color: color-mix(in oklch, var(--color-error) 10%, transparent);
+  border-color: var(--color-error);
+  color: color-mix(in oklch, var(--color-base-content) 85%, transparent);
+}
+
+.alert.alert-error > svg {
+  color: var(--color-error);
+}
+
+/* Keep floating toasts opaque against underlying content */
+.toast .alert {
+  background-color: var(--color-base-100);
+}
+
+.toast .alert.alert-info {
+  background-color: color-mix(
+    in oklch,
+    var(--color-info) 12%,
+    var(--color-base-100)
+  );
+}
+
+.toast .alert.alert-success {
+  background-color: color-mix(
+    in oklch,
+    var(--color-success) 12%,
+    var(--color-base-100)
+  );
+}
+
+.toast .alert.alert-warning {
+  background-color: color-mix(
+    in oklch,
+    var(--color-warning) 12%,
+    var(--color-base-100)
+  );
+}
+
+.toast .alert.alert-error {
+  background-color: color-mix(
+    in oklch,
+    var(--color-error) 12%,
+    var(--color-base-100)
+  );
+}

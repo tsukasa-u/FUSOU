@@ -19,28 +19,63 @@ export const Interactive: Story = {
       <div>
         <h3 class="text-sm font-semibold mb-1">FadeToast Component</h3>
         <p class="text-xs text-base-content/60 mb-3">
-          下のボタンをクリックすると、右下に自動消去トースト通知が表示されます。
+          Click a button below to preview auto-dismissing notifications styled
+          to match FUSOU-WEB alerts.
         </p>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn btn-sm btn-outline border-info/50 text-info"
           onClick={() => {
-            showFadeToast(args.toast_id, "設定を正常に保存しました");
+            showFadeToast(
+              args.toast_id,
+              "Session health check completed.",
+              "info",
+            );
           }}
         >
-          保存完了トーストを表示
+          Show Info Toast
         </button>
         <button
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="btn btn-sm btn-outline border-success/50 text-success"
           onClick={() => {
-            showFadeToast(args.toast_id, "新しいマスターデータを受信しました");
+            showFadeToast(
+              args.toast_id,
+              "Settings saved successfully.",
+              "success",
+            );
           }}
         >
-          情報通知トーストを表示
+          Show Success Toast
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline border-warning/50 text-warning"
+          onClick={() => {
+            showFadeToast(
+              args.toast_id,
+              "Master data updated with warnings.",
+              "warning",
+            );
+          }}
+        >
+          Show Warning Toast
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline border-error/50 text-error"
+          onClick={() => {
+            showFadeToast(
+              args.toast_id,
+              "Failed to synchronize snapshot.",
+              "error",
+            );
+          }}
+        >
+          Show Error Toast
         </button>
       </div>
 

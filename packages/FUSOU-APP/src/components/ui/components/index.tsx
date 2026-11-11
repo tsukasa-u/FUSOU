@@ -1,3 +1,4 @@
+export * from "./alert";
 export * from "./bar";
 export * from "./empty";
 export * from "./equipment";

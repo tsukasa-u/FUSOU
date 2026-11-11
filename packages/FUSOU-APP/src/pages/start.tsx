@@ -12,6 +12,7 @@ import {
   Switch,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { AlertMessage } from "ui";
 
 import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
@@ -298,22 +299,9 @@ function Start() {
                 </div>
               </div>
               <Show when={run_proxy_flag() == -1}>
-                <div role="alert" class="alert alert-error">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-6 w-6 shrink-0 stroke-current"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>Something Wrong. Restart from System Tray.</span>
-                </div>
+                <AlertMessage type="error">
+                  Something Wrong. Restart from System Tray.
+                </AlertMessage>
               </Show>
               <div class="py-2">
                 <h2 class="text-lg font-semibold leading-4">Open App</h2>
