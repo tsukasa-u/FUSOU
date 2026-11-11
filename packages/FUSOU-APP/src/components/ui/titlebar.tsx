@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { isTauri } from "../../utility/tauri";
+import { ThemeControllerComponent } from "../settings/theme";
 
 type Props = {
   isMaximized: boolean;
@@ -224,7 +225,10 @@ export function CustomTitlebar(props: Props) {
       </div>
 
       {/* Center / Utility Buttons */}
-      <div class="flex items-center gap-1">
+      <div
+        class="flex items-center gap-1"
+        onDblClick={(e) => e.stopPropagation()}
+      >
         {/* Screenshot Button */}
         <button
           type="button"
@@ -407,6 +411,8 @@ export function CustomTitlebar(props: Props) {
             </div>
           </Show>
         </div>
+
+        <ThemeControllerComponent />
       </div>
 
       {/* Right: Window Controls */}

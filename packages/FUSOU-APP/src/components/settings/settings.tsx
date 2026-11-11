@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { FadeToast, showFadeToast } from "./fade_toast";
 import "../../css/divider.css";
-import { ThemeControllerComponent } from "./theme";
 import { createSignal, Show } from "solid-js";
 
 type SessionHealth = {
@@ -70,9 +69,9 @@ export function SettingsComponent() {
 
       {/* <div class="h-8"></div> */}
 
-      <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Settings</h1>
+      <h1 class="mx-6 pt-5 pb-2 text-2xl font-semibold">Settings</h1>
       <div class="mx-6">
-        <div class="divider py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-3 mb-6" />
 
         <p class="py-2 text-xl font-semibold">Manual Snapshot Sync</p>
         <p class="px-px leading-5">
@@ -195,7 +194,11 @@ export function SettingsComponent() {
               await invoke("get_mst_equip_ships"); // get_data
               await invoke("get_mst_stypes"); // get_data
               await invoke("get_mst_useitems"); // get_data
+              await invoke("get_mst_useitem_metas"); // get_data
               await invoke("get_slot_items"); // require_info
+              await invoke("get_use_items"); // require_info / useitem
+              await invoke("get_pay_items"); // payitem
+              await invoke("get_quests"); // questlist
               showFadeToast("setting_toast", "load all data");
             }}
           >
@@ -376,20 +379,7 @@ export function SettingsComponent() {
                     </div>
                 </div> */}
 
-        <div class="divider py-0 mt-4 mb-8" />
-
-        <div class="grid">
-          <div>
-            <h2 class="py-2 text-xl font-semibold">Change theme</h2>
-            <p class="px-px leading-5">
-              change theme you like to select drop down menu
-            </p>
-            <div class="mt-4 flex items-center justify-end">
-              <ThemeControllerComponent />
-            </div>
-          </div>
-          <span class="h-8" />
-        </div>
+        <span class="h-8" />
       </div>
 
       <FadeToast toast_id="setting_toast" />

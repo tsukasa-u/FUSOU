@@ -15,6 +15,11 @@ import "./global.css";
 import { createSignal, ErrorBoundary, onCleanup, onMount } from "solid-js";
 
 import { fetch_font } from "./utility/google_font.ts";
+import {
+  APP_THEME_STORAGE_KEY,
+  applyAppTheme,
+  normalizeAppTheme,
+} from "./utility/theme.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ErrorFallback } from "./utility/ErrorFallback.tsx";
@@ -56,16 +61,15 @@ render(
         console.warn("Failed to listen window resize:", e);
       }
 
-      const cachedTheme = localStorage.getItem("fusou-app-theme");
-      if (cachedTheme) {
-        document.documentElement.setAttribute("data-theme", cachedTheme);
+      const cachedTheme = localStorage.getItem(APP_THEME_STORAGE_KEY);
+      if (cachedTheme === "light" || cachedTheme === "dark") {
+        applyAppTheme(cachedTheme);
       }
 
       invoke<string>("get_app_theme", {})
         .then((theme) => {
-          if (theme == "") return;
-          localStorage.setItem("fusou-app-theme", theme);
-          document.documentElement.setAttribute("data-theme", theme);
+          if (theme == "" || cachedTheme) return;
+          applyAppTheme(normalizeAppTheme(theme));
         })
         .catch((error) => {
           console.error("Error fetching app theme:", error);

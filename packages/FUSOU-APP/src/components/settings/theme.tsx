@@ -1,67 +1,85 @@
-import { createSignal, For, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import type { AppTheme } from "../../utility/theme";
+import {
+  APP_THEME_STORAGE_KEY,
+  applyAppTheme,
+  getCurrentAppTheme,
+  subscribeAppTheme,
+  toggleAppTheme,
+} from "../../utility/theme";
 
-const themes = ["light", "dark"];
-
+/**
+ * Click-to-toggle Light / Dark theme button designed for `CustomTitlebar`.
+ */
 export function ThemeControllerComponent() {
-  const [currentTheme, setCurrentTheme] = createSignal<string>(
-    typeof localStorage !== "undefined"
-      ? (localStorage.getItem("fusou-app-theme") ?? "light")
-      : "light",
-  );
+  const [currentTheme, setCurrentTheme] =
+    createSignal<AppTheme>(getCurrentAppTheme());
 
   onMount(() => {
-    const saved = localStorage.getItem("fusou-app-theme");
-    if (saved) {
-      setCurrentTheme(saved);
-      document.documentElement.setAttribute("data-theme", saved);
+    const saved =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(APP_THEME_STORAGE_KEY)
+        : null;
+    if (saved === "light" || saved === "dark") {
+      applyAppTheme(saved);
     }
+    setCurrentTheme(getCurrentAppTheme());
+    onCleanup(subscribeAppTheme(setCurrentTheme));
   });
 
-  const selectTheme = (theme: string) => {
-    setCurrentTheme(theme);
-    localStorage.setItem("fusou-app-theme", theme);
-    document.documentElement.setAttribute("data-theme", theme);
+  const handleToggle = () => {
+    setCurrentTheme(toggleAppTheme());
   };
 
   return (
-    <div class="dropdown mb-20 w-64">
-      <div
-        tabindex="0"
-        role="button"
-        class="btn btn-primary border-primary-content btn-wide"
+    <button
+      type="button"
+      onClick={handleToggle}
+      class="fusou-tool-btn"
+      aria-label={
+        currentTheme() === "dark"
+          ? "Switch to Light theme"
+          : "Switch to Dark theme"
+      }
+      aria-pressed={currentTheme() === "dark"}
+      title={
+        currentTheme() === "dark"
+          ? "Theme: Dark (Click to switch to Light)"
+          : "Theme: Light (Click to switch to Dark)"
+      }
+    >
+      <Show
+        when={currentTheme() === "dark"}
+        fallback={
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+            />
+          </svg>
+        }
       >
-        Theme ({currentTheme()})
         <svg
-          width="12px"
-          height="12px"
-          class="inline-block h-2 w-2 fill-current opacity-60 ml-2"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 2048 2048"
+          class="w-3.5 h-3.5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
         >
-          <path d="M1799 349l242 241-1017 1017L7 590l242-241 775 775 775-775z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+          />
         </svg>
-      </div>
-      <ul
-        tabindex="0"
-        class="dropdown-content bg-base-200 rounded-md z-[1] w-64 outline outline-1 p-2 shadow max-h-80"
-        style={{ "overflow-y": "auto" }}
-      >
-        <For each={themes}>
-          {(theme) => (
-            <li>
-              <input
-                type="radio"
-                name="theme-dropdown"
-                class="theme-controller btn btn-sm btn-block border-0 justify-start"
-                aria-label={theme}
-                value={theme}
-                checked={currentTheme() === theme}
-                onChange={() => selectTheme(theme)}
-              />
-            </li>
-          )}
-        </For>
-      </ul>
-    </div>
+      </Show>
+    </button>
   );
 }
