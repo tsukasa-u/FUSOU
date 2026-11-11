@@ -14,17 +14,18 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 
-import { VList } from "virtua/solid";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 
 import "../../css/divider.css";
 import "../../css/specification_table.css";
 import { ComponentEquipmentModal, IconPlaneProficiency } from "ui";
 import {
+  buildVisibleSpecRows,
   CategoryTabStrip,
   createSpecTableScrollController,
   SpecScrollArrowButton,
   SpecTableHeaderBar,
+  SpecTableVirtualList,
   type SpecTableScrollController,
 } from "./scroll_controls.tsx";
 import type {
@@ -42,7 +43,7 @@ import {
   sort_window,
 } from "./set_window.tsx";
 
-const table_width = "1260px";
+const table_width = "1268px";
 
 export function EquipmentListComponent() {
   const [slot_items] = useSlotItems();
@@ -552,7 +553,7 @@ export function EquipmentListComponent() {
             </div>
           </td>
         </Show>
-        <td class="w-7 shrink-0 p-0" aria-hidden="true" />
+        <td class="w-9 shrink-0 p-0" aria-hidden="true" />
       </tr>
     );
   };
@@ -589,18 +590,19 @@ export function EquipmentListComponent() {
 
     return (
       <thead>
-        <tr class="flex mt-1">
-          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">
+        <tr class="flex items-stretch">
+          <th class="w-10 flex justify-center bg-base-100 z-[20] sticky left-0">
             {sort_window_element}
           </th>
-          <th class="w-48 bg-base-100 z-[4] sticky left-10 flex items-center justify-between gap-1">
+          <th class="w-48 bg-base-100 z-[15] sticky left-10 flex items-center justify-between gap-1">
             <div class="shrink-0">{search_name_window_element}</div>
             <SpecScrollArrowButton
               direction="left"
               disabled={!controller.canScrollLeft()}
               ariaLabel="Scroll table columns left"
               dataRole="header-left"
-              class="h-6 w-5 -mr-1"
+              divider="right"
+              class="-mr-[5px]"
               onClick={() => controller.scrollBy(-1)}
             />
           </th>
@@ -686,7 +688,7 @@ export function EquipmentListComponent() {
               {set_range_window_elements["Distance"]}
             </th>
           </Show>
-          <th class="w-7 shrink-0 p-0" aria-hidden="true" />
+          <th class="w-9 shrink-0 p-0" aria-hidden="true" />
         </tr>
       </thead>
     );
@@ -695,65 +697,25 @@ export function EquipmentListComponent() {
   const categorizedScroll = createSpecTableScrollController(equip_spec_modal);
   const uncategorizedScroll = createSpecTableScrollController(equip_spec_modal);
 
+  const categorized_equip_rows = createMemo(() =>
+    buildVisibleSpecRows(
+      categorized_equips_keys()[set_equip_type()] ?? [],
+      filtered_equips(),
+    ),
+  );
+  const uncategorized_equip_rows = createMemo(() =>
+    buildVisibleSpecRows(sorted_equip_keys(), filtered_equips()),
+  );
+
   createEffect(() => {
     Object.values(check_equip_property);
     set_categorize();
     set_equip_type();
+    categorized_equip_rows();
+    uncategorized_equip_rows();
     categorizedScroll.refreshEdges();
     uncategorizedScroll.refreshEdges();
   });
-
-  const table_element_none_categorized = (equip_ids: (number | string)[]) => {
-    const table_element = equip_ids
-      .map((equip_id, index) => [
-        Number(equip_id),
-        filtered_equips()[Number(equip_id)] ?? false,
-        index,
-      ])
-      .filter(([, flag]) => flag as boolean);
-    return (
-      <VList
-        data={table_element}
-        style={{
-          height: "calc(100dvh - 126px)",
-          "--table-width": table_width,
-        }}
-        class="specification-vlist"
-      >
-        {([equip_id, , index]) => (
-          <table class="table table-xs" style={{ width: table_width }}>
-            <tbody>{table_line_element(Number(equip_id), Number(index))}</tbody>
-          </table>
-        )}
-      </VList>
-    );
-  };
-
-  const table_element_categorized = (equip_ids: (number | string)[]) => {
-    const table_element = equip_ids
-      .map((equip_id, index) => [
-        Number(equip_id),
-        filtered_equips()[Number(equip_id)] ?? false,
-        index,
-      ])
-      .filter(([, flag]) => flag as boolean);
-    return (
-      <VList
-        data={table_element}
-        style={{
-          height: "calc(100dvh - 159px)",
-          "--table-width": table_width,
-        }}
-        class="specification-vlist"
-      >
-        {([equip_id, , index]) => (
-          <table class="table table-xs" style={{ width: table_width }}>
-            <tbody>{table_line_element(Number(equip_id), Number(index))}</tbody>
-          </table>
-        )}
-      </VList>
-    );
-  };
 
   const cal_search_name = (search_name: string) => {
     const tmp_name: CheckName = {};
@@ -792,8 +754,8 @@ export function EquipmentListComponent() {
     );
 
   return (
-    <>
-      <div class="bg-base-100 z-[4]">
+    <div class="h-full flex flex-col min-h-0 flex-1">
+      <div class="bg-base-100 z-[4] shrink-0">
         <div class="h-2" />
         <div class="px-2 py-1 text-xs flex flex-wrap items-center">
           <div class="px-4 flex-none text-sm w-60">
@@ -825,41 +787,53 @@ export function EquipmentListComponent() {
             radioName="equip_specification_table_tab"
             categories={() => Object.keys(categorized_equips_keys())}
             hasItems={(equip_type_name) =>
-              categorized_equips_keys()[equip_type_name].length != 0
+              (categorized_equips_keys()[equip_type_name]?.length ?? 0) != 0
             }
             activeCategory={set_equip_type}
             onSelect={(equip_type_name) => set_set_equip_type(equip_type_name)}
             modalOpen={equip_spec_modal}
           />
 
-          <div class="w-full flex flex-col border-t border-base-300">
+          <div class="w-full flex flex-col flex-1 min-h-0 border-t border-base-300">
             <SpecTableHeaderBar
               controller={categorizedScroll}
               tableWidth={table_width}
             >
               {table_header(categorizedScroll)}
             </SpecTableHeaderBar>
-            <div ref={categorizedScroll.bindVListWrapper} class="w-full">
-              {table_element_categorized(
-                categorized_equips_keys()[set_equip_type()],
-              )}
+            <div
+              ref={categorizedScroll.bindVListWrapper}
+              class="w-full flex-1 min-h-0"
+            >
+              <SpecTableVirtualList
+                rows={categorized_equip_rows}
+                tableWidth={table_width}
+                renderRow={table_line_element}
+              />
             </div>
           </div>
         </Match>
         <Match when={!set_categorize()}>
-          <div class="w-full flex flex-col">
+          <div class="w-full flex flex-col flex-1 min-h-0">
             <SpecTableHeaderBar
               controller={uncategorizedScroll}
               tableWidth={table_width}
             >
               {table_header(uncategorizedScroll)}
             </SpecTableHeaderBar>
-            <div ref={uncategorizedScroll.bindVListWrapper} class="w-full">
-              {table_element_none_categorized(sorted_equip_keys())}
+            <div
+              ref={uncategorizedScroll.bindVListWrapper}
+              class="w-full flex-1 min-h-0"
+            >
+              <SpecTableVirtualList
+                rows={uncategorized_equip_rows}
+                tableWidth={table_width}
+                renderRow={table_line_element}
+              />
             </div>
           </div>
         </Match>
       </Switch>
-    </>
+    </div>
   );
 }

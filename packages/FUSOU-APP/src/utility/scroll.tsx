@@ -47,27 +47,27 @@ export function scrollElementHorizontally(
   if (maxScrollLeft <= 0) return false;
 
   const before = el.scrollLeft;
-  const nextScrollLeft = Math.max(
-    0,
-    Math.min(maxScrollLeft, before + deltaX),
-  );
+  const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, before + deltaX));
   el.scrollLeft = nextScrollLeft;
   return Math.abs(el.scrollLeft - before) >= 0.5;
 }
 
+/**
+ * Attaches mouse drag-to-scroll with inertia to a horizontal scroll container and returns a cleanup callback.
+ */
 export const drag_scroll_fn = (
   el: HTMLDivElement,
   spec_modal: Accessor<boolean>,
-) => {
+): (() => void) => {
   let isDragging = false;
   let startX = 0;
   let scrollStartX = 0;
 
   let velocity = 0;
-  let animationFrameId: number;
+  let animationFrameId = 0;
   let lastPageX = 0;
 
-  el.addEventListener("mousedown", (e) => {
+  const onMouseDown = (e: MouseEvent) => {
     if (spec_modal()) return;
     if (e.button !== 0) return;
     isDragging = true;
@@ -79,9 +79,9 @@ export const drag_scroll_fn = (
     lastPageX = e.pageX;
 
     cancelAnimationFrame(animationFrameId);
-  });
+  };
 
-  document.addEventListener("mousemove", (e) => {
+  const onMouseMove = (e: MouseEvent) => {
     if (spec_modal()) return;
     if (!isDragging) return;
 
@@ -90,9 +90,9 @@ export const drag_scroll_fn = (
 
     velocity = e.pageX - lastPageX;
     lastPageX = e.pageX;
-  });
+  };
 
-  document.addEventListener("mouseup", () => {
+  const stopDragging = () => {
     if (spec_modal()) return;
     if (isDragging) {
       isDragging = false;
@@ -100,17 +100,12 @@ export const drag_scroll_fn = (
 
       startInertiaScroll();
     }
-  });
+  };
 
-  el.addEventListener("mouseleave", () => {
-    if (spec_modal()) return;
-    if (isDragging) {
-      isDragging = false;
-      el.style.cursor = "auto";
-
-      startInertiaScroll();
-    }
-  });
+  el.addEventListener("mousedown", onMouseDown);
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", stopDragging);
+  el.addEventListener("mouseleave", stopDragging);
 
   function startInertiaScroll() {
     const friction = 0.95;
@@ -123,6 +118,15 @@ export const drag_scroll_fn = (
     }
     inertia();
   }
+
+  return () => {
+    isDragging = false;
+    cancelAnimationFrame(animationFrameId);
+    el.removeEventListener("mousedown", onMouseDown);
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", stopDragging);
+    el.removeEventListener("mouseleave", stopDragging);
+  };
 };
 
 export const scroll_parent_fn = (
@@ -154,25 +158,29 @@ export const scroll_parent_fn = (
   });
 };
 
+/**
+ * Converts wheel input on wheelTarget into bounded horizontal scrolling on scrollTarget and returns a cleanup callback.
+ */
 export const scroll_fn = (
   wheelTarget: HTMLElement,
   spec_modal: Accessor<boolean>,
   scrollTarget: HTMLElement = wheelTarget,
-) => {
-  wheelTarget.addEventListener(
-    "wheel",
-    (e) => {
-      if (spec_modal()) return;
-      if (!canScrollHorizontally(scrollTarget)) return;
+): (() => void) => {
+  const handleWheel = (e: WheelEvent) => {
+    if (spec_modal()) return;
+    if (!canScrollHorizontally(scrollTarget)) return;
 
-      const delta = getHorizontalWheelDelta(e);
-      if (delta === 0) return;
+    const delta = getHorizontalWheelDelta(e);
+    if (delta === 0) return;
 
-      // Consume the wheel on horizontal strips even at scroll boundaries
-      // so reaching either end does not suddenly chain into vertical scrolling.
-      e.preventDefault();
-      scrollElementHorizontally(scrollTarget, delta);
-    },
-    { passive: false },
-  );
+    // Consume the wheel on horizontal strips even at scroll boundaries
+    // so reaching either end does not suddenly chain into vertical scrolling.
+    e.preventDefault();
+    scrollElementHorizontally(scrollTarget, delta);
+  };
+
+  wheelTarget.addEventListener("wheel", handleWheel, { passive: false });
+  return () => {
+    wheelTarget.removeEventListener("wheel", handleWheel);
+  };
 };

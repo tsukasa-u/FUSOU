@@ -4,6 +4,9 @@ import type { SetStoreFunction } from "solid-js/store";
 import IconDownArrow from "../../icons/down_arrow";
 import IconUpArrow from "../../icons/up_arrow";
 
+const FILTERED_INDICATOR_CLASS =
+  "indicator-item badge badge-secondary badge-xs -mx-2 pointer-events-none [--indicator-y:-65%]";
+
 export type RangeProps = {
   [key: string]: {
     min: number;
@@ -67,9 +70,7 @@ export const set_range_window_list = (
                 return ret;
               })()}
             >
-              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                filtered
-              </span>
+              <span class={FILTERED_INDICATOR_CLASS}>filtered</span>
             </Show>
             <div
               class="btn btn-xs btn-ghost -mx-2"
@@ -229,9 +230,7 @@ export const set_discrete_range_window_list = (
                 return ret;
               })()}
             >
-              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                filtered
-              </span>
+              <span class={FILTERED_INDICATOR_CLASS}>filtered</span>
             </Show>
             <div
               class="btn btn-xs btn-ghost -mx-2"
@@ -384,7 +383,7 @@ export const sort_window = (
     <>
       <div>
         <div class="indicator">
-          <span class="indicator-item indicator-top indicator-center badge badge-secondary badge-xs max-w-16 truncate flex justify-start z-10 pointer-events-none">
+          <span class="indicator-item indicator-top badge badge-secondary badge-xs max-w-16 truncate flex justify-start pointer-events-none [--indicator-s:0px] [--indicator-e:auto] [--indicator-x:0px] [--indicator-y:-65%]">
             <Switch fallback="">
               <Match when={set_order()}>▲</Match>
               <Match when={!set_order()}>▼</Match>
@@ -472,9 +471,7 @@ export const search_name_window = (
           <Show
             when={Object.values(check_name).findIndex((value) => !value) != -1}
           >
-            <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-              filtered
-            </span>
+            <span class={FILTERED_INDICATOR_CLASS}>filtered</span>
           </Show>
           <div
             class="btn btn-xs btn-ghost -mx-2"
@@ -552,9 +549,7 @@ export const set_type_window = (
           <Show
             when={Object.values(check_types).findIndex((value) => !value) != -1}
           >
-            <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-              filtered
-            </span>
+            <span class={FILTERED_INDICATOR_CLASS}>filtered</span>
           </Show>
           <div
             class="btn btn-xs btn-ghost -mx-2"

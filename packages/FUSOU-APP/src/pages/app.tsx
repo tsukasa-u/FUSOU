@@ -105,93 +105,115 @@ function AppProviders(props: { children: JSX.Element }) {
 function App() {
   createEffect(location_route);
   const [activeTab, setActiveTab] = createSignal<AppTabKey>("fleet");
+  const isViewportLockedTab = () =>
+    activeTab() === "ship" || activeTab() === "equip" || activeTab() === "logs";
 
   return (
     <AppProviders>
-      <div class="sticky top-0 z-100 border-b border-base-300 bg-base-100">
+      <div class={isViewportLockedTab() ? "h-full flex flex-col min-h-0" : ""}>
+        <div class="sticky top-0 z-100 border-b border-base-300 bg-base-100 shrink-0">
+          <div
+            role="tablist"
+            class="tabs tabs-border tabs-sm bg-base-100 flex-wrap"
+          >
+            <For each={TAB_DEFINITIONS}>
+              {(tab) => {
+                return (
+                  <button
+                    role="tab"
+                    class="tab"
+                    classList={{ "tab-active": activeTab() === tab.key }}
+                    aria-selected={activeTab() === tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+        </div>
+
+        <div class={activeTab() === "fleet" ? "block" : "hidden"}>
+          <div class="p-0 h-full">
+            <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+              <MaterialsComponent />
+              <DecksComponent />
+              <AirBasesComponent />
+              <BattlesComponent />
+              <div class="min-h-min min-w-min" />
+            </ul>
+          </div>
+        </div>
+
         <div
-          role="tablist"
-          class="tabs tabs-border tabs-sm bg-base-100 flex-wrap"
+          class={
+            activeTab() === "ship"
+              ? "flex-1 min-h-0 flex flex-col bg-base-100"
+              : "hidden"
+          }
         >
-          <For each={TAB_DEFINITIONS}>
-            {(tab) => {
-              return (
-                <button
-                  role="tab"
-                  class="tab"
-                  classList={{ "tab-active": activeTab() === tab.key }}
-                  aria-selected={activeTab() === tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                >
-                  {tab.label}
-                </button>
-              );
-            }}
-          </For>
+          <div class="pt-0 pb-0 pl-0 bg-base-100 flex-1 min-h-0 flex flex-col">
+            <ShipListComponent />
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "fleet" ? "block" : "hidden"}>
-        <div class="p-0 h-full">
-          <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-            <MaterialsComponent />
-            <DecksComponent />
-            <AirBasesComponent />
-            <BattlesComponent />
-            <div class="min-h-min min-w-min" />
-          </ul>
+        <div
+          class={
+            activeTab() === "equip"
+              ? "flex-1 min-h-0 flex flex-col bg-base-100"
+              : "hidden"
+          }
+        >
+          <div class="pt-0 pb-0 pl-0 bg-base-100 flex-1 min-h-0 flex flex-col">
+            <EquipmentListComponent />
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "ship" ? "block" : "hidden"}>
-        <div class="pt-0 pb-0 pl-0 bg-base-100">
-          <ShipListComponent />
+        <div class={activeTab() === "item" ? "block" : "hidden"}>
+          <div class="p-0 h-full">
+            <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+              <ItemsComponent />
+            </ul>
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "equip" ? "block" : "hidden"}>
-        <div class="pt-0 pb-0 pl-0 bg-base-100">
-          <EquipmentListComponent />
+        <div class={activeTab() === "quest" ? "block" : "hidden"}>
+          <div class="p-0 h-full">
+            <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+              <QuestsComponent />
+            </ul>
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "item" ? "block" : "hidden"}>
-        <div class="p-0 h-full">
-          <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-            <ItemsComponent />
-          </ul>
+        <div class={activeTab() === "data_collection" ? "block" : "hidden"}>
+          <div class="pt-0 pb-0 pl-0 bg-base-100">
+            <DataCollectionStatusComponent />
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "quest" ? "block" : "hidden"}>
-        <div class="p-0 h-full">
-          <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-            <QuestsComponent />
-          </ul>
+        <div class={activeTab() === "settings" ? "block" : "hidden"}>
+          <div class="pt-0 pb-0 pl-0 bg-base-100">
+            <SettingsComponent />
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "data_collection" ? "block" : "hidden"}>
-        <div class="pt-0 pb-0 pl-0 bg-base-100">
-          <DataCollectionStatusComponent />
+        <div
+          class={
+            activeTab() === "logs"
+              ? "flex-1 min-h-0 flex flex-col bg-base-100"
+              : "hidden"
+          }
+        >
+          <div class="pt-0 pb-0 pl-0 bg-base-100 flex-1 min-h-0 flex flex-col">
+            <LogViewerComponent />
+          </div>
         </div>
-      </div>
 
-      <div class={activeTab() === "settings" ? "block" : "hidden"}>
-        <div class="pt-0 pb-0 pl-0 bg-base-100">
-          <SettingsComponent />
-        </div>
-      </div>
-
-      <div class={activeTab() === "logs" ? "block" : "hidden"}>
-        <div class="pt-0 pb-0 pl-0 bg-base-100">
-          <LogViewerComponent />
-        </div>
-      </div>
-
-      <div class={activeTab() === "policy" ? "block" : "hidden"}>
-        <div class="pt-0 pb-0 pl-0 bg-base-100">
-          <PolicyPanelComponent />
+        <div class={activeTab() === "policy" ? "block" : "hidden"}>
+          <div class="pt-0 pb-0 pl-0 bg-base-100">
+            <PolicyPanelComponent />
+          </div>
         </div>
       </div>
     </AppProviders>

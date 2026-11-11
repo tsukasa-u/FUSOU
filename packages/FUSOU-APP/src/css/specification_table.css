@@ -12,10 +12,23 @@
 
 .specification-header {
   width: 100%;
-  overflow-x: hidden;
+  overflow: hidden;
   scrollbar-width: none;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
+}
+
+/* Reserve vertical room inside every header cell (including sticky columns) so filter/sort indicators sit cleanly inside the header and stay occluded behind sticky columns during horizontal scroll. */
+.specification-header thead th {
+  padding-top: 1rem;
+  padding-bottom: 0.25rem;
+  display: flex;
+  align-items: center;
+}
+
+.specification-header thead th:not(.sticky) {
+  position: relative;
+  z-index: 1;
 }
 
 .specification-header::-webkit-scrollbar,

@@ -18,13 +18,14 @@ import "../../css/divider.css";
 import "../../css/specification_table.css";
 import { ComponentShipModal } from "ui";
 
-import { VList } from "virtua/solid";
 import { get_data_set_ship } from "../../utility/get_data_set.tsx";
 import {
+  buildVisibleSpecRows,
   CategoryTabStrip,
   createSpecTableScrollController,
   SpecScrollArrowButton,
   SpecTableHeaderBar,
+  SpecTableVirtualList,
   type SpecTableScrollController,
 } from "./scroll_controls.tsx";
 import {
@@ -37,7 +38,7 @@ import {
   sort_window,
   type RangeProps,
 } from "./set_window.tsx";
-const table_width = "1220px";
+const table_width = "1228px";
 
 export function ShipListComponent() {
   const [ships] = useShips();
@@ -570,7 +571,7 @@ export function ShipListComponent() {
             </div>
           </td>
         </Show>
-        <td class="w-7 shrink-0 p-0" aria-hidden="true" />
+        <td class="w-9 shrink-0 p-0" aria-hidden="true" />
       </tr>
     );
   };
@@ -609,18 +610,19 @@ export function ShipListComponent() {
       set_discrete_range_window(modal_prefix);
     return (
       <thead>
-        <tr class="flex mt-1">
-          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">
+        <tr class="flex items-stretch">
+          <th class="w-10 flex justify-center bg-base-100 z-[20] sticky left-0">
             {sort_window_elements}
           </th>
-          <th class="w-32 bg-base-100 z-[4] sticky left-10 flex items-center justify-between gap-1">
+          <th class="w-32 bg-base-100 z-[15] sticky left-10 flex items-center justify-between gap-1">
             <div class="shrink-0">{search_name_window_element}</div>
             <SpecScrollArrowButton
               direction="left"
               disabled={!controller.canScrollLeft()}
               ariaLabel="Scroll table columns left"
               dataRole="header-left"
-              class="h-6 w-5 -mr-1"
+              divider="right"
+              class="-mr-[5px]"
               onClick={() => controller.scrollBy(-1)}
             />
           </th>
@@ -699,7 +701,7 @@ export function ShipListComponent() {
           <Show when={check_ship_property["Range"]}>
             <th class="w-20">{set_discrete_range_window_elements["Range"]}</th>
           </Show>
-          <th class="w-7 shrink-0 p-0" aria-hidden="true" />
+          <th class="w-9 shrink-0 p-0" aria-hidden="true" />
         </tr>
       </thead>
     );
@@ -708,65 +710,25 @@ export function ShipListComponent() {
   const categorizedScroll = createSpecTableScrollController(ship_spec_modal);
   const uncategorizedScroll = createSpecTableScrollController(ship_spec_modal);
 
+  const categorized_ship_rows = createMemo(() =>
+    buildVisibleSpecRows(
+      categorized_ships_keys()[set_stype()] ?? [],
+      filtered_ships(),
+    ),
+  );
+  const uncategorized_ship_rows = createMemo(() =>
+    buildVisibleSpecRows(sorted_ship_keys(), filtered_ships()),
+  );
+
   createEffect(() => {
     Object.values(check_ship_property);
     set_categorize();
     set_stype();
+    categorized_ship_rows();
+    uncategorized_ship_rows();
     categorizedScroll.refreshEdges();
     uncategorizedScroll.refreshEdges();
   });
-
-  const table_element_categorized = (ship_ids: (number | string)[]) => {
-    const table_element = ship_ids
-      .map((ship_id, index) => [
-        Number(ship_id),
-        filtered_ships()[Number(ship_id)] ?? false,
-        index,
-      ])
-      .filter(([, flag]) => flag as boolean);
-    return (
-      <VList
-        data={table_element}
-        style={{
-          height: "calc(100dvh - 159px)",
-          "--table-width": table_width,
-        }}
-        class="specification-vlist"
-      >
-        {([ship_id, , index]) => (
-          <table class="table table-xs" style={{ width: table_width }}>
-            <tbody>{table_line_element(Number(ship_id), Number(index))}</tbody>
-          </table>
-        )}
-      </VList>
-    );
-  };
-
-  const table_element_none_categorized = (ship_ids: (number | string)[]) => {
-    const table_element = ship_ids
-      .map((ship_id, index) => [
-        Number(ship_id),
-        filtered_ships()[Number(ship_id)] ?? false,
-        index,
-      ])
-      .filter(([, flag]) => flag as boolean);
-    return (
-      <VList
-        data={table_element}
-        style={{
-          height: "calc(100dvh - 126px)",
-          "--table-width": table_width,
-        }}
-        class="specification-vlist"
-      >
-        {([ship_id, , index]) => (
-          <table class="table table-xs" style={{ width: table_width }}>
-            <tbody>{table_line_element(Number(ship_id), Number(index))}</tbody>
-          </table>
-        )}
-      </VList>
-    );
-  };
 
   const cal_search_name = (search_name: string) => {
     const tmp_name: { [key: number]: boolean } = {};
@@ -802,8 +764,8 @@ export function ShipListComponent() {
     );
 
   return (
-    <>
-      <div class="bg-base-100 z-[4]">
+    <div class="h-full flex flex-col min-h-0 flex-1">
+      <div class="bg-base-100 z-[4] shrink-0">
         <div class="h-2" />
         <div class="px-2 py-1 text-xs flex flex-wrap items-center">
           <div class="px-4 flex-none text-sm w-56">
@@ -835,38 +797,52 @@ export function ShipListComponent() {
             radioName="ship_specification_table_tab"
             categories={() => Object.keys(categorized_ships_keys())}
             hasItems={(stype_name) =>
-              categorized_ships_keys()[stype_name].length != 0
+              (categorized_ships_keys()[stype_name]?.length ?? 0) != 0
             }
             activeCategory={set_stype}
             onSelect={(stype_name) => set_set_stype(stype_name)}
             modalOpen={ship_spec_modal}
           />
-          <div class="w-full flex flex-col border-t border-base-300">
+          <div class="w-full flex flex-col flex-1 min-h-0 border-t border-base-300">
             <SpecTableHeaderBar
               controller={categorizedScroll}
               tableWidth={table_width}
             >
               {table_header(categorizedScroll)}
             </SpecTableHeaderBar>
-            <div ref={categorizedScroll.bindVListWrapper} class="w-full">
-              {table_element_categorized(categorized_ships_keys()[set_stype()])}
+            <div
+              ref={categorizedScroll.bindVListWrapper}
+              class="w-full flex-1 min-h-0"
+            >
+              <SpecTableVirtualList
+                rows={categorized_ship_rows}
+                tableWidth={table_width}
+                renderRow={table_line_element}
+              />
             </div>
           </div>
         </Match>
         <Match when={!set_categorize()}>
-          <div class="w-full flex flex-col">
+          <div class="w-full flex flex-col flex-1 min-h-0">
             <SpecTableHeaderBar
               controller={uncategorizedScroll}
               tableWidth={table_width}
             >
               {table_header(uncategorizedScroll)}
             </SpecTableHeaderBar>
-            <div ref={uncategorizedScroll.bindVListWrapper} class="w-full">
-              {table_element_none_categorized(sorted_ship_keys())}
+            <div
+              ref={uncategorizedScroll.bindVListWrapper}
+              class="w-full flex-1 min-h-0"
+            >
+              <SpecTableVirtualList
+                rows={uncategorized_ship_rows}
+                tableWidth={table_width}
+                renderRow={table_line_element}
+              />
             </div>
           </div>
         </Match>
       </Switch>
-    </>
+    </div>
   );
 }
