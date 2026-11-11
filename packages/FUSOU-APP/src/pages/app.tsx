@@ -4,6 +4,7 @@ import { SettingsComponent } from "../components/settings/settings.tsx";
 import { DataCollectionStatusComponent } from "../components/settings/data_collection_status.tsx";
 
 import { MaterialsComponent } from "./../components/materials/materials.tsx";
+import { ItemsComponent } from "./../components/items/items.tsx";
 import { QuestsComponent } from "./../components/quests/quests.tsx";
 import {
   AirBasesPortsProvider,
@@ -13,12 +14,16 @@ import {
   DeckBattlesProvider,
   MaterialsProvider,
   MstSlotItemEquipTypesProvider,
+  MstUseItemMetasProvider,
+  MstUseItemsProvider,
+  PayItemsProvider,
   QuestsProvider,
   MstShipsProvider,
   MstSlotItemsProvider,
   MstStypesProvider,
   ShipsProvider,
   SlotItemsProvider,
+  UseItemsProvider,
 } from "./../utility/provider.tsx";
 import { BattlesComponent } from "../components/battles/battles.tsx";
 import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
@@ -33,6 +38,7 @@ type AppTabKey =
   | "fleet"
   | "ship"
   | "equip"
+  | "item"
   | "quest"
   | "data_collection"
   | "settings"
@@ -48,6 +54,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
   { key: "fleet", label: "Fleet" },
   { key: "ship", label: "Ship" },
   { key: "equip", label: "Equip" },
+  { key: "item", label: "Item" },
   { key: "quest", label: "Quest" },
   { key: "data_collection", label: "Uploads" },
   { key: "settings", label: "Settings" },
@@ -64,17 +71,27 @@ function AppProviders(props: { children: JSX.Element }) {
             <MstShipsProvider>
               <MstStypesProvider>
                 <MstSlotItemEquipTypesProvider>
-                  <DeckPortsProvider>
-                    <AirBasesPortsProvider>
-                      <DeckBattlesProvider>
-                        <AirBasesBattlesProvider>
-                          <CellsContextProvider>
-                            <QuestsProvider>{props.children}</QuestsProvider>
-                          </CellsContextProvider>
-                        </AirBasesBattlesProvider>
-                      </DeckBattlesProvider>
-                    </AirBasesPortsProvider>
-                  </DeckPortsProvider>
+                  <MstUseItemsProvider>
+                    <MstUseItemMetasProvider>
+                      <UseItemsProvider>
+                        <PayItemsProvider>
+                          <DeckPortsProvider>
+                            <AirBasesPortsProvider>
+                              <DeckBattlesProvider>
+                                <AirBasesBattlesProvider>
+                                  <CellsContextProvider>
+                                    <QuestsProvider>
+                                      {props.children}
+                                    </QuestsProvider>
+                                  </CellsContextProvider>
+                                </AirBasesBattlesProvider>
+                              </DeckBattlesProvider>
+                            </AirBasesPortsProvider>
+                          </DeckPortsProvider>
+                        </PayItemsProvider>
+                      </UseItemsProvider>
+                    </MstUseItemMetasProvider>
+                  </MstUseItemsProvider>
                 </MstSlotItemEquipTypesProvider>
               </MstStypesProvider>
             </MstShipsProvider>
@@ -135,6 +152,14 @@ function App() {
       <div class={activeTab() === "equip" ? "block" : "hidden"}>
         <div class="pt-0 pb-0 pl-0 bg-base-100">
           <EquipmentListComponent />
+        </div>
+      </div>
+
+      <div class={activeTab() === "item" ? "block" : "hidden"}>
+        <div class="p-0 h-full">
+          <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+            <ItemsComponent />
+          </ul>
         </div>
       </div>
 

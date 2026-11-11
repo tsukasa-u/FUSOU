@@ -1,13 +1,18 @@
 import type { JSX } from "solid-js";
 import { createContext, useContext, createEffect, onCleanup } from "solid-js";
 import type { Part, SetStoreFunction } from "solid-js/store";
-import { createStore, reconcile } from "solid-js/store";
-import { safeTauriListen } from "./tauri";
+import { createStore, reconcile, unwrap } from "solid-js/store";
+import { safeTauriInvoke, safeTauriListen } from "./tauri";
 import { APP_EVENTS } from "./app_events";
-import { mergeQuestCache } from "./quest_cache";
+import type { QuestCacheState } from "./quest_cache";
+import {
+  applyQuestEventToState,
+  createEmptyQuestCacheState,
+  mergeQuestState,
+} from "./quest_cache";
 
 import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
-import type { Quests } from "@ipc-bindings/quest";
+import type { QuestEvent, Quests } from "@ipc-bindings/quest";
 import {
   default_deck_ports,
   default_materials,
@@ -21,6 +26,7 @@ import type {
   MstSlotItemEquipTypes,
   MstSlotItems,
   MstStypes,
+  MstUseItemMetas,
   MstUseItems,
 } from "@ipc-bindings/get_data";
 import {
@@ -30,11 +36,16 @@ import {
   default_mst_slot_items,
   default_mst_slotitem_equip_types,
   default_mst_stypes,
+  default_mst_useitem_metas,
   default_mst_useitems,
 } from "@ipc-bindings/default_state/get_data";
 
-import type { SlotItems } from "@ipc-bindings/require_info";
-import { default_slotitems } from "@ipc-bindings/default_state/require_info";
+import type { PayItems, SlotItems, UseItems } from "@ipc-bindings/require_info";
+import {
+  default_payitems,
+  default_slotitems,
+  default_useitems,
+} from "@ipc-bindings/default_state/require_info";
 
 import type { Cell, Cells } from "@ipc-bindings/cells";
 import { default_cells } from "@ipc-bindings/default_state/cells";
@@ -354,7 +365,7 @@ export function useMstStypes() {
   return context as [MstStypes, SetStoreFunction<MstStypes>];
 }
 
-const MstUseItemsContext =
+export const MstUseItemsContext =
   createContext<(MstUseItems | SetStoreFunction<MstUseItems>)[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
@@ -367,6 +378,9 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
       (event) => {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstUseItems);
         setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_mst_useitems");
       },
     );
     onCleanup(unlisten);
@@ -385,6 +399,116 @@ export function useMstUseItems() {
     throw new Error("useMstUseItems: cannot find a MstUseItemsContext");
   }
   return context as [MstUseItems, SetStoreFunction<MstUseItems>];
+}
+
+export const MstUseItemMetasContext =
+  createContext<(MstUseItemMetas | SetStoreFunction<MstUseItemMetas>)[]>();
+
+export function MstUseItemMetasProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<MstUseItemMetas>(
+    default_mst_useitem_metas,
+  );
+  const setter = [data, setData];
+
+  createEffect(() => {
+    const unlisten = safeTauriListen<MstUseItemMetas>(
+      APP_EVENTS.SetKcsMstUseItemMetas,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstUseItemMetas);
+        setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_mst_useitem_metas");
+      },
+    );
+    onCleanup(unlisten);
+  });
+
+  return (
+    <MstUseItemMetasContext.Provider value={setter}>
+      {props.children}
+    </MstUseItemMetasContext.Provider>
+  );
+}
+
+export function useMstUseItemMetas() {
+  const context = useContext(MstUseItemMetasContext);
+  if (!context) {
+    throw new Error("useMstUseItemMetas: cannot find a MstUseItemMetasContext");
+  }
+  return context as [MstUseItemMetas, SetStoreFunction<MstUseItemMetas>];
+}
+
+export const UseItemsContext =
+  createContext<(UseItems | SetStoreFunction<UseItems>)[]>();
+
+export function UseItemsProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<UseItems>(default_useitems);
+  const setter = [data, setData];
+
+  createEffect(() => {
+    const unlisten = safeTauriListen<UseItems>(
+      APP_EVENTS.SetKcsUseItems,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsUseItems);
+        setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_use_items");
+      },
+    );
+    onCleanup(unlisten);
+  });
+
+  return (
+    <UseItemsContext.Provider value={setter}>
+      {props.children}
+    </UseItemsContext.Provider>
+  );
+}
+
+export function useUseItems() {
+  const context = useContext(UseItemsContext);
+  if (!context) {
+    throw new Error("useUseItems: cannot find a UseItemsContext");
+  }
+  return context as [UseItems, SetStoreFunction<UseItems>];
+}
+
+export const PayItemsContext =
+  createContext<(PayItems | SetStoreFunction<PayItems>)[]>();
+
+export function PayItemsProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<PayItems>(default_payitems);
+  const setter = [data, setData];
+
+  createEffect(() => {
+    const unlisten = safeTauriListen<PayItems>(
+      APP_EVENTS.SetKcsPayItems,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsPayItems);
+        setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_pay_items");
+      },
+    );
+    onCleanup(unlisten);
+  });
+
+  return (
+    <PayItemsContext.Provider value={setter}>
+      {props.children}
+    </PayItemsContext.Provider>
+  );
+}
+
+export function usePayItems() {
+  const context = useContext(PayItemsContext);
+  if (!context) {
+    throw new Error("usePayItems: cannot find a PayItemsContext");
+  }
+  return context as [PayItems, SetStoreFunction<PayItems>];
 }
 
 export const MaterialsContext =
@@ -436,31 +560,36 @@ export function useMaterials() {
 }
 
 export const QuestsContext =
-  createContext<(Quests | SetStoreFunction<Quests>)[]>();
+  createContext<(QuestCacheState | SetStoreFunction<QuestCacheState>)[]>();
 
 export function QuestsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<Quests>({
-    timestamp: null,
-    page_no: 1,
-    count: 0,
-    completed_kind: 0,
-    exec_count: 0,
-    exec_type: 0,
-    quests: {},
-    completed: {},
-  });
+  const [data, setData] = createStore<QuestCacheState>(
+    createEmptyQuestCacheState(),
+  );
   const setter = [data, setData];
 
   createEffect(() => {
-    const unlisten = safeTauriListen<Quests>(
+    const unlistenSet = safeTauriListen<Quests>(
       APP_EVENTS.SetKcsQuests,
       (event) => {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsQuests);
-
-        setData(mergeQuestCache(data, event.payload));
+        setData(reconcile(mergeQuestState(unwrap(data), event.payload)));
+      },
+      () => {
+        void safeTauriInvoke("get_quests");
       },
     );
-    onCleanup(unlisten);
+    const unlistenEvent = safeTauriListen<QuestEvent>(
+      APP_EVENTS.AddKcsQuestEvent,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.AddKcsQuestEvent);
+        setData(reconcile(applyQuestEventToState(unwrap(data), event.payload)));
+      },
+    );
+    onCleanup(() => {
+      unlistenSet();
+      unlistenEvent();
+    });
   });
 
   return (
@@ -475,7 +604,7 @@ export function useQuests() {
   if (!context) {
     throw new Error("useQuests: cannot find a QuestsContext");
   }
-  return context as [Quests, SetStoreFunction<Quests>];
+  return context as [QuestCacheState, SetStoreFunction<QuestCacheState>];
 }
 
 export const DeckPortsContext =
