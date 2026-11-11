@@ -15,6 +15,7 @@ import {
   ConnectedNumberedErrorShip,
   ConnectedNumberedFriendShip,
 } from "../connected_components";
+import { FlareShipComponent } from "../shared/flare_ship";
 import { DamageCommonComponent } from "../dmg";
 
 interface FriendlyForceAttackProps {
@@ -40,52 +41,16 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
   });
 
   const display_flare = () => {
-    const flare_pos =
-      props.battle_selected()?.friendly_force_attack?.support_hourai?.flare_pos;
-    const f_flare_pos = flare_pos?.[0] ?? -1;
-    const e_flare_pos = flare_pos?.[1] ?? -1;
     return (
-      <>
-        Flare : <span class="w-1" />
-        <Show
-          when={flare_pos}
-          fallback={
-            <div class="flex flex-nowrap">
-              <div class="w-24 text-center">___</div>
-              <div class="w-3 text-center">/</div>
-              <div class="w-24 text-center">___</div>
-            </div>
-          }
-        >
-          <div class="flex flex-nowrap">
-            <div class="w-24 flex justify-center">
-              <Show
-                when={f_flare_pos != -1}
-                fallback={<div class="text-center">___</div>}
-              >
-                <ConnectedNumberedFriendShip
-                  ship_idx={f_flare_pos}
-                  battle_selected={props.battle_selected}
-                  store_data_set_param_ship={props.store_data_set_param_ship}
-                />
-              </Show>
-            </div>
-            <div class="w-3 text-center">/</div>
-            <div class="w-24 flex justify-center">
-              <Show
-                when={e_flare_pos != -1}
-                fallback={<div class="text-center">___</div>}
-              >
-                <ConnectedNumberedEnemyShip
-                  ship_idx={e_flare_pos}
-                  battle_selected={props.battle_selected}
-                  store_data_set_param_ship={props.store_data_set_param_ship}
-                />
-              </Show>
-            </div>
-          </div>
-        </Show>
-      </>
+      <FlareShipComponent
+        flarePos={
+          props.battle_selected()?.friendly_force_attack?.support_hourai
+            ?.flare_pos
+        }
+        battle_selected={props.battle_selected}
+        store_data_set_param_ship={props.store_data_set_param_ship}
+        isFriendlyForce={true}
+      />
     );
   };
 

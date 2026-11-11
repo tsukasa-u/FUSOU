@@ -181,7 +181,32 @@ export const IconEquipment: Component<IconEquipmentProps> = (props) => {
       overflow="hidden"
       class={["cursor-inherit", class_size[size()]].join(" ")}
     >
-      <Show when={!props.empty_flag}>
+      <Show
+        when={!props.empty_flag}
+        fallback={
+          <>
+            <path
+              d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+              stroke="currentColor"
+              stroke-opacity="0.22"
+              stroke-dasharray="14 10"
+              stroke-width="4"
+              stroke-linejoin="round"
+              fill="none"
+            />
+            <line
+              x1="54"
+              y1="76"
+              x2="96"
+              y2="76"
+              stroke="currentColor"
+              stroke-opacity="0.3"
+              stroke-width="6"
+              stroke-linecap="round"
+            />
+          </>
+        }
+      >
         <text
           style={{
             "font-family": '"Roboto Mono", monospace',

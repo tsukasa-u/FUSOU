@@ -318,7 +318,7 @@ export function DeckComponent(props: DeckPortProps) {
                             <div class="indicator-item indicator-top indicator-end">
                               {cond_state()[ship_index()]}
                             </div>
-                            <div class="badge badge-md border-base-300 w-9">
+                            <div class="badge badge-md border-base-300 w-9 tabular-nums">
                               {ship_list()[ship_index()].cond ?? 0}
                             </div>
                           </div>

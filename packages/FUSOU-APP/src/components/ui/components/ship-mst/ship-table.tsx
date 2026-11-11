@@ -4,6 +4,7 @@ import type { Component } from "solid-js";
 import { default_mst_ship } from "@ipc-bindings/default_state/get_data";
 import type { MstShip } from "@ipc-bindings/get_data";
 
+import { EmptyValue } from "../empty";
 import { IconError } from "../../icons/error";
 
 export interface ComponentShipMstTableProps {
@@ -15,7 +16,7 @@ export interface ComponentShipMstTableProps {
 
 const class_size = {
   xs: {
-    name_text: "text-md",
+    name_text: "text-base",
     level_text: "text-sm",
     caption_text: "text-sm",
     table: "table-xs",
@@ -23,8 +24,8 @@ const class_size = {
   },
   sm: {
     name_text: "text-lg",
-    level_text: "text-md",
-    caption_text: "text-md",
+    level_text: "text-base",
+    caption_text: "text-base",
     table: "table-sm",
     accent_text: "text-sm",
   },
@@ -33,7 +34,7 @@ const class_size = {
     level_text: "text-lg",
     caption_text: "text-lg",
     table: "table-md",
-    accent_text: "text-md",
+    accent_text: "text-base",
   },
   lg: {
     name_text: "text-2xl",
@@ -125,60 +126,90 @@ export const ComponentShipMstTable: Component<ComponentShipMstTableProps> = (
             <tbody>
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Durability</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship()?.taik?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship()?.taik?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
                 <th class="truncate flex-1 w-2">Firepower</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().houg?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().houg?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
               </tr>
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Armor</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().souk?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().souk?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
                 <th class="truncate flex-1 w-2">Torpedo</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().raig?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().raig?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
               </tr>
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Evasion</th>
-                <td class="flex-none w-12 flex justify-end pr-4">{"-"}</td>
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  <EmptyValue size={size()} align="right" />
+                </td>
                 <th class="truncate flex-1 w-2">Anti-Air</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().tyku?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().tyku?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
               </tr>
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Aircraft installed</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {maxEq() ? (maxEq() > 0 ? maxEq() : "") : "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {maxEq() && maxEq() > 0 ? (
+                    maxEq()
+                  ) : (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
                 <th class="truncate flex-1 w-2">Anti-Submarine</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().tais?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().tais?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
               </tr>
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Speed</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {speed_list[mst_ship().soku ?? "-"] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {speed_list[mst_ship().soku ?? "-"] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
                 <th class="truncate flex-1 w-2">Reconnaissance</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().tyku?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().tyku?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
               </tr>
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Range</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().leng ? range_list[mst_ship().leng ?? 0] : "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().leng ? (
+                    (range_list[mst_ship().leng ?? 0] ?? (
+                      <EmptyValue size={size()} align="right" />
+                    ))
+                  ) : (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
                 <th class="truncate flex-1 w-2">Luck</th>
-                <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().luck?.[0] ?? "-"}
+                <td class="flex-none w-12 flex justify-end pr-4 tabular-nums">
+                  {mst_ship().luck?.[0] ?? (
+                    <EmptyValue size={size()} align="right" />
+                  )}
                 </td>
               </tr>
             </tbody>

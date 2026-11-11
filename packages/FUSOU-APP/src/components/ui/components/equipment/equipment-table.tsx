@@ -16,15 +16,15 @@ export interface ComponentEquipmentTableProps {
 
 const class_size = {
   xs: {
-    name_text: "text-md",
+    name_text: "text-base",
     level_text: "text-sm",
     caption_text: "text-sm",
     table: "table-xs",
   },
   sm: {
     name_text: "text-lg",
-    level_text: "text-md",
-    caption_text: "text-md",
+    level_text: "text-base",
+    caption_text: "text-base",
     table: "table-sm",
   },
   md: {

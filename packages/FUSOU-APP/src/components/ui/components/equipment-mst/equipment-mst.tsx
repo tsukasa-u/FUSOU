@@ -19,31 +19,31 @@ export interface ComponentEquipmentMstProps {
 
 const class_size = {
   xs: {
-    name_text: "text-md",
+    name_text: "text-xs",
     name_h: "h-6",
     proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-1.5",
   },
   sm: {
-    name_text: "text-lg",
+    name_text: "text-sm",
     name_h: "h-[27px]",
     proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-2",
   },
   md: {
-    name_text: "text-xl",
+    name_text: "text-base",
     name_h: "h-[30px]",
     proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-2.5",
   },
   lg: {
-    name_text: "text-2xl",
+    name_text: "text-lg",
     name_h: "h-[35px]",
     proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-3",
   },
   xl: {
-    name_text: "text-3xl",
+    name_text: "text-xl",
     name_h: "h-11",
     proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-4",
@@ -85,7 +85,7 @@ export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (
     <Show
       when={props.mst_slot_item || props.empty_flag}
       fallback={
-        <div class="flex flex-nowarp w-full">
+        <div class="flex flex-nowrap w-full">
           <div class="outline-error outline-2 rounded bg-error-content">
             <IconError size={props.size} ratio={1} />
           </div>
@@ -93,7 +93,7 @@ export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (
         </div>
       }
     >
-      <div class="flex flex-nowarp w-full">
+      <div class="flex flex-nowrap w-full">
         <div>
           <IconEquipment
             category_number={props.mst_slot_item?.type[1] ?? 0}

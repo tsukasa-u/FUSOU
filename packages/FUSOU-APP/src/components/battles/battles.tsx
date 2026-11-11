@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 
 import "../../css/divider.css";
+import { EmptySlot, EmptyValue } from "ui";
 import IconChevronRightS from "../../icons/chevron_right_s";
 import {
   implementsAirBaseAirAttack,
@@ -237,91 +238,82 @@ export function BattlesComponent() {
 
   const serach_message = () => {
     const battle = battle_selected();
-    const empty_message = (
-      <>
-        <div>___</div>
-      </>
-    );
+    const empty_message = <EmptyValue align="left" />;
     if (battle) {
       const reconnaissance = battle.reconnaissance
         ? battle.reconnaissance[0]
         : undefined;
       return (
-        <>
-          <Switch fallback={empty_message}>
-            <Match when={reconnaissance == 1}>
-              <div class="text-lime-500">
-                Enemy in sight; Accuracy & Evacuation Up
-              </div>
-            </Match>
-            <Match when={reconnaissance == 2}>
-              <div class="text-lime-500">
-                Enemy in sight; Accuracy & Evacuation Up
-              </div>
-            </Match>
-            <Match when={reconnaissance == 3}>
-              <div class="text-red-500">
-                No Enemy in Sight; Some reconnaissance planes not returned;
-                Anti-Air & Evacuation Down
-              </div>
-            </Match>
-            <Match when={reconnaissance == 4}>
-              <div class="text-red-500">
-                No Enemy in Sight; Anti-Air & Evacuation Down
-              </div>
-            </Match>
-            <Match when={reconnaissance == 5}>
-              <div class="text-lime-500">
-                Find Enemy; Accuracy & Evacuation Up
-              </div>
-            </Match>
-            <Match when={reconnaissance == 6}>
-              <div />
-            </Match>
-          </Switch>
-        </>
+        <Switch fallback={empty_message}>
+          <Match when={reconnaissance == 1 || reconnaissance == 2}>
+            <div class="text-lime-500">
+              Enemy in sight; Accuracy & Evacuation Up
+            </div>
+          </Match>
+          <Match when={reconnaissance == 3}>
+            <div class="text-red-500">
+              No Enemy in Sight; Some reconnaissance planes not returned;
+              Anti-Air & Evacuation Down
+            </div>
+          </Match>
+          <Match when={reconnaissance == 4}>
+            <div class="text-red-500">
+              No Enemy in Sight; Anti-Air & Evacuation Down
+            </div>
+          </Match>
+          <Match when={reconnaissance == 5}>
+            <div class="text-lime-500">
+              Find Enemy; Accuracy & Evacuation Up
+            </div>
+          </Match>
+          <Match when={reconnaissance == 6}>{empty_message}</Match>
+        </Switch>
       );
-    } else {
-      return <>{empty_message}</>;
     }
+    return empty_message;
   };
 
   const form = () => {
     const formation = battle_selected()?.formation;
     const empty_message = (
-      <>
-        <div>___</div>
-      </>
+      <EmptyValue align="left" widthClass="w-full" label="No engagement form" />
     );
-    if (formation) {
-      return (
-        <Switch fallback={<div>{empty_message}</div>}>
-          <Match when={formation[2] == 3}>
-            <div class="text-lime-500">Crossing the T (Advantage)</div>
-          </Match>
-          <Match when={formation[2] == 1}>
-            <div class="">Parallel</div>
-          </Match>
-          <Match when={formation[2] == 2}>
-            <div class="">Head-on Engagement</div>
-          </Match>
-          <Match when={formation[2] == 4}>
-            <div class="text-red-500">Crossing the T (Disadvantage)</div>
-          </Match>
-        </Switch>
-      );
-    } else {
-      return <>{empty_message}</>;
-    }
+    return (
+      <div class="w-48 shrink-0 flex items-center truncate">
+        <Show when={formation} fallback={empty_message}>
+          {(f) => (
+            <Switch fallback={empty_message}>
+              <Match when={f()[2] == 3}>
+                <div class="text-lime-500 truncate">
+                  Crossing the T (Advantage)
+                </div>
+              </Match>
+              <Match when={f()[2] == 1}>
+                <div class="truncate">Parallel</div>
+              </Match>
+              <Match when={f()[2] == 2}>
+                <div class="truncate">Head-on Engagement</div>
+              </Match>
+              <Match when={f()[2] == 4}>
+                <div class="text-red-500 truncate">
+                  Crossing the T (Disadvantage)
+                </div>
+              </Match>
+            </Switch>
+          )}
+        </Show>
+      </div>
+    );
   };
 
   const display_search = () => {
     return (
-      <div class="flex flex-nowrap text-xs py-0.5 pl-2">
-        Search : <span class="w-1" />
+      <div class="flex flex-nowrap items-center text-xs py-0.5 pl-2">
+        <span class="shrink-0">Search :</span>
+        <span class="w-1 shrink-0" />
         <Show
           when={battle_selected()?.reconnaissance}
-          fallback={<div>___</div>}
+          fallback={<EmptyValue align="left" />}
         >
           {serach_message()}
         </Show>
@@ -335,60 +327,56 @@ export function BattlesComponent() {
 
   const display_form = () => {
     return (
-      <>
-        Form : <span class="w-1" />
+      <div class="inline-flex items-center shrink-0">
+        <span>Form :</span>
+        <span class="w-1" />
         {form()}
-      </>
+      </div>
     );
   };
 
   const display_smoke_type = () => {
+    const smokeType = () => battle_selected()?.smoke_type ?? 0;
     return (
-      <>
-        Smoke Type : <span class="w-1" />
-        <Show
-          when={
-            !battle_selected()?.smoke_type &&
-            battle_selected()?.smoke_type !== 0
-          }
-          fallback={<div class="w-6 text-center">_</div>}
-        >
-          <Switch fallback={<div class="w-6 text-center">_</div>}>
-            <Match when={battle_selected()?.smoke_type == 1}>
-              <div>Signle</div>
+      <div class="inline-flex items-center shrink-0">
+        <span>Smoke Type :</span>
+        <span class="w-1" />
+        <div class="w-14 shrink-0 flex items-center justify-center">
+          <Switch fallback={<EmptyValue widthClass="w-full" align="center" />}>
+            <Match when={smokeType() == 1}>
+              <div>Single</div>
             </Match>
-            <Match when={battle_selected()?.smoke_type == 2}>
+            <Match when={smokeType() == 2}>
               <div>Double</div>
             </Match>
-            <Match when={battle_selected()?.smoke_type == 3}>
+            <Match when={smokeType() == 3}>
               <div>Triple</div>
             </Match>
           </Switch>
-        </Show>
-      </>
+        </div>
+      </div>
     );
   };
 
   const display_combat_ration = () => {
+    const rations = () => battle_selected()?.combat_ration ?? [];
     return (
-      <>
-        Combat Ration : <span class="w-1" />
-        <Show
-          when={!battle_selected()?.combat_ration}
-          fallback={<div class="w-6 text-center">_</div>}
-        >
+      <div class="inline-flex items-center shrink-0">
+        <span>Combat Ration :</span>
+        <span class="w-1" />
+        <div class="w-14 shrink-0 flex items-center justify-center gap-1">
           <For
-            each={battle_selected()?.combat_ration}
-            fallback={<div class="w-6 text-center">_</div>}
+            each={rations()}
+            fallback={
+              <EmptySlot kind="equip" size="xs" label="No combat ration" />
+            }
           >
             {(ration) => (
-              <div>
-                <ConnectedCompactEquip si={ration} name_flag={false} />
-              </div>
+              <ConnectedCompactEquip si={ration} name_flag={false} />
             )}
           </For>
-        </Show>
-      </>
+        </div>
+      </div>
     );
   };
 
@@ -421,15 +409,18 @@ export function BattlesComponent() {
       baloon_flag = f_balloon || e_balloon;
     }
     return (
-      <>
-        Balloon : <span class="w-1" />
-        <Show
-          when={battle_selected()?.balloon_flag == 1 && baloon_flag}
-          fallback={<div class="w-6 text-center">_</div>}
-        >
-          launched
-        </Show>
-      </>
+      <div class="inline-flex items-center shrink-0">
+        <span>Balloon :</span>
+        <span class="w-1" />
+        <div class="w-14 shrink-0 flex items-center justify-center">
+          <Show
+            when={battle_selected()?.balloon_flag == 1 && baloon_flag}
+            fallback={<EmptyValue widthClass="w-full" align="center" />}
+          >
+            <span>launched</span>
+          </Show>
+        </div>
+      </div>
     );
   };
 
@@ -460,8 +451,7 @@ export function BattlesComponent() {
                         <div class="divider divider-horizontal mr-0 ml-0 w-px" />
                       </Show>
                       <button
-                        class={`${cell_index_selected() == index() ? "btn-active" : ""} btn btn-xs btn-square rounded-none`}
-                        style={{ "box-shadow": "none" }}
+                        class={`${cell_index_selected() == index() ? "btn-active" : ""} btn btn-xs btn-square`}
                         onClick={() => {
                           set_cell_index_selected(index());
                           if (import.meta.env.DEV) console.log(cells);

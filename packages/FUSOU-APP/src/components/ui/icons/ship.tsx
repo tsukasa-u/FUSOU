@@ -91,7 +91,32 @@ export const IconShip: Component<IconShipProps> = (props) => {
       overflow="hidden"
       class={["cursor-inherit", class_size[size()]].join(" ")}
     >
-      <Show when={!props.empty_flag}>
+      <Show
+        when={!props.empty_flag}
+        fallback={
+          <>
+            <path
+              d="m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z"
+              stroke="currentColor"
+              stroke-opacity="0.22"
+              stroke-dasharray="14 10"
+              stroke-width="4"
+              stroke-linejoin="round"
+              fill="none"
+            />
+            <line
+              x1="76"
+              y1="76"
+              x2="122"
+              y2="76"
+              stroke="currentColor"
+              stroke-opacity="0.3"
+              stroke-width="6"
+              stroke-linecap="round"
+            />
+          </>
+        }
+      >
         <text
           style={{
             "font-family": '"Roboto Mono", monospace',

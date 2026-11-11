@@ -4,11 +4,12 @@ import "../../../css/divider.css";
 import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { EmptyValue } from "ui";
 import { FormationComponent } from "../shared/formation.tsx";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
+import { TouchPlaneComponent } from "../shared/touch_plane";
 import {
   ConnectedBaseHP,
-  ConnectedCIMstEquip,
   ConnectedEnemyShipHP,
   ConnectedNumberedEnemyShip,
   ConnectedOwnPlaneEquip,
@@ -75,31 +76,11 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
 
   const display_touch = () => {
     const destruction_battle = props.cell()?.destruction_battle;
-    const f_touch_plane =
-      destruction_battle?.air_base_attack.f_damage.touch_plane ?? 0;
-    const e_touch_plane =
-      destruction_battle?.air_base_attack.e_damage.touch_plane ?? 0;
     return (
-      <>
-        touch : <span class="w-1" />
-        <div class="w-6 flex justify-center">
-          <Show
-            when={f_touch_plane > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane} />
-          </Show>
-        </div>
-        <div class="w-3 text-center">/</div>
-        <div class="w-6 flex justify-center">
-          <Show
-            when={e_touch_plane > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane} />
-          </Show>
-        </div>
-      </>
+      <TouchPlaneComponent
+        fTouchPlane={destruction_battle?.air_base_attack.f_damage.touch_plane}
+        eTouchPlane={destruction_battle?.air_base_attack.e_damage.touch_plane}
+      />
     );
   };
 
@@ -108,9 +89,9 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     return (
       <>
         Air Raid Result :{" "}
-        <Switch fallback={<div class="pl-1">_</div>}>
+        <Switch fallback={<EmptyValue class="pl-1" align="left" />}>
           <Match when={lost_kind == 1}>
-            <div class="text-amber-500 pl-1">
+            <div class="text-yellow-500 pl-1">
               Supplies have taken damage due to the air raid.
             </div>
           </Match>

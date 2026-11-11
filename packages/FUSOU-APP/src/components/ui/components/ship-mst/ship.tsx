@@ -19,23 +19,23 @@ export interface ComponentShipMstProps {
 
 const class_size = {
   xs: {
-    name_text: "text-md",
+    name_text: "text-xs",
     name_h: "h-6",
   },
   sm: {
-    name_text: "text-lg",
+    name_text: "text-sm",
     name_h: "h-[27px]",
   },
   md: {
-    name_text: "text-xl",
+    name_text: "text-base",
     name_h: "h-[30px]",
   },
   lg: {
-    name_text: "text-2xl",
+    name_text: "text-lg",
     name_h: "h-[35px]",
   },
   xl: {
-    name_text: "text-3xl",
+    name_text: "text-xl",
     name_h: "h-11",
   },
 };
@@ -61,7 +61,7 @@ export const ComponentShipMst: Component<ComponentShipMstProps> = (props) => {
     <Show
       when={mst_ship()}
       fallback={
-        <div class="flex flex-nowarp w-full">
+        <div class="flex flex-nowrap w-full">
           <div class="outline-error outline-2 rounded bg-error-content">
             <IconError size={props.size} ratio={error_ratio} />
           </div>
@@ -69,7 +69,7 @@ export const ComponentShipMst: Component<ComponentShipMstProps> = (props) => {
         </div>
       }
     >
-      <div class="flex flex-nowarp w-full">
+      <div class="flex flex-nowrap w-full">
         <div>
           <IconShip
             ship_stype={mst_ship().stype}

@@ -5,8 +5,8 @@ import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
+import { TouchPlaneComponent } from "../shared/touch_plane";
 import {
-  ConnectedCIMstEquip,
   ConnectedEnemyShipHP,
   ConnectedNumberedEnemyShip,
   ConnectedOwnPlaneEquip,
@@ -58,29 +58,11 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
   });
 
   const display_touch = (attack: AirBaseAirAttack) => {
-    const f_touch_plane = attack.f_damage.touch_plane ?? 0;
-    const e_touch_plane = attack.e_damage.touch_plane ?? 0;
     return (
-      <>
-        touch : <span class="w-1" />
-        <div class="w-6 flex justify-center">
-          <Show
-            when={f_touch_plane > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane} />
-          </Show>
-        </div>
-        <div class="w-3 text-center">/</div>
-        <div class="w-6 flex justify-center">
-          <Show
-            when={e_touch_plane > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane} />
-          </Show>
-        </div>
-      </>
+      <TouchPlaneComponent
+        fTouchPlane={attack.f_damage.touch_plane}
+        eTouchPlane={attack.e_damage.touch_plane}
+      />
     );
   };
 

@@ -37,7 +37,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
       if (at_eflag[at_index()] == 0) {
         return (
           <td>
-            <div class="flex flex-nowarp">
+            <div class="flex flex-nowrap">
               <ConnectedNumberedOwnShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
@@ -50,7 +50,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
       } else {
         return (
           <td>
-            <div class="flex flex-nowarp">
+            <div class="flex flex-nowrap">
               <ConnectedNumberedEnemyShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
@@ -63,7 +63,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
     } else {
       return (
         <td>
-          <div class="flex flex-nowarp">
+          <div class="flex flex-nowrap">
             <ConnectedNumberedErrorShip />
           </div>
         </td>
@@ -117,7 +117,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <div class="flex flex-col">
               <For each={df_list?.[at_index()]}>
                 {(df, df_index) => (
-                  <div class="flex flex-nowarp">
+                  <div class="flex flex-nowrap">
                     <ConnectedNumberedEnemyShip
                       ship_idx={df}
                       battle_selected={props.battle_selected}
@@ -140,7 +140,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <div class="flex flex-col">
               <For each={df_list?.[at_index()]}>
                 {(df, df_index) => (
-                  <div class="flex flex-nowarp">
+                  <div class="flex flex-nowrap">
                     <ConnectedNumberedOwnShip
                       ship_idx={df}
                       deck_ship_id={props.deck_ship_id}
@@ -163,7 +163,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
           <div class="flex flex-col">
             <For each={df_list?.[at_index()]}>
               {() => (
-                <div class="flex flex-nowarp">
+                <div class="flex flex-nowrap">
                   <ConnectedNumberedErrorShip />
                 </div>
               )}
@@ -184,7 +184,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <div class="flex flex-col">
               <For each={df_list?.[at_index()]}>
                 {(df) => (
-                  <div class="flex flex-nowarp">
+                  <div class="flex flex-nowrap">
                     <ConnectedEnemyShipHP
                       e_now_hps={
                         props.battle_selected()?.opening_taisen?.e_now_hps[
@@ -208,7 +208,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <div class="flex flex-col">
               <For each={df_list?.[at_index()]}>
                 {(df) => (
-                  <div class="flex flex-nowarp">
+                  <div class="flex flex-nowrap">
                     <ConnectedOwnShipHP
                       battle_selected={props.battle_selected}
                       deck_ship_id={props.deck_ship_id}

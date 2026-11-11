@@ -10,14 +10,14 @@ import type {
 } from "../../../utility/get_data_set";
 import {
   ConnectedCIMstEquip,
-  ConnectedEnemyShip,
   ConnectedEnemyShipHP,
   ConnectedNumberedEnemyShip,
   ConnectedNumberedErrorShip,
   ConnectedNumberedOwnShip,
-  ConnectedOwnShip,
   ConnectedOwnShipHP,
 } from "../connected_components";
+import { FlareShipComponent } from "../shared/flare_ship";
+import { TouchPlaneComponent } from "../shared/touch_plane";
 import { DamageCommonComponent } from "../dmg";
 
 interface MidnightShellingProps {
@@ -43,97 +43,23 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
 
   const display_touch = () => {
     const midnight_touchplane = props.battle_selected()?.midnight_touchplane;
-    const f_midnight_touchplane =
-      (midnight_touchplane ? midnight_touchplane[0] : undefined) ?? 0;
-    const e_midnight_touchplane =
-      (midnight_touchplane ? midnight_touchplane[1] : undefined) ?? 0;
     return (
-      <>
-        touch : <span class="w-1" />
-        <div class="w-6 flex justify-center">
-          <Show
-            when={f_midnight_touchplane > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip si={f_midnight_touchplane} e_flag={false} />
-          </Show>
-        </div>
-        <div class="w-3 text-center">/</div>
-        <div class="w-6 flex justify-center">
-          <Show
-            when={e_midnight_touchplane > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip si={e_midnight_touchplane} e_flag={true} />
-          </Show>
-        </div>
-      </>
+      <TouchPlaneComponent
+        fTouchPlane={midnight_touchplane?.[0]}
+        eTouchPlane={midnight_touchplane?.[1]}
+      />
     );
   };
 
   const display_flare = () => {
-    const midnight_flare_pos = props.battle_selected()?.midnight_flare_pos;
-    const f_midnight_flare_pos = midnight_flare_pos
-      ? midnight_flare_pos[0]
-      : -1;
-    const e_midnight_flare_pos = midnight_flare_pos
-      ? midnight_flare_pos[1]
-      : -1;
     return (
-      <>
-        Flare : <span class="w-1" />
-        <Show
-          when={midnight_flare_pos}
-          fallback={
-            <div class="flex flex-nowrap">
-              <div class="w-24 text-center">___</div>
-              <div class="w-3 text-center">/</div>
-              <div class="w-24 text-center">___</div>
-            </div>
-          }
-        >
-          <div class="flex flex-nowrap place-items-center">
-            <div class="w-24 flex justify-start">
-              <Show
-                when={f_midnight_flare_pos != -1}
-                fallback={<div class="text-center">___</div>}
-              >
-                {/* <ConnectedNumberedOwnShip
-                  ship_idx={f_midnight_flare_pos}
-                  deck_ship_id={props.deck_ship_id}
-                  battle_selected={props.battle_selected}
-                  store_data_set_deck_ship={props.store_data_set_deck_ship}
-                /> */}
-                <ConnectedOwnShip
-                  ship_idx={f_midnight_flare_pos}
-                  deck_ship_id={props.deck_ship_id}
-                  battle_selected={props.battle_selected}
-                  store_data_set_deck_ship={props.store_data_set_deck_ship}
-                  name_flag={true}
-                />
-              </Show>
-            </div>
-            <div class="w-3 text-center">/</div>
-            <div class="w-24 flex justify-center">
-              <Show
-                when={e_midnight_flare_pos != -1}
-                fallback={<div class="text-center">___</div>}
-              >
-                {/* <ConnectedNumberedEnemyShip
-                  ship_idx={e_midnight_flare_pos}
-                  battle_selected={props.battle_selected}
-                  store_data_set_param_ship={props.store_data_set_param_ship}
-                /> */}
-                <ConnectedEnemyShip
-                  ship_idx={e_midnight_flare_pos}
-                  store_data_set_param_ship={props.store_data_set_param_ship}
-                  name_flag={true}
-                />
-              </Show>
-            </div>
-          </div>
-        </Show>
-      </>
+      <FlareShipComponent
+        flarePos={props.battle_selected()?.midnight_flare_pos}
+        battle_selected={props.battle_selected}
+        store_data_set_param_ship={props.store_data_set_param_ship}
+        deck_ship_id={props.deck_ship_id}
+        store_data_set_deck_ship={props.store_data_set_deck_ship}
+      />
     );
   };
 

@@ -40,7 +40,7 @@ export const ComponentEquipmentModal: Component<
 
   const dialogTemplete = () => (
     <dialog ref={dialogRef} class="modal">
-      <div class="modal-box modal-box-width">
+      <div class="modal-box modal-box-width border border-base-300">
         <form method="dialog">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
