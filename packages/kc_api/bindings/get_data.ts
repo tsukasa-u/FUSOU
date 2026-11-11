@@ -12,7 +12,7 @@ export type MstEquipLimitExslot = { ship_id: number, equip: Array<number>, };
 
 export type MstEquipLimitExslots = { mst_equip_limit_exslots: { [key in number]?: MstEquipLimitExslot }, };
 
-export type MstEquipShip = { ship_id: number, equip_type: Array<number>, };
+export type MstEquipShip = { ship_id: number, equip_type: { [key in string]?: Array<number> | null }, };
 
 export type MstEquipShips = { mst_equip_ships: { [key in number]?: MstEquipShip }, };
 
@@ -49,5 +49,9 @@ export type MstStype = { id: number, sortno: number, name: string, equip_type: {
 export type MstStypes = { mst_stypes: { [key in number]?: MstStype }, };
 
 export type MstUseItem = { id: number, name: string, };
+
+export type MstUseItemMeta = { id: number, usetype: number, category: number, name: string, description: Array<string>, price: number, };
+
+export type MstUseItemMetas = { mst_use_item_metas: { [key in number]?: MstUseItemMeta }, };
 
 export type MstUseItems = { mst_use_items: { [key in number]?: MstUseItem }, };

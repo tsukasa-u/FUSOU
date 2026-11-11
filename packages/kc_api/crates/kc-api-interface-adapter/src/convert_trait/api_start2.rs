@@ -12,7 +12,7 @@ use kc_api_interface::mst_ship_upgrade::MstShipUpgrades;
 use kc_api_interface::mst_slot_item::MstSlotItems;
 use kc_api_interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use kc_api_interface::mst_stype::MstStypes;
-use kc_api_interface::mst_use_item::MstUseItems;
+use kc_api_interface::mst_use_item::{MstUseItemMetas, MstUseItems};
 
 use kc_api_dto::endpoints::api_start2::*;
 
@@ -52,6 +52,8 @@ impl TraitForConvert for get_data::Res {
             InterfaceWrapper::<MstStypes>::from(api_data.api_mst_stype.clone()).unwrap();
         let mst_use_item =
             InterfaceWrapper::<MstUseItems>::from(api_data.api_mst_useitem.clone()).unwrap();
+        let mst_use_item_metas =
+            InterfaceWrapper::<MstUseItemMetas>::from(api_data.api_mst_useitem.clone()).unwrap();
         let mst_ship_graphs =
             InterfaceWrapper::<MstShipGraphs>::from(api_data.api_mst_shipgraph.clone())
                 .unwrap();
@@ -80,6 +82,7 @@ impl TraitForConvert for get_data::Res {
             EmitData::Set(Set::MstEquipExslots(mst_equip_exslot)),
             EmitData::Set(Set::MstStypes(mst_stype)),
             EmitData::Set(Set::MstUseItems(mst_use_item)),
+            EmitData::Set(Set::MstUseItemMetas(mst_use_item_metas)),
             EmitData::Set(Set::MstShipGraphs(mst_ship_graphs)),
             EmitData::Set(Set::MstMapAreas(mst_map_areas)),
             EmitData::Set(Set::MstMapInfos(mst_map_infos)),

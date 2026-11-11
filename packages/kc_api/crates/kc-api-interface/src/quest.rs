@@ -8,7 +8,7 @@ use ts_rs::TS;
 pub static KCS_QUESTS: Lazy<Mutex<Quests>> = Lazy::new(|| {
     Mutex::new(Quests {
         timestamp: None,
-        page_no: 1,
+        page_no: 0,
         count: 0,
         completed_kind: 0,
         exec_count: 0,
@@ -18,7 +18,7 @@ pub static KCS_QUESTS: Lazy<Mutex<Quests>> = Lazy::new(|| {
     })
 });
 
-pub static KCS_QUESTLIST_PAGE: Lazy<AtomicI64> = Lazy::new(|| AtomicI64::new(1));
+pub static KCS_QUESTLIST_PAGE: Lazy<AtomicI64> = Lazy::new(|| AtomicI64::new(0));
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "quest.ts")]
@@ -60,7 +60,8 @@ pub struct QuestCompletion {
     pub c_flag: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "quest.ts")]
 pub struct QuestEvent {
     pub timestamp: i64,
     pub event_type: String,
@@ -69,7 +70,7 @@ pub struct QuestEvent {
 
 impl Quests {
     pub fn set_current_page(page_no: i64) {
-        let normalized = if page_no <= 0 { 1 } else { page_no };
+        let normalized = if page_no < 0 { 0 } else { page_no };
         KCS_QUESTLIST_PAGE.store(normalized, Ordering::Relaxed);
     }
 
