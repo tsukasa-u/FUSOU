@@ -1,7 +1,7 @@
 import { useMaterials } from "../../utility/provider.tsx";
 
-import { For, Show } from "solid-js";
-import { IconMaterial } from "ui";
+import { createMemo, For, Show } from "solid-js";
+import { EmptyValue, IconMaterial } from "ui";
 import "../../css/divider.css";
 
 export function MaterialsComponent() {
@@ -18,8 +18,10 @@ export function MaterialsComponent() {
 
   const [materials] = useMaterials();
 
+  const materialEntries = createMemo(() => Object.values(materials.materials));
+
   const show_materials = () => {
-    return Object.values(materials.materials).some((value) => (value ?? 0) > 0);
+    return materialEntries().some((value) => (value ?? 0) > 0);
   };
 
   return (
@@ -37,28 +39,36 @@ export function MaterialsComponent() {
               }
             >
               <li class="h-auto">
-                <div class="justify-start gap-0 flex flex-nowrap">
-                  <div class="w-[24px]" />
-                  <div class="justify-start gap-0 flex flex-wrap gap-y-1">
-                    <div class="justify-start gap-0 flex flex-nowrap">
-                      <For each={Object.values(materials.materials)}>
-                        {(material, index) => (
-                          <>
-                            <div class="h-5 w-5">
-                              <IconMaterial
-                                item_number={icon_material_converter[index()]}
-                                size="full"
+                <div class="flex flex-wrap items-center gap-y-1.5 pl-2">
+                  <For each={materialEntries()}>
+                    {(material, index) => (
+                      <div class="flex flex-nowrap items-center shrink-0">
+                        <div class="shrink-0">
+                          <IconMaterial
+                            item_number={icon_material_converter[index()]}
+                            size="xs"
+                          />
+                        </div>
+                        <div class="w-12 h-6 flex justify-end items-center pr-1 text-xs tabular-nums">
+                          <Show
+                            when={material !== undefined && material !== null}
+                            fallback={
+                              <EmptyValue
+                                size="xs"
+                                align="right"
+                                widthClass="w-full"
                               />
-                            </div>
-                            <div class="w-10 flex justify-end pt-0.5">
-                              {material ?? "_"}
-                            </div>
-                            <div class="divider divider-horizontal mr-0 ml-0" />
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </div>
+                            }
+                          >
+                            {material}
+                          </Show>
+                        </div>
+                        <Show when={index() < materialEntries().length - 1}>
+                          <div class="divider divider-horizontal mr-0 ml-0 my-0.5 h-5" />
+                        </Show>
+                      </div>
+                    )}
+                  </For>
                 </div>
               </li>
             </Show>
