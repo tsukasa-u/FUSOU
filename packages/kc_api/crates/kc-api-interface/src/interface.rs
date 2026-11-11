@@ -16,7 +16,7 @@ use crate::mst_ship_upgrade::MstShipUpgrades;
 use crate::mst_slot_item::MstSlotItems;
 use crate::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::mst_stype::MstStypes;
-use crate::mst_use_item::MstUseItems;
+use crate::mst_use_item::{MstUseItemMetas, MstUseItems};
 use crate::n_dock::NDocks;
 use crate::quest::{QuestEvent, Quests};
 use crate::remodel::{RemodelDetail, RemodelSlotList};
@@ -24,7 +24,7 @@ use crate::ship::Ships;
 use crate::ship_growth::ShipGrowthSnapshot;
 use crate::slot_item::SlotItems;
 use crate::soku_speed_observed::SokuSpeedObservedSnapshot;
-use crate::use_items::UseItems;
+use crate::use_items::{PayItems, UseItems};
 
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +56,7 @@ pub enum Add {
 pub enum Set {
     Materials(Materials),
     UseItems(UseItems),
+    PayItems(PayItems),
     DeckPorts(DeckPorts),
     Basic(Basic),
     // Mission,
@@ -74,6 +75,7 @@ pub enum Set {
     MstSlotItemEquipTypes(MstSlotItemEquipTypes),
     MstStypes(MstStypes),
     MstUseItems(MstUseItems),
+    MstUseItemMetas(MstUseItemMetas),
     MstMapInfos(MstMapInfos),
     MstMapAreas(MstMapAreas),
     MstShipGraphs(MstShipGraphs),

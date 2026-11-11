@@ -1,9 +1,37 @@
 @media (hover: hover) {
-    .table_hover:hover:not(.table_actived) {
-        background-color: var(--fallback-bc, oklch(var(--bc) / 0.1));
-    }
+  .table_hover:hover:not(.table_actived) {
+    background-color: color-mix(
+      in oklch,
+      var(--color-base-content) 10%,
+      transparent
+    );
+  }
+
+  .table_hover.bg-base-100:hover:not(.table_actived),
+  .table_hover:hover:not(.table_actived) > th.sticky.bg-base-100,
+  .table_hover:hover:not(.table_actived) > td.sticky.bg-base-100 {
+    background-color: color-mix(
+      in oklch,
+      var(--color-base-content) 10%,
+      var(--color-base-100)
+    );
+  }
 }
 
 .table_hover:hover:not(.table_actived) {
-    background-color: var(--fallback-bc, oklch(var(--bc) / 0.1));
+  background-color: color-mix(
+    in oklch,
+    var(--color-base-content) 10%,
+    transparent
+  );
+}
+
+.table_hover.bg-base-100:hover:not(.table_actived),
+.table_hover:hover:not(.table_actived) > th.sticky.bg-base-100,
+.table_hover:hover:not(.table_actived) > td.sticky.bg-base-100 {
+  background-color: color-mix(
+    in oklch,
+    var(--color-base-content) 10%,
+    var(--color-base-100)
+  );
 }

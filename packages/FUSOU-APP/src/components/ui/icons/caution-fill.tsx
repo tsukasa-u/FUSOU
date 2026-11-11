@@ -18,7 +18,7 @@ const class_size = {
 };
 
 const color_list = {
-  low: "stroke-amber-500 fill-amber-500",
+  low: "stroke-yellow-500 fill-yellow-500",
   middle: "stroke-orange-500 fill-orange-500",
   high: "stroke-red-500 fill-red-500",
 };

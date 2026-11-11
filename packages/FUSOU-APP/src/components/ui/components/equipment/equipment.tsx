@@ -25,7 +25,7 @@ export interface ComponentEquipmentProps {
 const class_size = {
   xs: {
     onslot_text: "text-xs",
-    name_text: "text-md",
+    name_text: "text-xs",
     name_h: "h-6",
     proficiency_onslot_h: "h-[10px]",
     proficiency_onslot_mt: "mt-0.5",
@@ -34,7 +34,7 @@ const class_size = {
   },
   sm: {
     onslot_text: "text-sm",
-    name_text: "text-lg",
+    name_text: "text-sm",
     name_h: "h-[27px]",
     proficiency_onslot_h: "h-[11.5px]",
     proficiency_onslot_mt: "mt-0.5",
@@ -42,8 +42,8 @@ const class_size = {
     badge_size: "badge-sm",
   },
   md: {
-    onslot_text: "text-md",
-    name_text: "text-xl",
+    onslot_text: "text-base",
+    name_text: "text-base",
     name_h: "h-[30px]",
     proficiency_onslot_h: "h-[13px]",
     proficiency_onslot_mt: "mt-0.5",
@@ -52,7 +52,7 @@ const class_size = {
   },
   lg: {
     onslot_text: "text-lg",
-    name_text: "text-2xl",
+    name_text: "text-lg",
     name_h: "h-[35px]",
     proficiency_onslot_h: "h-[15.5px]",
     proficiency_onslot_mt: "mt-0.5",
@@ -61,7 +61,7 @@ const class_size = {
   },
   xl: {
     onslot_text: "text-xl",
-    name_text: "text-3xl",
+    name_text: "text-xl",
     name_h: "h-11",
     proficiency_onslot_h: "h-5",
     proficiency_onslot_mt: "mt-0.5",

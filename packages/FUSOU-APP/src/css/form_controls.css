@@ -1,0 +1,76 @@
+/* Remove DaisyUI focus outline/offset ring so inputs stay single-bordered with accent color. */
+:is(
+  .input,
+  .input-bordered,
+  .select,
+  .select-bordered,
+  .textarea,
+  .textarea-bordered,
+  .file-input,
+  .file-input-bordered
+):is(:focus, :focus-within, :focus-visible, :active, :open) {
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+  isolation: auto;
+  z-index: auto;
+}
+
+:is(
+    .input,
+    .input-bordered,
+    .select,
+    .select-bordered,
+    .textarea,
+    .textarea-bordered,
+    .file-input,
+    .file-input-bordered
+  ):not(
+    .input-secondary,
+    .input-accent,
+    .input-info,
+    .input-success,
+    .input-warning,
+    .input-error,
+    .select-secondary,
+    .select-accent,
+    .select-info,
+    .select-success,
+    .select-warning,
+    .select-error,
+    .textarea-secondary,
+    .textarea-accent,
+    .textarea-info,
+    .textarea-success,
+    .textarea-warning,
+    .textarea-error,
+    .file-input-secondary,
+    .file-input-accent,
+    .file-input-info,
+    .file-input-success,
+    .file-input-warning,
+    .file-input-error
+  ):is(:focus, :focus-within, :focus-visible, :active, :open) {
+  --input-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):is(
+    :focus,
+    :focus-visible
+  ),
+select:is(:focus, :focus-visible),
+textarea:is(:focus, :focus-visible) {
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+select::picker(select) {
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 22%, transparent) !important;
+}

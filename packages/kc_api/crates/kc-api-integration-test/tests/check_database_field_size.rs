@@ -44,6 +44,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::UseItems(data) => {
                 data.restore();
             }
+            Set::PayItems(data) => {
+                data.restore();
+            }
             Set::Ships(data) => {
                 data.restore();
             }
@@ -71,6 +74,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 data.restore();
             }
             Set::MstUseItems(data) => {
+                data.restore();
+            }
+            Set::MstUseItemMetas(data) => {
                 data.restore();
             }
             Set::MstSlotItemEquipTypes(data) => {

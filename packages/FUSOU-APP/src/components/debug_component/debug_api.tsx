@@ -2,6 +2,7 @@ import { createStore } from "solid-js/store";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { useDebugApi } from "../../utility/provider";
+import { isTauri } from "../../utility/tauri";
 import { IconXMark } from "../../icons/X-mark";
 import IconChevronRight from "../../icons/chevron_right";
 import IconChevronDoubleRight from "../../icons/chevron_double_right";
@@ -30,7 +31,9 @@ export function DebugApi() {
   const [debug_api] = useDebugApi();
 
   createEffect(() => {
-    invoke("read_dir", { path: "." });
+    if (isTauri()) {
+      invoke("read_dir", { path: "." }).catch(() => {});
+    }
     setPageCounter(1);
   });
 
@@ -55,12 +58,16 @@ export function DebugApi() {
       </div>
 
       <div class="mx-4">
-        <hr class="mt-4 mb-4" />
+        <div class="divider my-3" />
 
         <select
           class="select select-sm w-full"
           onInput={(e) => {
-            invoke("read_dir", { path: e.currentTarget.value });
+            if (isTauri()) {
+              invoke("read_dir", { path: e.currentTarget.value }).catch(
+                () => {},
+              );
+            }
             setPageCounter(1);
             setFilecheackSignals([
               false,
@@ -82,7 +89,7 @@ export function DebugApi() {
           <For each={debug_api[0]}>{(dir) => <option>{dir}</option>}</For>
         </select>
 
-        <hr class="mt-4 mb-4" />
+        <div class="divider my-3" />
 
         <div class="flex flex-nowrap">
           <div class="w-5/12">
@@ -324,7 +331,7 @@ export function DebugApi() {
           </div>
         </div>
 
-        <hr class="mt-4" />
+        <div class="divider my-3" />
 
         <div class="grid grid-cols-3 gap-4 py-4 justify-self-center w-2/6">
           <button
@@ -340,7 +347,11 @@ export function DebugApi() {
             onClick={() => {
               if (apiCounter() >= fileApi().length) return;
               setApiCounter(apiCounter() + 1);
-              invoke("read_emit_file", { path: fileApi()[apiCounter() - 1] });
+              if (isTauri()) {
+                invoke("read_emit_file", {
+                  path: fileApi()[apiCounter() - 1],
+                }).catch(() => {});
+              }
             }}
           >
             Next
@@ -356,7 +367,7 @@ export function DebugApi() {
           </Show>
         </div>
 
-        <hr class="mt-4" />
+        <div class="divider my-3" />
       </div>
     </>
   );

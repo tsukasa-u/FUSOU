@@ -1,4 +1,3 @@
 button.pagination {
-    border-color: var(--fallback-bc, oklch(var(--bc) / var(--tw-border-opacity)));
-    --tw-border-opacity: 0.2;
+  border-color: color-mix(in oklch, var(--color-base-content) 20%, transparent);
 }

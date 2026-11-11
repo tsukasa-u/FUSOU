@@ -1,0 +1,27 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500&display=swap");
+@import "tailwindcss";
+@import "../../../FUSOU-APP/src/styles/daisyui-themes.css";
+@import "../../../FUSOU-APP/src/styles/app-utilities.css";
+@import "../../../FUSOU-APP/src/styles/window-controls.css";
+
+/* Scoped mock window shell mirroring FUSOU-APP #root */
+.fusou-app-window-mock {
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+  border: none;
+  box-sizing: border-box;
+}
+
+.fusou-app-window-mock.is-maximized {
+  border-radius: 0px !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.fusou-app-window-mock.is-maximized .window-content-container {
+  border-bottom-left-radius: 0px !important;
+  border-bottom-right-radius: 0px !important;
+}

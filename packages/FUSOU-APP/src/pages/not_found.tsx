@@ -6,7 +6,7 @@ function NotFound() {
 
   return (
     <>
-      <div class="flex">
+      <div class="flex bg-base-100 text-base-content">
         <div class="flex-1" />
         <div class="flex justify-center items-center h-dvh max-w-5xl">
           <img
@@ -15,7 +15,7 @@ function NotFound() {
             alt="Not Found"
           />
           <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-3/5">
-            <h1 class="text-9xl font-bold text-red-600 w-lg text-center">
+            <h1 class="text-9xl font-bold text-error w-lg text-center">
               404
             </h1>
             <h1 class="text-6xl font-bold mt-4 w-lg text-center">
@@ -32,7 +32,7 @@ function NotFound() {
             <div class="flex justify-center">
               <a
                 href="/"
-                class="btn btn-link no-underline hover:underline text-green-600"
+                class="btn btn-link no-underline hover:underline text-primary"
               >
                 Back to App Page
               </a>

@@ -841,7 +841,7 @@ function DestructionBattleCard(props: {
           <span class="flex flex-wrap gap-1">
             <PhaseSummaryBadges
               items={[
-                AIR_STATE[airSuperiority()]?.label ?? "-",
+                AIR_STATE[airSuperiority()]?.label ?? null,
                 `Lost: ${destructionLostKindLabel(lostKind())}`,
               ]}
             />

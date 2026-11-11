@@ -1,0 +1,51 @@
+---
+import "@/assets/fusou-app-system.css";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "FUSOU-APP Component Catalog — Design System",
+  description = "FUSOU-APP (Tauri Desktop App) UI Component Catalog based strictly on real FUSOU-APP components and themes.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="ja" class="bg-base-200 text-base-content">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script is:inline>
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme =
+            saved === "light" || saved === "dark"
+              ? saved
+              : prefersDark
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content antialiased">
+    <Navigation filled={true} />
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 pt-24 pb-8">
+      <slot />
+    </main>
+  </body>
+</html>

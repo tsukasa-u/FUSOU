@@ -1,18 +1,73 @@
-import type { Accessor } from "solid-js/types/server/reactive.js";
+import type { Accessor } from "solid-js";
 
+/**
+ * Normalizes a WheelEvent delta value across pixel, line, and page delta modes.
+ */
+export function normalizeWheelDelta(delta: number, deltaMode: number): number {
+  if (deltaMode === 1) return delta * 40;
+  if (deltaMode === 2) return delta * 320;
+  return delta;
+}
+
+/**
+ * Normalizes WheelEvent vertical delta across pixel, line, and page delta modes.
+ */
+export function normalizeWheelDeltaY(e: WheelEvent): number {
+  return normalizeWheelDelta(e.deltaY, e.deltaMode);
+}
+
+/**
+ * Picks the dominant horizontal scroll delta (deltaX when horizontal, otherwise deltaY).
+ */
+export function getHorizontalWheelDelta(e: WheelEvent): number {
+  const dominant =
+    Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  return normalizeWheelDelta(dominant, e.deltaMode);
+}
+
+/**
+ * Returns true if the target element currently has horizontal overflow to scroll.
+ */
+export function canScrollHorizontally(
+  el: HTMLElement | null | undefined,
+): boolean {
+  return Boolean(el && el.scrollWidth - el.clientWidth > 1);
+}
+
+/**
+ * Scrolls an element horizontally by deltaX, clamping within its scrollable bounds.
+ * Returns true if scrollLeft actually changed.
+ */
+export function scrollElementHorizontally(
+  el: HTMLElement | null | undefined,
+  deltaX: number,
+): boolean {
+  if (!el || deltaX === 0) return false;
+  const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+  if (maxScrollLeft <= 0) return false;
+
+  const before = el.scrollLeft;
+  const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, before + deltaX));
+  el.scrollLeft = nextScrollLeft;
+  return Math.abs(el.scrollLeft - before) >= 0.5;
+}
+
+/**
+ * Attaches mouse drag-to-scroll with inertia to a horizontal scroll container and returns a cleanup callback.
+ */
 export const drag_scroll_fn = (
   el: HTMLDivElement,
   spec_modal: Accessor<boolean>,
-) => {
+): (() => void) => {
   let isDragging = false;
   let startX = 0;
   let scrollStartX = 0;
 
   let velocity = 0;
-  let animationFrameId: number;
+  let animationFrameId = 0;
   let lastPageX = 0;
 
-  el.addEventListener("mousedown", (e) => {
+  const onMouseDown = (e: MouseEvent) => {
     if (spec_modal()) return;
     if (e.button !== 0) return;
     isDragging = true;
@@ -24,9 +79,9 @@ export const drag_scroll_fn = (
     lastPageX = e.pageX;
 
     cancelAnimationFrame(animationFrameId);
-  });
+  };
 
-  document.addEventListener("mousemove", (e) => {
+  const onMouseMove = (e: MouseEvent) => {
     if (spec_modal()) return;
     if (!isDragging) return;
 
@@ -35,9 +90,9 @@ export const drag_scroll_fn = (
 
     velocity = e.pageX - lastPageX;
     lastPageX = e.pageX;
-  });
+  };
 
-  document.addEventListener("mouseup", () => {
+  const stopDragging = () => {
     if (spec_modal()) return;
     if (isDragging) {
       isDragging = false;
@@ -45,17 +100,12 @@ export const drag_scroll_fn = (
 
       startInertiaScroll();
     }
-  });
+  };
 
-  el.addEventListener("mouseleave", () => {
-    if (spec_modal()) return;
-    if (isDragging) {
-      isDragging = false;
-      el.style.cursor = "auto";
-
-      startInertiaScroll();
-    }
-  });
+  el.addEventListener("mousedown", onMouseDown);
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", stopDragging);
+  el.addEventListener("mouseleave", stopDragging);
 
   function startInertiaScroll() {
     const friction = 0.95;
@@ -68,6 +118,15 @@ export const drag_scroll_fn = (
     }
     inertia();
   }
+
+  return () => {
+    isDragging = false;
+    cancelAnimationFrame(animationFrameId);
+    el.removeEventListener("mousedown", onMouseDown);
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", stopDragging);
+    el.removeEventListener("mouseleave", stopDragging);
+  };
 };
 
 export const scroll_parent_fn = (
@@ -99,30 +158,29 @@ export const scroll_parent_fn = (
   });
 };
 
+/**
+ * Converts wheel input on wheelTarget into bounded horizontal scrolling on scrollTarget and returns a cleanup callback.
+ */
 export const scroll_fn = (
-  el: HTMLDivElement,
+  wheelTarget: HTMLElement,
   spec_modal: Accessor<boolean>,
-) => {
-  el.addEventListener("wheel", (e) => {
+  scrollTarget: HTMLElement = wheelTarget,
+): (() => void) => {
+  const handleWheel = (e: WheelEvent) => {
     if (spec_modal()) return;
-    if (
-      el.offsetLeft > e.pageX ||
-      e.pageX > el.offsetLeft + el.clientWidth ||
-      el.offsetTop > e.pageY ||
-      e.pageY > el.offsetTop + el.clientHeight
-    )
-      return;
-    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    if (!canScrollHorizontally(scrollTarget)) return;
 
-    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+    const delta = getHorizontalWheelDelta(e);
+    if (delta === 0) return;
 
-    if (
-      (el.scrollLeft <= 0 && e.deltaY < 0) ||
-      (el.scrollLeft >= maxScrollLeft && e.deltaY > 0)
-    )
-      return;
-
+    // Consume the wheel on horizontal strips even at scroll boundaries
+    // so reaching either end does not suddenly chain into vertical scrolling.
     e.preventDefault();
-    el.scrollLeft += e.deltaY;
-  });
+    scrollElementHorizontally(scrollTarget, delta);
+  };
+
+  wheelTarget.addEventListener("wheel", handleWheel, { passive: false });
+  return () => {
+    wheelTarget.removeEventListener("wheel", handleWheel);
+  };
 };

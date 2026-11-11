@@ -1,0 +1,129 @@
+/* Refined .btn-outline border contrast & hover/active border preservation under --depth: 0 */
+
+.btn.btn-outline:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ) {
+  --btn-bg: transparent;
+  color: var(--color-base-content);
+  --btn-border: color-mix(
+    in oklab,
+    var(--color-base-content) 26%,
+    var(--color-base-100)
+  );
+}
+
+@media (hover: hover) {
+  .btn.btn-outline:not(
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error
+    ):not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(
+      in oklab,
+      var(--color-base-content) 7%,
+      var(--color-base-100)
+    );
+    color: var(--color-base-content);
+    --btn-border: color-mix(
+      in oklab,
+      var(--color-base-content) 38%,
+      var(--color-base-100)
+    );
+  }
+}
+
+.btn.btn-outline:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):focus-visible {
+  color: var(--color-base-content);
+  --btn-border: color-mix(
+    in oklab,
+    var(--color-base-content) 45%,
+    var(--color-base-100)
+  );
+}
+
+.btn.btn-outline:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):is(
+    :active,
+    .btn-active
+  ) {
+  --btn-bg: color-mix(
+    in oklab,
+    var(--color-base-content) 12%,
+    var(--color-base-100)
+  );
+  color: var(--color-base-content);
+  --btn-border: color-mix(
+    in oklab,
+    var(--color-base-content) 48%,
+    var(--color-base-100)
+  );
+}
+
+/* Preserve distinct borders on colored .btn-outline variants during hover & click */
+@media (hover: hover) {
+  .btn.btn-outline:is(
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error
+    ):not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-border: color-mix(
+      in oklab,
+      var(--btn-color),
+      var(--color-base-content) 22%
+    );
+  }
+}
+
+.btn.btn-outline:is(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):is(
+    :active,
+    .btn-active
+  ) {
+  --btn-border: color-mix(
+    in oklab,
+    var(--btn-color),
+    var(--color-base-content) 30%
+  );
+}

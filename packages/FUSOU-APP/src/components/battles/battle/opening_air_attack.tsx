@@ -8,8 +8,10 @@ import type {
   DataSetParamShip,
   DataSetShip,
 } from "../../../utility/get_data_set";
+import { EmptySlot } from "ui";
 import { AirStateComponent } from "../shared/air_state";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
+import { TouchPlaneComponent } from "../shared/touch_plane";
 import {
   ConnectedCIMstEquip,
   ConnectedEnemyShipHP,
@@ -79,45 +81,43 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   });
 
   const display_touch = () => {
-    const f_touch_plane = airattack()?.f_damage.touch_plane;
-    const e_touch_plane = airattack()?.e_damage.touch_plane;
-
     return (
-      <>
-        touch : <span class="w-1" />
-        <div class="w-6 flex justify-center">
-          <Show
-            when={(f_touch_plane ?? 0) > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane!} />
-          </Show>
-        </div>
-        <div class="w-3 text-center">/</div>
-        <div class="w-6 flex justify-center">
-          <Show
-            when={(e_touch_plane ?? 0) > 0}
-            fallback={<div class="w-6 text-center">_</div>}
-          >
-            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane!} />
-          </Show>
-        </div>
-      </>
+      <TouchPlaneComponent
+        fTouchPlane={airattack()?.f_damage.touch_plane}
+        eTouchPlane={airattack()?.e_damage.touch_plane}
+      />
     );
   };
 
   const display_cut_in = () => {
     const air_fire = airattack()?.air_fire;
     const air_fire_idx = air_fire?.idx;
+    const hasCutInShip =
+      air_fire !== undefined &&
+      air_fire !== null &&
+      air_fire_idx !== undefined &&
+      air_fire_idx !== null &&
+      air_fire_idx >= 0;
+
     return (
-      <>
-        CI : <span class="w-1" />
-        <div class="flex justify-center">
-          <Show
-            when={air_fire && air_fire_idx}
-            fallback={<div class="w-24 text-center">___</div>}
-          >
-            <div class="w-24">
+      <div class="inline-flex items-center shrink-0">
+        <span>CI :</span>
+        <span class="w-1" />
+        <div class="flex items-center shrink-0">
+          <div class="w-24 shrink-0 overflow-hidden flex items-center">
+            <Show
+              when={hasCutInShip}
+              fallback={
+                <EmptySlot
+                  kind="ship"
+                  size="xs"
+                  showLabel={true}
+                  labelWidthClass="flex-1"
+                  widthClass="w-full"
+                  label="No AACI ship"
+                />
+              }
+            >
               <ConnectedOwnShip
                 battle_selected={props.battle_selected}
                 deck_ship_id={props.deck_ship_id}
@@ -125,32 +125,28 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 ship_idx={air_fire_idx!}
                 store_data_set_deck_ship={props.store_data_set_deck_ship}
               />
-            </div>
-          </Show>
-          <div class="w-1" />
-          <Show
-            when={air_fire}
-            fallback={
-              <>
-                <div class="w-6 text-center">_</div>
-                <div class="w-1" />
-                <div class="w-6 text-center">_</div>
-              </>
-            }
-          >
-            <For each={air_fire?.use_item}>
-              {(item_id, idx) => (
+            </Show>
+          </div>
+          <div class="w-1 shrink-0" />
+          <div class="w-20 shrink-0 flex items-center justify-start gap-1">
+            <Show
+              when={air_fire && (air_fire.use_item?.length ?? 0) > 0}
+              fallback={
                 <>
-                  <Show when={idx() > 0}>
-                    <div class="w-1" />
-                  </Show>
-                  <ConnectedCIMstEquip e_flag={false} si={item_id} />
+                  <EmptySlot kind="equip" size="xs" label="No AACI equipment" />
+                  <EmptySlot kind="equip" size="xs" label="No AACI equipment" />
                 </>
-              )}
-            </For>
-          </Show>
+              }
+            >
+              <For each={air_fire?.use_item}>
+                {(item_id) => (
+                  <ConnectedCIMstEquip e_flag={false} si={item_id} />
+                )}
+              </For>
+            </Show>
+          </div>
         </div>
-      </>
+      </div>
     );
   };
 

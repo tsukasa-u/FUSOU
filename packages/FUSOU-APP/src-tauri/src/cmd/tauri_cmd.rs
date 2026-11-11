@@ -18,8 +18,10 @@ use crate::interface::mst_ship::MstShips;
 use crate::interface::mst_slot_item::MstSlotItems;
 use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
-use crate::interface::mst_use_item::MstUseItems;
+use crate::interface::mst_use_item::{MstUseItemMetas, MstUseItems};
+use crate::interface::quest::Quests;
 use crate::interface::slot_item::SlotItems;
+use crate::interface::use_items::{PayItems, UseItems};
 use crate::storage::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
 #[cfg(feature = "gdrive")]
 use crate::storage::providers::gdrive;
@@ -91,6 +93,42 @@ pub async fn get_mst_useitems(window: tauri::Window) {
     let _ = window
         .app_handle()
         .emit_to("main", events::SET_KCS_MST_USE_ITEMS, data);
+    let meta = MstUseItemMetas::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_MST_USE_ITEM_METAS, meta);
+}
+
+#[tauri::command]
+pub async fn get_mst_useitem_metas(window: tauri::Window) {
+    let data = MstUseItemMetas::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_MST_USE_ITEM_METAS, data);
+}
+
+#[tauri::command]
+pub async fn get_use_items(window: tauri::Window) {
+    let data = UseItems::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_USE_ITEMS, data);
+}
+
+#[tauri::command]
+pub async fn get_pay_items(window: tauri::Window) {
+    let data = PayItems::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_PAY_ITEMS, data);
+}
+
+#[tauri::command]
+pub async fn get_quests(window: tauri::Window) {
+    let data = Quests::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_QUESTS, data);
 }
 
 #[allow(dead_code)]

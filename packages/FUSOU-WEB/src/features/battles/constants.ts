@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Common battle and fleet domain constants for FUSOU.
  */
 
@@ -30,19 +30,17 @@ export const FORMATION_NAMES: Record<number, string> = {
   14: "第四警戒航行序列",
 };
 
-export const AIR_STATE: Record<number, { label: string; cls: string }> = {
-  0: { label: "制空拮抗", cls: "text-base-content/70" },
+// KanColle api_disp_seiku: 0=均衡, 1=確保, 2=優勢, 3=劣勢, 4=喪失.
+// Only Supremacy (1), Superiority (2), and Incapability (4) are displayed on the game screen.
+export const AIR_STATE: Partial<Record<number, { label: string; cls: string }>> = {
   1: { label: "制空権確保", cls: "text-success" },
   2: { label: "航空優勢", cls: "text-info" },
-  3: { label: "航空劣勢", cls: "text-warning" },
   4: { label: "制空権喪失", cls: "text-error" },
 };
 
-export const AIR_SUPERIORITY_NAMES: Record<number, string> = {
-  0: "制空拮抗",
+export const AIR_SUPERIORITY_NAMES: Partial<Record<number, string>> = {
   1: "制空権確保",
   2: "航空優勢",
-  3: "航空劣勢",
   4: "制空権喪失",
 };
 
@@ -77,8 +75,6 @@ export const WIN_RANK_BADGES: Record<string, string> = {
 export const AIR_COLORS: Record<string, string> = {
   制空権確保: "#22c55e",
   航空優勢: "#3b82f6",
-  制空拮抗: "#eab308",
-  航空劣勢: "#f97316",
   制空権喪失: "#ef4444",
   不明: "#94a3b8",
 };

@@ -2,6 +2,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { isTauri } from "../../utility/tauri";
+import { ThemeControllerComponent } from "../settings/theme";
 
 type Props = {
   isMaximized: boolean;
@@ -9,7 +11,7 @@ type Props = {
 };
 
 export function CustomTitlebar(props: Props) {
-  const appWindow = getCurrentWindow();
+  const appWindow = isTauri() ? getCurrentWindow() : null;
 
   // Volume state
   const [volume, setVolume] = createSignal<number>(100);
@@ -57,11 +59,15 @@ export function CustomTitlebar(props: Props) {
   const handleScreenshot = async () => {
     if (isCapturing()) return;
     setIsCapturing(true);
-    try {
-      await invoke("trigger_external_screenshot");
-    } catch (err) {
-      console.warn("Screenshot error:", err);
-    } finally {
+    if (isTauri()) {
+      try {
+        await invoke("trigger_external_screenshot");
+      } catch (err) {
+        console.warn("Screenshot error:", err);
+      } finally {
+        setTimeout(() => setIsCapturing(false), 500);
+      }
+    } else {
       setTimeout(() => setIsCapturing(false), 500);
     }
   };
@@ -76,11 +82,15 @@ export function CustomTitlebar(props: Props) {
       return;
     }
 
-    try {
-      await invoke("trigger_external_reload");
-    } catch (err) {
-      console.warn("Reload error:", err);
-    } finally {
+    if (isTauri()) {
+      try {
+        await invoke("trigger_external_reload");
+      } catch (err) {
+        console.warn("Reload error:", err);
+      } finally {
+        setTimeout(() => setIsReloading(false), 500);
+      }
+    } else {
       setTimeout(() => setIsReloading(false), 500);
     }
   };
@@ -96,6 +106,28 @@ export function CustomTitlebar(props: Props) {
     }
   };
 
+  // Window control actions
+  const handleMinimize = () => {
+    if (appWindow) {
+      appWindow.minimize().catch(() => {});
+    }
+  };
+
+  const handleToggleMaximize = () => {
+    if (props.onMaximizeChange) {
+      props.onMaximizeChange(!props.isMaximized);
+    }
+    if (appWindow) {
+      appWindow.toggleMaximize().catch(() => {});
+    }
+  };
+
+  const handleClose = () => {
+    if (appWindow) {
+      appWindow.close().catch(() => {});
+    }
+  };
+
   onMount(() => {
     // Restore saved volume
     const savedVol = localStorage.getItem("fusou-external-volume");
@@ -104,29 +136,35 @@ export function CustomTitlebar(props: Props) {
     const initMuted = savedMuted === "true";
     setVolume(initVol);
     setIsMuted(initMuted);
-    invoke("set_external_volume", {
-      volume: initVol / 100,
-      muted: initMuted,
-    }).catch(() => {});
+    if (isTauri()) {
+      invoke("set_external_volume", {
+        volume: initVol / 100,
+        muted: initMuted,
+      }).catch(() => {});
+    }
 
     // Listen for volume changes originating from the external window
     let unlisten: UnlistenFn | undefined;
-    listen<{ volume: number; muted: boolean }>(
-      "fusou-volume-changed",
-      (event) => {
-        const newVol = Math.round(event.payload.volume * 100);
-        const newMuted = event.payload.muted;
-        setVolume(newVol);
-        setIsMuted(newMuted);
-        localStorage.setItem("fusou-external-volume", newVol.toString());
-        localStorage.setItem(
-          "fusou-external-muted",
-          newMuted ? "true" : "false",
-        );
-      },
-    ).then((fn) => {
-      unlisten = fn;
-    });
+    if (isTauri()) {
+      listen<{ volume: number; muted: boolean }>(
+        "fusou-volume-changed",
+        (event) => {
+          const newVol = Math.round(event.payload.volume * 100);
+          const newMuted = event.payload.muted;
+          setVolume(newVol);
+          setIsMuted(newMuted);
+          localStorage.setItem("fusou-external-volume", newVol.toString());
+          localStorage.setItem(
+            "fusou-external-muted",
+            newMuted ? "true" : "false",
+          );
+        },
+      )
+        .then((fn) => {
+          unlisten = fn;
+        })
+        .catch(() => {});
+    }
 
     document.addEventListener("mousedown", handleDocumentClick);
     onCleanup(() => {
@@ -141,7 +179,7 @@ export function CustomTitlebar(props: Props) {
       class={`h-8 bg-[#27272a] text-[#f1f5f9] select-none flex items-center justify-between px-2.5 z-9999 text-xs ${
         props.isMaximized ? "rounded-none" : "rounded-t-[10px]"
       }`}
-      onDblClick={() => appWindow.toggleMaximize()}
+      onDblClick={handleToggleMaximize}
     >
       {/* Left: App Title and Icon */}
       <div
@@ -187,7 +225,10 @@ export function CustomTitlebar(props: Props) {
       </div>
 
       {/* Center / Utility Buttons */}
-      <div class="flex items-center gap-1">
+      <div
+        class="flex items-center gap-1"
+        onDblClick={(e) => e.stopPropagation()}
+      >
         {/* Screenshot Button */}
         <button
           type="button"
@@ -370,13 +411,15 @@ export function CustomTitlebar(props: Props) {
             </div>
           </Show>
         </div>
+
+        <ThemeControllerComponent />
       </div>
 
       {/* Right: Window Controls */}
       <div class="flex items-center -mr-2.5 h-full">
         <button
           type="button"
-          onClick={() => appWindow.minimize()}
+          onClick={handleMinimize}
           class="fusou-win-btn"
           title="Minimize"
         >
@@ -387,7 +430,7 @@ export function CustomTitlebar(props: Props) {
 
         <button
           type="button"
-          onClick={() => appWindow.toggleMaximize()}
+          onClick={handleToggleMaximize}
           class="fusou-win-btn"
           title={props.isMaximized ? "Restore" : "Maximize"}
         >
@@ -429,7 +472,7 @@ export function CustomTitlebar(props: Props) {
 
         <button
           type="button"
-          onClick={() => appWindow.close()}
+          onClick={handleClose}
           class="fusou-win-btn fusou-win-close"
           title="Close"
         >

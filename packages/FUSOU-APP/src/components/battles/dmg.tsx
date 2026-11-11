@@ -8,7 +8,7 @@ interface DamageCommonProps {
 export function DamageCommonComponent(props: DamageCommonProps) {
   return (
     <div
-      class={`h-6 text-sm content-center ${calc_critical(props.dmg, props.critical_flag)}`}
+      class={`h-6 text-sm content-center tabular-nums ${calc_critical(props.dmg, props.critical_flag)}`}
     >
       {props.dmg}
     </div>

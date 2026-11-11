@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { Show } from "solid-js";
 import {
   AIR_SUPERIORITY_NAMES as AIR_STATE_NAMES,
   FORMATION_NAMES,
@@ -11,29 +12,34 @@ export interface AirStateBadgeProps {
 }
 
 export function AirStateBadge(props: AirStateBadgeProps) {
-  const num = () => (typeof props.state === "number" ? props.state : Number(props.state));
+  const num = () =>
+    typeof props.state === "number" ? props.state : Number(props.state);
   const label = () => {
     const n = num();
-    if (Number.isFinite(n) && AIR_STATE_NAMES[n]) return AIR_STATE_NAMES[n];
-    return typeof props.state === "string" ? props.state : "制空不明";
+    if (Number.isFinite(n)) return AIR_STATE_NAMES[n] ?? null;
+    return typeof props.state === "string" && props.state.trim().length > 0
+      ? props.state
+      : null;
   };
 
   const colorClass = () => {
     const l = label();
     if (l === "制空権確保") return "badge-success";
     if (l === "航空優勢") return "badge-info";
-    if (l === "航空拮抗") return "badge-warning";
-    if (l === "航空劣勢") return "badge-warning badge-outline";
     if (l === "制空権喪失") return "badge-error";
     return "badge-ghost";
   };
 
   return (
-    <span
-      class={`badge ${colorClass()} ${props.size === "xs" ? "badge-xs" : "badge-sm"} font-medium whitespace-nowrap ${props.class ?? ""}`.trim()}
-    >
-      {label()}
-    </span>
+    <Show when={label()}>
+      {(text) => (
+        <span
+          class={`badge ${colorClass()} ${props.size === "xs" ? "badge-xs" : "badge-sm"} font-medium whitespace-nowrap ${props.class ?? ""}`.trim()}
+        >
+          {text()}
+        </span>
+      )}
+    </Show>
   );
 }
 

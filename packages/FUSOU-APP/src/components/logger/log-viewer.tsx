@@ -7,7 +7,7 @@ import {
   onMount,
 } from "solid-js";
 import "../../css/divider.css";
-import { safeTauriListen } from "../../utility/tauri";
+import { isTauri, safeTauriListen } from "../../utility/tauri";
 import { APP_EVENTS } from "../../utility/app_events";
 import { invoke } from "@tauri-apps/api/core";
 import { VList } from "virtua/solid";
@@ -76,22 +76,22 @@ export function LogViewerComponent() {
     return Array.from(set).filter((t) => t !== "");
   });
 
-  // Simple color palette and deterministic assignment for unknown targets
+  // Theme-adaptive semantic palette and deterministic assignment for targets
   const palette = [
-    "bg-sky-100 text-sky-800",
-    "bg-emerald-100 text-emerald-800",
-    "bg-rose-100 text-rose-800",
-    "bg-amber-100 text-amber-800",
-    "bg-indigo-100 text-indigo-800",
-    "bg-violet-100 text-violet-800",
+    "bg-info/15 text-info",
+    "bg-success/15 text-success",
+    "bg-error/15 text-error",
+    "bg-warning/15 text-warning",
+    "bg-primary/15 text-primary",
+    "bg-accent/15 text-accent",
   ];
 
   function targetBadgeClass(target: string) {
     const wellKnown: Record<string, string> = {
-      runtime: "bg-gray-100 text-gray-800",
-      network: "bg-sky-100 text-sky-800",
-      storage: "bg-emerald-100 text-emerald-800",
-      api: "bg-indigo-100 text-indigo-800",
+      runtime: "bg-base-300 text-base-content/80",
+      network: "bg-info/15 text-info",
+      storage: "bg-success/15 text-success",
+      api: "bg-primary/15 text-primary",
     };
     if (target in wellKnown) return wellKnown[target];
     // fallback deterministic hash
@@ -102,16 +102,16 @@ export function LogViewerComponent() {
     return palette[idx];
   }
 
-  // Color mapping for log levels
+  // Theme-adaptive DaisyUI semantic color mapping for log levels
   function levelBadgeClass(level: string) {
     const map: Record<string, string> = {
-      TRACE: "bg-gray-100 text-gray-800",
-      DEBUG: "bg-sky-100 text-sky-800",
-      INFO: "bg-emerald-100 text-emerald-800",
-      WARN: "bg-amber-100 text-amber-800",
-      ERROR: "bg-rose-100 text-rose-800",
+      TRACE: "bg-base-300 text-base-content/80",
+      DEBUG: "bg-info/20 text-info",
+      INFO: "bg-success/20 text-success",
+      WARN: "bg-warning/20 text-warning",
+      ERROR: "bg-error/20 text-error",
     };
-    return map[level] ?? "bg-gray-100 text-gray-800";
+    return map[level] ?? "bg-base-300 text-base-content/80";
   }
 
   // Compute filtered logs based on search and filters
@@ -158,6 +158,7 @@ export function LogViewerComponent() {
 
   // Helper function to reload all logs
   const reloadLogs = async () => {
+    if (!isTauri()) return;
     setIsLoading(true);
     try {
       const allLogs = await invoke<MessageVisitor[]>("get_all_logs");
@@ -342,195 +343,208 @@ export function LogViewerComponent() {
     onCleanup(unlisten_data);
   });
 
+  // Sync scroll-to-bottom button visibility when container size changes (e.g., toolbar wrapping)
+  onMount(() => {
+    if (!listContainer || typeof ResizeObserver === "undefined") return;
+    const resizeObserver = new ResizeObserver(() => {
+      checkScrollPosition();
+    });
+    resizeObserver.observe(listContainer);
+    onCleanup(() => {
+      resizeObserver.disconnect();
+      listContainer?.removeEventListener("scroll", handleScroll);
+      vlistScrollElement?.removeEventListener("scroll", handleScroll);
+    });
+  });
+
   return (
-    <>
-      <div class="py-2 mx-4">
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="mx-2 py-1 text-sm shrink-0">Log Table</div>
-          <input
-            class="input input-sm flex-1 min-w-[200px] max-w-md"
-            placeholder="Search messages, target, datetime..."
-            onInput={(e) =>
-              handleSearchInput((e.target as HTMLInputElement).value)
-            }
-          />
-          <select
-            class="select select-sm min-w-[120px]"
-            value={levelFilter()}
-            onChange={(e) =>
-              setLevelFilter((e.target as HTMLSelectElement).value)
-            }
+    <div class="h-full flex-1 min-h-0 w-full flex flex-col py-2 px-4">
+      <div class="flex flex-wrap items-center gap-2 shrink-0">
+        <div class="mx-2 py-1 text-sm shrink-0">Log Table</div>
+        <input
+          class="input input-sm flex-1 min-w-[min(200px,100%)] max-w-md"
+          placeholder="Search messages, target, datetime..."
+          onInput={(e) =>
+            handleSearchInput((e.target as HTMLInputElement).value)
+          }
+        />
+        <select
+          aria-label="Filter logs by level"
+          class="select select-sm w-28 shrink-0"
+          value={levelFilter()}
+          onChange={(e) =>
+            setLevelFilter((e.target as HTMLSelectElement).value)
+          }
+        >
+          <option value="ALL">All levels</option>
+          <option value="TRACE">TRACE</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <select
+          aria-label="Filter logs by target"
+          class="select select-sm w-auto min-w-32 max-w-52 shrink-0"
+          value={targetFilter()}
+          onChange={(e) =>
+            setTargetFilter((e.target as HTMLSelectElement).value)
+          }
+        >
+          <option value="ALL">All targets</option>
+          <For each={uniqueTargets()}>
+            {(t) => <option value={t}>{t}</option>}
+          </For>
+        </select>
+        <button class="btn btn-ghost btn-sm shrink-0" onClick={clearFilters}>
+          Clear
+        </button>
+        <button
+          class="btn btn-ghost btn-sm shrink-0"
+          onClick={reloadLogs}
+          disabled={isLoading()}
+        >
+          {isLoading() ? "Loading..." : "Reload"}
+        </button>
+      </div>
+
+      <div class="h-2 shrink-0" />
+      <div class="relative flex-1 min-h-0">
+        <div
+          ref={(el) => {
+            listContainer = el as HTMLDivElement;
+            // Attach scroll listener to the outer container and do initial check
+            setTimeout(() => {
+              listContainer?.removeEventListener("scroll", handleScroll);
+              listContainer?.addEventListener("scroll", handleScroll, {
+                passive: true,
+              });
+              checkScrollPosition();
+            }, 100);
+          }}
+          class="absolute inset-0 rounded-box border-base-300 border overflow-auto"
+        >
+          <VList
+            data={filteredLogs()}
+            style={{
+              height: "100%",
+            }}
           >
-            <option value="ALL">All levels</option>
-            <option value="TRACE">TRACE</option>
-            <option value="DEBUG">DEBUG</option>
-            <option value="INFO">INFO</option>
-            <option value="WARN">WARN</option>
-            <option value="ERROR">ERROR</option>
-          </select>
-          <select
-            class="select select-sm min-w-[120px]"
-            value={targetFilter()}
-            onChange={(e) =>
-              setTargetFilter((e.target as HTMLSelectElement).value)
-            }
-          >
-            <option value="ALL">All targets</option>
-            <For each={uniqueTargets()}>
-              {(t) => <option value={t}>{t}</option>}
-            </For>
-          </select>
-          <button class="btn btn-ghost btn-sm shrink-0" onClick={clearFilters}>
-            Clear
-          </button>
-          <button
-            class="btn btn-ghost btn-sm shrink-0"
-            onClick={reloadLogs}
-            disabled={isLoading()}
-          >
-            {isLoading() ? "Loading..." : "Reload"}
-          </button>
+            {(d) => (
+              <div
+                data-log-entry
+                class="p-1 text-xs flex items-start gap-2 min-w-0"
+              >
+                <div class="px-2 shrink-0 text-nowrap text-[11px] font-mono tabular-nums text-base-content/70">
+                  {d.datetime}
+                </div>
+                <div class="px-2 shrink-0 w-16">
+                  <span
+                    class={`px-2 py-0.5 rounded-md text-[10px] font-medium whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
+                  >
+                    {d.level}
+                  </span>
+                </div>
+                <div class="px-2 flex-1 min-w-0 wrap-break-word">
+                  <span
+                    class={`px-2 py-0.5 rounded-md text-[10px] font-medium mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
+                  >
+                    {d.target}
+                  </span>
+                  <span class="break-all">{d.message}</span>
+                </div>
+              </div>
+            )}
+          </VList>
         </div>
 
-        <div class="h-2" />
-        <div class="relative">
-          <div
-            ref={(el) => {
-              listContainer = el as HTMLDivElement;
-              // Attach scroll listener to the outer container and do initial check
-              setTimeout(() => {
-                listContainer?.removeEventListener("scroll", handleScroll);
-                listContainer?.addEventListener("scroll", handleScroll, {
-                  passive: true,
-                });
-                checkScrollPosition();
-              }, 100);
-            }}
-            class="rounded-box border-base-300 border"
-            style={{ height: "calc(100dvh - 140px)", overflow: "auto" }}
-          >
-            <VList
-              data={filteredLogs()}
-              style={{
-                height: "100%",
-              }}
-            >
-              {(d) => (
-                <div
-                  data-log-entry
-                  class="p-1 text-xs flex items-start gap-2 min-w-0"
-                >
-                  <div class="px-2 shrink-0 text-nowrap text-[11px]">
-                    {d.datetime}
-                  </div>
-                  <div class="px-2 shrink-0 w-16">
-                    <span
-                      class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
-                    >
-                      {d.level}
-                    </span>
-                  </div>
-                  <div class="px-2 flex-1 min-w-0 wrap-break-word">
-                    <span
-                      class={`px-2 py-0.5 rounded-full text-[11px] mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
-                    >
-                      {d.target}
-                    </span>
-                    <span class="break-all">{d.message}</span>
-                  </div>
-                </div>
-              )}
-            </VList>
-          </div>
-
-          {/* Floating buttons */}
-          <div class="absolute bottom-4 right-4 flex flex-col gap-2">
-            {showScrollButton() && (
-              <button
-                class="btn btn-circle btn-primary shadow-lg"
-                onClick={scrollToBottom}
-                title="Scroll to bottom"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                  />
-                </svg>
-              </button>
-            )}
+        {/* Floating buttons */}
+        <div class="absolute bottom-4 right-4 flex flex-col gap-2">
+          {showScrollButton() && (
             <button
-              class={`btn btn-circle shadow-lg btn-secondary`}
-              onClick={copyLogsToClipboard}
-              title={
-                copyStatus() === "Copied"
-                  ? "Copied"
-                  : copyStatus() === "Failed"
-                    ? "Copy failed"
-                    : "Copy logs to clipboard"
-              }
-              // disabled={copyStatus() === 'Copied'}
-              aria-live="polite"
+              class="btn btn-circle btn-primary shadow-lg"
+              onClick={scrollToBottom}
+              title="Scroll to bottom"
             >
-              {copyStatus() === "Copied" ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              ) : copyStatus() === "Failed" ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-6 w-6"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
-                </svg>
-              )}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                />
+              </svg>
             </button>
-          </div>
+          )}
+          <button
+            class={`btn btn-circle shadow-lg btn-secondary`}
+            onClick={copyLogsToClipboard}
+            title={
+              copyStatus() === "Copied"
+                ? "Copied"
+                : copyStatus() === "Failed"
+                  ? "Copy failed"
+                  : "Copy logs to clipboard"
+            }
+            // disabled={copyStatus() === 'Copied'}
+            aria-live="polite"
+          >
+            {copyStatus() === "Copied" ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            ) : copyStatus() === "Failed" ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-6 w-6"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
-    </>
+    </div>
   );
 }

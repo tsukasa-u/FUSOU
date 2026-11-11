@@ -47,7 +47,7 @@ export function ShellingComponent(props: ShellingProps) {
     if (hougeki()?.at_eflag[at_index()] == 0) {
       return (
         <td>
-          <div class="flex flex-nowarp">
+          <div class="flex flex-nowrap">
             <ConnectedNumberedOwnShip
               ship_idx={at}
               deck_ship_id={props.deck_ship_id}
@@ -60,7 +60,7 @@ export function ShellingComponent(props: ShellingProps) {
     } else {
       return (
         <td>
-          <div class="flex flex-nowarp">
+          <div class="flex flex-nowrap">
             <ConnectedNumberedEnemyShip
               ship_idx={at}
               battle_selected={props.battle_selected}
@@ -105,7 +105,7 @@ export function ShellingComponent(props: ShellingProps) {
           <div class="flex flex-col">
             <For each={hougeki()?.df_list[at_index()]}>
               {(df, df_index) => (
-                <div class="flex flex-nowarp">
+                <div class="flex flex-nowrap">
                   <ConnectedNumberedEnemyShip
                     ship_idx={df}
                     battle_selected={props.battle_selected}
@@ -128,7 +128,7 @@ export function ShellingComponent(props: ShellingProps) {
           <div class="flex flex-col">
             <For each={hougeki()?.df_list[at_index()]}>
               {(df, df_index) => (
-                <div class="flex flex-nowarp">
+                <div class="flex flex-nowrap">
                   <ConnectedNumberedOwnShip
                     ship_idx={df}
                     deck_ship_id={props.deck_ship_id}

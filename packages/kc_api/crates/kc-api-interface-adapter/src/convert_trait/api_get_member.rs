@@ -10,7 +10,7 @@ use kc_api_interface::soku_speed_observed::{
 };
 
 use kc_api_dto::endpoints::api_get_member::*;
-use kc_api_interface::use_items::UseItems;
+use kc_api_interface::use_items::{PayItems, UseItems};
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
@@ -113,7 +113,6 @@ register_trait!(
         material,
         mission,
         ndock,
-        payitem,
         picture_book,
         practice,
         preset_deck,
@@ -122,8 +121,7 @@ preset_dev_items,
         record,
         ship_deck,
         sortie_conditions,
-        unsetslot,
-        useitem
+        unsetslot
     )
 );
 
@@ -134,6 +132,22 @@ impl TraitForConvert for mapinfo::Res {
             InterfaceWrapper::<AirBases>::from(self.api_data.api_air_base.clone()).unwrap();
 
         Some(vec![EmitData::Set(Set::AirBases(air_bases))])
+    }
+}
+
+impl TraitForConvert for useitem::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let use_items = InterfaceWrapper::<UseItems>::from(self.api_data.clone()).unwrap();
+        Some(vec![EmitData::Set(Set::UseItems(use_items))])
+    }
+}
+
+impl TraitForConvert for payitem::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let pay_items = InterfaceWrapper::<PayItems>::from(self.api_data.clone()).unwrap();
+        Some(vec![EmitData::Set(Set::PayItems(pay_items))])
     }
 }
 

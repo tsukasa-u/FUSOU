@@ -31,7 +31,6 @@ export const IconPlaneProficiency: Component<IconPlaneProficiencyProps> = (
     <Switch fallback={<></>}>
       <Match when={props.level == 1}>
         <svg
-          fill="#f0e040"
           stroke-width="4"
           stroke="currentColor"
           viewBox="0 0 378 378"

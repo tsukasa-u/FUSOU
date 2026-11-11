@@ -12,21 +12,13 @@ import {
   Switch,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { AlertMessage } from "ui";
 
 import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
-import { ThemeControllerComponent } from "../components/settings/theme";
 import { createAsyncStore } from "@solidjs/router";
-
-type SessionHealth = {
-  has_session: boolean;
-  access_token_len: number;
-  refresh_token_len: number;
-  seems_valid: boolean;
-  reason?: string | null;
-};
 
 const launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
@@ -82,76 +74,6 @@ function Start() {
 
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
-
-  const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
-    null,
-  );
-  const [sessionHealthLoading, setSessionHealthLoading] =
-    createSignal<boolean>(false);
-
-  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] =
-    createSignal<boolean>(false);
-
-  const checkSessionHealth = async () => {
-    try {
-      setSessionHealthLoading(true);
-      const health = await invoke<SessionHealth>(
-        "check_supabase_session_health",
-      );
-      setSessionHealth(health);
-      return health;
-    } catch (e) {
-      console.error("Failed to check session health", e);
-      return null;
-    } finally {
-      setSessionHealthLoading(false);
-    }
-  };
-
-  const forceLocalSignOut = async () => {
-    try {
-      // Rust handles all sign-out logic, including clearing session
-      await invoke("force_local_sign_out");
-      setSessionHealth(null);
-    } catch (e) {
-      console.error("Failed to force local sign out", e);
-    }
-  };
-
-  let tokensInput: HTMLInputElement | null = null;
-
-  const parseAndApplyTokens = async (raw: string | null | undefined) => {
-    if (!raw) return;
-    try {
-      const pairs = raw.split("&").map((p) => p.split("=", 2));
-      const map: Record<string, string> = {};
-      for (const [k, v] of pairs) {
-        if (k) map[k] = v ?? "";
-      }
-
-      const access = map["supabase_access_token"];
-      const refresh = map["supabase_refresh_token"];
-      const provider = map["provider_refresh_token"];
-
-      if (!access || !refresh || !provider) {
-        console.error("Invalid token format, missing keys");
-        return;
-      }
-
-      // Token data received - Rust side will handle setting session
-      // Just log for debugging
-      if (import.meta.env.DEV) {
-        console.log("Token data parsed (Rust will manage session)");
-      }
-    } catch (e) {
-      console.error("Failed to parse/apply tokens:", e);
-    }
-  };
-
-  // const navigate = useNavigate();
-  // Note: All authentication is handled by Rust-side AuthManager (fusou-auth).
-  // Frontend does not interact with Supabase tokens directly.
-  // Session management, token refresh, and storage are all handled in Rust.
 
   function check_server_status() {
     setPacServerHealth(-1);
@@ -253,25 +175,25 @@ function Start() {
       <div class="bg-base-100 min-h-dvh flex">
         <div class="bg-base-100 min-h-dvh flex flex-1" />
         <div class="max-w-md justify-self-center bg-base-100 h-fit mx-0">
-          <div class="flex flex-nowrap">
-            <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
-            <span class="flex-1" />
-            <button
-              class="place-self-end btn btn-sm btn-secondary border-secondary-content"
-              onClick={check_server_status}
-            >
-              check server status
-            </button>
-            <span class="w-4" />
-          </div>
+          <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
           <div class="divider mt-0 mb-0 w-11/12 justify-self-center" />
           <div class="mx-4 flex">
-            <div class="grid">
-              <div class="py-2">
-                <h2 class="text-lg font-semibold leading-4">
-                  Run Proxy Server
-                </h2>
-                <p class="">
+            <div class="grid w-full">
+              <div class="py-2" id="run-proxy-server-section">
+                <div class="flex items-center justify-between gap-2">
+                  <h2 class="text-lg font-semibold leading-4">
+                    Run Proxy Server
+                  </h2>
+                  <button
+                    type="button"
+                    id="check-server-status-btn"
+                    class="btn btn-sm btn-secondary border-secondary-content shrink-0"
+                    onClick={check_server_status}
+                  >
+                    check server status
+                  </button>
+                </div>
+                <p class="mt-1">
                   Run proxy server to copy responsed data from KC server{" "}
                 </p>
                 <div class="flex flex-nowrap mt-4">
@@ -318,11 +240,7 @@ function Start() {
                           onClick={() => {
                             setRunProxyServer(!runProxyServer());
                           }}
-                          class={
-                            runProxyServer()
-                              ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content "
-                              : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
-                          }
+                          class="toggle toggle-sm toggle-primary"
                           checked={runProxyServer()}
                           disabled={run_proxy_flag() <= 0}
                         />
@@ -335,7 +253,7 @@ function Start() {
                     Your server
                   </div>
                   <select
-                    class="select select-sm select-bordered w-full focus-within:outline-0 focus:outline-0"
+                    class="select select-sm select-bordered w-full"
                     disabled={!runProxyServer()}
                     onChange={(e) => {
                       launch_options["server"] = e.target.selectedIndex;
@@ -381,22 +299,9 @@ function Start() {
                 </div>
               </div>
               <Show when={run_proxy_flag() == -1}>
-                <div role="alert" class="alert alert-error">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-6 w-6 shrink-0 stroke-current"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>Something Wrong. Restart from System Tray.</span>
-                </div>
+                <AlertMessage type="error">
+                  Something Wrong. Restart from System Tray.
+                </AlertMessage>
               </Show>
               <div class="py-2">
                 <h2 class="text-lg font-semibold leading-4">Open App</h2>
@@ -415,11 +320,7 @@ function Start() {
                         onClick={() => {
                           setOpenApp(!openApp());
                         }}
-                        class={
-                          openApp()
-                            ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content "
-                            : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
-                        }
+                        class="toggle toggle-sm toggle-primary"
                         checked={openApp()}
                         disabled={run_app_flag() <= 0}
                       />
@@ -445,166 +346,38 @@ function Start() {
                             Number(!openKancolle());
                           setOpenKancolle(!openKancolle());
                         }}
-                        class={
-                          openKancolle()
-                            ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content "
-                            : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
-                        }
+                        class="toggle toggle-sm toggle-primary"
                         checked={openKancolle()}
                       />
                     </label>
                   </div>
                 </div>
-                <div class="mx-4">
-                  <div class="form-control">
-                    <label class="label cursor-pointer">
-                      <input
-                        type="radio"
-                        name="radio-10"
-                        class={
-                          openKancolleWithWebView()
-                            ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary"
-                            : "radio radio-secondary"
-                        }
-                        disabled={!openKancolle()}
-                        checked={openKancolleWithWebView()}
-                        onClick={() => {
-                          launch_options["open_kancolle_with_webview"] = 1;
-                          setOpenKancolleWithWebView(true);
-                        }}
-                      />
-                      <span class="label-text">Open with WebView</span>
-                    </label>
-                  </div>
-                  <div class="form-control">
-                    <label class="label cursor-pointer">
-                      <input
-                        type="radio"
-                        name="radio-10"
-                        class={
-                          !openKancolleWithWebView()
-                            ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary"
-                            : "radio radio-secondary"
-                        }
-                        disabled={!openKancolle()}
-                        checked={!openKancolleWithWebView()}
-                        onClick={() => {
-                          launch_options["open_kancolle_with_webview"] = 0;
-                          setOpenKancolleWithWebView(false);
-                        }}
-                      />
-                      <span class="label-text">Open with native browser</span>
-                    </label>
-                  </div>
+                <div class="flex flex-nowrap pt-4">
+                  <label
+                    for="open-kancolle-target"
+                    class="h-6 w-28 self-center ml-4 flex-none"
+                  >
+                    Open with
+                  </label>
+                  <select
+                    id="open-kancolle-target"
+                    class="select select-sm select-bordered w-full"
+                    disabled={!openKancolle()}
+                    value={openKancolleWithWebView() ? "webview" : "browser"}
+                    onChange={(e) => {
+                      const useWebView = e.currentTarget.value === "webview";
+                      launch_options["open_kancolle_with_webview"] =
+                        Number(useWebView);
+                      setOpenKancolleWithWebView(useWebView);
+                    }}
+                  >
+                    <option value="webview">WebView</option>
+                    <option value="browser">Native browser</option>
+                  </select>
                 </div>
               </div>
               {/* <div class="preview border-base-300 bg-base-100 rounded-box flex flex-wrap items-center justify-center gap-2 p-4 [border-width:var(--tab-border)]" style="">
                     </div> */}
-            </div>
-          </div>
-          <div
-            tabindex="0"
-            class={
-              "collapse collapse-arrow" +
-              (advancesSettingsCollapse()
-                ? " collapse-open"
-                : " collapse-close")
-            }
-          >
-            <a
-              class="collapse-title text-lg font-semibold leading-4 cursor-pointer"
-              id="advanced-settings"
-              onClick={() =>
-                setAdavncedSettingsCollpse(!advancesSettingsCollapse())
-              }
-            >
-              Advanced Settings
-            </a>
-            <div class="collapse-content text-sm mx-4">
-              <div class="font-semibold">
-                Set provider (provider) (access/refresh) tokens
-              </div>
-              <fieldset class="fieldset">
-                <legend class="fieldset-legen">
-                  input tokens for new session
-                </legend>
-                <div class="flex items-center gap-2">
-                  <input
-                    id="tokens"
-                    ref={(el) => (tokensInput = el as HTMLInputElement)}
-                    type="text"
-                    class="flex-1 input input-sm focus-within:outline-0 focus:outline-0"
-                    placeholder="provider_refresh_token=...&supabase_access_token=...&supabase_refresh_token=..."
-                  />
-                  <button
-                    class="btn btn-sm btn-ghost"
-                    onClick={async () => {
-                      try {
-                        const text = await navigator.clipboard.readText();
-                        if (!tokensInput) return;
-                        tokensInput.value = text;
-                      } catch (e) {
-                        console.error("Failed to read clipboard:", e);
-                      }
-                    }}
-                    title="Paste from clipboard"
-                  >
-                    Paste
-                  </button>
-                  <button
-                    class="btn btn-sm btn-secondary border-secondary-content"
-                    onClick={() => parseAndApplyTokens(tokensInput?.value)}
-                  >
-                    Apply
-                  </button>
-                </div>
-              </fieldset>
-
-              <div class="h-4" />
-
-              <div class="font-semibold">Supabase Session</div>
-              <div class="h-2" />
-              <div class="flex flex-wrap gap-2">
-                <button
-                  class="btn btn-sm btn-outline"
-                  onClick={checkSessionHealth}
-                  disabled={sessionHealthLoading()}
-                >
-                  {sessionHealthLoading() ? "Checking..." : "Check health"}
-                </button>
-                <button
-                  class="btn btn-sm btn-error"
-                  onClick={forceLocalSignOut}
-                >
-                  Force local sign out
-                </button>
-              </div>
-              <Show when={sessionHealth()}>
-                {(h) => (
-                  <div class="mt-2 text-xs space-y-1">
-                    <div>
-                      session: {h().has_session ? "exists" : "missing"},
-                      access_len=
-                      {h().access_token_len}, refresh_len=
-                      {h().refresh_token_len}
-                    </div>
-                    <div>
-                      status: {h().seems_valid ? "looks ok" : "invalid"}
-                    </div>
-                    <Show when={h().reason}>
-                      {(r) => <div class="text-warning">{r()}</div>}
-                    </Show>
-                  </div>
-                )}
-              </Show>
-
-              <div class="h-4" />
-
-              <div class="font-semibold">Set Theme</div>
-              <div class="h-4" />
-              <div class="flex justify-end">
-                <ThemeControllerComponent />
-              </div>
             </div>
           </div>
           <div class="h-4" />

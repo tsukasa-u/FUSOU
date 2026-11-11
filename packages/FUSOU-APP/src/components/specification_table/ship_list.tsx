@@ -8,7 +8,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
   Match,
   Show,
   Switch,
@@ -19,12 +18,16 @@ import "../../css/divider.css";
 import "../../css/specification_table.css";
 import { ComponentShipModal } from "ui";
 
-import { VList } from "virtua/solid";
 import { get_data_set_ship } from "../../utility/get_data_set.tsx";
 import {
-  scroll_fn,
-  drag_scroll_fn,
-} from "../../utility/scroll.tsx";
+  buildVisibleSpecRows,
+  CategoryTabStrip,
+  createSpecTableScrollController,
+  SpecScrollArrowButton,
+  SpecTableHeaderBar,
+  SpecTableVirtualList,
+  type SpecTableScrollController,
+} from "./scroll_controls.tsx";
 import {
   init_range_props,
   search_name_window,
@@ -35,7 +38,7 @@ import {
   sort_window,
   type RangeProps,
 } from "./set_window.tsx";
-const table_width = "1200px";
+const table_width = "1228px";
 
 export function ShipListComponent() {
   const [ships] = useShips();
@@ -444,7 +447,7 @@ export function ShipListComponent() {
       : undefined;
     return (
       <tr class="flex table_hover rounded bg-base-100">
-        <th class="px-0 w-10 flex bg-base-100 z-[2] self-center sticky left-0">
+        <th class="px-0 w-10 flex items-center rounded-l bg-base-100 z-[2] sticky left-0">
           <span class="flex-1" />
           {index + 1}
           <div class="w-[10px]" />
@@ -568,11 +571,12 @@ export function ShipListComponent() {
             </div>
           </td>
         </Show>
+        <td class="w-9 shrink-0 p-0" aria-hidden="true" />
       </tr>
     );
   };
 
-  const table_header = () => {
+  const table_header = (controller: SpecTableScrollController) => {
     const modal_prefix = "ship_spec_modal";
     const sort_window_elements = sort_window(
       ship_properties,
@@ -606,9 +610,22 @@ export function ShipListComponent() {
       set_discrete_range_window(modal_prefix);
     return (
       <thead>
-        <tr class="flex mt-1">
-          <th class="w-10 flex justify-center bg-base-100 z-[5] sticky left-0">{sort_window_elements}</th>
-          <th class="w-32 bg-base-100 z-[4] sticky left-10">{search_name_window_element}</th>
+        <tr class="flex items-stretch">
+          <th class="w-10 flex justify-center bg-base-100 z-[20] sticky left-0">
+            {sort_window_elements}
+          </th>
+          <th class="w-32 bg-base-100 z-[15] sticky left-10 flex items-center justify-between gap-1">
+            <div class="shrink-0">{search_name_window_element}</div>
+            <SpecScrollArrowButton
+              direction="left"
+              disabled={!controller.canScrollLeft()}
+              ariaLabel="Scroll table columns left"
+              dataRole="header-left"
+              divider="right"
+              class="-mr-[5px]"
+              onClick={() => controller.scrollBy(-1)}
+            />
+          </th>
           <Show when={check_ship_property["Ship Type"]}>
             <th class="w-[88px]">{set_ship_type_window_element}</th>
           </Show>
@@ -684,100 +701,34 @@ export function ShipListComponent() {
           <Show when={check_ship_property["Range"]}>
             <th class="w-20">{set_discrete_range_window_elements["Range"]}</th>
           </Show>
+          <th class="w-9 shrink-0 p-0" aria-hidden="true" />
         </tr>
       </thead>
     );
   };
 
-  let headerScrollElementCategorized!: HTMLDivElement;
-  let headerScrollElementNoneCategorized!: HTMLDivElement;
-  let vlistWrapperCategorized!: HTMLDivElement;
-  let vlistWrapperNoneCategorized!: HTMLDivElement;
+  const categorizedScroll = createSpecTableScrollController(ship_spec_modal);
+  const uncategorizedScroll = createSpecTableScrollController(ship_spec_modal);
 
-  const handle_header_wheel = (
-    e: WheelEvent,
-    isCategorized: boolean,
-  ) => {
-    if (ship_spec_modal()) return;
-    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
-    const wrapper = isCategorized
-      ? vlistWrapperCategorized
-      : vlistWrapperNoneCategorized;
-    const vlistEl = wrapper?.querySelector(".specification-vlist") as HTMLElement | null;
-    if (!vlistEl) return;
-    e.preventDefault();
-    vlistEl.scrollLeft += e.deltaY;
-  };
+  const categorized_ship_rows = createMemo(() =>
+    buildVisibleSpecRows(
+      categorized_ships_keys()[set_stype()] ?? [],
+      filtered_ships(),
+    ),
+  );
+  const uncategorized_ship_rows = createMemo(() =>
+    buildVisibleSpecRows(sorted_ship_keys(), filtered_ships()),
+  );
 
-  const attach_vlist = (wrapper: HTMLDivElement) => {
-    // eslint-disable-next-line solid/reactivity
-    queueMicrotask(() => {
-      const vlistEl = wrapper?.querySelector(".specification-vlist") as HTMLDivElement | null;
-      if (vlistEl) {
-        drag_scroll_fn(vlistEl, ship_spec_modal);
-        vlistEl.addEventListener("scroll", () => {
-          if (headerScrollElementCategorized) {
-            headerScrollElementCategorized.scrollLeft = vlistEl.scrollLeft;
-          }
-          if (headerScrollElementNoneCategorized) {
-            headerScrollElementNoneCategorized.scrollLeft = vlistEl.scrollLeft;
-          }
-        });
-      }
-    });
-  };
-
-  const table_element_categorized = (ship_ids: (number | string)[]) => {
-    const table_element = ship_ids
-      .map((ship_id, index) => [
-        Number(ship_id),
-        filtered_ships()[Number(ship_id)] ?? false,
-        index,
-      ])
-      .filter(([, flag]) => flag as boolean);
-    return (
-      <VList
-        data={table_element}
-        style={{
-          height: "calc(100dvh - 159px)",
-          "--table-width": table_width,
-        }}
-        class="specification-vlist"
-      >
-        {([ship_id, , index]) => (
-          <table class="table table-xs" style={{ width: table_width }}>
-            <tbody>{table_line_element(Number(ship_id), Number(index))}</tbody>
-          </table>
-        )}
-      </VList>
-    );
-  };
-
-  const table_element_none_categorized = (ship_ids: (number | string)[]) => {
-    const table_element = ship_ids
-      .map((ship_id, index) => [
-        Number(ship_id),
-        filtered_ships()[Number(ship_id)] ?? false,
-        index,
-      ])
-      .filter(([, flag]) => flag as boolean);
-    return (
-      <VList
-        data={table_element}
-        style={{
-          height: "calc(100dvh - 126px)",
-          "--table-width": table_width,
-        }}
-        class="specification-vlist"
-      >
-        {([ship_id, , index]) => (
-          <table class="table table-xs" style={{ width: table_width }}>
-            <tbody>{table_line_element(Number(ship_id), Number(index))}</tbody>
-          </table>
-        )}
-      </VList>
-    );
-  };
+  createEffect(() => {
+    Object.values(check_ship_property);
+    set_categorize();
+    set_stype();
+    categorized_ship_rows();
+    uncategorized_ship_rows();
+    categorizedScroll.refreshEdges();
+    uncategorizedScroll.refreshEdges();
+  });
 
   const cal_search_name = (search_name: string) => {
     const tmp_name: { [key: number]: boolean } = {};
@@ -813,8 +764,8 @@ export function ShipListComponent() {
     );
 
   return (
-    <>
-      <div class="bg-base-100 z-[4]">
+    <div class="h-full flex flex-col min-h-0 flex-1">
+      <div class="bg-base-100 z-[4] shrink-0">
         <div class="h-2" />
         <div class="px-2 py-1 text-xs flex flex-wrap items-center">
           <div class="px-4 flex-none text-sm w-56">
@@ -842,75 +793,56 @@ export function ShipListComponent() {
       </div>
       <Switch>
         <Match when={set_categorize()}>
-          <div
-            class="overflow-x-auto w-full"
-            ref={(el) => {
-              scroll_fn(el, ship_spec_modal);
-              drag_scroll_fn(el, ship_spec_modal);
-            }}
-            style={{ "scrollbar-width": "none" }}
-          >
-            <div class="tabs tabs-border tabs-sm min-w-max">
-              <For each={Object.keys(categorized_ships_keys())}>
-                {(stype_name) => (
-                  <Show when={categorized_ships_keys()[stype_name].length != 0}>
-                    <input
-                      type="radio"
-                      name="ship_specification_table_tab"
-                      class="tab"
-                      aria-label={stype_name}
-                      onClick={() => set_set_stype(stype_name)}
-                      checked={set_stype() == stype_name}
-                    />
-                  </Show>
-                )}
-              </For>
-            </div>
-          </div>
-          <div class="w-full flex flex-col border-t border-base-300">
-            <div
-              ref={headerScrollElementCategorized}
-              class="specification-header"
-              onWheel={(e) => handle_header_wheel(e, true)}
+          <CategoryTabStrip
+            radioName="ship_specification_table_tab"
+            categories={() => Object.keys(categorized_ships_keys())}
+            hasItems={(stype_name) =>
+              (categorized_ships_keys()[stype_name]?.length ?? 0) != 0
+            }
+            activeCategory={set_stype}
+            onSelect={(stype_name) => set_set_stype(stype_name)}
+            modalOpen={ship_spec_modal}
+          />
+          <div class="w-full flex flex-col flex-1 min-h-0 border-t border-base-300">
+            <SpecTableHeaderBar
+              controller={categorizedScroll}
+              tableWidth={table_width}
             >
-              <table class="table table-xs" style={{ width: table_width }}>
-                {table_header()}
-              </table>
-            </div>
+              {table_header(categorizedScroll)}
+            </SpecTableHeaderBar>
             <div
-              ref={(el) => {
-                vlistWrapperCategorized = el;
-                attach_vlist(el);
-              }}
-              class="w-full"
+              ref={categorizedScroll.bindVListWrapper}
+              class="w-full flex-1 min-h-0"
             >
-              {table_element_categorized(categorized_ships_keys()[set_stype()])}
+              <SpecTableVirtualList
+                rows={categorized_ship_rows}
+                tableWidth={table_width}
+                renderRow={table_line_element}
+              />
             </div>
           </div>
         </Match>
         <Match when={!set_categorize()}>
-          <div class="w-full flex flex-col">
-            <div
-              ref={headerScrollElementNoneCategorized}
-              class="specification-header"
-              onWheel={(e) => handle_header_wheel(e, false)}
+          <div class="w-full flex flex-col flex-1 min-h-0">
+            <SpecTableHeaderBar
+              controller={uncategorizedScroll}
+              tableWidth={table_width}
             >
-              <table class="table table-xs" style={{ width: table_width }}>
-                {table_header()}
-              </table>
-            </div>
+              {table_header(uncategorizedScroll)}
+            </SpecTableHeaderBar>
             <div
-              ref={(el) => {
-                vlistWrapperNoneCategorized = el;
-                attach_vlist(el);
-              }}
-              class="w-full"
+              ref={uncategorizedScroll.bindVListWrapper}
+              class="w-full flex-1 min-h-0"
             >
-              {table_element_none_categorized(sorted_ship_keys())}
+              <SpecTableVirtualList
+                rows={uncategorized_ship_rows}
+                tableWidth={table_width}
+                renderRow={table_line_element}
+              />
             </div>
           </div>
         </Match>
       </Switch>
-    </>
+    </div>
   );
 }

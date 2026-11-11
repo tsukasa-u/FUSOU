@@ -23,7 +23,7 @@ export interface ComponentShipMaskedTableProps {
 
 const class_size = {
   xs: {
-    name_text: "text-md",
+    name_text: "text-base",
     level_text: "text-sm",
     caption_text: "text-sm",
     table: "table-xs",
@@ -31,8 +31,8 @@ const class_size = {
   },
   sm: {
     name_text: "text-lg",
-    level_text: "text-md",
-    caption_text: "text-md",
+    level_text: "text-base",
+    caption_text: "text-base",
     table: "table-sm",
     accent_text: "text-sm",
   },
@@ -41,7 +41,7 @@ const class_size = {
     level_text: "text-lg",
     caption_text: "text-lg",
     table: "table-md",
-    accent_text: "text-md",
+    accent_text: "text-base",
   },
   lg: {
     name_text: "text-2xl",

@@ -29,6 +29,29 @@ pub struct MstUseItem {
     pub name: String,
 }
 
+pub(crate) static KCS_MST_USEITEM_METAS: Lazy<Mutex<MstUseItemMetas>> = Lazy::new(|| {
+    Mutex::new(MstUseItemMetas {
+        mst_use_item_metas: HashMap::new(),
+    })
+});
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "get_data.ts")]
+pub struct MstUseItemMetas {
+    pub mst_use_item_metas: HashMap<i32, MstUseItemMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "get_data.ts")]
+pub struct MstUseItemMeta {
+    pub id: i32,
+    pub usetype: i64,
+    pub category: i64,
+    pub name: String,
+    pub description: Vec<String>,
+    pub price: i64,
+}
+
 impl MstUseItems {
     pub fn load() -> Self {
         let item_map = KCS_MST_USEITEMS.lock().unwrap();
@@ -37,6 +60,18 @@ impl MstUseItems {
 
     pub fn restore(&self) {
         let mut item_map = KCS_MST_USEITEMS.lock().unwrap();
+        *item_map = self.clone();
+    }
+}
+
+impl MstUseItemMetas {
+    pub fn load() -> Self {
+        let item_map = KCS_MST_USEITEM_METAS.lock().unwrap();
+        item_map.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut item_map = KCS_MST_USEITEM_METAS.lock().unwrap();
         *item_map = self.clone();
     }
 }

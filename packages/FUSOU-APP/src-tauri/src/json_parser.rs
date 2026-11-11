@@ -42,7 +42,8 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 let _ = handle.emit_to("main", events::ADD_KCS_CELL, data);
             }
             Add::QuestEvent(data) => {
-                crate::senders::quest_tree_sender::enqueue(data);
+                crate::senders::quest_tree_sender::enqueue(data.clone());
+                let _ = handle.emit_to("main", events::ADD_KCS_QUEST_EVENT, data);
             }
             Add::Dammy(_) => {
                 let _ = handle.emit_to("main", events::ADD_KCS_DAMMY, ());
@@ -68,7 +69,11 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::UseItems(data) => {
                 data.restore();
-                // UseItems is not forwarded to the frontend.
+                let _ = handle.emit_to("main", events::SET_KCS_USE_ITEMS, data);
+            }
+            Set::PayItems(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", events::SET_KCS_PAY_ITEMS, data);
             }
             Set::Ships(data) => {
                 data.restore();
@@ -111,6 +116,10 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Set::MstUseItems(data) => {
                 data.restore();
                 let _ = handle.emit_to("main", events::SET_KCS_MST_USE_ITEMS, data);
+            }
+            Set::MstUseItemMetas(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", events::SET_KCS_MST_USE_ITEM_METAS, data);
             }
             Set::MstSlotItemEquipTypes(data) => {
                 data.restore();
@@ -231,28 +240,22 @@ async fn parser_server(
                         tracing::warn!("Received None message");
                     },
                     Some(bidirectional_channel::StatusInfo::RESPONSE { path, content_type: _, content }) => {
-                        let handle_clone = handle.clone();
-                        tokio::task::spawn(async move {
-                            if crate::map_cell_labels::map_ids_from_resource_path(&path).is_some() {
-                                return;
-                            }
+                        if crate::map_cell_labels::map_ids_from_resource_path(&path).is_some() {
+                            continue;
+                        }
 
-                            if let Ok(emit_data_list) = struct_selector_response(path, content) {
-                                for emit_data_element in emit_data_list {
-                                    emit_data(&handle_clone, emit_data_element);
-                                }
-                            };
-                        });
+                        if let Ok(emit_data_list) = struct_selector_response(path, content) {
+                            for emit_data_element in emit_data_list {
+                                emit_data(handle, emit_data_element);
+                            }
+                        };
                     },
                     Some(bidirectional_channel::StatusInfo::REQUEST { path, content_type: _, content }) => {
-                        let handle_clone = handle.clone();
-                        tokio::task::spawn(async move {
-                            if let Ok(emit_data_list) = struct_selector_resquest(path, content) {
-                                for emit_data_element in emit_data_list {
-                                    emit_data(&handle_clone, emit_data_element);
-                                }
-                            };
-                        });
+                        if let Ok(emit_data_list) = struct_selector_resquest(path, content) {
+                            for emit_data_element in emit_data_list {
+                                emit_data(handle, emit_data_element);
+                            }
+                        };
                     },
                     _ => {}
                 }
