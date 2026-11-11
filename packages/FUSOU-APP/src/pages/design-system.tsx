@@ -9,6 +9,7 @@ import {
   toggleAppTheme,
 } from "../utility/theme";
 import {
+  AlertMessage,
   ComponentColorBar,
   ComponentColorBarLabel,
   ComponentShipModal,
@@ -1222,10 +1223,16 @@ export default function DesignSystemPage() {
                 Action Variants
               </h3>
               <div class="flex flex-wrap items-center gap-2">
-                <button type="button" class="btn btn-primary btn-sm">
+                <button
+                  type="button"
+                  class="btn btn-primary border-primary-content btn-sm"
+                >
                   Primary Action
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm">
+                <button
+                  type="button"
+                  class="btn btn-secondary border-secondary-content btn-sm"
+                >
                   Secondary Action
                 </button>
                 <button type="button" class="btn btn-outline btn-sm">
@@ -1234,7 +1241,7 @@ export default function DesignSystemPage() {
                 <button type="button" class="btn btn-ghost btn-sm">
                   Ghost Action
                 </button>
-                <button type="button" class="btn btn-error btn-sm">
+                <button type="button" class="btn btn-error btn-outline btn-sm">
                   Destructive Action
                 </button>
               </div>
@@ -1512,84 +1519,24 @@ export default function DesignSystemPage() {
               07 / Status Alerts &amp; Badges
             </h2>
             <p class="text-xs text-base-content/60 mt-0.5">
-              DaisyUI 統一アラートブロック、戦績バッジ、ログレベルバッジ。
+              FUSOU-WEB
+              準拠のソフトティント統一アラート（AlertMessage）・戦績バッジ・ログレベルバッジ。
             </p>
           </div>
 
           <div class="space-y-3">
-            <div class="alert alert-info text-xs py-2 shadow-xs">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                class="stroke-current shrink-0 w-4 h-4"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span>
-                情報: 新しいマスターデータ（Ver
-                2026.11）を正常に読み込みました。
-              </span>
-            </div>
-            <div class="alert alert-success text-xs py-2 shadow-xs">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="stroke-current shrink-0 h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span>
-                成功: 編成シミュレーション計算完了。制空値 432 (優勢確定)。
-              </span>
-            </div>
-            <div class="alert alert-warning text-xs py-2 shadow-xs">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="stroke-current shrink-0 h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <span>
-                警告: 第2艦隊 3番艦の疲労度低下（Cond 28）。休養を推奨します。
-              </span>
-            </div>
-            <div class="alert alert-error text-xs py-2 shadow-xs">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="stroke-current shrink-0 h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span>
-                危険: 大破進撃警告！ 旗艦・随伴艦に大破艦が存在します。
-              </span>
-            </div>
+            <AlertMessage type="info" title="情報">
+              新しいマスターデータ（Ver 2026.11）を正常に読み込みました。
+            </AlertMessage>
+            <AlertMessage type="success" title="成功">
+              編成シミュレーション計算完了。制空値 432 (優勢確定)。
+            </AlertMessage>
+            <AlertMessage type="warning" title="警告">
+              第2艦隊 3番艦の疲労度低下（Cond 28）。休養を推奨します。
+            </AlertMessage>
+            <AlertMessage type="error" title="危険">
+              大破進撃警告！ 旗艦・随伴艦に大破艦が存在します。
+            </AlertMessage>
           </div>
 
           <div class="bg-base-100 rounded-box border border-base-300 p-5 space-y-4">
@@ -4539,6 +4486,21 @@ export default function DesignSystemPage() {
                     <td>
                       タイトルバーに常駐する DaisyUI テーマ（Light /
                       Dark）クリック切り替えボタン
+                    </td>
+                    <td>
+                      <span class="badge badge-success badge-xs">Covered</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">AlertMessage</td>
+                    <td>
+                      <code>
+                        src/components/ui/components/alert/alert_message.tsx
+                      </code>
+                    </td>
+                    <td>
+                      FUSOU-WEB
+                      統一ソフトティント・セマンティックステータスアラート
                     </td>
                     <td>
                       <span class="badge badge-success badge-xs">Covered</span>

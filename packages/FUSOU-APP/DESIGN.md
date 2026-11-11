@@ -122,19 +122,20 @@ Rules:
 
 ## 04 / Buttons & Action Hierarchy
 
-| Variant              | Classes                                     | Purpose                                       |
-| :------------------- | :------------------------------------------ | :-------------------------------------------- |
-| **Primary Action**   | `.btn.btn-primary` (or `.btn-sm`)           | Main CTA (Save, Submit, Sync, Confirm)        |
-| **Secondary Action** | `.btn.btn-secondary`                        | Sub-operations (Refresh, Export, Filter)      |
-| **Outline Action**   | `.btn.btn-outline`                          | Bordered button with lower emphasis           |
-| **Ghost Action**     | `.btn.btn-ghost`                            | Low-emphasis navigation, cancel, close dialog |
-| **Destructive**      | `.btn.btn-error` / `.btn-error.btn-outline` | Delete, reset cache, cancel upload            |
-| **Tool Button**      | `.fusou-tool-btn`                           | Titlebar actions (24px height, icon+label)    |
-| **Compact Control**  | `.btn.btn-xs`                               | Table row operations, item remove buttons     |
+| Variant              | Classes                                               | Purpose                                       |
+| :------------------- | :---------------------------------------------------- | :-------------------------------------------- |
+| **Primary Action**   | `.btn.btn-primary.enabled:border-primary-content`     | Main CTA (Save, Submit, Sync, Confirm)        |
+| **Secondary Action** | `.btn.btn-secondary.enabled:border-secondary-content` | Sub-operations (Refresh, Health Check, Load)  |
+| **Outline Action**   | `.btn.btn-outline`                                    | Bordered button with lower emphasis           |
+| **Ghost Action**     | `.btn.btn-ghost`                                      | Low-emphasis navigation, cancel, close dialog |
+| **Destructive**      | `.btn.btn-error` / `.btn.btn-error.btn-outline`       | Delete, reset cache, sign out                 |
+| **Tool Button**      | `.fusou-tool-btn`                                     | Titlebar actions (24px height, icon+label)    |
+| **Compact Control**  | `.btn.btn-xs`                                         | Table row operations, item remove buttons     |
 
 Rules:
 
 - Keep action labels concise and action-oriented.
+- Keep `FUSOU-APP`'s compact button sizing without importing `FUSOU-WEB`'s global `.btn` padding/border overrides; `src/css/buttons.css` tones down neutral `.btn.btn-outline` borders (`26%` `--color-base-content` mixed with `--color-base-100`) and preserves distinct `--btn-border` contrast on `:hover`, `:focus-visible`, and `:active`, while `.btn-primary` / `.btn-secondary` buttons apply explicit `enabled:border-primary-content` / `enabled:border-secondary-content` classes under `--depth: 0`.
 - When an operation is in-flight, display `<span class="loading loading-spinner loading-xs" />` and disable the button.
 
 ---
@@ -146,12 +147,20 @@ Rules:
 - Shared with `FUSOU-WEB`'s `/design-system/app/` stylesheet via `src/styles/app-utilities.css`.
 - Suppresses DaisyUI's default `outline` + `outline-offset` ring and box-shadow on `:focus`, `:focus-within`, `:focus-visible`, `:active`, and `:open` for `.input`, `.select`, `.textarea`, `.file-input` (and native text/search/select/textarea elements), keeping a single `1px` border that highlights in `var(--color-primary)` (while semantic color variants such as `.input-error` preserve their status border color).
 
+### Alerts & Toast Notifications (`src/css/alerts.css`, `AlertMessage`, `FadeToast`)
+
+- Shared across `FUSOU-APP` and `FUSOU-WEB` (`/design-system/app/`) via `src/styles/app-utilities.css`.
+- `.alert` matches `FUSOU-WEB` alert geometry and surface hierarchy: `0.75rem` radius (`rounded-xl`), `1px` semantic border (`border-info` / `border-success` / `border-warning` / `border-error`), soft 10% semantic tint (`color-mix(in oklch, var(--color-<type>) 10%, transparent)`), semantic icon tint, `text-base-content/85` body text, and zero drop shadow.
+- `AlertMessage` (`src/components/ui/components/alert/alert_message.tsx`) provides a typed `"info" | "success" | "warning" | "error"` wrapper with optional `title` and an optional `details` disclosure toggle (`Show details` / `Hide details`); keep navigation and action execution buttons outside alerts in surrounding card action rows rather than inside `.alert`.
+- `FadeToast` / `showFadeToast(id, message, type?)` (`src/components/settings/fade_toast.tsx`) reuses `.toast .alert.<type>` with an opaque `var(--color-base-100)` base mix (`12%` semantic tint) and an inline flex dismiss button so close icons never overlap toast messages.
+
 ### Standard Surface
 
 - Background: `bg-base-100`
 - Border: `border border-base-300` (`oklch(27% 0.006 286.033)`)
 - Radius: `rounded-box` (`0.5rem`, aligned with `--radius-box: 0.5rem`)
 - Shadow: Flat (no drop shadows; depth is strictly border-driven)
+- Multi-action utilities (`SettingsComponent`, `Updater`): group related controls into bordered setting rows (`bg-base-100 rounded-box border border-base-300 divide-y divide-base-300`), place primary status banners inside `AlertMessage`, show compact metadata summaries (`grid ... bg-base-200/40 rounded-lg border border-base-300`), and collapse secondary bulk diagnostics or per-endpoint loaders behind `<details class="group">`.
 
 ### Collapsible Operational Groups (`<details open><summary>`)
 
@@ -985,7 +994,8 @@ src/
 │   ├── ui/
 │   │   ├── titlebar.tsx      # Custom frameless titlebar
 │   │   ├── window_resize_borders.tsx # Frameless window resize borders
-│   │   ├── components/       # ColorBar, Empty, Ship, Equipment, Modals
+│   │   ├── components/       # AlertMessage, ColorBar, Empty, Ship, Equipment, Modals
+│   │   │   ├── alert/        # AlertMessage (FUSOU-WEB-aligned semantic status banners)
 │   │   │   ├── bar/          # ColorBar, ColorBarLabel
 │   │   │   ├── empty/        # EmptyValue, EmptySlot
 │   │   │   ├── filter-bar/   # MenuFilterBar (shared search bar for Items & Quests)

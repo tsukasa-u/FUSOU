@@ -838,21 +838,26 @@ const materialList = [
           <h3 class="text-base font-semibold mb-3">
             Real App Action Buttons (<code>start.tsx</code>, <code
               >update.tsx</code
-            >, <code>log-viewer.tsx</code>, <code>battles.tsx</code>)
+            >, <code>settings.tsx</code>, <code>log-viewer.tsx</code>)
           </h3>
           <div class="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              class="btn btn-primary border-primary-content border-1"
+              class="btn btn-sm btn-primary border-primary-content"
               >Update Automatically</button
             >
-            <button type="button" class="btn btn-neutral btn-outline border-1"
-              >Check for updates</button
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary border-secondary-content"
+              >Check for Updates</button
+            >
+            <button type="button" class="btn btn-sm btn-outline"
+              >Open GitHub Releases</button
+            >
+            <button type="button" class="btn btn-sm btn-error btn-outline"
+              >Force Local Sign Out</button
             >
             <button type="button" class="btn btn-ghost btn-sm">Clear</button>
-            <button type="button" class="btn btn-link"
-              >Go to GitHub releases page</button
-            >
             <button type="button" class="btn btn-xs btn-square rounded-none"
               >A</button
             >
@@ -1009,19 +1014,91 @@ const materialList = [
           07 / Alerts, FadeToast, Policy &amp; Log Badges
         </h2>
         <p class="text-sm text-base-content/60 mt-1">
-          <code>start.tsx</code>・<code>update.tsx</code>・<code
-            >fade_toast.tsx</code
-          >・<code>policy_panel.tsx</code>・<code>log-viewer.tsx</code> で実際に使用されている通知コンポーネント群。
+          <code>alert_message.tsx</code>・<code>start.tsx</code>・<code
+            >update.tsx</code
+          >・<code>settings.tsx</code>・<code>fade_toast.tsx</code>・<code
+            >policy_panel.tsx</code
+          >・<code>log-viewer.tsx</code> で使用されている FUSOU-WEB 準拠の統一通知コンポーネント群。
         </p>
       </div>
 
-      <div class="space-y-4">
+      <div class="space-y-3">
+        <div role="status" class="alert alert-info">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0 stroke-current text-info"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+          <div class="min-w-0 leading-snug">
+            <div class="font-semibold text-info">New Version Available</div>
+            <div>FUSOU v0.6.2 is available to download and install.</div>
+          </div>
+        </div>
+
+        <div role="status" class="alert alert-success">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0 stroke-current text-success"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <div class="min-w-0 leading-snug">
+            <div class="font-semibold text-success">Update Installed</div>
+            <div>
+              Installation is complete. Restart FUSOU to apply the new version.
+            </div>
+          </div>
+        </div>
+
+        <div role="alert" class="alert alert-warning">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0 stroke-current text-warning"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"
+            ></path>
+          </svg>
+          <div class="min-w-0 leading-snug">
+            <div class="font-semibold text-warning">
+              Confirm Local Sign Out
+            </div>
+            <div>
+              This clears cached Supabase tokens on this device and requires
+              signing in again.
+            </div>
+          </div>
+        </div>
+
         <div role="alert" class="alert alert-error">
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6 shrink-0 stroke-current"
+            class="w-5 h-5 shrink-0 stroke-current text-error"
             fill="none"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -1030,47 +1107,53 @@ const materialList = [
               d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
             ></path>
           </svg>
-          <span>Something Wrong. Restart from System Tray.</span>
-        </div>
-
-        <div class="alert alert-success text-center">
-          <span>Update completed. Please restart.</span>
+          <div class="min-w-0 leading-snug">
+            <div>Something Wrong. Restart from System Tray.</div>
+          </div>
         </div>
 
         <!-- FadeToast (fade_toast.tsx exact) -->
         <div
-          class="place-content-between alert border-base-content min-w-60 rounded-lg shadow flex relative"
+          role="status"
+          class="alert alert-success flex items-center justify-between gap-3 min-w-64 max-w-sm py-2.5 px-3.5 shadow-sm"
         >
-          <span class="flex flex-nowrap items-center">
+          <div class="flex items-center gap-2.5 min-w-0">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
-              stroke-width="1.5"
+              stroke-width="2"
               stroke="currentColor"
-              class="size-6"
+              class="w-5 h-5 shrink-0 text-success"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"
-              ></path>
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
-            <span class="w-2"></span>
-            <span>Settings saved (FadeToast)</span>
-          </span>
-          <button type="button" class="btn btn-ghost btn-sm btn-circle">
+            <span class="text-sm leading-snug"
+              >Settings saved (FadeToast)</span
+            >
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            class="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
+              fill="none"
               viewBox="0 0 24 24"
-              fill="currentColor"
+              stroke-width="2"
               stroke="currentColor"
-              class="size-4"
+              class="w-4 h-4"
+              aria-hidden="true"
             >
               <path
-                fill-rule="evenodd"
-                d="M5.47 5.47a.75.75 0 0 1 1.06 0L12 10.94l5.47-5.47a.75.75 0 1 1 1.06 1.06L13.06 12l5.47 5.47a.75.75 0 1 1-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 0 1-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 0 1 0-1.06Z"
-                clip-rule="evenodd"></path>
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M6 18 18 6M6 6l12 12"></path>
             </svg>
           </button>
         </div>
@@ -8645,6 +8728,17 @@ const materialList = [
                 >
                 <td class="font-mono text-primary"
                   >policy/policy_panel.stories.tsx</td
+                >
+                <td><span class="badge badge-success badge-xs">Active</span></td
+                >
+              </tr>
+              <tr>
+                <td class="font-bold font-mono">AlertMessage</td>
+                <td class="font-mono text-base-content/70"
+                  >src/components/ui/components/alert/alert_message.tsx</td
+                >
+                <td class="font-mono text-primary"
+                  >ui/stories/components/alert/alert-message.stories.tsx</td
                 >
                 <td><span class="badge badge-success badge-xs">Active</span></td
                 >
