@@ -441,7 +441,7 @@ export function ShipListComponent() {
       : undefined;
     return (
       <tr class="flex table_hover rounded bg-base-100">
-        <th class="px-0 w-10 flex bg-base-100 z-[2] self-center sticky left-0">
+        <th class="px-0 w-10 flex items-center rounded-l bg-base-100 z-[2] sticky left-0">
           <span class="flex-1" />
           {index + 1}
           <div class="w-[10px]" />
