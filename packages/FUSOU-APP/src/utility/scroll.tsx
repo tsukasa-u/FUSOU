@@ -1,4 +1,59 @@
-import type { Accessor } from "solid-js/types/server/reactive.js";
+import type { Accessor } from "solid-js";
+
+/**
+ * Normalizes a WheelEvent delta value across pixel, line, and page delta modes.
+ */
+export function normalizeWheelDelta(delta: number, deltaMode: number): number {
+  if (deltaMode === 1) return delta * 40;
+  if (deltaMode === 2) return delta * 320;
+  return delta;
+}
+
+/**
+ * Normalizes WheelEvent vertical delta across pixel, line, and page delta modes.
+ */
+export function normalizeWheelDeltaY(e: WheelEvent): number {
+  return normalizeWheelDelta(e.deltaY, e.deltaMode);
+}
+
+/**
+ * Picks the dominant horizontal scroll delta (deltaX when horizontal, otherwise deltaY).
+ */
+export function getHorizontalWheelDelta(e: WheelEvent): number {
+  const dominant =
+    Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  return normalizeWheelDelta(dominant, e.deltaMode);
+}
+
+/**
+ * Returns true if the target element currently has horizontal overflow to scroll.
+ */
+export function canScrollHorizontally(
+  el: HTMLElement | null | undefined,
+): boolean {
+  return Boolean(el && el.scrollWidth - el.clientWidth > 1);
+}
+
+/**
+ * Scrolls an element horizontally by deltaX, clamping within its scrollable bounds.
+ * Returns true if scrollLeft actually changed.
+ */
+export function scrollElementHorizontally(
+  el: HTMLElement | null | undefined,
+  deltaX: number,
+): boolean {
+  if (!el || deltaX === 0) return false;
+  const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+  if (maxScrollLeft <= 0) return false;
+
+  const before = el.scrollLeft;
+  const nextScrollLeft = Math.max(
+    0,
+    Math.min(maxScrollLeft, before + deltaX),
+  );
+  el.scrollLeft = nextScrollLeft;
+  return Math.abs(el.scrollLeft - before) >= 0.5;
+}
 
 export const drag_scroll_fn = (
   el: HTMLDivElement,
@@ -100,29 +155,24 @@ export const scroll_parent_fn = (
 };
 
 export const scroll_fn = (
-  el: HTMLDivElement,
+  wheelTarget: HTMLElement,
   spec_modal: Accessor<boolean>,
+  scrollTarget: HTMLElement = wheelTarget,
 ) => {
-  el.addEventListener("wheel", (e) => {
-    if (spec_modal()) return;
-    if (
-      el.offsetLeft > e.pageX ||
-      e.pageX > el.offsetLeft + el.clientWidth ||
-      el.offsetTop > e.pageY ||
-      e.pageY > el.offsetTop + el.clientHeight
-    )
-      return;
-    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+  wheelTarget.addEventListener(
+    "wheel",
+    (e) => {
+      if (spec_modal()) return;
+      if (!canScrollHorizontally(scrollTarget)) return;
 
-    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      const delta = getHorizontalWheelDelta(e);
+      if (delta === 0) return;
 
-    if (
-      (el.scrollLeft <= 0 && e.deltaY < 0) ||
-      (el.scrollLeft >= maxScrollLeft && e.deltaY > 0)
-    )
-      return;
-
-    e.preventDefault();
-    el.scrollLeft += e.deltaY;
-  });
+      // Consume the wheel on horizontal strips even at scroll boundaries
+      // so reaching either end does not suddenly chain into vertical scrolling.
+      e.preventDefault();
+      scrollElementHorizontally(scrollTarget, delta);
+    },
+    { passive: false },
+  );
 };

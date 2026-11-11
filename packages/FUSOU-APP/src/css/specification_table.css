@@ -3,6 +3,7 @@
   overflow-x: auto !important;
   overflow-y: auto !important;
   scrollbar-gutter: stable;
+  overscroll-behavior-x: contain;
 }
 
 .specification-vlist > div {
@@ -14,9 +15,15 @@
   overflow-x: hidden;
   scrollbar-width: none;
   scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
-.specification-header::-webkit-scrollbar {
+.specification-header::-webkit-scrollbar,
+.specification-tab-scroll::-webkit-scrollbar {
   display: none;
 }
 
+.specification-tab-scroll {
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
