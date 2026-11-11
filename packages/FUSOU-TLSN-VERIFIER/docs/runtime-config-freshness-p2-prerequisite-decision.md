@@ -10,17 +10,23 @@ the APP/Worker wire contract or amend the normative protocol.
 
 The following decisions remain **UNRESOLVED**:
 
-- the Production clock provider and its time/uncertainty bounds for enforcing
-  the normative at-most-eight-second issue lease;
+- the strict-profile Production clock provider and its time/uncertainty bounds
+  for enforcing the at-most-eight-second issue lease;
 - the Runtime Config Release Journal and its trusted append-time source;
 - rollback-resistant operation replay state and the checkpoint protecting it;
 - the Runtime Config HMAC verifier's key custody and timing guarantee;
 - the Production signer's operation-idempotency and response-finalization
   contract.
 
-The current issuer-core follow-up in
+The eight-second requirement summarized here applies to
+`strict-journal-witness-v1`. The separately selected local
+`cloudflare-operator-v1` profile has no elapsed-time issue cutoff, but still
+checks delegation, Release, Manifest and Freshness-response expiry and does
+not claim an authenticated clock or bounded error. The strict profile remains
+available and its witness/lease gates have not been weakened. The current
+issuer-core follow-up in
 [runtime-config-freshness-protocol.md](./runtime-config-freshness-protocol.md#current-freshness-issuer-core-2026-11-07)
-fixes the local contract: the lease is an authorization bound of at most
+records the strict-profile lease as an authorization bound of at most
 8,000 ms, not an SLO; expiry rejects signing/finalization but does not clear
 an unresolved operation blocker. The prior P2 design's operational-target/SLO
 wording is rejected and is not a protocol decision. Provider clock guarantees,
@@ -563,3 +569,30 @@ local Workers-runtime verification only; provider linearizability, trusted
 Production clock, append-time authority, witness trust root and rollback
 resistance remain **UNVERIFIED / NOT_IMPLEMENTED**. Post-change Hosted CI is
 **NOT_CHECKED**; Production acceptance and Stage A/B/C remain **BLOCKED**.
+
+## Cloudflare/operator profile implementation follow-up — 2026-11-10
+
+The local implementation selects `cloudflare-operator-v1` explicitly and
+persists its profile/environment/chain/state binding in the SQLite
+Coordinator. It reuses the existing Release ledger and R2 read adapter; it
+does not reuse the strict profile's witness type, fabricate a witness, or
+fallback when strict evidence is missing. Release `LEDGER_COMMITTED`, R2
+readback, `AVAILABLE`, and binding installation remain separate steps.
+
+The local operator issue path replaces the strict eight-second cutoff with
+operation/request/nonce/audience/Release/fence/state checks and retained
+Unknown. Ordinary Workers runtime UTC is observed and persisted, including
+finalization-adjacent expiry checks; this does not establish a trusted clock
+bound or common-rollback detection. The local Worker-readable signer is
+purpose- and environment-limited; it is not HSM-equivalent and has no
+Production key registration. APP/Gateway deadlines and signed expiry windows
+are unchanged.
+
+Coordinator tests pass **63/63**, including the original 56 strict cases and
+seven operator-profile cases, with typechecks passing. Domain tests pass
+**26/26** with typecheck passing. The local UTC sequence specifically tests a
+Release delegation expiring after signature verification and before the
+ledger commit transaction. These results do not resolve the Production
+clock/Journal/witness/HSM prerequisites for the strict profile or establish
+Production acceptance for the operator profile. Post-change Hosted CI is
+**NOT_CHECKED**; Production and Stage A/B/C remain **BLOCKED**.

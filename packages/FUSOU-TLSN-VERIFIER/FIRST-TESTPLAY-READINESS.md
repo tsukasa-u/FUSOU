@@ -1,6 +1,124 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Candidate CI incident and local follow-up
+## Current Hosted CI status — 2026-11-10
+
+At review start, the repository was at branch
+`tlsn-first-testplay-candidate`, HEAD
+`69d30a7b1e3c62ae06018e405af019c3a3fba727`; pre-existing in-scope source
+and documentation worktree edits were present and preserved. Hosted run
+[#116](https://github.com/tsukasa-u/FUSOU/actions/runs/42638941184), attempt 1,
+completed with conclusion `success` for that exact SHA. All three jobs passed:
+`rust-tlsn-preflight`, `proxy-capture-source-unit-tests`, and
+`node-contract-tests`.
+
+The relevant `node-contract-tests` steps passed:
+
+- Step 21, “Test independent TLSN verifier, CLI, and candidate finalizer”:
+  Verifier library **149 passed, 0 failed**; Verifier CLI **5 passed,
+  0 failed**.
+- Step 27, “Test Freshness, Production Result, and candidate readiness
+  contracts”: Coordinator runtime **56 passed, 0 failed**. The captured
+  job logs contain no “An RPC stub was not disposed properly” warning.
+
+The earlier run
+[#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660) remains
+successful evidence for its older baseline SHA
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`; it is not the current-HEAD
+result. Historical `uncommitted` and Hosted `NOT_CHECKED` entries below
+describe their dated snapshots. Run #116 supersedes only Hosted CI status
+for SHA `69d30a7b1e3c62ae06018e405af019c3a3fba727`.
+
+Hosted CI does not verify Production bindings, a trusted clock, key custody,
+an independent witness, restore resistance, deployment, or a real
+Game Server/Notary exchange. Stage A/B/C and Production acceptance remain
+**BLOCKED**. Current contract decisions and the approval draft are in the
+[Freshness contract revision proposal](./docs/runtime-config-freshness-contract-revision-proposal.md).
+
+## Private Signer authorization audit — local result (2026-11-11)
+
+An independent local DO diagnostic had shown that the private
+`cloudflare-operator-v1` Signer could produce a valid response for a missing
+issue operation or a `RESULT_UNKNOWN` operation. This was a typed private
+Signer authorization-boundary defect, not evidence that the ordinary public
+issue route bypassed admission.
+
+The Signer now requires a persistent, one-time `IN_PROGRESS` claim in the
+SQLite issue ledger before response signing. The transaction matches the
+fixed profile/environment/chain, operation and signer-operation IDs, exact
+request bytes/digest/nonce/audience, issue fence, admission-time state and
+the current installed Release/head; it also requires no writer or other
+retained issue blocker. Generic Release reads no longer accept an operation
+ID that suppresses its blocker. The issue-specific read requires the exact
+claimed binding. Existing rows without the new claim column migrate
+fail-closed as already claimed; newly admitted operations start unclaimed.
+Unknown, rejected and finalized operations cannot start another signature.
+Only exact finalized bytes are returned, and same-operation lookup does not
+re-sign.
+
+Local verification: Coordinator runtime **65/65 PASS** (56 strict plus nine
+operator-profile cases), no skipped cases and no RPC-stub disposal warning;
+the new direct-Signer tests measured exactly one Freshness response signature
+for concurrent calls and zero for rejected/replayed calls. Claim persistence
+was exercised across runtime recreation while the operation remained
+`IN_PROGRESS`; Unknown remained blocked across restart and did not re-sign.
+Domain typecheck and **26/26** Domain tests pass; Coordinator typecheck passes.
+The existing candidate workflow step 27 already runs these package checks and
+was not changed. Hosted run #116 is pre-change evidence; changed-source
+Hosted status is **NOT_CHECKED**. Production acceptance and Stage A/B/C remain
+**BLOCKED**.
+
+## Cloudflare/operator Freshness profile — pre-claim local snapshot (2026-11-10)
+
+The explicitly selected `cloudflare-operator-v1` profile is implemented and
+verified locally; this does not approve Production deployment, operator/key/
+genesis registration, or external resource creation. The existing
+`strict-journal-witness-v1` profile remains separate, including its 8-second
+issue authorization bound and mandatory Journal/witness validation. A missing
+strict witness does not fall back to the operator profile.
+
+The operator profile uses the SQLite Durable Object Release ledger and issue
+coordination as canonical local state. Release verification, DO
+`LEDGER_COMMITTED`, exact R2 pointer/snapshot/reference/ETag readback,
+`AVAILABLE`, and current-state install remain distinct; DO and R2 are not a
+distributed transaction. Issue operations bind profile, environment, chain,
+state, request digest/nonce/audience, Release head and fence. Raw signer
+results are private until exact response verification and durable
+finalization. Same-operation lookup returns exact persisted bytes without
+re-signing; Unknown is not cleared by timeout, negative R2 read, restart or a
+new operation ID.
+
+The local profile omits only the elapsed-time eight-second issue cutoff.
+Release/delegation, Manifest and Freshness-response expiry checks remain.
+The host UTC path and a deterministic test-only time sequence verify the
+expiry guard near Release commit; neither proves an authenticated clock or
+bounded accuracy. APP's 10-second and Gateway's 7-second deadlines,
+Bootstrap-root offline custody, the 24-hour Freshness delegation, the
+30-day Release delegation, and Manifest's 600-second reference age are
+unchanged. Worker-readable child keys are allowed only for Runtime Config
+Release/Freshness in this profile and are not HSM-equivalent.
+
+Local results: Coordinator typecheck passes and the pinned Workers runtime
+suite passes **63/63** (56 strict plus seven operator-profile cases) with no
+RPC-stub disposal warning. Domain typecheck passes with **26/26** tests.
+Gateway typecheck and its isolated Workers runtime regression pass; the
+runtime reports eleven PASS checks. The shared Domain Node wire-contract suite
+passes 26/26. The combined Worker-to-APP handoff test was not run because its
+entrypoint invokes APP Cargo as a child process; that indirect read path is
+excluded by the protected-file constraint. Candidate workflow step 27
+already runs the Domain, Gateway and Coordinator checks; the workflow was
+not changed. Run #116 remains pre-change Hosted evidence; changed-source
+Hosted status is **NOT_CHECKED**.
+
+The APP still verifies Manifest v2 directly with the offline Bootstrap root.
+It has no delegated Manifest signer compatibility, while its 600-second
+reference-age limit prevents indefinite reuse of one Manifest. Manifest
+signer separation/APP compatibility and Freshness delegation renewal are a
+separate implementation unit. External roles, real materials,
+execution/delivery receipts, continuous Manifest issuance, real
+Presentation/Result, real Game Server/Notary, Stage A/B/C and Production
+acceptance remain **BLOCKED**.
+
+## Historical candidate CI incident and local follow-up — run #113
 
 Hosted run [#113](https://github.com/tsukasa-u/FUSOU/actions/runs/42456497746)
 for `886e9e40669188e9ffdf254a32cf63b5a6b9aff2` failed in three jobs:
@@ -118,7 +236,7 @@ the current CI status above. The existing acceptance-stage tests passed
 **3/3**, and the updated JavaScript syntax checks passed. Production acceptance
 and Stage A/B/C remain **BLOCKED**.
 
-## Current Runtime Config Freshness issuer-core status
+## Earlier Runtime Config Freshness issuer-core status snapshot
 
 The shared
 [Runtime Config domain package](../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/index.ts)
@@ -2092,9 +2210,9 @@ transport; no Production endpoint, wire contract or verification gate changed.
 All child logs are forwarded, and the supervisor fails the run if the RPC
 warning recurs even when assertions pass.
 
-The candidate workflow already invokes Coordinator typecheck and runtime
-tests, but it was not run for this working tree. Hosted run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
-remains evidence for baseline `8a87314a055f45d37f1ae5b0524561575ab9b7ea`
-only. The non-normative implementation proposal and next unit are described
-in [runtime-config-freshness-contract-revision-proposal.md](./docs/runtime-config-freshness-contract-revision-proposal.md).
-Stage A/B/C and Production acceptance remain **BLOCKED**.
+**Hosted status at this historical prototype snapshot (2026-11-09, before the
+subsequent push):** the candidate workflow had not run for that working tree;
+run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+covered baseline `8a87314a055f45d37f1ae5b0524561575ab9b7ea` only. This is
+superseded for the committed SHA by run #116 in the current-status section
+above. Stage A/B/C and Production acceptance remain **BLOCKED**.

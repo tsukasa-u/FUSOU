@@ -3,17 +3,34 @@
 **Status: contract investigation and implementation proposal. No Production
 provider or trust root is approved by this document.**
 
+**Profile scope:** this contract defines the independent Journal/witness
+requirements of `strict-journal-witness-v1`. The local
+`cloudflare-operator-v1` profile does not satisfy or return this external
+witness proof type and does not claim independent rollback detection. It uses
+a distinct operator Release-state verifier and remains subject to its own
+explicit profile/environment/chain binding. Strict witness absence continues
+to fail closed; there is no profile fallback.
+
 The earlier AWS/DynamoDB prototype recommendation below is an unadopted
 historical candidate, not a required next step. The current Cloudflare-first
 trust-model proposal is in
 [runtime-config-freshness-contract-revision-proposal.md](./runtime-config-freshness-contract-revision-proposal.md).
 
-The repository baseline is branch `tlsn-first-testplay-candidate` at
-`8a87314a055f45d37f1ae5b0524561575ab9b7ea`. Hosted run
+**Historical snapshot (2026-11-09):** branch
+`tlsn-first-testplay-candidate` at
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`; Hosted run
 [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660) passed
-three jobs for that baseline only. The reader contract changes and local
-results recorded here are later, uncommitted changes. Post-change Hosted CI
-is **NOT_CHECKED**; Production acceptance remains **BLOCKED**.
+three jobs for that baseline. At that snapshot the reader changes recorded
+here were uncommitted and post-change Hosted CI was **NOT_CHECKED**.
+
+**Current Hosted status (2026-11-10):** run
+[#116](https://github.com/tsukasa-u/FUSOU/actions/runs/42638941184), attempt 1,
+passed all three jobs for
+`69d30a7b1e3c62ae06018e405af019c3a3fba727`. This updates CI evidence only;
+the current Journal/witness trust decision, provider registrations and
+Production acceptance remain unresolved or **BLOCKED**. See the current
+[contract proposal](./runtime-config-freshness-contract-revision-proposal.md)
+and [readiness status](../FIRST-TESTPLAY-READINESS.md) for the run details.
 
 ## Decision summary
 
@@ -23,7 +40,7 @@ that it won a unique append position, or that it is the current head.
 Likewise, an append receipt proves only the claims it authenticates; it does
 not prove that no later record exists.
 
-The required authority chain is:
+For `strict-journal-witness-v1`, the required authority chain is:
 
 1. A root-pinned Release delegation authorizes an exact Release Commit Record
    for `production`.
@@ -319,9 +336,11 @@ adapter prototype after account/Region approval.
 The former DynamoDB account/Region approval question is withdrawn. The other
 items are historical notes, not prerequisites to start an AWS adapter. Current
 trust-profile, clock, and key-custody decisions are listed in the
-[Cloudflare-first contract proposal](./runtime-config-freshness-contract-revision-proposal.md#decisions-required-from-the-trust-owner).
+[Cloudflare-first contract proposal](./runtime-config-freshness-contract-revision-proposal.md#9-decisions-required-from-the-trust-owner).
 
-Until these are decided and exercised, the Journal/witness provider contracts
-remain **UNVERIFIED / NOT_IMPLEMENTED**, post-change Hosted CI is
-**NOT_CHECKED**, and Production acceptance and Stages A/B/C remain
-**BLOCKED**.
+At this document's historical 2026-11-09 snapshot, the Journal/witness
+provider contracts were **UNVERIFIED / NOT_IMPLEMENTED** and post-change
+Hosted CI was **NOT_CHECKED**. Run #116 supersedes only that CI status for its
+SHA. The Journal/witness provider contracts remain
+**UNVERIFIED / NOT_IMPLEMENTED**, and Production acceptance and Stages A/B/C
+remain **BLOCKED**.

@@ -1,6 +1,6 @@
 # Runtime Config Freshness Protocol — Phase 0 Specification
 
-- **Status:** Phase 0 design selected; local APP verification and a separate Freshness Gateway source route are implemented; Production signer/authority implementation, endpoint/binding registration and approval remain pending
+- **Status:** Phase 0 strict profile and a separate local Cloudflare/operator profile are documented; the latter is locally implemented only; Production signer/authority deployment, endpoint/binding/key registration and approval remain pending
 - **Updated:** 2026-11-01
 - **Repository HEAD at review start:** `42bd255bb128bef97b1d6e01fb3dbcf323437fd6`
 - **Parent at review start:** `891ec66a729da4dc832cb70fbd6ff5cd3e620cae`
@@ -16,6 +16,31 @@ later local source and test changes based on the stated implementation base;
 it does not revise the Manifest v2 signing contract. The 42bd/43ab source
 observations in Section 2 are historical review-start evidence, not a claim
 that those exact source paths remain unchanged in the current branch.
+
+## Profile applicability
+
+The existing Phase 0 signer procedure and the 2026-11-07 issuer-core lease
+description below specify `strict-journal-witness-v1`: the independent
+Journal/witness reader is mandatory and the issue authorization cutoff is at
+most eight seconds. Missing witness evidence remains a failure.
+
+The separately selected `cloudflare-operator-v1` profile is implemented and
+tested locally only. It uses the SQLite Durable Object Release ledger as the
+canonical Release/issue state and R2 exact readback as a separate saga
+participant. It removes only the elapsed-time eight-second issue cutoff; it
+does not relax request, signature, Release, Manifest, delegation, or response
+expiry checks. Profile, environment, chain and state are bound to its
+persisted profile and operations. It uses distinct operator verified-state
+types, never the strict external-witness type, and has no automatic fallback
+when strict witness evidence is missing. Both profiles preserve the APP wire
+format, signature domains, APP's 10-second deadline and Gateway's 7-second
+deadline.
+
+The operator profile has no Production registration or acceptance. Its use
+of Workers runtime UTC is an operational clock assumption, not authenticated
+time with a demonstrated error bound; its Worker-readable child-key allowance
+is not HSM-equivalent. See the [contract revision proposal](./runtime-config-freshness-contract-revision-proposal.md)
+and the current local implementation record at the end of this document.
 
 The Production protocol is **not implemented**. The local APP verifier and
 Worker-side test protocol are not Production services: no Production key,
@@ -70,12 +95,16 @@ witness, key provider, route, or deployment.
 |---|---|
 | APP | The existing single 10-second monotonic request/verification deadline remains unchanged. It is not a promise that local persistence returns within 10 seconds, and a Gateway timeout does not extend it. |
 | Freshness Gateway | The separate 7-second HTTP response deadline remains a transport boundary. Client disconnect or timeout is not evidence that signer work stopped, a lease ended, or coordination may be released. |
-| Signer issue lease | The normative maximum is 8,000 ms from lease acquisition, bounded by the clock's declared uncertainty. It is an authorization lease, not an SLO or permission to complete signing later. Expiry rejects signing/finalization; it does not by itself clear an unresolved operation blocker. |
+| Signer issue lease | For `strict-journal-witness-v1`, the normative maximum is 8,000 ms from lease acquisition, bounded by the clock's declared uncertainty. It is an authorization lease, not an SLO or permission to complete signing later. Expiry rejects signing/finalization; it does not by itself clear an unresolved operation blocker. `cloudflare-operator-v1` has no elapsed-time cutoff; it preserves operation/fence/head checks and all signed expiry checks. |
 | Coordination blocker | The durable adapter must retain an unresolved operation through expiry, caller abort, HTTP disconnect, process restart, and unknown signer/persistence outcomes. It may clear the blocker only after a known terminal result has been durably recorded; elapsed time, an alarm, or a request cancellation is not completion evidence. |
 | Final response | After signing, the core rechecks the lease and independently re-reads/re-verifies current state. Only the exact response bytes, digest, operation/request binding, lease, fence, and current-state binding atomically persisted by successful finalization may be returned. Unknown or rejected finalization returns no bytes. |
 | HSM/provider | This is logical response-path fencing, not proof that a remote HSM physically stopped. A signer result with an unknown or mismatched operation binding leaves the expected operation unresolved. Production clock bounds, idempotency, durable finalization, and restore-resistant state remain external adapter requirements. |
 
-The issuer contract is represented by
+This 2026-11-07 issuer-core description applies to the strict profile. The
+operator profile's local DO integration is recorded at the end of this
+document.
+
+The strict issuer contract is represented by
 [freshness-issue.ts](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts)
 and the purpose-specific bindings in
 [signers.ts](../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts).
@@ -650,7 +679,11 @@ Logs/Traces settings; any new production Worker must review its compatibility
 date against the then-current schema and configure structured Logs and
 Traces. No Wrangler config is changed in this task.
 
-### 5.3 Freshness signer validation procedure
+### 5.3 Strict Journal/witness Freshness signer validation procedure
+
+This numbered procedure applies only to `strict-journal-witness-v1`. The
+Cloudflare/operator profile has a separate local Release reader and
+coordinator path; it does not synthesize or reuse Journal/witness evidence.
 
 The signer accepts only `schema_version`, `scope`, `environment`,
 `audience_manifest_url_sha256`, and `request_nonce`. It rejects extra fields
@@ -1887,3 +1920,97 @@ Production provider freshness, trusted clock/append time, independent witness
 and restore epoch remain **UNVERIFIED / NOT_IMPLEMENTED**. The local
 test-only Workers runtime passed 21/21 cases; post-change Hosted CI is
 **NOT_CHECKED**. Production acceptance and Stage A/B/C remain **BLOCKED**.
+
+## Cloudflare/operator profile — local implementation follow-up (2026-11-10)
+
+The explicitly selected local profile is `cloudflare-operator-v1`. This is a
+local implementation/test choice, not approval to deploy or register a
+Production operator, key, checkpoint, endpoint or resource. The strict
+`strict-journal-witness-v1` reader, eight-second authorization bound and its
+56 runtime cases remain intact; a missing strict witness does not select or
+fall back to the operator profile.
+
+The operator path reuses the existing SQLite-backed Coordinator and Release
+ledger. Signed Release/delegation and Manifest bytes are verified from their
+exact inputs; `LEDGER_COMMITTED` is distinct from R2 readback, `AVAILABLE`,
+and conditional current-state binding installation. R2 pointer, immutable
+snapshot/reference, bytes and ETag are read back and checked outside DO
+transactions. The DO serializes head, profile, writer, issue and fence state
+in short transactions; there is no DO/R2 distributed transaction and no
+independent-witness claim.
+
+Issue admission binds the explicit profile, environment, chain, installed
+state, stable operation ID, exact request digest/nonce/audience, Release head
+and fence. A purpose-limited Worker-readable Freshness signer is used only by
+the local test adapter; a generic signing API and public raw-signer response
+path are not exposed. The signed response is independently verified against
+the same current Release and all expiry constraints, then only its exact
+bytes/length/digest are finalized durably and returned. A late signature
+that loses its state/fence/expiry check is not returned. Unknown remains a
+blocker across timeout, negative R2 read and runtime recreation; lookup uses
+the same operation and does not re-sign.
+
+The DO source reads ordinary Workers runtime UTC through `Date.now()` on the
+operator path. It persists the last observed value and rejects an observed
+backward step; this is not proof of UTC accuracy, monotonic progression
+between I/O, or common-rollback detection. The local-only Coordinator
+subclass supplies a deterministic clock sequence to verify delegation expiry
+between Release signature verification and ledger commit. The commit
+transaction also rechecks Release delegation, Manifest and authorization
+times. Freshness response/delegation expiry is rechecked at exact
+finalization and result lookup. The APP 10-second deadline, Gateway 7-second
+deadline, Bootstrap-root offline custody, delegation lifetimes and Manifest
+600-second reference age are unchanged.
+
+**Local verification:** Coordinator typecheck passes; its pinned Workers
+runtime suite passes **63/63** (56 strict plus seven operator-profile cases),
+including late signer/privacy and Release blocking, negative R2 read,
+Release delegation expiry at commit, Freshness response expiry at
+finalization, observed clock rollback, bootstrap/profile mismatch,
+response-loss exact lookup and restart, with no RPC-stub disposal warning.
+Domain typecheck and **26/26** Domain tests pass. Gateway regressions and
+selected Node wire tests are recorded in readiness. The candidate workflow
+already invokes Domain, Gateway and Coordinator checks in step 27 and was not
+changed.
+
+Run #116 is pre-change Hosted evidence. Post-change Hosted status is
+**NOT_CHECKED**. No APP Cargo command was run because APP source/wire is
+unchanged and the protected-file indirect-read constraint excludes that
+validation path. Production bindings, six external roles, real signer/key,
+bootstrap/genesis, external evidence/receipts, Manifest continuous issuance,
+real Game Server/Notary evidence, Stage A/B/C and Production acceptance remain
+**BLOCKED**.
+
+### Private Signer authorization and durable claim — 2026-11-11
+
+For `cloudflare-operator-v1`, the private Freshness Signer MUST obtain a
+one-time persistent claim from the SQLite issue ledger before signing. In a
+single DO transaction, that claim MUST match the admitted `IN_PROGRESS`
+operation and retained blocker; fixed profile, environment and chain;
+operation and signer-operation IDs; exact persisted request bytes, digest,
+nonce and audience; issue fence; admission-time current-state binding; and
+the current installed state and Release head. The current Release MUST remain
+`AVAILABLE`, no writer may be pending, and no other retained issue blocker
+may exist. The claim is a durable state transition, not a caller assertion or
+an in-memory mutex. Old rows migrated from a schema without a claim marker
+are treated as already claimed; only newly admitted rows start unclaimed.
+
+Generic Release snapshots MUST NOT accept an arbitrary operation ID to omit
+its blocker. An issue-specific state read may omit only the exact operation
+whose request, fence, Release binding and persisted claim it verifies.
+`RESULT_UNKNOWN`, `REJECTED`, `FINALIZED`, missing, mismatched, stale-fence,
+or already-claimed operations MUST NOT cause a new signature. Crypto and R2
+I/O remain outside the transaction. A signer exception, response loss,
+timeout or restart does not release the claim; Unknown remains blocked.
+Finalized lookup returns only the exact response bytes persisted by
+finalization and never invokes the Signer.
+
+This requirement applies only to the operator profile. The strict profile's
+eight-second bound and Journal/witness checks remain unchanged. The local
+Coordinator suite now passes 65/65 cases (56 strict, nine operator), with
+no skips or RPC-stub disposal warning; direct-signature instrumentation
+observed one response signature across concurrent claim attempts and no new
+signature on invalid or replayed attempts. Domain tests pass 26/26 and both
+packages typecheck. Run #116 is pre-change Hosted evidence; changed-source
+Hosted status is **NOT_CHECKED**. Production registration, real service
+validation, Stage A/B/C and Production acceptance remain **BLOCKED**.

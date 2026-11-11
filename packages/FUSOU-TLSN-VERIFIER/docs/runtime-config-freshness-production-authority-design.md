@@ -10,12 +10,20 @@ normative protocol specification; this document maps that design to the
 currently checked-in APP and Worker code and records the implementation
 boundaries that are still absent.
 
+**Profile scope:** the Journal, independent witness, trusted-clock, and
+non-exportable-HSM requirements in this design describe the
+`strict-journal-witness-v1` Production architecture. They are not claims about
+or substitutes for the separately selected local `cloudflare-operator-v1`
+profile. The latter is recorded in the protocol and contract-proposal
+follow-ups; no Production profile, operator, resource, or key has been
+registered.
+
 For the later P2 design-only review of DO lease clocks, RPC replay, and PITR
 rollback, see [Runtime Config Freshness DO Coordination — P2 Design](./runtime-config-freshness-do-coordination-design.md).
-That review does not implement or register Production services. The current
-[issuer-core contract](./runtime-config-freshness-protocol.md#current-freshness-issuer-core-2026-11-07)
-fixes the maximum eight-second lease as an authorization bound, not an SLO;
-the trusted clock and durable adapter that enforce it remain unselected.
+That review does not implement or register Production services. Its
+eight-second lease is strict-profile-only; the Cloudflare/operator profile
+removes the elapsed-time issue cutoff locally but retains signed expiry
+checks. A trusted clock with an error bound remains unavailable.
 
 The source of truth for this review was the checked-out source at the baseline
 below, not commit-message wording or historical audit summaries. No secret
@@ -549,3 +557,58 @@ Post-change Hosted CI is **NOT_CHECKED**. Production clock, Journal,
 independent witness/checkpoint, signer/HSM, service bindings, and Release
 publication authority remain unselected/unregistered; Production acceptance
 and Stage A/B/C remain **BLOCKED**.
+
+## Cloudflare/operator profile implementation follow-up — 2026-11-10
+
+The local source now includes the explicit `cloudflare-operator-v1` profile
+alongside the strict profile. It reuses the SQLite Coordinator and Release
+ledger, verifies exact signed Release/delegation and Manifest bytes, performs
+R2 exact pointer/snapshot/reference/ETag readback, then separately reaches
+`AVAILABLE` and installs the current-state binding. The DO and R2 do not form
+a distributed transaction. Only the operator-specific verified state can
+enter its issue path; strict Journal/witness result types and requirements
+remain unchanged.
+
+The local issue path binds environment, chain, state, operation, request
+digest/nonce/audience, Release head and fence. An operation has no
+eight-second elapsed-time cutoff, but all signed delegation/Release/Manifest/
+Freshness-response validity checks remain, including a transaction-time
+Release expiry guard. Exact response bytes are kept private until reverified
+and finalized; timeout, negative R2 read, restart or response loss does not
+clear Unknown or authorize re-signing. Worker-readable Release/Freshness
+keys are permitted only by this local Runtime Config profile; Bootstrap root
+custody and Result/Session/Binding/Notary/Inventory key contracts are
+unchanged.
+
+Coordinator runtime coverage is **63/63 PASS** (56 strict plus seven
+operator-profile cases), Coordinator typecheck passes, and the Domain package
+passes **26/26** tests and typecheck. The local-only clock sequence verifies
+Release delegation expiry after signature verification but before ledger
+commit. These results are local source evidence only; Hosted after this
+change is **NOT_CHECKED** and Production remains **BLOCKED**. Existing
+operator registration, Production endpoint/key/genesis, external evidence
+roles, continuous Manifest issuance and real Game Server/Notary validation
+remain separate blockers.
+
+### Private Signer authorization-boundary correction — 2026-11-11
+
+Independent local runtime diagnostics reproduced that the private operator
+Freshness Signer could sign without a persisted issue or for an
+`RESULT_UNKNOWN` issue. The correction adds a persistent `signing_claimed`
+transition to the existing SQLite issue ledger and makes the Signer itself
+obtain it atomically before response signing. The claim binds exact request
+bytes and digest, nonce/audience, fixed profile/environment/chain, operation
+and signer-operation IDs, fence, admission Release state, and the current
+DO head/state; pending writers and other issue blockers reject the claim.
+Generic Release reads cannot exclude blockers by caller-supplied operation ID.
+No new Coordinator, public route, recovery authority, or external signer was
+added. Existing ambiguous outcomes remain blocked; claim does not authorize
+re-signing, and only exact finalized response bytes are returned.
+
+The local Coordinator runtime suite passes **65/65** (56 strict and nine
+operator-profile cases), Domain passes **26/26**, both typechecks pass, and
+the response-signature counter confirms one signature under concurrent
+claims and none for invalid/replayed direct calls. This does not change
+Production gates or establish Hosted/Production behavior: Hosted after the
+change is **NOT_CHECKED** and Production acceptance plus Stage A/B/C remain
+**BLOCKED**.

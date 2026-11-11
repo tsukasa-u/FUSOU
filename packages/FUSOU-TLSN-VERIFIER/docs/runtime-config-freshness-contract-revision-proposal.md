@@ -1,25 +1,57 @@
 # FUSOU TLSN Purpose and Freshness Contract Revision Proposal
 
-**Status: NON-NORMATIVE PROPOSAL.** This document does not amend the Phase 0
-Freshness protocol, relax a runtime gate, register a provider, or establish
-Production acceptance.
+**Status: local profile decision recorded; Production contract adoption remains
+pending.** The selected `cloudflare-operator-v1` profile applies to the local
+Runtime Config Freshness implementation and its tests only. It does not
+authorize Production deployment, resource creation, key registration, or
+acceptance. The existing `strict-journal-witness-v1` profile remains unchanged.
 
-**Review date:** 2026-11-09
+**Original review snapshot (2026-11-09):** branch
+`tlsn-first-testplay-candidate`, baseline
+`8a87314a055f45d37f1ae5b0524561575ab9b7ea`, Hosted run
+[#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660). Run #115
+passed three jobs for that earlier baseline.
 
-**Repository baseline:** `tlsn-first-testplay-candidate` at
-`8a87314a055f45d37f1ae5b0524561575ab9b7ea`
+**Current review status (2026-11-10):** repository root
+`/home/ogu-h/Documents/GitHub/FUSOU`, branch
+`tlsn-first-testplay-candidate`, HEAD
+`69d30a7b1e3c62ae06018e405af019c3a3fba727`. Existing in-scope source and
+documentation worktree edits were present and preserved; no change was staged.
+Protected paths were excluded.
 
-**Hosted evidence:** run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
-passed three jobs for that baseline only. It does not cover the current
-uncommitted tree.
+**Current Hosted evidence:** run
+[#116](https://github.com/tsukasa-u/FUSOU/actions/runs/42638941184), attempt 1,
+completed successfully for SHA `69d30a7b1e3c62ae06018e405af019c3a3fba727`.
+All three jobs passed: `rust-tlsn-preflight`,
+`proxy-capture-source-unit-tests`, and `node-contract-tests`. In the latter,
+step 21, “Test independent TLSN verifier, CLI, and candidate finalizer,”
+reported 149 Verifier library tests and 5 CLI tests passed; step 27, “Test
+Freshness, Production Result, and candidate readiness contracts,” includes
+the Coordinator runtime result of 56 passed and 0 failed. The captured job
+logs contain no “An RPC stub was not disposed properly” warning.
 
-The working tree was already dirty at the original review start and the index
-was empty. That review added this proposal and made only small wording
-corrections to mark the earlier AWS/DynamoDB recommendation as unadopted; it
-changed no source, runtime configuration, key, Worker binding, or Production
-resource. The later local-only prototype and its source changes are recorded
-in Section 7 below. The protected files and audited canary test were not read
-or inspected. The tagged
+These are **HOSTED_CI_VERIFIED** results for the exact commit only. They are
+not Production service, real Game Server/Notary, clock, key-custody, witness,
+restore, deployment, or Production-acceptance evidence. The dated
+2026-11-09 “uncommitted” and Hosted `NOT_CHECKED` statements below describe
+that earlier snapshot; run #116 supersedes only the Hosted status for SHA
+`69d30a7b1e3c62ae06018e405af019c3a3fba727`.
+
+**Follow-up implementation selection:** the user explicitly selected the
+Cloudflare/operator profile for local integration and regression testing:
+the SQLite DO is the canonical Release/issue state; R2 remains an exact
+readback participant, not a transaction peer or independent witness; the
+strict eight-second issue cutoff is replaced only in the new profile by
+durable operation/fence/head checks; and purpose/environment-limited
+Worker-readable Release/Freshness child keys are allowed in the profile.
+APP 10-second and Gateway 7-second deadlines, signed-object validity checks,
+Bootstrap-root offline custody, strict-profile witness checks, and
+Production blockers are unchanged. This is not a claim that Cloudflare
+provides a trusted error-bounded clock or HSM-equivalent key protection.
+
+At this follow-up's start, in-scope source and documentation worktree changes
+were already present and were preserved; no changes were staged. The protected
+paths and audited canary test were not read or inspected. The tagged
 [external_init_script.js](../../FUSOU-APP/src-tauri/src/window/scripts/external_init_script.js)
 contains UI layout, refresh, and shortcut behavior; it is not an authenticity,
 Freshness, or APP-integrity authority.
@@ -42,7 +74,8 @@ non-exportable signing-key service, an authenticated clock with a published
 uncertainty bound, or an independent witness against a common Cloudflare
 restore or administrator.
 
-The candidate trust profile to review is:
+The selected local implementation profile, with Production adoption pending,
+is:
 
 > Trust the Cloudflare control plane and authorized FUSOU release operators.
 > Protect against network modification/replay, stale or mismatched individual
@@ -51,16 +84,26 @@ The candidate trust profile to review is:
 > automatic detection of malicious or accidental rollback of all Cloudflare
 > state, Cloudflare-wide compromise, or a malicious authorized signer.
 
-This is **not approved** by this document. It changes the rollback threat
-model and conflicts with the current protocol's mandatory independent Journal
-and anti-rollback witness. Under this profile, the current missing-witness
-gate must still fail closed until the user approves an explicit new contract
-and code/test migration. The existing eight-second authorization lease also
-remains a hard unresolved requirement: Cloudflare's documented Workers timer
-behavior does not establish a trusted wall clock or a bounded clock error.
-Therefore a Cloudflare-only design is a viable **proposal for a reduced trust
-model**, not evidence that every current Production Freshness guarantee is
-implementable with the current Cloudflare services.
+**Selected for local implementation, not Production approval:** use one
+Cloudflare/operator profile: trust the named Cloudflare control-plane and
+authorized FUSOU operator boundary instead of requiring an independent
+rollback witness; replace the strict eight-second issue cutoff with durable
+logical fencing and an Unknown state that never expires automatically; and
+permit Worker-readable, purpose-limited Release/Freshness child keys while
+keeping the Bootstrap root offline. Retain the existing signed-time and
+expiry checks. This is the lowest-dependency local path without adding a
+clock or HSM provider, while preserving the TLSN Presentation/Result/Evidence
+verification chain.
+
+This profile knowingly gives up automatic detection of a mutually consistent
+Cloudflare rollback, resistance to raw child-key extraction from compromised
+Worker code, and a hard elapsed-time cutoff on authorization. Those losses
+are accepted for the local implementation/test profile, not asserted as
+equivalent guarantees. Production adoption remains unapproved and blocked:
+Cloudflare's documentation does not establish a bounded clock error, and no
+Production operator, key, DO/R2 binding, endpoint, or recovery authority has
+been registered. Until those Production prerequisites are separately
+approved, the existing strict profile remains available and fail-closed.
 
 AWS/DynamoDB is an unadopted historical candidate, not a required next task.
 
@@ -89,15 +132,43 @@ product requirement.
 | Freshness nonce and response replay rejection | Reuse of a response for a different request/audience | APP request/response contracts bind the nonce and audience; APP checks signatures, expiry, and persisted high-water. Production endpoint is not registered. | A/B | Explicit in this request and existing protocol | Maintain |
 | APP Manifest/delegation high-water | A client that has accepted a newer epoch accepting a lower one | APP persists epoch, Manifest digest, Release generation/record digest, and Freshness delegation high-water; rollback is rejected when that local state is intact. First-run and local-state rollback have different limits. | A/B | Explicit in this request and existing APP contract | Maintain; do not describe it as a global first-run anchor |
 | `LATEST_AT_ISSUANCE` current Release | Signing a Freshness response for an older Release while the service state is healthy | The Phase 0 protocol and issue core specify this semantic. The reader cross-checks Journal, Coordinator, R2 pointer/snapshot, Manifest, and witness. Production adapters are **NOT_IMPLEMENTED**. | A/B configuration prerequisite | Explicit in prior Freshness instructions and current protocol, but a supporting control rather than the TLS transcript's authenticity proof | Maintain semantics; provider realization remains **BLOCKED** |
-| Release/Freshness concurrency control | A Release commit racing a Freshness issuance or finalization | The issue core uses a maximum 8-second lease, operation, fence, pre/post checks, exact finalization, and retained blockers. SQLite Coordinator behavior is locally runtime-tested; no Production DO binding exists. | A/B configuration prerequisite | Explicit in prior Freshness instructions and current protocol | Maintain fail-closed behavior |
+| Release/Freshness concurrency control | A Release commit racing a Freshness issuance or finalization | The issue core uses a maximum 8-second lease, operation, fence, pre/post checks, exact finalization, and retained blockers. SQLite Coordinator behavior is locally runtime-tested; no Production DO binding exists. | A/B configuration prerequisite | The 8-second value is explicit in the current protocol and earlier implementation-scope instructions; the permanent threat-model rationale is not independently established | Keep the current gate until a decision; propose logical fencing with no timeout-based blocker release |
 | Safe handling of Unknown | Retry/re-sign, false success, or blocker release after a lost response | The issue core retains unresolved blockers and only returns finalized exact bytes. The local test adapters establish behavior only in tests. | A/B | Explicit in prior Freshness instructions and current protocol | Maintain; never infer completion from timeout |
 | Detect an isolated DO or R2 rollback | One current-state projection being restored while the other remains current | Cross-checks can reject mismatched DO/Journal/R2 state. DO SQLite PITR can restore that object's database; R2 conditional writes apply per object. Production restore tests are **NOT_CHECKED**. | A/B operations defense | Current design; whether this is a product-level requirement beyond fail-closed mismatch is not independently established | Maintain mismatch rejection; qualify the threat boundary |
 | Detect simultaneous rollback across DO, Journal, R2, and operation history | A mutually consistent old state being restored across every current authority | Current reader requires an independent witness. The proposed Cloudflare-only profile cannot detect common rollback when every comparison source is restored together. No Production witness is registered. | A/B under current design; additional defense under the proposed profile | Current protocol/design requires it; its necessity to the original evidence-authenticity purpose is not established | **Guarantee-scope proposal**: optional only if the user accepts Cloudflare/operator trust |
-| Non-exportable HSM key custody | Extraction of an online Release/Freshness private key | Existing authority design proposes separate HSM-backed purpose keys, but no Production signer is registered. Cloudflare Worker Secrets are encrypted values accessible to Worker code; this is not evidence of HSM non-exportability. | Production operation for A/B | Design-selected defense; explicit need/acceptance is not established by the original evidence claim | Keep keys separate and Bootstrap root offline; custody decision remains **BLOCKED** |
-| Trusted wall clock and uncertainty bound | Backdating, expired-delegation signing, or accepting a lease after its authorization window | Code carries clock ID/epoch/uncertainty and enforces the 8-second maximum. No Production clock adapter or clock-error evidence exists. Deployed Workers' `Date.now()`/`performance.now()` behavior is not a clock-accuracy guarantee. | A/B configuration prerequisite | 8-second Freshness bound is explicit in the prior request/current protocol; the choice of trusted time authority is unresolved | Keep the hard bound; no timer fallback; Production remains **BLOCKED** |
+| Non-exportable HSM key custody | Extraction of an online Release/Freshness private key | Existing authority design proposes separate HSM-backed purpose keys, but no Production signer is registered. Cloudflare Worker Secrets are encrypted values accessible to Worker code; this is not evidence of HSM non-exportability. | Production operation for A/B | HSM custody is a design-selected defense. Earlier scope instructions prohibited silently treating Worker Secrets as an HSM, but do not establish that HSM is necessary to the original evidence claim | Keep purpose separation and the offline Bootstrap root; propose explicitly accepting Worker-key extraction risk under the named operator trust profile |
+| Trusted wall clock and uncertainty bound | Backdating, expired-delegation signing, or accepting a lease after its authorization window | Code carries clock ID/epoch/uncertainty and enforces the 8-second maximum. No Production clock adapter or clock-error evidence exists. Deployed Workers' `Date.now()`/`performance.now()` behavior is not a clock-accuracy guarantee. | A/B configuration prerequisite | The 8-second value is explicit in the current protocol and earlier implementation-scope instructions; whether its strict elapsed-time guarantee is a permanent product requirement is not established | Propose removing only the 8-second elapsed cutoff. Keep delegation, Manifest, Journal/Release, and Freshness-response validity checks; their Production clock assumption remains a separate decision and dependency |
 | Complete Bundle remote readback/retention | Partial or transient delivery being mistaken for retained Production evidence | Stage C requires complete Bundle remote readback/retention and independently verifiable delivery receipt. Existing Worker raw Presentation/outer-Result archive write/readback is narrower and must remain. | C only for complete-Bundle retention | Explicit in this request and Stage C contract | Maintain as C; do not remove A/B raw archives |
 | Production execution/delivery receipt authority | A local/Canary receipt being presented as Production authority | Stage C requires approved Production execution/delivery authority. Current catalog is not a Production retention or execution receipt; Canary receipts do not grant it. | C | Explicit in this request and Stage C contract | Maintain as **BLOCKED** until separately approved |
 | Resistance to malicious Cloudflare administrators or total provider compromise | A privileged actor changing code, secrets, or all account state | No current code or reviewed Cloudflare component proves protection from the provider/control-plane administrator. | Beyond current A/B; Production operations | No explicit product requirement located; threat model must be chosen | Proposed trust boundary, not a claim; user decision required |
+
+### Requirement class crosswalk
+
+The table above separates these categories; the labels are not interchangeable:
+
+- **1 — TLSN communication and Evidence authenticity:** actual approved-peer
+  TLS, Presentation-observed identity/Web PKI, Notary verification, exact
+  Presentation/Result bytes, user/device/session attribution at its stated
+  Stage, one origin send per capture, and evidence preservation/re-verification.
+  Complete-Bundle remote retention and Production delivery authority are
+  Stage C additions, not substitutes for the A/B raw Presentation/Result path.
+- **2 — Runtime Config Freshness:** Manifest/artifact authenticity, nonce and
+  audience binding, replay rejection, APP high-water, `LATEST_AT_ISSUANCE`,
+  Release/issue serialization, exact finalization, and persistent Unknown
+  handling. The strict 8-second authorization cutoff is a current protocol
+  rule but is proposed for explicit re-decision; it is not part of the TLS
+  transcript's authenticity proof.
+- **3 — Operational and compromise defenses:** detection of isolated restore
+  mismatches, independent rollback checkpoints, clock-source assurance for
+  time-validity claims, HSM custody, and resistance to privileged operators or
+  provider compromise. These defend deployment/authority operations; their
+  presence in a design does not establish that the original TLSN product
+  claim requires them.
+- **4 — Unapproved scope changes:** making the independent witness optional,
+  trusting a mutually consistent Cloudflare rollback, replacing the hard
+  8-second cutoff with logical fencing alone, or replacing HSM
+  non-exportability with Worker-readable keys. Each is a proposal requiring
+  the trust owner's explicit approval; none is active in source or policy.
 
 ### Stage interpretation
 
@@ -270,7 +341,7 @@ the reduced trust profile gives up.
 |---|---|---|
 | APP 10 seconds | One monotonic deadline for the Freshness exchange, Manifest/artifact fetch, verification, and guarded local state acceptance. The current source checks the deadline before the atomic state replacement; it does not promise that all later filesystem sync/return work completes within ten seconds. | Not a Freshness authority clock and not a promise that a malicious local user cannot alter the APP. |
 | Gateway 7 seconds | HTTP forwarding/response deadline. Disconnect or timeout does not prove that signer/DO/R2 work stopped. | Not permission to release a lease, clear an operation, or re-sign. |
-| Issue lease at most 8 seconds | Current protocol's authorization bound; issue/finalization is rejected outside the trusted reading interval. | Not an SLO, not a processing target, and not an automatic blocker expiry. |
+| Issue lease at most 8 seconds | `strict-journal-witness-v1` authorization bound; issue/finalization is rejected outside the trusted reading interval. `cloudflare-operator-v1` has no elapsed-time cutoff. | Not an SLO, not a processing target, and not an automatic blocker expiry in either profile. |
 
 The issue core carries `clockId`, `clockEpoch`, `nowMs`, and
 `uncertaintyMs`, checks them before/after signing, and bounds the entire
@@ -286,14 +357,13 @@ does not publish an authenticated wall-clock accuracy/uncertainty bound for a
 Worker or DO. Therefore neither `Date.now()`, `performance.now()`, an alarm,
 nor local Miniflare tests establish the hard 8-second authorization cutoff.
 
-**Proposal:** retain the current hard 8-second cutoff and keep Production
-Freshness **BLOCKED** until a clock adapter with source identity, epoch,
-monotonicity and a defensible uncertainty bound is selected and verified.
-Do not silently re-label it as an SLO. An alternative contract that removes
-the elapsed-time cutoff and relies only on logical fencing would be a
-material change: an unresolved issue could block Release indefinitely, and
-the current clock/lease semantics and tests would need a reviewed protocol
-migration. No such change is made here.
+The selected local `cloudflare-operator-v1` profile removes the strict
+elapsed-time cutoff and uses durable operation/fence/head checks. It does not
+reclassify eight seconds as an SLO, claim logical fencing is an equivalent
+physical cutoff, or clear Unknown by timeout/restart. The strict profile
+retains its eight-second authorization bound and remains blocked in Production
+until its clock source and error bound are established. Both profiles retain
+the signed validity checks, whose Production clock basis is not yet verified.
 
 ### Key separation and custody
 
@@ -307,14 +377,15 @@ migration. No such change is made here.
   API authorization, policy validation, rate/operation binding, monitoring,
   and key separation remain necessary.
 - Cloudflare Worker Secrets are encrypted values accessible to Worker code.
-  They can be considered only if the user accepts Worker-code/account
-  administrators as trusted for online signing. They are not a substitute
-  for an HSM's non-exportability guarantee.
-- The Cloudflare-only Worker-Secret option would weaken key-extraction
-  resistance and is **NOT_SELECTED**. If that loss is unacceptable and no
-  existing HSM contract is available, Release/Freshness Production signing
-  remains **BLOCKED**; do not move the root online or silently add another
-  paid service.
+  The local profile permits purpose/environment-limited Worker-readable
+  Release/Freshness child keys while trusting the authorized operator and
+  deployment boundary. This weakens raw-key extraction resistance and is not
+  a substitute for an HSM's non-exportability guarantee.
+- Production adoption of Worker-readable child keys remains **NOT_APPROVED**.
+  If the trust owner does not accept extraction by compromised Worker code,
+  Release/Freshness Production signing remains **BLOCKED** until a
+  non-exportable signer is registered. Do not move the Bootstrap root online
+  or silently add another paid service.
 
 ### Witness scope
 
@@ -326,18 +397,21 @@ independent for the specific rollback being claimed. Another DO namespace,
 bucket, Worker, or key under the same Cloudflare administration is a separate
 resource, not an independent authority.
 
-Under the candidate trust profile, keep DO/R2 mismatch checks and quarantine
-for an isolated restore, but do not require a separate witness to claim
+Under the selected local trust profile, keep DO/R2 mismatch checks and
+quarantine for an isolated restore, but do not require a separate witness to claim
 protection against a malicious Cloudflare-wide administrator. Omission would
 lose automatic detection of a mutually consistent rollback, including a
 rollback of the DO issue-operation/tombstone ledger. A Release-generation
-witness alone would not protect those issue tombstones. Until the user accepts
-this limitation, the current reader's required-witness behavior remains
-unchanged and missing witness must continue to fail closed.
+witness alone would not protect those issue tombstones. The user selected this reduced rollback scope for the local profile; the
+strict reader's required-witness behavior remains unchanged and missing
+witness must continue to fail closed there. Production adoption of the
+operator profile is not approved.
 
 ## 5. Contract delta and implementation impact
 
-Every item below is a proposal, not a revision already in force.
+The table below records the original proposed deltas. The selected local
+profile implements its applicable source changes; it does not revise
+Production gates or register Production authority.
 
 | Contract surface | Current contract/source | Proposed delta | Classification |
 |---|---|---|---|
@@ -346,12 +420,12 @@ Every item below is a proposal, not a revision already in force.
 | APP wire, Manifest v2, nonce, audience, high-water and exact artifact checks | Existing APP/Rust verifier and signed protocol | No change | 現行保証を維持した実装方法の変更 is not proposed |
 | Raw Presentation and outer-Result write/readback on current Worker Production path | Existing A/B path dependency | Preserve; do not remove because full Bundle retention is Stage C | 説明の整理のみ |
 | Complete Bundle remote retention and Production delivery authority | Stage C requirement, currently absent | Keep exclusively in C; implement a dedicated full-Bundle readback/retention/receipt path | 未解決で引き続きBLOCKED |
-| Canonical Release Journal | Current Phase 0 uses an external canonical Journal; append is Release commit point | Candidate combines Release log and issue Coordinator in one per-environment DO | 保証範囲の変更を伴う提案 (trust domain and commit authority move) |
-| Independent rollback witness | Current reader requires an independent witness and current-head proof | Candidate makes it optional only under an explicitly accepted Cloudflare-operator trust profile | 保証範囲の変更を伴う提案 |
-| Current Release consistency | Current reader compares Journal, Coordinator, R2 pointer/snapshot, Manifest and witness before/after signing | Candidate compares one DO authoritative head with exact R2 bytes; independent witness proof is removed only after contract approval | 保証範囲の変更を伴う提案 |
-| DO/Coordinator transaction | Existing SQLite snapshot and issue core are locally runtime-tested; production binding is absent | Reuse the per-environment DO but add a single local append/head transaction; keep all R2 I/O outside it | 現行保証を維持した実装方法の変更, contingent on trust-profile approval |
-| Release append time and Freshness lease clock | Current protocol needs authenticated append/issue time and uncertainty | Cloudflare documentation does not supply the required trusted bound; keep current checks with no fallback | 未解決で引き続きBLOCKED |
-| HSM custody | Existing Production design selects purpose-specific HSM signers; no signer is registered | Do not substitute Worker Secrets unless user explicitly accepts weaker non-exportability | 未解決で引き続きBLOCKED |
+| Canonical Release Journal | Strict profile uses an external canonical Journal; its append is the Release commit point | Local operator profile uses the per-environment SQLite DO as canonical Release/issue state; R2 remains a separate saga participant | 保証範囲の変更を伴う提案; Production adoption pending |
+| Independent rollback witness | Strict reader requires an independent witness and current-head proof | Local operator profile does not require or fabricate a witness; it does not detect common rollback | 保証範囲の変更を伴う提案; Production adoption pending |
+| Current Release consistency | Strict reader compares Journal, Coordinator, R2 pointer/snapshot, Manifest and witness before/after signing | Operator reader verifies exact DO ledger, R2 bytes and Manifest; its state is a separate profile-specific type | 保証範囲の変更を伴う提案 |
+| DO/Coordinator transaction | Existing SQLite snapshot and issue core are locally runtime-tested; Production binding is absent | Local append/head/install/finalization use the existing DO with short transactions; R2 I/O stays outside them | Local implementation complete; Production binding remains unregistered |
+| Release append time and Freshness issue clock | Strict profile requires authenticated append/issue time and uncertainty | Operator profile uses runtime UTC observations and final expiry guards without claiming a bound; signed validity checks remain | Production clock basis remains **UNVERIFIED / BLOCKED** |
+| HSM custody | Strict Production design proposes purpose-specific HSM signers; no signer is registered | Local operator profile permits Worker-readable purpose/environment-limited Release/Freshness child keys; Bootstrap root stays offline | Production adoption pending; raw-key extraction is an accepted local-profile risk |
 | Shared restore and Cloudflare administrator compromise | Current witness design seeks independent rollback detection | Candidate trusts Cloudflare and authorized operators; full/common rollback and control-plane compromise are outside the claim | 保証範囲の変更を伴う提案 |
 | AWS/DynamoDB | Earlier comparison only | Treat as unadopted historical candidate; it is not a prerequisite or the next implementation task | 説明の整理のみ |
 
@@ -562,46 +636,375 @@ checks or the APP wire format. The supervisor forwards all child output
 unchanged and fails if the undisposed-stub warning recurs, even when all
 assertions pass. Output closure and process-group cleanup remain bounded.
 
-**Hosted/Production status:** the candidate workflow already runs Coordinator
-typecheck and `test:runtime`, but no Hosted run was started for these
-uncommitted changes. Run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
-still covers only the baseline SHA. Stage A/B/C and Production acceptance
-remain **BLOCKED**.
+**Historical Hosted status at this prototype note (2026-11-09, before the
+subsequent push):** the candidate workflow had not yet run for the prototype
+working tree; run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
+covered baseline `8a87314a055f45d37f1ae5b0524561575ab9b7ea` only. This
+historical statement is superseded for the committed SHA by run #116 recorded
+at the start of this proposal and in Section 9. Neither run is Production
+acceptance evidence. Stage A/B/C and Production acceptance remain **BLOCKED**.
 
-**Next validation unit:** after the user commits and pushes the intended
-source and new files, confirm the candidate workflow for that exact revision,
-including all 56 runtime cases and the warning-failure gate. No Hosted run
-was started by this follow-up. Production acceptance remains separately
-blocked by clock, key-custody, witness, genesis and live deployment evidence.
+### 7.1 Explicit Cloudflare/operator profile implementation — 2026-11-10
 
-## 8. Cloudflare primary sources reviewed
+**Status:** the profile is implemented and verified in the local Workers
+runtime only. Its stable identifier is `cloudflare-operator-v1`; the prior
+`strict-journal-witness-v1` path remains separate, retains its eight-second
+authorization lease and independent Journal/witness validation, and fails
+closed when its witness is absent. Neither profile silently converts legacy
+state or falls back to the other.
+
+The local operator path uses the existing SQLite Durable Object Release
+ledger and issue coordination. Release signature verification, SQLite
+`LEDGER_COMMITTED`, exact R2 pointer/snapshot/reference/ETag readback,
+`AVAILABLE`, and current-state binding installation remain distinct steps;
+R2 and the DO are not a distributed transaction. Only a profile-specific
+verified state can enter operator issue admission. The operation binds
+profile, environment, chain, state, request digest, nonce, audience,
+Release head and fence. Signing results remain private until exact response
+bytes, length and digest pass signature, current-state, fence and expiry
+checks and are durably finalized. Same-operation lookup returns only those
+exact persisted bytes; timeout, negative R2 reads, restart or a new ID do not
+clear Unknown or authorize re-signing.
+
+For this profile, elapsed time alone does not reject an otherwise current
+operation after eight seconds. Release/delegation, Manifest and Freshness
+response expiry checks remain active. Runtime UTC is read from the Workers
+host in source; the deterministic sequence used to test a Release delegation
+expiring between verification and SQLite commit exists only in the local
+test subclass. Neither the host clock nor local tests establish authenticated
+time or a bounded clock error. APP's 10-second and Gateway's 7-second
+deadlines are unchanged.
+
+The pinned local suite passes **63/63** Coordinator cases: the existing 56
+strict-profile cases plus seven explicit operator-profile cases, with no RPC
+stub disposal warning. Domain tests pass **26/26** and Domain/Coordinator
+typechecks pass. Gateway typecheck and its isolated Workers runtime
+regression pass (eleven PASS checks). The shared Domain Node tests are the
+selected Node wire-contract regression. The combined Worker-to-APP handoff
+entrypoint was inspected but not run because it invokes APP Cargo as a child
+process, an excluded indirect-read path. The candidate workflow already
+invokes Domain, Gateway and Coordinator type/runtime checks in step 27; it
+was not changed or rerun. Run #116 is pre-change Hosted evidence;
+post-change Hosted status is **NOT_CHECKED**.
+
+This local implementation does not register Production operators, genesis
+checkpoint, DO/R2 bindings, endpoints or keys; does not provide external
+rollback detection or HSM-equivalent custody; and does not authorize
+Production operation. The APP still verifies Manifest v2 directly with the
+offline Bootstrap root and enforces a 600-second Worker reference age.
+Manifest signer delegation/APP compatibility and an operational process for
+renewing the 24-hour Freshness delegation remain a separate required design
+and implementation unit for continuous Production issuance.
+
+### 7.2 Private Signer authorization audit — 2026-11-11
+
+Independent local DO diagnostics reproduced that the private
+`cloudflare-operator-v1` Signer could sign for a missing operation and for a
+persisted `RESULT_UNKNOWN` operation. This identified a private Signer
+authorization-boundary defect; it did not demonstrate a bypass of the normal
+issue core or a public route.
+
+The typed Signer now requires a durable, one-time SQLite claim before it
+performs response signing. The transaction verifies the persisted
+`IN_PROGRESS`/retained operation against the fixed profile, environment,
+chain, operation and signer-operation IDs, exact request bytes/digest,
+nonce/audience, fence, admission Release binding and current DO head/state.
+It rejects a pending writer or any other retained blocker. A caller-supplied
+operation ID no longer suppresses blockers on generic Release reads; the
+issue-specific verified read requires the same exact request, operation,
+fence, Release state and persisted signing claim. An existing database that
+lacks the claim column migrates old rows to claimed, not to an assumed
+unsigned state. Crypto remains outside the transaction. Duplicate claim,
+signer error, timeout, response loss and restart never clear the claim or
+authorize another signature; only exact finalized bytes are returned and
+same-operation lookup remains a read of those stored bytes.
+
+The new runtime cases exercise absent, `RESULT_UNKNOWN`, `REJECTED`,
+`FINALIZED`, mismatched operation/signer/request/nonce/audience/chain/
+Release/fence, blocker exclusion, concurrent calls, in-progress restart,
+Unknown restart and exact finalization lookup. The private key's startup
+pairing probe is outside the test counter: concurrent calls produced exactly
+one Freshness response signature, while invalid and replayed calls produced
+zero additional response signatures. Coordinator runtime passes **65/65**
+(56 strict plus nine operator-profile cases), Domain passes **26/26**, and
+both packages typecheck. No skips or RPC-stub disposal warning occurred.
+Candidate workflow step 27 already invokes these checks. This is local source
+and runtime evidence only: run #116 remains pre-change Hosted evidence,
+changed-source Hosted is **NOT_CHECKED**, and Production/Stage A/B/C remain
+**BLOCKED**.
+
+## 8. Cloudflare primary sources reviewed (checked 2026-11-10)
 
 The following current Cloudflare documentation supports only the stated
 component behaviors; it does not certify FUSOU's adapters or threat model.
 
-- [SQLite-backed Durable Object Storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/) and [Access Durable Objects Storage](https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/): per-object transactional/strongly consistent storage and SQLite PITR for the previous 30 days.
-- [Durable Objects roles and permissions](https://developers.cloudflare.com/workers/authorization/durable-objects/): DO access follows access to the Worker; there are no separate DO roles. Data Studio Editor access can query and modify DO SQLite data.
-- [R2 consistency model](https://developers.cloudflare.com/r2/reference/consistency/): global read-after-write consistency; atomic conditional writes for one object; negative reads do not settle an earlier in-flight write.
-- [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [R2 conditional S3 operations](https://developers.cloudflare.com/r2/api/s3/extensions/), and [R2 Bucket Locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/): conditional object operations and configurable overwrite/delete retention. These are not cross-resource transactions or an independent witness.
-- [Workers Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/): direct Worker-to-Worker calls without a public URL. A binding is not the DO's method-level authorization contract.
-- [Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/): encrypted text values accessible to Worker code. This page does not establish HSM-style key non-exportability.
-- [Workers performance and timers](https://developers.cloudflare.com/workers/runtime-apis/performance/): deployed `Date.now()` and `performance.now()` only advance after I/O; local development differs. This does not specify the bounded trusted clock required by the 8-second lease.
+- [SQLite-backed Durable Object Storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/) (last updated 2026-09-21) and [Access Durable Objects Storage](https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/): per-object transactional/strongly consistent storage and SQLite PITR for the previous 30 days.
+- [Durable Objects roles and permissions](https://developers.cloudflare.com/workers/authorization/durable-objects/) (last updated 2026-09-15): DO access follows access to the Worker; there are no separate DO roles. Data Studio Editor access can query and modify DO SQLite data.
+- [R2 consistency model](https://developers.cloudflare.com/r2/reference/consistency/) (last updated 2026-10-14): global read-after-write consistency; atomic conditional writes for one object; negative reads do not settle an earlier in-flight write.
+- [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [R2 conditional S3 operations](https://developers.cloudflare.com/r2/api/s3/extensions/), and [R2 Bucket Locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/) (last updated 2026-10-28): conditional object operations and configurable overwrite/delete retention, including indefinite retention. Retention and per-object conditions are not a current-head witness or a DO/R2 transaction.
+- [Workers Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/) (last updated 2026-10-13): direct Worker-to-Worker calls without a public URL. A binding is not the DO's method-level authorization contract.
+- [Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/) (last updated 2026-10-15): encrypted text values accessible to Worker code. This page does not establish HSM-style key non-exportability.
+- [Workers Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/) (last updated 2026-09-30): `CryptoKey` generation/import takes an `extractable` flag and export is limited to extractable keys. This API property does not stop Worker code from invoking an allowed `sign` operation and is not an HSM custody guarantee.
+- [Workers performance and timers](https://developers.cloudflare.com/workers/runtime-apis/performance/) (last updated 2026-10-27): deployed `Date.now()` and `performance.now()` only advance after I/O; local development differs. This does not specify the bounded trusted clock required by the 8-second lease.
 
 ## 9. Decisions required from the trust owner
 
-1. **Trust boundary:** accept Cloudflare and authorized FUSOU administrators
-   as trusted, with common rollback/control-plane compromise outside the
-   guarantee, so the canonical Release log and Coordinator may share one DO
-   and an independent external witness is not a baseline requirement? If not,
-   the current independent-witness contract remains mandatory.
-2. **Clock:** retain the hard 8-second authorization cutoff and leave
-   Production blocked until a bounded clock is evidenced, or approve a
-   separate protocol change to remove the elapsed-time cutoff in favor of
-   logical fencing and indefinite blocking on unresolved work?
-3. **Online key custody:** is an online Worker-readable delegated key
-   acceptable under the Cloudflare-operator trust profile, or is non-exportable
-   HSM custody mandatory even if it requires a separately approved provider?
+The Cloudflare/operator profile is selected for local implementation only.
+The recommendations and contract text below are not Production trust-owner
+approval. Production gates and the strict Journal/witness verifier remain
+unchanged; no missing strict-profile witness may be converted to success.
 
-Until those decisions and the remaining Production dependencies are resolved,
-the current normative protocol, fail-closed reader, Stage A/B/C blockers, and
-Production acceptance blocker remain unchanged.
+| Decision | Recommendation (not approval) | Guarantees maintained | Lost or explicitly outside the proposed claim | Required contract/code change if chosen | Unresolved dependency |
+|---|---|---|---|---|---|
+| **A. Cloudflare/operator trust and rollback** | Selected for the local profile; **Production adoption not approved**. | Network tampering/replay rejection; signed exact Release/Manifest bytes; nonce/audience binding; APP high-water while it survives; DO serialization and permanent operation records; exact R2 byte/reference/ETag readback; detection of isolated mismatches; Unknown/quarantine behavior. `AVAILABLE` follows exact R2 readback, and a separate conditional current-state install is still required before issue admission. | No automatic detection of a self-consistent rollback of DO Release/issue history, R2 pointer/objects, Worker versions/bindings and Cloudflare-contained checkpoints. An old but still-valid signed configuration can be replayed until its existing validity/age checks reject it. Cloudflare-wide compromise and malicious privileged operators are outside the claim; a first-start APP has no local high-water. | Keep one per-environment SQLite Coordinator as canonical Release ledger; keep R2 as a separate saga participant, never a transaction peer. Use a distinct operator reader/state type, not the strict external-witness type. The local profile does not change Production registration gates. | Before Production operation, name the trusted Cloudflare/FUSOU principals and approve a two-person bootstrap/restore/recovery procedure with an operator record outside the restored state. If common-rollback detection is required, an independently administered failure domain is still needed; another DO, Worker, bucket, key or namespace in the same account is insufficient. |
+| **B. Eight-second issue authorization bound** | The local operator profile replaces this cutoff with durable operation/fence/head checks; **Production adoption not approved**. APP's 10-second deadline and Gateway's 7-second deadline remain unchanged. | Exact request/nonce/audience binding; Release/issue serialization; pre/post-sign state checks; exact response-byte finalization; stale-fence rejection; same-operation result lookup; persistent Unknown. These are state/ordering guarantees, not an eight-second timing guarantee. | Lose the claim that a signer result outside an 8,000 ms uncertainty-bounded interval is always rejected. A signer may remain pending indefinitely; this sacrifices availability and does not prove physical signing stopped. A late signature must never leave the signer/finalization path except through successful durable finalization. | The operator state machine has no time-only issue cutoff; operation ID, request digest, fence, expected Release generation/current-state binding and finalization checks remain. Release is blocked by unresolved issue state; no new recovery authority was added. Retain all signed validity and expiry checks. | Ordinary runtime UTC is an operational assumption, not an authenticated bound. It is still used for signed delegation/Release/Manifest/Freshness-response validity and append/finalization checks. A bounded absolute-time claim remains unavailable without an approved source and error budget. |
+| **C. Online Release/Freshness key custody** | The local profile permits Worker-readable, purpose-limited Release/Freshness child keys; **Production adoption not approved**. Keep the Bootstrap root offline and all signing purposes separate. | Offline root limits online key compromise from creating new delegations. Distinct Release, Freshness, Result, Session and Binding keys; typed operations; environment/audience/request/head binding; exact-state checks; rotation and freeze controls constrain authority. | A compromised Worker can read/export a Worker-readable secret and sign outside the Worker until the key is disabled/expired. HSM non-exportability would reduce raw-key extraction, but neither an HSM nor Worker key alone prevents abuse of an authorized signing API or approval of a wrong Release. | Use only typed purpose methods; no public generic `sign(bytes)`. Restrict Worker bindings, environment, operation, signer role and deployment/secret access; maintain delegation expiry, high-water, audit, emergency freeze and offline-root rotation. Never describe Worker Secrets or `extractable=false` as HSM custody. | No Production signer, key, binding or rotation procedure is registered. Production must explicitly accept raw child-key extraction by compromised Worker code; otherwise non-exportable custody remains a blocker. |
+
+### Detailed consequence of the recommended issue-time change
+
+The comparison below is about the issue authorization rule, not the APP or
+Gateway deadlines and not signed-object validity. “Current” describes the
+existing strict lease; “proposed” describes logical fencing and retained
+Unknown state. Neither path treats timeout or cancellation as proof that a
+signer stopped.
+
+| Event | Current strict 8-second rule | Proposed logical-fencing rule | Required outcome / residual |
+|---|---|---|---|
+| Signer stalls and returns after 8 seconds | The response is outside the lease interval and must not finalize or be returned; the operation blocker remains until a known terminal result or approved recovery. | The result may finalize only if the same durable operation, request, fence, current Release binding and response-validity checks still hold. If the APP's 10-second deadline or Gateway's 7-second deadline has elapsed, that caller does not gain a longer acceptance deadline. | No response bypasses finalization. A late result may exist inside the signer path; the proposal does not claim physical cancellation. |
+| Release update races signing | The writer gate and lease/current-state checks serialize the transition; an expired or stale issue cannot finalize. | An unresolved issue blocks the Release writer. If an explicitly authorized recovery/new fence wins first, the old result fails the finalization transaction's operation/fence/head checks. | Release and issue ordering is decided by DO transactions; no response is returned from an obsolete state. |
+| A lease expires, then an old process returns | The old lease fails its time check even if the Release is unchanged. Expiry does not itself clear the blocker. | There is no time-only expiry. The result is accepted only while its operation and fence remain current; after recovery/fence advancement it is rejected. | Long-running work can block availability indefinitely. Recovery is an explicit state transition, not an elapsed-time guess. |
+| Coordinator restarts during signing | Durable operation/blocker state survives; restart is not completion evidence. | The same durable operation/fence is reloaded; a callback from a prior attempt cannot finalize against changed state. | No in-memory map or restart-based lease cleanup. |
+| Finalization succeeds but the HTTP response is lost | Query the same operation and return the exact persisted bytes/digest; do not re-sign or create a new operation. | Same behavior. The result is bound to the same nonce/request and is not reusable for a different request. | The APP's existing deadline and response expiry still apply; result lookup is not permission to extend either. |
+| Operation remains `UNKNOWN` | Keep its blocker after timeout, cancellation and restart. | Keep its blocker indefinitely; do not retry under a new ID, generation or bytes. | Clear only from exact same-operation evidence or an authorized recovery that durably fences the old attempt and records its rationale. A negative read alone is insufficient. |
+
+For both profiles, signing output is private to the issue/finalization path.
+The only response bytes available to a caller are those durably committed by
+the current operation's successful finalization. The proposed contract cannot
+protect against an independently exposed signer API, a malicious authorized
+operator, or logs/debug interfaces that leak raw signatures; those paths must
+be absent and are not treated as equivalent to normal finalization.
+
+### Clock semantics retained by either decision
+
+The three elapsed-time limits remain distinct:
+
+| Boundary | Current meaning | Proposal |
+|---|---|---|
+| APP 10 seconds | One local monotonic end-to-end acceptance deadline for the Freshness exchange, Manifest/artifact fetch, verification and guarded persistence. | Unchanged; it does not authorize the server to continue issuing after the client deadline. |
+| Gateway 7 seconds | One HTTP forwarding/response deadline. Disconnect/timeout is not proof that signer work stopped or a blocker may be cleared. | Unchanged; it is not a lease-reclamation rule. |
+| Issue authorization 8 seconds | Current clock-bounded cutoff for lease/sign/finalization. | Proposed for removal as an elapsed-time cutoff only; state/fence authorization remains. |
+
+The proposal retains delegation `not_before`/`not_after`, Release authorization
+and append-time comparisons, Manifest validity/reference-age rules, and the
+Freshness response's 30-second maximum lifetime and 30-second skew checks.
+Those are independent of the issue lease. The APP uses wall-clock UTC for
+validity checks and a monotonic `Instant` for its 10-second deadline. Deployed
+Workers' `Date.now()` and `performance.now()` advance only after I/O; the
+official documentation publishes no authenticated error bound. Local
+Miniflare/workerd timer behavior is not a Production clock proof.
+
+The recommended reduced profile treats ordinary Cloudflare/host UTC as an
+operational assumption for those existing absolute-time checks, not as an
+authenticated or bounded clock. This is an explicit residual: if the trust
+owner requires a demonstrated error bound for response expiry, delegation
+validity or Release append time, that requirement remains **BLOCKED** until a
+source and cross-component error budget are approved. Neither the logical
+fence nor this proposal's recommendation proves clock accuracy or silently
+removes those checks.
+
+### Key-custody comparison by compromise event
+
+- **Raw private-key extraction:** a Worker Secret is encrypted in storage but
+  available to Worker code. Worker-readable key bytes can therefore be copied
+  by compromised code and used outside the Worker until disabled or expired.
+  An HSM non-exportable key reduces this extraction path. Web Crypto's
+  `extractable=false` restricts exporting a `CryptoKey`; it does not make an
+  environment secret non-readable to code that already received it.
+- **Signing API abuse:** either key class can produce signatures when its
+  authorized signing operation is invoked. HSM custody alone does not stop a
+  caller with valid API access from asking it to sign an incorrect but
+  syntactically valid Release. Typed purpose APIs, validation against the
+  current operation/head, independent human approval and exact finalization
+  are required in both profiles.
+- **Worker code/deploy compromise:** with a Worker-readable key, code that
+  obtains the secret may exfiltrate and use it independently. With HSM
+  custody, the raw key remains non-exportable, but compromised code can still
+  exercise whatever signing calls the HSM service authorizes. If a separate
+  signer service enforces typed policy outside the compromised Worker, HSM
+  adds a stronger boundary; that service is not currently registered.
+- **Wrong Release approval:** neither HSM nor Worker Secrets determines
+  whether a target/configuration is the intended one. Exact Manifest/Release
+  verification, environment/audience binding, the writer gate and explicit
+  approval remain necessary. A malicious authorized approver is trusted under
+  the recommended profile.
+- **Revocation and rotation:** immediately disable the route/key, freeze
+  issuance and use the offline Bootstrap root to delegate a new purpose key
+  with a higher generation. A stolen child key can sign offline until its
+  delegation expires or clients learn a newer delegation; already-created
+  signatures are not erased. A fresh APP without high-water may not know an
+  out-of-band revocation. Bootstrap-root compromise remains a separate
+  incident requiring a separately approved APP trust migration.
+- **Purpose boundaries:** Bootstrap remains offline. Release, Freshness,
+  Result, Session and Binding keys remain distinct by purpose/environment and
+  audience. No Worker child can issue a new delegation, sign another
+  purpose, mutate the ledger, or expose a general-purpose `sign(bytes)` API
+  under the proposed application contract. These restrictions do not resist
+  code with authority to bypass the typed API; that extraction/misuse risk is
+  explicitly accepted only if the Worker-key option is approved.
+  The Worker-readable custody decision here applies only to Runtime Config
+  Release and Freshness child keys. Result, Session and Binding key custody
+  remains under its separate existing contract and is not changed by this
+  proposal.
+
+### Candidate Production contract text — not adopted
+
+> **Trust boundary.** For Runtime Config Freshness, FUSOU trusts the
+> Cloudflare Workers/DO/R2 platform and the named FUSOU production operators.
+> This includes Cloudflare-account principals able to deploy or change the
+> relevant Worker code, routes, bindings and secret bindings; access or
+> restore the Coordinator's SQLite state (including principals with
+> modifying Data Studio/Worker access); change R2 objects, pointer, bucket
+> policy or permissions; and operate Release, Freshness, key-rotation and
+> recovery workflows. Named FUSOU Release approvers are trusted to approve
+> the exact Manifest/artifact digests; named operators with signing or
+> secret-binding access are trusted not to exfiltrate or misuse their
+> delegated child keys. These principals are trusted not to maliciously alter
+> code/state or present a self-consistent old state. The Cloudflare platform
+> and control plane are trusted to preserve the current service state against
+> adversaries outside this named administrative boundary.
+>
+> **Covered behavior.** With that state intact, the service rejects network
+> tampering, nonce/audience replay, invalid signatures, changed exact bytes,
+> wrong environment/chain, conflicting writes, mismatched R2 pointer or
+> snapshot, and isolated restores that disagree with another current source.
+> Release and issue operations use durable stable IDs, exact request bindings,
+> fences, conditional transitions and exact readback. Unknown or inconsistent
+> state returns no Freshness bytes and keeps the relevant blocker/quarantine.
+> The existing TLSN Presentation, observed server identity, Notary,
+> Inventory/Target Approval, Result, user/device/session and Evidence
+> verification contracts are unchanged.
+>
+> **Release publication and issue ordering.** A Release operation is first
+> recorded with its exact signed Record/delegation bytes and expected
+> predecessor in the Coordinator's SQLite transaction. R2 writes and reads
+> occur outside that transaction. `LEDGER_COMMITTED` records the DO ledger
+> decision; it is not an issuance gate. The operation can become `AVAILABLE`
+> only after readback matches the exact pointer, immutable snapshot bytes,
+> digest, reference and ETag, and a later conditional transaction rechecks
+> operation, predecessor, attempt and fence. `AVAILABLE` alone is also not a
+> current-state binding: the profile's verifier must validate the signed
+> Release/Manifest and R2 evidence, then conditionally install the binding
+> against the still-current head before issue admission opens. DO and R2 are
+> not one transaction. A mismatch, race or unknown write remains blocked.
+>
+> Issue admission, signing and finalization are serialized against Release
+> mutation by the same per-environment Coordinator. The issue operation
+> binds its stable ID, exact request digest/nonce/audience, current Release
+> generation, fence and verified current-state binding. Release admission
+> closes while an issue is unresolved. After signing, the issue path
+> re-verifies current state and atomically finalizes only if the operation,
+> head, fence and request still match. Only those persisted exact response
+> bytes may be returned. If a Recovery operation advances the fence first,
+> a late signature cannot finalize or be exposed through the normal response
+> path.
+>
+> **Rollback and recovery.** No guarantee is made that the system can
+> automatically detect malicious administrator action, Cloudflare-wide
+> compromise, or a mutually consistent rollback of the Coordinator's Release
+> and issue-operation history together with the R2 pointer/objects, Worker
+> code/configuration and any Cloudflare-contained checkpoints. A different
+> namespace, DO, bucket, Worker or key under the same administration is not
+> an independent witness. Bootstrap is an explicit, one-time operation
+> authorized by the named Release approvers for a specific environment/chain
+> and exact initial Release. Absence of current-state data is not by itself
+> proof of a new environment: any surviving ledger/operation history,
+> malformed or corrupt state, or partial restore blocks bootstrap. Bootstrap
+> cannot overwrite an existing binding.
+>
+> For a planned restore, two named operators approve a change record kept
+> outside the Cloudflare state being restored, disable the Gateway/signer
+> route, and preserve the pre-restore operation results/blockers. After
+> restore they reconcile exact operation IDs/results; verify signed Release
+> and Manifest bytes, pointer/snapshot bytes and ETag; inspect every
+> issue/recovery blocker; and use a typed Coordinator recovery operation to
+> record a new forward `restoreEpoch`. They then install/advance only through
+> the normal conditional Release path. No generation/fence is reset and
+> missing/corrupt state is not genesis. For an accidental restore or
+> inconsistent state, issuance remains quarantined until the same evidence
+> and approvals exist; timeout, restart, or a negative read does not prove
+> that an earlier R2 write or signing operation will not complete.
+>
+> The external change record, two-person approval and `restoreEpoch` are
+> operational controls, not cryptographic proof against a malicious
+> Cloudflare administrator and not an independent witness. If all Cloudflare
+> state is restored consistently, this profile cannot infer the former head.
+> If a child key may have been extracted, operators disable the signer route
+> and freeze issue/Release operations; resumption requires a new root-delegated
+> purpose key and a higher delegation generation. Previously created
+> signatures are not erased, and a fresh APP may not know an out-of-band
+> revocation until it receives the new signed delegation.
+>
+> **Clock and issue authorization.** The APP's 10-second monotonic deadline
+> and Gateway's 7-second HTTP deadline remain unchanged. The strict 8-second
+> elapsed issue cutoff is replaced by durable operation/fence/head checks;
+> no lease expiry, timeout, cancellation or restart clears an unresolved
+> blocker. `UNKNOWN` remains blocked unless an existing, exact same-operation
+> terminal result is available; this profile implementation adds no forced
+> Unknown-clear or recovery authority. The contract does not claim that the
+> signer physically stopped, and a late signature is never returned unless
+> the current operation finalizes it.
+>
+> Delegation, Release/append-time, Manifest and Freshness-response validity
+> checks remain in force. Under this proposed reduced profile, their
+> timestamps rely on the ordinary Cloudflare/host UTC clocks as an
+> operational assumption, not an authenticated source with a demonstrated
+> error bound. If a bounded absolute-time guarantee is required, issue remains
+> disabled until that clock source and error budget are separately approved.
+>
+> **Online key custody.** The Bootstrap root stays offline. Release,
+> Freshness, Result, Session and Binding keys remain purpose- and
+> environment-separated, with the existing purpose-specific root-signed
+> delegation validity windows, typed
+> operation-specific APIs, exact request/head binding, restricted Worker
+> bindings and deployment/secret permissions, audit, freeze and rotation.
+> This custody decision permits Worker-readable Runtime Config Release and
+> Freshness child keys, with the accepted risk that compromised Worker code
+> can extract and use them outside the Worker until revocation/expiry. It does
+> not change Result, Session or Binding key custody. No generic `sign(bytes)`
+> API is exposed. This option is not HSM-equivalent and does not prevent
+> misuse by an authorized signing caller.
+>
+> **Before Production operation.** The trust owner must name the authorized
+> principals, approve the rollback/key/clock risks, register environment-
+> scoped Worker/DO/R2 bindings and roles, verify the real deployment and
+> recovery process, and validate the ordinary-clock assumption or register
+> a bounded time source if required. No local prototype or Hosted CI result
+> supplies these approvals or proves real Game Server/Notary evidence.
+
+This draft deliberately records reduced rollback, time-cutoff and key-
+extraction guarantees. Until the trust owner approves it, the repository's
+existing mandatory Journal/witness validation, 8-second issue lease and
+Production key-custody gates remain in force. If any proposed reduction is
+rejected, retain the corresponding current contract; do not treat a
+same-account Cloudflare resource, logical fence or Worker Secret as an
+equivalent substitute.
+
+### Local implementation unit completed; Production execution remains gated
+
+The previously proposed first unit—an explicitly selected Cloudflare/operator
+profile using the existing current-state reader, issue core, signer boundary,
+SQLite Coordinator, Release ledger and R2 adapter—has been implemented and
+locally verified as described in [Section 7.1](#71-explicit-cloudflareoperator-profile-implementation-2026-11-10).
+The implementation adds no parallel Coordinator, public signer route,
+generic `sign(bytes)` API, or forced Unknown-clear/recovery authority.
+
+The remaining Production work is not an extension of this local verification:
+the trust owner must still approve named operator roles and recovery
+procedures, register the environment-specific DO/R2 bindings/endpoints and
+keys, validate the deployed clock assumption or an approved bounded source,
+and verify actual restore and issuance operations. Manifest v2 is still
+directly signed by the offline Bootstrap root and the APP still caps
+reference age at 600 seconds. Manifest signer delegation/APP compatibility
+and ongoing 24-hour Freshness-delegation renewal are a separate future unit.
+No deployment or Production acceptance is authorized here; Stage A/B/C and
+Production acceptance remain **BLOCKED**.
