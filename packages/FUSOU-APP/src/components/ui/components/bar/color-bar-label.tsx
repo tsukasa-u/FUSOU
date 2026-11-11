@@ -26,7 +26,7 @@ const class_size = {
     box_py: "py-0.5",
   },
   md: {
-    label_text: "text-md",
+    label_text: "text-base",
     label_h: "h-[13px]",
     label_mt: "mt-0.5",
     box_h: "h-[30px]",
@@ -62,7 +62,7 @@ export const ComponentColorBarLabel: Component<ComponentColorBarLabelProps> = (
     >
       <div
         class={[
-          "grid place-content-center cursor-inherit mx-auto",
+          "grid place-content-center cursor-inherit mx-auto tabular-nums",
           class_size[size()].label_h,
           class_size[size()].label_text,
         ].join(" ")}

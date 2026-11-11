@@ -12,9 +12,10 @@ export const showFadeToast = function (id: string, mesage: string) {
     const message_container = document.createElement("div");
     message_container.classList.add("place-content-between");
     message_container.classList.add("alert");
-    message_container.classList.add("border-base-content");
+    message_container.classList.add("border");
+    message_container.classList.add("border-base-300");
     message_container.classList.add("min-w-60");
-    message_container.classList.add("rounded-lg");
+    message_container.classList.add("rounded-box");
     message_container.classList.add("shadow");
     message_container.classList.add("flex");
     message_container.id = "fade_toast_message" + self.crypto.randomUUID();
@@ -22,11 +23,11 @@ export const showFadeToast = function (id: string, mesage: string) {
 
     const new_message = document.createElement("span");
     new_message.classList.add("flex");
-    new_message.classList.add("flex-nowarp");
+    new_message.classList.add("flex-nowrap");
     // SVG and layout wrapper added via innerHTML (trusted static markup)
     const svgWrapper = document.createElement("span");
     svgWrapper.classList.add("flex");
-    svgWrapper.classList.add("flex-nowarp");
+    svgWrapper.classList.add("flex-nowrap");
     svgWrapper.innerHTML =
       '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6"><path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg>' +
       '<span class="w-2"></span>';

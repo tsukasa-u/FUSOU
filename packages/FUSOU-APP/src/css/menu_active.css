@@ -1,17 +1,13 @@
-@media (hover: hover) {
-    :not(#fakeID) .not_menu:active {
-        cursor: default;
-        --tw-bg-opacity: 0;
-        background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
-        --tw-text-opacity: 1;
-        color: var(--fallback-nc, oklch(var(--n) / var(--tw-text-opacity)))
-    }
+:not(#fakeID) .not_menu:active {
+  cursor: default;
+  background-color: transparent;
+  color: inherit;
 }
 
-:not(#fakeID) .not_menu:active {
+@media (hover: hover) {
+  :not(#fakeID) .not_menu:active {
     cursor: default;
-    --tw-bg-opacity: 0;
-    background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
-    --tw-text-opacity: 1;
-    color: var(--fallback-nc, oklch(var(--n) / var(--tw-text-opacity)))
+    background-color: transparent;
+    color: inherit;
+  }
 }

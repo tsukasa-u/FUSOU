@@ -58,7 +58,7 @@ export function DebugApi() {
       </div>
 
       <div class="mx-4">
-        <hr class="mt-4 mb-4" />
+        <div class="divider my-3" />
 
         <select
           class="select select-sm w-full"
@@ -89,7 +89,7 @@ export function DebugApi() {
           <For each={debug_api[0]}>{(dir) => <option>{dir}</option>}</For>
         </select>
 
-        <hr class="mt-4 mb-4" />
+        <div class="divider my-3" />
 
         <div class="flex flex-nowrap">
           <div class="w-5/12">
@@ -331,7 +331,7 @@ export function DebugApi() {
           </div>
         </div>
 
-        <hr class="mt-4" />
+        <div class="divider my-3" />
 
         <div class="grid grid-cols-3 gap-4 py-4 justify-self-center w-2/6">
           <button
@@ -367,7 +367,7 @@ export function DebugApi() {
           </Show>
         </div>
 
-        <hr class="mt-4" />
+        <div class="divider my-3" />
       </div>
     </>
   );

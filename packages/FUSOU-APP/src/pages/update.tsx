@@ -93,12 +93,12 @@ function Updater() {
       <div class="max-w-lg w-full px-4 py-8">
         <div class="bg-base-100 p-8 w-full">
           <div class="flex items-center justify-between mb-2 w-full">
-            <h1 class="text-4xl">Update</h1>
+            <h1 class="text-2xl font-semibold">Update</h1>
             <button
               class={
                 updating()
-                  ? "btn btn-neutral btn-outline border-0 btn-disabled"
-                  : "btn btn-neutral btn-outline border-1"
+                  ? "btn btn-neutral btn-outline btn-disabled"
+                  : "btn btn-neutral btn-outline"
               }
               onClick={checkForUpdate}
               disabled={updating()}
@@ -128,12 +128,11 @@ function Updater() {
                 <button
                   class={
                     !updating()
-                      ? "btn btn-primary border-primary-content w-full shadow-none border-1"
-                      : "btn btn-primary border-primary-content w-full shadow-none border-0 btn-disabled"
+                      ? "btn btn-primary border-primary-content w-full"
+                      : "btn btn-primary border-primary-content w-full btn-disabled"
                   }
                   disabled={updating()}
                   onClick={handleUpdate}
-                  style={{ "box-shadow": "none" }}
                 >
                   {updating() ? "Updating..." : "Update Automatically"}
                 </button>
@@ -143,9 +142,8 @@ function Updater() {
                     releases page to update manually.
                   </p>
                   <button
-                    class="btn btn-link mt-2 w-full shadow-none border-none no-underline hover:underline"
+                    class="btn btn-link mt-2 w-full no-underline hover:underline"
                     onClick={handleDownloadPage}
-                    style={{ "box-shadow": "none" }}
                   >
                     Go to GitHub releases page
                   </button>
@@ -161,9 +159,8 @@ function Updater() {
                   class="progress progress-primary w-full"
                   value={progressPercent()}
                   max={100}
-                  style={{ "box-shadow": "none" }}
                 />
-                <div class="text-xs mt-1 text-primary text-center">
+                <div class="text-xs mt-1 text-primary text-center tabular-nums">
                   {downloaded()} / {contentLength()} bytes ({progressPercent()}
                   %)
                 </div>
@@ -175,25 +172,18 @@ function Updater() {
               </div>
             </Show>
             <Show when={installed() && !updateError()}>
-              <div
-                class="alert alert-success mb-4 text-center w-full"
-                style={{ "box-shadow": "none" }}
-              >
+              <div class="alert alert-success mb-4 text-center w-full">
                 <span>Update completed. Please restart.</span>
               </div>
               <button
-                class="btn btn-primary border-primary-content w-full  border-1"
+                class="btn btn-primary border-primary-content w-full"
                 onClick={relaunch}
-                style={{ "box-shadow": "none" }}
               >
                 Restart
               </button>
             </Show>
             <Show when={updateError()}>
-              <div
-                class="alert alert-error mt-4 text-center w-full"
-                style={{ "box-shadow": "none" }}
-              >
+              <div class="alert alert-error mt-4 text-center w-full">
                 {updateError()}
               </div>
               <p>
@@ -201,19 +191,15 @@ function Updater() {
                 from the GitHub releases page.
               </p>
               <button
-                class="btn btn-link mt-2 w-full shadow-none border-none no-underline hover:underline"
+                class="btn btn-link mt-2 w-full no-underline hover:underline"
                 onClick={handleDownloadPage}
-                style={{ "box-shadow": "none" }}
               >
                 Go to GitHub releases page
               </button>
             </Show>
           </Show>
           <Show when={!updateAvailable()}>
-            <div
-              class="alert alert-info text-center w-full"
-              style={{ "box-shadow": "none" }}
-            >
+            <div class="alert alert-info text-center w-full">
               <span>You have the latest version.</span>
             </div>
           </Show>
@@ -225,10 +211,9 @@ function Updater() {
               href="/"
               class={
                 !updating()
-                  ? "btn btn-secondary border-secondary-content w-full shadow-none border-1"
-                  : "btn btn-secondary border-secondary-content w-full shadow-none border-0 btn-disabled"
+                  ? "btn btn-secondary border-secondary-content w-full"
+                  : "btn btn-secondary border-secondary-content w-full btn-disabled"
               }
-              style={{ "box-shadow": "none" }}
             >
               Back to App Page
             </a>

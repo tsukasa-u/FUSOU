@@ -87,7 +87,7 @@ export const set_range_window_list = (
           </div>
         </div>
         <dialog id={`${modal_prefix}_${param}`} class="modal modal-top">
-          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
+          <div class="modal-box border border-base-300 text-base-content rounded-box mx-auto w-72">
             <div class="form-control">
               <label class="label cursor-pointer relative">
                 <input
@@ -249,7 +249,7 @@ export const set_discrete_range_window_list = (
           </div>
         </div>
         <dialog id={`${modal_prefix}_${param}`} class="modal modal-top">
-          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-92">
+          <div class="modal-box border border-base-300 text-base-content rounded-box mx-auto w-92">
             <div class="form-control">
               <label class="label cursor-pointer relative">
                 <input
@@ -407,7 +407,7 @@ export const sort_window = (
         </div>
       </div>
       <dialog id={`${modal_prefix}_sort`} class="modal modal-top">
-        <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
+        <div class="modal-box border border-base-300 text-base-content rounded-box mx-auto w-72">
           <div class="flex flex-col gap-3 py-1">
             <div class="flex items-center justify-between">
               <span class="text-sm font-medium">order</span>
@@ -492,7 +492,7 @@ export const search_name_window = (
         </div>
       </div>
       <dialog id={`${modal_prefix}_search_name`} class="modal modal-top">
-        <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
+        <div class="modal-box border border-base-300 text-base-content rounded-box mx-auto w-72">
           <label class="input input-sm input-bordered flex items-center gap-2">
             <input
               type="text"
@@ -572,7 +572,7 @@ export const set_type_window = (
         </div>
       </div>
       <dialog id={`${modal_prefix}_type`} class="modal modal-top">
-        <div class="modal-box mx-auto w-72 border-1 ">
+        <div class="modal-box border border-base-300 text-base-content rounded-box mx-auto w-72">
           <div class="w-full z-[3]">
             <div class="w-full mx-auto flex justify-end">
               <button
@@ -600,7 +600,7 @@ export const set_type_window = (
               </button>
             </div>
           </div>
-          <ul class="menu menu-xs rounded-md grid flex w-full">
+          <ul class="menu menu-xs rounded-box flex w-full">
             <For each={Object.keys(check_types)}>
               {(type_name) => (
                 // <Show
@@ -668,7 +668,7 @@ export const select_properties_window = (
         select properties
       </button>
       <dialog id={`${modal_prefix}_select_properties`} class="modal modal-top">
-        <div class="modal-box mx-auto w-72 border-1 ">
+        <div class="modal-box border border-base-300 text-base-content rounded-box mx-auto w-72">
           <div class="w-full z-[3]">
             <div class="w-full mx-auto flex justify-end">
               <button
@@ -697,7 +697,7 @@ export const select_properties_window = (
               </button>
             </div>
           </div>
-          <ul class="menu menu-xs rounded-md grid flex w-full">
+          <ul class="menu menu-xs rounded-box flex w-full">
             <For each={Object.keys(check_property)}>
               {(prop) => (
                 <li

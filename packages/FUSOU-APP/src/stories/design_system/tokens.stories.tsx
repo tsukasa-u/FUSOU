@@ -19,7 +19,8 @@ export const BrandPalette: Story = {
           FUSOU-APP Theme &amp; Operational Tokens
         </h2>
         <p class="text-xs text-base-content/60 mt-1">
-          <code>src/global.css</code> DaisyUI 5 OKLCH テーマトークン・Titlebar・ステータスカラー
+          <code>src/global.css</code> DaisyUI 5 OKLCH
+          テーマトークン・Titlebar・ステータスカラー
         </p>
       </div>
 
@@ -70,7 +71,9 @@ export const BrandPalette: Story = {
       </div>
 
       <div class="mt-6">
-        <h3 class="text-sm font-semibold mb-3">Surfaces &amp; Titlebar Chrome</h3>
+        <h3 class="text-sm font-semibold mb-3">
+          Surfaces &amp; Titlebar Chrome
+        </h3>
         <div class="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
           <div class="bg-base-100 border border-base-300 p-2.5 rounded-box">
             <div class="h-8 rounded mb-1.5 border border-base-300 bg-base-100" />
@@ -141,16 +144,18 @@ export const TypographyScale: Story = {
 
       <div class="border-b border-base-300/60 pb-3">
         <div class="text-[10px] font-mono text-base-content/50">
-          Update Page Heading (36px / regular — update.tsx)
+          Unified Page Heading (24px / 600 — Settings, Uploads, Policy, Start,
+          Update, Debug)
         </div>
-        <div class="text-4xl">Update</div>
+        <div class="text-2xl font-semibold">Settings / 通信保全基準</div>
       </div>
 
       <div class="border-b border-base-300/60 pb-3">
         <div class="text-[10px] font-mono text-base-content/50">
-          Section / Policy Title (20px / 700 — policy_panel.tsx)
+          Section / Card Heading (20px / 600 — settings.tsx /
+          data_collection_status.tsx)
         </div>
-        <div class="text-xl font-bold">通信保全基準</div>
+        <div class="text-xl font-semibold">Manual Snapshot Sync</div>
       </div>
 
       <div class="border-b border-base-300/60 pb-3">
@@ -165,18 +170,25 @@ export const TypographyScale: Story = {
           Body / Table Text (text-xs / default sans-serif)
         </div>
         <div class="text-xs leading-relaxed">
-          DeckComponent・BattleSummaryComponent・MaterialsComponent・QuestsComponent はデフォルトフォントで高密度描画します。
+          DeckComponent・BattleSummaryComponent・MaterialsComponent・QuestsComponent
+          はデフォルトフォントで高密度描画します。
         </div>
       </div>
 
       <div>
         <div class="text-[10px] font-mono text-base-content/50">
-          Monospace Scopes (Roboto Mono SVG icons &amp; ErrorFallback / data_collection_status)
+          Monospace Scopes (Roboto Mono SVG icons &amp; ErrorFallback /
+          data_collection_status)
         </div>
         <div class="text-xs space-x-3">
           <span class="tabular-nums">80% (titlebar.tsx)</span>
           <span class="font-mono">ErrorFallback stacktrace</span>
-          <span style={{ "font-family": '"Roboto Mono", monospace', "font-weight": 500 }}>
+          <span
+            style={{
+              "font-family": '"Roboto Mono", monospace',
+              "font-weight": 500,
+            }}
+          >
             DD / CL / PA (SVG icons)
           </span>
         </div>

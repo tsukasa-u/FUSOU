@@ -76,22 +76,22 @@ export function LogViewerComponent() {
     return Array.from(set).filter((t) => t !== "");
   });
 
-  // Simple color palette and deterministic assignment for unknown targets
+  // Theme-adaptive semantic palette and deterministic assignment for targets
   const palette = [
-    "bg-sky-100 text-sky-800",
-    "bg-emerald-100 text-emerald-800",
-    "bg-rose-100 text-rose-800",
-    "bg-amber-100 text-amber-800",
-    "bg-indigo-100 text-indigo-800",
-    "bg-violet-100 text-violet-800",
+    "bg-info/15 text-info",
+    "bg-success/15 text-success",
+    "bg-error/15 text-error",
+    "bg-warning/15 text-warning",
+    "bg-primary/15 text-primary",
+    "bg-accent/15 text-accent",
   ];
 
   function targetBadgeClass(target: string) {
     const wellKnown: Record<string, string> = {
-      runtime: "bg-gray-100 text-gray-800",
-      network: "bg-sky-100 text-sky-800",
-      storage: "bg-emerald-100 text-emerald-800",
-      api: "bg-indigo-100 text-indigo-800",
+      runtime: "bg-base-300 text-base-content/80",
+      network: "bg-info/15 text-info",
+      storage: "bg-success/15 text-success",
+      api: "bg-primary/15 text-primary",
     };
     if (target in wellKnown) return wellKnown[target];
     // fallback deterministic hash
@@ -102,16 +102,16 @@ export function LogViewerComponent() {
     return palette[idx];
   }
 
-  // Color mapping for log levels
+  // Theme-adaptive DaisyUI semantic color mapping for log levels
   function levelBadgeClass(level: string) {
     const map: Record<string, string> = {
-      TRACE: "bg-gray-100 text-gray-800",
-      DEBUG: "bg-sky-100 text-sky-800",
-      INFO: "bg-emerald-100 text-emerald-800",
-      WARN: "bg-amber-100 text-amber-800",
-      ERROR: "bg-rose-100 text-rose-800",
+      TRACE: "bg-base-300 text-base-content/80",
+      DEBUG: "bg-info/20 text-info",
+      INFO: "bg-success/20 text-success",
+      WARN: "bg-warning/20 text-warning",
+      ERROR: "bg-error/20 text-error",
     };
-    return map[level] ?? "bg-gray-100 text-gray-800";
+    return map[level] ?? "bg-base-300 text-base-content/80";
   }
 
   // Compute filtered logs based on search and filters
@@ -421,19 +421,19 @@ export function LogViewerComponent() {
                   data-log-entry
                   class="p-1 text-xs flex items-start gap-2 min-w-0"
                 >
-                  <div class="px-2 shrink-0 text-nowrap text-[11px]">
+                  <div class="px-2 shrink-0 text-nowrap text-[11px] font-mono tabular-nums text-base-content/70">
                     {d.datetime}
                   </div>
                   <div class="px-2 shrink-0 w-16">
                     <span
-                      class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
+                      class={`px-2 py-0.5 rounded-md text-[10px] font-medium whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
                     >
                       {d.level}
                     </span>
                   </div>
                   <div class="px-2 flex-1 min-w-0 wrap-break-word">
                     <span
-                      class={`px-2 py-0.5 rounded-full text-[11px] mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
+                      class={`px-2 py-0.5 rounded-md text-[10px] font-medium mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
                     >
                       {d.target}
                     </span>

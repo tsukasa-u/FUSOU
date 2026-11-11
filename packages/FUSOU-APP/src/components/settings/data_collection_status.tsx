@@ -37,12 +37,12 @@ type SuppressionStatus = {
 };
 
 const formatEpochMillis = (value?: number | null) => {
-  if (!value) return "-";
+  if (!value) return "—";
   return new Date(value).toLocaleString();
 };
 
 const formatEpochSeconds = (value?: number | null) => {
-  if (!value) return "-";
+  if (!value) return "—";
   return new Date(value * 1000).toLocaleString();
 };
 
@@ -85,7 +85,7 @@ const getErrorMessage = (error: unknown): string => {
 function SuppressionSection(props: SuppressionSectionProps) {
   return (
     <>
-      <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+      <div class="divider py-0 mt-4 mb-8" />
 
       <p class="py-2 text-xl font-semibold">{props.title}</p>
       <p class="px-px leading-5">{props.description}</p>
@@ -103,7 +103,7 @@ function SuppressionSection(props: SuppressionSectionProps) {
       <Show when={props.status}>
         {(status) => (
           <div class="mt-4 p-4 bg-base-200 rounded-box text-sm space-y-2">
-            <div>Scope: {status().scope ?? "-"}</div>
+            <div>Scope: {status().scope ?? "—"}</div>
             <div>Active keys: {status().entries.length}</div>
             <Show when={status().entries.length > 0}>
               <div class="overflow-x-auto mt-2">
@@ -352,9 +352,9 @@ export function DataCollectionStatusComponent() {
 
   return (
     <>
-      <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Uploads</h1>
+      <h1 class="mx-6 pt-5 pb-2 text-2xl font-semibold">Uploads</h1>
       <div class="mx-6">
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider py-0 mt-3 mb-6" />
 
         <p class="py-2 text-xl font-semibold">Pending Upload Retry</p>
         <p class="px-px leading-5">
@@ -519,7 +519,7 @@ export function DataCollectionStatusComponent() {
       <Show when={confirmModalState()}>
         {(modalState) => (
           <dialog class="modal modal-open" open>
-            <div class="modal-box">
+            <div class="modal-box border border-base-300">
               <h3 class="font-bold text-lg">{modalState().title}</h3>
               <p class="py-3">{modalState().message}</p>
               <div class="modal-action">
