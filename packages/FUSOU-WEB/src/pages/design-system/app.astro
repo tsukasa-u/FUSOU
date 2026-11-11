@@ -142,7 +142,7 @@ const materialList = [
         >11 Combat &amp; Summary</a
       >
       <a href="#section-base-ops" class="btn btn-xs btn-outline rounded-md"
-        >12 LBAS, Materials &amp; Quests</a
+        >12 LBAS, Materials, Items &amp; Quests</a
       >
       <a href="#section-inventory" class="btn btn-xs btn-outline rounded-md"
         >13 Component Inventory</a
@@ -602,6 +602,43 @@ const materialList = [
                   </button>
                 </div>
               </div>
+              <button
+                type="button"
+                id="mock-theme-btn"
+                class="fusou-tool-btn"
+                title="Theme: Dark (Click to switch to Light)"
+                aria-label="Switch to Light theme"
+                aria-pressed="true"
+              >
+                <svg
+                  id="mock-theme-sun"
+                  class="w-3.5 h-3.5 hidden"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                  ></path>
+                </svg>
+                <svg
+                  id="mock-theme-moon"
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                  ></path>
+                </svg>
+              </button>
             </div>
 
             <!-- Right: Window Controls -->
@@ -652,6 +689,7 @@ const materialList = [
                 >
                 <button type="button" role="tab" class="tab">Ship</button>
                 <button type="button" role="tab" class="tab">Equip</button>
+                <button type="button" role="tab" class="tab">Item</button>
                 <button type="button" role="tab" class="tab">Quest</button>
                 <button type="button" role="tab" class="tab">Uploads</button>
                 <button type="button" role="tab" class="tab">Settings</button>
@@ -773,6 +811,26 @@ const materialList = [
               </svg>
               <span class="text-[10px] tabular-nums">80%</span>
             </button>
+            <button
+              type="button"
+              class="fusou-tool-btn"
+              title="Theme: Dark (Click to switch to Light)"
+              aria-label="Switch to Light theme"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                ></path>
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -861,7 +919,9 @@ const materialList = [
         <p class="text-sm text-base-content/60 mt-1">
           音量調整ポップオーバー（<code>#1d1c1c</code> 上の <code
             >.fusou-custom-range</code
-          >）と <code>start.tsx</code> / <code>log-viewer.tsx</code> の入力コントロール。
+          >）と、フォーカス時の二重線を排除し単一 1px アクセント枠線（<code
+            >var(--color-primary)</code
+          >）へ統一した <code>start.tsx</code> / <code>log-viewer.tsx</code> / フィルター入力コントロール。
         </p>
       </div>
 
@@ -2034,6 +2094,89 @@ const materialList = [
                     class="text-error fill-error"></path>
                 </svg>
                 <span class="text-xs text-error font-bold">ErrorIcon</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 08-G: Unified Empty / None Placeholders -->
+        <div class="space-y-3 pt-2 border-t border-base-300/40">
+          <div class="flex items-center justify-between">
+            <div
+              class="text-xs font-semibold uppercase tracking-wider text-base-content/60"
+            >
+              Empty / None 共通プレースホルダー (&lt;EmptyValue /&gt; &amp; &lt;EmptySlot /&gt;)
+            </div>
+            <span class="text-[11px] text-base-content/50 font-mono"
+              >src/components/ui/components/empty/empty.tsx</span
+            >
+          </div>
+          <p class="text-xs text-base-content/60">
+            未ドロップ・非発動・欠損値を <code class="font-mono">EmptySlot</code>（破線空枠 SVG ＋固定幅ラベル）と
+            <code class="font-mono">EmptyValue</code>（共通 <code class="font-mono">—</code> 表示・固定幅確保）へ統一し、表示有無による横ズレを防ぎます。
+          </p>
+          <div
+            class="flex flex-wrap items-center gap-6 p-4 bg-base-200/30 rounded-lg border border-base-300 text-xs"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-base-content/60">EmptyValue:</span>
+              <span
+                class="inline-flex items-center justify-center text-center shrink-0 select-none text-base-content/40 tabular-nums h-6 text-xs w-12"
+                >—</span
+              >
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-base-content/60">Empty Equip:</span>
+              <svg
+                fill="currentColor"
+                viewBox="0 0 151 151"
+                class="h-6 text-base-content/35 flex-none"
+              >
+                <path
+                  d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                  stroke="currentColor"
+                  stroke-width="4"
+                  stroke-dasharray="14 10"
+                  stroke-linejoin="round"
+                  fill="none"></path>
+                <path
+                  d="M44 76 108 76"
+                  stroke="currentColor"
+                  stroke-width="6"
+                  stroke-linecap="round"
+                  opacity="0.45"></path>
+              </svg>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-base-content/60">Empty Ship (Drop):</span>
+              <div class="w-28 shrink-0 flex items-center">
+                <div class="shrink-0">
+                  <svg
+                    fill="currentColor"
+                    viewBox="0 0 199 151"
+                    class="h-6 text-base-content/35 flex-none"
+                  >
+                    <path
+                      d="m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z"
+                      stroke="currentColor"
+                      stroke-width="4"
+                      stroke-dasharray="14 10"
+                      stroke-linejoin="round"
+                      fill="none"></path>
+                    <path
+                      d="M52 76 148 76"
+                      stroke="currentColor"
+                      stroke-width="6"
+                      stroke-linecap="round"
+                      opacity="0.45"></path>
+                  </svg>
+                </div>
+                <div class="pl-3 flex items-center min-w-0 flex-1">
+                  <span
+                    class="inline-flex items-center justify-start text-left shrink-0 select-none text-base-content/40 tabular-nums h-6 text-xs"
+                    >—</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -4956,22 +5099,68 @@ const materialList = [
                     <div class="w-3 text-center">/</div>
                     <div class="text-red-500">Line Ahead</div>
                     <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    Form : <span class="w-1"></span>
-                    <div class="text-lime-500">Crossing the T (Advantage)</div>
+                    <div class="inline-flex items-center shrink-0">
+                      <span>Form :</span>
+                      <span class="w-1"></span>
+                      <div class="w-48 shrink-0 flex items-center truncate">
+                        <div class="text-lime-500 truncate">
+                          Crossing the T (Advantage)
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- Smoke, Ration, Balloon -->
                   <div
                     class="flex flex-nowrap text-xs py-0.5 pl-2 items-center"
                   >
-                    Smoke Type : <span class="w-1"></span>
-                    <div class="w-6 text-center">_</div>
+                    <div class="inline-flex items-center shrink-0">
+                      <span>Smoke Type :</span>
+                      <span class="w-1"></span>
+                      <div class="w-14 shrink-0 flex items-center justify-center">
+                        <span
+                          class="inline-flex items-center justify-center shrink-0 select-none text-base-content/40 tabular-nums h-6 text-xs w-full"
+                          >—</span
+                        >
+                      </div>
+                    </div>
                     <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    Combat Ration : <span class="w-1"></span>
-                    <div class="w-6 text-center">_</div>
+                    <div class="inline-flex items-center shrink-0">
+                      <span>Combat Ration :</span>
+                      <span class="w-1"></span>
+                      <div class="w-14 shrink-0 flex items-center justify-center">
+                        <svg
+                          fill="currentColor"
+                          viewBox="0 0 151 151"
+                          class="h-6 text-base-content/35 flex-none"
+                        >
+                          <path
+                            d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                            stroke="currentColor"
+                            stroke-width="4"
+                            stroke-dasharray="14 10"
+                            stroke-linejoin="round"
+                            fill="none"></path>
+                          <path
+                            d="M44 76 108 76"
+                            stroke="currentColor"
+                            stroke-width="6"
+                            stroke-linecap="round"
+                            opacity="0.45"></path>
+                        </svg>
+                      </div>
+                    </div>
                     <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    Balloon : <span class="w-1"></span>
-                    <div class="w-6 text-center">_</div>
+                    <div class="inline-flex items-center shrink-0">
+                      <span>Balloon :</span>
+                      <span class="w-1"></span>
+                      <div class="w-14 shrink-0 flex items-center justify-center">
+                        <span
+                          class="inline-flex items-center justify-center shrink-0 select-none text-base-content/40 tabular-nums h-6 text-xs w-full"
+                          >—</span
+                        >
+                      </div>
+                    </div>
                   </div>
 
                   <!-- Summary Table (BattleSummaryComponent) -->
@@ -6943,16 +7132,36 @@ const materialList = [
                   </svg>
                 </div>
               </div>
-              <div class="w-3 text-center">/</div>
-              <div class="w-6 flex justify-center">
-                <div class="w-6 text-center">_</div>
+              <div class="w-3 text-center shrink-0">/</div>
+              <div class="w-6 h-6 flex items-center justify-center shrink-0">
+                <svg
+                  fill="currentColor"
+                  viewBox="0 0 151 151"
+                  class="h-6 text-base-content/35 flex-none"
+                >
+                  <path
+                    d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                    stroke="currentColor"
+                    stroke-width="4"
+                    stroke-dasharray="14 10"
+                    stroke-linejoin="round"
+                    fill="none"></path>
+                  <path
+                    d="M44 76 108 76"
+                    stroke="currentColor"
+                    stroke-width="6"
+                    stroke-linecap="round"
+                    opacity="0.45"></path>
+                </svg>
               </div>
               <div class="divider divider-horizontal mr-0 ml-0"></div>
-              CI : <span class="w-1"></span>
-              <div class="flex justify-center items-center">
-                <div class="w-24 truncate">Fletcher Kai</div>
-                <div class="w-1"></div>
-                <div class="w-6 overflow-hidden">
+              <div class="inline-flex items-center shrink-0">
+                <span>CI :</span>
+                <span class="w-1"></span>
+                <div class="w-24 shrink-0 truncate">Fletcher Kai</div>
+                <div class="w-1 shrink-0"></div>
+                <div class="w-20 shrink-0 flex items-center justify-start gap-1">
+                  <div class="w-6 overflow-hidden">
                   <svg
                     fill="currentColor"
                     stroke-width="1.5"
@@ -6997,7 +7206,6 @@ const materialList = [
                     }
                   </svg>
                 </div>
-                <div class="w-1"></div>
                 <div class="w-6 overflow-hidden">
                   <svg
                     fill="currentColor"
@@ -7043,11 +7251,61 @@ const materialList = [
                     }
                   </svg>
                 </div>
+                </div>
               </div>
               <div class="divider divider-horizontal mr-0 ml-0"></div>
               <span class="text-xs"
                 >Sprite - Fly: 12/8, Crash: 0/2, Damage: 1/0, Non-Normal: 0/0</span
               >
+            </div>
+            <div
+              class="p-2.5 bg-base-300/30 rounded border border-base-300 flex flex-wrap items-center gap-x-2 text-xs mt-2"
+            >
+              <div class="inline-flex items-center shrink-0">
+                <span>Result :</span>
+                <span class="w-1"></span>
+                <span class="text-yellow-500 font-semibold w-8">S</span>
+              </div>
+              <div class="divider divider-horizontal mr-0 ml-0"></div>
+              <div class="inline-flex items-center shrink-0">
+                <span>Drop :</span>
+                <span class="w-1"></span>
+                <div class="w-28 shrink-0 flex items-center">
+                  <div class="shrink-0">
+                    <svg
+                      fill="currentColor"
+                      viewBox="0 0 199 151"
+                      class="h-6 text-base-content/35 flex-none"
+                    >
+                      <path
+                        d="m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z"
+                        stroke="currentColor"
+                        stroke-width="4"
+                        stroke-dasharray="14 10"
+                        stroke-linejoin="round"
+                        fill="none"></path>
+                      <path
+                        d="M52 76 148 76"
+                        stroke="currentColor"
+                        stroke-width="6"
+                        stroke-linecap="round"
+                        opacity="0.45"></path>
+                    </svg>
+                  </div>
+                  <div class="pl-3 flex items-center min-w-0 flex-1">
+                    <span
+                      class="inline-flex items-center justify-start text-left shrink-0 select-none text-base-content/40 tabular-nums h-6 text-xs"
+                      >—</span
+                    >
+                  </div>
+                </div>
+              </div>
+              <div class="divider divider-horizontal mr-0 ml-0"></div>
+              <div class="inline-flex items-center shrink-0">
+                <span>Landing HP :</span>
+                <span class="w-1"></span>
+                <span class="tabular-nums">0</span>
+              </div>
             </div>
           </div>
         </div>
@@ -7123,10 +7381,10 @@ const materialList = [
     <section id="section-base-ops" class="scroll-mt-20">
       <div class="border-b border-base-300 pb-3 mb-6">
         <h2 class="text-2xl font-bold tracking-tight">
-          12 / Base Operations: LBAS, Materials &amp; Quests
+          12 / Base Operations: LBAS, Materials, Items &amp; Quests
         </h2>
         <p class="text-sm text-base-content/60 mt-1">
-          基地航空隊（LBAS）、資源・資材帯（Materials）、任務（Quests）の実働コンポーネント生体仕様
+          基地航空隊（LBAS）、資源・資材帯（Materials）、アイテム棚（Items）、任務（Quests）の実働コンポーネント生体仕様
           (&lt;ul class="menu menu-xs bg-base-100"&gt;)。
         </p>
       </div>
@@ -7754,65 +8012,63 @@ const materialList = [
                   <summary>Materials</summary>
                   <ul class="pl-0">
                     <li class="h-auto">
-                      <div class="justify-start gap-0 flex flex-nowrap">
-                        <div class="w-[24px]"></div>
-                        <div class="justify-start gap-0 flex flex-wrap gap-y-1">
-                          <div class="justify-start gap-0 flex flex-nowrap">
-                            {
-                              materialList.slice(0, 8).map((mat, idx) => (
-                                <>
-                                  <div class="h-5 w-5">
-                                    <svg
-                                      fill="currentColor"
-                                      stroke-width="1.5"
-                                      stroke="currentColor"
-                                      viewBox="0 0 151 151"
-                                      class="h-5 w-5 flex-none cursor-inherit"
+                      <div class="justify-start gap-0 flex flex-nowrap items-center">
+                        <div class="w-[24px] shrink-0"></div>
+                        <div class="pl-2 justify-start gap-x-0 gap-y-1 flex flex-wrap items-center">
+                          {
+                            materialList.slice(0, 8).map((mat, idx) => (
+                              <div class="inline-flex items-center flex-nowrap shrink-0">
+                                <div class="shrink-0">
+                                  <svg
+                                    fill="currentColor"
+                                    stroke-width="1.5"
+                                    stroke="currentColor"
+                                    viewBox="0 0 151 151"
+                                    class="h-6 cursor-inherit flex-none"
+                                  >
+                                    <text
+                                      style='font-family: "Roboto Mono", monospace; font-weight: 500;'
+                                      font-size="96"
+                                      textLength="96"
+                                      lengthAdjust="spacingAndGlyphs"
+                                      transform="translate(28 104)"
                                     >
-                                      <text
-                                        style='font-family: "Roboto Mono", monospace; font-weight: 500;'
-                                        font-size="96"
-                                        textLength="96"
-                                        lengthAdjust="spacingAndGlyphs"
-                                        transform="translate(28 104)"
-                                      >
-                                        {mat.code}
-                                      </text>
+                                      {mat.code}
+                                    </text>
+                                    <path
+                                      d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                                      stroke-width="4"
+                                      stroke-linejoin="round"
+                                      fill="none"
+                                    />
+                                    <path
+                                      d="M28 124 124 124"
+                                      stroke={mat.bar}
+                                      stroke-width="16"
+                                      fill="none"
+                                    />
+                                    {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
                                       <path
-                                        d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
-                                        stroke-width="4"
-                                        stroke-linejoin="round"
+                                        d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
+                                        stroke="#303030"
+                                        stroke-width="0.5"
                                         fill="none"
                                       />
-                                      <path
-                                        d="M28 124 124 124"
-                                        stroke={mat.bar}
-                                        stroke-width="16"
-                                        fill="none"
-                                      />
-                                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-                                        <path
-                                          d={`M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116`}
-                                          stroke="#303030"
-                                          stroke-width="0.5"
-                                          fill="none"
-                                        />
-                                      ))}
-                                    </svg>
-                                  </div>
-                                  <div class="w-10 flex justify-end pt-0.5">
-                                    {
-                                      [
-                                        284000, 279500, 298000, 195400, 1920,
-                                        2840, 2450, 84,
-                                      ][idx]
-                                    }
-                                  </div>
-                                  <div class="divider divider-horizontal mr-0 ml-0" />
-                                </>
-                              ))
-                            }
-                          </div>
+                                    ))}
+                                  </svg>
+                                </div>
+                                <div class="w-12 flex justify-end tabular-nums">
+                                  {
+                                    [
+                                      284000, 279500, 298000, 195400, 1920,
+                                      2840, 2450, 84,
+                                    ][idx]
+                                  }
+                                </div>
+                                <div class="divider divider-horizontal mr-0 ml-0" />
+                              </div>
+                            ))
+                          }
                         </div>
                       </div>
                     </li>
@@ -7834,8 +8090,7 @@ const materialList = [
               任務トラッカー生体表示 (&lt;QuestsComponent /&gt;)
             </h3>
             <span class="text-[11px] text-base-content/50 font-mono">
-              Accepted (受注中) / Available (受注可能) • 進捗度 (0%, 50%, 80%,
-              100%)
+              Accepted / Available / Completed (達成・報告済) • 期間置換対応
             </span>
           </div>
 
@@ -7843,61 +8098,45 @@ const materialList = [
             class="border border-base-300 rounded-box overflow-hidden bg-base-100"
           >
             <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-              <li>
-                <details open>
+              <li class="w-full min-w-0">
+                <details open class="min-w-0 w-full">
                   <summary>Quests</summary>
                   <ul class="pl-0 max-w-[960px]">
-                    <li
-                      class="text-xs px-2 py-1 font-semibold text-base-content/80"
-                    >
-                      Accepted (2)
-                    </li>
-                    <li
-                      class="text-xs py-1 w-full justify-between items-start gap-3"
-                    >
-                      <div class="px-2 items-start gap-2 w-150">
-                        <div class="flex flex-col gap-0.5">
-                          <span
-                            class="w-8 shrink-0 text-base-content/70 text-right"
-                            >[B154]</span
-                          >
-                          <span
-                            class="w-8 text-right shrink-0 text-base-content/60"
-                            >80%</span
-                          >
-                        </div>
-                        <div class="min-w-0 flex-1">
-                          <div class="truncate">精鋭「第十九駆逐隊」演習！</div>
-                          <div
-                            class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5"
-                          >
-                            第十九駆逐隊(「浦波改二」「磯波改二」「敷波改二」「綾波改二」)を含む艦隊で本日中に演習にて4回以上S勝利を達成せよ！
-                          </div>
-                        </div>
+                    <li class="py-1 w-150 max-w-full">
+                      <div class="px-2 py-1 flex items-center justify-between gap-2 w-full hover:bg-transparent! active:bg-transparent! cursor-default">
+                        <input
+                          type="search"
+                          aria-label="Filter quests..."
+                          class="input input-xs input-bordered min-w-0 flex-1 max-w-60"
+                          placeholder="Filter quests..."
+                          value=""
+                          readonly
+                        />
+                        <span class="text-xs text-base-content/60 tabular-nums shrink-0">4 / 4</span>
                       </div>
                     </li>
                     <li
+                      class="text-xs px-2 py-1 font-semibold text-base-content/80"
+                    >
+                      Accepted (1)
+                    </li>
+                    <li
                       class="text-xs py-1 w-full justify-between items-start gap-3"
                     >
-                      <div class="px-2 items-start gap-2 w-150">
-                        <div class="flex flex-col gap-0.5">
-                          <span
-                            class="w-8 shrink-0 text-base-content/70 text-right"
-                            >[F102]</span
-                          >
-                          <span
-                            class="w-8 text-right shrink-0 text-base-content/60"
-                            >50%</span
-                          >
+                      <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                        <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                          <span class="text-base-content/70">[216]</span>
+                          <span class="text-base-content/60">80%</span>
                         </div>
                         <div class="min-w-0 flex-1">
-                          <div class="truncate">
-                            新装備開発計画：新型航空兵装開発
+                          <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="truncate">敵艦隊主力を撃滅せよ！</span>
+                            <span class="badge badge-xs badge-ghost border-base-300 shrink-0">Weekly</span>
                           </div>
                           <div
                             class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5"
                           >
-                            「開発資材」×20、「燃料」×3,000、「ボーキサイト」×3,000を準備し、任意の航空母艦旗艦で「九七式艦攻」×4を廃棄せよ！
+                            敵艦隊主力との交戦を敢行、これを撃滅せよ！
                           </div>
                         </div>
                       </div>
@@ -7911,26 +8150,267 @@ const materialList = [
                     <li
                       class="text-xs py-1 w-full justify-between items-start gap-3"
                     >
-                      <div class="px-2 items-start gap-2 w-150">
-                        <div class="flex flex-col gap-0.5">
-                          <span
-                            class="w-8 shrink-0 text-base-content/70 text-right"
-                            >[A88]</span
-                          >
-                          <span
-                            class="w-8 text-right shrink-0 text-base-content/60"
-                            >0%</span
-                          >
+                      <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                        <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                          <span class="text-base-content/70">[303]</span>
+                          <span class="text-base-content/60">0%</span>
                         </div>
                         <div class="min-w-0 flex-1">
-                          <div class="truncate">「第二七駆逐隊」抜錨せよ！</div>
+                          <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="truncate">「演習」で練度向上！</span>
+                            <span class="badge badge-xs badge-ghost border-base-300 shrink-0">Daily</span>
+                          </div>
                           <div
                             class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5"
                           >
-                            「白露改二」「時雨改二」を含む有力な艦隊を編成、北方海域モーレイ海、南方海域サーモン海域に展開、敵艦隊を撃滅せよ！
+                            本日中に他の司令官の艦隊と3回以上「演習」を行え！
                           </div>
                         </div>
                       </div>
+                    </li>
+
+                    <li
+                      class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2"
+                    >
+                      Completed (2)
+                    </li>
+                    <li
+                      class="text-xs py-1 w-full justify-between items-start gap-3"
+                    >
+                      <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                        <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                          <span class="text-base-content/70">[402]</span>
+                          <span class="text-base-content/60">100%</span>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="truncate">「遠征」を3回成功させよう！</span>
+                            <span class="badge badge-xs badge-ghost border-base-300 shrink-0">Daily</span>
+                            <span class="badge badge-xs badge-success shrink-0">Claimable</span>
+                          </div>
+                          <div
+                            class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5"
+                          >
+                            艦隊を遠征に出航させ、本日中に遠征を3回以上成功させよ！
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                    <li
+                      class="text-xs py-1 w-full justify-between items-start gap-3"
+                    >
+                      <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                        <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                          <span class="text-base-content/70">[503]</span>
+                          <span class="text-base-content/60">100%</span>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="truncate">艦隊大整備！</span>
+                            <span class="badge badge-xs badge-ghost border-base-300 shrink-0">Daily</span>
+                            <span class="badge badge-xs badge-neutral shrink-0">Completed</span>
+                          </div>
+                          <div
+                            class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5"
+                          >
+                            各艦隊から複数の艦を「入渠」させ、艦隊の整備を行え！
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </details>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Part 4: ItemsComponent -->
+        <div class="pt-2 border-t border-base-300/60">
+          <div
+            class="flex items-center justify-between border-b border-base-300 pb-2 mb-3"
+          >
+            <h3
+              class="text-xs font-semibold uppercase tracking-wider text-base-content/70"
+            >
+              アイテム棚生体表示 (&lt;ItemsComponent /&gt;)
+            </h3>
+            <span class="text-[11px] text-base-content/50 font-mono">
+              Normal (id&lt;75) / Special (id&gt;=75) / Purchased (payitem)
+            </span>
+          </div>
+
+          <div
+            class="border border-base-300 rounded-box overflow-hidden bg-base-100"
+          >
+            <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+              <li class="w-full min-w-0">
+                <details open class="min-w-0 w-full">
+                  <summary>Items</summary>
+                  <ul class="pl-0 max-w-[960px]">
+                    <li class="py-1 w-150 max-w-full">
+                      <div class="px-2 py-1 flex items-center justify-between gap-2 w-full hover:bg-transparent! active:bg-transparent! cursor-default">
+                        <input
+                          type="search"
+                          aria-label="Filter items..."
+                          class="input input-xs input-bordered min-w-0 flex-1 max-w-60"
+                          placeholder="Filter items..."
+                          value=""
+                          readonly
+                        />
+                        <span class="text-xs text-base-content/60 tabular-nums shrink-0">3 / 3</span>
+                      </div>
+                    </li>
+                    <li class="w-150 max-w-full min-w-0">
+                      <details open class="min-w-0 w-full">
+                        <summary class="text-xs font-semibold text-base-content/80">
+                          Normal Items (1)
+                        </summary>
+                        <ul class="pl-0">
+                          <li class="text-xs py-1 w-full">
+                            <div class="px-2 flex items-start gap-2.5 w-full">
+                              <div class="shrink-0 pt-0.5">
+                                <svg
+                                  fill="currentColor"
+                                  stroke-width="1.5"
+                                  stroke="currentColor"
+                                  viewBox="0 0 151 151"
+                                  class="h-6 cursor-inherit flex-none"
+                                >
+                                  <text
+                                    style='font-family: "Roboto Mono", monospace; font-weight: 500;'
+                                    font-size="96"
+                                    textLength="96"
+                                    lengthAdjust="spacingAndGlyphs"
+                                    transform="translate(28 104)">E3</text
+                                  >
+                                  <path
+                                    d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                                    stroke-width="4"
+                                    stroke-linejoin="round"
+                                    fill="none"></path>
+                                  <path
+                                    d="M28 124 124 124"
+                                    stroke="#684329"
+                                    stroke-width="16"
+                                    fill="none"></path>
+                                </svg>
+                              </div>
+                              <div class="min-w-0 flex-1">
+                                <div class="flex items-center justify-between gap-2">
+                                  <span class="truncate font-medium">応急修理要員</span>
+                                  <span class="tabular-nums font-medium shrink-0 text-right w-14">x5</span>
+                                </div>
+                                <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                  轟沈した艦を一度だけ救出し、中破状態で復帰させます。
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+                        </ul>
+                      </details>
+                    </li>
+                    <li class="w-150 max-w-full min-w-0">
+                      <details open class="min-w-0 w-full">
+                        <summary class="text-xs font-semibold text-base-content/80">
+                          Special Items (1)
+                        </summary>
+                        <ul class="pl-0">
+                          <li class="text-xs py-1 w-full">
+                            <div class="px-2 flex items-start gap-2.5 w-full">
+                              <div class="shrink-0 pt-0.5">
+                                <svg
+                                  fill="currentColor"
+                                  stroke-width="1.5"
+                                  stroke="currentColor"
+                                  viewBox="0 0 151 151"
+                                  class="h-6 cursor-inherit flex-none"
+                                >
+                                  <text
+                                    style='font-family: "Roboto Mono", monospace; font-weight: 500;'
+                                    font-size="96"
+                                    textLength="96"
+                                    lengthAdjust="spacingAndGlyphs"
+                                    transform="translate(28 104)">A2</text
+                                  >
+                                  <path
+                                    d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                                    stroke-width="4"
+                                    stroke-linejoin="round"
+                                    fill="none"></path>
+                                  <path
+                                    d="M28 124 124 124"
+                                    stroke="#595959"
+                                    stroke-width="16"
+                                    fill="none"></path>
+                                </svg>
+                              </div>
+                              <div class="min-w-0 flex-1">
+                                <div class="flex items-center justify-between gap-2">
+                                  <span class="truncate font-medium">新型砲熕兵装資材</span>
+                                  <span class="tabular-nums font-medium shrink-0 text-right w-14">x9</span>
+                                </div>
+                                <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                  新型砲熕兵装の開発や改修に必要な特殊資材です。
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+                        </ul>
+                      </details>
+                    </li>
+                    <li class="w-150 max-w-full min-w-0">
+                      <details open class="min-w-0 w-full">
+                        <summary class="text-xs font-semibold text-base-content/80">
+                          Purchased Items (1)
+                        </summary>
+                        <ul class="pl-0">
+                          <li class="text-xs py-1 w-full">
+                            <div class="px-2 flex items-start gap-2.5 w-full">
+                              <div class="shrink-0 pt-0.5">
+                                <svg
+                                  fill="currentColor"
+                                  stroke-width="1.5"
+                                  stroke="currentColor"
+                                  viewBox="0 0 151 151"
+                                  class="h-6 cursor-inherit flex-none"
+                                >
+                                  <text
+                                    style='font-family: "Roboto Mono", monospace; font-weight: 500;'
+                                    font-size="96"
+                                    textLength="96"
+                                    lengthAdjust="spacingAndGlyphs"
+                                    transform="translate(28 104)">D3</text
+                                  >
+                                  <path
+                                    d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
+                                    stroke-width="4"
+                                    stroke-linejoin="round"
+                                    fill="none"></path>
+                                  <path
+                                    d="M28 124 124 124"
+                                    stroke="#1E1E1E"
+                                    stroke-width="16"
+                                    fill="none"></path>
+                                </svg>
+                              </div>
+                              <div class="min-w-0 flex-1">
+                                <div class="flex items-center justify-between gap-2">
+                                  <div class="flex items-center gap-1.5 min-w-0">
+                                    <span class="truncate font-medium">母港拡張</span>
+                                    <span class="badge badge-xs badge-accent shrink-0">Usable</span>
+                                    <span class="badge badge-xs badge-ghost border-base-300 tabular-nums shrink-0">1000 pt</span>
+                                  </div>
+                                  <span class="tabular-nums font-medium shrink-0 text-right w-14">x1</span>
+                                </div>
+                                <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                  保有艦数の上限枠を10隻分拡張します。
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+                        </ul>
+                      </details>
                     </li>
                   </ul>
                 </details>
@@ -8105,11 +8585,44 @@ const materialList = [
                 >
               </tr>
               <tr>
+                <td class="font-bold font-mono">ItemsComponent</td>
+                <td class="font-mono text-base-content/70"
+                  >src/components/items/items.tsx</td
+                >
+                <td class="font-mono text-primary"
+                  >items/items.stories.tsx</td
+                >
+                <td><span class="badge badge-success badge-xs">Active</span></td
+                >
+              </tr>
+              <tr>
                 <td class="font-bold font-mono">QuestsComponent</td>
                 <td class="font-mono text-base-content/70"
                   >src/components/quests/quests.tsx</td
                 >
                 <td class="font-mono text-primary">quests/quests.stories.tsx</td
+                >
+                <td><span class="badge badge-success badge-xs">Active</span></td
+                >
+              </tr>
+              <tr>
+                <td class="font-bold font-mono">EmptyValue / EmptySlot</td>
+                <td class="font-mono text-base-content/70"
+                  >src/components/ui/components/empty/empty.tsx</td
+                >
+                <td class="font-mono text-primary"
+                  >ui/stories/components/empty/empty.stories.tsx</td
+                >
+                <td><span class="badge badge-success badge-xs">Active</span></td
+                >
+              </tr>
+              <tr>
+                <td class="font-bold font-mono">TouchPlane / FlareShip</td>
+                <td class="font-mono text-base-content/70"
+                  >src/components/battles/shared/touch_plane.tsx, flare_ship.tsx</td
+                >
+                <td class="font-mono text-primary"
+                  >battles/**</td
                 >
                 <td><span class="badge badge-success badge-xs">Active</span></td
                 >
@@ -8148,7 +8661,7 @@ const materialList = [
                 >
               </tr>
               <tr>
-                <td class="font-bold font-mono">ThemeSelector</td>
+                <td class="font-bold font-mono">ThemeControllerComponent</td>
                 <td class="font-mono text-base-content/70"
                   >src/components/settings/theme.tsx</td
                 >
@@ -8244,6 +8757,55 @@ const materialList = [
       });
 
       renderVolume();
+    })();
+
+    (() => {
+      const themeBtn = document.getElementById("mock-theme-btn");
+      const sunIcon = document.getElementById("mock-theme-sun");
+      const moonIcon = document.getElementById("mock-theme-moon");
+      if (!themeBtn || !sunIcon || !moonIcon) return;
+
+      const getTheme = () =>
+        document.documentElement.getAttribute("data-theme") === "dark"
+          ? "dark"
+          : "light";
+
+      const renderTheme = () => {
+        const isDark = getTheme() === "dark";
+        sunIcon.classList.toggle("hidden", isDark);
+        moonIcon.classList.toggle("hidden", !isDark);
+        themeBtn.setAttribute("aria-pressed", String(isDark));
+        themeBtn.setAttribute(
+          "aria-label",
+          isDark ? "Switch to Light theme" : "Switch to Dark theme",
+        );
+        themeBtn.setAttribute(
+          "title",
+          isDark
+            ? "Theme: Dark (Click to switch to Light)"
+            : "Theme: Light (Click to switch to Dark)",
+        );
+      };
+
+      themeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const next = getTheme() === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        localStorage.setItem("theme", next);
+        const headerToggle = document.getElementById("theme-toggle");
+        if (headerToggle && "checked" in headerToggle) {
+          headerToggle.checked = next === "dark";
+        }
+        renderTheme();
+      });
+
+      const observer = new MutationObserver(renderTheme);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme"],
+      });
+
+      renderTheme();
     })();
   </script>
 </AppDesignLayout>

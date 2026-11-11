@@ -12,12 +12,13 @@ Data-dense naval operations desktop client with a calm dark base, frameless nati
    - Custom titlebar (`CustomTitlebar`) with native window control integration (`.fusou-win-btn`, `.fusou-tool-btn`).
    - Clean 10px rounded corners on `#root` when windowed, seamlessly flattening to 0px when maximized (`.is-maximized`).
    - Native dragging via `data-tauri-drag-region` and custom resizable edges (`WindowResizeBorders`).
-2. **Theme Surfaces & High Data Density**:
-   - Uses DaisyUI 5 OKLCH light (`--color-base-100: oklch(100% 0 0)`, `--color-base-300: oklch(92% 0.004 286.32)`) and dark (`--color-base-100: oklch(21.6% 0.006 56.043)`, `--color-base-300: oklch(27% 0.006 286.033)`) themes in `src/global.css`.
+2. **Theme Surfaces, Shared CSS & High Data Density**:
+   - Single source of truth stylesheets live under `src/styles/` (`daisyui-themes.css`, `app-utilities.css`, `window-controls.css`) and are imported by `src/global.css`, `src/components/ui/global.css`, and `packages/FUSOU-WEB/src/assets/fusou-app-system.css`.
+   - Uses DaisyUI 5 OKLCH light (`--color-base-100: oklch(100% 0 0)`, `--color-base-300: oklch(92% 0.004 286.32)`) and dark (`--color-base-100: oklch(21.6% 0.006 56.043)`, `--color-base-300: oklch(27% 0.006 286.033)`) themes in `src/styles/daisyui-themes.css`.
    - Brand & chrome hex values are scoped to the Tauri custom titlebar (`#27272a`), audio popover (`#1d1c1c`), 3-bar FUSOU logo / range thumb (`#B5D95A`, `#96C54E`, `#76B142`), and Tailwind operational status colors (`text-green-500`, `text-lime-500`, `text-yellow-500`, `text-orange-500`, `text-red-500`).
 3. **Typography & Tactical Monospace Usage**:
    - `Roboto Mono` (`font-weight: 500`, imported in `src/global.css`) is applied to SVG tactical icon badges (`IconShip`, `IconEquipment`, `IconMaterial`, `IconFleetNumber`).
-   - Operational lists and tables (`DeckComponent`, `BattleSummaryComponent`, `AirBasesComponent`, `MaterialsComponent`, `QuestsComponent`) use the app default sans-serif font, with `font-mono` used explicitly in `ErrorFallback.tsx` and `data_collection_status.tsx` and `tabular-nums` in `CustomTitlebar`.
+   - Operational lists and tables (`DeckComponent`, `BattleSummaryComponent`, `AirBasesComponent`, `MaterialsComponent`, `ItemsComponent`, `QuestsComponent`) use the app default sans-serif font, with `font-mono` used explicitly in `ErrorFallback.tsx` and `data_collection_status.tsx` and `tabular-nums` in `CustomTitlebar` and numeric counters.
 4. **Resilient Non-Blocking UI Architecture**:
    - Every component must gracefully handle IPC delays, missing data, and non-Tauri browser/Storybook environments using `safeTauriListen`, `isTauri()`, and `<Show>` fallbacks.
 5. **Strict Domain Vocabulary**:
@@ -44,29 +45,28 @@ Data-dense naval operations desktop client with a calm dark base, frameless nati
 
 FUSOU-APP configures two core themes with full OKLCH color space support:
 
-| Token | Dark Theme | Light Theme (Default) | Usage |
-| :--- | :--- | :--- | :--- |
-| `--color-base-100` | `oklch(21.6% 0.006 56.043)` | `oklch(100% 0 0)` | Window content & surface |
-| `--color-base-200` | `oklch(21.6% 0.006 56.043)` | `oklch(100% 0 0)` | Page canvas background |
-| `--color-base-300` | `oklch(27% 0.006 286.033)` | `oklch(92% 0.004 286.32)` | Borders, badges, dividers (`--radius-box: 0.5rem`) |
-| `--color-base-content` | `oklch(97.807% 0.029 256.847)` | `oklch(21% 0.006 285.885)` | Primary typography |
-| `--color-primary` | `oklch(87% 0.15 154.449)` | `oklch(87% 0.15 154.449)` | Primary buttons & active toggles |
-| `--color-secondary` | `oklch(89% 0.196 126.665)` | `oklch(89% 0.196 126.665)` | Secondary controls |
-| `--color-accent` | `oklch(86% 0.127 207.078)` | `oklch(86% 0.127 207.078)` | Equipment improvement `+n`, ship bonus indicators |
-| `--color-info` | `oklch(68% 0.169 237.323)` | `oklch(68% 0.169 237.323)` | Informational states & log DEBUG badges |
-| `--color-success` | `oklch(76% 0.233 130.85)` | `oklch(76% 0.233 130.85)` | Update alert, policy read-only checks, log INFO badges |
-| `--color-warning` | `oklch(70% 0.213 47.604)` | `oklch(70% 0.213 47.604)` | Log WARN badges |
-| `--color-error` | `oklch(63% 0.237 25.331)` | `oklch(63% 0.237 25.331)` | Error alerts, log ERROR badges, missing state outlines |
+| Token                  | Dark Theme                     | Light Theme (Default)      | Usage                                                  |
+| :--------------------- | :----------------------------- | :------------------------- | :----------------------------------------------------- |
+| `--color-base-100`     | `oklch(21.6% 0.006 56.043)`    | `oklch(100% 0 0)`          | Window content & surface                               |
+| `--color-base-200`     | `oklch(21.6% 0.006 56.043)`    | `oklch(100% 0 0)`          | Page canvas background                                 |
+| `--color-base-300`     | `oklch(27% 0.006 286.033)`     | `oklch(92% 0.004 286.32)`  | Borders, badges, dividers (`--radius-box: 0.5rem`)     |
+| `--color-base-content` | `oklch(97.807% 0.029 256.847)` | `oklch(21% 0.006 285.885)` | Primary typography                                     |
+| `--color-primary`      | `oklch(87% 0.15 154.449)`      | `oklch(87% 0.15 154.449)`  | Primary buttons & active toggles                       |
+| `--color-secondary`    | `oklch(89% 0.196 126.665)`     | `oklch(89% 0.196 126.665)` | Secondary controls                                     |
+| `--color-accent`       | `oklch(86% 0.127 207.078)`     | `oklch(86% 0.127 207.078)` | Equipment improvement `+n`, ship bonus indicators      |
+| `--color-info`         | `oklch(68% 0.169 237.323)`     | `oklch(68% 0.169 237.323)` | Informational states & log DEBUG badges                |
+| `--color-success`      | `oklch(76% 0.233 130.85)`      | `oklch(76% 0.233 130.85)`  | Update alert, policy read-only checks, log INFO badges |
+| `--color-warning`      | `oklch(70% 0.213 47.604)`      | `oklch(70% 0.213 47.604)`  | Log WARN badges                                        |
+| `--color-error`        | `oklch(63% 0.237 25.331)`      | `oklch(63% 0.237 25.331)`  | Error alerts, log ERROR badges, missing state outlines |
 
 ---
 
 ## 02 / Typography Hierarchy
 
 - **Titlebar Brand**: 11px / `font-bold tracking-wider opacity-90` (`CustomTitlebar`)
-- **Update Page Heading**: `text-4xl` (`update.tsx`)
-- **Panel / Policy Title**: `text-xl font-bold` (`policy_panel.tsx`)
-- **Card / Section Heading**: `text-lg font-semibold` (`start.tsx`)
-- **Operational List & Table Text**: `text-xs` / `text-sm` in default system sans-serif (`DeckComponent`, `BattleSummaryComponent`, `AirBasesComponent`, `MaterialsComponent`, `QuestsComponent`)
+- **Unified Page Heading**: `text-2xl font-semibold` (`settings.tsx`, `data_collection_status.tsx`, `policy_panel.tsx`, `start.tsx`, `update.tsx`, `debug_api.tsx`)
+- **Section / Subsection Heading**: `text-xl font-semibold` (`settings.tsx`, `data_collection_status.tsx`), `text-lg font-semibold` (`start.tsx`)
+- **Operational List & Table Text**: `text-xs` / `text-sm` in default system sans-serif with `tabular-nums` on telemetry values (`DeckComponent`, `BattleSummaryComponent`, `AirBasesComponent`, `MaterialsComponent`, `QuestsComponent`, `LogViewerComponent`)
 - **SVG Capsule Icons**: `Roboto Mono` (`font-weight: 500`, 96px SVG coordinate space)
 - **Explicit Monospace Scopes**: `font-mono` in `ErrorFallback.tsx` and `data_collection_status.tsx`; `tabular-nums` on `CustomTitlebar` volume readout (`10px`)
 
@@ -102,6 +102,7 @@ Rules:
   - **Screenshot**: `invoke("trigger_external_screenshot")`
   - **Reload**: Click: reload external game webview / Shift+Click: reload app UI.
   - **Volume Popover**: Displays live volume % (`0%` - `100%`) with mute icon.
+  - **Theme Toggle**: Single-click `.fusou-tool-btn` (`ThemeControllerComponent`) in the titlebar toggling Light (`light`) and Dark (`dark`) themes across all windows/tabs (replacing the former `Settings` and `Start` dropdown selectors).
 
 ### Sound Volume Popover & Controls
 
@@ -121,15 +122,15 @@ Rules:
 
 ## 04 / Buttons & Action Hierarchy
 
-| Variant | Classes | Purpose |
-| :--- | :--- | :--- |
-| **Primary Action** | `.btn.btn-primary` (or `.btn-sm`) | Main CTA (Save, Submit, Sync, Confirm) |
-| **Secondary Action** | `.btn.btn-secondary` | Sub-operations (Refresh, Export, Filter) |
-| **Outline Action** | `.btn.btn-outline` | Bordered button with lower emphasis |
-| **Ghost Action** | `.btn.btn-ghost` | Low-emphasis navigation, cancel, close dialog |
-| **Destructive** | `.btn.btn-error` / `.btn-error.btn-outline` | Delete, reset cache, cancel upload |
-| **Tool Button** | `.fusou-tool-btn` | Titlebar actions (24px height, icon+label) |
-| **Compact Control** | `.btn.btn-xs` | Table row operations, item remove buttons |
+| Variant              | Classes                                     | Purpose                                       |
+| :------------------- | :------------------------------------------ | :-------------------------------------------- |
+| **Primary Action**   | `.btn.btn-primary` (or `.btn-sm`)           | Main CTA (Save, Submit, Sync, Confirm)        |
+| **Secondary Action** | `.btn.btn-secondary`                        | Sub-operations (Refresh, Export, Filter)      |
+| **Outline Action**   | `.btn.btn-outline`                          | Bordered button with lower emphasis           |
+| **Ghost Action**     | `.btn.btn-ghost`                            | Low-emphasis navigation, cancel, close dialog |
+| **Destructive**      | `.btn.btn-error` / `.btn-error.btn-outline` | Delete, reset cache, cancel upload            |
+| **Tool Button**      | `.fusou-tool-btn`                           | Titlebar actions (24px height, icon+label)    |
+| **Compact Control**  | `.btn.btn-xs`                               | Table row operations, item remove buttons     |
 
 Rules:
 
@@ -140,11 +141,16 @@ Rules:
 
 ## 05 / Cards, Surfaces & Collapsible Groups
 
+### Form Controls & Focus States (`src/css/form_controls.css`)
+
+- Shared with `FUSOU-WEB`'s `/design-system/app/` stylesheet via `src/styles/app-utilities.css`.
+- Suppresses DaisyUI's default `outline` + `outline-offset` ring and box-shadow on `:focus`, `:focus-within`, `:focus-visible`, `:active`, and `:open` for `.input`, `.select`, `.textarea`, `.file-input` (and native text/search/select/textarea elements), keeping a single `1px` border that highlights in `var(--color-primary)` (while semantic color variants such as `.input-error` preserve their status border color).
+
 ### Standard Surface
 
 - Background: `bg-base-100`
 - Border: `border border-base-300` (`oklch(27% 0.006 286.033)`)
-- Radius: `rounded-lg` (8px) or `rounded-box`
+- Radius: `rounded-box` (`0.5rem`, aligned with `--radius-box: 0.5rem`)
 - Shadow: Flat (no drop shadows; depth is strictly border-driven)
 
 ### Collapsible Operational Groups (`<details open><summary>`)
@@ -155,9 +161,7 @@ The primary grouping mechanism in FUSOU-APP is the native `<details open class="
 <li>
   <details open>
     <summary class="font-semibold text-xs">Section Title</summary>
-    <ul class="pl-0">
-      {/* Dense operational content */}
-    </ul>
+    <ul class="pl-0">{/* Dense operational content */}</ul>
   </details>
 </li>
 ```
@@ -187,16 +191,21 @@ The primary grouping mechanism in FUSOU-APP is the native `<details open class="
     <progress
       class="progress w-full [class_color] [class_size]"
       max="100"
-      value={calc_value(v_now, v_max, quantize)}
+      value="{calc_value(v_now,"
+      v_max,
+      quantize)}
     ></progress>
   </div>
   ```
 - **Exact DOM Tree (`ComponentColorBarLabel`, size="xs")**:
   ```html
   <div class="w-full py-0.5 h-6">
-    <div class="grid place-content-center cursor-inherit mx-auto h-[10px] text-xs">
+    <div
+      class="grid place-content-center cursor-inherit mx-auto tabular-nums h-[10px] text-xs"
+    >
       <div class=" flex flex-nowrap">
-        <div class="w-[2em] text-center">{v_now}</div>/
+        <div class="w-[2em] text-center">{v_now}</div>
+        /
         <div class="w-[2em] text-center">{v_max}</div>
       </div>
     </div>
@@ -205,12 +214,17 @@ The primary grouping mechanism in FUSOU-APP is the native `<details open class="
         <progress
           class="progress w-full [class_color] h-1"
           max="100"
-          value={calc_value}
+          value="{calc_value}"
         ></progress>
       </div>
     </div>
   </div>
   ```
+
+### Empty & None Placeholders (`EmptyValue` & `EmptySlot`, `src/components/ui/components/empty/empty.tsx`)
+
+- **Fixed-Width Text Placeholders (`EmptyValue`)**: Renders muted em-dash `—` (or `-`) inside `inline-flex items-center shrink-0 select-none text-base-content/40 tabular-nums` matched to icon height scales (`xs` `h-6`..`xl` `h-11`) with optional `widthClass` (`w-14`, `w-48`, etc.) so optional readouts (`Form`, `Smoke Type`, `Balloon`, missing stat cells, unknown quest progress) reserve consistent horizontal width without shifting adjacent elements.
+- **Empty Entity Slots (`EmptySlot`)**: Renders `<IconShip empty_flag={true} />` or `<IconEquipment empty_flag={true} />` (subtle rounded dashed border `stroke-dasharray="14 10"` with faded horizontal accent bar — no longer blank invisible geometry) plus an optional fixed-width `EmptyValue` label (`showLabel={true}`) inside locked slots such as `Drop:` (`w-28`), `touch :` (`w-6 + w-3 + w-6`), `CI :` (`w-24 + w-20`), `Combat Ration :` (`w-14`), and `Flare :` (`w-24 / w-24`).
 
 ---
 
@@ -334,10 +348,10 @@ FUSOU does not use generic emoji or consumer icon fonts for naval entities. Inst
 
 ### 7. Alert & Diagnostics Badges (`IconCautionFill`, `IconError`)
 
-- Warning shield / circular exclamation badge:
-  - Low caution: Amber (`#F59E0B`)
-  - Middle caution: Orange (`#F97316`)
-  - Critical caution: Red (`#EF4444`)
+- Warning shield / circular exclamation badge (unified with tactical status scale):
+  - Low caution: Yellow (`text-yellow-500`)
+  - Middle caution: Orange (`text-orange-500`)
+  - Critical caution: Red (`text-red-500`)
 - Critical error indicator (`IconError`): Red pill badge with exclamation alert (`#DC2626`).
 
 ---
@@ -363,12 +377,19 @@ Modal components follow a unified interactive pattern: a compact clickable trigg
   - `empty_flag?: boolean`
 - **Trigger Structure**:
   ```html
-  <div class="w-full cursor-pointer" onClick={open_modal}>
+  <div class="w-full cursor-pointer" onClick="{open_modal}">
     <div class="flex flex-nowrap w-full">
       <div>
-        <IconShip ship_stype={mst_ship.stype} color={color} size={size} empty_flag={empty_flag} />
+        <IconShip
+          ship_stype="{mst_ship.stype}"
+          color="{color}"
+          size="{size}"
+          empty_flag="{empty_flag}"
+        />
       </div>
-      <div class="pl-3 truncate content-center cursor-inherit [class_size.name_text] [class_size.name_h]">
+      <div
+        class="pl-3 truncate content-center cursor-inherit [class_size.name_text] [class_size.name_h]"
+      >
         {mst_ship.name}
       </div>
     </div>
@@ -398,32 +419,46 @@ Modal components follow a unified interactive pattern: a compact clickable trigg
     <div class="cursor-default">
       <div class="flex justify-start">
         <h3 class="font-bold pl-2 truncate text-lg">{mst_ship.name}</h3>
-        <div class="place-self-end pl-4 text-md">Lv. {ship.lv}</div>
-        <div class="place-self-end pl-2 text-md">next {ship.exp[1]}</div>
+        <div class="place-self-end pl-4 text-base">Lv. {ship.lv}</div>
+        <div class="place-self-end pl-2 text-base">next {ship.exp[1]}</div>
       </div>
       <div class="pt-2">
         <table class="table table-sm">
-          <caption class="truncate text-md">Slots</caption>
+          <caption class="truncate text-base">
+            Slots
+          </caption>
           <tbody>
             <!-- S1..S5 -->
             <tr class="flex rounded items-center w-full [hatch_if_locked]">
               <th class="flex-none w-4">S{index + 1}</th>
               <td class="flex-none w-12 ml-4 py-1 w-full">
-                <ComponentEquipmentModal slot_item={slot} mst_slot_item={mst_slot} name_flag={true} size="sm" />
+                <ComponentEquipmentModal
+                  slot_item="{slot}"
+                  mst_slot_item="{mst_slot}"
+                  name_flag="{true}"
+                  size="sm"
+                />
               </td>
             </tr>
             <!-- SE (Extra Slot) -->
             <tr class="flex rounded items-center [hatch_if_locked]">
               <th class="flex-none w-4">SE</th>
               <td class="flex-none w-12 ml-4 py-1 w-full">
-                <ComponentEquipmentModal slot_item={slot_ex} mst_slot_item={mst_slot_ex} name_flag={true} size="sm" />
+                <ComponentEquipmentModal
+                  slot_item="{slot_ex}"
+                  mst_slot_item="{mst_slot_ex}"
+                  name_flag="{true}"
+                  size="sm"
+                />
               </td>
             </tr>
           </tbody>
         </table>
         <div class="h-2" />
         <table class="table table-sm">
-          <caption class="truncate text-md">Ship Status</caption>
+          <caption class="truncate text-base">
+            Ship Status
+          </caption>
           <tbody>
             <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Durability</th>
@@ -431,7 +466,10 @@ Modal components follow a unified interactive pattern: a compact clickable trigg
               <th class="truncate flex-1 w-2">Firepower</th>
               <td class="flex-none w-12 flex justify-end pr-4">
                 <div class="indicator">
-                  <span class="indicator-item indicator-bottom text-accent text-sm">+{bonus}</span>
+                  <span
+                    class="indicator-item indicator-bottom text-accent text-sm"
+                    >+{bonus}</span
+                  >
                   {ship.karyoku[0]}
                 </div>
               </td>
@@ -460,23 +498,36 @@ Modal components follow a unified interactive pattern: a compact clickable trigg
   - `empty_flag?: boolean`
 - **Trigger Structure**:
   ```html
-  <div class="w-full cursor-pointer" onClick={open_modal}>
+  <div class="w-full cursor-pointer" onClick="{open_modal}">
     <div class="flex flex-nowrap w-full">
       <div class="indicator">
         <span class="indicator-item">{levelTemplate}</span>
-        <IconEquipment category_number={mst_slot_item.type[1]} icon_number={mst_slot_item.type[3]} size={size} empty_flag={empty_flag} />
+        <IconEquipment
+          category_number="{mst_slot_item.type[1]}"
+          icon_number="{mst_slot_item.type[3]}"
+          size="{size}"
+          empty_flag="{empty_flag}"
+        />
       </div>
       <!-- Proficiency & Onslot (when not ex_flag and not compact) -->
-      <div class="flex-none [class_size.proficiency_onslot_pl] [class_size.proficiency_onslot_mt]">
-        <div class="flex items-center justify-center w-4 [class_size.proficiency_onslot_h]">
-          <IconPlaneProficiency level={slot_item.alv} size="full" />
+      <div
+        class="flex-none [class_size.proficiency_onslot_pl] [class_size.proficiency_onslot_mt]"
+      >
+        <div
+          class="flex items-center justify-center w-4 [class_size.proficiency_onslot_h]"
+        >
+          <IconPlaneProficiency level="{slot_item.alv}" size="full" />
         </div>
-        <div class="flex items-center justify-center w-4 cursor-inherit [class_size.proficiency_onslot_h] [class_size.onslot_text]">
+        <div
+          class="flex items-center justify-center w-4 cursor-inherit [class_size.proficiency_onslot_h] [class_size.onslot_text]"
+        >
           {attr_onslot}
         </div>
       </div>
       <!-- Name (when name_flag: true) -->
-      <div class="pl-3 truncate content-center cursor-inherit [class_size.name_text] [class_size.name_h]">
+      <div
+        class="pl-3 truncate content-center cursor-inherit [class_size.name_text] [class_size.name_h]"
+      >
         {mst_slot_item.name}
       </div>
     </div>
@@ -501,47 +552,75 @@ Modal components follow a unified interactive pattern: a compact clickable trigg
     ```html
     <div class="flex justify-start cursor-default">
       <h3 class="font-bold pl-3 truncate text-lg">{mst_slot_item.name}</h3>
-      <div class="place-self-end pl-4 text-accent text-md">+{slot_item.level}</div>
+      <div class="place-self-end pl-4 text-accent text-base">
+        +{slot_item.level}
+      </div>
     </div>
     <div class="pt-2 cursor-default">
       <table class="table table-sm">
-        <caption class="truncate pb-2 text-md">Equipment Status</caption>
+        <caption class="truncate pb-2 text-base">
+          Equipment Status
+        </caption>
         <tbody>
           <tr class="flex rounded">
             <th class="truncate flex-1 w-2">Firepower</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(houg)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(houg)}
+            </td>
             <th class="truncate flex-1 w-2">Torpedo</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(raig)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(raig)}
+            </td>
           </tr>
           <tr class="flex rounded">
             <th class="truncate flex-1 w-2">Bomb</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(baku)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(baku)}
+            </td>
             <th class="truncate flex-1 w-2">Anti-Air</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(tyku)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(tyku)}
+            </td>
           </tr>
           <tr class="flex rounded">
             <th class="truncate flex-1 w-2">Anti-Submarine</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(tais)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(tais)}
+            </td>
             <th class="truncate flex-1 w-2">Reconnaissance</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(saku)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(saku)}
+            </td>
           </tr>
           <tr class="flex rounded">
             <th class="truncate flex-1 w-2">Accuracy</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(houm)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(houm)}
+            </td>
             <th class="truncate flex-1 w-2">Evasion</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(houk)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(houk)}
+            </td>
           </tr>
           <tr class="flex rounded">
             <th class="truncate flex-1 w-2">Armor</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(souk)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(souk)}
+            </td>
             <th class="truncate flex-1 w-2">Anti-Bomber</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(taibaku)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(taibaku)}
+            </td>
           </tr>
           <tr class="flex rounded">
             <th class="truncate flex-1 w-2">Interception</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(geigeki)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(geigeki)}
+            </td>
             <th class="truncate flex-1 w-2">Distance</th>
-            <td class="flex-none w-12 flex justify-end pr-4">{signed_number(distance)}</td>
+            <td class="flex-none w-12 flex justify-end pr-4">
+              {signed_number(distance)}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -579,12 +658,15 @@ The fleet deck table (`src/components/deck_port/deck.tsx` and `decks.tsx`) organ
 ### DOM Structure & Column Specifications
 
 Each deck item is structured as:
+
 ```html
 <li>
   <details open>
     <summary class="flex">
       <div class="w-20 flex-none">{fleet_name}</div>
-      <div class="w-4 flex-none -mx-4"><IconChevronRightS class="h-4 w-4" /></div>
+      <div class="w-4 flex-none -mx-4">
+        <IconChevronRightS class="h-4 w-4" />
+      </div>
       <div class="pl-4">{deck_name}</div>
       <span class="flex-auto" />
     </summary>
@@ -608,7 +690,7 @@ Each deck item is structured as:
 3. **Condition / Morale Indicator (`flex-none` -> `flex justify-center w-8 indicator`)**:
    - Contains a fixed-width `badge badge-md border-base-300 w-9`.
    - High Morale (>= 50): Accompanied by `IconKira` (1 to 3 stars based on cond score).
-   - Low Morale (<= 29 / 19): Accompanied by `IconCautionFill` with amber or red warning state.
+   - Low Morale (<= 29 / 19): Accompanied by `IconCautionFill` with yellow/orange (`<= 39/29`) or red (`<= 19`) warning state.
 4. **Vertical Divider (`divider divider-horizontal mr-0 ml-0 flex-none`)**
 5. **HP Health Meter (`indicator` -> `w-16 text-xs`)**:
    - Stacked indicator for caution warning icon when damaged, and `ComponentColorBarLabel size="xs"`.
@@ -625,7 +707,13 @@ Each deck item is structured as:
       .back_slash_color {
         background-size: 16px 16px;
         background-position: top left;
-        background-image: repeating-linear-gradient(45deg, currentColor 0, currentColor 0.5px, transparent 0, transparent 50%);
+        background-image: repeating-linear-gradient(
+          45deg,
+          currentColor 0,
+          currentColor 0.5px,
+          transparent 0,
+          transparent 50%
+        );
       }
       ```
 11. **Vertical Divider (`divider divider-horizontal mr-0 ml-0`)**
@@ -643,26 +731,28 @@ In production (`src/components/battles/battles.tsx`), combat operations are orga
 1. **Map Header**:
    - `<summary class="flex">Battles<IconChevronRightS class="h-4 w-4" /><div>Map : {maparea_id}-{mapinfo_no}</div><span class="flex-auto" /></summary>`.
 2. **Cell Route Selection**:
-   - Horizontal navigation bar: `<div class="flex flex-row pl-2 items-center"><div class="h-4 mt-px pt-px text-xs">cells</div><IconChevronRightS class="h-4 w-4 m-1" /><button class="btn btn-xs btn-square rounded-none">A</button>...`.
+   - Horizontal navigation bar: `<div class="flex flex-row pl-2 items-center"><div class="h-4 mt-px pt-px text-xs">cells</div><IconChevronRightS class="h-4 w-4 m-1" /><button class="btn btn-xs btn-square">A</button>...`.
 3. **Search Status**:
-   - Inline indicator (`battles.tsx`): `Search : <div class="text-lime-500">Enemy in sight; Accuracy &amp; Evacuation Up</div>` (or corresponding reconnaissance status / `___` fallback).
+   - Inline indicator (`battles.tsx`): `Search : <div class="text-lime-500">Enemy in sight; Accuracy &amp; Evacuation Up</div>` (or corresponding reconnaissance status / `<EmptyValue />` fallback).
 4. **Formations & Form**:
-   - Inline tactical indicator: `<FormationComponent formation={battle?.formation} />` + `divider divider-horizontal mr-0 ml-0` + `Form : <div class="text-lime-500">Crossing the T (Advantage)</div>`.
+   - Inline tactical indicator: `<FormationComponent formation={battle?.formation} />` + `divider divider-horizontal mr-0 ml-0` + fixed-width engagement readout (`w-48 shrink-0`) `Form : <div class="text-lime-500">Crossing the T (Advantage)</div>` (with `<EmptyValue />` fallback).
 5. **Tactical Consumables & Air Assets**:
-   - `Smoke Type : _` (or `Signle` / `Double` / `Triple`) + `divider` + `Combat Ration : _` + `divider` + `Balloon : launched`.
+   - Fixed-width horizontal cells (`w-14 shrink-0`): `Smoke Type : —` (or `Single` / `Double` / `Triple`) + `divider` + `Combat Ration : <EmptySlot kind="equip" size="xs" />` + `divider` + `Balloon : launched` (or `—`).
+6. **Battle Result & Drop Alignment (`BattleResultComponent`, `battle_result.tsx`)**:
+   - Wraps `Drop :` value in fixed width `w-28 shrink-0` using `<EmptySlot kind="ship" size="xs" showLabel={true} widthClass="w-full" />` when no ship dropped, so `Landing HP :` remains anchored horizontally without shifting.
 
 ### 2. Battle Summary Table (`BattleSummaryComponent`, `src/components/battles/battle/battle_summary.tsx`)
 
 Rendered as a unified `<table class="table table-xs">` inside `<details open><summary>Summary</summary><ul class="pl-0">` with exactly 6 table columns:
 
-| Column | Header | Width | Content |
-| :--- | :--- | :--- | :--- |
-| **Col 1** | `Own Main` | `w-2/10` | Green `IconFleetNumber` (`e_flag={0}`) + `ComponentShipModal` |
-| **Col 2** | `HP` | `w-2/10` | `ComponentColorBarLabel size="xs"` |
-| **Col 3** | `Damage` | `w-1/10` | Numeric damage dealt (`my-auto text-sm`) |
+| Column    | Header       | Width    | Content                                                           |
+| :-------- | :----------- | :------- | :---------------------------------------------------------------- |
+| **Col 1** | `Own Main`   | `w-2/10` | Green `IconFleetNumber` (`e_flag={0}`) + `ComponentShipModal`     |
+| **Col 2** | `HP`         | `w-2/10` | `ComponentColorBarLabel size="xs"`                                |
+| **Col 3** | `Damage`     | `w-1/10` | Numeric damage dealt (`my-auto text-sm`)                          |
 | **Col 4** | `Enemy Main` | `w-2/10` | Red `IconFleetNumber` (`e_flag={1}`) + `ComponentShipMaskedModal` |
-| **Col 5** | `HP` | `w-2/10` | `ComponentColorBarLabel size="xs"` |
-| **Col 6** | `Damage` | `w-1/10` | Numeric damage dealt (`my-auto text-sm`) |
+| **Col 5** | `HP`         | `w-2/10` | `ComponentColorBarLabel size="xs"`                                |
+| **Col 6** | `Damage`     | `w-1/10` | Numeric damage dealt (`my-auto text-sm`)                          |
 
 ### 3. Aerial Combat Phases
 
@@ -674,17 +764,22 @@ FUSOU-APP renders dedicated sequential combat phases for aerial operations under
 - **Tactical Header Bar**:
   ```html
   <div class="flex flex-nowrap pl-2 items-center text-xs">
-    touch : <span class="w-1" />
-    <div class="w-6 flex justify-center">
-      <!-- Friendly Touch Plane: ConnectedCIMstEquip (w-6 overflow-hidden) or '_' -->
-    </div>
-    <div class="w-3 text-center">/</div>
-    <div class="w-6 flex justify-center">
-      <!-- Enemy Touch Plane: ConnectedCIMstEquip (w-6 overflow-hidden) or '_' -->
+    <!-- Shared <TouchPlaneComponent /> -->
+    <div class="inline-flex items-center shrink-0">
+      <span>touch :</span><span class="w-1" />
+      <div class="w-6 h-6 flex items-center justify-center shrink-0">
+        <!-- ConnectedCIMstEquip or <EmptySlot kind="equip" size="xs" /> -->
+      </div>
+      <div class="w-3 text-center shrink-0">/</div>
+      <div class="w-6 h-6 flex items-center justify-center shrink-0">
+        <!-- ConnectedCIMstEquip or <EmptySlot kind="equip" size="xs" /> -->
+      </div>
     </div>
     <div class="divider divider-horizontal mr-0 ml-0" />
     <!-- Sprite Flight & Loss Counts: SpriteMotionCounts -->
-    <span class="text-xs">Sprite - Fly: 18/0, Crash: 0/0, Damage: 0/0, Non-Normal: 0/0</span>
+    <span class="text-xs"
+      >Sprite - Fly: 18/0, Crash: 0/0, Damage: 0/0, Non-Normal: 0/0</span
+    >
   </div>
   ```
 - **Air Base Attack Table**:
@@ -703,30 +798,25 @@ FUSOU-APP renders dedicated sequential combat phases for aerial operations under
   ```html
   <div class="pl-2 text-xs flex flex-nowrap items-center">
     <!-- Air Superiority State -->
-    Air State : <div class="text-lime-500 pl-1">Air Supremacy</div>
+    <AirStateComponent air_state="{0}" />
     <div class="divider divider-horizontal mr-0 ml-0" />
-    <!-- Touch Aircraft -->
-    touch : <span class="w-1" />
-    <div class="w-6 flex justify-center">
-      <div class="w-6 overflow-hidden">
-        <!-- ConnectedCIMstEquip (e.g. 零式水上偵察機11型乙(熟練)) or '_' -->
+    <!-- Touch Aircraft (<TouchPlaneComponent />) -->
+    <!-- Anti-Air Cut-in (AACI, locked widths w-24 ship + w-20 items) -->
+    <div class="inline-flex items-center shrink-0">
+      <span>CI :</span><span class="w-1" />
+      <div class="w-24 shrink-0 overflow-hidden flex items-center">
+        <!-- ConnectedOwnShip name or <EmptySlot kind="ship" size="xs" showLabel={true} widthClass="w-full" /> -->
       </div>
-    </div>
-    <div class="w-3 text-center">/</div>
-    <div class="w-6 flex justify-center">_</div>
-    <div class="divider divider-horizontal mr-0 ml-0" />
-    <!-- Anti-Air Cut-in (AACI) -->
-    CI : <span class="w-1" />
-    <div class="flex justify-center">
-      <div class="w-24">
-        <!-- ConnectedOwnShip name (e.g. Fletcher Kai) or '___' -->
+      <div class="w-1 shrink-0" />
+      <div class="w-20 shrink-0 flex items-center justify-start gap-1">
+        <!-- ConnectedCIMstEquip items or two <EmptySlot kind="equip" size="xs" /> -->
       </div>
-      <div class="w-1" />
-      <!-- ConnectedCIMstEquip items used for AACI (e.g. 5inch dual gun + radar) -->
     </div>
     <div class="divider divider-horizontal mr-0 ml-0" />
     <!-- Sprite Flight & Loss Counts: SpriteMotionCounts -->
-    <span class="text-xs">Sprite - Fly: 12/8, Crash: 0/2, Damage: 1/0, Non-Normal: 0/0</span>
+    <span class="text-xs"
+      >Sprite - Fly: 12/8, Crash: 0/2, Damage: 1/0, Non-Normal: 0/0</span
+    >
   </div>
   ```
 - **Opening Air Attack Table**:
@@ -748,8 +838,10 @@ FUSOU-APP renders dedicated sequential combat phases for aerial operations under
 ### 4. Air State Readout (`AirStateComponent`, `src/components/battles/shared/air_state.tsx`)
 
 Rendered as an inline status readout:
+
 ```html
-Air State : <div class="{class}">{label}</div>
+Air State :
+<div class="{class}">{label}</div>
 ```
 
 - `0`: `Air Supremacy` (制空権確保, `class: "text-lime-500 pl-1"`)
@@ -761,8 +853,12 @@ Air State : <div class="{class}">{label}</div>
 ### 5. Tactical Formations (`FormationComponent`, `src/components/battles/shared/formation.tsx`)
 
 Rendered as an inline tactical formation indicator:
+
 ```html
-Formation : <span class="w-1" /><div class="text-lime-500">{friendly}</div><div class="w-3 text-center">/</div><div class="text-red-500">{enemy}</div>
+Formation : <span class="w-1" />
+<div class="text-lime-500">{friendly}</div>
+<div class="w-3 text-center">/</div>
+<div class="text-red-500">{enemy}</div>
 ```
 
 - **Standard Formations**: `Line Ahead` (単縦陣), `Double Line` (複縦陣), `Diamond` (輪形陣), `Echelon` (梯形陣), `Line Abreast` (単横陣), `Vanguard` (警戒陣).
@@ -771,6 +867,7 @@ Formation : <span class="w-1" /><div class="text-lime-500">{friendly}</div><div 
 ### 6. Combat Damage Readout (`DamageCommonComponent`, `src/components/battles/dmg.tsx`)
 
 Rendered as:
+
 ```html
 <div class="h-6 text-sm content-center {color}">{dmg}</div>
 ```
@@ -782,19 +879,22 @@ Rendered as:
 ### 7. Sprite Motion & Loss Readout (`SpriteMotionCounts`, `src/components/battles/shared/sprite_motion_counts.tsx`)
 
 Rendered as an inline summary of aircraft sprite trajectories and anti-air attrition during aerial combat phases:
+
 ```html
 <span class="text-xs">
-  Sprite - Fly: {f_fly}/{e_fly}, Crash: {f_crash}/{e_crash}, Damage: {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
+  Sprite - Fly: {f_fly}/{e_fly}, Crash: {f_crash}/{e_crash}, Damage:
+  {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
 </span>
 ```
 
 ---
 
-## 11 / Base Operations: LBAS, Materials & Quests
+## 11 / Base Operations: LBAS, Materials, Items & Quests
 
 ### 1. Land-Based Air Corps (`AirBasesComponent`, `src/components/airbase/air_bases.tsx`)
 
 Organized under `ul.menu.menu-xs` by base squadron:
+
 - **Base Summary**: `<summary class="flex">{map}-{area} <IconChevronRightS /> {name} <divider /> R : {distance} <divider /> {action}</summary>`.
 - **Action Statuses**: `Standby` (待機), `Sortie` (出撃), `Defense` (防空), `Evacuation` (退避), `Rest` (休息).
 - **Squadron Plane Rows**:
@@ -803,7 +903,7 @@ Organized under `ul.menu.menu-xs` by base squadron:
     - Authentic Gear Capsule:
       - Land Attacker (`LA`): Primary stripe `#39B74E`, secondary stripe `#38B012`, backing dark bar `M27.5 124 124.5 124`, 8 diagonal slashes `bg_slash`.
       - Interceptor (`IN`): Primary stripe `#39B74E`, secondary stripe `#87D296`, backing dark bar `M27.5 124 124.5 124`, 8 diagonal slashes `bg_slash`.
-      - Equipment name (`ComponentEquipment`): `pl-3 truncate content-center cursor-inherit text-md h-6`.
+      - Equipment name (`ComponentEquipment`): `pl-3 truncate content-center cursor-inherit text-xs h-6`.
     - Vertical divider: `<div class="divider divider-horizontal mr-0 ml-0 flex-none" />`.
     - Aircraft condition & status badge:
       ```html
@@ -811,7 +911,9 @@ Organized under `ul.menu.menu-xs` by base squadron:
         <div class="flex justify-center w-8 indicator">
           <div class="indicator-item indicator-top indicator-end">
             <!-- IconCautionFill for cond=2 (level="middle", orange) or cond=3 (level="high", red) -->
-            <div class="h-4 w-4"><IconCautionFill level="middle" size="full" /></div>
+            <div class="h-4 w-4">
+              <IconCautionFill level="middle" size="full" />
+            </div>
           </div>
           <div class="badge badge-md border-base-300 w-9 text-nowrap">--</div>
         </div>
@@ -821,48 +923,48 @@ Organized under `ul.menu.menu-xs` by base squadron:
 ### 2. Materials & Logistics Tracker (`MaterialsComponent`, `src/components/materials/materials.tsx`)
 
 Rendered inside `ul.menu.menu-xs` as:
-`<li class="h-auto"><div class="justify-start gap-0 flex flex-nowrap"><div class="w-[24px]" /><div class="justify-start gap-0 flex flex-wrap gap-y-1"><div class="justify-start gap-0 flex flex-nowrap">`
+`<li class="h-auto"><div class="justify-start gap-0 flex flex-nowrap items-center"><div class="w-[24px] shrink-0" /><div class="pl-2 justify-start gap-x-0 gap-y-1 flex flex-wrap items-center">`
 
 A persistent 8-resource horizontal strip tracking fleet logistical reserves in exact index order (`icon_material_converter`):
 
-| Array Index | Resource Code | Resource Name | Badge Item Number | Indicator Color (`material.tsx`) |
-| :--- | :--- | :--- | :--- | :--- |
-| 0 | `A0` | Fuel | `31` | Yellow (`#CCCC00`) |
-| 1 | `B0` | Ammo | `32` | Yellow (`#CCCC00`) |
-| 2 | `C0` | Steel | `33` | Yellow (`#CCCC00`) |
-| 3 | `D0` | Bauxite | `34` | Yellow (`#CCCC00`) |
-| 4 | `B3` | Instant Construction (Flamethrower) | `2` | Brown (`#684329`) |
-| 5 | `A3` | Instant Repair (Bucket) | `1` | Brown (`#684329`) |
-| 6 | `C3` | Development Material | `3` | Brown (`#684329`) |
-| 7 | `C1` | Improvement Material (Screw) | `4` | Brown (`#684329`) |
+| Array Index | Resource Code | Resource Name                       | Badge Item Number | Indicator Color (`material.tsx`) |
+| :---------- | :------------ | :---------------------------------- | :---------------- | :------------------------------- |
+| 0           | `A0`          | Fuel                                | `31`              | Yellow (`#CCCC00`)               |
+| 1           | `B0`          | Ammo                                | `32`              | Yellow (`#CCCC00`)               |
+| 2           | `C0`          | Steel                               | `33`              | Yellow (`#CCCC00`)               |
+| 3           | `D0`          | Bauxite                             | `34`              | Yellow (`#CCCC00`)               |
+| 4           | `B3`          | Instant Construction (Flamethrower) | `2`               | Brown (`#684329`)                |
+| 5           | `A3`          | Instant Repair (Bucket)             | `1`               | Brown (`#684329`)                |
+| 6           | `C3`          | Development Material                | `3`               | Brown (`#684329`)                |
+| 7           | `C1`          | Improvement Material (Screw)        | `4`               | Brown (`#684329`)                |
 
-Each item displays `<IconMaterial item_number={id} size="full" />` (20x20px), followed by `<div class="w-10 flex justify-end pt-0.5">{count}</div>` and `<div class="divider divider-horizontal mr-0 ml-0" />`.
+Each item is wrapped atomically (`<div class="inline-flex items-center flex-nowrap shrink-0">`) and displays `<IconMaterial item_number={id} size="xs" />` (`h-6`, 24x24px — matching `<DeckComponent />` icon heights directly below), followed by `<div class="w-12 flex justify-end tabular-nums">{count ?? <EmptyValue />}</div>` and `<div class="divider divider-horizontal mr-0 ml-0" />`.
 
 ### 3. Quests & Missions Tracker (`QuestsComponent`, `src/components/quests/quests.tsx`)
 
 Rendered inside `ul.menu.menu-xs` with `<ul class="pl-0 max-w-[960px]">`:
+
+- **Filter Bar (`MenuFilterBar`)**: Top search input (`Filter quests...`) inside a `w-150 max-w-full` row matching `ItemsComponent`, filtering across `[no]`, title, normalized detail, period badge, and completion status while showing `{filtered} / {total}` counts (`tabular-nums`).
 - **Accepted Quests Header**: `<li class="text-xs px-2 py-1 font-semibold text-base-content/80">Accepted (N)</li>`
 - **Available Quests Header**: `<li class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2">Available (N)</li>`
-- **Quest Card Structure**:
-  ```html
-  <li class="text-xs py-1 w-full justify-between items-start gap-3">
-    <div class="px-2 items-start gap-2 w-150">
-      <div class="flex flex-col gap-0.5">
-        <span class="w-8 shrink-0 text-base-content/70 text-right">[{no}]</span>
-        <span class="w-8 text-right shrink-0 text-base-content/60">{progressLabel}</span>
-      </div>
-      <div class="min-w-0 flex-1">
-        <div class="truncate">{title}</div>
-        <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">{detail}</div>
-      </div>
-    </div>
-  </li>
-  ```
+- **Completed Quests Header**: `<li class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2">Completed (N)</li>` — includes both achieved/claimable quests (`state === 3`, badged `Claimable`) and quests completed via `clearitemget` (`clearedQuests`, badged `Completed`).
+- **Period-Aware Cache Replacement (`src/utility/quest_cache.ts`)**: `tab 0` (All) replaces all cached quests; period tabs `1..5` replace all cached entries matching `quest_type === page_no`; `tab 9` reconciles active quests (`state === 2 | 3`); periodic entries expire cleanly across JST 05:00 reset boundaries (Daily, Monday Weekly, 1st Monthly, Mar/Jun/Sep/Dec Quarterly, Yearly).
+- **Quest Card Structure**: Rendered inside `w-150 max-w-full` rows and includes `[no]`, `%` progress (or `<EmptyValue />`), title, period badge (`Daily`, `Weekly`, `Monthly`, `Once`, `Quarterly`, `Yearly`), completion badge (`Claimable` / `Completed`), and normalized detail text.
 - **Progress Flags**:
   - `0`: `0%`
   - `1`: `50%`
   - `2`: `80%`
   - `3`: `100%`
+
+### 4. Items Inventory & Shelves (`ItemsComponent`, `src/components/items/items.tsx`)
+
+Rendered inside the **`Item`** tab (located directly after `Equip` in `src/pages/app.tsx`) under `<ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">`:
+
+- **3-Shelf Categorization (`src/utility/item_shelves.ts`)**:
+  - **Normal Items (`Normal Items (N)`)**: Owned `useitem` items (`count > 0`, `id < 75`, excluding resource strip IDs `1..4, 31..34, 44` and `id === 53`).
+  - **Special Items (`Special Items (N)`)**: Owned special/expansion `useitem` items (`count > 0`, `id >= 75`).
+  - **Purchased Items (`Purchased Items (N)`)**: Shop-held `payitem` items from `api_get_member/payitem` plus port expansion (`id === 53`).
+- **Row Anatomy**: Shared `MenuFilterBar` search bar (`Filter items...`, `input input-xs input-bordered min-w-0 flex-1 max-w-60`) + item count counter inside a `w-150 max-w-full` row, then each `w-150 max-w-full` shelf displays `<IconMaterial item_number={iconNumber} size="xs" />` (24x24px), item name, optional `Usable` (`usetype === 4`) / `{price} pt` badges, right-aligned `x{count}` (`tabular-nums`), and normalized in-game description (KanColle 15-char `<br>` wraps unwrapped to fill row width while preserving `※` note breaks, or `<EmptyValue />` when absent).
 
 ---
 
@@ -870,9 +972,10 @@ Rendered inside `ul.menu.menu-xs` with `<ul class="pl-0 max-w-[960px]">`:
 
 ```text
 src/
+├── styles/                   # Shared DaisyUI 5 themes, utilities (including css/form_controls.css), titlebar CSS
 ├── pages/
 │   ├── design-system.tsx     # Live Component Catalog & Design System Page (13 Sections)
-│   ├── app.tsx               # Main Desktop Operations
+│   ├── app.tsx               # Main Desktop Operations (Fleet, Ship, Equip, Item, Quest...)
 │   ├── start.tsx             # Startup & Connectivity Screen
 │   ├── debug.tsx             # Debug API & Directory Inspector
 │   ├── update.tsx            # Updater UI
@@ -882,25 +985,32 @@ src/
 │   ├── ui/
 │   │   ├── titlebar.tsx      # Custom frameless titlebar
 │   │   ├── window_resize_borders.tsx # Frameless window resize borders
-│   │   ├── components/       # ColorBar, Ship, Equipment, Modals
+│   │   ├── components/       # ColorBar, Empty, Ship, Equipment, Modals
 │   │   │   ├── bar/          # ColorBar, ColorBarLabel
+│   │   │   ├── empty/        # EmptyValue, EmptySlot
+│   │   │   ├── filter-bar/   # MenuFilterBar (shared search bar for Items & Quests)
 │   │   │   ├── ship/         # ComponentShipModal, ComponentShipTable
 │   │   │   ├── equipment/    # ComponentEquipmentModal, ComponentEquipmentTable
 │   │   │   └── ship-masked/  # ComponentShipMaskedModal, ComponentShipMaskedTable
 │   │   └── icons/            # SVG Vector Icons (Ship, Equipment, Material, FleetNumber, Kira, etc.)
 │   ├── deck_port/            # Decks & Ship Slots (DeckComponent, DecksComponent)
-│   ├── battles/              # Battle Simulation & Combat Phases (BattleSummary, OpeningAirAttack)
+│   ├── battles/              # Battle Simulation & Combat Phases (BattleSummary, OpeningAirAttack, shared/)
 │   ├── airbase/              # Land-based Air Base (AirBasesComponent)
+│   ├── items/                # Item Inventory Shelves (ItemsComponent)
 │   ├── quests/               # Quests Tracker (QuestsComponent)
 │   ├── materials/            # Resource Tracker (MaterialsComponent)
 │   ├── logger/               # Log Viewer (Virtua Virtualized Logger)
-│   └── settings/             # Settings, Theme, Data Collection
+│   └── settings/             # Settings, Titlebar Theme Toggle, Data Collection
+├── utility/
+│   ├── item_shelves.ts       # UseItem / PayItem 3-shelf classifier
+│   └── quest_cache.ts        # Period-aware quest cache & JST 05:00 expiration
 └── stories/
     ├── design_system/        # Design System Tokens & Overview Stories
     ├── ui/                   # Titlebar & Window Stories
     ├── deck_port/            # Deck Stories
     ├── battles/              # Battle & Combat Stories
     ├── airbase/              # Airbase Stories
+    ├── items/                # Item Shelves Stories
     ├── quests/               # Quests Stories
     ├── materials/            # Materials Stories
     ├── logger/               # Log Viewer Stories

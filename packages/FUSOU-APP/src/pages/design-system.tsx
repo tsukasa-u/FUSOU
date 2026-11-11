@@ -1,5 +1,13 @@
-import { createSignal, onMount, For } from "solid-js";
+import { createSignal, onCleanup, onMount, For } from "solid-js";
 import { CustomTitlebar } from "../components/ui/titlebar";
+import type { AppTheme } from "../utility/theme";
+import {
+  APP_THEME_STORAGE_KEY,
+  applyAppTheme,
+  normalizeAppTheme,
+  subscribeAppTheme,
+  toggleAppTheme,
+} from "../utility/theme";
 import {
   ComponentColorBar,
   ComponentColorBarLabel,
@@ -7,6 +15,8 @@ import {
   ComponentEquipmentModal,
   ComponentEquipmentMstModal,
   ComponentShipMaskedModal,
+  EmptySlot,
+  EmptyValue,
   IconCautionFill,
   IconKira,
   ShipIcon,
@@ -702,22 +712,21 @@ const mockSlotItems: SlotItems = { slot_items: mockSlotItemsDict };
 const mockMstSlotItems: MstSlotItems = { mst_slot_items: mockMstSlotItemsDict };
 
 export default function DesignSystemPage() {
-  const [currentTheme, setCurrentTheme] = createSignal<string>("dark");
+  const [currentTheme, setCurrentTheme] = createSignal<AppTheme>("dark");
   const [demoMaximized, setDemoMaximized] = createSignal<boolean>(false);
   const [demoVolume, setDemoVolume] = createSignal<number>(75);
   const [demoMuted, setDemoMuted] = createSignal<boolean>(false);
 
   onMount(() => {
-    const saved = localStorage.getItem("fusou-app-theme") || "dark";
-    setCurrentTheme(saved);
-    document.documentElement.setAttribute("data-theme", saved);
+    const saved = localStorage.getItem(APP_THEME_STORAGE_KEY);
+    const initial = saved ? normalizeAppTheme(saved) : "dark";
+    applyAppTheme(initial);
+    setCurrentTheme(initial);
+    onCleanup(subscribeAppTheme(setCurrentTheme));
   });
 
   const toggleTheme = () => {
-    const next = currentTheme() === "dark" ? "light" : "dark";
-    setCurrentTheme(next);
-    localStorage.setItem("fusou-app-theme", next);
-    document.documentElement.setAttribute("data-theme", next);
+    setCurrentTheme(toggleAppTheme());
   };
 
   return (
@@ -852,7 +861,7 @@ export default function DesignSystemPage() {
               href="#section-base-ops"
               class="btn btn-xs btn-outline rounded-md"
             >
-              12 LBAS, Materials &amp; Quests
+              12 LBAS, Materials, Items &amp; Quests
             </a>
             <a
               href="#section-catalog"
@@ -1058,11 +1067,14 @@ export default function DesignSystemPage() {
           <div class="bg-base-100 rounded-box border border-base-300 p-5 space-y-4">
             <div class="border-b border-base-300/60 pb-3">
               <div class="flex items-center justify-between text-xs text-base-content/50 mb-1">
-                <span>Policy Title (20px / weight 700 — policy_panel.tsx)</span>
+                <span>
+                  Unified Page Heading (text-2xl font-semibold — Settings,
+                  Uploads, Policy, Start, Update, Debug)
+                </span>
                 <span>見出し</span>
               </div>
-              <h2 class="text-xl font-bold">通信保全基準</h2>
-              <p class="text-sm text-base-content/50 mt-1">
+              <h2 class="text-2xl font-semibold">Settings / 通信保全基準</h2>
+              <p class="text-xs text-base-content/60 mt-1">
                 Communication Integrity Policy
               </p>
             </div>
@@ -1070,15 +1082,18 @@ export default function DesignSystemPage() {
             <div class="border-b border-base-300/60 pb-3">
               <div class="flex items-center justify-between text-xs text-base-content/50 mb-1">
                 <span>
-                  Deck / Battle / Quest List Item (text-xs / default sans-serif)
+                  Deck / Battle / Quest List Item (text-xs / tabular-nums for
+                  telemetry)
                 </span>
                 <span>一覧データ</span>
               </div>
               <div class="text-xs text-base-content mt-1 flex items-center gap-4">
                 <span>矢矧改二乙</span>
-                <span>55/60</span>
-                <span class="badge badge-md border-base-300 w-9">75</span>
-                <span class="text-sm">130</span>
+                <span class="tabular-nums">55/60</span>
+                <span class="badge badge-md border-base-300 w-9 tabular-nums">
+                  75
+                </span>
+                <span class="text-sm tabular-nums">130</span>
               </div>
             </div>
 
@@ -1156,7 +1171,7 @@ export default function DesignSystemPage() {
               <div class="p-4 bg-base-100 text-xs text-base-content/70">
                 ↑ 上記タイトルバーは本物の <code>&lt;CustomTitlebar /&gt;</code>{" "}
                 コンポーネントです。
-                スクリーンショットボタン、外部リロードボタン、音量調整ポップオーバー、ウィンドウ最小化・最大化・閉じるボタンが配置されています。
+                スクリーンショットボタン、外部リロードボタン、音量調整ポップオーバー、テーマ切り替えボタン、ウィンドウ最小化・最大化・閉じるボタンが配置されています。
               </div>
             </div>
 
@@ -1387,7 +1402,9 @@ export default function DesignSystemPage() {
               06 / Form Elements &amp; Audio Popover
             </h2>
             <p class="text-xs text-base-content/60 mt-0.5">
-              ツールバー内で高さを統一した入力フォーム部品と、カスタム音量スライダー。
+              フォーカス時の二重枠線を排した一重アクセントカラー枠線（
+              <code>var(--color-primary)</code>
+              ）の入力フォーム部品と、カスタム音量スライダー。
             </p>
           </div>
 
@@ -1610,20 +1627,20 @@ export default function DesignSystemPage() {
               <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/60 mb-2">
                 Log Viewer Level Badges
               </h3>
-              <div class="flex flex-wrap items-center gap-2 text-[10px]">
-                <span class="px-2 py-0.5 rounded bg-gray-200 text-gray-800 font-mono">
+              <div class="flex flex-wrap items-center gap-2 text-[10px] font-medium">
+                <span class="px-2 py-0.5 rounded-md bg-base-300 text-base-content/80">
                   TRACE
                 </span>
-                <span class="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-mono">
+                <span class="px-2 py-0.5 rounded-md bg-info/20 text-info">
                   DEBUG
                 </span>
-                <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono">
+                <span class="px-2 py-0.5 rounded-md bg-success/20 text-success">
                   INFO
                 </span>
-                <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-mono">
+                <span class="px-2 py-0.5 rounded-md bg-warning/20 text-warning">
                   WARN
                 </span>
-                <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-mono">
+                <span class="px-2 py-0.5 rounded-md bg-error/20 text-error">
                   ERROR
                 </span>
               </div>
@@ -2078,6 +2095,48 @@ export default function DesignSystemPage() {
                     <span class="text-[10px] font-mono text-base-content/60">
                       xl (44px)
                     </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 08-G: Unified Empty / None Placeholders */}
+              <div class="space-y-3 pt-2 border-t border-base-300/40">
+                <div class="flex items-center justify-between">
+                  <div class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                    Empty / None 共通プレースホルダー (&lt;EmptyValue /&gt;
+                    &amp; &lt;EmptySlot /&gt;)
+                  </div>
+                  <span class="text-[11px] text-base-content/50 font-mono">
+                    src/components/ui/components/empty/empty.tsx
+                  </span>
+                </div>
+                <p class="text-xs text-base-content/60">
+                  未ドロップ・非発動・欠損値を{" "}
+                  <code class="font-mono">EmptySlot</code>（破線空枠 SVG
+                  ＋固定幅ラベル）と <code class="font-mono">EmptyValue</code>
+                  （共通 <code class="font-mono">—</code>{" "}
+                  表示・固定幅確保）へ統一し、表示有無による横ズレを防ぎます。
+                </p>
+                <div class="flex flex-wrap items-center gap-6 p-4 bg-base-200/30 rounded-lg border border-base-300 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="text-base-content/60">EmptyValue:</span>
+                    <EmptyValue size="xs" widthClass="w-12" />
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-base-content/60">Empty Equip:</span>
+                    <EmptySlot kind="equip" size="xs" />
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-base-content/60">Empty Ship (Drop):</span>
+                    <div class="w-28 shrink-0 flex items-center">
+                      <EmptySlot
+                        kind="ship"
+                        size="xs"
+                        showLabel={true}
+                        labelWidthClass="flex-1"
+                        widthClass="w-full"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2711,15 +2770,11 @@ export default function DesignSystemPage() {
                         <div class="flex flex-row pl-2 items-center">
                           <div class="h-4 mt-px pt-px text-xs">cells</div>
                           <IconChevronRightS class="h-4 w-4 m-1" />
-                          <button class="btn btn-xs btn-square rounded-none">
-                            A
-                          </button>
+                          <button class="btn btn-xs btn-square">A</button>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          <button class="btn btn-xs btn-square rounded-none">
-                            E
-                          </button>
+                          <button class="btn btn-xs btn-square">E</button>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          <button class="btn btn-xs btn-square rounded-none btn-active">
+                          <button class="btn btn-xs btn-square btn-active">
                             G
                           </button>
                         </div>
@@ -2732,20 +2787,44 @@ export default function DesignSystemPage() {
                         <div class="flex flex-nowrap text-xs py-0.5 pl-2 items-center">
                           <FormationComponent formation={[1, 1]} />
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          Form : <span class="w-1" />
-                          <div class="text-lime-500">
-                            Crossing the T (Advantage)
+                          <div class="inline-flex items-center shrink-0">
+                            <span>Form :</span>
+                            <span class="w-1" />
+                            <div class="w-48 shrink-0 flex items-center truncate">
+                              <div class="text-lime-500 truncate">
+                                Crossing the T (Advantage)
+                              </div>
+                            </div>
                           </div>
                         </div>
                         <div class="flex flex-nowrap text-xs py-0.5 pl-2 items-center">
-                          Smoke Type : <span class="w-1" />
-                          <div class="w-6 text-center">_</div>
+                          <div class="inline-flex items-center shrink-0">
+                            <span>Smoke Type :</span>
+                            <span class="w-1" />
+                            <div class="w-14 shrink-0 flex items-center justify-center">
+                              <EmptyValue widthClass="w-full" align="center" />
+                            </div>
+                          </div>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          Combat Ration : <span class="w-1" />
-                          <div class="w-6 text-center">_</div>
+                          <div class="inline-flex items-center shrink-0">
+                            <span>Combat Ration :</span>
+                            <span class="w-1" />
+                            <div class="w-14 shrink-0 flex items-center justify-center">
+                              <EmptySlot
+                                kind="equip"
+                                size="xs"
+                                label="No combat ration"
+                              />
+                            </div>
+                          </div>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          Balloon : <span class="w-1" />
-                          <div class="text-lime-500">launched</div>
+                          <div class="inline-flex items-center shrink-0">
+                            <span>Balloon :</span>
+                            <span class="w-1" />
+                            <div class="w-14 shrink-0 flex items-center justify-center">
+                              <span class="text-lime-500">launched</span>
+                            </div>
+                          </div>
                         </div>
                       </ul>
                       <ul class="pl-0">
@@ -3484,9 +3563,10 @@ export default function DesignSystemPage() {
                 <div class="p-2.5 bg-base-300/40 rounded border border-base-300 flex flex-wrap items-center text-xs">
                   <AirStateComponent air_state={0} />
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  touch : <span class="w-1" />
-                  <div class="w-6 flex justify-center">
-                    <div class="w-6 overflow-hidden">
+                  <div class="inline-flex items-center shrink-0">
+                    <span>touch :</span>
+                    <span class="w-1" />
+                    <div class="w-6 h-6 flex items-center justify-center shrink-0">
                       <ComponentEquipmentMstModal
                         size="xs"
                         compact={true}
@@ -3497,47 +3577,55 @@ export default function DesignSystemPage() {
                         mst_slot_item={mockMstSlotItemsDict[110]}
                       />
                     </div>
-                  </div>
-                  <div class="w-3 text-center">/</div>
-                  <div class="w-6 flex justify-center">
-                    <div class="w-6 text-center">_</div>
+                    <div class="w-3 text-center shrink-0">/</div>
+                    <div class="w-6 h-6 flex items-center justify-center shrink-0">
+                      <EmptySlot
+                        kind="equip"
+                        size="xs"
+                        label="No enemy touch plane"
+                      />
+                    </div>
                   </div>
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  CI : <span class="w-1" />
-                  <div class="flex justify-center">
-                    <div class="w-24">
-                      <ComponentShipModal
-                        size="xs"
-                        name_flag={true}
-                        ship={mockFletcherShip}
-                        mst_ship={mockFletcherMstShip}
-                        slot_items={mockSlotItems}
-                        mst_slot_items={mockMstSlotItems}
-                      />
-                    </div>
-                    <div class="w-1" />
-                    <div class="w-6 overflow-hidden">
-                      <ComponentEquipmentMstModal
-                        size="xs"
-                        compact={true}
-                        empty_flag={false}
-                        name_flag={false}
-                        show_name={true}
-                        show_param={true}
-                        mst_slot_item={mockMstSlotItemsDict[303]}
-                      />
-                    </div>
-                    <div class="w-1" />
-                    <div class="w-6 overflow-hidden">
-                      <ComponentEquipmentMstModal
-                        size="xs"
-                        compact={true}
-                        empty_flag={false}
-                        name_flag={false}
-                        show_name={true}
-                        show_param={true}
-                        mst_slot_item={mockMstSlotItemsDict[507]}
-                      />
+                  <div class="inline-flex items-center shrink-0">
+                    <span>CI :</span>
+                    <span class="w-1" />
+                    <div class="flex items-center shrink-0">
+                      <div class="w-24 shrink-0 overflow-hidden flex items-center">
+                        <ComponentShipModal
+                          size="xs"
+                          name_flag={true}
+                          ship={mockFletcherShip}
+                          mst_ship={mockFletcherMstShip}
+                          slot_items={mockSlotItems}
+                          mst_slot_items={mockMstSlotItems}
+                        />
+                      </div>
+                      <div class="w-1 shrink-0" />
+                      <div class="w-20 shrink-0 flex items-center justify-start gap-1">
+                        <div class="w-6 overflow-hidden">
+                          <ComponentEquipmentMstModal
+                            size="xs"
+                            compact={true}
+                            empty_flag={false}
+                            name_flag={false}
+                            show_name={true}
+                            show_param={true}
+                            mst_slot_item={mockMstSlotItemsDict[303]}
+                          />
+                        </div>
+                        <div class="w-6 overflow-hidden">
+                          <ComponentEquipmentMstModal
+                            size="xs"
+                            compact={true}
+                            empty_flag={false}
+                            name_flag={false}
+                            show_name={true}
+                            show_param={true}
+                            mst_slot_item={mockMstSlotItemsDict[507]}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div class="divider divider-horizontal mr-0 ml-0" />
@@ -3554,6 +3642,34 @@ export default function DesignSystemPage() {
                     }}
                   />
                 </div>
+                <div class="p-2.5 bg-base-300/30 rounded border border-base-300 flex flex-wrap items-center gap-x-2 text-xs">
+                  <div class="inline-flex items-center shrink-0">
+                    <span>Result :</span>
+                    <span class="w-1" />
+                    <span class="text-yellow-500 font-semibold w-8">S</span>
+                  </div>
+                  <div class="divider divider-horizontal mr-0 ml-0" />
+                  <div class="inline-flex items-center shrink-0">
+                    <span>Drop :</span>
+                    <span class="w-1" />
+                    <div class="w-28 shrink-0 flex items-center">
+                      <EmptySlot
+                        kind="ship"
+                        size="xs"
+                        showLabel={true}
+                        labelWidthClass="flex-1"
+                        widthClass="w-full"
+                        label="No drop ship"
+                      />
+                    </div>
+                  </div>
+                  <div class="divider divider-horizontal mr-0 ml-0" />
+                  <div class="inline-flex items-center shrink-0">
+                    <span>Landing HP :</span>
+                    <span class="w-1" />
+                    <span class="tabular-nums">0</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3563,10 +3679,10 @@ export default function DesignSystemPage() {
         <section id="section-base-ops" class="space-y-4 pt-2">
           <div class="border-b border-base-300 pb-2">
             <h2 class="text-xl font-bold tracking-tight">
-              12 / Base Operations: LBAS, Materials &amp; Quests
+              12 / Base Operations: LBAS, Materials, Items &amp; Quests
             </h2>
             <p class="text-xs text-base-content/60 mt-0.5">
-              基地航空隊（LBAS）、資源・資材帯（Materials）、任務（Quests）の生体仕様。
+              基地航空隊（LBAS）、資源・資材帯（Materials）、アイテム棚（Items）、任務（Quests）の生体仕様。
             </p>
           </div>
 
@@ -3781,8 +3897,10 @@ export default function DesignSystemPage() {
                 </span>
               </div>
               <p class="text-xs text-base-content/60">
-                燃料(31)から改修資材(4)までの主要8資源が
-                IconMaterial（20x20px）と横並びテキストで表示されます。
+                燃料(31)から改修資材(4)までの主要8資源が{" "}
+                <code>IconMaterial size=&quot;xs&quot;</code>
+                （24x24px、DeckComponent の各SVGと同一高さ）＋横並び数値（
+                <code>tabular-nums</code>）で表示されます。
               </p>
 
               <div class="border border-base-300 rounded-box overflow-x-auto bg-base-100">
@@ -3792,38 +3910,36 @@ export default function DesignSystemPage() {
                       <summary>Materials</summary>
                       <ul class="pl-0">
                         <li class="h-auto">
-                          <div class="justify-start gap-0 flex flex-nowrap">
-                            <div class="w-[24px]" />
-                            <div class="justify-start gap-0 flex flex-wrap gap-y-1">
-                              <div class="justify-start gap-0 flex flex-nowrap">
-                                <For
-                                  each={[
-                                    { id: 31, count: 284520 },
-                                    { id: 32, count: 279140 },
-                                    { id: 33, count: 298300 },
-                                    { id: 34, count: 195400 },
-                                    { id: 2, count: 1920 },
-                                    { id: 1, count: 2840 },
-                                    { id: 3, count: 2450 },
-                                    { id: 4, count: 84 },
-                                  ]}
-                                >
-                                  {(mat) => (
-                                    <>
-                                      <div class="h-5 w-5">
-                                        <MaterialIcon
-                                          item_number={mat.id}
-                                          size="full"
-                                        />
-                                      </div>
-                                      <div class="w-10 flex justify-end pt-0.5">
-                                        {mat.count}
-                                      </div>
-                                      <div class="divider divider-horizontal mr-0 ml-0" />
-                                    </>
-                                  )}
-                                </For>
-                              </div>
+                          <div class="justify-start gap-0 flex flex-nowrap items-center">
+                            <div class="w-[24px] shrink-0" />
+                            <div class="pl-2 justify-start gap-x-0 gap-y-1 flex flex-wrap items-center">
+                              <For
+                                each={[
+                                  { id: 31, count: 284520 },
+                                  { id: 32, count: 279140 },
+                                  { id: 33, count: 298300 },
+                                  { id: 34, count: 195400 },
+                                  { id: 2, count: 1920 },
+                                  { id: 1, count: 2840 },
+                                  { id: 3, count: 2450 },
+                                  { id: 4, count: 84 },
+                                ]}
+                              >
+                                {(mat) => (
+                                  <div class="inline-flex items-center flex-nowrap shrink-0">
+                                    <div class="shrink-0">
+                                      <MaterialIcon
+                                        item_number={mat.id}
+                                        size="xs"
+                                      />
+                                    </div>
+                                    <div class="w-12 flex justify-end tabular-nums">
+                                      {mat.count}
+                                    </div>
+                                    <div class="divider divider-horizontal mr-0 ml-0" />
+                                  </div>
+                                )}
+                              </For>
                             </div>
                           </div>
                         </li>
@@ -3841,56 +3957,51 @@ export default function DesignSystemPage() {
                   任務トラッカー生体表示 (&lt;QuestsComponent /&gt;)
                 </h3>
                 <span class="text-[11px] text-base-content/50 font-mono">
-                  Accepted (受注中) / Available (受注可能) • 進捗度 (0%, 50%,
-                  80%, 100%)
+                  Accepted / Available / Completed (達成・報告済) • 期間置換対応
                 </span>
               </div>
 
               <div class="border border-base-300 rounded-box overflow-x-auto bg-base-100">
                 <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-                  <li>
-                    <details open>
+                  <li class="w-full min-w-0">
+                    <details open class="min-w-0 w-full">
                       <summary>Quests</summary>
                       <ul class="pl-0 max-w-[960px]">
-                        <li class="text-xs px-2 py-1 font-semibold text-base-content/80">
-                          Accepted (2)
-                        </li>
-                        <li class="text-xs py-1 w-full justify-between items-start gap-3">
-                          <div class="px-2 items-start gap-2 w-150">
-                            <div class="flex flex-col gap-0.5">
-                              <span class="w-8 shrink-0 text-base-content/70 text-right">
-                                [B154]
-                              </span>
-                              <span class="w-8 text-right shrink-0 text-base-content/60">
-                                80%
-                              </span>
-                            </div>
-                            <div class="min-w-0 flex-1">
-                              <div class="truncate">
-                                精鋭「第十九駆逐隊」演習！
-                              </div>
-                              <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
-                                第十九駆逐隊(「浦波改二」「磯波改二」「敷波改二」「綾波改二」)を含む艦隊で本日中に演習にて4回以上S勝利を達成せよ！
-                              </div>
-                            </div>
+                        <li class="py-1 w-150 max-w-full">
+                          <div class="px-2 py-1 flex items-center justify-between gap-2 w-full hover:bg-transparent! active:bg-transparent! cursor-default">
+                            <input
+                              type="search"
+                              aria-label="Filter quests..."
+                              class="input input-xs input-bordered min-w-0 flex-1 max-w-60"
+                              placeholder="Filter quests..."
+                              value=""
+                              readonly
+                            />
+                            <span class="text-xs text-base-content/60 tabular-nums shrink-0">
+                              4 / 4
+                            </span>
                           </div>
                         </li>
+                        <li class="text-xs px-2 py-1 font-semibold text-base-content/80">
+                          Accepted (1)
+                        </li>
                         <li class="text-xs py-1 w-full justify-between items-start gap-3">
-                          <div class="px-2 items-start gap-2 w-150">
-                            <div class="flex flex-col gap-0.5">
-                              <span class="w-8 shrink-0 text-base-content/70 text-right">
-                                [F102]
-                              </span>
-                              <span class="w-8 text-right shrink-0 text-base-content/60">
-                                50%
-                              </span>
+                          <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                            <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                              <span class="text-base-content/70">[216]</span>
+                              <span class="text-base-content/60">80%</span>
                             </div>
                             <div class="min-w-0 flex-1">
-                              <div class="truncate">
-                                新装備開発計画：新型航空兵装開発
+                              <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="truncate">
+                                  敵艦隊主力を撃滅せよ！
+                                </span>
+                                <span class="badge badge-xs badge-ghost border-base-300 shrink-0">
+                                  Weekly
+                                </span>
                               </div>
                               <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
-                                「開発資材」×20、「燃料」×3,000、「ボーキサイト」×3,000を準備し、任意の航空母艦旗艦で「九七式艦攻」×4を廃棄せよ！
+                                敵艦隊主力との交戦を敢行、これを撃滅せよ！
                               </div>
                             </div>
                           </div>
@@ -3900,24 +4011,234 @@ export default function DesignSystemPage() {
                           Available (1)
                         </li>
                         <li class="text-xs py-1 w-full justify-between items-start gap-3">
-                          <div class="px-2 items-start gap-2 w-150">
-                            <div class="flex flex-col gap-0.5">
-                              <span class="w-8 shrink-0 text-base-content/70 text-right">
-                                [A88]
-                              </span>
-                              <span class="w-8 text-right shrink-0 text-base-content/60">
-                                0%
-                              </span>
+                          <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                            <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                              <span class="text-base-content/70">[303]</span>
+                              <span class="text-base-content/60">0%</span>
                             </div>
                             <div class="min-w-0 flex-1">
-                              <div class="truncate">
-                                「第二七駆逐隊」抜錨せよ！
+                              <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="truncate">
+                                  「演習」で練度向上！
+                                </span>
+                                <span class="badge badge-xs badge-ghost border-base-300 shrink-0">
+                                  Daily
+                                </span>
                               </div>
                               <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
-                                「白露改二」「時雨改二」を含む有力な艦隊を編成、北方海域モーレイ海、南方海域サーモン海域に展開、敵艦隊を撃滅せよ！
+                                本日中に他の司令官の艦隊と3回以上「演習」を行え！
                               </div>
                             </div>
                           </div>
+                        </li>
+
+                        <li class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2">
+                          Completed (2)
+                        </li>
+                        <li class="text-xs py-1 w-full justify-between items-start gap-3">
+                          <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                            <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                              <span class="text-base-content/70">[402]</span>
+                              <span class="text-base-content/60">100%</span>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                              <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="truncate">
+                                  「遠征」を3回成功させよう！
+                                </span>
+                                <span class="badge badge-xs badge-ghost border-base-300 shrink-0">
+                                  Daily
+                                </span>
+                                <span class="badge badge-xs badge-success shrink-0">
+                                  Claimable
+                                </span>
+                              </div>
+                              <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                艦隊を遠征に出航させ、本日中に遠征を3回以上成功させよ！
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                        <li class="text-xs py-1 w-full justify-between items-start gap-3">
+                          <div class="px-2 flex items-start gap-2 w-150 max-w-full">
+                            <div class="flex flex-col gap-0.5 tabular-nums w-9 shrink-0 items-end">
+                              <span class="text-base-content/70">[503]</span>
+                              <span class="text-base-content/60">100%</span>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                              <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="truncate">艦隊大整備！</span>
+                                <span class="badge badge-xs badge-ghost border-base-300 shrink-0">
+                                  Daily
+                                </span>
+                                <span class="badge badge-xs badge-neutral shrink-0">
+                                  Completed
+                                </span>
+                              </div>
+                              <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                各艦隊から複数の艦を「入渠」させ、艦隊の整備を行え！
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                      </ul>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Part 4: ItemsComponent */}
+            <div class="space-y-3 pt-2">
+              <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/70">
+                  アイテム棚生体表示 (&lt;ItemsComponent /&gt;)
+                </h3>
+                <span class="text-[11px] text-base-content/50 font-mono">
+                  Normal (id&lt;75) / Special (id&gt;=75) / Purchased (payitem)
+                </span>
+              </div>
+
+              <div class="border border-base-300 rounded-box overflow-x-auto bg-base-100">
+                <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+                  <li class="w-full min-w-0">
+                    <details open class="min-w-0 w-full">
+                      <summary>Items</summary>
+                      <ul class="pl-0 max-w-[960px]">
+                        <li class="py-1 w-150 max-w-full">
+                          <div class="px-2 py-1 flex items-center justify-between gap-2 w-full hover:bg-transparent! active:bg-transparent! cursor-default">
+                            <input
+                              type="search"
+                              aria-label="Filter items..."
+                              class="input input-xs input-bordered min-w-0 flex-1 max-w-60"
+                              placeholder="Filter items..."
+                              value=""
+                              readonly
+                            />
+                            <span class="text-xs text-base-content/60 tabular-nums shrink-0">
+                              4 / 4
+                            </span>
+                          </div>
+                        </li>
+                        <li class="w-150 max-w-full min-w-0">
+                          <details open class="min-w-0 w-full">
+                            <summary class="text-xs font-semibold text-base-content/80">
+                              Normal Items (2)
+                            </summary>
+                            <ul class="pl-0">
+                              <li class="text-xs py-1 w-full">
+                                <div class="px-2 flex items-start gap-2.5 w-full">
+                                  <div class="shrink-0 pt-0.5">
+                                    <MaterialIcon item_number={50} size="xs" />
+                                  </div>
+                                  <div class="min-w-0 flex-1">
+                                    <div class="flex items-center justify-between gap-2">
+                                      <span class="truncate font-medium">
+                                        応急修理要員
+                                      </span>
+                                      <span class="tabular-nums font-medium shrink-0 text-right w-14">
+                                        x5
+                                      </span>
+                                    </div>
+                                    <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                      轟沈した艦を一度だけ救出し、中破状態で復帰させます。
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                              <li class="text-xs py-1 w-full">
+                                <div class="px-2 flex items-start gap-2.5 w-full">
+                                  <div class="shrink-0 pt-0.5">
+                                    <MaterialIcon item_number={57} size="xs" />
+                                  </div>
+                                  <div class="min-w-0 flex-1">
+                                    <div class="flex items-center justify-between gap-2">
+                                      <div class="flex items-center gap-1.5 min-w-0">
+                                        <span class="truncate font-medium">
+                                          勲章
+                                        </span>
+                                        <span class="badge badge-xs badge-accent shrink-0">
+                                          Usable
+                                        </span>
+                                      </div>
+                                      <span class="tabular-nums font-medium shrink-0 text-right w-14">
+                                        x14
+                                      </span>
+                                    </div>
+                                    <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                      複数集めることで資源または改装設計図と交換可能です。
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                            </ul>
+                          </details>
+                        </li>
+                        <li class="w-150 max-w-full">
+                          <details open>
+                            <summary class="text-xs font-semibold text-base-content/80">
+                              Special Items (1)
+                            </summary>
+                            <ul class="pl-0">
+                              <li class="text-xs py-1 w-full">
+                                <div class="px-2 flex items-start gap-2.5 w-full">
+                                  <div class="shrink-0 pt-0.5">
+                                    <MaterialIcon item_number={75} size="xs" />
+                                  </div>
+                                  <div class="min-w-0 flex-1">
+                                    <div class="flex items-center justify-between gap-2">
+                                      <span class="truncate font-medium">
+                                        新型砲熕兵装資材
+                                      </span>
+                                      <span class="tabular-nums font-medium shrink-0 text-right w-14">
+                                        x9
+                                      </span>
+                                    </div>
+                                    <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                      新型砲熕兵装の開発や改修に必要な特殊資材です。
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                            </ul>
+                          </details>
+                        </li>
+                        <li class="w-150 max-w-full">
+                          <details open>
+                            <summary class="text-xs font-semibold text-base-content/80">
+                              Purchased Items (1)
+                            </summary>
+                            <ul class="pl-0">
+                              <li class="text-xs py-1 w-full">
+                                <div class="px-2 flex items-start gap-2.5 w-full">
+                                  <div class="shrink-0 pt-0.5">
+                                    <MaterialIcon item_number={53} size="xs" />
+                                  </div>
+                                  <div class="min-w-0 flex-1">
+                                    <div class="flex items-center justify-between gap-2">
+                                      <div class="flex items-center gap-1.5 min-w-0">
+                                        <span class="truncate font-medium">
+                                          母港拡張
+                                        </span>
+                                        <span class="badge badge-xs badge-accent shrink-0">
+                                          Usable
+                                        </span>
+                                        <span class="badge badge-xs badge-ghost border-base-300 tabular-nums shrink-0">
+                                          1000 pt
+                                        </span>
+                                      </div>
+                                      <span class="tabular-nums font-medium shrink-0 text-right w-14">
+                                        x1
+                                      </span>
+                                    </div>
+                                    <div class="text-[11px] text-base-content/60 whitespace-pre-wrap wrap-break-word mt-0.5">
+                                      保有艦数の上限枠を10隻分拡張します。
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                            </ul>
+                          </details>
                         </li>
                       </ul>
                     </details>
@@ -4123,7 +4444,20 @@ export default function DesignSystemPage() {
                       <code>src/components/materials/materials.tsx</code>
                     </td>
                     <td>
-                      主要資源4種＋資材4種（計8種）のリアルタイム集計ストリップ
+                      主要資源4種＋資材4種（24px
+                      SVG・tabular-nums）のリアルタイム集計ストリップ
+                    </td>
+                    <td>
+                      <span class="badge badge-success badge-xs">Covered</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">ItemsComponent</td>
+                    <td>
+                      <code>src/components/items/items.tsx</code>
+                    </td>
+                    <td>
+                      通常・特殊拡張・課金アイテム棚（IconMaterial・所持数・説明文）
                     </td>
                     <td>
                       <span class="badge badge-success badge-xs">Covered</span>
@@ -4134,7 +4468,38 @@ export default function DesignSystemPage() {
                     <td>
                       <code>src/components/quests/quests.tsx</code>
                     </td>
-                    <td>受注中・受注可能任務の一覧および達成進捗（%）表示</td>
+                    <td>
+                      受注中・受注可能・完了任務の一覧、期間置換・進捗表示
+                    </td>
+                    <td>
+                      <span class="badge badge-success badge-xs">Covered</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">
+                      EmptyValue / EmptySlot
+                    </td>
+                    <td>
+                      <code>src/components/ui/components/empty/empty.tsx</code>
+                    </td>
+                    <td>
+                      固定幅欠損値（—）・空スロット破線 SVG プレースホルダー
+                    </td>
+                    <td>
+                      <span class="badge badge-success badge-xs">Covered</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">
+                      TouchPlane / FlareShip
+                    </td>
+                    <td>
+                      <code>
+                        src/components/battles/shared/
+                        {`{touch_plane,flare_ship}`}.tsx
+                      </code>
+                    </td>
+                    <td>触接・照明弾の共通固定幅インジケーター</td>
                     <td>
                       <span class="badge badge-success badge-xs">Covered</span>
                     </td>
@@ -4172,7 +4537,8 @@ export default function DesignSystemPage() {
                       <code>src/components/settings/theme.tsx</code>
                     </td>
                     <td>
-                      DaisyUI テーマ（Light / Dark）即時切り替えコントローラー
+                      タイトルバーに常駐する DaisyUI テーマ（Light /
+                      Dark）クリック切り替えボタン
                     </td>
                     <td>
                       <span class="badge badge-success badge-xs">Covered</span>
