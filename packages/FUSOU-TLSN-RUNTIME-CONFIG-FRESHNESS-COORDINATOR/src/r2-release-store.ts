@@ -114,6 +114,25 @@ export class RuntimeConfigR2ReleaseStore {
     };
   }
 
+  async readCurrentManifestPointer(): Promise<{
+    readonly etag: string;
+    readonly bytes: Uint8Array;
+  } | null> {
+    const pointer = await this.#readObject(RUNTIME_CONFIG_MANIFEST_POINTER_KEY);
+    return pointer === null
+      ? null
+      : { etag: pointer.etag, bytes: pointer.bytes };
+  }
+
+  async readImmutableManifestSnapshot(
+    reference: string,
+  ): Promise<{ readonly reference: string; readonly bytes: Uint8Array } | null> {
+    const snapshot = await this.#readObject(immutableManifestKey(reference));
+    return snapshot === null
+      ? null
+      : { reference, bytes: snapshot.bytes };
+  }
+
   async verifyExactReadback(input: {
     readonly manifestRef: string;
     readonly manifestBytes: Uint8Array;

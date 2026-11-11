@@ -293,6 +293,9 @@ export interface RuntimeConfigRootSigner {
 export interface VerifiedRuntimeConfigManifestEpochPointer {
   readonly epoch: string;
   readonly manifestSha256: string;
+  readonly issuedAtMs: number;
+  readonly notBeforeMs: number;
+  readonly expiresAtMs: number;
 }
 
 export interface VerifiedDelegation<P extends DelegationPurpose = DelegationPurpose> {
@@ -1259,6 +1262,56 @@ export async function verifyRuntimeConfigManifestEpochPointer(options: {
   return Object.freeze({
     epoch: payload.epoch,
     manifestSha256: await sha256Base64Url(options.raw),
+    issuedAtMs,
+    notBeforeMs,
+    expiresAtMs,
+  });
+}
+
+export async function signRuntimeConfigFreshnessResponseEnvelope(options: {
+  readonly payload: FreshnessResponsePayload;
+  readonly signerKeyId: string;
+  readonly privateKey: CryptoKey;
+  readonly freshnessDelegationBytes: Uint8Array;
+  readonly releaseDelegationBytes: Uint8Array;
+  readonly releaseRecordBytes: Uint8Array;
+}): Promise<Uint8Array> {
+  assertKeyId(options.signerKeyId, "Freshness signer key ID");
+  if (
+    options.privateKey.type !== "private" ||
+    options.privateKey.algorithm.name !== "Ed25519" ||
+    !options.privateKey.usages.includes("sign")
+  ) {
+    invalid("INVALID_BINDING", "Freshness signer key is not an Ed25519 signing key");
+  }
+  const payloadBytes = canonicalJsonBytes(options.payload);
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "Ed25519" },
+      options.privateKey,
+      toArrayBuffer(signaturePreimage(
+        FRESHNESS_RESPONSE_DOMAIN,
+        options.signerKeyId,
+        payloadBytes,
+      )),
+    ),
+  );
+  return canonicalJsonBytes({
+    schema_version: 1,
+    scope: RESPONSE_ENVELOPE_SCOPE,
+    signature_algorithm: "Ed25519",
+    signer_key_id: options.signerKeyId,
+    freshness_delegation_base64url: encodeBase64Url(
+      options.freshnessDelegationBytes,
+    ),
+    release_authority_delegation_base64url: encodeBase64Url(
+      options.releaseDelegationBytes,
+    ),
+    release_commit_record_base64url: encodeBase64Url(
+      options.releaseRecordBytes,
+    ),
+    payload_base64url: encodeBase64Url(payloadBytes),
+    signature_base64url: encodeBase64Url(signature),
   });
 }
 

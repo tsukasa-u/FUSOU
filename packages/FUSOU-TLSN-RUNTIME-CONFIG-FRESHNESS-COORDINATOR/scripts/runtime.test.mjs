@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomUUID, webcrypto } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
   mkdtempSync,
@@ -17,6 +17,15 @@ import {
   MAX_FRESHNESS_ISSUE_LEASE_MS,
   issueRuntimeConfigFreshness,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts";
+import {
+  createCloudflareOperatorReleaseStateReader,
+  createWorkerReadableCloudflareOperatorFreshnessSigner,
+  issueCloudflareOperatorFreshness,
+  verifyCloudflareOperatorFreshnessResponse,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-cloudflare-operator.ts";
+import {
+  signRuntimeConfigFreshnessResponseEnvelope,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 import {
   createFreshnessCurrentStateInstallProofContext,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-current-state-reader.ts";
@@ -126,6 +135,938 @@ function registerRuntimeTests() {
       after(async () => {
         await cleanupRuntime(context);
       });
+
+      it(
+        "rechecks Release delegation expiry at the ledger commit point",
+        { timeout: 40_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-release-expiry-at-commit",
+          );
+          const nowMs = Date.now() + 5_000;
+          const notAfterMs = nowMs + 1_000;
+          const intent = await startReleaseIntent(
+            seeded.coordinator,
+            seeded.fixture,
+            {
+              manifestEpoch: "71002",
+              nowMs,
+              releaseDelegationNotAfterMs: notAfterMs,
+            },
+          );
+          const staged = await stageReleaseIntent(
+            seeded.coordinator,
+            intent,
+          );
+          await rpc(
+            seeded.stub.setCloudflareOperatorRuntimeUtcSequenceForLocalTest(
+              [nowMs, nowMs, notAfterMs],
+            ),
+            "advance operator UTC between Release verification and commit",
+          );
+          const appended = await appendReleaseIntent(
+            seeded.coordinator,
+            staged,
+          );
+          assert.equal(appended.appended.status, "QUARANTINED");
+          assert.match(
+            appended.appended.operation.reason,
+            /delegation expired/u,
+          );
+        },
+      );
+
+      it(
+        "runs the explicit Cloudflare/operator Release-to-issue profile without an eight-second cutoff",
+        { timeout: 40_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-long-sign",
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          let signerCalls = 0;
+          const delayedSigner = {
+            async issue(request) {
+              signerCalls += 1;
+              const result = await harness.signer.issue(request);
+              await new Promise((resolvePromise) =>
+                setTimeout(resolvePromise, 8_100)
+              );
+              return result;
+            },
+          };
+          const operationId = randomUUID();
+          const input = { operationId, requestBytes };
+          const result = await issueCloudflareOperatorFreshness(input, {
+            ...harness.dependencies,
+            signer: delayedSigner,
+          });
+          assert.equal(result.status, "ISSUED");
+          assert.equal(result.responseLength, result.responseBytes.byteLength);
+          assert.equal(result.responseSha256, digest(result.responseBytes));
+          assert.equal(signerCalls, 1);
+          const verifiedState = await harness.stateReader.readCurrentState();
+          const verified = await verifyCloudflareOperatorFreshnessResponse({
+            raw: result.responseBytes,
+            bootstrapSigner: seeded.fixture.rootSigner,
+            manifestUrl: vector.manifest_url,
+            requestBytes,
+            nowMs: Date.now(),
+            expectedState: verifiedState.state,
+          });
+          assert.equal(
+            verified.releaseCommit.digest,
+            verifiedState.state.recordSha256,
+          );
+          const repeated = await issueCloudflareOperatorFreshness(input, {
+            ...harness.dependencies,
+            signer: delayedSigner,
+          });
+          assert.equal(repeated.status, "ALREADY_FINALIZED");
+          assert.ok(equalBytes(repeated.responseBytes, result.responseBytes));
+          assert.equal(signerCalls, 1);
+          const conflicting = await issueCloudflareOperatorFreshness(
+            {
+              operationId,
+              requestBytes: makeDifferentRequestBytes(),
+            },
+            { ...harness.dependencies, signer: delayedSigner },
+          );
+          assert.equal(conflicting.status, "CONFLICT");
+          assert.equal(signerCalls, 1);
+          const wrongChain = await rpc(
+            harness.coordinator.getCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              chainId: `${seeded.fixture.releaseHead.chainId}-other`,
+            }),
+            "reject operator result lookup under a different chain",
+          );
+          assert.equal(wrongChain.status, "CONFLICT");
+
+          await restartRuntime(context);
+          const reloaded = coordinatorForName(
+            context,
+            seeded.objectName,
+            seeded.objectId,
+            context.releaseNamespace,
+          ).coordinator;
+          const lookup = await rpc(
+            reloaded.getCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "lookup exact operator-profile result after runtime recreation",
+          );
+          assert.equal(lookup.status, "FINALIZED");
+          assert.equal(lookup.responseBytes.byteLength, result.responseLength);
+          assert.equal(lookup.responseSha256, result.responseSha256);
+          assert.ok(equalBytes(lookup.responseBytes, result.responseBytes));
+        },
+      );
+
+      it(
+        "requires a durable admitted operation before the private Signer can sign",
+        { timeout: 40_000 },
+        async () => {
+          const absentSeed = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-signer-absent",
+          );
+          const absentHarness = await makeCloudflareOperatorHarness(
+            context,
+            absentSeed,
+          );
+          const absentId = randomUUID();
+          const absentIdentity = await makeRequestIdentity(absentId);
+          const absentState = await absentHarness.stateReader.readCurrentState();
+          const absentOperation = {
+            profileId: "cloudflare-operator-v1",
+            operationId: absentId,
+            signerOperationId: `cloudflare-operator-freshness:${absentId}`,
+            requestSha256: absentIdentity.identity.requestSha256,
+            requestNonce: absentIdentity.challenge.request_nonce,
+            environment: "production",
+            chainId: absentSeed.fixture.releaseHead.chainId,
+            audienceManifestUrlSha256:
+              absentIdentity.challenge.audience_manifest_url_sha256,
+          };
+          const absentRequest = makeOperatorSigningRequest(
+            absentOperation,
+            "1",
+            requestBytes,
+            absentIdentity,
+            absentState.state,
+          );
+          const absentSignatures = await withFreshnessResponseSignatureCount(
+            absentHarness.privateKey,
+            async () => {
+              await assert.rejects(
+                () => absentHarness.signer.issue(absentRequest),
+                /NOT_FOUND/u,
+              );
+            },
+          );
+          assert.equal(absentSignatures, 0);
+
+          for (const status of ["RESULT_UNKNOWN", "REJECTED"]) {
+            const seeded = await seededCloudflareOperatorCoordinator(
+              context,
+              `operator-signer-${status.toLowerCase()}`,
+            );
+            const harness = await makeCloudflareOperatorHarness(context, seeded);
+            const { identity, admission } =
+              await admitCloudflareOperatorIssueForTest(
+                harness,
+                randomUUID(),
+                requestBytes,
+                `admit ${status} direct-signer case`,
+              );
+            const terminal = status === "RESULT_UNKNOWN"
+              ? await rpc(
+                  harness.coordinator.markCloudflareOperatorIssueUnknown({
+                    operation: admission.operation,
+                    fencingToken: admission.fencingToken,
+                  }),
+                  "make direct-signer operation unknown",
+                )
+              : await rpc(
+                  harness.coordinator.rejectCloudflareOperatorIssue({
+                    operation: admission.operation,
+                    fencingToken: admission.fencingToken,
+                    reason: "Local direct-signer rejection case",
+                  }),
+                  "reject direct-signer operation",
+                );
+            assert.equal(terminal.status, status);
+            const signingRequest = makeOperatorSigningRequest(
+              admission.operation,
+              admission.fencingToken,
+              requestBytes,
+              identity,
+              admission.currentState,
+            );
+            const signatures = await withFreshnessResponseSignatureCount(
+              harness.privateKey,
+              async () => {
+                await assert.rejects(
+                  () => harness.signer.issue(signingRequest),
+                  new RegExp(status, "u"),
+                );
+              },
+            );
+            assert.equal(signatures, 0);
+          }
+
+          const finalizedSeed = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-signer-finalized",
+          );
+          const finalizedHarness = await makeCloudflareOperatorHarness(
+            context,
+            finalizedSeed,
+          );
+          const finalizedId = randomUUID();
+          const issued = await issueCloudflareOperatorFreshness(
+            { operationId: finalizedId, requestBytes },
+            finalizedHarness.dependencies,
+          );
+          assert.equal(issued.status, "ISSUED");
+          const finalizedAdmission = await rpc(
+            finalizedHarness.coordinator.getCloudflareOperatorIssue({
+              operationId: finalizedId,
+              requestBytes,
+              chainId: finalizedSeed.fixture.releaseHead.chainId,
+            }),
+            "read finalized operation before direct signer replay",
+          );
+          assert.equal(finalizedAdmission.status, "FINALIZED");
+          assert.ok(finalizedAdmission.operation);
+          const finalizedIdentity = await makeRequestIdentity(finalizedId);
+          const finalizedState = await finalizedHarness.stateReader
+            .readCurrentState();
+          const finalizedRequest = makeOperatorSigningRequest(
+            finalizedAdmission.operation,
+            finalizedAdmission.fencingToken,
+            requestBytes,
+            finalizedIdentity,
+            finalizedState.state,
+          );
+          assert.ok(finalizedRequest.issue);
+          const finalizedSignatures = await withFreshnessResponseSignatureCount(
+            finalizedHarness.privateKey,
+            async () => {
+              await assert.rejects(
+                () => finalizedHarness.signer.issue(finalizedRequest),
+                /FINALIZED/u,
+              );
+            },
+          );
+          assert.equal(finalizedSignatures, 0);
+        },
+      );
+
+      it(
+        "binds the private signing claim to request, Release, fence, and one atomic signer start",
+        { timeout: 40_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-signer-claim-race",
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          const operationId = randomUUID();
+          const { identity, admission } =
+            await admitCloudflareOperatorIssueForTest(
+              harness,
+              operationId,
+              requestBytes,
+              "admit direct-signer claim race",
+            );
+          const signingRequest = makeOperatorSigningRequest(
+            admission.operation,
+            admission.fencingToken,
+            requestBytes,
+            identity,
+            admission.currentState,
+          );
+          const differentBytes = makeDifferentRequestBytes();
+          const differentIdentity = await makeRequestIdentity(
+            operationId,
+            differentBytes,
+          );
+          const alteredRelease = {
+            ...admission.currentState,
+            releaseOperationId: randomUUID(),
+          };
+          const invalidRequests = [
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  operationId: randomUUID(),
+                },
+              },
+              error: /NOT_FOUND/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  signerOperationId: "cloudflare-operator-freshness:wrong",
+                },
+              },
+              error: /CONFLICT/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  requestSha256: "A".repeat(43),
+                },
+              },
+              error: /exact request bytes/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  requestSha256: differentIdentity.identity.requestSha256,
+                  requestNonce: differentIdentity.challenge.request_nonce,
+                },
+                requestBytes: differentBytes,
+                challenge: differentIdentity.challenge,
+              },
+              error: /CONFLICT/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  requestNonce: "wrong-nonce",
+                },
+              },
+              error: /fixed profile/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  audienceManifestUrlSha256: "A".repeat(43),
+                },
+              },
+              error: /fixed profile/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                issue: {
+                  ...admission.operation,
+                  chainId: `${admission.operation.chainId}-wrong`,
+                },
+              },
+              error: /fixed profile/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                fencingToken: "999",
+              },
+              error: /CONFLICT/u,
+            },
+            {
+              request: {
+                ...signingRequest,
+                currentState: alteredRelease,
+              },
+              error: /authorization/u,
+            },
+          ];
+
+          await assert.rejects(
+            () => harness.stateReader.readCurrentState({ operationId }),
+            /issue blockers/u,
+          );
+          await assert.rejects(
+            () =>
+              harness.stateReader.readCurrentState({
+                operationId: randomUUID(),
+              }),
+            /issue blockers/u,
+          );
+
+          let signedResponseBytes;
+          const signatures = await withFreshnessResponseSignatureCount(
+            harness.privateKey,
+            async () => {
+              for (const invalid of invalidRequests) {
+                await assert.rejects(
+                  () => harness.signer.issue(invalid.request),
+                  invalid.error,
+                );
+              }
+              const racing = await Promise.allSettled([
+                harness.signer.issue(signingRequest),
+                harness.signer.issue(signingRequest),
+              ]);
+              const completed = racing.filter(
+                (result) => result.status === "fulfilled",
+              );
+              const rejected = racing.filter(
+                (result) => result.status === "rejected",
+              );
+              assert.equal(completed.length, 1);
+              assert.equal(rejected.length, 1);
+              assert.equal(completed[0].value.outcome, "COMPLETED");
+              signedResponseBytes = completed[0].value.responseBytes;
+            },
+          );
+          assert.equal(signatures, 1);
+
+          await restartRuntime(context);
+          const reloaded = coordinatorForName(
+            context,
+            seeded.objectName,
+            seeded.objectId,
+            context.releaseNamespace,
+          ).coordinator;
+          const reloadedHarness = await makeCloudflareOperatorHarness(
+            context,
+            { ...seeded, coordinator: reloaded },
+          );
+          const replaySignatures = await withFreshnessResponseSignatureCount(
+            reloadedHarness.privateKey,
+            async () => {
+              await assert.rejects(
+                () => reloadedHarness.signer.issue(signingRequest),
+                /ALREADY_CLAIMED/u,
+              );
+            },
+          );
+          assert.equal(replaySignatures, 0);
+          const authorization = {
+            operation: admission.operation,
+            fencingToken: admission.fencingToken,
+            requestBytes,
+            currentState: admission.currentState,
+          };
+          const state = await reloadedHarness.stateReader.readCurrentState({
+            issueAuthorization: authorization,
+          });
+          const finalized = await rpc(
+            reloadedHarness.coordinator.finalizeCloudflareOperatorIssue({
+              operation: admission.operation,
+              fencingToken: admission.fencingToken,
+              currentStateSha256: state.state.stateSha256,
+              responseBytes: signedResponseBytes,
+            }),
+            "finalize the single claimed signer result after restart",
+          );
+          assert.equal(finalized.status, "FINALIZED");
+          const finalizedReplaySignatures =
+            await withFreshnessResponseSignatureCount(
+              reloadedHarness.privateKey,
+              async () => {
+                await assert.rejects(
+                  () => reloadedHarness.signer.issue(signingRequest),
+                  /FINALIZED/u,
+                );
+              },
+          );
+          assert.equal(finalizedReplaySignatures, 0);
+
+          const lookup = await rpc(
+            reloadedHarness.coordinator.getCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "lookup exact response bytes after signer claim finalization",
+          );
+          assert.equal(lookup.status, "FINALIZED");
+          assert.equal(lookup.responseBytes.byteLength, signedResponseBytes.byteLength);
+          assert.equal(lookup.responseSha256, digest(signedResponseBytes));
+          assert.ok(equalBytes(lookup.responseBytes, signedResponseBytes));
+        },
+      );
+
+      it(
+        "keeps a late signed result private and blocks Release while the operation is unknown",
+        { timeout: 30_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-late-result",
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          const signerStarted = deferred();
+          const releaseSignerResult = deferred();
+          let signerCalls = 0;
+          let privateSigningRequest;
+          const heldSigner = {
+            async issue(request) {
+              signerCalls += 1;
+              privateSigningRequest = request;
+              await harness.signer.issue(request);
+              signerStarted.resolve();
+              await releaseSignerResult.promise;
+              throw new Error("Local test simulated signer response loss");
+            },
+          };
+          const operationId = randomUUID();
+          const issuePromise = issueCloudflareOperatorFreshness(
+            { operationId, requestBytes },
+            { ...harness.dependencies, signer: heldSigner },
+          );
+          await withTimeout(
+            signerStarted.promise,
+            RPC_TIMEOUT_MS,
+            "Cloudflare/operator signer completion",
+          );
+          releaseSignerResult.resolve();
+          const issueResult = await withTimeout(
+            issuePromise,
+            RPC_TIMEOUT_MS,
+            "late Cloudflare/operator signer result",
+          );
+          assert.equal(issueResult.status, "RESULT_UNKNOWN");
+          assert.equal(signerCalls, 1);
+          const committed = await rpc(
+            seeded.coordinator.readCloudflareOperatorReleaseSnapshot(),
+            "read Release evidence while the signer result is unknown",
+          );
+          const corruptedPointer = Uint8Array.from(
+            committed.releaseOperation.manifestBytes,
+          );
+          corruptedPointer[0] ^= 1;
+          await rpc(
+            seeded.stub.writeReleaseObjectForLocalTest(
+              RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+              corruptedPointer,
+            ),
+            "simulate a negative R2 read during an unknown issue",
+          );
+          await assert.rejects(
+            () =>
+              harness.stateReader.readCurrentState({ operationId }),
+            /issue blockers/u,
+          );
+          const stillUnknown = await rpc(
+            seeded.coordinator.getCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "confirm negative R2 read does not resolve unknown issue",
+          );
+          assert.equal(stillUnknown.status, "RESULT_UNKNOWN");
+          const releaseIntent = await startReleaseIntent(
+            seeded.coordinator,
+            seeded.fixture,
+            { manifestEpoch: "71001", nowMs: Date.now() },
+          );
+          assert.equal(releaseIntent.started.status, "WAITING_FOR_ISSUES");
+          const blockedStage = await rpc(
+            seeded.coordinator.stageReleaseManifest({
+              operationId: releaseIntent.operationId,
+              fencingToken: releaseIntent.fencingToken,
+            }),
+            "ensure unresolved operator issue blocks Release write",
+          );
+          assert.equal(blockedStage.status, "WAITING_FOR_ISSUES");
+
+          await restartRuntime(context);
+          const reloaded = coordinatorForName(
+            context,
+            seeded.objectName,
+            seeded.objectId,
+            context.releaseNamespace,
+          ).coordinator;
+          const unknown = await rpc(
+            reloaded.getCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "preserve unknown operator issue after runtime recreation",
+          );
+          assert.equal(unknown.status, "RESULT_UNKNOWN");
+          assert.equal(unknown.responseBytes, undefined);
+          assert.ok(privateSigningRequest);
+          const reloadedHarness = await makeCloudflareOperatorHarness(
+            context,
+            { ...seeded, coordinator: reloaded },
+          );
+          const retrySignatures = await withFreshnessResponseSignatureCount(
+            reloadedHarness.privateKey,
+            async () => {
+              await assert.rejects(
+                () => reloadedHarness.signer.issue(privateSigningRequest),
+                /RESULT_UNKNOWN/u,
+              );
+            },
+          );
+          assert.equal(retrySignatures, 0);
+          const stillBlocked = await rpc(
+            reloaded.stageReleaseManifest({
+              operationId: releaseIntent.operationId,
+              fencingToken: releaseIntent.fencingToken,
+            }),
+            "keep Release blocked after restart",
+          );
+          assert.equal(stillBlocked.status, "WAITING_FOR_ISSUES");
+        },
+      );
+
+      it(
+        "rejects a response that expires between signing and exact finalization",
+        { timeout: 20_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-expiry-finalization",
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          const operationId = randomUUID();
+          const requestIdentity = await makeRequestIdentity(
+            operationId,
+            requestBytes,
+          );
+          const admission = await rpc(
+            harness.coordinator.beginCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              requestSha256: digest(requestBytes),
+              challengeNonce: requestIdentity.challenge.request_nonce,
+              audienceManifestUrlSha256:
+                requestIdentity.challenge.audience_manifest_url_sha256,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "admit short-lived operator-profile issue",
+          );
+          assert.equal(admission.status, "ACQUIRED");
+          const signed = await harness.signer.issue({
+            operation: "ISSUE_LATEST_AT_ISSUANCE",
+            profileId: admission.operation.profileId,
+            issue: admission.operation,
+            fencingToken: admission.fencingToken,
+            requestBytes,
+            challenge: requestIdentity.challenge,
+            currentState: admission.currentState,
+          });
+          assert.equal(signed.outcome, "COMPLETED");
+          const authorization = {
+            operation: admission.operation,
+            fencingToken: admission.fencingToken,
+            requestBytes,
+            currentState: admission.currentState,
+          };
+          const state = await rpc(
+            harness.stateReader.readCurrentState({
+              issueAuthorization: authorization,
+            }),
+            "read Release state under the persistent signing claim",
+          );
+          const envelope = JSON.parse(
+            Buffer.from(signed.responseBytes).toString("utf8"),
+          );
+          const payload = JSON.parse(
+            Buffer.from(envelope.payload_base64url, "base64url").toString(
+              "utf8",
+            ),
+          );
+          payload.expires_at = new Date(Date.now() + 1_000).toISOString();
+          const responseBytes = await signRuntimeConfigFreshnessResponseEnvelope({
+            payload,
+            signerKeyId: seeded.fixture.freshnessKeyId,
+            privateKey: harness.privateKey,
+            freshnessDelegationBytes:
+              seeded.fixture.freshnessDelegationBytes,
+            releaseDelegationBytes: state.releaseDelegationBytes,
+            releaseRecordBytes: state.recordBytes,
+          });
+          const verified = await verifyCloudflareOperatorFreshnessResponse({
+            raw: responseBytes,
+            bootstrapSigner: seeded.fixture.rootSigner,
+            manifestUrl: vector.manifest_url,
+            requestBytes,
+            nowMs: Date.now(),
+            expectedState: state.state,
+          });
+          await new Promise((resolvePromise) =>
+            setTimeout(
+              resolvePromise,
+              Math.max(0, verified.expiresAtMs - Date.now() + 25),
+            )
+          );
+          const finalized = await rpc(
+            harness.coordinator.finalizeCloudflareOperatorIssue({
+              operation: admission.operation,
+              fencingToken: admission.fencingToken,
+              currentStateSha256: state.state.stateSha256,
+              responseBytes,
+            }),
+            "reject expired bytes at exact operator-profile finalization",
+          );
+          assert.equal(finalized.status, "REJECTED");
+          assert.match(finalized.reason, /expired/i);
+          const releaseIntent = await startReleaseIntent(
+            seeded.coordinator,
+            seeded.fixture,
+            { manifestEpoch: "71002", nowMs: Date.now() },
+          );
+          assert.equal(releaseIntent.started.status, "STARTED");
+        },
+      );
+
+      it(
+        "uses runtime UTC for operator state and blocks an observed backward clock",
+        { timeout: 20_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-runtime-utc",
+          );
+          const first = await rpc(
+            seeded.coordinator.readCloudflareOperatorReleaseSnapshot(),
+            "read operator profile runtime UTC",
+          );
+          await new Promise((resolvePromise) =>
+            setTimeout(resolvePromise, 10)
+          );
+          const second = await rpc(
+            seeded.coordinator.readCloudflareOperatorReleaseSnapshot(),
+            "read updated operator profile runtime UTC",
+          );
+          assert.ok(second.observedAtMs > first.observedAtMs);
+          assert.equal(first.lastObservedUtcMs, first.observedAtMs);
+          assert.equal(second.lastObservedUtcMs, second.observedAtMs);
+          assert.ok(second.observedAtMs > seeded.fixture.nowMs);
+
+          await rpc(
+            seeded.stub.setCloudflareOperatorObservedUtcForLocalTest(
+              Date.now() + 60_000,
+            ),
+            "simulate a persisted future UTC observation",
+          );
+          await assert.rejects(
+            () =>
+              seeded.coordinator.readCloudflareOperatorReleaseSnapshot(),
+            /Runtime UTC moved backwards/u,
+          );
+        },
+      );
+
+      it(
+        "rejects uninstalled or mixed operator evidence and prevents rebootstrap",
+        { timeout: 20_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-profile-boundaries",
+            { install: false },
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          await assert.rejects(
+            () => harness.stateReader.readCurrentState(),
+            /AVAILABLE Release binding/u,
+          );
+          let signerCalls = 0;
+          const signer = {
+            async issue(request) {
+              signerCalls += 1;
+              return harness.signer.issue(request);
+            },
+          };
+          const uninstalled = await issueCloudflareOperatorFreshness(
+            { operationId: randomUUID(), requestBytes },
+            { ...harness.dependencies, signer },
+          );
+          assert.equal(uninstalled.status, "CONFLICT");
+          assert.equal(signerCalls, 0);
+
+          await assert.rejects(
+            () =>
+              seeded.stub.bootstrapCloudflareOperatorProfileForLocalTest(
+                seeded.bootstrapSeed,
+              ),
+            /cannot convert existing or legacy state/u,
+          );
+
+          await assert.rejects(
+            () =>
+              createWorkerReadableCloudflareOperatorFreshnessSigner({
+                manifestUrl: vector.manifest_url,
+                environment: "production",
+                chainId: seeded.fixture.releaseHead.chainId,
+                bootstrapSigner: seeded.fixture.rootSigner,
+                key: {
+                  keyId: seeded.fixture.freshnessKeyId,
+                  privateKey: harness.privateKey,
+                  freshnessDelegationBytes:
+                    seeded.fixture.releaseDelegationBytes,
+                },
+                stateReader: harness.stateReader,
+              }),
+            /purpose|audience/u,
+          );
+          await assert.rejects(
+            () =>
+              createWorkerReadableCloudflareOperatorFreshnessSigner({
+                manifestUrl: vector.manifest_url,
+                environment: "production",
+                chainId: seeded.fixture.releaseHead.chainId,
+                bootstrapSigner: seeded.fixture.rootSigner,
+                key: {
+                  keyId: "wrong-local-freshness-key",
+                  privateKey: harness.privateKey,
+                  freshnessDelegationBytes:
+                    seeded.fixture.freshnessDelegationBytes,
+                },
+                stateReader: harness.stateReader,
+              }              ),
+              /does not match.*Freshness delegation/u,
+          );
+          assert.equal(typeof harness.signer.sign, "undefined");
+        },
+      );
+
+      it(
+        "recovers exact bytes after finalization response loss and refuses expired lookup",
+        { timeout: 20_000 },
+        async () => {
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-finalize-response-loss",
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          let signerCalls = 0;
+          const signer = {
+            async issue(request) {
+              signerCalls += 1;
+              const signed = await harness.signer.issue(request);
+              return {
+                ...signed,
+                responseBytes: await shortenFreshnessResponse(
+                  signed.responseBytes,
+                  seeded.fixture,
+                  harness.privateKey,
+                  1_500,
+                ),
+              };
+            },
+          };
+          const coordinator = {
+            beginCloudflareOperatorIssue: (input) =>
+              harness.coordinator.beginCloudflareOperatorIssue(input),
+            getCloudflareOperatorIssue: (input) =>
+              harness.coordinator.getCloudflareOperatorIssue(input),
+            markCloudflareOperatorIssueUnknown: (input) =>
+              harness.coordinator.markCloudflareOperatorIssueUnknown(input),
+            rejectCloudflareOperatorIssue: (input) =>
+              harness.coordinator.rejectCloudflareOperatorIssue(input),
+            async finalizeCloudflareOperatorIssue(input) {
+              const finalized = await harness.coordinator
+                .finalizeCloudflareOperatorIssue(input);
+              if (finalized.status === "FINALIZED") {
+                throw new Error("Local test simulated lost finalize response");
+              }
+              return finalized;
+            },
+          };
+          const issueInput = { operationId: randomUUID(), requestBytes };
+          const first = await issueCloudflareOperatorFreshness(issueInput, {
+            ...harness.dependencies,
+            coordinator,
+            signer,
+          });
+          assert.equal(first.status, "ISSUED");
+          assert.equal(first.responseLength, first.responseBytes.byteLength);
+          assert.equal(first.responseSha256, digest(first.responseBytes));
+          assert.equal(signerCalls, 1);
+
+          const exact = await issueCloudflareOperatorFreshness(issueInput, {
+            ...harness.dependencies,
+            signer,
+          });
+          assert.equal(exact.status, "ALREADY_FINALIZED");
+          assert.ok(equalBytes(exact.responseBytes, first.responseBytes));
+          assert.equal(signerCalls, 1);
+
+          const verified = await verifyCloudflareOperatorFreshnessResponse({
+            raw: first.responseBytes,
+            bootstrapSigner: seeded.fixture.rootSigner,
+            manifestUrl: vector.manifest_url,
+            requestBytes,
+            nowMs: Date.now(),
+            expectedState: (
+              await harness.stateReader.readCurrentState()
+            ).state,
+          });
+          await new Promise((resolvePromise) =>
+            setTimeout(
+              resolvePromise,
+              Math.max(0, verified.expiresAtMs - Date.now() + 25),
+            )
+          );
+          const expired = await issueCloudflareOperatorFreshness(issueInput, {
+            ...harness.dependencies,
+            signer,
+          });
+          assert.equal(expired.status, "REJECTED");
+          assert.match(expired.reason, /expired/u);
+          assert.equal(signerCalls, 1);
+        },
+      );
 
       it(
         "atomically admits one concurrent issue and finalizes exact verified bytes",
@@ -3448,6 +4389,7 @@ async function startRuntime(context) {
         compatibilityFlags: [],
         bindings: {
           RELEASE_LEDGER_CHAIN_ID: "test-release-chain-v1",
+          FRESHNESS_MANIFEST_URL: vector.manifest_url,
           RELEASE_LEDGER_ROOT_KEY_ID:
             context.signedReleaseFixture.rootSigner.key_id,
           RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI:
@@ -3714,6 +4656,108 @@ async function seededInitialReleaseCoordinator(context, scenario) {
   };
 }
 
+async function seededCloudflareOperatorCoordinator(
+  context,
+  scenario,
+  { install = true } = {},
+) {
+  assert.ok(context.releaseNamespace, "Release ledger namespace is unavailable");
+  const objectName = `${scenario}-${randomUUID()}`;
+  const { stub, coordinator } = coordinatorForName(
+    context,
+    objectName,
+    undefined,
+    context.releaseNamespace,
+  );
+  const clearedPointer = await rpc(
+    stub.attemptClearReleasePointerForLocalTest(),
+    `clear ${scenario} initial test pointer`,
+  );
+  assert.equal(
+    clearedPointer.status,
+    "RETURNED",
+    clearedPointer.status === "THREW"
+      ? `${clearedPointer.errorName}: ${clearedPointer.errorMessage}`
+      : undefined,
+  );
+
+  const nowMs = Date.now();
+  const manifestEpoch = String(++localManifestEpochSequence);
+  const template = await makeSignedCurrentStateFixture({
+    manifestEpoch,
+    nowMs,
+  });
+  const publication = await rpc(
+    stub.publishBaselineManifestForLocalTest(
+      template.manifestRef,
+      template.manifestBytes,
+    ),
+    `publish ${scenario} explicit local checkpoint`,
+  );
+  const fixture = await makeSignedCurrentStateFixture({
+    manifestEpoch,
+    nowMs,
+    pointerEtag: publication.pointerEtag,
+  });
+  assert.ok(equalBytes(fixture.manifestBytes, publication.pointerBytes));
+  assert.ok(equalBytes(fixture.manifestBytes, publication.snapshotBytes));
+
+  const releaseOperationId = randomUUID();
+  const restoreEpoch = `local-test-${randomUUID()}`;
+  const clock = {
+    clockId,
+    clockEpoch: restoreEpoch,
+    nowMs,
+    uncertaintyMs: 0,
+  };
+  const bootstrapSeed = {
+    operationId: releaseOperationId,
+    requestSha256: digest(
+      new TextEncoder().encode(`test-cloudflare-operator:${scenario}`),
+    ),
+    chainId: fixture.releaseHead.chainId,
+    head: fixture.releaseHead,
+    restoreEpoch,
+    clock,
+  };
+  await rpc(
+    stub.bootstrapCloudflareOperatorProfileForLocalTest(bootstrapSeed),
+    `seed ${scenario} explicit Cloudflare/operator test checkpoint`,
+  );
+  if (install) {
+    const installOperationId = randomUUID();
+    const started = await rpc(
+      coordinator.beginCloudflareOperatorBindingInstall({
+        operationId: installOperationId,
+        mode: "BOOTSTRAP",
+        releaseOperationId,
+        expectedCurrentStateSha256: null,
+        expectedRestoreEpoch: restoreEpoch,
+      }),
+      `begin ${scenario} operator-profile binding install`,
+    );
+    assert.equal(started.status, "STARTED");
+    const installed = await rpc(
+      coordinator.finalizeCloudflareOperatorBindingInstall({
+        operationId: installOperationId,
+      }),
+      `finalize ${scenario} operator-profile binding install`,
+    );
+    assert.equal(installed.status, "INSTALLED");
+  }
+
+  return {
+    objectName,
+    objectId: context.releaseNamespace.idFromName(objectName).toString(),
+    stub,
+    coordinator,
+    fixture,
+    releaseOperationId,
+    restoreEpoch,
+    bootstrapSeed,
+  };
+}
+
 async function prepareReleaseBindingInstall(
   context,
   coordinator,
@@ -3828,7 +4872,12 @@ function disposeRuntimeRpcResult(value) {
 async function startReleaseIntent(
   coordinator,
   previousFixture,
-  { operationId = randomUUID(), manifestEpoch = "2" } = {},
+  {
+    operationId = randomUUID(),
+    manifestEpoch = "2",
+    nowMs,
+    releaseDelegationNotAfterMs,
+  } = {},
 ) {
   const baseline = await rpc(
     coordinator.readReleaseLedgerHead(),
@@ -3838,6 +4887,8 @@ async function startReleaseIntent(
   const nextFixture = await makeSignedCurrentStateFixture({
     manifestEpoch,
     previousReleaseHead: previousFixture.releaseHead,
+    nowMs,
+    releaseDelegationNotAfterMs,
   });
   const started = await rpc(
     coordinator.beginReleaseOperation({
@@ -3855,6 +4906,7 @@ async function startReleaseIntent(
     started,
     fencingToken: started.operation.fencingToken,
     previousFixture,
+    releaseDelegationNotAfterMs,
   };
 }
 
@@ -3871,6 +4923,8 @@ async function stageReleaseIntent(coordinator, intent) {
     manifestEpoch: intent.nextFixture.manifestEpoch,
     pointerEtag: staged.operation.pointerEtag,
     previousReleaseHead: intent.previousFixture.releaseHead,
+    nowMs: intent.nextFixture.nowMs,
+    releaseDelegationNotAfterMs: intent.releaseDelegationNotAfterMs,
   });
   assert.ok(equalBytes(
     committedFixture.manifestBytes,
@@ -3969,6 +5023,157 @@ function makeCoreHarness(context, coordinator, options = {}) {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     },
   };
+}
+
+async function makeCloudflareOperatorHarness(context, seeded) {
+  const fixture = seeded.fixture;
+  const privateKey = await webcrypto.subtle.importKey(
+    "pkcs8",
+    fixture.freshnessPrivateKeyPkcs8Bytes,
+    { name: "Ed25519" },
+    false,
+    ["sign"],
+  );
+  const stateReader = createCloudflareOperatorReleaseStateReader({
+    coordinator: seeded.coordinator,
+    manifests: await runtimeR2ManifestReader(context),
+    releaseRootSigner: fixture.rootSigner,
+    manifestRootSigner: fixture.manifestRootSigner,
+  });
+  const signer = await createWorkerReadableCloudflareOperatorFreshnessSigner({
+    manifestUrl: vector.manifest_url,
+    environment: "production",
+    chainId: fixture.releaseHead.chainId,
+    bootstrapSigner: fixture.rootSigner,
+    coordinator: seeded.coordinator,
+    key: {
+      keyId: fixture.freshnessKeyId,
+      privateKey,
+      freshnessDelegationBytes: fixture.freshnessDelegationBytes,
+    },
+    stateReader,
+  });
+  return {
+    coordinator: seeded.coordinator,
+    fixture,
+    privateKey,
+    signer,
+    stateReader,
+    dependencies: {
+      manifestUrl: vector.manifest_url,
+      chainId: fixture.releaseHead.chainId,
+      bootstrapSigner: fixture.rootSigner,
+      coordinator: seeded.coordinator,
+      currentState: stateReader,
+      signer,
+    },
+  };
+}
+
+async function admitCloudflareOperatorIssueForTest(
+  harness,
+  operationId,
+  raw,
+  description,
+) {
+  const identity = await makeRequestIdentity(operationId, raw);
+  const admission = await rpc(
+    harness.coordinator.beginCloudflareOperatorIssue({
+      operationId,
+      requestBytes: raw,
+      requestSha256: identity.identity.requestSha256,
+      challengeNonce: identity.challenge.request_nonce,
+      audienceManifestUrlSha256:
+        identity.challenge.audience_manifest_url_sha256,
+      chainId: harness.fixture.releaseHead.chainId,
+    }),
+    description,
+  );
+  assert.equal(admission.status, "ACQUIRED");
+  return { identity, admission };
+}
+
+function makeOperatorSigningRequest(
+  operation,
+  fencingToken,
+  raw,
+  identity,
+  currentState,
+) {
+  return {
+    operation: "ISSUE_LATEST_AT_ISSUANCE",
+    profileId: operation.profileId,
+    issue: operation,
+    fencingToken,
+    requestBytes: raw,
+    challenge: identity.challenge,
+    currentState,
+  };
+}
+
+async function withFreshnessResponseSignatureCount(privateKey, operation) {
+  let count = 0;
+  const subtles = [...new Set(
+    [webcrypto.subtle, globalThis.crypto?.subtle]
+      .filter((subtle) => subtle !== undefined),
+  )];
+  const originals = subtles.map((subtle) => ({
+    subtle,
+    descriptor: Object.getOwnPropertyDescriptor(subtle, "sign"),
+    original: subtle.sign,
+  }));
+  try {
+    for (const entry of originals) {
+      Object.defineProperty(entry.subtle, "sign", {
+        configurable: true,
+        writable: true,
+        value: async function (...args) {
+          if (args[1] === privateKey) count += 1;
+          return Reflect.apply(entry.original, this, args);
+        },
+      });
+    }
+    await operation();
+    return count;
+  } finally {
+    for (const entry of originals) {
+      if (entry.descriptor === undefined) {
+        delete entry.subtle.sign;
+      } else {
+        Object.defineProperty(entry.subtle, "sign", entry.descriptor);
+      }
+    }
+  }
+}
+
+async function shortenFreshnessResponse(
+  responseBytes,
+  fixture,
+  privateKey,
+  lifetimeMs,
+) {
+  const envelope = JSON.parse(Buffer.from(responseBytes).toString("utf8"));
+  const payload = JSON.parse(
+    Buffer.from(envelope.payload_base64url, "base64url").toString("utf8"),
+  );
+  payload.expires_at = new Date(Date.now() + lifetimeMs).toISOString();
+  return signRuntimeConfigFreshnessResponseEnvelope({
+    payload,
+    signerKeyId: fixture.freshnessKeyId,
+    privateKey,
+    freshnessDelegationBytes: Buffer.from(
+      envelope.freshness_delegation_base64url,
+      "base64url",
+    ),
+    releaseDelegationBytes: Buffer.from(
+      envelope.release_authority_delegation_base64url,
+      "base64url",
+    ),
+    releaseRecordBytes: Buffer.from(
+      envelope.release_commit_record_base64url,
+      "base64url",
+    ),
+  });
 }
 
 function coordinatorWithOverrides(coordinator, overrides) {

@@ -16,7 +16,18 @@ import type {
   FreshnessIssueCurrentStateBinding,
   FreshnessIssueLeaseBinding,
   FreshnessIssueOperationBinding,
+  CloudflareOperatorBindingInstallAction,
+  CloudflareOperatorBindingInstallOperation,
+  CloudflareOperatorIssueAdmission,
+  CloudflareOperatorIssueOperationBinding,
+  CloudflareOperatorIssueSigningAuthorization,
+  CloudflareOperatorIssueSigningClaim,
+  CloudflareOperatorReleaseLedgerSnapshot,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
+import type {
+  CloudflareOperatorIssueCoordinator,
+  CloudflareOperatorReleaseSnapshotReader,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-cloudflare-operator.ts";
 import type {
   ReleaseLedgerActionResult,
   ReleaseBindingInstallActionResult,
@@ -29,13 +40,31 @@ import type {
 export type FreshnessIssueCoordinatorRpcStub = {
   [Method in keyof FreshnessIssueCoordinator]: FreshnessIssueCoordinator[Method];
 } & FreshnessIssueCoordinatorSnapshotReader &
-  ReleaseLedgerCoordinator;
+  ReleaseLedgerCoordinator &
+  CloudflareOperatorIssueCoordinator &
+  CloudflareOperatorReleaseSnapshotReader & {
+    beginCloudflareOperatorBindingInstall(input: {
+      readonly operationId: string;
+      readonly mode: "BOOTSTRAP" | "ADVANCE";
+      readonly releaseOperationId: string;
+      readonly expectedCurrentStateSha256: string | null;
+      readonly expectedRestoreEpoch: string;
+    }): Promise<CloudflareOperatorBindingInstallAction>;
+    finalizeCloudflareOperatorBindingInstall(input: {
+      readonly operationId: string;
+    }): Promise<CloudflareOperatorBindingInstallAction>;
+    getCloudflareOperatorBindingInstall(
+      operationId: string,
+    ): Promise<CloudflareOperatorBindingInstallOperation | null>;
+  };
 
 export class DurableObjectFreshnessIssueCoordinatorAdapter
   implements
     FreshnessIssueCoordinator,
     FreshnessIssueCoordinatorSnapshotReader,
-    ReleaseLedgerCoordinator
+    ReleaseLedgerCoordinator,
+    CloudflareOperatorIssueCoordinator,
+    CloudflareOperatorReleaseSnapshotReader
 {
   readonly #stub: FreshnessIssueCoordinatorRpcStub;
 
@@ -185,5 +214,84 @@ export class DurableObjectFreshnessIssueCoordinatorAdapter
     operationId: string,
   ): Promise<ReleaseLedgerOperation | null> {
     return this.#stub.getReleaseOperation(operationId);
+  }
+
+  beginCloudflareOperatorBindingInstall(input: {
+    readonly operationId: string;
+    readonly mode: "BOOTSTRAP" | "ADVANCE";
+    readonly releaseOperationId: string;
+    readonly expectedCurrentStateSha256: string | null;
+    readonly expectedRestoreEpoch: string;
+  }): Promise<CloudflareOperatorBindingInstallAction> {
+    return this.#stub.beginCloudflareOperatorBindingInstall(input);
+  }
+
+  finalizeCloudflareOperatorBindingInstall(input: {
+    readonly operationId: string;
+  }): Promise<CloudflareOperatorBindingInstallAction> {
+    return this.#stub.finalizeCloudflareOperatorBindingInstall(input);
+  }
+
+  getCloudflareOperatorBindingInstall(
+    operationId: string,
+  ): Promise<CloudflareOperatorBindingInstallOperation | null> {
+    return this.#stub.getCloudflareOperatorBindingInstall(operationId);
+  }
+
+  readCloudflareOperatorReleaseSnapshot(
+  ): Promise<CloudflareOperatorReleaseLedgerSnapshot> {
+    return this.#stub.readCloudflareOperatorReleaseSnapshot();
+  }
+
+  readCloudflareOperatorIssueReleaseSnapshot(
+    input: CloudflareOperatorIssueSigningAuthorization,
+  ): Promise<CloudflareOperatorReleaseLedgerSnapshot> {
+    return this.#stub.readCloudflareOperatorIssueReleaseSnapshot(input);
+  }
+
+  beginCloudflareOperatorIssue(
+    input: Parameters<
+      CloudflareOperatorIssueCoordinator["beginCloudflareOperatorIssue"]
+    >[0],
+  ): Promise<CloudflareOperatorIssueAdmission> {
+    return this.#stub.beginCloudflareOperatorIssue(input);
+  }
+
+  claimCloudflareOperatorIssueSigning(
+    input: CloudflareOperatorIssueSigningAuthorization,
+  ): Promise<CloudflareOperatorIssueSigningClaim> {
+    return this.#stub.claimCloudflareOperatorIssueSigning(input);
+  }
+
+  getCloudflareOperatorIssue(
+    input: Parameters<
+      CloudflareOperatorIssueCoordinator["getCloudflareOperatorIssue"]
+    >[0],
+  ): Promise<CloudflareOperatorIssueAdmission> {
+    return this.#stub.getCloudflareOperatorIssue(input);
+  }
+
+  markCloudflareOperatorIssueUnknown(input: {
+    readonly operation: CloudflareOperatorIssueOperationBinding;
+    readonly fencingToken: string;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    return this.#stub.markCloudflareOperatorIssueUnknown(input);
+  }
+
+  rejectCloudflareOperatorIssue(input: {
+    readonly operation: CloudflareOperatorIssueOperationBinding;
+    readonly fencingToken: string;
+    readonly reason: string;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    return this.#stub.rejectCloudflareOperatorIssue(input);
+  }
+
+  finalizeCloudflareOperatorIssue(input: {
+    readonly operation: CloudflareOperatorIssueOperationBinding;
+    readonly fencingToken: string;
+    readonly currentStateSha256: string;
+    readonly responseBytes: Uint8Array;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    return this.#stub.finalizeCloudflareOperatorIssue(input);
   }
 }

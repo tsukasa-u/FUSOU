@@ -27,6 +27,9 @@ import type {
   FreshnessIssueLeaseBinding,
   FreshnessIssueOperationBinding,
 } from "../../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
+import {
+  CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+} from "../../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
 
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const UUID_V4_PATTERN =
@@ -143,6 +146,26 @@ interface OperationRow {
 export class LocalTestFreshnessIssueCoordinatorDO
   extends SqliteFreshnessIssueCoordinatorDO
 {
+  #operatorRuntimeUtcReadings: number[] = [];
+
+  protected override readCloudflareOperatorRuntimeUtc(): number {
+    return this.#operatorRuntimeUtcReadings.shift() ??
+      super.readCloudflareOperatorRuntimeUtc();
+  }
+
+  setCloudflareOperatorRuntimeUtcSequenceForLocalTest(
+    readings: readonly number[],
+  ): void {
+    if (
+      readings.length !== 3 ||
+      readings.some((reading) => !Number.isSafeInteger(reading) || reading < 0) ||
+      readings[1]! < readings[0]!
+    ) {
+      throw new Error("Local Cloudflare/operator UTC sequence is invalid");
+    }
+    this.#operatorRuntimeUtcReadings = [...readings];
+  }
+
   async bootstrapLocalTestState(seed: LocalCoordinatorSeed): Promise<void> {
     assertSeed(seed);
     this.ctx.storage.transactionSync(() => {
@@ -175,10 +198,10 @@ export class LocalTestFreshnessIssueCoordinatorDO
 
   async bootstrapReleaseLedgerForLocalTest(
     seed: LocalReleaseLedgerSeed,
-    initialCheckpoint?: Pick<
-      LocalInitialReleaseCheckpointSeed,
-      "restoreEpoch" | "clock"
-    >,
+    initialCheckpoint?: {
+      readonly restoreEpoch: string;
+      readonly clock?: FreshnessIssueClockReading;
+    },
   ): Promise<void> {
     const head = seed.head;
     assertUuid(seed.operationId);
@@ -326,6 +349,45 @@ export class LocalTestFreshnessIssueCoordinatorDO
         head.pointerEtag,
       );
       if (initialCheckpoint !== undefined) {
+        const operatorProfile = this.ctx.storage.sql
+        .exec<{ readonly profile_id: string; readonly local_restore_epoch: string }>(
+          `SELECT profile_id, local_restore_epoch
+           FROM freshness_profile WHERE singleton = 1`,
+        )
+        .toArray()[0];
+        if (operatorProfile !== undefined) {
+        if (
+          operatorProfile.profile_id !==
+            CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+          operatorProfile.local_restore_epoch !==
+            initialCheckpoint.restoreEpoch ||
+          initialCheckpoint.clock !== undefined
+        ) {
+          throw new Error(
+            "Cloudflare/operator bootstrap must use its explicit runtime-UTC checkpoint",
+          );
+        }
+        const authorization = this.ctx.storage.sql
+          .exec<{ readonly operation_id: string; readonly record_sha256: string }>(
+            `SELECT operation_id, record_sha256
+             FROM cloudflare_operator_bootstrap_authorizations
+             WHERE singleton = 1`,
+          )
+          .toArray()[0];
+        if (
+          authorization?.operation_id !== seed.operationId ||
+          authorization.record_sha256 !== head.recordSha256
+        ) {
+          throw new Error(
+            "Cloudflare/operator bootstrap authorization does not match the initial checkpoint",
+          );
+        }
+        } else {
+        if (initialCheckpoint.clock === undefined) {
+          throw new Error(
+            "Strict initial Release checkpoint requires its model clock",
+          );
+        }
         assertClock(initialCheckpoint.clock);
         this.ctx.storage.sql.exec(
           `INSERT INTO current_state_bootstrap_authorizations (
@@ -344,6 +406,7 @@ export class LocalTestFreshnessIssueCoordinatorDO
           initialCheckpoint.clock.nowMs,
           initialCheckpoint.clock.uncertaintyMs,
         );
+        }
       }
     });
 
@@ -364,6 +427,105 @@ export class LocalTestFreshnessIssueCoordinatorDO
     await this.bootstrapReleaseLedgerForLocalTest(seed, {
       restoreEpoch: seed.restoreEpoch,
       clock: seed.clock,
+    });
+  }
+
+  async bootstrapCloudflareOperatorProfileForLocalTest(
+    seed: LocalInitialReleaseCheckpointSeed,
+  ): Promise<void> {
+    const nowMs = Date.now();
+    if (
+      !Number.isSafeInteger(nowMs) ||
+      seed.restoreEpoch.length === 0 ||
+      seed.chainId.length === 0 ||
+      seed.head.position !== "1" ||
+      seed.head.generation !== "1" ||
+      seed.head.previousRecordSha256 !== null ||
+      !/^[A-Za-z0-9_-]{43}$/u.test(seed.head.recordSha256)
+    ) {
+      throw new Error("Local Cloudflare/operator initial checkpoint is invalid");
+    }
+    this.ctx.storage.transactionSync(() => {
+      const profile = this.ctx.storage.sql
+        .exec<{ readonly singleton: number }>(
+          "SELECT singleton FROM freshness_profile WHERE singleton = 1",
+        )
+        .toArray();
+      const strictState = this.ctx.storage.sql
+        .exec<{ readonly singleton: number }>(
+          "SELECT singleton FROM coordinator_state WHERE singleton = 1",
+        )
+        .toArray();
+      const ledger = this.ctx.storage.sql
+        .exec<{ readonly count: number }>(
+          `SELECT
+             (SELECT COUNT(*) FROM release_ledger_operations) +
+             (SELECT COUNT(*) FROM release_ledger_entries) +
+             (SELECT COUNT(*) FROM release_ledger_head) AS count`,
+        )
+        .toArray();
+      if (
+        profile.length !== 0 ||
+        strictState.length !== 0 ||
+        ledger.length !== 1 ||
+        ledger[0]!.count !== 0
+      ) {
+        throw new Error(
+          "Local Cloudflare/operator profile cannot convert existing or legacy state",
+        );
+      }
+      this.ctx.storage.sql.exec(
+        `INSERT INTO freshness_profile (
+           singleton, profile_id, environment, chain_id, current_state_json,
+           local_restore_epoch, last_observed_utc_ms, next_fencing_token,
+           write_fencing_token, writer_pending, writer_operation_id
+         ) VALUES (1, ?, 'production', ?, NULL, ?, ?, '0', '0', 0, NULL)`,
+        CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+        seed.chainId,
+        seed.restoreEpoch,
+        nowMs,
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO cloudflare_operator_bootstrap_authorizations (
+           singleton, operation_id, chain_id, position, generation,
+           record_sha256, restore_epoch
+         ) VALUES (1, ?, ?, ?, ?, ?, ?)`,
+        seed.operationId,
+        seed.chainId,
+        seed.head.position,
+        seed.head.generation,
+        seed.head.recordSha256,
+        seed.restoreEpoch,
+      );
+    });
+    await this.bootstrapReleaseLedgerForLocalTest(seed, {
+      restoreEpoch: seed.restoreEpoch,
+    });
+  }
+
+  setCloudflareOperatorObservedUtcForLocalTest(observedAtMs: number): void {
+    if (!Number.isSafeInteger(observedAtMs) || observedAtMs < 0) {
+      throw new Error("Local Cloudflare/operator UTC observation is invalid");
+    }
+    this.ctx.storage.transactionSync(() => {
+      const profile = this.ctx.storage.sql
+        .exec<{ readonly singleton: number }>(
+          "SELECT singleton FROM freshness_profile WHERE singleton = 1",
+        )
+        .toArray();
+      if (profile.length !== 1) {
+        throw new Error("Local Cloudflare/operator profile is unavailable");
+      }
+      const updated = this.ctx.storage.sql.exec(
+        `UPDATE freshness_profile
+         SET last_observed_utc_ms = ?
+         WHERE singleton = 1 AND profile_id = ?`,
+        observedAtMs,
+        CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+      );
+      if (updated.rowsWritten !== 1) {
+        throw new Error("Local Cloudflare/operator profile identity changed");
+      }
     });
   }
 

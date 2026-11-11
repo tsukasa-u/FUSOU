@@ -18,8 +18,18 @@ import {
   runtimeConfigFreshnessWire,
   RuntimeConfigDomainError,
   verifyRuntimeConfigManifestEpochPointer,
+  verifyRuntimeConfigFreshnessRequest,
+  verifyRuntimeConfigFreshnessResponse,
   verifyRuntimeConfigReleaseCommitRecord,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+import {
+  createCloudflareOperatorCurrentStateBinding,
+  createCloudflareOperatorReleaseStateReader,
+  verifyCloudflareOperatorFreshnessResponse,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-cloudflare-operator.ts";
+import {
+  CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
 import {
   createFreshnessIssueCurrentStateBindingFromReleaseState,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-issue.ts";
@@ -31,6 +41,14 @@ import type {
   FreshnessIssueCurrentStateBinding,
   FreshnessIssueLeaseBinding,
   FreshnessIssueOperationBinding,
+  CloudflareOperatorCurrentStateBinding,
+  CloudflareOperatorBindingInstallAction,
+  CloudflareOperatorBindingInstallOperation,
+  CloudflareOperatorIssueAdmission,
+  CloudflareOperatorIssueOperationBinding,
+  CloudflareOperatorIssueSigningAuthorization,
+  CloudflareOperatorIssueSigningClaim,
+  CloudflareOperatorReleaseLedgerSnapshot,
   VerifiedFreshnessReleaseState,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
 import {
@@ -69,6 +87,8 @@ export class FreshnessIssueCoordinatorStorageError extends Error {
     | "FENCE_EXHAUSTED"
     | "RELEASE_CONFLICT"
     | "RELEASE_BLOCKED"
+    | "PROFILE_MISMATCH"
+    | "INVALID_TIME"
     | "MISSING_ADAPTER";
 
   constructor(
@@ -88,6 +108,72 @@ export interface CoordinatorEnv {
   readonly RELEASE_LEDGER_MANIFEST_KEY_ID?: string;
   readonly RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI?: string;
   readonly RELEASE_LEDGER_R2?: R2Bucket;
+  readonly FRESHNESS_MANIFEST_URL?: string;
+}
+
+interface CloudflareOperatorProfileRow {
+  readonly [column: string]: string | number | null;
+  readonly profile_id: string;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly current_state_json: string | null;
+  readonly local_restore_epoch: string;
+  readonly last_observed_utc_ms: number;
+  readonly next_fencing_token: string;
+  readonly write_fencing_token: string;
+  readonly writer_pending: number;
+  readonly writer_operation_id: string | null;
+}
+
+interface CloudflareOperatorInstallRow {
+  readonly [column: string]: string | number | ArrayBuffer | null;
+  readonly operation_id: string;
+  readonly request_sha256: string;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly mode: string;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly release_operation_id: string;
+  readonly release_fencing_token: string;
+  readonly install_fencing_token: string;
+  readonly expected_current_state_sha256: string | null;
+  readonly expected_restore_epoch: string;
+  readonly target_position: string;
+  readonly target_generation: string;
+  readonly target_record_sha256: string;
+  readonly installed_state_json: string | null;
+}
+
+interface CloudflareOperatorIssueRow {
+  readonly [column: string]: string | number | ArrayBuffer | null;
+  readonly operation_id: string;
+  readonly profile_id: string;
+  readonly signer_operation_id: string;
+  readonly request_bytes: ArrayBuffer;
+  readonly request_sha256: string;
+  readonly request_nonce: string;
+  readonly environment: string;
+  readonly chain_id: string;
+  readonly audience_manifest_url_sha256: string;
+  readonly status: string;
+  readonly blocker: string;
+  readonly fencing_token: string;
+  readonly signing_claimed: number;
+  readonly current_state_json: string;
+  readonly response_bytes: ArrayBuffer | null;
+  readonly response_length: number | null;
+  readonly response_sha256: string | null;
+  readonly rejection_reason: string | null;
+}
+
+interface PreparedCloudflareOperatorIssueSigningAuthorization {
+  readonly authorization: CloudflareOperatorIssueSigningAuthorization;
+  readonly requestSha256: string;
+  readonly audienceManifestUrlSha256: string;
+  readonly challenge: Awaited<
+    ReturnType<typeof verifyRuntimeConfigFreshnessRequest>
+  >;
 }
 
 interface ReleaseLedgerOperationRow {
@@ -410,7 +496,92 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           clock_now_ms INTEGER NOT NULL,
           clock_uncertainty_ms INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS freshness_profile (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          profile_id TEXT NOT NULL,
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          current_state_json TEXT,
+          local_restore_epoch TEXT NOT NULL,
+          last_observed_utc_ms INTEGER NOT NULL,
+          next_fencing_token TEXT NOT NULL,
+          write_fencing_token TEXT NOT NULL,
+          writer_pending INTEGER NOT NULL CHECK (writer_pending IN (0, 1)),
+          writer_operation_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS cloudflare_operator_bootstrap_authorizations (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          operation_id TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          position TEXT NOT NULL,
+          generation TEXT NOT NULL,
+          record_sha256 TEXT NOT NULL,
+          restore_epoch TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS cloudflare_operator_binding_installs (
+          operation_id TEXT PRIMARY KEY,
+          request_sha256 TEXT NOT NULL,
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          mode TEXT NOT NULL CHECK (mode IN ('BOOTSTRAP', 'ADVANCE')),
+          status TEXT NOT NULL CHECK (
+            status IN ('VERIFYING', 'INSTALLED', 'QUARANTINED', 'CONFLICT')
+          ),
+          reason TEXT,
+          release_operation_id TEXT NOT NULL,
+          release_fencing_token TEXT NOT NULL,
+          install_fencing_token TEXT NOT NULL,
+          expected_current_state_sha256 TEXT,
+          expected_restore_epoch TEXT NOT NULL,
+          target_position TEXT NOT NULL,
+          target_generation TEXT NOT NULL,
+          target_record_sha256 TEXT NOT NULL,
+          installed_state_json TEXT
+        );
+        CREATE INDEX IF NOT EXISTS cloudflare_operator_install_status
+          ON cloudflare_operator_binding_installs(status);
+        CREATE TABLE IF NOT EXISTS cloudflare_operator_issue_operations (
+          operation_id TEXT PRIMARY KEY,
+          profile_id TEXT NOT NULL,
+          signer_operation_id TEXT NOT NULL UNIQUE,
+          request_bytes BLOB NOT NULL,
+          request_sha256 TEXT NOT NULL,
+          request_nonce TEXT NOT NULL,
+          environment TEXT NOT NULL,
+          chain_id TEXT NOT NULL,
+          audience_manifest_url_sha256 TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN ('IN_PROGRESS', 'RESULT_UNKNOWN', 'FINALIZED', 'REJECTED')
+          ),
+          blocker TEXT NOT NULL CHECK (blocker IN ('RETAINED', 'CLEARED')),
+          fencing_token TEXT NOT NULL,
+          signing_claimed INTEGER NOT NULL DEFAULT 1
+            CHECK (signing_claimed IN (0, 1)),
+          current_state_json TEXT NOT NULL,
+          response_bytes BLOB,
+          response_length INTEGER,
+          response_sha256 TEXT,
+          rejection_reason TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS cloudflare_operator_issue_nonce
+          ON cloudflare_operator_issue_operations(
+            environment, chain_id, audience_manifest_url_sha256, request_nonce
+          );
+        CREATE INDEX IF NOT EXISTS cloudflare_operator_issue_blockers
+          ON cloudflare_operator_issue_operations(blocker, status);
       `);
+      const issueColumns = this.ctx.storage.sql
+        .exec<{ readonly name: string }>(
+          "PRAGMA table_info(cloudflare_operator_issue_operations)",
+        )
+        .toArray();
+      if (!issueColumns.some((column) => column.name === "signing_claimed")) {
+        this.ctx.storage.sql.exec(
+          `ALTER TABLE cloudflare_operator_issue_operations
+           ADD COLUMN signing_claimed INTEGER NOT NULL DEFAULT 1
+             CHECK (signing_claimed IN (0, 1))`,
+        );
+      }
     });
   }
 
@@ -433,6 +604,124 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     const operation = releaseOperationFromRow(row);
     await this.verifyStoredReleaseOperation(operation);
     return operation;
+  }
+
+  async readCloudflareOperatorReleaseSnapshot(): Promise<CloudflareOperatorReleaseLedgerSnapshot> {
+    return this.readCloudflareOperatorReleaseSnapshotInternal();
+  }
+
+  async readCloudflareOperatorIssueReleaseSnapshot(
+    input: CloudflareOperatorIssueSigningAuthorization,
+  ): Promise<CloudflareOperatorReleaseLedgerSnapshot> {
+    const prepared = await this.prepareCloudflareOperatorIssueSigningAuthorization(input);
+    return this.readCloudflareOperatorReleaseSnapshotInternal(prepared);
+  }
+
+  private async readCloudflareOperatorReleaseSnapshotInternal(
+    authorization?: PreparedCloudflareOperatorIssueSigningAuthorization,
+  ): Promise<CloudflareOperatorReleaseLedgerSnapshot> {
+    const snapshot = this.ctx.storage.transactionSync(() => {
+      const profile = this.requireCloudflareOperatorProfile();
+      const observedAtMs = this.observeCloudflareOperatorUtc(profile);
+      if (authorization !== undefined) {
+        this.requireCloudflareOperatorIssueSigningAuthorizationInTransaction(
+          authorization,
+          true,
+          profile,
+          observedAtMs,
+        );
+      }
+      const observedProfile = {
+        ...profile,
+        last_observed_utc_ms: observedAtMs,
+      };
+      const head = this.readReleaseLedgerHeadRow();
+      const releaseOperation = head === null
+        ? null
+        : this.findReleaseOperation(head.operation_id);
+      const issueBlocker = this.hasRetainedIssueBlockers(
+        authorization?.authorization.operation.operationId,
+      );
+      return {
+        profile: observedProfile,
+        observedAtMs,
+        head,
+        releaseOperation,
+        issueBlocker,
+      };
+    });
+    const operation = snapshot.releaseOperation === null
+      ? null
+      : releaseOperationFromRow(snapshot.releaseOperation);
+    if (operation !== null) await this.verifyStoredReleaseOperation(operation);
+    const headRow = snapshot.head;
+    return {
+      profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+      environment: "production",
+      chainId: snapshot.profile.chain_id,
+      observedAtMs: snapshot.observedAtMs,
+      lastObservedUtcMs: snapshot.profile.last_observed_utc_ms,
+      localRestoreEpoch: snapshot.profile.local_restore_epoch,
+      writerPending: snapshot.profile.writer_pending === 1,
+      issueBlocker: snapshot.issueBlocker,
+      currentState: snapshot.profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(
+            snapshot.profile.current_state_json,
+          ),
+      head: headRow === null
+        ? null
+        : {
+            operationId: headRow.operation_id,
+            position: headRow.position,
+            generation: headRow.generation,
+            recordSha256: headRow.record_sha256,
+            previousRecordSha256: headRow.previous_record_sha256,
+            releaseCommitId: headRow.release_commit_id,
+            appendedAt: headRow.record_appended_at,
+            recordBytes: bytesFromArrayBuffer(headRow.record_bytes),
+            releaseDelegationBytes: bytesFromArrayBuffer(
+              headRow.release_delegation_bytes,
+            ),
+            manifestEpoch: headRow.manifest_epoch,
+            manifestSha256: headRow.manifest_sha256,
+            manifestRef: headRow.manifest_ref,
+            pointerEtag: headRow.pointer_etag,
+          },
+      releaseOperation: operation === null
+        ? null
+        : {
+            operationId: operation.operationId,
+            status: operation.status,
+            fencingToken: operation.fencingToken,
+            recordBytes: operation.recordBytes,
+            releaseDelegationBytes: operation.releaseDelegationBytes,
+            localAppendObservedAt: operation.localAppendObservedAt,
+            manifestBytes: operation.manifestBytes,
+            manifestSha256: operation.manifestSha256,
+            manifestEpoch: operation.manifestEpoch,
+            manifestRef: operation.manifestRef,
+            pointerEtag: operation.pointerEtag ?? operation.expectedPointerEtag,
+          },
+    };
+  }
+
+  async readCloudflareOperatorVerifiedReleaseState(
+    input?: CloudflareOperatorIssueSigningAuthorization,
+  ) {
+    return createCloudflareOperatorReleaseStateReader({
+          coordinator: {
+            readCloudflareOperatorReleaseSnapshot: () =>
+              this.readCloudflareOperatorReleaseSnapshot(),
+            readCloudflareOperatorIssueReleaseSnapshot: (authorization) =>
+              this.readCloudflareOperatorIssueReleaseSnapshot(authorization),
+          },
+      manifests: this.requireReleaseStore(),
+      releaseRootSigner: this.requireReleaseRootSigner(),
+      manifestRootSigner: this.requireManifestRootSigner(),
+    }).readCurrentState(
+      input === undefined ? undefined : { issueAuthorization: input },
+    );
   }
 
   async beginReleaseBindingInstall(input: {
@@ -765,6 +1054,382 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     return row === null ? null : releaseBindingInstallFromRow(row);
   }
 
+  async beginCloudflareOperatorBindingInstall(input: {
+    readonly operationId: string;
+    readonly mode: "BOOTSTRAP" | "ADVANCE";
+    readonly releaseOperationId: string;
+    readonly expectedCurrentStateSha256: string | null;
+    readonly expectedRestoreEpoch: string;
+  }): Promise<CloudflareOperatorBindingInstallAction> {
+    assertUuid(input.operationId, "Cloudflare/operator install operation ID");
+    assertUuid(input.releaseOperationId, "Release operation ID");
+    if (
+      (input.mode !== "BOOTSTRAP" && input.mode !== "ADVANCE") ||
+      (input.mode === "BOOTSTRAP" &&
+        input.expectedCurrentStateSha256 !== null) ||
+      (input.mode === "ADVANCE" &&
+        (input.expectedCurrentStateSha256 === null ||
+          !SHA256_BASE64URL_PATTERN.test(input.expectedCurrentStateSha256))) ||
+      typeof input.expectedRestoreEpoch !== "string" ||
+      input.expectedRestoreEpoch.length === 0
+    ) {
+      throw invalidInput("Cloudflare/operator install request is invalid");
+    }
+    const releaseOperation = await this.getReleaseOperation(
+      input.releaseOperationId,
+    );
+    if (
+      releaseOperation === null ||
+      releaseOperation.status !== "AVAILABLE" ||
+      releaseOperation.fencingToken === null
+    ) {
+      return { status: "CONFLICT" };
+    }
+    const chainId = this.requireReleaseChainId();
+    const requestSha256 = await sha256Base64Url(
+      canonicalJsonBytes({
+        profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+        operationId: input.operationId,
+        mode: input.mode,
+        releaseOperationId: input.releaseOperationId,
+        releaseFencingToken: releaseOperation.fencingToken,
+        expectedCurrentStateSha256: input.expectedCurrentStateSha256,
+        expectedRestoreEpoch: input.expectedRestoreEpoch,
+        environment: "production",
+        chainId,
+      }),
+    );
+    return this.ctx.storage.transactionSync(() => {
+      const existing = this.findCloudflareOperatorInstall(input.operationId);
+      if (existing !== null) {
+        return existing.request_sha256 === requestSha256
+          ? cloudflareOperatorInstallAction(existing)
+          : {
+              status: "CONFLICT" as const,
+              operation: cloudflareOperatorInstallFromRow(existing),
+            };
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      const storedRelease = this.findReleaseOperation(input.releaseOperationId);
+      const head = this.readReleaseLedgerHeadRow();
+      if (
+        storedRelease === null ||
+        storedRelease.status !== "AVAILABLE" ||
+        storedRelease.fencing_token !== releaseOperation.fencingToken ||
+        head === null ||
+        !releaseHeadMatchesOperation(head, storedRelease) ||
+        storedRelease.position === null ||
+        storedRelease.generation === null ||
+        storedRelease.record_sha256 === null ||
+        nowMs < profile.last_observed_utc_ms
+      ) {
+        return { status: "CONFLICT" as const };
+      }
+      if (profile.writer_pending === 1 || this.hasRetainedIssueBlockers()) {
+        return { status: "WAITING_FOR_ISSUES" as const };
+      }
+      const currentState = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      if (input.expectedRestoreEpoch !== profile.local_restore_epoch) {
+        return { status: "CONFLICT" as const };
+      }
+      if (input.mode === "BOOTSTRAP") {
+        const authorization = this.readCloudflareOperatorBootstrapAuthorization();
+        if (
+          currentState !== null ||
+          this.hasCloudflareOperatorInstallHistory() ||
+          authorization === null ||
+          authorization.operation_id !== input.releaseOperationId ||
+          authorization.chain_id !== chainId ||
+          authorization.position !== storedRelease.position ||
+          authorization.generation !== storedRelease.generation ||
+          authorization.record_sha256 !== storedRelease.record_sha256 ||
+          authorization.restore_epoch !== input.expectedRestoreEpoch
+        ) {
+          return { status: "CONFLICT" as const };
+        }
+      } else if (
+        currentState === null ||
+        currentState.stateSha256 !== input.expectedCurrentStateSha256 ||
+        !operatorReleasePredecessorMatchesState(storedRelease, currentState)
+      ) {
+        return { status: "CONFLICT" as const };
+      }
+      const installFencingToken = incrementCounter(
+        profile.next_fencing_token,
+      );
+      this.sql.exec(
+        `INSERT INTO cloudflare_operator_binding_installs (
+           operation_id, request_sha256, environment, chain_id, mode,
+           status, reason, release_operation_id, release_fencing_token,
+           install_fencing_token, expected_current_state_sha256,
+           expected_restore_epoch, target_position, target_generation,
+           target_record_sha256, installed_state_json
+         ) VALUES (?, ?, 'production', ?, ?, 'VERIFYING', NULL, ?, ?, ?, ?, ?,
+                   ?, ?, ?, NULL)`,
+        input.operationId,
+        requestSha256,
+        chainId,
+        input.mode,
+        input.releaseOperationId,
+        releaseOperation.fencingToken,
+        installFencingToken,
+        input.expectedCurrentStateSha256,
+        input.expectedRestoreEpoch,
+        storedRelease.position,
+        storedRelease.generation,
+        storedRelease.record_sha256,
+      );
+      this.sql.exec(
+        `UPDATE freshness_profile
+         SET writer_pending = 1, writer_operation_id = ?,
+             next_fencing_token = ?, write_fencing_token = ?
+         WHERE singleton = 1 AND writer_pending = 0`,
+        `cloudflare-operator-install:${input.operationId}`,
+        installFencingToken,
+        installFencingToken,
+      );
+      return cloudflareOperatorInstallAction(
+        this.requireCloudflareOperatorInstall(input.operationId),
+      );
+    });
+  }
+
+  async finalizeCloudflareOperatorBindingInstall(input: {
+    readonly operationId: string;
+  }): Promise<CloudflareOperatorBindingInstallAction> {
+    assertUuid(input.operationId, "Cloudflare/operator install operation ID");
+    const attempt = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorInstall(input.operationId),
+    );
+    if (attempt === null) {
+      throw invalidInput("Cloudflare/operator install operation does not exist");
+    }
+    if (attempt.status === "INSTALLED") {
+      return cloudflareOperatorInstallAction(attempt);
+    }
+    if (attempt.status !== "VERIFYING") {
+      return cloudflareOperatorInstallAction(attempt);
+    }
+    const releaseOperation = await this.getReleaseOperation(
+      attempt.release_operation_id,
+    );
+    if (
+      releaseOperation === null ||
+      releaseOperation.status !== "AVAILABLE" ||
+      releaseOperation.fencingToken !== attempt.release_fencing_token ||
+      releaseOperation.recordBytes === null ||
+      releaseOperation.releaseDelegationBytes === null ||
+      releaseOperation.localAppendObservedAt === null ||
+      releaseOperation.pointerEtag === null
+    ) {
+      return this.quarantineCloudflareOperatorInstall(
+        attempt.operation_id,
+        "Install target is no longer an exact AVAILABLE Release operation",
+      );
+    }
+
+    const readback = await this.requireReleaseStore().verifyExactReadback({
+      manifestRef: releaseOperation.manifestRef,
+      manifestBytes: releaseOperation.manifestBytes,
+      pointerEtag: releaseOperation.pointerEtag,
+    });
+    const verifiedRecord = await verifyRuntimeConfigReleaseCommitRecord({
+      raw: releaseOperation.recordBytes,
+      rootSigner: this.requireReleaseRootSigner(),
+      environment: releaseOperation.environment,
+      releaseDelegationRaw: releaseOperation.releaseDelegationBytes,
+      appendedAt: releaseOperation.localAppendObservedAt,
+    });
+    assertReleaseRecordMatchesOperation(
+      verifiedRecord,
+      releaseOperation,
+      releaseOperation.recordBytes,
+      releaseOperation.releaseDelegationBytes,
+    );
+    const verifiedManifest = await verifyRuntimeConfigManifestEpochPointer({
+      raw: releaseOperation.manifestBytes,
+      trustedSigner: this.requireManifestRootSigner(),
+    });
+    if (
+      verifiedManifest.epoch !== releaseOperation.manifestEpoch ||
+      verifiedManifest.manifestSha256 !== releaseOperation.manifestSha256
+    ) {
+      return this.quarantineCloudflareOperatorInstall(
+        attempt.operation_id,
+        "Install Manifest bytes do not match the signed Release record",
+      );
+    }
+
+    const localRestoreEpoch = this.ctx.storage.transactionSync(() =>
+      this.requireCloudflareOperatorProfile().local_restore_epoch,
+    );
+    const installedState = await createCloudflareOperatorCurrentStateBinding({
+      chainId: attempt.chain_id,
+      releaseOperationId: attempt.release_operation_id,
+      releaseFencingToken: attempt.release_fencing_token,
+      position: attempt.target_position,
+      generation: attempt.target_generation,
+      recordSha256: verifiedRecord.digest,
+      releaseCommitId: verifiedRecord.payload.release_commit_id,
+      appendedAt: releaseOperation.localAppendObservedAt,
+      manifestEpoch: verifiedManifest.epoch,
+      manifestSha256: verifiedManifest.manifestSha256,
+      manifestRef: releaseOperation.manifestRef,
+      pointerEtag: releaseOperation.pointerEtag!,
+      manifestNotBeforeMs: verifiedManifest.notBeforeMs,
+      manifestExpiresAtMs: verifiedManifest.expiresAtMs,
+      localRestoreEpoch,
+    });
+
+    return this.ctx.storage.transactionSync(() => {
+      const currentAttempt = this.requireCloudflareOperatorInstall(
+        input.operationId,
+      );
+      if (currentAttempt.status === "INSTALLED") {
+        return cloudflareOperatorInstallAction(currentAttempt);
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      const storedRelease = this.findReleaseOperation(
+        currentAttempt.release_operation_id,
+      );
+      const head = this.readReleaseLedgerHeadRow();
+      const currentState = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      if (
+        currentAttempt.status !== "VERIFYING" ||
+        profile.writer_pending !== 1 ||
+        profile.writer_operation_id !==
+          `cloudflare-operator-install:${currentAttempt.operation_id}` ||
+        profile.write_fencing_token !== currentAttempt.install_fencing_token ||
+        profile.local_restore_epoch !== currentAttempt.expected_restore_epoch ||
+        storedRelease === null ||
+        storedRelease.status !== "AVAILABLE" ||
+        storedRelease.fencing_token !== currentAttempt.release_fencing_token ||
+        head === null ||
+        !releaseHeadMatchesOperation(head, storedRelease) ||
+        storedRelease.record_sha256 !== verifiedRecord.digest ||
+        storedRelease.position !== currentAttempt.target_position ||
+        storedRelease.generation !== currentAttempt.target_generation ||
+        this.hasRetainedIssueBlockers() ||
+        !equalBytes(readback.pointerBytes, releaseOperation.manifestBytes) ||
+        !equalBytes(readback.snapshotBytes, releaseOperation.manifestBytes) ||
+        readback.pointerEtag !== storedRelease.pointer_etag
+      ) {
+        return cloudflareOperatorInstallAction(
+          this.quarantineCloudflareOperatorInstallInTransaction(
+            currentAttempt,
+            "Release, R2, issue gate, state, or install fence changed before binding finalization",
+          ),
+        );
+      }
+      if (
+        nowMs < verifiedManifest.notBeforeMs ||
+        nowMs >= verifiedManifest.expiresAtMs
+      ) {
+        return cloudflareOperatorInstallAction(
+          this.quarantineCloudflareOperatorInstallInTransaction(
+            currentAttempt,
+            "Manifest expired or is not yet valid at current-state install finalization",
+          ),
+        );
+      }
+      if (currentAttempt.mode === "BOOTSTRAP") {
+        const authorization = this.readCloudflareOperatorBootstrapAuthorization();
+        if (
+          currentState !== null ||
+          this.hasOtherCloudflareOperatorInstallHistory(
+            currentAttempt.operation_id,
+          ) ||
+          authorization === null ||
+          authorization.operation_id !== currentAttempt.release_operation_id ||
+          authorization.restore_epoch !== currentAttempt.expected_restore_epoch ||
+          authorization.position !== currentAttempt.target_position ||
+          authorization.generation !== currentAttempt.target_generation ||
+          authorization.record_sha256 !== verifiedRecord.digest
+        ) {
+          return cloudflareOperatorInstallAction(
+            this.quarantineCloudflareOperatorInstallInTransaction(
+              currentAttempt,
+              "Explicit one-time local bootstrap authorization is missing or changed",
+            ),
+          );
+        }
+        this.sql.exec(
+          `DELETE FROM cloudflare_operator_bootstrap_authorizations
+           WHERE singleton = 1 AND operation_id = ?`,
+          currentAttempt.release_operation_id,
+        );
+      } else if (
+        currentState === null ||
+        currentState.stateSha256 !==
+          currentAttempt.expected_current_state_sha256 ||
+        !operatorReleasePredecessorMatchesState(storedRelease, currentState)
+      ) {
+        return cloudflareOperatorInstallAction(
+          this.quarantineCloudflareOperatorInstallInTransaction(
+            currentAttempt,
+            "Previous current-state binding no longer matches the Release predecessor",
+          ),
+        );
+      }
+
+      const current = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      if (
+        currentAttempt.mode === "BOOTSTRAP"
+          ? current !== null
+          : current === null ||
+            current.stateSha256 !==
+              currentAttempt.expected_current_state_sha256
+      ) {
+        return cloudflareOperatorInstallAction(
+          this.quarantineCloudflareOperatorInstallInTransaction(
+            currentAttempt,
+            "Expected installed state changed before finalization",
+          ),
+        );
+      }
+      this.sql.exec(
+        `UPDATE freshness_profile
+         SET current_state_json = ?, writer_pending = 0,
+             writer_operation_id = NULL
+         WHERE singleton = 1 AND writer_pending = 1
+           AND writer_operation_id = ? AND write_fencing_token = ?`,
+        JSON.stringify(installedState),
+        `cloudflare-operator-install:${currentAttempt.operation_id}`,
+        currentAttempt.install_fencing_token,
+      );
+      this.sql.exec(
+        `UPDATE cloudflare_operator_binding_installs
+         SET status = 'INSTALLED', reason = NULL, installed_state_json = ?
+         WHERE operation_id = ? AND status = 'VERIFYING'
+           AND install_fencing_token = ?`,
+        JSON.stringify(installedState),
+        currentAttempt.operation_id,
+        currentAttempt.install_fencing_token,
+      );
+      return cloudflareOperatorInstallAction(
+        this.requireCloudflareOperatorInstall(currentAttempt.operation_id),
+      );
+    });
+  }
+
+  async getCloudflareOperatorBindingInstall(
+    operationId: string,
+  ): Promise<CloudflareOperatorBindingInstallOperation | null> {
+    assertUuid(operationId, "Cloudflare/operator install operation ID");
+    const row = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorInstall(operationId),
+    );
+    return row === null ? null : cloudflareOperatorInstallFromRow(row);
+  }
+
   async beginReleaseOperation(input: {
     readonly operationId: string;
     readonly expectedHead: ReleaseLedgerHead | null;
@@ -823,14 +1488,6 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           : { status: "CONFLICT" as const, operation: releaseOperationFromRow(existing) };
       }
 
-      const stateRow = this.readStateRow();
-      if (stateRow === null) {
-        throw new FreshnessIssueCoordinatorStorageError(
-          "NOT_INITIALIZED",
-          "Coordinator state must be initialized before a Release operation",
-        );
-      }
-      const state = this.decodeCoordinatorState(stateRow);
       const currentHead = this.readReleaseLedgerHeadRow();
       if (
         currentHead === null ||
@@ -849,27 +1506,76 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           manifestRef,
         });
       }
-      if (!coordinatorStateMatchesReleaseHead(state.currentState, currentHead)) {
-        throw new FreshnessIssueCoordinatorStorageError(
-          "RELEASE_BLOCKED",
-          "Coordinator current state does not match the persisted Release ledger head",
-        );
+      const operatorProfile = this.readCloudflareOperatorProfileRow();
+      let fencingToken: string;
+      if (operatorProfile !== null) {
+        const profile = this.requireCloudflareOperatorProfile();
+        const nowMs = this.observeCloudflareOperatorUtc(profile);
+        if (
+          nowMs < verifiedManifest.notBeforeMs ||
+          nowMs >= verifiedManifest.expiresAtMs
+        ) {
+          throw new RuntimeConfigDomainError(
+            "INVALID_TIME",
+            "Release Manifest is not active at Release operation admission",
+          );
+        }
+        const currentState = profile.current_state_json === null
+          ? null
+          : decodeCloudflareOperatorBinding(profile.current_state_json);
+        if (
+          currentState === null ||
+          !releaseHeadMatchesOperatorBinding(currentHead, currentState)
+        ) {
+          throw new FreshnessIssueCoordinatorStorageError(
+            "RELEASE_BLOCKED",
+            "Cloudflare/operator current-state binding does not match the persisted Release ledger head",
+          );
+        }
+        if (profile.writer_pending === 1) {
+          return this.insertReleaseConflict({
+            operationId: input.operationId,
+            requestSha256,
+            environment,
+            chainId,
+            expectedHead,
+            manifestBytes,
+            manifestSha256: verifiedManifest.manifestSha256,
+            manifestEpoch: verifiedManifest.epoch,
+            manifestRef,
+          });
+        }
+        fencingToken = incrementCounter(profile.next_fencing_token);
+      } else {
+        const stateRow = this.readStateRow();
+        if (stateRow === null) {
+          throw new FreshnessIssueCoordinatorStorageError(
+            "NOT_INITIALIZED",
+            "Coordinator state must be initialized before a Release operation",
+          );
+        }
+        const state = this.decodeCoordinatorState(stateRow);
+        if (!coordinatorStateMatchesReleaseHead(state.currentState, currentHead)) {
+          throw new FreshnessIssueCoordinatorStorageError(
+            "RELEASE_BLOCKED",
+            "Coordinator current state does not match the persisted Release ledger head",
+          );
+        }
+        if (state.writerPending) {
+          return this.insertReleaseConflict({
+            operationId: input.operationId,
+            requestSha256,
+            environment,
+            chainId,
+            expectedHead,
+            manifestBytes,
+            manifestSha256: verifiedManifest.manifestSha256,
+            manifestEpoch: verifiedManifest.epoch,
+            manifestRef,
+          });
+        }
+        fencingToken = incrementCounter(state.nextFencingToken);
       }
-      if (state.writerPending) {
-        return this.insertReleaseConflict({
-          operationId: input.operationId,
-          requestSha256,
-          environment,
-          chainId,
-          expectedHead,
-          manifestBytes,
-          manifestSha256: verifiedManifest.manifestSha256,
-          manifestEpoch: verifiedManifest.epoch,
-          manifestRef,
-        });
-      }
-
-      const fencingToken = incrementCounter(state.nextFencingToken);
       this.sql.exec(
         `INSERT INTO release_ledger_operations (
            operation_id, request_sha256, environment, chain_id, status,
@@ -894,15 +1600,27 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         verifiedManifest.epoch,
         manifestRef,
       );
-      this.sql.exec(
-        `UPDATE coordinator_state
-         SET writer_pending = 1, writer_operation_id = ?,
-             next_fencing_token = ?, write_fencing_token = ?
-         WHERE singleton = 1 AND writer_pending = 0`,
-        input.operationId,
-        fencingToken,
-        fencingToken,
-      );
+      if (operatorProfile !== null) {
+        this.sql.exec(
+          `UPDATE freshness_profile
+           SET writer_pending = 1, writer_operation_id = ?,
+               next_fencing_token = ?, write_fencing_token = ?
+           WHERE singleton = 1 AND writer_pending = 0`,
+          input.operationId,
+          fencingToken,
+          fencingToken,
+        );
+      } else {
+        this.sql.exec(
+          `UPDATE coordinator_state
+           SET writer_pending = 1, writer_operation_id = ?,
+               next_fencing_token = ?, write_fencing_token = ?
+           WHERE singleton = 1 AND writer_pending = 0`,
+          input.operationId,
+          fencingToken,
+          fencingToken,
+        );
+      }
       const operation = this.requireReleaseOperation(input.operationId);
       return this.hasRetainedIssueBlockers()
         ? { status: "WAITING_FOR_ISSUES" as const, operation: releaseOperationFromRow(operation) }
@@ -1140,10 +1858,29 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     this.requireReleaseRootSigner();
     const recordBytes = copyBytes(input.recordBytes);
     const releaseDelegationBytes = copyBytes(input.releaseDelegationBytes);
-    const appendReading = await this.readClock();
-    const localAppendObservedAt = timestampFromMilliseconds(
-      appendReading.nowMs,
+    let verifiedManifest;
+    try {
+      verifiedManifest = await this.verifyOperationManifest(operation);
+    } catch (error) {
+      await this.quarantineReleaseOperation(
+        input.operationId,
+        input.fencingToken,
+        "Release Manifest expired or failed verification before ledger commit",
+      );
+      throw error;
+    }
+    const operatorProfileSelected = this.ctx.storage.transactionSync(
+      () => this.readCloudflareOperatorProfileRow() !== null,
     );
+    const initialAppendObservedAt = operatorProfileSelected
+      ? timestampFromMilliseconds(
+          this.ctx.storage.transactionSync(() =>
+            this.observeCloudflareOperatorUtc(
+              this.requireCloudflareOperatorProfile(),
+            ),
+          ),
+        )
+      : timestampFromMilliseconds((await this.readClock()).nowMs);
     let verifiedRecord;
     try {
       verifiedRecord = await verifyRuntimeConfigReleaseCommitRecord({
@@ -1151,7 +1888,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         rootSigner: this.requireReleaseRootSigner(),
         environment: operation.environment,
         releaseDelegationRaw: releaseDelegationBytes,
-        appendedAt: localAppendObservedAt,
+        appendedAt: initialAppendObservedAt,
       });
       assertReleaseRecordMatchesOperation(
         verifiedRecord,
@@ -1191,6 +1928,29 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           : { status: "CONFLICT" as const, operation: releaseOperationFromRow(storedOperation) };
       }
       this.requireReleaseWriter(storedOperation, input.fencingToken);
+      const localAppendObservedAt = operatorProfileSelected
+        ? timestampFromMilliseconds(
+            this.observeCloudflareOperatorUtc(
+              this.requireCloudflareOperatorProfile(),
+            ),
+          )
+        : initialAppendObservedAt;
+      if (
+        operatorProfileSelected &&
+        (
+          Date.parse(localAppendObservedAt) < verifiedRecord.delegation.notBeforeMs ||
+          Date.parse(localAppendObservedAt) >= verifiedRecord.delegation.notAfterMs ||
+          Date.parse(localAppendObservedAt) < verifiedManifest.notBeforeMs ||
+          Date.parse(localAppendObservedAt) >= verifiedManifest.expiresAtMs ||
+          Date.parse(localAppendObservedAt) <
+            Date.parse(verifiedRecord.payload.authorized_at)
+        )
+      ) {
+        return this.quarantineReleaseOperationInTransaction(
+          storedOperation,
+          "Release delegation expired or authorization is not yet valid at ledger commit",
+        );
+      }
       this.requireExpectedReleaseHead(storedOperation);
       const currentHead = this.readReleaseLedgerHeadRow();
       if (
@@ -1398,8 +2158,11 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       readonly pointerEtag: string;
       readonly snapshotBytes: Uint8Array;
     };
+    let verifiedManifest: Awaited<
+      ReturnType<typeof verifyRuntimeConfigManifestEpochPointer>
+    >;
     try {
-      await this.verifyOperationManifest(operation);
+      verifiedManifest = await this.verifyOperationManifest(operation);
       readback = await this.requireReleaseStore().verifyExactReadback({
         manifestRef: operation.manifestRef,
         manifestBytes: operation.manifestBytes,
@@ -1429,6 +2192,20 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         return this.releaseActionForRow(storedOperation);
       }
       this.requireReleaseWriter(storedOperation, input.fencingToken);
+      if (this.readCloudflareOperatorProfileRow() !== null) {
+        const nowMs = this.observeCloudflareOperatorUtc(
+          this.requireCloudflareOperatorProfile(),
+        );
+        if (
+          nowMs < verifiedManifest.notBeforeMs ||
+          nowMs >= verifiedManifest.expiresAtMs
+        ) {
+          return this.quarantineReleaseOperationInTransaction(
+            storedOperation,
+            "Release Manifest expired before exact R2 readback finalization",
+          );
+        }
+      }
       this.requireCommittedReleaseHead(storedOperation);
       const head = this.readReleaseLedgerHeadRow();
       if (
@@ -1463,14 +2240,25 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         input.operationId,
         input.fencingToken,
       );
-      this.sql.exec(
-        `UPDATE coordinator_state
-         SET writer_pending = 0, writer_operation_id = NULL
-         WHERE singleton = 1 AND writer_pending = 1
-           AND writer_operation_id = ? AND write_fencing_token = ?`,
-        input.operationId,
-        input.fencingToken,
-      );
+      if (this.readCloudflareOperatorProfileRow() !== null) {
+        this.sql.exec(
+          `UPDATE freshness_profile
+           SET writer_pending = 0, writer_operation_id = NULL
+           WHERE singleton = 1 AND writer_pending = 1
+             AND writer_operation_id = ? AND write_fencing_token = ?`,
+          input.operationId,
+          input.fencingToken,
+        );
+      } else {
+        this.sql.exec(
+          `UPDATE coordinator_state
+           SET writer_pending = 0, writer_operation_id = NULL
+           WHERE singleton = 1 AND writer_pending = 1
+             AND writer_operation_id = ? AND write_fencing_token = ?`,
+          input.operationId,
+          input.fencingToken,
+        );
+      }
       return this.releaseActionForRow(
         this.requireReleaseOperation(input.operationId),
       );
@@ -1568,6 +2356,522 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     return this.markReleaseOperationUnknown({
       ...input,
       stage: "R2_WRITE",
+    });
+  }
+
+  async beginCloudflareOperatorIssue(input: {
+    readonly operationId: string;
+    readonly requestBytes: Uint8Array;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    assertUuid(input.operationId, "Cloudflare/operator issue operation ID");
+    if (
+      !(input.requestBytes instanceof Uint8Array) ||
+      input.requestBytes.byteLength === 0 ||
+      input.requestBytes.byteLength > 1_024
+    ) {
+      throw invalidInput("Freshness request bytes are empty or exceed the wire limit");
+    }
+    const requestBytes = copyBytes(input.requestBytes);
+    const manifestUrl = this.requireFreshnessManifestUrl();
+    const audienceManifestUrlSha256 = await sha256Base64Url(
+      new TextEncoder().encode(manifestUrl),
+    );
+    const challenge = await verifyRuntimeConfigFreshnessRequest(requestBytes, {
+      environment: "production",
+      audienceManifestUrlSha256,
+    });
+    const requestSha256 = await sha256Base64Url(requestBytes);
+    const chainId = this.requireReleaseChainId();
+    const existing = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorIssue(input.operationId),
+    );
+    if (existing !== null) {
+      if (
+        existing.request_sha256 !== requestSha256 ||
+        existing.request_nonce !== challenge.request_nonce ||
+        !equalBytes(bytesFromArrayBuffer(existing.request_bytes), requestBytes) ||
+        existing.chain_id !== chainId ||
+        existing.audience_manifest_url_sha256 !== audienceManifestUrlSha256
+      ) {
+        return { status: "CONFLICT" };
+      }
+      return this.getCloudflareOperatorIssue({
+        operationId: input.operationId,
+        requestBytes,
+        chainId,
+      });
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      if (
+        profile.environment !== "production" ||
+        profile.chain_id !== chainId ||
+        profile.writer_pending === 1 ||
+        profile.current_state_json === null ||
+        this.hasRetainedIssueBlockers()
+      ) {
+        return { status: "CONFLICT" as const };
+      }
+      const currentState = decodeCloudflareOperatorBinding(
+        profile.current_state_json,
+      );
+      const head = this.readReleaseLedgerHeadRow();
+      const releaseOperation = this.findReleaseOperation(
+        currentState.releaseOperationId,
+      );
+      if (
+        currentState.profileId !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+        currentState.environment !== "production" ||
+        currentState.chainId !== chainId ||
+        nowMs < currentState.manifestNotBeforeMs ||
+        nowMs >= currentState.manifestExpiresAtMs ||
+        head === null ||
+        releaseOperation === null ||
+        releaseOperation.status !== "AVAILABLE" ||
+        releaseOperation.fencing_token !== currentState.releaseFencingToken ||
+        !releaseHeadMatchesOperatorBinding(head, currentState)
+      ) {
+        return { status: "CONFLICT" as const };
+      }
+      const duplicateNonce = this.sql.exec<{ readonly operation_id: string }>(
+        `SELECT operation_id FROM cloudflare_operator_issue_operations
+         WHERE environment = 'production' AND chain_id = ?
+           AND audience_manifest_url_sha256 = ? AND request_nonce = ?
+         LIMIT 1`,
+        chainId,
+        audienceManifestUrlSha256,
+        challenge.request_nonce,
+      ).toArray()[0];
+      if (duplicateNonce !== undefined) return { status: "CONFLICT" as const };
+
+      const fencingToken = incrementCounter(profile.next_fencing_token);
+      const signerOperationId =
+        `cloudflare-operator-freshness:${input.operationId}`;
+      const operation: CloudflareOperatorIssueOperationBinding = {
+        profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+        operationId: input.operationId,
+        signerOperationId,
+        requestSha256,
+        requestNonce: challenge.request_nonce,
+        environment: "production",
+        chainId,
+        audienceManifestUrlSha256,
+      };
+      this.sql.exec(
+        `INSERT INTO cloudflare_operator_issue_operations (
+           operation_id, profile_id, signer_operation_id, request_bytes, request_sha256,
+           request_nonce, environment, chain_id,
+           audience_manifest_url_sha256, status, blocker, fencing_token,
+           signing_claimed, current_state_json, response_bytes, response_length,
+           response_sha256, rejection_reason
+         ) VALUES (?, ?, ?, ?, ?, ?, 'production', ?, ?, 'IN_PROGRESS',
+                   'RETAINED', ?, 0, ?, NULL, NULL, NULL, NULL)`,
+        input.operationId,
+        CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+        signerOperationId,
+        arrayBufferFromBytes(requestBytes),
+        requestSha256,
+        challenge.request_nonce,
+        chainId,
+        audienceManifestUrlSha256,
+        fencingToken,
+        JSON.stringify(currentState),
+      );
+      this.sql.exec(
+        `UPDATE freshness_profile
+         SET next_fencing_token = ?
+         WHERE singleton = 1`,
+        fencingToken,
+      );
+      return {
+        status: "ACQUIRED" as const,
+        operation,
+        fencingToken,
+        currentState,
+      };
+    });
+  }
+
+  async claimCloudflareOperatorIssueSigning(
+    input: CloudflareOperatorIssueSigningAuthorization,
+  ): Promise<CloudflareOperatorIssueSigningClaim> {
+    const prepared =
+      await this.prepareCloudflareOperatorIssueSigningAuthorization(input);
+    return this.ctx.storage.transactionSync(() => {
+      const { operation } = prepared.authorization;
+      const row = this.findCloudflareOperatorIssue(operation.operationId);
+      if (row === null) return { status: "REJECTED", reason: "NOT_FOUND" };
+      if (
+        !cloudflareOperatorIssueMatches(row, operation) ||
+        row.fencing_token !== prepared.authorization.fencingToken ||
+        row.request_sha256 !== prepared.requestSha256 ||
+        row.request_nonce !== prepared.challenge.request_nonce ||
+        row.environment !== "production" ||
+        row.chain_id !== this.requireReleaseChainId() ||
+        row.audience_manifest_url_sha256 !==
+          prepared.audienceManifestUrlSha256 ||
+        !equalBytes(
+          bytesFromArrayBuffer(row.request_bytes),
+          prepared.authorization.requestBytes,
+        )
+      ) {
+        return { status: "CONFLICT" };
+      }
+      if (row.status === "RESULT_UNKNOWN") {
+        return { status: "RESULT_UNKNOWN" };
+      }
+      if (row.status === "FINALIZED") return { status: "FINALIZED" };
+      if (row.status === "REJECTED") return { status: "REJECTED" };
+      if (row.signing_claimed === 1) {
+        return { status: "ALREADY_CLAIMED" };
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      this.requireCloudflareOperatorIssueSigningAuthorizationInTransaction(
+        prepared,
+        false,
+        profile,
+        nowMs,
+      );
+      this.sql.exec(
+        `UPDATE cloudflare_operator_issue_operations
+         SET signing_claimed = 1
+         WHERE operation_id = ? AND status = 'IN_PROGRESS'
+           AND blocker = 'RETAINED' AND fencing_token = ?
+           AND signing_claimed = 0`,
+        operation.operationId,
+        prepared.authorization.fencingToken,
+      );
+      const claimed = this.requireCloudflareOperatorIssue(
+        operation.operationId,
+      );
+      if (claimed.signing_claimed !== 1) {
+        throw corruptStorage("Cloudflare/operator signing claim was not persisted");
+      }
+      return { status: "CLAIMED" };
+    });
+  }
+
+  async getCloudflareOperatorIssue(input: {
+    readonly operationId: string;
+    readonly requestBytes: Uint8Array;
+    readonly chainId: string;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    assertUuid(input.operationId, "Cloudflare/operator issue operation ID");
+    if (
+      !(input.requestBytes instanceof Uint8Array) ||
+      input.requestBytes.byteLength === 0 ||
+      input.requestBytes.byteLength > 1_024
+    ) {
+      throw invalidInput("Freshness request bytes are empty or exceed the wire limit");
+    }
+    const row = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorIssue(input.operationId),
+    );
+    if (row === null) return { status: "REJECTED", reason: "NOT_FOUND" };
+    const requestBytes = copyBytes(input.requestBytes);
+    const requestSha256 = await sha256Base64Url(requestBytes);
+    if (
+      row.request_sha256 !== requestSha256 ||
+      !equalBytes(bytesFromArrayBuffer(row.request_bytes), requestBytes) ||
+      row.chain_id !== input.chainId ||
+      row.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID
+    ) {
+      return { status: "CONFLICT" };
+    }
+    const operation = cloudflareOperatorIssueBindingFromRow(row);
+    if (row.status !== "FINALIZED") {
+      return cloudflareOperatorIssueAdmissionFromRow(row);
+    }
+    if (
+      row.response_bytes === null ||
+      row.response_length === null ||
+      row.response_sha256 === null
+    ) {
+      throw corruptStorage("Finalized Cloudflare/operator issue has no exact response bytes");
+    }
+    const responseBytes = bytesFromArrayBuffer(row.response_bytes);
+    if (
+      responseBytes.byteLength !== row.response_length ||
+      await sha256Base64Url(responseBytes) !== row.response_sha256
+    ) {
+      throw corruptStorage("Finalized Cloudflare/operator response bytes are corrupt");
+    }
+    const currentState = decodeCloudflareOperatorBinding(row.current_state_json);
+    const nowMs = runtimeUtcNow();
+    if (
+      nowMs < currentState.manifestNotBeforeMs ||
+      nowMs >= currentState.manifestExpiresAtMs
+    ) {
+      return {
+        status: "EXPIRED",
+        operation,
+        reason: "Installed Manifest is outside its current validity interval",
+      };
+    }
+    try {
+      const verified = await verifyCloudflareOperatorFreshnessResponse({
+        raw: responseBytes,
+        bootstrapSigner: this.requireReleaseRootSigner(),
+        manifestUrl: this.requireFreshnessManifestUrl(),
+        requestBytes,
+        nowMs,
+        expectedState: currentState,
+      });
+      if (
+        verified.expiresAtMs <= nowMs ||
+        verified.freshnessDelegation.notAfterMs <= nowMs
+      ) {
+        return {
+          status: "EXPIRED",
+          operation,
+          reason: "Finalized Freshness response or delegation has expired",
+        };
+      }
+    } catch (error) {
+      if (
+        error instanceof RuntimeConfigDomainError &&
+        error.code === "INVALID_TIME"
+      ) {
+        return {
+          status: "EXPIRED",
+          operation,
+          reason: "Finalized Freshness response is outside its current validity window",
+        };
+      }
+      throw error;
+    }
+    return {
+      status: "FINALIZED",
+      operation,
+      fencingToken: row.fencing_token,
+      currentState,
+      responseBytes: Uint8Array.from(responseBytes),
+      responseSha256: row.response_sha256,
+    };
+  }
+
+  async markCloudflareOperatorIssueUnknown(input: {
+    readonly operation: CloudflareOperatorIssueOperationBinding;
+    readonly fencingToken: string;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    assertCloudflareOperatorIssueBinding(input.operation);
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.requireCloudflareOperatorIssue(input.operation.operationId);
+      if (!cloudflareOperatorIssueMatches(row, input.operation)) {
+        return { status: "CONFLICT" as const };
+      }
+      if (row.status === "RESULT_UNKNOWN") {
+        return cloudflareOperatorIssueAdmissionFromRow(row);
+      }
+      if (
+        row.status !== "IN_PROGRESS" ||
+        row.fencing_token !== input.fencingToken
+      ) {
+        return cloudflareOperatorIssueAdmissionFromRow(row);
+      }
+      this.sql.exec(
+        `UPDATE cloudflare_operator_issue_operations
+         SET status = 'RESULT_UNKNOWN', blocker = 'RETAINED'
+         WHERE operation_id = ? AND status = 'IN_PROGRESS'
+           AND fencing_token = ?`,
+        input.operation.operationId,
+        input.fencingToken,
+      );
+      return cloudflareOperatorIssueAdmissionFromRow(
+        this.requireCloudflareOperatorIssue(input.operation.operationId),
+      );
+    });
+  }
+
+  async rejectCloudflareOperatorIssue(input: {
+    readonly operation: CloudflareOperatorIssueOperationBinding;
+    readonly fencingToken: string;
+    readonly reason: string;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    assertCloudflareOperatorIssueBinding(input.operation);
+    if (input.reason.length === 0 || input.reason.length > 512) {
+      throw invalidInput("Cloudflare/operator issue rejection reason is invalid");
+    }
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.requireCloudflareOperatorIssue(input.operation.operationId);
+      if (!cloudflareOperatorIssueMatches(row, input.operation)) {
+        return { status: "CONFLICT" as const };
+      }
+      if (row.status === "REJECTED") {
+        return cloudflareOperatorIssueAdmissionFromRow(row);
+      }
+      if (
+        row.status !== "IN_PROGRESS" ||
+        row.fencing_token !== input.fencingToken
+      ) {
+        return cloudflareOperatorIssueAdmissionFromRow(row);
+      }
+      this.sql.exec(
+        `UPDATE cloudflare_operator_issue_operations
+         SET status = 'REJECTED', blocker = 'CLEARED',
+             rejection_reason = ?
+         WHERE operation_id = ? AND status = 'IN_PROGRESS'
+           AND fencing_token = ?`,
+        input.reason,
+        input.operation.operationId,
+        input.fencingToken,
+      );
+      return cloudflareOperatorIssueAdmissionFromRow(
+        this.requireCloudflareOperatorIssue(input.operation.operationId),
+      );
+    });
+  }
+
+  async finalizeCloudflareOperatorIssue(input: {
+    readonly operation: CloudflareOperatorIssueOperationBinding;
+    readonly fencingToken: string;
+    readonly currentStateSha256: string;
+    readonly responseBytes: Uint8Array;
+  }): Promise<CloudflareOperatorIssueAdmission> {
+    assertCloudflareOperatorIssueBinding(input.operation);
+    if (
+      !SHA256_BASE64URL_PATTERN.test(input.currentStateSha256) ||
+      !(input.responseBytes instanceof Uint8Array) ||
+      input.responseBytes.byteLength === 0 ||
+      input.responseBytes.byteLength > runtimeConfigFreshnessWire.maxResponseBytes
+    ) {
+      throw invalidInput("Cloudflare/operator issue finalization input is invalid");
+    }
+    const row = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorIssue(input.operation.operationId),
+    );
+    if (row === null || !cloudflareOperatorIssueMatches(row, input.operation)) {
+      return { status: "CONFLICT" };
+    }
+    if (
+      row.status !== "IN_PROGRESS" ||
+      row.blocker !== "RETAINED" ||
+      row.fencing_token !== input.fencingToken ||
+      row.signing_claimed !== 1
+    ) {
+      return cloudflareOperatorIssueAdmissionFromRow(row);
+    }
+    const responseBytes = copyBytes(input.responseBytes);
+    const responseSha256 = await sha256Base64Url(responseBytes);
+    const requestBytes = bytesFromArrayBuffer(row.request_bytes);
+    const operationState = decodeCloudflareOperatorBinding(row.current_state_json);
+    const latestState = await this.readCloudflareOperatorVerifiedReleaseState({
+      operation: input.operation,
+      fencingToken: input.fencingToken,
+      requestBytes,
+      currentState: operationState,
+    });
+    if (
+      latestState.state.stateSha256 !== input.currentStateSha256 ||
+      !sameCloudflareOperatorBinding(latestState.state, operationState)
+    ) {
+      return this.rejectCloudflareOperatorIssue({
+        operation: input.operation,
+        fencingToken: input.fencingToken,
+        reason: "Current Release state changed before exact finalization",
+      });
+    }
+    const challenge = await verifyRuntimeConfigFreshnessRequest(requestBytes, {
+      environment: "production",
+      audienceManifestUrlSha256:
+        input.operation.audienceManifestUrlSha256,
+    });
+    const verifiedResponse = await verifyRuntimeConfigFreshnessResponse({
+      raw: responseBytes,
+      bootstrapSigner: this.requireReleaseRootSigner(),
+      manifestUrl: this.requireFreshnessManifestUrl(),
+      request: challenge,
+      nowMs: runtimeUtcNow(),
+    });
+    if (
+      verifiedResponse.releaseCommit.digest !== operationState.recordSha256 ||
+      verifiedResponse.payload.request_nonce !== input.operation.requestNonce
+    ) {
+      return this.rejectCloudflareOperatorIssue({
+        operation: input.operation,
+        fencingToken: input.fencingToken,
+        reason: "Signed response does not match the admitted request and Release",
+      });
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const stored = this.requireCloudflareOperatorIssue(
+        input.operation.operationId,
+      );
+      if (stored.status === "FINALIZED") {
+        return cloudflareOperatorIssueAdmissionFromRow(stored);
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      const currentState = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      const head = this.readReleaseLedgerHeadRow();
+      const releaseOperation = this.findReleaseOperation(
+        operationState.releaseOperationId,
+      );
+      if (
+        stored.status !== "IN_PROGRESS" ||
+        stored.blocker !== "RETAINED" ||
+        stored.signing_claimed !== 1 ||
+        stored.fencing_token !== input.fencingToken ||
+        !cloudflareOperatorIssueMatches(stored, input.operation) ||
+        !sameCloudflareOperatorBinding(operationState, currentState) ||
+        currentState === null ||
+        currentState.stateSha256 !== input.currentStateSha256 ||
+        profile.writer_pending === 1 ||
+        releaseOperation === null ||
+        releaseOperation.status !== "AVAILABLE" ||
+        releaseOperation.fencing_token !== currentState.releaseFencingToken ||
+        head === null ||
+        !releaseHeadMatchesOperatorBinding(head, currentState) ||
+        currentState.manifestNotBeforeMs > currentState.manifestExpiresAtMs
+      ) {
+        return cloudflareOperatorIssueAdmissionFromRow(
+          this.quarantineCloudflareOperatorIssueInTransaction(
+            stored,
+            "Issue fence, current state, or Release head changed before finalization",
+          ),
+        );
+      }
+      if (
+        nowMs < currentState.manifestNotBeforeMs ||
+        nowMs >= currentState.manifestExpiresAtMs ||
+        verifiedResponse.expiresAtMs <= nowMs ||
+        verifiedResponse.freshnessDelegation.notAfterMs <= nowMs
+      ) {
+        this.sql.exec(
+          `UPDATE cloudflare_operator_issue_operations
+           SET status = 'REJECTED', blocker = 'CLEARED',
+               rejection_reason = 'Signed response expired before finalization'
+           WHERE operation_id = ? AND status = 'IN_PROGRESS'
+             AND fencing_token = ?`,
+          input.operation.operationId,
+          input.fencingToken,
+        );
+        return cloudflareOperatorIssueAdmissionFromRow(
+          this.requireCloudflareOperatorIssue(input.operation.operationId),
+        );
+      }
+      this.sql.exec(
+        `UPDATE cloudflare_operator_issue_operations
+         SET status = 'FINALIZED', blocker = 'CLEARED',
+             response_bytes = ?, response_length = ?, response_sha256 = ?,
+             rejection_reason = NULL
+         WHERE operation_id = ? AND status = 'IN_PROGRESS'
+           AND blocker = 'RETAINED' AND fencing_token = ?`,
+        arrayBufferFromBytes(responseBytes),
+        responseBytes.byteLength,
+        responseSha256,
+        input.operation.operationId,
+        input.fencingToken,
+      );
+      return cloudflareOperatorIssueAdmissionFromRow(
+        this.requireCloudflareOperatorIssue(input.operation.operationId),
+      );
     });
   }
 
@@ -2210,7 +3514,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
 
   private async verifyOperationManifest(
     operation: ReleaseLedgerOperation,
-  ): Promise<void> {
+  ): Promise<Awaited<ReturnType<typeof verifyRuntimeConfigManifestEpochPointer>>> {
     const manifest = await verifyRuntimeConfigManifestEpochPointer({
       raw: operation.manifestBytes,
       trustedSigner: this.requireManifestRootSigner(),
@@ -2228,6 +3532,20 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         "Release operation does not bind the exact signed Manifest bytes",
       );
     }
+    if (this.readCloudflareOperatorProfileRow() !== null) {
+      this.ctx.storage.transactionSync(() => {
+        const nowMs = this.observeCloudflareOperatorUtc(
+          this.requireCloudflareOperatorProfile(),
+        );
+        if (nowMs < manifest.notBeforeMs || nowMs >= manifest.expiresAtMs) {
+          throw new RuntimeConfigDomainError(
+            "INVALID_TIME",
+            "Release Manifest is not active in the Cloudflare/operator profile",
+          );
+        }
+      });
+    }
+    return manifest;
   }
 
   private readReleaseLedgerHeadRow(): ReleaseLedgerHeadRow | null {
@@ -2559,6 +3877,23 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         "Release operation fencing token is stale",
       );
     }
+    const profile = this.readCloudflareOperatorProfileRow();
+    if (profile !== null) {
+      if (
+        profile.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+        profile.environment !== operation.environment ||
+        profile.chain_id !== operation.chain_id ||
+        profile.writer_pending !== 1 ||
+        profile.writer_operation_id !== operation.operation_id ||
+        profile.write_fencing_token !== fencingToken
+      ) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_CONFLICT",
+          "Cloudflare/operator Release writer gate or fencing token is no longer current",
+        );
+      }
+      return;
+    }
     const stateRow = this.readStateRow();
     if (stateRow === null) {
       throw new FreshnessIssueCoordinatorStorageError(
@@ -2620,18 +3955,155 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     }
   }
 
-  private hasRetainedIssueBlockers(): boolean {
+  private hasRetainedIssueBlockers(excludeOperatorOperationId?: string): boolean {
     const rows = this.sql
       .exec<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM freshness_issue_operations
-         WHERE blocker = 'RETAINED'
-           AND status IN ('IN_PROGRESS', 'RESULT_UNKNOWN')`,
+        `SELECT
+           (SELECT COUNT(*) FROM freshness_issue_operations
+            WHERE blocker = 'RETAINED'
+              AND status IN ('IN_PROGRESS', 'RESULT_UNKNOWN'))
+           +
+           (SELECT COUNT(*) FROM cloudflare_operator_issue_operations
+            WHERE blocker = 'RETAINED'
+              AND status IN ('IN_PROGRESS', 'RESULT_UNKNOWN')
+              AND (? IS NULL OR operation_id != ?)) AS count`,
+        excludeOperatorOperationId ?? null,
+        excludeOperatorOperationId ?? null,
       )
       .toArray();
     if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.count)) {
       throw corruptStorage("Freshness issue blocker count is invalid");
     }
     return rows[0]!.count > 0;
+  }
+
+  private async prepareCloudflareOperatorIssueSigningAuthorization(
+    input: CloudflareOperatorIssueSigningAuthorization,
+  ): Promise<PreparedCloudflareOperatorIssueSigningAuthorization> {
+    assertCloudflareOperatorIssueBinding(input.operation);
+    if (
+      typeof input.fencingToken !== "string" ||
+      !(input.requestBytes instanceof Uint8Array) ||
+      input.requestBytes.byteLength === 0 ||
+      input.requestBytes.byteLength > 1_024
+    ) {
+      throw invalidInput("Cloudflare/operator signing authorization is invalid");
+    }
+    parseCanonicalUnsignedDecimal(
+      input.fencingToken,
+      "Cloudflare/operator issue fencing token",
+    );
+    const authorization: CloudflareOperatorIssueSigningAuthorization = {
+      operation: Object.freeze({ ...input.operation }),
+      fencingToken: input.fencingToken,
+      requestBytes: copyBytes(input.requestBytes),
+      currentState: Object.freeze({ ...input.currentState }),
+    };
+    const audienceManifestUrlSha256 = await sha256Base64Url(
+      new TextEncoder().encode(this.requireFreshnessManifestUrl()),
+    );
+    const challenge = await verifyRuntimeConfigFreshnessRequest(
+      authorization.requestBytes,
+      {
+        environment: "production",
+        audienceManifestUrlSha256,
+      },
+    );
+    const requestSha256 = await sha256Base64Url(
+      authorization.requestBytes,
+    );
+    if (
+      challenge.request_nonce !== authorization.operation.requestNonce ||
+      authorization.operation.audienceManifestUrlSha256 !==
+        audienceManifestUrlSha256
+    ) {
+      throw invalidInput(
+        "Cloudflare/operator signing challenge does not match its persisted binding",
+      );
+    }
+    return {
+      authorization,
+      requestSha256,
+      audienceManifestUrlSha256,
+      challenge,
+    };
+  }
+
+  private requireCloudflareOperatorIssueSigningAuthorizationInTransaction(
+    prepared: PreparedCloudflareOperatorIssueSigningAuthorization,
+    requireClaimed: boolean,
+    profile: CloudflareOperatorProfileRow,
+    nowMs: number,
+  ): CloudflareOperatorIssueRow {
+    const { authorization } = prepared;
+    const operation = authorization.operation;
+    const row = this.findCloudflareOperatorIssue(operation.operationId);
+    if (
+      row === null ||
+      !cloudflareOperatorIssueMatches(row, operation) ||
+      row.fencing_token !== authorization.fencingToken ||
+      row.request_sha256 !== prepared.requestSha256 ||
+      row.request_nonce !== prepared.challenge.request_nonce ||
+      row.environment !== "production" ||
+      row.chain_id !== this.requireReleaseChainId() ||
+      row.audience_manifest_url_sha256 !==
+        prepared.audienceManifestUrlSha256 ||
+      !equalBytes(
+        bytesFromArrayBuffer(row.request_bytes),
+        authorization.requestBytes,
+      ) ||
+      !sameCloudflareOperatorBinding(
+        decodeCloudflareOperatorBinding(row.current_state_json),
+        authorization.currentState,
+      )
+    ) {
+      throw invalidInput(
+        "Cloudflare/operator issue authorization does not match the persisted request",
+      );
+    }
+    if (
+      row.status !== "IN_PROGRESS" ||
+      row.blocker !== "RETAINED" ||
+      row.signing_claimed !== (requireClaimed ? 1 : 0)
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "RELEASE_CONFLICT",
+        "Cloudflare/operator issue is not in the required signing state",
+      );
+    }
+    const operationState = decodeCloudflareOperatorBinding(
+      row.current_state_json,
+    );
+    const currentState = profile.current_state_json === null
+      ? null
+      : decodeCloudflareOperatorBinding(profile.current_state_json);
+    const head = this.readReleaseLedgerHeadRow();
+    const releaseOperation = this.findReleaseOperation(
+      operationState.releaseOperationId,
+    );
+    if (
+      profile.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+      profile.environment !== "production" ||
+      profile.chain_id !== operation.chainId ||
+      profile.writer_pending !== 0 ||
+      currentState === null ||
+      !sameCloudflareOperatorBinding(currentState, operationState) ||
+      nowMs < currentState.manifestNotBeforeMs ||
+      nowMs >= currentState.manifestExpiresAtMs ||
+      head === null ||
+      releaseOperation === null ||
+      releaseOperation.operation_id !== currentState.releaseOperationId ||
+      releaseOperation.status !== "AVAILABLE" ||
+      releaseOperation.fencing_token !== currentState.releaseFencingToken ||
+      !releaseHeadMatchesOperatorBinding(head, currentState) ||
+      this.hasRetainedIssueBlockers(operation.operationId)
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "RELEASE_BLOCKED",
+        "Current Release, issue fence, or blocker state no longer authorizes signing",
+      );
+    }
+    return row;
   }
 
   private releaseActionForRow(
@@ -2828,6 +4300,276 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     return releaseBindingInstallActionFromRow(
       this.requireReleaseBindingInstall(attempt.operation_id),
     );
+  }
+
+  private readCloudflareOperatorProfileRow(): CloudflareOperatorProfileRow | null {
+    const rows = this.sql.exec<CloudflareOperatorProfileRow>(
+      `SELECT profile_id, environment, chain_id, current_state_json,
+              local_restore_epoch, last_observed_utc_ms,
+              next_fencing_token, write_fencing_token, writer_pending,
+              writer_operation_id
+       FROM freshness_profile WHERE singleton = 1`,
+    ).toArray();
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) {
+      throw corruptStorage("Freshness profile singleton is not unique");
+    }
+    return rows[0]!;
+  }
+
+  private requireCloudflareOperatorProfile(): CloudflareOperatorProfileRow {
+    const profile = this.readCloudflareOperatorProfileRow();
+    if (profile === null) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "PROFILE_MISMATCH",
+        "Cloudflare/operator profile was not explicitly initialized",
+      );
+    }
+    if (
+      profile.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+      profile.environment !== "production" ||
+      profile.chain_id !== this.requireReleaseChainId() ||
+      profile.local_restore_epoch.length === 0 ||
+      !Number.isSafeInteger(profile.last_observed_utc_ms) ||
+      (profile.writer_pending !== 0 && profile.writer_pending !== 1) ||
+      (profile.writer_pending === 1) !== (profile.writer_operation_id !== null)
+    ) {
+      throw corruptStorage(
+        "Persisted Cloudflare/operator profile identity or writer state is invalid",
+      );
+    }
+    parseCanonicalUnsignedDecimal(
+      profile.next_fencing_token,
+      "Cloudflare/operator next fencing token",
+      true,
+    );
+    parseCanonicalUnsignedDecimal(
+      profile.write_fencing_token,
+      "Cloudflare/operator write fencing token",
+      true,
+    );
+    if (
+      parseCanonicalUnsignedDecimal(
+        profile.next_fencing_token,
+        "Cloudflare/operator next fencing token",
+        true,
+      ) <
+      parseCanonicalUnsignedDecimal(
+        profile.write_fencing_token,
+        "Cloudflare/operator write fencing token",
+        true,
+      )
+    ) {
+      throw corruptStorage(
+        "Cloudflare/operator fencing counter is behind its active fence",
+      );
+    }
+    return profile;
+  }
+
+  private observeCloudflareOperatorUtc(
+    profile: CloudflareOperatorProfileRow,
+  ): number {
+    const current = this.readCloudflareOperatorProfileRow();
+    if (current === null) {
+      throw corruptStorage("Cloudflare/operator profile disappeared");
+    }
+    const nowMs = this.readCloudflareOperatorRuntimeUtc();
+    if (nowMs < current.last_observed_utc_ms) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "INVALID_TIME",
+        "Runtime UTC moved backwards from the last persisted profile observation",
+      );
+    }
+    this.sql.exec(
+      `UPDATE freshness_profile
+       SET last_observed_utc_ms = ?
+       WHERE singleton = 1 AND profile_id = ? AND environment = ?
+         AND chain_id = ? AND last_observed_utc_ms = ?`,
+      nowMs,
+      profile.profile_id,
+      profile.environment,
+      profile.chain_id,
+      current.last_observed_utc_ms,
+    );
+    return nowMs;
+  }
+
+  protected readCloudflareOperatorRuntimeUtc(): number {
+    return runtimeUtcNow();
+  }
+
+  private requireFreshnessManifestUrl(): string {
+    const value = this.#env.FRESHNESS_MANIFEST_URL;
+    if (
+      typeof value !== "string" ||
+      value.length === 0 ||
+      value.trim() !== value
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Freshness Manifest URL is not configured",
+      );
+    }
+    return value;
+  }
+
+  private findCloudflareOperatorInstall(
+    operationId: string,
+  ): CloudflareOperatorInstallRow | null {
+    const rows = this.sql.exec<CloudflareOperatorInstallRow>(
+      `SELECT operation_id, request_sha256, environment, chain_id, mode,
+              status, reason, release_operation_id, release_fencing_token,
+              install_fencing_token, expected_current_state_sha256,
+              expected_restore_epoch, target_position, target_generation,
+              target_record_sha256, installed_state_json
+       FROM cloudflare_operator_binding_installs WHERE operation_id = ?`,
+      operationId,
+    ).toArray();
+    if (rows.length > 1) {
+      throw corruptStorage("Cloudflare/operator install operation is not unique");
+    }
+    return rows[0] ?? null;
+  }
+
+  private requireCloudflareOperatorInstall(
+    operationId: string,
+  ): CloudflareOperatorInstallRow {
+    const row = this.findCloudflareOperatorInstall(operationId);
+    if (row === null) {
+      throw invalidInput("Cloudflare/operator install operation does not exist");
+    }
+    return row;
+  }
+
+  private readCloudflareOperatorBootstrapAuthorization():
+    | {
+        readonly operation_id: string;
+        readonly chain_id: string;
+        readonly position: string;
+        readonly generation: string;
+        readonly record_sha256: string;
+        readonly restore_epoch: string;
+      }
+    | null {
+    const rows = this.sql.exec<{
+      readonly operation_id: string;
+      readonly chain_id: string;
+      readonly position: string;
+      readonly generation: string;
+      readonly record_sha256: string;
+      readonly restore_epoch: string;
+    }>(
+      `SELECT operation_id, chain_id, position, generation,
+              record_sha256, restore_epoch
+       FROM cloudflare_operator_bootstrap_authorizations WHERE singleton = 1`,
+    ).toArray();
+    if (rows.length > 1) {
+      throw corruptStorage(
+        "Cloudflare/operator bootstrap authorization is not unique",
+      );
+    }
+    return rows[0] ?? null;
+  }
+
+  private hasCloudflareOperatorInstallHistory(): boolean {
+    const rows = this.sql.exec<{ readonly count: number }>(
+      "SELECT COUNT(*) AS count FROM cloudflare_operator_binding_installs",
+    ).toArray();
+    if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.count)) {
+      throw corruptStorage(
+        "Cloudflare/operator install history count is invalid",
+      );
+    }
+    return rows[0]!.count > 0;
+  }
+
+  private hasOtherCloudflareOperatorInstallHistory(
+    excludingOperationId: string,
+  ): boolean {
+    const rows = this.sql.exec<{ readonly count: number }>(
+      `SELECT COUNT(*) AS count FROM cloudflare_operator_binding_installs
+       WHERE operation_id != ?`,
+      excludingOperationId,
+    ).toArray();
+    if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.count)) {
+      throw corruptStorage(
+        "Cloudflare/operator prior install history count is invalid",
+      );
+    }
+    return rows[0]!.count > 0;
+  }
+
+  private quarantineCloudflareOperatorInstall(
+    operationId: string,
+    reason: string,
+  ): CloudflareOperatorBindingInstallAction {
+    return this.ctx.storage.transactionSync(() =>
+      cloudflareOperatorInstallAction(
+        this.quarantineCloudflareOperatorInstallInTransaction(
+          this.requireCloudflareOperatorInstall(operationId),
+          reason,
+        ),
+      ),
+    );
+  }
+
+  private quarantineCloudflareOperatorInstallInTransaction(
+    attempt: CloudflareOperatorInstallRow,
+    reason: string,
+  ): CloudflareOperatorInstallRow {
+    this.sql.exec(
+      `UPDATE cloudflare_operator_binding_installs
+       SET status = 'QUARANTINED', reason = ?
+       WHERE operation_id = ? AND status = 'VERIFYING'`,
+      reason,
+      attempt.operation_id,
+    );
+    return this.requireCloudflareOperatorInstall(attempt.operation_id);
+  }
+
+  private findCloudflareOperatorIssue(
+    operationId: string,
+  ): CloudflareOperatorIssueRow | null {
+    const rows = this.sql.exec<CloudflareOperatorIssueRow>(
+      `SELECT operation_id, signer_operation_id, request_bytes,
+              profile_id, request_sha256, request_nonce, environment, chain_id,
+              audience_manifest_url_sha256, status, blocker, fencing_token,
+              signing_claimed,
+              current_state_json, response_bytes, response_length,
+              response_sha256, rejection_reason
+       FROM cloudflare_operator_issue_operations WHERE operation_id = ?`,
+      operationId,
+    ).toArray();
+    if (rows.length > 1) {
+      throw corruptStorage("Cloudflare/operator issue operation is not unique");
+    }
+    return rows[0] ?? null;
+  }
+
+  private requireCloudflareOperatorIssue(
+    operationId: string,
+  ): CloudflareOperatorIssueRow {
+    const row = this.findCloudflareOperatorIssue(operationId);
+    if (row === null) {
+      throw invalidInput("Cloudflare/operator issue operation does not exist");
+    }
+    return row;
+  }
+
+  private quarantineCloudflareOperatorIssueInTransaction(
+    row: CloudflareOperatorIssueRow,
+    reason: string,
+  ): CloudflareOperatorIssueRow {
+    this.sql.exec(
+      `UPDATE cloudflare_operator_issue_operations
+       SET status = 'RESULT_UNKNOWN', blocker = 'RETAINED',
+           rejection_reason = ?
+       WHERE operation_id = ? AND status IN ('IN_PROGRESS', 'RESULT_UNKNOWN')`,
+      reason,
+      row.operation_id,
+    );
+    return this.requireCloudflareOperatorIssue(row.operation_id);
   }
 
   private get sql() {
@@ -3160,6 +4902,306 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     };
   }
 
+}
+
+function decodeCloudflareOperatorBinding(
+  json: string,
+): CloudflareOperatorCurrentStateBinding {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    throw corruptStorage("Cloudflare/operator current-state JSON is invalid");
+  }
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw corruptStorage("Cloudflare/operator current-state binding is invalid");
+  }
+  const record = value as Record<string, unknown>;
+  const keys = [
+    "profileId",
+    "environment",
+    "chainId",
+    "releaseOperationId",
+    "releaseFencingToken",
+    "position",
+    "generation",
+    "recordSha256",
+    "releaseCommitId",
+    "appendedAt",
+    "manifestEpoch",
+    "manifestSha256",
+    "manifestRef",
+    "pointerEtag",
+    "manifestNotBeforeMs",
+    "manifestExpiresAtMs",
+    "localRestoreEpoch",
+    "stateSha256",
+  ];
+  if (
+    Object.keys(record).sort().join(",") !== [...keys].sort().join(",") ||
+    record.profileId !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+    record.environment !== "production" ||
+    typeof record.chainId !== "string" ||
+    record.chainId.length === 0 ||
+    typeof record.releaseOperationId !== "string" ||
+    typeof record.releaseFencingToken !== "string" ||
+    typeof record.position !== "string" ||
+    typeof record.generation !== "string" ||
+    typeof record.recordSha256 !== "string" ||
+    !SHA256_BASE64URL_PATTERN.test(record.recordSha256) ||
+    typeof record.releaseCommitId !== "string" ||
+    typeof record.appendedAt !== "string" ||
+    typeof record.manifestEpoch !== "string" ||
+    typeof record.manifestSha256 !== "string" ||
+    !SHA256_BASE64URL_PATTERN.test(record.manifestSha256) ||
+    typeof record.manifestRef !== "string" ||
+    typeof record.pointerEtag !== "string" ||
+    typeof record.manifestNotBeforeMs !== "number" ||
+    !Number.isSafeInteger(record.manifestNotBeforeMs) ||
+    typeof record.manifestExpiresAtMs !== "number" ||
+    !Number.isSafeInteger(record.manifestExpiresAtMs) ||
+    record.manifestNotBeforeMs >= record.manifestExpiresAtMs ||
+    typeof record.localRestoreEpoch !== "string" ||
+    record.localRestoreEpoch.length === 0 ||
+    typeof record.stateSha256 !== "string" ||
+    !SHA256_BASE64URL_PATTERN.test(record.stateSha256)
+  ) {
+    throw corruptStorage("Cloudflare/operator current-state binding fields are invalid");
+  }
+  parseCanonicalUnsignedDecimal(record.position, "Cloudflare/operator position");
+  parseCanonicalUnsignedDecimal(record.generation, "Cloudflare/operator generation");
+  parseCanonicalUnsignedDecimal(
+    record.releaseFencingToken,
+    "Cloudflare/operator Release fencing token",
+    true,
+  );
+  assertUuid(record.releaseOperationId, "Cloudflare/operator Release operation ID");
+  assertUuid(record.releaseCommitId, "Cloudflare/operator Release commit ID");
+  return value as CloudflareOperatorCurrentStateBinding;
+}
+
+function sameCloudflareOperatorBinding(
+  left: CloudflareOperatorCurrentStateBinding | null,
+  right: CloudflareOperatorCurrentStateBinding | null,
+): boolean {
+  return left !== null &&
+    right !== null &&
+    equalBytes(canonicalJsonBytes(left), canonicalJsonBytes(right));
+}
+
+function releaseHeadMatchesOperatorBinding(
+  head: ReleaseLedgerHeadRow,
+  state: CloudflareOperatorCurrentStateBinding,
+): boolean {
+  return head.environment === state.environment &&
+    head.chain_id === state.chainId &&
+    head.operation_id === state.releaseOperationId &&
+    head.position === state.position &&
+    head.generation === state.generation &&
+    head.record_sha256 === state.recordSha256 &&
+    head.release_commit_id === state.releaseCommitId &&
+    head.record_appended_at === state.appendedAt &&
+    head.manifest_epoch === state.manifestEpoch &&
+    head.manifest_sha256 === state.manifestSha256 &&
+    head.manifest_ref === state.manifestRef &&
+    head.pointer_etag === state.pointerEtag;
+}
+
+function operatorReleasePredecessorMatchesState(
+  operation: ReleaseLedgerOperationRow,
+  state: CloudflareOperatorCurrentStateBinding,
+): boolean {
+  return operation.environment === state.environment &&
+    operation.chain_id === state.chainId &&
+    operation.expected_position === state.position &&
+    operation.expected_generation === state.generation &&
+    operation.expected_record_sha256 === state.recordSha256;
+}
+
+function cloudflareOperatorInstallFromRow(
+  row: CloudflareOperatorInstallRow,
+): CloudflareOperatorBindingInstallOperation {
+  if (
+    row.environment !== "production" ||
+    (row.mode !== "BOOTSTRAP" && row.mode !== "ADVANCE") ||
+    !["VERIFYING", "INSTALLED", "QUARANTINED", "CONFLICT"].includes(row.status)
+  ) {
+    throw corruptStorage("Stored Cloudflare/operator install operation is invalid");
+  }
+  return {
+    operationId: row.operation_id,
+    requestSha256: row.request_sha256,
+    profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+    environment: "production",
+    chainId: row.chain_id,
+    mode: row.mode,
+    status: row.status as CloudflareOperatorBindingInstallOperation["status"],
+    reason: row.reason,
+    releaseOperationId: row.release_operation_id,
+    releaseFencingToken: row.release_fencing_token,
+    installFencingToken: row.install_fencing_token,
+    expectedCurrentStateSha256: row.expected_current_state_sha256,
+    expectedRestoreEpoch: row.expected_restore_epoch,
+    targetPosition: row.target_position,
+    targetGeneration: row.target_generation,
+    targetRecordSha256: row.target_record_sha256,
+    installedState: row.installed_state_json === null
+      ? null
+      : decodeCloudflareOperatorBinding(row.installed_state_json),
+  };
+}
+
+function cloudflareOperatorInstallAction(
+  row: CloudflareOperatorInstallRow,
+): CloudflareOperatorBindingInstallAction {
+  const operation = cloudflareOperatorInstallFromRow(row);
+  return {
+    status: operation.status === "INSTALLED"
+      ? "INSTALLED"
+      : operation.status === "QUARANTINED"
+        ? "QUARANTINED"
+        : operation.status === "CONFLICT"
+          ? "CONFLICT"
+          : "STARTED",
+    operation,
+  };
+}
+
+function cloudflareOperatorIssueBindingFromRow(
+  row: CloudflareOperatorIssueRow,
+): CloudflareOperatorIssueOperationBinding {
+  if (
+    row.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+    row.environment !== "production" ||
+    !SHA256_BASE64URL_PATTERN.test(row.request_sha256) ||
+    !SHA256_BASE64URL_PATTERN.test(row.audience_manifest_url_sha256)
+  ) {
+    throw corruptStorage("Stored Cloudflare/operator issue binding is invalid");
+  }
+  return {
+    profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+    operationId: row.operation_id,
+    signerOperationId: row.signer_operation_id,
+    requestSha256: row.request_sha256,
+    requestNonce: row.request_nonce,
+    environment: "production",
+    chainId: row.chain_id,
+    audienceManifestUrlSha256: row.audience_manifest_url_sha256,
+  };
+}
+
+function assertCloudflareOperatorIssueBinding(
+  operation: CloudflareOperatorIssueOperationBinding,
+): void {
+  if (
+    operation.profileId !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+    operation.environment !== "production" ||
+    !SHA256_BASE64URL_PATTERN.test(operation.requestSha256) ||
+    !SHA256_BASE64URL_PATTERN.test(operation.audienceManifestUrlSha256) ||
+    operation.chainId.length === 0 ||
+    operation.requestNonce.length === 0
+  ) {
+    throw invalidInput("Cloudflare/operator issue operation binding is invalid");
+  }
+  assertUuid(operation.operationId, "Cloudflare/operator issue operation ID");
+}
+
+function cloudflareOperatorIssueMatches(
+  row: CloudflareOperatorIssueRow,
+  operation: CloudflareOperatorIssueOperationBinding,
+): boolean {
+  return row.profile_id === operation.profileId &&
+    row.operation_id === operation.operationId &&
+    row.signer_operation_id === operation.signerOperationId &&
+    row.request_sha256 === operation.requestSha256 &&
+    row.request_nonce === operation.requestNonce &&
+    row.environment === operation.environment &&
+    row.chain_id === operation.chainId &&
+    row.audience_manifest_url_sha256 ===
+      operation.audienceManifestUrlSha256;
+}
+
+function cloudflareOperatorIssueAdmissionFromRow(
+  row: CloudflareOperatorIssueRow,
+): CloudflareOperatorIssueAdmission {
+  const operation = cloudflareOperatorIssueBindingFromRow(row);
+  const currentState = decodeCloudflareOperatorBinding(row.current_state_json);
+  if (row.blocker !== "RETAINED" && row.blocker !== "CLEARED") {
+    throw corruptStorage("Stored Cloudflare/operator issue blocker is invalid");
+  }
+  if (row.status === "IN_PROGRESS") {
+    return {
+      status: "IN_PROGRESS",
+      operation,
+      fencingToken: row.fencing_token,
+      currentState,
+    };
+  }
+  if (row.status === "RESULT_UNKNOWN") {
+    if (row.blocker !== "RETAINED") {
+      throw corruptStorage("Unknown Cloudflare/operator issue lost its blocker");
+    }
+    return {
+      status: "RESULT_UNKNOWN",
+      operation,
+      fencingToken: row.fencing_token,
+      currentState,
+      ...(row.rejection_reason === null
+        ? {}
+        : { reason: row.rejection_reason }),
+    };
+  }
+  if (row.status === "FINALIZED") {
+    if (
+      row.blocker !== "CLEARED" ||
+      row.response_bytes === null ||
+      row.response_length === null ||
+      row.response_sha256 === null
+    ) {
+      throw corruptStorage("Finalized Cloudflare/operator issue is incomplete");
+    }
+    const responseBytes = bytesFromArrayBuffer(row.response_bytes);
+    if (
+      responseBytes.byteLength !== row.response_length ||
+      !SHA256_BASE64URL_PATTERN.test(row.response_sha256)
+    ) {
+      throw corruptStorage("Finalized Cloudflare/operator response shape is invalid");
+    }
+    return {
+      status: "FINALIZED",
+      operation,
+      fencingToken: row.fencing_token,
+      currentState,
+      responseBytes,
+      responseSha256: row.response_sha256,
+    };
+  }
+  if (row.status === "REJECTED") {
+    if (row.blocker !== "CLEARED") {
+      throw corruptStorage("Rejected Cloudflare/operator issue retained a blocker");
+    }
+    return {
+      status: "REJECTED",
+      operation,
+      reason: row.rejection_reason ?? "Freshness issue was rejected",
+    };
+  }
+  throw corruptStorage("Stored Cloudflare/operator issue status is invalid");
+}
+
+function runtimeUtcNow(): number {
+  const nowMs = Date.now();
+  if (!Number.isSafeInteger(nowMs)) {
+    throw new FreshnessIssueCoordinatorStorageError(
+      "INVALID_TIME",
+      "Runtime host UTC is not a safe integer",
+    );
+  }
+  return nowMs;
 }
 
 function assertRequestIdentity(

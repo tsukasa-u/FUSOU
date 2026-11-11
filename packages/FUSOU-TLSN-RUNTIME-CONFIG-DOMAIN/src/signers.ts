@@ -4,8 +4,190 @@ import type {
   ReleaseCommitRecordEnvelope,
   VerifiedDelegation,
   VerifiedJournalHeadBinding,
+  VerifiedRuntimeConfigManifestEpochPointer,
   VerifiedReleaseCommitRecord,
 } from "./domain.ts";
+
+export const STRICT_FRESHNESS_PROFILE_ID =
+  "strict-journal-witness-v1" as const;
+export const CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID =
+  "cloudflare-operator-v1" as const;
+
+export type FreshnessProfileId =
+  | typeof STRICT_FRESHNESS_PROFILE_ID
+  | typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+
+export interface CloudflareOperatorCurrentStateBinding {
+  readonly profileId: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly releaseOperationId: string;
+  readonly releaseFencingToken: string;
+  readonly position: string;
+  readonly generation: string;
+  readonly recordSha256: string;
+  readonly releaseCommitId: string;
+  readonly appendedAt: string;
+  readonly manifestEpoch: string;
+  readonly manifestSha256: string;
+  readonly manifestRef: string;
+  readonly pointerEtag: string;
+  readonly manifestNotBeforeMs: number;
+  readonly manifestExpiresAtMs: number;
+  readonly localRestoreEpoch: string;
+  readonly stateSha256: string;
+}
+
+export interface CloudflareOperatorIssueOperationBinding {
+  readonly profileId: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly operationId: string;
+  readonly signerOperationId: string;
+  readonly requestSha256: string;
+  readonly requestNonce: string;
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly audienceManifestUrlSha256: string;
+}
+
+export interface CloudflareOperatorIssueSigningAuthorization {
+  readonly operation: CloudflareOperatorIssueOperationBinding;
+  readonly fencingToken: string;
+  readonly requestBytes: Uint8Array;
+  readonly currentState: CloudflareOperatorCurrentStateBinding;
+}
+
+export interface CloudflareOperatorIssueSigningClaim {
+  readonly status:
+    | "CLAIMED"
+    | "ALREADY_CLAIMED"
+    | "RESULT_UNKNOWN"
+    | "FINALIZED"
+    | "REJECTED"
+    | "CONFLICT";
+  readonly reason?: string;
+}
+
+export interface CloudflareOperatorIssueAdmission {
+  readonly status:
+    | "ACQUIRED"
+    | "IN_PROGRESS"
+    | "RESULT_UNKNOWN"
+    | "FINALIZED"
+    | "EXPIRED"
+    | "REJECTED"
+    | "CONFLICT";
+  readonly operation?: CloudflareOperatorIssueOperationBinding;
+  readonly fencingToken?: string;
+  readonly currentState?: CloudflareOperatorCurrentStateBinding;
+  readonly responseBytes?: Uint8Array;
+  readonly responseSha256?: string;
+  readonly reason?: string;
+}
+
+export interface CloudflareOperatorBindingInstallOperation {
+  readonly operationId: string;
+  readonly requestSha256: string;
+  readonly profileId: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly mode: "BOOTSTRAP" | "ADVANCE";
+  readonly status: "VERIFYING" | "INSTALLED" | "QUARANTINED" | "CONFLICT";
+  readonly reason: string | null;
+  readonly releaseOperationId: string;
+  readonly releaseFencingToken: string;
+  readonly installFencingToken: string;
+  readonly expectedCurrentStateSha256: string | null;
+  readonly expectedRestoreEpoch: string;
+  readonly targetPosition: string;
+  readonly targetGeneration: string;
+  readonly targetRecordSha256: string;
+  readonly installedState: CloudflareOperatorCurrentStateBinding | null;
+}
+
+export interface CloudflareOperatorBindingInstallAction {
+  readonly status:
+    | "STARTED"
+    | "INSTALLED"
+    | "WAITING_FOR_ISSUES"
+    | "QUARANTINED"
+    | "CONFLICT";
+  readonly operation?: CloudflareOperatorBindingInstallOperation;
+}
+
+export interface CloudflareOperatorFreshnessSigningRequest {
+  readonly operation: "ISSUE_LATEST_AT_ISSUANCE";
+  readonly profileId: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly issue: CloudflareOperatorIssueOperationBinding;
+  readonly fencingToken: string;
+  readonly requestBytes: Uint8Array;
+  readonly challenge: FreshnessRequest;
+  readonly currentState: CloudflareOperatorCurrentStateBinding;
+}
+
+export interface CloudflareOperatorFreshnessSigner {
+  issue(
+    request: CloudflareOperatorFreshnessSigningRequest,
+  ): Promise<
+    | { readonly outcome: "COMPLETED"; readonly responseBytes: Uint8Array }
+    | { readonly outcome: "UNKNOWN" }
+  >;
+}
+
+export interface CloudflareOperatorReleaseLedgerSnapshot {
+  readonly profileId: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly observedAtMs: number;
+  readonly lastObservedUtcMs: number;
+  readonly localRestoreEpoch: string;
+  readonly writerPending: boolean;
+  readonly issueBlocker: boolean;
+  readonly currentState: CloudflareOperatorCurrentStateBinding | null;
+  readonly head: {
+    readonly operationId: string;
+    readonly position: string;
+    readonly generation: string;
+    readonly recordSha256: string;
+    readonly previousRecordSha256: string | null;
+    readonly releaseCommitId: string;
+    readonly appendedAt: string;
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+    readonly manifestEpoch: string;
+    readonly manifestSha256: string;
+    readonly manifestRef: string;
+    readonly pointerEtag: string;
+  } | null;
+  readonly releaseOperation: {
+    readonly operationId: string;
+    readonly status: string;
+    readonly fencingToken: string | null;
+    readonly recordBytes: Uint8Array | null;
+    readonly releaseDelegationBytes: Uint8Array | null;
+    readonly localAppendObservedAt: string | null;
+    readonly manifestBytes: Uint8Array;
+    readonly manifestSha256: string;
+    readonly manifestEpoch: string;
+    readonly manifestRef: string;
+    readonly pointerEtag: string;
+  } | null;
+}
+
+export interface VerifiedCloudflareOperatorReleaseState {
+  readonly profileId: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly observedAtMs: number;
+  readonly state: CloudflareOperatorCurrentStateBinding;
+  readonly releaseCommit: VerifiedReleaseCommitRecord;
+  readonly manifest: VerifiedRuntimeConfigManifestEpochPointer;
+  readonly recordBytes: Uint8Array;
+  readonly releaseDelegationBytes: Uint8Array;
+  readonly manifestBytes: Uint8Array;
+  readonly pointerBytes: Uint8Array;
+  readonly snapshotBytes: Uint8Array;
+  readonly pointerEtag: string;
+}
 
 export interface ReleaseAuthorizationSignerRequest {
   readonly operation: "AUTHORIZE_JOURNAL_APPEND";

@@ -105,7 +105,7 @@ export function equalBytes(left, right) {
 }
 
 export async function makeSignedCurrentStateFixture(options = {}) {
-  const nowMs = vector.now_ms;
+  const nowMs = options.nowMs ?? vector.now_ms;
   const rootKey = testKey(0x10, "local-test-root");
   const releaseKey = testKey(0x30, "local-test-release");
   const freshnessKey = testKey(0x50, "local-test-freshness");
@@ -120,6 +120,14 @@ export async function makeSignedCurrentStateFixture(options = {}) {
   const manifestPayload = JSON.parse(
     Buffer.from(manifestTemplate.payload_base64url, "base64url").toString("utf8"),
   );
+  const manifestLifetimeMs =
+    Date.parse(manifestPayload.expires_at) -
+    Date.parse(manifestPayload.not_before);
+  const manifestIssuedAt = iso(nowMs - 60_000);
+  manifestPayload.issued_at = manifestIssuedAt;
+  manifestPayload.not_before = manifestIssuedAt;
+  manifestPayload.expires_at = iso(nowMs + manifestLifetimeMs);
+  manifestPayload.source.observed_at = manifestIssuedAt;
   manifestPayload.epoch = options.manifestEpoch ?? "1";
   const manifestBytes = signManifestEnvelope(manifestPayload, rootKey);
   const manifestRootSigner = testRootSigner;
@@ -151,8 +159,9 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     issued_at: issuedAt,
     not_before: issuedAt,
     not_after: iso(
-      Date.parse(issuedAt) +
-        runtimeConfigFreshnessWire.maxReleaseDelegationLifetimeSeconds * 1_000,
+      options.releaseDelegationNotAfterMs ??
+        Date.parse(issuedAt) +
+          runtimeConfigFreshnessWire.maxReleaseDelegationLifetimeSeconds * 1_000,
     ),
     max_validity_seconds:
       runtimeConfigFreshnessWire.maxReleaseDelegationLifetimeSeconds,
@@ -173,8 +182,9 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     issued_at: issuedAt,
     not_before: issuedAt,
     not_after: iso(
-      Date.parse(issuedAt) +
-        runtimeConfigFreshnessWire.maxFreshnessDelegationLifetimeSeconds * 1_000,
+      options.freshnessDelegationNotAfterMs ??
+        Date.parse(issuedAt) +
+          runtimeConfigFreshnessWire.maxFreshnessDelegationLifetimeSeconds * 1_000,
     ),
     max_validity_seconds:
       runtimeConfigFreshnessWire.maxFreshnessDelegationLifetimeSeconds,
@@ -530,6 +540,12 @@ export async function makeSignedCurrentStateFixture(options = {}) {
   return {
     rootSigner: testRootSigner,
     manifestRootSigner,
+    freshnessKeyId: freshnessKey.keyId,
+    freshnessPrivateKeyPkcs8Bytes: Uint8Array.from(
+      freshnessKey.privateKey.export({ format: "der", type: "pkcs8" }),
+    ),
+    freshnessDelegationBytes: Uint8Array.from(freshnessDelegationBytes),
+    nowMs,
     currentState,
     witness: { ...witnessValue },
     responseBytes,
