@@ -1,6 +1,35 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Current Hosted CI baseline — 2026-11-11
+## Latest Hosted CI — APP Runtime Config epoch-state failure (#118)
+
+Hosted run [#118](https://github.com/tsukasa-u/FUSOU/actions/runs/43233657703),
+attempt 1, tested baseline
+`d3c180cd076a04f8f5dd1cd7ce2db93035d4f281`. The
+`rust-tlsn-preflight` job failed its `tlsn_runtime` test selection with 44
+passed and one failed:
+`epoch_state_starts_empty_and_roundtrips_canonical_state_atomically`.
+`write_atomic()` wrote the fixture, but `read()` rejected its 43-character
+`"B".repeat(43)` delegation digest as noncanonical base64url and the test
+unwrapped that error. Production digest validation was not the defect.
+
+The local regression change uses the existing `sha256_base64url()` helper for
+valid roundtrip digests, asserts the persisted Manifest digest, authority
+generation and delegation digest, and adds a separate noncanonical-digest
+rejection case. No schema, state transition, or authentication contract was
+changed.
+
+Rust 1.98.1 isolated verification compiled the actual APP Runtime Config
+runtime, Manifest and Freshness source files directly, with a new empty target
+directory and the existing harness lockfile. The selected epoch-state tests
+passed (**6 passed**, including the roundtrip and rejection cases; 28 filtered
+out); the copied lockfile remained byte-identical. The run was offline and
+used the existing Cargo download cache. APP Cargo and Node groups that could
+launch it were not run. Changed-source Hosted CI remains **NOT_CHECKED**;
+run #118 remains the pre-fix failure, not evidence for this change.
+
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Hosted CI baseline before the Runtime Config epoch-state failure — 2026-11-11
 
 The Manifest-delegation work starts from branch
 `tlsn-first-testplay-candidate`, baseline HEAD

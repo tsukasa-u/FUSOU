@@ -614,23 +614,58 @@ mod tests {
         let (directory, path) = test_store();
         let store = RuntimeConfigEpochStateStore::new(path.clone());
         assert_eq!(read_test_state(&store).unwrap().last_accepted_epoch, "0");
+        let manifest_sha256 = sha256_base64url(b"manifest state roundtrip fixture");
+        let authority_delegation_sha256 =
+            sha256_base64url(b"Manifest authority delegation roundtrip fixture");
         let state = PersistedEpochState {
             schema_version: EPOCH_STATE_SCHEMA_VERSION,
             scope: EPOCH_STATE_SCOPE.to_owned(),
             environment: "production".to_owned(),
             manifest_audience_sha256: test_manifest_audience_sha256(),
             last_accepted_epoch: "4".to_owned(),
-            last_accepted_manifest_sha256: Some("A".repeat(43)),
+            last_accepted_manifest_sha256: Some(manifest_sha256),
+            last_accepted_manifest_authority_generation: "2".to_owned(),
+            last_accepted_manifest_authority_delegation_sha256: Some(authority_delegation_sha256),
+            migration_pending: false,
+        };
+        store.write_atomic(&state).unwrap();
+        let persisted = read_test_state(&store).unwrap();
+        assert_eq!(persisted.last_accepted_epoch, "4");
+        assert_eq!(
+            persisted.last_accepted_manifest_sha256,
+            state.last_accepted_manifest_sha256
+        );
+        assert_eq!(
+            persisted.last_accepted_manifest_authority_generation,
+            state.last_accepted_manifest_authority_generation
+        );
+        assert_eq!(
+            persisted.last_accepted_manifest_authority_delegation_sha256,
+            state.last_accepted_manifest_authority_delegation_sha256
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn epoch_state_rejects_noncanonical_authority_delegation_digest() {
+        let (directory, path) = test_store();
+        let store = RuntimeConfigEpochStateStore::new(path.clone());
+        let state = PersistedEpochState {
+            schema_version: EPOCH_STATE_SCHEMA_VERSION,
+            scope: EPOCH_STATE_SCOPE.to_owned(),
+            environment: "production".to_owned(),
+            manifest_audience_sha256: test_manifest_audience_sha256(),
+            last_accepted_epoch: "4".to_owned(),
+            last_accepted_manifest_sha256: Some(sha256_base64url(b"valid manifest digest")),
             last_accepted_manifest_authority_generation: "2".to_owned(),
             last_accepted_manifest_authority_delegation_sha256: Some("B".repeat(43)),
             migration_pending: false,
         };
         store.write_atomic(&state).unwrap();
-        assert_eq!(read_test_state(&store).unwrap().last_accepted_epoch, "4");
-        assert_eq!(
-            read_test_state(&store).unwrap().last_accepted_manifest_sha256,
-            state.last_accepted_manifest_sha256
-        );
+        assert!(matches!(
+            read_test_state(&store),
+            Err(RuntimeConfigManifestError::Invalid("SHA-256 digest"))
+        ));
         fs::remove_dir_all(directory).unwrap();
     }
 
