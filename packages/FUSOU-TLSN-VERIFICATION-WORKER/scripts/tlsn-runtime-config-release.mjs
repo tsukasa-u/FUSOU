@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
 import {
-  createTlsnRuntimeConfigEnvelopeRaw,
+  createTlsnRuntimeConfigDelegatedEnvelopeRaw,
   createTlsnRuntimeConfigPublicationObjects,
-  tlsnRuntimeConfigSigningBytes,
+  tlsnRuntimeConfigDelegatedSigningBytes,
+  tlsnRuntimeConfigApprovedConfigurationSha256,
   verifyTlsnRuntimeConfigEpochPointer,
   verifyTlsnRuntimeConfigEnvelope,
+  verifyTlsnRuntimeConfigManifestDelegation,
   verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
 import { canonicalJson } from "./production-trust-contract.mjs";
@@ -14,20 +16,21 @@ import {
   RuntimeConfigPointerConflictError,
   RuntimeConfigPointerIntegrityError,
 } from "./tlsn-runtime-config-r2-store.mjs";
+import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
 import { assertRuntimeConfigProductionSigningRegistered } from "./tlsn-runtime-config-production-registration.mjs";
 import { isTestOnlyRuntimeConfigObjectStore } from "./tlsn-runtime-config-test-only-store.mjs";
 
-function assertSignerProvider(signerProvider, trustedSigner, expectedMode) {
+function assertSignerProvider(signerProvider, delegation, expectedMode) {
   if (
     !signerProvider ||
     typeof signerProvider !== "object" ||
     typeof signerProvider.sign !== "function" ||
     signerProvider.mode !== expectedMode ||
-    signerProvider.key_id !== trustedSigner?.key_id ||
-    signerProvider.public_key_spki !== trustedSigner?.public_key_spki
+    signerProvider.key_id !== delegation?.key_id ||
+    signerProvider.public_key_spki !== delegation?.public_key_spki
   ) {
     throw new Error(
-      `${expectedMode} manifest signer provider does not match the independent signer pin`,
+      `${expectedMode} Manifest child signer provider does not match the root delegation`,
     );
   }
 }
@@ -134,10 +137,10 @@ async function signTlsnRuntimeConfigManifestWithMode({
   prepared,
   signerProvider,
   trustedSigner,
+  manifestAuthorityDelegationRaw,
   policy,
   independentInputs,
 }, expectedMode) {
-  assertSignerProvider(signerProvider, trustedSigner, expectedMode);
   if (
     !prepared ||
     typeof prepared.payload !== "object" ||
@@ -147,16 +150,61 @@ async function signTlsnRuntimeConfigManifestWithMode({
   ) {
     throw new Error("prepared Runtime Config payload bytes are inconsistent");
   }
+  if (
+    !policy ||
+    !Number.isSafeInteger(policy.now_ms) ||
+    !Number.isSafeInteger(policy.max_clock_skew_seconds) ||
+    typeof policy.manifest_url !== "string"
+  ) {
+    throw new Error("Manifest signing requires an explicit URL and verification time policy");
+  }
+  const manifestAuthority = verifyTlsnRuntimeConfigManifestDelegation({
+    raw: manifestAuthorityDelegationRaw,
+    trustedSigner,
+    manifestUrl: policy.manifest_url,
+    nowMs: policy.now_ms,
+    maxClockSkewSeconds: policy.max_clock_skew_seconds,
+    payload: prepared.payload,
+  });
+  assertSignerProvider(signerProvider, manifestAuthority.payload, expectedMode);
+  const approvedConfigSha256 = tlsnRuntimeConfigApprovedConfigurationSha256(
+    prepared.payload,
+    policy.manifest_url,
+  );
+  if (approvedConfigSha256 !== manifestAuthority.payload.approved_config_sha256) {
+    throw new Error("prepared Manifest is outside the root-approved configuration");
+  }
+  const issuedAt = Date.parse(prepared.payload.issued_at);
+  const manifestNotBefore = Date.parse(prepared.payload.not_before);
+  const manifestExpiresAt = Date.parse(prepared.payload.expires_at);
+  if (
+    issuedAt < manifestAuthority.notBeforeMs ||
+    issuedAt >= manifestAuthority.notAfterMs ||
+    manifestNotBefore < manifestAuthority.notBeforeMs ||
+    manifestExpiresAt > manifestAuthority.notAfterMs
+  ) {
+    throw new Error("prepared Manifest validity exceeds the root delegation");
+  }
+  verifyTlsnRuntimeConfigIndependentInputs(
+    prepared.payload,
+    independentInputs,
+    policy.now_ms,
+  );
 
-  const bytesToSign = tlsnRuntimeConfigSigningBytes(trustedSigner.key_id, prepared.payload);
+  const bytesToSign = tlsnRuntimeConfigDelegatedSigningBytes(
+    signerProvider.key_id,
+    prepared.payload,
+    new Date(policy.now_ms),
+  );
   const signature = await signerProvider.sign(Buffer.from(bytesToSign));
   if (!(signature instanceof Uint8Array) || signature.byteLength !== 64) {
     throw new Error("Runtime Config signer returned an invalid Ed25519 signature");
   }
-  const rawEnvelope = createTlsnRuntimeConfigEnvelopeRaw({
-    signerKeyId: trustedSigner.key_id,
+  const rawEnvelope = createTlsnRuntimeConfigDelegatedEnvelopeRaw({
+    signerKeyId: signerProvider.key_id,
     payloadBase64Url: prepared.payload_base64url,
     signatureBase64Url: Buffer.from(signature).toString("base64url"),
+    manifestAuthorityDelegationRaw,
   });
   const verification = verifyTlsnRuntimeConfigProductionEnvelope(rawEnvelope, {
     trustedSigner,
@@ -179,6 +227,7 @@ async function publishTlsnRuntimeConfigWithMode({
   prepared,
   signerProvider,
   trustedSigner,
+  manifestAuthorityDelegationRaw,
   policy,
   independentInputs,
   workerReferenceRevalidation,
@@ -189,6 +238,7 @@ async function publishTlsnRuntimeConfigWithMode({
       prepared,
       signerProvider,
       trustedSigner,
+      manifestAuthorityDelegationRaw,
       policy,
       independentInputs,
     });
@@ -200,6 +250,11 @@ async function publishTlsnRuntimeConfigWithMode({
   const manifest = objects.at(-1);
   const expectedManifestBytes = Buffer.from(manifest.body);
   const nextEpoch = BigInt(signedVerification.payload.epoch);
+  const nextAuthorityGeneration = BigInt(
+    signedVerification.manifest_authority_generation ?? "0",
+  );
+  const nextAuthorityDigest =
+    signedVerification.manifest_authority_delegation_sha256;
   const initialPointer = await objectStore.getManifestState();
   if (initialPointer !== null) {
     asBytes(initialPointer?.body, "current Runtime Config manifest");
@@ -223,8 +278,20 @@ async function publishTlsnRuntimeConfigWithMode({
     const currentPointer = verifyTlsnRuntimeConfigEpochPointer(initialPointer.body, {
       trustedSigner,
       maxEnvelopeBytes: policy.max_envelope_bytes,
+      manifestUrl: policy.manifest_url,
+      nowMs: policy.now_ms,
+      maxClockSkewSeconds: policy.max_clock_skew_seconds,
+      lastAcceptedEpoch: policy.last_accepted_epoch,
+      lastAcceptedManifestSha256: policy.last_accepted_manifest_sha256,
+      lastAcceptedManifestAuthorityGeneration:
+        policy.last_accepted_manifest_authority_generation,
+      lastAcceptedManifestAuthorityDelegationSha256:
+        policy.last_accepted_manifest_authority_delegation_sha256,
     });
     const currentEpoch = BigInt(currentPointer.epoch);
+    const currentAuthorityGeneration = BigInt(
+      currentPointer.manifest_authority_generation ?? "0",
+    );
     if (
       currentEpoch < policyEpoch ||
       (currentEpoch === policyEpoch &&
@@ -239,6 +306,13 @@ async function publishTlsnRuntimeConfigWithMode({
           currentPointer.manifest_sha256)
     ) {
       throw new Error("Runtime Config publication cannot roll back or replace the current epoch");
+    }
+    if (
+      nextAuthorityGeneration < currentAuthorityGeneration ||
+      (nextAuthorityGeneration === currentAuthorityGeneration &&
+        nextAuthorityDigest !== currentPointer.manifest_authority_delegation_sha256)
+    ) {
+      throw new Error("Runtime Config publication cannot roll back or replace the Manifest authority");
     }
   }
 

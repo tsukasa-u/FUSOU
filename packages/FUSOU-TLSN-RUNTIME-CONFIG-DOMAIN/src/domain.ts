@@ -13,8 +13,14 @@ const RELEASE_PAYLOAD_SCOPE =
   "fusou-tlsn-runtime-config-release-commit-v1";
 const RUNTIME_CONFIG_MANIFEST_ENVELOPE_SCOPE =
   "fusou-tlsn-runtime-config-envelope-v2";
+const RUNTIME_CONFIG_DELEGATED_MANIFEST_ENVELOPE_SCOPE =
+  "fusou-tlsn-runtime-config-envelope-v3";
 const RUNTIME_CONFIG_MANIFEST_PAYLOAD_SCOPE =
   "fusou-tlsn-runtime-config-manifest-v2";
+const RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE =
+  "fusou-tlsn-runtime-config-manifest-delegation-v1";
+const RUNTIME_CONFIG_MANIFEST_DELEGATION_PURPOSE =
+  "runtime-config-manifest-v1";
 const FRESHNESS_DELEGATION_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-DELEGATION-V1\0",
 );
@@ -23,6 +29,12 @@ const RELEASE_COMMIT_DOMAIN = new TextEncoder().encode(
 );
 const RUNTIME_CONFIG_MANIFEST_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0",
+);
+const RUNTIME_CONFIG_DELEGATED_MANIFEST_DOMAIN = new TextEncoder().encode(
+  "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V3\0",
+);
+const RUNTIME_CONFIG_MANIFEST_DELEGATION_DOMAIN = new TextEncoder().encode(
+  "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-DELEGATION-V1\0",
 );
 const FRESHNESS_RESPONSE_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-RESPONSE-V1\0",
@@ -114,6 +126,10 @@ const RUNTIME_CONFIG_MANIFEST_ENVELOPE_FIELDS = [
   "payload_base64url",
   "signature_base64url",
 ];
+const RUNTIME_CONFIG_DELEGATED_MANIFEST_ENVELOPE_FIELDS = [
+  ...RUNTIME_CONFIG_MANIFEST_ENVELOPE_FIELDS,
+  "manifest_authority_delegation_base64url",
+];
 const RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS = [
   "schema_version",
   "scope",
@@ -127,6 +143,75 @@ const RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS = [
   "production_authority_pins",
   "result_registry_pins",
 ];
+const RUNTIME_CONFIG_MANIFEST_DELEGATION_ENVELOPE_FIELDS = [
+  "schema_version",
+  "scope",
+  "signature_algorithm",
+  "root_key_id",
+  "payload_base64url",
+  "signature_base64url",
+];
+const RUNTIME_CONFIG_MANIFEST_DELEGATION_PAYLOAD_FIELDS = [
+  "schema_version",
+  "scope",
+  "purpose",
+  "environment",
+  "key_id",
+  "public_key_spki",
+  "signature_algorithm",
+  "audience_manifest_url_sha256",
+  "manifest_envelope_schema_version",
+  "manifest_payload_schema_version",
+  "approved_config_sha256",
+  "delegation_generation",
+  "issued_at",
+  "not_before",
+  "not_after",
+  "max_validity_seconds",
+  "revocation_mode",
+];
+const RUNTIME_CONFIG_MANIFEST_SOURCE_FIELDS = [
+  "worker_reference_sha256",
+  "observed_at",
+  "account_id",
+  "script_name",
+  "logical_deployment_id",
+  "cloudflare_deployment_id",
+  "active_version_id",
+  "worker_git_commit_sha",
+  "disclosure_mode",
+];
+const RUNTIME_CONFIG_MANIFEST_COMPILE_INPUT_FIELDS = [
+  "FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID",
+  "FUSOU_TLSN_EXPECTED_BINDING_MODE",
+  "FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID",
+  "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
+  "FUSOU_TLSN_EXPECTED_WORKER_NAME",
+  "FUSOU_TLSN_NOTARY_ENDPOINT",
+  "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
+  "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
+  "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
+  "FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY",
+  "FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT",
+  "FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT",
+  "FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID",
+  "FUSOU_TLSN_SESSION_AUTHORITY_PUBLIC_KEY",
+  "FUSOU_TLSN_VERIFICATION_ENDPOINT",
+];
+const RUNTIME_CONFIG_MANIFEST_AUTHORITY_PIN_FIELDS = [
+  "origin_inventory_sha256",
+  "target_approval_artifact_sha256",
+  "security_registry_set_sha256",
+];
+const RUNTIME_CONFIG_MANIFEST_RESULT_PIN_FIELDS = [
+  "result_registry_sha256",
+  "result_registry_envelope_sha256",
+  "result_registry_root_key_id",
+  "result_registry_root_public_key_spki",
+];
+const RUNTIME_CONFIG_MANIFEST_MAX_DELEGATION_SECONDS = 86_400;
+const RUNTIME_CONFIG_MANIFEST_REVOCATION_MODE =
+  "expiry-and-client-high-water-v1";
 const RESPONSE_ENVELOPE_FIELDS = [
   "schema_version",
   "scope",
@@ -296,6 +381,11 @@ export interface VerifiedRuntimeConfigManifestEpochPointer {
   readonly issuedAtMs: number;
   readonly notBeforeMs: number;
   readonly expiresAtMs: number;
+  readonly envelopeSchemaVersion: 2 | 3;
+  readonly signerKeyId: string;
+  readonly manifestAuthorityGeneration: string | null;
+  readonly manifestAuthorityDelegationSha256: string | null;
+  readonly approvedConfigSha256: string | null;
 }
 
 export interface VerifiedDelegation<P extends DelegationPurpose = DelegationPurpose> {
@@ -510,6 +600,45 @@ interface RuntimeConfigManifestEnvelope {
   readonly signature_base64url: string;
 }
 
+interface RuntimeConfigDelegatedManifestEnvelope {
+  readonly schema_version: 3;
+  readonly scope: typeof RUNTIME_CONFIG_DELEGATED_MANIFEST_ENVELOPE_SCOPE;
+  readonly signature_algorithm: "Ed25519";
+  readonly signer_key_id: string;
+  readonly manifest_authority_delegation_base64url: string;
+  readonly payload_base64url: string;
+  readonly signature_base64url: string;
+}
+
+interface RuntimeConfigManifestDelegationEnvelope {
+  readonly schema_version: 1;
+  readonly scope: typeof RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE;
+  readonly signature_algorithm: "Ed25519";
+  readonly root_key_id: string;
+  readonly payload_base64url: string;
+  readonly signature_base64url: string;
+}
+
+interface RuntimeConfigManifestDelegationPayload {
+  readonly schema_version: 1;
+  readonly scope: typeof RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE;
+  readonly purpose: typeof RUNTIME_CONFIG_MANIFEST_DELEGATION_PURPOSE;
+  readonly environment: "production";
+  readonly key_id: string;
+  readonly public_key_spki: string;
+  readonly signature_algorithm: "Ed25519";
+  readonly audience_manifest_url_sha256: string;
+  readonly manifest_envelope_schema_version: 3;
+  readonly manifest_payload_schema_version: 2;
+  readonly approved_config_sha256: string;
+  readonly delegation_generation: string;
+  readonly issued_at: string;
+  readonly not_before: string;
+  readonly not_after: string;
+  readonly max_validity_seconds: number;
+  readonly revocation_mode: typeof RUNTIME_CONFIG_MANIFEST_REVOCATION_MODE;
+}
+
 interface RuntimeConfigManifestPayload {
   readonly schema_version: 2;
   readonly scope: typeof RUNTIME_CONFIG_MANIFEST_PAYLOAD_SCOPE;
@@ -535,6 +664,61 @@ function isRuntimeConfigManifestEnvelope(
     typeof value.signer_key_id === "string" &&
     typeof value.payload_base64url === "string" &&
     typeof value.signature_base64url === "string"
+  );
+}
+
+function isRuntimeConfigDelegatedManifestEnvelope(
+  value: unknown,
+): value is RuntimeConfigDelegatedManifestEnvelope {
+  return (
+    isRecord(value) &&
+    value.schema_version === 3 &&
+    value.scope === RUNTIME_CONFIG_DELEGATED_MANIFEST_ENVELOPE_SCOPE &&
+    value.signature_algorithm === "Ed25519" &&
+    typeof value.signer_key_id === "string" &&
+    typeof value.manifest_authority_delegation_base64url === "string" &&
+    typeof value.payload_base64url === "string" &&
+    typeof value.signature_base64url === "string"
+  );
+}
+
+function isRuntimeConfigManifestDelegationEnvelope(
+  value: unknown,
+): value is RuntimeConfigManifestDelegationEnvelope {
+  return (
+    isRecord(value) &&
+    value.schema_version === 1 &&
+    value.scope === RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE &&
+    value.signature_algorithm === "Ed25519" &&
+    typeof value.root_key_id === "string" &&
+    typeof value.payload_base64url === "string" &&
+    typeof value.signature_base64url === "string"
+  );
+}
+
+function isRuntimeConfigManifestDelegationPayload(
+  value: unknown,
+): value is RuntimeConfigManifestDelegationPayload {
+  return (
+    isRecord(value) &&
+    value.schema_version === 1 &&
+    value.scope === RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE &&
+    value.purpose === RUNTIME_CONFIG_MANIFEST_DELEGATION_PURPOSE &&
+    value.environment === "production" &&
+    typeof value.key_id === "string" &&
+    typeof value.public_key_spki === "string" &&
+    value.signature_algorithm === "Ed25519" &&
+    typeof value.audience_manifest_url_sha256 === "string" &&
+    value.manifest_envelope_schema_version === 3 &&
+    value.manifest_payload_schema_version === 2 &&
+    typeof value.approved_config_sha256 === "string" &&
+    typeof value.delegation_generation === "string" &&
+    typeof value.issued_at === "string" &&
+    typeof value.not_before === "string" &&
+    typeof value.not_after === "string" &&
+    typeof value.max_validity_seconds === "number" &&
+    Number.isSafeInteger(value.max_validity_seconds) &&
+    value.revocation_mode === RUNTIME_CONFIG_MANIFEST_REVOCATION_MODE
   );
 }
 
@@ -1192,10 +1376,206 @@ export async function verifyRuntimeConfigReleaseCommitRecord(options: {
   });
 }
 
+function assertManifestExactKeys(
+  value: unknown,
+  fields: readonly string[],
+  label: string,
+): asserts value is Record<string, unknown> {
+  if (!isRecord(value)) invalid("INVALID_WIRE", `${label} must be an object`);
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((field, index) => field !== expected[index])
+  ) {
+    invalid("INVALID_WIRE", `${label} has missing or unknown fields`);
+  }
+}
+
+async function manifestApprovedConfigurationSha256(
+  payload: RuntimeConfigManifestPayload,
+  manifestUrl: string,
+): Promise<string> {
+  assertManifestExactKeys(payload.source, RUNTIME_CONFIG_MANIFEST_SOURCE_FIELDS, "Manifest source");
+  assertManifestExactKeys(
+    payload.compile_inputs,
+    RUNTIME_CONFIG_MANIFEST_COMPILE_INPUT_FIELDS,
+    "Manifest compile inputs",
+  );
+  assertManifestExactKeys(
+    payload.production_authority_pins,
+    RUNTIME_CONFIG_MANIFEST_AUTHORITY_PIN_FIELDS,
+    "Manifest Production authority pins",
+  );
+  assertManifestExactKeys(
+    payload.result_registry_pins,
+    RUNTIME_CONFIG_MANIFEST_RESULT_PIN_FIELDS,
+    "Manifest Result registry pins",
+  );
+  const source = payload.source;
+  const compileInputs = payload.compile_inputs;
+  const authorityPins = payload.production_authority_pins;
+  const resultPins = payload.result_registry_pins;
+  for (const [label, value] of [
+    ...Object.entries(source),
+    ...Object.entries(compileInputs),
+    ...Object.entries(authorityPins),
+    ...Object.entries(resultPins),
+  ]) {
+    if (typeof value !== "string" || value.length === 0 || value.includes("\0")) {
+      invalid("INVALID_WIRE", `Manifest approved configuration field ${label} is invalid`);
+    }
+  }
+  const sourceProjection = Object.fromEntries(
+    [
+      "account_id",
+      "script_name",
+      "logical_deployment_id",
+      "cloudflare_deployment_id",
+      "active_version_id",
+      "worker_git_commit_sha",
+      "disclosure_mode",
+    ].map((key) => [key, source[key]]),
+  );
+  const projection = {
+    schema_version: 1,
+    scope: "fusou-tlsn-runtime-config-approved-config-v1",
+    environment: payload.environment,
+    manifest_url_sha256: await runtimeConfigManifestAudienceSha256(manifestUrl),
+    manifest_payload_schema_version: payload.schema_version,
+    source: sourceProjection,
+    compile_inputs: compileInputs,
+    production_authority_pins: authorityPins,
+    result_registry_pins: resultPins,
+  };
+  return sha256Base64Url(canonicalJsonBytes(projection));
+}
+
+async function verifyManifestAuthorityDelegation(options: {
+  readonly raw: Uint8Array;
+  readonly rootSigner: RuntimeConfigRootSigner;
+  readonly payload: RuntimeConfigManifestPayload;
+  readonly manifestUrl: string;
+  readonly nowMs: number;
+  readonly maxClockSkewSeconds: number;
+}): Promise<{
+  readonly generation: string;
+  readonly digest: string;
+  readonly keyId: string;
+  readonly publicKeySpki: string;
+  readonly approvedConfigSha256: string;
+  readonly audienceSha256: string;
+  readonly notBeforeMs: number;
+  readonly notAfterMs: number;
+}> {
+  const envelope = parseCanonicalObject(
+    options.raw,
+    RUNTIME_CONFIG_MANIFEST_DELEGATION_ENVELOPE_FIELDS,
+    "Manifest authority delegation envelope",
+    16_384,
+    isRuntimeConfigManifestDelegationEnvelope,
+  );
+  if (envelope.root_key_id !== options.rootSigner.key_id) {
+    invalid("INVALID_BINDING", "Manifest delegation root key ID does not match the bootstrap root");
+  }
+  const payloadBytes = decodeCanonicalBase64Url(
+    envelope.payload_base64url,
+    "Manifest authority delegation payload",
+  );
+  await verifyEd25519(
+    options.rootSigner.public_key_spki,
+    RUNTIME_CONFIG_MANIFEST_DELEGATION_DOMAIN,
+    envelope.root_key_id,
+    payloadBytes,
+    envelope.signature_base64url,
+    "Manifest authority delegation",
+  );
+  const delegation = parseCanonicalObject(
+    payloadBytes,
+    RUNTIME_CONFIG_MANIFEST_DELEGATION_PAYLOAD_FIELDS,
+    "Manifest authority delegation payload",
+    16_384,
+    isRuntimeConfigManifestDelegationPayload,
+  );
+  assertKeyId(delegation.key_id, "Manifest child key ID");
+  assertDigest(delegation.audience_manifest_url_sha256, "Manifest authority audience");
+  assertDigest(delegation.approved_config_sha256, "Manifest approved configuration digest");
+  const generation = parseCanonicalUnsignedDecimal(
+    delegation.delegation_generation,
+    "Manifest authority generation",
+  );
+  if (
+    generation === 0n ||
+    delegation.key_id === options.rootSigner.key_id ||
+    delegation.public_key_spki === options.rootSigner.public_key_spki
+  ) {
+    invalid("INVALID_BINDING", "Manifest child key must be distinct from the bootstrap root");
+  }
+  const audienceSha256 = await runtimeConfigManifestAudienceSha256(options.manifestUrl);
+  if (delegation.audience_manifest_url_sha256 !== audienceSha256) {
+    invalid("INVALID_BINDING", "Manifest authority audience does not match the bootstrap URL");
+  }
+  const expectedConfigSha256 = await manifestApprovedConfigurationSha256(
+    options.payload,
+    options.manifestUrl,
+  );
+  if (delegation.approved_config_sha256 !== expectedConfigSha256) {
+    invalid("INVALID_BINDING", "Manifest differs from the root-approved configuration");
+  }
+
+  const issuedAtMs = parseTimestamp(delegation.issued_at, "Manifest delegation issued_at");
+  const notBeforeMs = parseTimestamp(delegation.not_before, "Manifest delegation not_before");
+  const notAfterMs = parseTimestamp(delegation.not_after, "Manifest delegation not_after");
+  const maxValidityMs = delegation.max_validity_seconds * 1_000;
+  const skewMs = options.maxClockSkewSeconds * 1_000;
+  if (
+    delegation.schema_version !== 1 ||
+    delegation.scope !== RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE ||
+    delegation.purpose !== RUNTIME_CONFIG_MANIFEST_DELEGATION_PURPOSE ||
+    delegation.environment !== "production" ||
+    delegation.signature_algorithm !== "Ed25519" ||
+    delegation.manifest_envelope_schema_version !== 3 ||
+    delegation.manifest_payload_schema_version !== 2 ||
+    delegation.revocation_mode !== RUNTIME_CONFIG_MANIFEST_REVOCATION_MODE ||
+    !Number.isSafeInteger(delegation.max_validity_seconds) ||
+    delegation.max_validity_seconds < 1 ||
+    delegation.max_validity_seconds > RUNTIME_CONFIG_MANIFEST_MAX_DELEGATION_SECONDS ||
+    !Number.isSafeInteger(options.maxClockSkewSeconds) ||
+    options.maxClockSkewSeconds < 0 ||
+    issuedAtMs > notBeforeMs ||
+    notBeforeMs >= notAfterMs ||
+    notAfterMs - issuedAtMs > maxValidityMs ||
+    notAfterMs - issuedAtMs >
+      RUNTIME_CONFIG_MANIFEST_MAX_DELEGATION_SECONDS * 1_000 ||
+    issuedAtMs > options.nowMs + skewMs ||
+    notBeforeMs > options.nowMs + skewMs ||
+    notAfterMs <= options.nowMs - skewMs
+  ) {
+    invalid("INVALID_TIME", "Manifest delegation is outside its root-issued validity");
+  }
+  return Object.freeze({
+    generation: delegation.delegation_generation,
+    digest: await sha256Base64Url(options.raw),
+    keyId: delegation.key_id,
+    publicKeySpki: delegation.public_key_spki,
+    approvedConfigSha256: delegation.approved_config_sha256,
+    audienceSha256,
+    notBeforeMs,
+    notAfterMs,
+  });
+}
+
 export async function verifyRuntimeConfigManifestEpochPointer(options: {
   readonly raw: Uint8Array;
   readonly trustedSigner: RuntimeConfigRootSigner;
   readonly maxEnvelopeBytes?: number;
+  readonly manifestUrl?: string;
+  readonly nowMs?: number;
+  readonly maxClockSkewSeconds?: number;
+  readonly lastAcceptedEpoch?: string;
+  readonly lastAcceptedManifestSha256?: string | null;
+  readonly lastAcceptedManifestAuthorityGeneration?: string;
+  readonly lastAcceptedManifestAuthorityDelegationSha256?: string | null;
 }): Promise<VerifiedRuntimeConfigManifestEpochPointer> {
   const maxEnvelopeBytes = options.maxEnvelopeBytes ?? 1_048_576;
   if (
@@ -1212,39 +1592,176 @@ export async function verifyRuntimeConfigManifestEpochPointer(options: {
     invalid("INVALID_BINDING", "Manifest signer is not scoped to Runtime Config");
   }
   assertKeyId(options.trustedSigner.key_id, "Manifest signer key ID");
-
-  const envelope = parseCanonicalObject(
-    options.raw,
-    RUNTIME_CONFIG_MANIFEST_ENVELOPE_FIELDS,
-    "Runtime Config Manifest envelope",
-    maxEnvelopeBytes,
-    isRuntimeConfigManifestEnvelope,
-  );
-  if (envelope.signer_key_id !== options.trustedSigner.key_id) {
-    invalid(
-      "INVALID_BINDING",
-      "Manifest signer key ID does not match the external trust pin",
-    );
+  let envelopeHeader: unknown;
+  try {
+    envelopeHeader = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(options.raw));
+  } catch {
+    invalid("INVALID_WIRE", "Runtime Config Manifest envelope is malformed JSON");
   }
-  const payloadBytes = decodeCanonicalBase64Url(
-    envelope.payload_base64url,
-    "Runtime Config Manifest payload",
+  if (!isRecord(envelopeHeader)) {
+    invalid("INVALID_WIRE", "Runtime Config Manifest envelope must be an object");
+  }
+  const generationBefore = options.lastAcceptedManifestAuthorityGeneration ?? "0";
+  const previousGeneration = parseCanonicalUnsignedDecimal(
+    generationBefore,
+    "persisted Manifest authority generation",
+    true,
   );
-  await verifyEd25519(
-    options.trustedSigner.public_key_spki,
-    RUNTIME_CONFIG_MANIFEST_DOMAIN,
-    envelope.signer_key_id,
-    payloadBytes,
-    envelope.signature_base64url,
-    "Runtime Config Manifest",
+  const previousDelegationDigest =
+    options.lastAcceptedManifestAuthorityDelegationSha256 ?? null;
+  if (
+    (previousGeneration === 0n && previousDelegationDigest !== null) ||
+    (previousGeneration > 0n && previousDelegationDigest === null)
+  ) {
+    invalid("INVALID_BINDING", "Persisted Manifest authority high-water is inconsistent");
+  }
+  if (previousDelegationDigest !== null) {
+    assertDigest(previousDelegationDigest, "persisted Manifest authority delegation digest");
+  }
+  const previousEpoch = parseCanonicalUnsignedDecimal(
+    options.lastAcceptedEpoch ?? "0",
+    "persisted Manifest epoch",
+    true,
   );
-  const payload = parseCanonicalObject(
-    payloadBytes,
-    RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS,
-    "Runtime Config Manifest payload",
-    maxEnvelopeBytes,
-    isRuntimeConfigManifestPayload,
-  );
+  const previousManifestDigest = options.lastAcceptedManifestSha256 ?? null;
+  if (
+    (previousEpoch === 0n && previousManifestDigest !== null) ||
+    (previousEpoch > 0n && previousManifestDigest === null)
+  ) {
+    invalid("INVALID_BINDING", "Persisted Manifest epoch high-water is inconsistent");
+  }
+  if (previousManifestDigest !== null) {
+    assertDigest(previousManifestDigest, "persisted Manifest digest");
+  }
+
+  let payload: RuntimeConfigManifestPayload;
+  let signerKeyId: string;
+  let envelopeSchemaVersion: 2 | 3;
+  let authorityGeneration: string | null = null;
+  let authorityDigest: string | null = null;
+  let approvedConfigSha256: string | null = null;
+  if (envelopeHeader.schema_version === 2) {
+    if (previousGeneration > 0n) {
+      invalid("INVALID_BINDING", "Runtime Config Manifest authentication downgrade is not allowed");
+    }
+    const envelope = parseCanonicalObject(
+      options.raw,
+      RUNTIME_CONFIG_MANIFEST_ENVELOPE_FIELDS,
+      "Runtime Config Manifest envelope",
+      maxEnvelopeBytes,
+      isRuntimeConfigManifestEnvelope,
+    );
+    if (envelope.signer_key_id !== options.trustedSigner.key_id) {
+      invalid("INVALID_BINDING", "Manifest v2 signer does not match the external root pin");
+    }
+    const payloadBytes = decodeCanonicalBase64Url(
+      envelope.payload_base64url,
+      "Runtime Config Manifest payload",
+    );
+    await verifyEd25519(
+      options.trustedSigner.public_key_spki,
+      RUNTIME_CONFIG_MANIFEST_DOMAIN,
+      envelope.signer_key_id,
+      payloadBytes,
+      envelope.signature_base64url,
+      "Runtime Config Manifest",
+    );
+    payload = parseCanonicalObject(
+      payloadBytes,
+      RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS,
+      "Runtime Config Manifest payload",
+      maxEnvelopeBytes,
+      isRuntimeConfigManifestPayload,
+    );
+    signerKeyId = envelope.signer_key_id;
+    envelopeSchemaVersion = 2;
+  } else if (envelopeHeader.schema_version === 3) {
+    const nowMs = options.nowMs;
+    const maxClockSkewSeconds = options.maxClockSkewSeconds ?? 30;
+    if (
+      typeof options.manifestUrl !== "string" ||
+      typeof nowMs !== "number" ||
+      !Number.isSafeInteger(nowMs) ||
+      !Number.isSafeInteger(maxClockSkewSeconds) ||
+      maxClockSkewSeconds < 0
+    ) {
+      invalid("INVALID_BINDING", "Delegated Manifest verification context is incomplete");
+    }
+    const envelope = parseCanonicalObject(
+      options.raw,
+      RUNTIME_CONFIG_DELEGATED_MANIFEST_ENVELOPE_FIELDS,
+      "Delegated Runtime Config Manifest envelope",
+      maxEnvelopeBytes,
+      isRuntimeConfigDelegatedManifestEnvelope,
+    );
+    const payloadBytes = decodeCanonicalBase64Url(
+      envelope.payload_base64url,
+      "Runtime Config Manifest payload",
+    );
+    payload = parseCanonicalObject(
+      payloadBytes,
+      RUNTIME_CONFIG_MANIFEST_PAYLOAD_FIELDS,
+      "Runtime Config Manifest payload",
+      maxEnvelopeBytes,
+      isRuntimeConfigManifestPayload,
+    );
+    if (payload.environment !== "production") {
+      invalid("INVALID_BINDING", "Runtime Config Manifest environment is invalid");
+    }
+    const authorityRaw = decodeCanonicalBase64Url(
+      envelope.manifest_authority_delegation_base64url,
+      "Manifest authority delegation bytes",
+    );
+    const authority = await verifyManifestAuthorityDelegation({
+      raw: authorityRaw,
+      rootSigner: options.trustedSigner,
+      payload,
+      manifestUrl: options.manifestUrl,
+      nowMs,
+      maxClockSkewSeconds,
+    });
+    if (envelope.signer_key_id !== authority.keyId) {
+      invalid("INVALID_BINDING", "Manifest child signer does not match its root delegation");
+    }
+    const issuedAt = parseTimestamp(payload.issued_at, "Manifest issued_at");
+    const notBefore = parseTimestamp(payload.not_before, "Manifest not_before");
+    const expiresAt = parseTimestamp(payload.expires_at, "Manifest expires_at");
+    const skewMs = maxClockSkewSeconds * 1_000;
+    if (
+      issuedAt < authority.notBeforeMs ||
+      issuedAt >= authority.notAfterMs ||
+      notBefore < authority.notBeforeMs ||
+      expiresAt > authority.notAfterMs ||
+      issuedAt > nowMs + skewMs ||
+      notBefore > nowMs + skewMs ||
+      expiresAt <= nowMs - skewMs ||
+      expiresAt - notBefore > 3_600_000
+    ) {
+      invalid("INVALID_TIME", "Manifest validity exceeds its root delegation");
+    }
+    if (
+      BigInt(authority.generation) < previousGeneration ||
+      (BigInt(authority.generation) === previousGeneration &&
+        authority.digest !== previousDelegationDigest)
+    ) {
+      invalid("INVALID_BINDING", "Manifest authority is below persisted high-water");
+    }
+    await verifyEd25519(
+      authority.publicKeySpki,
+      RUNTIME_CONFIG_DELEGATED_MANIFEST_DOMAIN,
+      envelope.signer_key_id,
+      payloadBytes,
+      envelope.signature_base64url,
+      "Delegated Runtime Config Manifest",
+    );
+    signerKeyId = envelope.signer_key_id;
+    envelopeSchemaVersion = 3;
+    authorityGeneration = authority.generation;
+    authorityDigest = authority.digest;
+    approvedConfigSha256 = authority.approvedConfigSha256;
+  } else {
+    invalid("INVALID_WIRE", "Runtime Config Manifest envelope version is unsupported");
+  }
   if (payload.environment !== "production") {
     invalid("INVALID_BINDING", "Runtime Config Manifest environment is invalid");
   }
@@ -1259,12 +1776,29 @@ export async function verifyRuntimeConfigManifestEpochPointer(options: {
     );
   }
 
+  const manifestSha256 = await sha256Base64Url(options.raw);
+  const manifestEpoch = parseCanonicalUnsignedDecimal(
+    payload.epoch,
+    "Manifest epoch",
+  );
+  if (
+    manifestEpoch < previousEpoch ||
+    (manifestEpoch === previousEpoch &&
+      manifestSha256 !== previousManifestDigest)
+  ) {
+    invalid("INVALID_BINDING", "Manifest epoch is below or conflicts with persisted high-water");
+  }
   return Object.freeze({
     epoch: payload.epoch,
-    manifestSha256: await sha256Base64Url(options.raw),
+    manifestSha256,
     issuedAtMs,
     notBeforeMs,
     expiresAtMs,
+    envelopeSchemaVersion,
+    signerKeyId,
+    manifestAuthorityGeneration: authorityGeneration,
+    manifestAuthorityDelegationSha256: authorityDigest,
+    approvedConfigSha256,
   });
 }
 

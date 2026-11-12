@@ -9,10 +9,22 @@ import { assertAlpha15NotaryVerifyingKey } from "../src/origin-trust-contract.mj
 export const TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION = 2;
 export const TLSN_RUNTIME_CONFIG_MANIFEST_SCOPE = "fusou-tlsn-runtime-config-manifest-v2";
 export const TLSN_RUNTIME_CONFIG_ENVELOPE_SCOPE = "fusou-tlsn-runtime-config-envelope-v2";
+export const TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCHEMA_VERSION = 3;
+export const TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCOPE =
+  "fusou-tlsn-runtime-config-envelope-v3";
+export const TLSN_RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE =
+  "fusou-tlsn-runtime-config-manifest-delegation-v1";
+export const TLSN_RUNTIME_CONFIG_MANIFEST_DELEGATION_PURPOSE =
+  "runtime-config-manifest-v1";
 export const TLSN_RUNTIME_CONFIG_TRUST_SCOPE = "fusou-tlsn-runtime-config-signing-root-v2";
 export const TLSN_RUNTIME_CONFIG_SIGNATURE_ALGORITHM = "Ed25519";
 
 const DOMAIN = Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0", "ascii");
+const DELEGATED_DOMAIN = Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V3\0", "ascii");
+const MANIFEST_DELEGATION_DOMAIN = Buffer.from(
+  "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-DELEGATION-V1\0",
+  "ascii",
+);
 const KEY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const DIGEST_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -22,6 +34,9 @@ const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const WORKER_NAME_PATTERN = /^[a-z][a-z0-9-]{1,62}[a-z0-9]$/;
 const MAX_U64 = 18446744073709551615n;
 const MAX_SAFE_POLICY_SECONDS = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
+const MAX_MANIFEST_DELEGATION_SECONDS = 86_400;
+const MANIFEST_DELEGATION_REVOCATION_MODE = "expiry-and-client-high-water-v1";
+const MANIFEST_URL_PATH = "/tlsn/runtime-config/v2/manifest.json";
 const SOURCE_FIELDS = [
   "worker_reference_sha256",
   "observed_at",
@@ -59,6 +74,37 @@ const ENVELOPE_FIELDS = [
   "payload_base64url",
   "signature_base64url",
 ];
+const DELEGATED_ENVELOPE_FIELDS = [
+  ...ENVELOPE_FIELDS,
+  "manifest_authority_delegation_base64url",
+];
+const MANIFEST_DELEGATION_ENVELOPE_FIELDS = [
+  "schema_version",
+  "scope",
+  "signature_algorithm",
+  "root_key_id",
+  "payload_base64url",
+  "signature_base64url",
+];
+const MANIFEST_DELEGATION_PAYLOAD_FIELDS = [
+  "schema_version",
+  "scope",
+  "purpose",
+  "environment",
+  "key_id",
+  "public_key_spki",
+  "signature_algorithm",
+  "audience_manifest_url_sha256",
+  "manifest_envelope_schema_version",
+  "manifest_payload_schema_version",
+  "approved_config_sha256",
+  "delegation_generation",
+  "issued_at",
+  "not_before",
+  "not_after",
+  "max_validity_seconds",
+  "revocation_mode",
+];
 const TRUSTED_SIGNER_FIELDS = ["scope", "key_id", "public_key_spki"];
 const POLICY_FIELDS = [
   "now_ms",
@@ -68,6 +114,9 @@ const POLICY_FIELDS = [
   "max_clock_skew_seconds",
   "max_reference_age_seconds",
   "max_envelope_bytes",
+  "manifest_url",
+  "last_accepted_manifest_authority_generation",
+  "last_accepted_manifest_authority_delegation_sha256",
 ];
 
 function assertExactKeys(value, expected, label) {
@@ -379,12 +428,32 @@ function assertPolicy(policy) {
   if (!Number.isSafeInteger(policy.now_ms) || !Number.isFinite(new Date(policy.now_ms).getTime())) {
     throw new Error("verification time is invalid");
   }
+  assertCleanHttpsEndpoint(policy.manifest_url, MANIFEST_URL_PATH, "manifest URL");
   const lastAcceptedEpoch = assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true);
   if (lastAcceptedEpoch === 0n && policy.last_accepted_manifest_sha256 !== null) {
     throw new Error("persisted epoch and manifest digest are inconsistent");
   }
   if (lastAcceptedEpoch > 0n) {
     assertDigest(policy.last_accepted_manifest_sha256, "last accepted manifest digest");
+  }
+  const lastAuthorityGeneration = assertEpoch(
+    policy.last_accepted_manifest_authority_generation,
+    "last accepted Manifest authority generation",
+    true,
+  );
+  if (
+    (lastAuthorityGeneration === 0n &&
+      policy.last_accepted_manifest_authority_delegation_sha256 !== null) ||
+    (lastAuthorityGeneration > 0n &&
+      policy.last_accepted_manifest_authority_delegation_sha256 === null)
+  ) {
+    throw new Error("persisted Manifest authority generation and delegation digest are inconsistent");
+  }
+  if (lastAuthorityGeneration > 0n) {
+    assertDigest(
+      policy.last_accepted_manifest_authority_delegation_sha256,
+      "last accepted Manifest authority delegation digest",
+    );
   }
   for (const field of [
     "max_lifetime_seconds",
@@ -401,12 +470,227 @@ function assertPolicy(policy) {
   }
 }
 
-function signingBytes(signerKeyId, payloadBytes) {
+function manifestApprovedConfigurationProjection(payload, manifestUrl) {
+  assertExactKeys(payload, MANIFEST_FIELDS, "runtime configuration manifest");
+  assertExactKeys(payload.source, SOURCE_FIELDS, "manifest source");
+  assertExactKeys(
+    payload.compile_inputs,
+    ENTRY_INPUT_CONTRACT.compile_inputs,
+    "manifest compile inputs",
+  );
+  assertExactKeys(
+    payload.production_authority_pins,
+    AUTHORITY_PIN_FIELDS,
+    "Production authority pins",
+  );
+  assertExactKeys(payload.result_registry_pins, [
+    "result_registry_sha256",
+    "result_registry_envelope_sha256",
+    "result_registry_root_key_id",
+    "result_registry_root_public_key_spki",
+  ], "Result registry pins");
+  assertCleanHttpsEndpoint(manifestUrl, MANIFEST_URL_PATH, "manifest URL");
+  return {
+    schema_version: 1,
+    scope: "fusou-tlsn-runtime-config-approved-config-v1",
+    environment: payload.environment,
+    manifest_url_sha256: createHash("sha256").update(manifestUrl, "utf8").digest("base64url"),
+    manifest_payload_schema_version: payload.schema_version,
+    source: {
+      account_id: payload.source.account_id,
+      script_name: payload.source.script_name,
+      logical_deployment_id: payload.source.logical_deployment_id,
+      cloudflare_deployment_id: payload.source.cloudflare_deployment_id,
+      active_version_id: payload.source.active_version_id,
+      worker_git_commit_sha: payload.source.worker_git_commit_sha,
+      disclosure_mode: payload.source.disclosure_mode,
+    },
+    compile_inputs: payload.compile_inputs,
+    production_authority_pins: payload.production_authority_pins,
+    result_registry_pins: payload.result_registry_pins,
+  };
+}
+
+export function tlsnRuntimeConfigApprovedConfigurationSha256(payload, manifestUrl) {
+  return createHash("sha256")
+    .update(
+      canonicalJson(manifestApprovedConfigurationProjection(payload, manifestUrl)),
+      "utf8",
+    )
+    .digest("base64url");
+}
+
+function signatureBytes(domain, signerKeyId, payloadBytes) {
   assertKeyId(signerKeyId, "configuration signer key ID");
   const keyIdBytes = Buffer.from(signerKeyId, "ascii");
   const length = Buffer.alloc(2);
   length.writeUInt16BE(keyIdBytes.length);
-  return Buffer.concat([DOMAIN, length, keyIdBytes, payloadBytes]);
+  return Buffer.concat([domain, length, keyIdBytes, payloadBytes]);
+}
+
+function parseCanonicalJsonBytes(rawBytes, label) {
+  let value;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBytes));
+  } catch {
+    throw new Error(`${label} is malformed JSON`);
+  }
+  assertWellFormedJsonStrings(value, label);
+  if (canonicalJson(value) !== rawBytes.toString("utf8")) {
+    throw new Error(`${label} is not canonical JSON`);
+  }
+  return value;
+}
+
+function verifyManifestAuthorityDelegation(raw, trustedSigner, {
+  manifestUrl,
+  nowMs,
+  maxClockSkewSeconds,
+  payload,
+}) {
+  assertTrustedSigner(trustedSigner);
+  if (!(typeof raw === "string" || raw instanceof Uint8Array)) {
+    throw new Error("raw Manifest authority delegation bytes are required");
+  }
+  const rawBytes = Buffer.from(raw);
+  const envelope = parseCanonicalJsonBytes(rawBytes, "Manifest authority delegation envelope");
+  assertExactKeys(
+    envelope,
+    MANIFEST_DELEGATION_ENVELOPE_FIELDS,
+    "Manifest authority delegation envelope",
+  );
+  if (
+    envelope.schema_version !== 1 ||
+    envelope.scope !== TLSN_RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE ||
+    envelope.signature_algorithm !== TLSN_RUNTIME_CONFIG_SIGNATURE_ALGORITHM ||
+    envelope.root_key_id !== trustedSigner.key_id
+  ) {
+    throw new Error("Manifest authority delegation root, schema, or algorithm is invalid");
+  }
+
+  const delegationPayloadBytes = decodeBase64Url(
+    envelope.payload_base64url,
+    "Manifest authority delegation payload",
+  );
+  const delegationSignature = decodeBase64Url(
+    envelope.signature_base64url,
+    "Manifest authority delegation signature",
+    64,
+  );
+  const rootKey = createPublicKey({
+    key: decodeBase64Url(trustedSigner.public_key_spki, "trusted signer public key"),
+    format: "der",
+    type: "spki",
+  });
+  if (!verify(
+    null,
+    signatureBytes(
+      MANIFEST_DELEGATION_DOMAIN,
+      envelope.root_key_id,
+      delegationPayloadBytes,
+    ),
+    rootKey,
+    delegationSignature,
+  )) {
+    throw new Error("Manifest authority root signature verification failed");
+  }
+
+  const delegation = parseCanonicalJsonBytes(
+    delegationPayloadBytes,
+    "Manifest authority delegation payload",
+  );
+  assertExactKeys(
+    delegation,
+    MANIFEST_DELEGATION_PAYLOAD_FIELDS,
+    "Manifest authority delegation payload",
+  );
+  assertKeyId(delegation.key_id, "Manifest child key ID");
+  assertEd25519Spki(delegation.public_key_spki, "Manifest child public key");
+  assertDigest(
+    delegation.audience_manifest_url_sha256,
+    "Manifest authority audience",
+  );
+  assertDigest(delegation.approved_config_sha256, "approved configuration digest");
+  const generation = assertEpoch(
+    delegation.delegation_generation,
+    "Manifest authority generation",
+  );
+  const issuedAt = assertCanonicalUtc(delegation.issued_at, "Manifest authority issued_at");
+  const notBefore = assertCanonicalUtc(
+    delegation.not_before,
+    "Manifest authority not_before",
+  );
+  const notAfter = assertCanonicalUtc(
+    delegation.not_after,
+    "Manifest authority not_after",
+  );
+  const expectedAudience = createHash("sha256")
+    .update(manifestUrl, "utf8")
+    .digest("base64url");
+  if (
+    delegation.schema_version !== 1 ||
+    delegation.scope !== TLSN_RUNTIME_CONFIG_MANIFEST_DELEGATION_SCOPE ||
+    delegation.purpose !== TLSN_RUNTIME_CONFIG_MANIFEST_DELEGATION_PURPOSE ||
+    delegation.environment !== "production" ||
+    delegation.signature_algorithm !== TLSN_RUNTIME_CONFIG_SIGNATURE_ALGORITHM ||
+    delegation.audience_manifest_url_sha256 !== expectedAudience ||
+    delegation.manifest_envelope_schema_version !==
+      TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCHEMA_VERSION ||
+    delegation.manifest_payload_schema_version !==
+      TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION ||
+    delegation.revocation_mode !== MANIFEST_DELEGATION_REVOCATION_MODE ||
+    delegation.key_id === trustedSigner.key_id ||
+    delegation.public_key_spki === trustedSigner.public_key_spki
+  ) {
+    throw new Error("Manifest authority delegation purpose or binding is invalid");
+  }
+  if (
+    !Number.isSafeInteger(delegation.max_validity_seconds) ||
+    delegation.max_validity_seconds < 1 ||
+    delegation.max_validity_seconds > MAX_MANIFEST_DELEGATION_SECONDS ||
+    issuedAt > notBefore ||
+    notBefore >= notAfter ||
+    notAfter - issuedAt > delegation.max_validity_seconds * 1000 ||
+    notAfter - issuedAt > MAX_MANIFEST_DELEGATION_SECONDS * 1000 ||
+    issuedAt > nowMs + maxClockSkewSeconds * 1000 ||
+    notBefore > nowMs + maxClockSkewSeconds * 1000 ||
+    notAfter <= nowMs - maxClockSkewSeconds * 1000
+  ) {
+    throw new Error("Manifest authority delegation is outside its root-issued validity");
+  }
+  if (
+    delegation.approved_config_sha256 !==
+    tlsnRuntimeConfigApprovedConfigurationSha256(payload, manifestUrl)
+  ) {
+    throw new Error("Manifest is outside the root-approved configuration");
+  }
+
+  return Object.freeze({
+    payload: delegation,
+    digest: createHash("sha256").update(rawBytes).digest("base64url"),
+    generation: generation.toString(),
+    notBeforeMs: notBefore,
+    notAfterMs: notAfter,
+  });
+}
+
+function verifyManifestAuthorityHighWater(authority, policy) {
+  const previousGeneration = BigInt(
+    policy.last_accepted_manifest_authority_generation,
+  );
+  const generation = BigInt(authority.generation);
+  if (
+    generation < previousGeneration ||
+    (generation === previousGeneration &&
+      authority.digest !==
+        policy.last_accepted_manifest_authority_delegation_sha256)
+  ) {
+    throw new Error("Manifest authority delegation is below persisted high-water");
+  }
+}
+
+function signingBytes(signerKeyId, payloadBytes) {
+  return signatureBytes(DOMAIN, signerKeyId, payloadBytes);
 }
 
 export function tlsnRuntimeConfigSigningBytes(signerKeyId, payload) {
@@ -415,6 +699,35 @@ export function tlsnRuntimeConfigSigningBytes(signerKeyId, payload) {
     signerKeyId,
     Buffer.from(canonicalJson(payload), "utf8"),
   );
+}
+
+export function tlsnRuntimeConfigDelegatedSigningBytes(
+  signerKeyId,
+  payload,
+  validationTime = new Date(),
+) {
+  assertManifestPayload(payload, validationTime);
+  return signatureBytes(
+    DELEGATED_DOMAIN,
+    signerKeyId,
+    Buffer.from(canonicalJson(payload), "utf8"),
+  );
+}
+
+export function verifyTlsnRuntimeConfigManifestDelegation(options) {
+  if (
+    !options ||
+    !Number.isSafeInteger(options.nowMs) ||
+    !Number.isSafeInteger(options.maxClockSkewSeconds)
+  ) {
+    throw new Error("Manifest authority verification time policy is invalid");
+  }
+  return verifyManifestAuthorityDelegation(options.raw, options.trustedSigner, {
+    manifestUrl: options.manifestUrl,
+    nowMs: options.nowMs,
+    maxClockSkewSeconds: options.maxClockSkewSeconds,
+    payload: options.payload,
+  });
 }
 
 export function prepareTlsnRuntimeConfigManifest({
@@ -556,6 +869,34 @@ export function createTlsnRuntimeConfigEnvelopeRaw({
   });
 }
 
+export function createTlsnRuntimeConfigDelegatedEnvelopeRaw({
+  signerKeyId,
+  payloadBase64Url,
+  signatureBase64Url,
+  manifestAuthorityDelegationRaw,
+}) {
+  assertKeyId(signerKeyId, "Manifest child signer key ID");
+  decodeBase64Url(payloadBase64Url, "manifest payload");
+  decodeBase64Url(signatureBase64Url, "manifest signature", 64);
+  if (
+    !(typeof manifestAuthorityDelegationRaw === "string" ||
+      manifestAuthorityDelegationRaw instanceof Uint8Array)
+  ) {
+    throw new Error("raw root-signed Manifest authority delegation bytes are required");
+  }
+  const delegationBytes = Buffer.from(manifestAuthorityDelegationRaw);
+  parseCanonicalJsonBytes(delegationBytes, "Manifest authority delegation envelope");
+  return canonicalJson({
+    schema_version: TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCHEMA_VERSION,
+    scope: TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCOPE,
+    signature_algorithm: TLSN_RUNTIME_CONFIG_SIGNATURE_ALGORITHM,
+    signer_key_id: signerKeyId,
+    manifest_authority_delegation_base64url: delegationBytes.toString("base64url"),
+    payload_base64url: payloadBase64Url,
+    signature_base64url: signatureBase64Url,
+  });
+}
+
 function verifySignedRuntimeConfigEnvelopeBytes(rawEnvelope, trustedSigner, maxEnvelopeBytes) {
   assertTrustedSigner(trustedSigner);
   if (!(typeof rawEnvelope === "string" || rawEnvelope instanceof Uint8Array)) {
@@ -610,15 +951,97 @@ function verifySignedRuntimeConfigEnvelopeBytes(rawEnvelope, trustedSigner, maxE
   return { payload, envelopeBytes };
 }
 
-export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, policy } = {}) {
+function verifyRuntimeConfigEnvelopeDetailed(
+  rawEnvelope,
+  trustedSigner,
+  policy,
+  { enforceManifestFreshness = true } = {},
+) {
   assertTrustedSigner(trustedSigner);
   assertPolicy(policy);
-  const { payload, envelopeBytes } = verifySignedRuntimeConfigEnvelopeBytes(
-    rawEnvelope,
-    trustedSigner,
-    policy.max_envelope_bytes,
-  );
-  assertManifestPayload(payload, new Date(policy.now_ms));
+  if (!(typeof rawEnvelope === "string" || rawEnvelope instanceof Uint8Array)) {
+    throw new Error("raw signed runtime configuration envelope bytes are required");
+  }
+  const envelopeBytes = Buffer.from(rawEnvelope);
+  if (envelopeBytes.length > policy.max_envelope_bytes) {
+    throw new Error("runtime configuration envelope exceeds the supplied byte limit");
+  }
+  const envelope = parseCanonicalJsonBytes(envelopeBytes, "runtime configuration envelope");
+  let payload;
+  let authority = null;
+  if (envelope.schema_version === TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION) {
+    const legacy = verifySignedRuntimeConfigEnvelopeBytes(
+      envelopeBytes,
+      trustedSigner,
+      policy.max_envelope_bytes,
+    );
+    payload = legacy.payload;
+    if (BigInt(policy.last_accepted_manifest_authority_generation) > 0n) {
+      throw new Error("Runtime Config Manifest authentication downgrade is not allowed");
+    }
+  } else if (
+    envelope.schema_version === TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCHEMA_VERSION
+  ) {
+    assertExactKeys(
+      envelope,
+      DELEGATED_ENVELOPE_FIELDS,
+      "delegated runtime configuration envelope",
+    );
+    if (
+      envelope.scope !== TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCOPE ||
+      envelope.signature_algorithm !== TLSN_RUNTIME_CONFIG_SIGNATURE_ALGORITHM
+    ) {
+      throw new Error("delegated runtime configuration envelope schema is invalid");
+    }
+    assertKeyId(envelope.signer_key_id, "Manifest child signer key ID");
+    const payloadBytes = decodeBase64Url(envelope.payload_base64url, "manifest payload");
+    const signature = decodeBase64Url(envelope.signature_base64url, "manifest signature", 64);
+    const authorityRaw = decodeBase64Url(
+      envelope.manifest_authority_delegation_base64url,
+      "Manifest authority delegation bytes",
+    );
+    payload = parseCanonicalJsonBytes(payloadBytes, "runtime configuration payload");
+    assertManifestPayload(payload, new Date(policy.now_ms));
+    authority = verifyManifestAuthorityDelegation(authorityRaw, trustedSigner, {
+      manifestUrl: policy.manifest_url,
+      nowMs: policy.now_ms,
+      maxClockSkewSeconds: policy.max_clock_skew_seconds,
+      payload,
+    });
+    if (envelope.signer_key_id !== authority.payload.key_id) {
+      throw new Error("Manifest child signer ID does not match the root delegation");
+    }
+    const issuedAt = assertCanonicalUtc(payload.issued_at, "manifest issued_at");
+    const notBefore = assertCanonicalUtc(payload.not_before, "manifest not_before");
+    const expiresAt = assertCanonicalUtc(payload.expires_at, "manifest expires_at");
+    if (
+      issuedAt < authority.notBeforeMs ||
+      issuedAt >= authority.notAfterMs ||
+      notBefore < authority.notBeforeMs ||
+      expiresAt > authority.notAfterMs
+    ) {
+      throw new Error("Manifest validity is outside the root delegation");
+    }
+    verifyManifestAuthorityHighWater(authority, policy);
+    const childKey = createPublicKey({
+      key: decodeBase64Url(
+        authority.payload.public_key_spki,
+        "Manifest child public key",
+      ),
+      format: "der",
+      type: "spki",
+    });
+    if (!verify(
+      null,
+      signatureBytes(DELEGATED_DOMAIN, envelope.signer_key_id, payloadBytes),
+      childKey,
+      signature,
+    )) {
+      throw new Error("delegated runtime configuration signature verification failed");
+    }
+  } else {
+    throw new Error("runtime configuration envelope version is unsupported");
+  }
 
   const epoch = assertEpoch(payload.epoch, "manifest epoch");
   const lastAcceptedEpoch = assertEpoch(policy.last_accepted_epoch, "last accepted epoch", true);
@@ -632,42 +1055,94 @@ export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, po
   ) {
     throw new Error("runtime configuration epoch was already accepted with different manifest bytes");
   }
-  const issuedAt = assertCanonicalUtc(payload.issued_at, "manifest issued_at");
-  const notBefore = assertCanonicalUtc(payload.not_before, "manifest not_before");
-  const expiresAt = assertCanonicalUtc(payload.expires_at, "manifest expires_at");
-  const observedAt = assertCanonicalUtc(payload.source.observed_at, "Worker reference observation time");
-  const now = policy.now_ms;
-  const skewMs = policy.max_clock_skew_seconds * 1000;
-  if (
-    issuedAt > notBefore ||
-    notBefore >= expiresAt ||
-    expiresAt - notBefore > policy.max_lifetime_seconds * 1000 ||
-    issuedAt > now + skewMs ||
-    notBefore > now + skewMs ||
-    expiresAt <= now - skewMs
-  ) {
-    throw new Error("runtime configuration validity window is invalid or not current");
+  if (enforceManifestFreshness) {
+    assertManifestPayload(payload, new Date(policy.now_ms));
+    const issuedAt = assertCanonicalUtc(payload.issued_at, "manifest issued_at");
+    const notBefore = assertCanonicalUtc(payload.not_before, "manifest not_before");
+    const expiresAt = assertCanonicalUtc(payload.expires_at, "manifest expires_at");
+    const observedAt = assertCanonicalUtc(
+      payload.source.observed_at,
+      "Worker reference observation time",
+    );
+    const now = policy.now_ms;
+    const skewMs = policy.max_clock_skew_seconds * 1000;
+    if (
+      issuedAt > notBefore ||
+      notBefore >= expiresAt ||
+      expiresAt - notBefore > policy.max_lifetime_seconds * 1000 ||
+      issuedAt > now + skewMs ||
+      notBefore > now + skewMs ||
+      expiresAt <= now - skewMs
+    ) {
+      throw new Error("runtime configuration validity window is invalid or not current");
+    }
+    if (
+      observedAt > now + skewMs ||
+      now - observedAt > policy.max_reference_age_seconds * 1000
+    ) {
+      throw new Error("runtime configuration Worker reference is not fresh");
+    }
   }
-  if (
-    observedAt > now + skewMs ||
-    now - observedAt > policy.max_reference_age_seconds * 1000
-  ) {
-    throw new Error("runtime configuration Worker reference is not fresh");
-  }
-  return payload;
+  return Object.freeze({ payload, envelopeBytes, authority });
+}
+
+export function verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, policy } = {}) {
+  return verifyRuntimeConfigEnvelopeDetailed(rawEnvelope, trustedSigner, policy).payload;
 }
 
 export function verifyTlsnRuntimeConfigEpochPointer(rawEnvelope, {
   trustedSigner,
   maxEnvelopeBytes = 1_048_576,
+  manifestUrl = "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+  nowMs = Date.now(),
+  maxClockSkewSeconds = 30,
+  lastAcceptedEpoch = "0",
+  lastAcceptedManifestSha256 = null,
+  lastAcceptedManifestAuthorityGeneration = "0",
+  lastAcceptedManifestAuthorityDelegationSha256 = null,
 } = {}) {
   if (!Number.isSafeInteger(maxEnvelopeBytes) || maxEnvelopeBytes < 1) {
     throw new Error("Runtime Config epoch pointer byte limit must be a positive safe integer");
   }
-  const { payload, envelopeBytes } = verifySignedRuntimeConfigEnvelopeBytes(
+  const previousEpoch = assertEpoch(
+    lastAcceptedEpoch,
+    "last accepted epoch",
+    true,
+  );
+  if (
+    (previousEpoch === 0n && lastAcceptedManifestSha256 !== null) ||
+    (previousEpoch > 0n && lastAcceptedManifestSha256 === null)
+  ) {
+    throw new Error("Runtime Config persisted epoch high-water is inconsistent");
+  }
+  if (lastAcceptedManifestSha256 !== null) {
+    assertDigest(lastAcceptedManifestSha256, "last accepted Manifest digest");
+  }
+  let version;
+  try {
+    version = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(rawEnvelope)))
+      ?.schema_version;
+  } catch {
+    throw new Error("Runtime Config epoch pointer envelope is malformed JSON");
+  }
+  const { payload, envelopeBytes, authority } = verifyRuntimeConfigEnvelopeDetailed(
     rawEnvelope,
     trustedSigner,
-    maxEnvelopeBytes,
+    {
+      now_ms: nowMs,
+      last_accepted_epoch: lastAcceptedEpoch,
+      last_accepted_manifest_sha256: lastAcceptedManifestSha256,
+      max_lifetime_seconds: 3600,
+      max_clock_skew_seconds: maxClockSkewSeconds,
+      max_reference_age_seconds: 600,
+      max_envelope_bytes: maxEnvelopeBytes,
+      manifest_url: manifestUrl,
+      last_accepted_manifest_authority_generation:
+        lastAcceptedManifestAuthorityGeneration,
+      last_accepted_manifest_authority_delegation_sha256:
+        lastAcceptedManifestAuthorityDelegationSha256,
+    },
+    { enforceManifestFreshness: version === TLSN_RUNTIME_CONFIG_DELEGATED_ENVELOPE_SCHEMA_VERSION },
   );
   assertExactKeys(payload, MANIFEST_FIELDS, "runtime configuration manifest");
   if (
@@ -684,9 +1159,23 @@ export function verifyTlsnRuntimeConfigEpochPointer(rawEnvelope, {
     throw new Error("Runtime Config epoch pointer validity timestamps are invalid");
   }
   const epoch = assertEpoch(payload.epoch, "manifest epoch");
+  const manifestSha256 = createHash("sha256")
+    .update(envelopeBytes)
+    .digest("base64url");
+  if (
+    epoch < previousEpoch ||
+    (epoch === previousEpoch && lastAcceptedManifestSha256 !== manifestSha256)
+  ) {
+    throw new Error("Runtime Config Manifest epoch is below or conflicts with persisted high-water");
+  }
   return Object.freeze({
     epoch: epoch.toString(),
-    manifest_sha256: createHash("sha256").update(envelopeBytes).digest("base64url"),
+    manifest_sha256: manifestSha256,
+    envelope_schema_version: authority === null ? 2 : 3,
+    signer_key_id: authority?.payload.key_id ?? trustedSigner.key_id,
+    manifest_authority_generation: authority?.generation ?? null,
+    manifest_authority_delegation_sha256: authority?.digest ?? null,
+    approved_config_sha256: authority?.payload.approved_config_sha256 ?? null,
   });
 }
 
@@ -706,7 +1195,11 @@ export function verifyTlsnRuntimeConfigProductionEnvelope(rawEnvelope, {
   if (!independentInputs) {
     throw new Error("independent Production verification inputs are required");
   }
-  const payload = verifyTlsnRuntimeConfigEnvelope(rawEnvelope, { trustedSigner, policy });
+  const { payload, authority } = verifyRuntimeConfigEnvelopeDetailed(
+    rawEnvelope,
+    trustedSigner,
+    policy,
+  );
   const matchedInputs = verifyTlsnRuntimeConfigIndependentInputs(
     payload,
     independentInputs,
@@ -716,6 +1209,8 @@ export function verifyTlsnRuntimeConfigProductionEnvelope(rawEnvelope, {
     state: "MANIFEST_AND_SIGNED_PINS_VERIFIED",
     payload: deepFreeze(payload),
     matched_inputs: matchedInputs,
+    manifest_authority_generation: authority?.generation ?? null,
+    manifest_authority_delegation_sha256: authority?.digest ?? null,
   });
 }
 

@@ -269,6 +269,103 @@ function registerRuntimeTests() {
       );
 
       it(
+        "strict and Cloudflare/operator readers bind delegated Manifest bytes through Release and Freshness",
+        { timeout: 60_000 },
+        async () => {
+          const strictFixture = await makeSignedCurrentStateFixture({
+            delegatedManifest: true,
+          });
+          const operationId = randomUUID();
+          const request = await makeRequestIdentity(operationId, requestBytes);
+          const operation = {
+            ...request.identity,
+            signerOperationId: randomUUID(),
+          };
+          const nowMs = strictFixture.nowMs;
+          const clock = {
+            clockId,
+            clockEpoch,
+            nowMs,
+            uncertaintyMs: 0,
+          };
+          const lease = {
+            operation,
+            leaseId: randomUUID(),
+            fencingToken: "1",
+            acquiredAtMs: nowMs - 5_000,
+            expiresAtMs: nowMs + 20_000,
+            clockId,
+            clockEpoch,
+            clockUncertaintyMs: 0,
+            currentState: strictFixture.currentState,
+          };
+          const coordinator = {
+            async readCurrentStateSnapshot() {
+              return {
+                operation,
+                lease,
+                operationStatus: "IN_PROGRESS",
+                blocker: "RETAINED",
+                environment: "production",
+                currentState: strictFixture.currentState,
+                witness: strictFixture.witness,
+                restoreEpoch: strictFixture.witness.restoreEpoch,
+                writerPending: false,
+              };
+            },
+          };
+          const strictReader = makeSignedCurrentStateReader(
+            strictFixture,
+            coordinator,
+          );
+          const readInput = {
+            operation,
+            challenge: request.challenge,
+            lease,
+            clock,
+          };
+          const strictEvidence = await strictReader.readCurrentState(readInput);
+          const strictState = await strictReader.verifyCurrentState(
+            strictEvidence,
+            readInput,
+          );
+          assert.ok(equalBytes(strictState.manifestBytes, strictFixture.manifestBytes));
+          assert.equal(strictState.manifestSha256, strictFixture.manifestSha256);
+
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "operator-delegated-manifest-binding",
+            { delegatedManifest: true },
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          const operatorState = await harness.stateReader.readCurrentState();
+          assert.equal(operatorState.manifest.envelopeSchemaVersion, 3);
+          assert.equal(operatorState.manifest.manifestAuthorityGeneration, "1");
+          assert.ok(equalBytes(operatorState.manifestBytes, seeded.fixture.manifestBytes));
+
+          const issued = await issueCloudflareOperatorFreshness(
+            { operationId: randomUUID(), requestBytes },
+            harness.dependencies,
+          );
+          assert.equal(issued.status, "ISSUED");
+          assert.equal(issued.responseLength, issued.responseBytes.byteLength);
+          assert.equal(issued.responseSha256, digest(issued.responseBytes));
+          const verified = await verifyCloudflareOperatorFreshnessResponse({
+            raw: issued.responseBytes,
+            bootstrapSigner: seeded.fixture.rootSigner,
+            manifestUrl: seeded.fixture.manifestUrl,
+            requestBytes,
+            nowMs: Date.now(),
+            expectedState: operatorState.state,
+          });
+          assert.equal(
+            verified.releaseCommit.payload.manifest_sha256,
+            seeded.fixture.manifestSha256,
+          );
+        },
+      );
+
+      it(
         "requires a durable admitted operation before the private Signer can sign",
         { timeout: 40_000 },
         async () => {
@@ -4659,7 +4756,7 @@ async function seededInitialReleaseCoordinator(context, scenario) {
 async function seededCloudflareOperatorCoordinator(
   context,
   scenario,
-  { install = true } = {},
+  { install = true, delegatedManifest = false } = {},
 ) {
   assert.ok(context.releaseNamespace, "Release ledger namespace is unavailable");
   const objectName = `${scenario}-${randomUUID()}`;
@@ -4686,6 +4783,7 @@ async function seededCloudflareOperatorCoordinator(
   const template = await makeSignedCurrentStateFixture({
     manifestEpoch,
     nowMs,
+    delegatedManifest,
   });
   const publication = await rpc(
     stub.publishBaselineManifestForLocalTest(
@@ -4698,6 +4796,7 @@ async function seededCloudflareOperatorCoordinator(
     manifestEpoch,
     nowMs,
     pointerEtag: publication.pointerEtag,
+    delegatedManifest,
   });
   assert.ok(equalBytes(fixture.manifestBytes, publication.pointerBytes));
   assert.ok(equalBytes(fixture.manifestBytes, publication.snapshotBytes));
@@ -5039,6 +5138,7 @@ async function makeCloudflareOperatorHarness(context, seeded) {
     manifests: await runtimeR2ManifestReader(context),
     releaseRootSigner: fixture.rootSigner,
     manifestRootSigner: fixture.manifestRootSigner,
+    manifestUrl: fixture.manifestUrl,
   });
   const signer = await createWorkerReadableCloudflareOperatorFreshnessSigner({
     manifestUrl: vector.manifest_url,

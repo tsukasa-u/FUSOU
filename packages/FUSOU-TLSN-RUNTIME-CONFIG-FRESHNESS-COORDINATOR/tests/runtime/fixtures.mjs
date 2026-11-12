@@ -21,6 +21,11 @@ import {
   runtimeConfigFreshnessWire,
 } from "../../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/index.ts";
 import {
+  createTlsnRuntimeConfigDelegatedEnvelopeRaw,
+  tlsnRuntimeConfigApprovedConfigurationSha256,
+  tlsnRuntimeConfigDelegatedSigningBytes,
+} from "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs";
+import {
   createR2RuntimeConfigFreshnessManifestStore,
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store.mjs";
 
@@ -80,6 +85,10 @@ const MANIFEST_DOMAIN = Buffer.from(
   "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0",
   "ascii",
 );
+const MANIFEST_DELEGATION_DOMAIN = Buffer.from(
+  "FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-DELEGATION-V1\0",
+  "ascii",
+);
 const FRESHNESS_RESPONSE_DOMAIN = Buffer.from(
   "FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-RESPONSE-V1\0",
   "ascii",
@@ -107,6 +116,8 @@ export function equalBytes(left, right) {
 export async function makeSignedCurrentStateFixture(options = {}) {
   const nowMs = options.nowMs ?? vector.now_ms;
   const rootKey = testKey(0x10, "local-test-root");
+  const manifestRootKey = testKey(0xB0, "local-test-manifest-root");
+  const manifestChildKey = testKey(0xD0, "local-test-manifest-child");
   const releaseKey = testKey(0x30, "local-test-release");
   const freshnessKey = testKey(0x50, "local-test-freshness");
   const journalKey = testKey(0x70, "local-test-journal");
@@ -115,6 +126,11 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     scope: "fusou-tlsn-runtime-config-signing-root-v2",
     key_id: rootKey.keyId,
     public_key_spki: rootKey.publicKeySpki,
+  });
+  const manifestRootSigner = Object.freeze({
+    scope: "fusou-tlsn-runtime-config-signing-root-v2",
+    key_id: manifestRootKey.keyId,
+    public_key_spki: manifestRootKey.publicKeySpki,
   });
   const manifestTemplate = JSON.parse(manifestVector.manifest_envelope_utf8);
   const manifestPayload = JSON.parse(
@@ -129,11 +145,20 @@ export async function makeSignedCurrentStateFixture(options = {}) {
   manifestPayload.expires_at = iso(nowMs + manifestLifetimeMs);
   manifestPayload.source.observed_at = manifestIssuedAt;
   manifestPayload.epoch = options.manifestEpoch ?? "1";
-  const manifestBytes = signManifestEnvelope(manifestPayload, rootKey);
-  const manifestRootSigner = testRootSigner;
+  const manifestBytes = options.delegatedManifest === true
+    ? signDelegatedManifestEnvelope({
+        payload: manifestPayload,
+        manifestUrl: vector.manifest_url,
+        nowMs,
+        root: manifestRootKey,
+        child: manifestChildKey,
+      })
+    : signManifestEnvelope(manifestPayload, manifestRootKey);
   const manifest = await verifyRuntimeConfigManifestEpochPointer({
     raw: manifestBytes,
     trustedSigner: manifestRootSigner,
+    manifestUrl: vector.manifest_url,
+    nowMs,
   });
   const previousReleaseHead = options.previousReleaseHead ?? null;
   const commitGeneration =
@@ -540,6 +565,7 @@ export async function makeSignedCurrentStateFixture(options = {}) {
   return {
     rootSigner: testRootSigner,
     manifestRootSigner,
+    manifestUrl: vector.manifest_url,
     freshnessKeyId: freshnessKey.keyId,
     freshnessPrivateKeyPkcs8Bytes: Uint8Array.from(
       freshnessKey.privateKey.export({ format: "der", type: "pkcs8" }),
@@ -717,6 +743,7 @@ export function makeSignedCurrentStateReader(
       overrides.releaseRootSigner ?? fixture.rootSigner,
     manifestRootSigner:
       overrides.manifestRootSigner ?? fixture.manifestRootSigner,
+    manifestUrl: overrides.manifestUrl ?? fixture.manifestUrl,
   });
 }
 
@@ -750,6 +777,7 @@ export function makeSignedReleaseStateReader(
     },
     releaseRootSigner: fixture.rootSigner,
     manifestRootSigner: fixture.manifestRootSigner,
+    manifestUrl: fixture.manifestUrl,
   });
 }
 
@@ -807,6 +835,67 @@ function signManifestEnvelope(payload, signer) {
       payload_base64url: payloadBytes.toString("base64url"),
       signature_base64url: signature.toString("base64url"),
     }),
+  );
+}
+
+function signDelegatedManifestEnvelope({
+  payload,
+  manifestUrl,
+  nowMs,
+  root,
+  child,
+}) {
+  const issuedAt = payload.issued_at;
+  const delegationPayload = {
+    schema_version: 1,
+    scope: "fusou-tlsn-runtime-config-manifest-delegation-v1",
+    purpose: "runtime-config-manifest-v1",
+    environment: payload.environment,
+    key_id: child.keyId,
+    public_key_spki: child.publicKeySpki,
+    signature_algorithm: "Ed25519",
+    audience_manifest_url_sha256: digest(
+      new TextEncoder().encode(manifestUrl),
+    ),
+    manifest_envelope_schema_version: 3,
+    manifest_payload_schema_version: payload.schema_version,
+    approved_config_sha256: tlsnRuntimeConfigApprovedConfigurationSha256(
+      payload,
+      manifestUrl,
+    ),
+    delegation_generation: "1",
+    issued_at: issuedAt,
+    not_before: issuedAt,
+    not_after: iso(Date.parse(issuedAt) + 86_400_000),
+    max_validity_seconds: 86_400,
+    revocation_mode: "expiry-and-client-high-water-v1",
+  };
+  const delegationRaw = signDomainEnvelope({
+    scope: "fusou-tlsn-runtime-config-manifest-delegation-v1",
+    keyField: "root_key_id",
+    keyId: root.keyId,
+    domain: MANIFEST_DELEGATION_DOMAIN,
+    payload: delegationPayload,
+    signer: root,
+  });
+  const payloadBytes = Buffer.from(canonicalJsonBytes(payload));
+  const signature = sign(
+    null,
+    tlsnRuntimeConfigDelegatedSigningBytes(
+      child.keyId,
+      payload,
+      new Date(nowMs),
+    ),
+    child.privateKey,
+  );
+  return Buffer.from(
+    createTlsnRuntimeConfigDelegatedEnvelopeRaw({
+      signerKeyId: child.keyId,
+      payloadBase64Url: payloadBytes.toString("base64url"),
+      signatureBase64Url: signature.toString("base64url"),
+      manifestAuthorityDelegationRaw: delegationRaw,
+    }),
+    "utf8",
   );
 }
 

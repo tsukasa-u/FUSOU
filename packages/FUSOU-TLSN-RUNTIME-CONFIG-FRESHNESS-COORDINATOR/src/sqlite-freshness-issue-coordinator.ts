@@ -719,6 +719,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       manifests: this.requireReleaseStore(),
       releaseRootSigner: this.requireReleaseRootSigner(),
       manifestRootSigner: this.requireManifestRootSigner(),
+      manifestUrl: this.requireFreshnessManifestUrl(),
     }).readCurrentState(
       input === undefined ? undefined : { issueAuthorization: input },
     );
@@ -1249,10 +1250,9 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       releaseOperation.recordBytes,
       releaseOperation.releaseDelegationBytes,
     );
-    const verifiedManifest = await verifyRuntimeConfigManifestEpochPointer({
-      raw: releaseOperation.manifestBytes,
-      trustedSigner: this.requireManifestRootSigner(),
-    });
+    const verifiedManifest = await this.verifyManifestPointer(
+      releaseOperation.manifestBytes,
+    );
     if (
       verifiedManifest.epoch !== releaseOperation.manifestEpoch ||
       verifiedManifest.manifestSha256 !== releaseOperation.manifestSha256
@@ -1447,11 +1447,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     const environment = "production" as const;
     const chainId = this.requireReleaseChainId();
     const manifestBytes = copyBytes(input.manifestBytes);
-    const manifestSigner = this.requireManifestRootSigner();
-    const verifiedManifest = await verifyRuntimeConfigManifestEpochPointer({
-      raw: manifestBytes,
-      trustedSigner: manifestSigner,
-    });
+    const verifiedManifest = await this.verifyManifestPointer(manifestBytes);
     const manifestRef =
       `${runtimeConfigFreshnessWire.immutableManifestPrefix}${verifiedManifest.manifestSha256}`;
     const expectedHead = copyReleaseHead(input.expectedHead);
@@ -3501,6 +3497,17 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     };
   }
 
+  private verifyManifestPointer(
+    raw: Uint8Array,
+  ): ReturnType<typeof verifyRuntimeConfigManifestEpochPointer> {
+    return verifyRuntimeConfigManifestEpochPointer({
+      raw,
+      trustedSigner: this.requireManifestRootSigner(),
+      manifestUrl: this.requireFreshnessManifestUrl(),
+      nowMs: runtimeUtcNow(),
+    });
+  }
+
   private requireReleaseStore(): RuntimeConfigR2ReleaseStore {
     const bucket = this.#env.RELEASE_LEDGER_R2;
     if (bucket === undefined) {
@@ -3515,10 +3522,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
   private async verifyOperationManifest(
     operation: ReleaseLedgerOperation,
   ): Promise<Awaited<ReturnType<typeof verifyRuntimeConfigManifestEpochPointer>>> {
-    const manifest = await verifyRuntimeConfigManifestEpochPointer({
-      raw: operation.manifestBytes,
-      trustedSigner: this.requireManifestRootSigner(),
-    });
+    const manifest = await this.verifyManifestPointer(operation.manifestBytes);
     const digest = await sha256Base64Url(operation.manifestBytes);
     if (
       operation.manifestLength !== operation.manifestBytes.byteLength ||
@@ -3672,10 +3676,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       releaseDelegationRaw: releaseDelegationBytes,
       appendedAt: row.record_appended_at,
     });
-    const manifest = await verifyRuntimeConfigManifestEpochPointer({
-      raw: manifestBytes,
-      trustedSigner: this.requireManifestRootSigner(),
-    });
+    const manifest = await this.verifyManifestPointer(manifestBytes);
     if (
       record.digest !== row.record_sha256 ||
       recordBytes.byteLength !== row.record_length ||
@@ -3718,10 +3719,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
   private async verifyStoredReleaseOperation(
     operation: ReleaseLedgerOperation,
   ): Promise<void> {
-    const manifest = await verifyRuntimeConfigManifestEpochPointer({
-      raw: operation.manifestBytes,
-      trustedSigner: this.requireManifestRootSigner(),
-    });
+    const manifest = await this.verifyManifestPointer(operation.manifestBytes);
     const manifestSha256 = await sha256Base64Url(operation.manifestBytes);
     if (
       manifestSha256 !== operation.manifestSha256 ||

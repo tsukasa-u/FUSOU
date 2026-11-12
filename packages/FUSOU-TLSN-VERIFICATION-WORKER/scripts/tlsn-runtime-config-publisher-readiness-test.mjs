@@ -16,9 +16,9 @@ test("publisher readiness is a no-network diagnostic and never promotes unregist
   assert(readiness.checks.some(({ requirement, state }) =>
     requirement === "APP bootstrap signer root registration" && state === "NOT_REGISTERED"));
   assert(readiness.checks.some(({ requirement, state }) =>
-    requirement === "Independent Production signer pin" && state === "NOT_REGISTERED"));
+    requirement === "Root-signed Manifest delegation" && state === "NOT_REGISTERED"));
   assert(readiness.checks.some(({ requirement, state }) =>
-    requirement === "Production signer provider" && state === "NOT_CONFIGURED"));
+    requirement === "Manifest child signer provider" && state === "NOT_CONFIGURED"));
   assert(readiness.checks.some(({ requirement, state }) =>
     requirement === "Live R2 conditional create and pointer CAS" && state === "NOT_RUN"));
   assert(readiness.checks.some(({ requirement, state }) =>

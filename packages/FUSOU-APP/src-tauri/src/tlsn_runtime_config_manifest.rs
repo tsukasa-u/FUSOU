@@ -22,9 +22,20 @@ pub(crate) mod freshness;
 const MANIFEST_SCHEMA_VERSION: u32 = 2;
 const MANIFEST_SCOPE: &str = "fusou-tlsn-runtime-config-manifest-v2";
 const ENVELOPE_SCOPE: &str = "fusou-tlsn-runtime-config-envelope-v2";
+const DELEGATED_ENVELOPE_SCHEMA_VERSION: u32 = 3;
+const DELEGATED_ENVELOPE_SCOPE: &str = "fusou-tlsn-runtime-config-envelope-v3";
+const MANIFEST_DELEGATION_SCHEMA_VERSION: u32 = 1;
+const MANIFEST_DELEGATION_SCOPE: &str = "fusou-tlsn-runtime-config-manifest-delegation-v1";
+const MANIFEST_DELEGATION_PURPOSE: &str = "runtime-config-manifest-v1";
+const MANIFEST_DELEGATION_REVOCATION_MODE: &str = "expiry-and-client-high-water-v1";
+const MANIFEST_APPROVED_CONFIG_SCOPE: &str = "fusou-tlsn-runtime-config-approved-config-v1";
 const TRUST_SCOPE: &str = "fusou-tlsn-runtime-config-signing-root-v2";
 const SIGNATURE_ALGORITHM: &str = "Ed25519";
 const SIGNATURE_DOMAIN: &[u8] = b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0";
+const DELEGATED_SIGNATURE_DOMAIN: &[u8] = b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V3\0";
+const MANIFEST_DELEGATION_SIGNATURE_DOMAIN: &[u8] =
+    b"FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-DELEGATION-V1\0";
+const MAX_MANIFEST_DELEGATION_SECONDS: u64 = 86_400;
 const ED25519_SPKI_PREFIX: &[u8] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
 const RESULT_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
 #[cfg(feature = "tlsn-production")]
@@ -149,6 +160,61 @@ struct RuntimeConfigManifestEnvelope {
     signature_base64url: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DelegatedRuntimeConfigManifestEnvelope {
+    schema_version: u32,
+    scope: String,
+    signature_algorithm: String,
+    signer_key_id: String,
+    payload_base64url: String,
+    signature_base64url: String,
+    manifest_authority_delegation_base64url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestAuthorityDelegationEnvelope {
+    schema_version: u32,
+    scope: String,
+    signature_algorithm: String,
+    root_key_id: String,
+    payload_base64url: String,
+    signature_base64url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestAuthorityDelegationPayload {
+    schema_version: u32,
+    scope: String,
+    purpose: String,
+    environment: String,
+    key_id: String,
+    public_key_spki: String,
+    signature_algorithm: String,
+    audience_manifest_url_sha256: String,
+    manifest_envelope_schema_version: u32,
+    manifest_payload_schema_version: u32,
+    approved_config_sha256: String,
+    delegation_generation: String,
+    issued_at: String,
+    not_before: String,
+    not_after: String,
+    max_validity_seconds: u64,
+    revocation_mode: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeConfigManifestAuthority {
+    envelope_schema_version: u32,
+    signer_key_id: String,
+    audience_manifest_url_sha256: String,
+    delegation_generation: Option<String>,
+    delegation_sha256: Option<String>,
+    approved_config_sha256: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfigTrustedSigner {
@@ -182,6 +248,10 @@ pub struct RuntimeConfigBootstrap {
 }
 
 impl RuntimeConfigBootstrap {
+    pub(crate) fn manifest_url(&self) -> &str {
+        self.manifest_url.as_str()
+    }
+
     pub fn from_embedded() -> Result<Self, RuntimeConfigManifestError> {
         Self::require_registered(Self::from_release_values(
             EMBEDDED_RUNTIME_CONFIG_MANIFEST_URL,
@@ -278,8 +348,11 @@ pub(crate) trait RuntimeConfigObjectFetcher: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigVerificationPolicy {
     pub now: DateTime<Utc>,
+    pub manifest_url: String,
     pub last_accepted_epoch: String,
     pub last_accepted_manifest_sha256: Option<String>,
+    pub last_accepted_manifest_authority_generation: String,
+    pub last_accepted_manifest_authority_delegation_sha256: Option<String>,
     pub max_lifetime_seconds: u64,
     pub max_clock_skew_seconds: u64,
     pub max_reference_age_seconds: u64,
@@ -374,6 +447,7 @@ impl RuntimeConfigWorkerInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedRuntimeConfigManifest {
     payload: RuntimeConfigManifestPayload,
+    authority: RuntimeConfigManifestAuthority,
     independent_verification: RuntimeConfigIndependentVerificationSummary,
     manifest_sha256: String,
     evidence_materials: std::sync::Arc<BTreeMap<String, Vec<u8>>>,
@@ -382,6 +456,10 @@ pub struct VerifiedRuntimeConfigManifest {
 impl VerifiedRuntimeConfigManifest {
     pub fn payload(&self) -> &RuntimeConfigManifestPayload {
         &self.payload
+    }
+
+    pub fn authority(&self) -> &RuntimeConfigManifestAuthority {
+        &self.authority
     }
 
     pub fn independent_verification(&self) -> &RuntimeConfigIndependentVerificationSummary {
@@ -420,6 +498,32 @@ impl VerifiedRuntimeConfigManifest {
     }
 }
 
+impl RuntimeConfigManifestAuthority {
+    pub fn envelope_schema_version(&self) -> u32 {
+        self.envelope_schema_version
+    }
+
+    pub fn signer_key_id(&self) -> &str {
+        &self.signer_key_id
+    }
+
+    pub fn audience_manifest_url_sha256(&self) -> &str {
+        &self.audience_manifest_url_sha256
+    }
+
+    pub fn delegation_generation(&self) -> Option<&str> {
+        self.delegation_generation.as_deref()
+    }
+
+    pub fn delegation_sha256(&self) -> Option<&str> {
+        self.delegation_sha256.as_deref()
+    }
+
+    pub fn approved_config_sha256(&self) -> Option<&str> {
+        self.approved_config_sha256.as_deref()
+    }
+}
+
 pub fn verify_runtime_config_manifest(
     raw_envelope: &[u8],
     trusted_signer: &RuntimeConfigTrustedSigner,
@@ -435,7 +539,12 @@ pub fn verify_runtime_config_manifest(
     }
     #[cfg(feature = "tlsn-production")]
     {
-        let payload = verify_signed_runtime_config_manifest(raw_envelope, trusted_signer, policy)?;
+        let (payload, authority) =
+            verify_signed_runtime_config_manifest_with_authority(
+                raw_envelope,
+                trusted_signer,
+                policy,
+            )?;
         let inputs = independent_inputs.ok_or(RuntimeConfigManifestError::Invalid(
             "independent Production verification inputs are missing",
         ))?;
@@ -444,6 +553,7 @@ pub fn verify_runtime_config_manifest(
         let evidence_materials = runtime_evidence_materials(raw_envelope, &payload, inputs)?;
         Ok(VerifiedRuntimeConfigManifest {
             payload,
+            authority,
             independent_verification,
             manifest_sha256: sha256_base64url(raw_envelope),
             evidence_materials,
@@ -495,8 +605,11 @@ pub(crate) async fn fetch_and_verify_with_fetcher(
     let manifest_raw = fetcher
         .fetch(bootstrap.manifest_url.clone(), policy.max_envelope_bytes)
         .await?;
-    let payload =
-        verify_signed_runtime_config_manifest(&manifest_raw, &bootstrap.trusted_signer, policy)?;
+    let (payload, authority) = verify_signed_runtime_config_manifest_with_authority(
+        &manifest_raw,
+        &bootstrap.trusted_signer,
+        policy,
+    )?;
 
     let worker_reference = fetcher
         .fetch(
@@ -565,6 +678,7 @@ pub(crate) async fn fetch_and_verify_with_fetcher(
         runtime_evidence_materials(&manifest_raw, &payload, &independent_inputs)?;
     Ok(VerifiedRuntimeConfigManifest {
         payload,
+        authority,
         independent_verification,
         manifest_sha256: sha256_base64url(&manifest_raw),
         evidence_materials,
@@ -712,6 +826,18 @@ fn verify_signed_runtime_config_manifest(
     trusted_signer: &RuntimeConfigTrustedSigner,
     policy: &RuntimeConfigVerificationPolicy,
 ) -> Result<RuntimeConfigManifestPayload, RuntimeConfigManifestError> {
+    verify_signed_runtime_config_manifest_with_authority(raw_envelope, trusted_signer, policy)
+        .map(|(payload, _)| payload)
+}
+
+fn verify_signed_runtime_config_manifest_with_authority(
+    raw_envelope: &[u8],
+    trusted_signer: &RuntimeConfigTrustedSigner,
+    policy: &RuntimeConfigVerificationPolicy,
+) -> Result<
+    (RuntimeConfigManifestPayload, RuntimeConfigManifestAuthority),
+    RuntimeConfigManifestError,
+> {
     validate_trusted_signer(trusted_signer)?;
     validate_policy(policy)?;
     if raw_envelope.len() > policy.max_envelope_bytes {
@@ -720,49 +846,325 @@ fn verify_signed_runtime_config_manifest(
         ));
     }
 
-    let envelope: RuntimeConfigManifestEnvelope = serde_json::from_slice(raw_envelope)
+    let envelope_header: Value = serde_json::from_slice(raw_envelope)
         .map_err(|_| RuntimeConfigManifestError::Invalid("envelope JSON is invalid"))?;
-    if envelope.schema_version != MANIFEST_SCHEMA_VERSION
-        || envelope.scope != ENVELOPE_SCOPE
-        || envelope.signature_algorithm != SIGNATURE_ALGORITHM
-    {
-        return Err(RuntimeConfigManifestError::Invalid(
-            "envelope schema or signature algorithm is invalid",
-        ));
-    }
-    if envelope.signer_key_id != trusted_signer.key_id {
-        return Err(RuntimeConfigManifestError::Invalid(
-            "signer key ID does not match the external trust pin",
-        ));
-    }
-    if canonical_json_bytes(&envelope)? != raw_envelope {
+    if canonical_json_bytes(&envelope_header)? != raw_envelope {
         return Err(RuntimeConfigManifestError::Invalid(
             "envelope is not canonical JSON",
         ));
     }
+    let schema_version = envelope_header
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or(RuntimeConfigManifestError::Invalid(
+            "envelope schema version is invalid",
+        ))?;
 
-    let payload_bytes = decode_canonical_base64url(&envelope.payload_base64url, "payload")?;
-    let signature = decode_canonical_base64url(&envelope.signature_base64url, "signature")?;
+    let (payload_bytes, authority) = match schema_version {
+        MANIFEST_SCHEMA_VERSION => {
+            let envelope: RuntimeConfigManifestEnvelope = serde_json::from_value(envelope_header)
+                .map_err(|_| RuntimeConfigManifestError::Invalid("envelope schema is invalid"))?;
+            if envelope.scope != ENVELOPE_SCOPE
+                || envelope.signature_algorithm != SIGNATURE_ALGORITHM
+            {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "envelope schema or signature algorithm is invalid",
+                ));
+            }
+            if envelope.signer_key_id != trusted_signer.key_id {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "signer key ID does not match the external trust pin",
+                ));
+            }
+            let payload_bytes = decode_canonical_base64url(&envelope.payload_base64url, "payload")?;
+            let signature =
+                decode_canonical_base64url(&envelope.signature_base64url, "signature")?;
+            verify_manifest_signature(
+                &trusted_signer.public_key_spki,
+                &envelope.signer_key_id,
+                &payload_bytes,
+                &signature,
+                SIGNATURE_DOMAIN,
+            )?;
+            if parse_epoch(&policy.last_accepted_manifest_authority_generation, true)? > 0 {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "Manifest authentication downgrade is not allowed",
+                ));
+            }
+            (
+                payload_bytes,
+                RuntimeConfigManifestAuthority {
+                    envelope_schema_version: MANIFEST_SCHEMA_VERSION,
+                    signer_key_id: envelope.signer_key_id,
+                    audience_manifest_url_sha256: sha256_base64url(
+                        policy.manifest_url.as_bytes(),
+                    ),
+                    delegation_generation: None,
+                    delegation_sha256: None,
+                    approved_config_sha256: None,
+                },
+            )
+        }
+        DELEGATED_ENVELOPE_SCHEMA_VERSION => {
+            let envelope: DelegatedRuntimeConfigManifestEnvelope =
+                serde_json::from_value(envelope_header).map_err(|_| {
+                    RuntimeConfigManifestError::Invalid(
+                        "delegated envelope schema is invalid",
+                    )
+                })?;
+            if envelope.scope != DELEGATED_ENVELOPE_SCOPE
+                || envelope.signature_algorithm != SIGNATURE_ALGORITHM
+            {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "delegated envelope schema or signature algorithm is invalid",
+                ));
+            }
+            validate_key_id(&envelope.signer_key_id)?;
+            let payload_bytes =
+                decode_canonical_base64url(&envelope.payload_base64url, "payload")?;
+            let signature =
+                decode_canonical_base64url(&envelope.signature_base64url, "signature")?;
+            let delegation_bytes = decode_canonical_base64url(
+                &envelope.manifest_authority_delegation_base64url,
+                "Manifest authority delegation",
+            )?;
+            let payload: RuntimeConfigManifestPayload =
+                serde_json::from_slice(&payload_bytes)
+                    .map_err(|_| RuntimeConfigManifestError::Invalid("payload JSON is invalid"))?;
+            if canonical_json_bytes(&payload)? != payload_bytes {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "payload is not canonical JSON",
+                ));
+            }
+            let (delegation, delegation_sha256) =
+                verify_manifest_authority_delegation(&delegation_bytes, trusted_signer, policy)?;
+            if envelope.signer_key_id != delegation.key_id {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "Manifest child signer does not match its root delegation",
+                ));
+            }
+            let issued_at = parse_canonical_utc(&payload.issued_at)?;
+            let not_before = parse_canonical_utc(&payload.not_before)?;
+            let expires_at = parse_canonical_utc(&payload.expires_at)?;
+            let delegation_not_before = parse_canonical_utc(&delegation.not_before)?;
+            let delegation_not_after = parse_canonical_utc(&delegation.not_after)?;
+            if issued_at < delegation_not_before
+                || issued_at >= delegation_not_after
+                || not_before < delegation_not_before
+                || expires_at > delegation_not_after
+            {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "Manifest validity exceeds its root delegation",
+                ));
+            }
+            let approved_config_sha256 =
+                approved_configuration_sha256(&payload, &policy.manifest_url)?;
+            if delegation.approved_config_sha256 != approved_config_sha256 {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "Manifest is outside the root-approved configuration",
+                ));
+            }
+            let previous_generation =
+                parse_epoch(&policy.last_accepted_manifest_authority_generation, true)?;
+            let generation = parse_epoch(&delegation.delegation_generation, false)?;
+            if generation < previous_generation
+                || (generation == previous_generation
+                    && policy
+                        .last_accepted_manifest_authority_delegation_sha256
+                        .as_deref()
+                        != Some(delegation_sha256.as_str()))
+            {
+                return Err(RuntimeConfigManifestError::Invalid(
+                    "Manifest authority delegation is below persisted high-water",
+                ));
+            }
+            verify_manifest_signature(
+                &delegation.public_key_spki,
+                &envelope.signer_key_id,
+                &payload_bytes,
+                &signature,
+                DELEGATED_SIGNATURE_DOMAIN,
+            )?;
+            (
+                payload_bytes,
+                RuntimeConfigManifestAuthority {
+                    envelope_schema_version: DELEGATED_ENVELOPE_SCHEMA_VERSION,
+                    signer_key_id: envelope.signer_key_id,
+                    audience_manifest_url_sha256: delegation.audience_manifest_url_sha256,
+                    delegation_generation: Some(delegation.delegation_generation),
+                    delegation_sha256: Some(delegation_sha256),
+                    approved_config_sha256: Some(delegation.approved_config_sha256),
+                },
+            )
+        }
+        _ => {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "envelope schema version is unsupported",
+            ))
+        }
+    };
+
+    let payload: RuntimeConfigManifestPayload = serde_json::from_slice(&payload_bytes)
+        .map_err(|_| RuntimeConfigManifestError::Invalid("payload JSON is invalid"))?;
+    validate_payload(&payload, policy.now)?;
+    validate_freshness(&payload, policy, &sha256_base64url(raw_envelope))?;
+    Ok((payload, authority))
+}
+
+fn verify_manifest_signature(
+    public_key_spki: &str,
+    key_id: &str,
+    payload_bytes: &[u8],
+    signature: &[u8],
+    domain: &[u8],
+) -> Result<(), RuntimeConfigManifestError> {
     if signature.len() != 64 {
         return Err(RuntimeConfigManifestError::Invalid(
             "signature must be 64 bytes",
         ));
     }
-    let public_key = decode_ed25519_spki(&trusted_signer.public_key_spki)?;
-    let message = signature_message(&envelope.signer_key_id, &payload_bytes)?;
-    fusou_auth::verify_ed25519_signature(&public_key, &message, &signature)
-        .map_err(|_| RuntimeConfigManifestError::InvalidSignature)?;
+    let public_key = decode_ed25519_spki(public_key_spki)?;
+    let message = signature_message_with_domain(domain, key_id, payload_bytes)?;
+    fusou_auth::verify_ed25519_signature(&public_key, &message, signature)
+        .map_err(|_| RuntimeConfigManifestError::InvalidSignature)
+}
 
-    let payload: RuntimeConfigManifestPayload = serde_json::from_slice(&payload_bytes)
-        .map_err(|_| RuntimeConfigManifestError::Invalid("payload JSON is invalid"))?;
-    if canonical_json_bytes(&payload)? != payload_bytes {
+fn verify_manifest_authority_delegation(
+    raw: &[u8],
+    trusted_signer: &RuntimeConfigTrustedSigner,
+    policy: &RuntimeConfigVerificationPolicy,
+) -> Result<(ManifestAuthorityDelegationPayload, String), RuntimeConfigManifestError> {
+    let envelope_value: Value = serde_json::from_slice(raw).map_err(|_| {
+        RuntimeConfigManifestError::Invalid("Manifest authority delegation envelope is invalid")
+    })?;
+    if canonical_json_bytes(&envelope_value)? != raw {
         return Err(RuntimeConfigManifestError::Invalid(
-            "payload is not canonical JSON",
+            "Manifest authority delegation envelope is not canonical JSON",
         ));
     }
-    validate_payload(&payload, policy.now)?;
-    validate_freshness(&payload, policy, &sha256_base64url(raw_envelope))?;
-    Ok(payload)
+    let envelope: ManifestAuthorityDelegationEnvelope =
+        serde_json::from_value(envelope_value).map_err(|_| {
+            RuntimeConfigManifestError::Invalid(
+                "Manifest authority delegation envelope schema is invalid",
+            )
+        })?;
+    if envelope.schema_version != MANIFEST_DELEGATION_SCHEMA_VERSION
+        || envelope.scope != MANIFEST_DELEGATION_SCOPE
+        || envelope.signature_algorithm != SIGNATURE_ALGORITHM
+        || envelope.root_key_id != trusted_signer.key_id
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Manifest authority delegation root, schema, or algorithm is invalid",
+        ));
+    }
+    let payload_bytes =
+        decode_canonical_base64url(&envelope.payload_base64url, "Manifest authority payload")?;
+    let signature = decode_canonical_base64url(
+        &envelope.signature_base64url,
+        "Manifest authority signature",
+    )?;
+    verify_manifest_signature(
+        &trusted_signer.public_key_spki,
+        &envelope.root_key_id,
+        &payload_bytes,
+        &signature,
+        MANIFEST_DELEGATION_SIGNATURE_DOMAIN,
+    )?;
+    let payload_value: Value = serde_json::from_slice(&payload_bytes).map_err(|_| {
+        RuntimeConfigManifestError::Invalid("Manifest authority delegation payload is invalid")
+    })?;
+    if canonical_json_bytes(&payload_value)? != payload_bytes {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Manifest authority delegation payload is not canonical JSON",
+        ));
+    }
+    let delegation: ManifestAuthorityDelegationPayload =
+        serde_json::from_value(payload_value).map_err(|_| {
+            RuntimeConfigManifestError::Invalid(
+                "Manifest authority delegation payload schema is invalid",
+            )
+        })?;
+    validate_key_id(&delegation.key_id)?;
+    validate_digest(&delegation.audience_manifest_url_sha256)?;
+    validate_digest(&delegation.approved_config_sha256)?;
+    parse_epoch(&delegation.delegation_generation, false)?;
+    let child_public_key = decode_ed25519_spki(&delegation.public_key_spki)?;
+    let root_public_key = decode_ed25519_spki(&trusted_signer.public_key_spki)?;
+    if child_public_key == root_public_key {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Manifest child signer must be distinct from the Bootstrap root",
+        ));
+    }
+    let expected_audience = sha256_base64url(policy.manifest_url.as_bytes());
+    if delegation.schema_version != MANIFEST_DELEGATION_SCHEMA_VERSION
+        || delegation.scope != MANIFEST_DELEGATION_SCOPE
+        || delegation.purpose != MANIFEST_DELEGATION_PURPOSE
+        || delegation.environment != "production"
+        || delegation.signature_algorithm != SIGNATURE_ALGORITHM
+        || delegation.audience_manifest_url_sha256 != expected_audience
+        || delegation.manifest_envelope_schema_version != DELEGATED_ENVELOPE_SCHEMA_VERSION
+        || delegation.manifest_payload_schema_version != MANIFEST_SCHEMA_VERSION
+        || delegation.revocation_mode != MANIFEST_DELEGATION_REVOCATION_MODE
+        || delegation.key_id == trusted_signer.key_id
+        || delegation.public_key_spki == trusted_signer.public_key_spki
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Manifest authority delegation purpose or binding is invalid",
+        ));
+    }
+    if delegation.max_validity_seconds == 0
+        || delegation.max_validity_seconds > MAX_MANIFEST_DELEGATION_SECONDS
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Manifest authority delegation lifetime is invalid",
+        ));
+    }
+    let issued_at = parse_canonical_utc(&delegation.issued_at)?;
+    let not_before = parse_canonical_utc(&delegation.not_before)?;
+    let not_after = parse_canonical_utc(&delegation.not_after)?;
+    let validity_ms = seconds_to_millis(delegation.max_validity_seconds)?;
+    let skew_ms = seconds_to_millis(policy.max_clock_skew_seconds)?;
+    let now_ms = policy.now.timestamp_millis();
+    if issued_at > not_before
+        || not_before >= not_after
+        || not_after.signed_duration_since(issued_at).num_milliseconds() > validity_ms
+        || issued_at.timestamp_millis() > now_ms + skew_ms
+        || not_before.timestamp_millis() > now_ms + skew_ms
+        || not_after.timestamp_millis() <= now_ms - skew_ms
+    {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Manifest authority delegation is outside its root-issued validity",
+        ));
+    }
+    Ok((delegation, sha256_base64url(raw)))
+}
+
+fn approved_configuration_sha256(
+    payload: &RuntimeConfigManifestPayload,
+    manifest_url: &str,
+) -> Result<String, RuntimeConfigManifestError> {
+    validate_runtime_config_manifest_url(manifest_url)?;
+    let projection = serde_json::json!({
+        "schema_version": 1,
+        "scope": MANIFEST_APPROVED_CONFIG_SCOPE,
+        "environment": payload.environment,
+        "manifest_url_sha256": sha256_base64url(manifest_url.as_bytes()),
+        "manifest_payload_schema_version": payload.schema_version,
+        "source": {
+            "account_id": payload.source.account_id,
+            "script_name": payload.source.script_name,
+            "logical_deployment_id": payload.source.logical_deployment_id,
+            "cloudflare_deployment_id": payload.source.cloudflare_deployment_id,
+            "active_version_id": payload.source.active_version_id,
+            "worker_git_commit_sha": payload.source.worker_git_commit_sha,
+            "disclosure_mode": payload.source.disclosure_mode,
+        },
+        "compile_inputs": &payload.compile_inputs,
+        "production_authority_pins": &payload.production_authority_pins,
+        "result_registry_pins": &payload.result_registry_pins,
+    });
+    Ok(sha256_base64url(&canonical_json_bytes(&projection)?))
 }
 
 #[cfg(feature = "tlsn-production")]
@@ -1305,7 +1707,7 @@ fn verify_result_registry_envelope(
     Ok(())
 }
 
-fn sha256_base64url(raw: &[u8]) -> String {
+pub(crate) fn sha256_base64url(raw: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(raw))
 }
 
@@ -1344,6 +1746,7 @@ fn validate_trusted_signer(
 fn validate_policy(
     policy: &RuntimeConfigVerificationPolicy,
 ) -> Result<(), RuntimeConfigManifestError> {
+    validate_runtime_config_manifest_url(&policy.manifest_url)?;
     if policy.now.timestamp_millis().unsigned_abs() > MAX_SAFE_JS_INTEGER {
         return Err(RuntimeConfigManifestError::Invalid(
             "verification time is outside the interoperable range",
@@ -1358,6 +1761,22 @@ fn validate_policy(
         (0, Some(_)) | (_, None) => {
             return Err(RuntimeConfigManifestError::Invalid(
                 "persisted epoch and manifest digest are inconsistent",
+            ));
+        }
+        (_, Some(digest)) => validate_digest(digest)?,
+    }
+    let manifest_authority_generation =
+        parse_epoch(&policy.last_accepted_manifest_authority_generation, true)?;
+    match (
+        manifest_authority_generation,
+        policy
+            .last_accepted_manifest_authority_delegation_sha256
+            .as_deref(),
+    ) {
+        (0, None) => {}
+        (0, Some(_)) | (_, None) => {
+            return Err(RuntimeConfigManifestError::Invalid(
+                "persisted Manifest authority generation and delegation digest are inconsistent",
             ));
         }
         (_, Some(digest)) => validate_digest(digest)?,
@@ -1945,13 +2364,20 @@ fn signature_message(
     key_id: &str,
     payload_bytes: &[u8],
 ) -> Result<Vec<u8>, RuntimeConfigManifestError> {
+    signature_message_with_domain(SIGNATURE_DOMAIN, key_id, payload_bytes)
+}
+
+fn signature_message_with_domain(
+    domain: &[u8],
+    key_id: &str,
+    payload_bytes: &[u8],
+) -> Result<Vec<u8>, RuntimeConfigManifestError> {
     validate_key_id(key_id)?;
     let key_id = key_id.as_bytes();
     let key_length = u16::try_from(key_id.len())
         .map_err(|_| RuntimeConfigManifestError::Invalid("key ID is too long"))?;
-    let mut message =
-        Vec::with_capacity(SIGNATURE_DOMAIN.len() + 2 + key_id.len() + payload_bytes.len());
-    message.extend_from_slice(SIGNATURE_DOMAIN);
+    let mut message = Vec::with_capacity(domain.len() + 2 + key_id.len() + payload_bytes.len());
+    message.extend_from_slice(domain);
     message.extend_from_slice(&key_length.to_be_bytes());
     message.extend_from_slice(key_id);
     message.extend_from_slice(payload_bytes);
@@ -2029,6 +2455,9 @@ mod tests {
         now_ms: i64,
         last_accepted_epoch: String,
         last_accepted_manifest_sha256: Option<String>,
+        manifest_url: String,
+        last_accepted_manifest_authority_generation: String,
+        last_accepted_manifest_authority_delegation_sha256: Option<String>,
         max_lifetime_seconds: u64,
         max_clock_skew_seconds: u64,
         max_reference_age_seconds: u64,
@@ -2095,8 +2524,17 @@ mod tests {
         };
         let policy = RuntimeConfigVerificationPolicy {
             now: DateTime::from_timestamp_millis(fixture.policy.now_ms).unwrap(),
+            manifest_url: fixture.policy.manifest_url.clone(),
             last_accepted_epoch: fixture.policy.last_accepted_epoch.clone(),
             last_accepted_manifest_sha256: fixture.policy.last_accepted_manifest_sha256.clone(),
+            last_accepted_manifest_authority_generation: fixture
+                .policy
+                .last_accepted_manifest_authority_generation
+                .clone(),
+            last_accepted_manifest_authority_delegation_sha256: fixture
+                .policy
+                .last_accepted_manifest_authority_delegation_sha256
+                .clone(),
             max_lifetime_seconds: fixture.policy.max_lifetime_seconds,
             max_clock_skew_seconds: fixture.policy.max_clock_skew_seconds,
             max_reference_age_seconds: fixture.policy.max_reference_age_seconds,
@@ -2130,8 +2568,12 @@ mod tests {
         let observed_at = parse_canonical_utc(&payload.source.observed_at).unwrap();
         RuntimeConfigVerificationPolicy {
             now: observed_at + chrono::Duration::seconds(1),
+            manifest_url: "https://runtime-config.example.com/tlsn/runtime-config/v2/manifest.json"
+                .to_owned(),
             last_accepted_epoch: "0".to_owned(),
             last_accepted_manifest_sha256: None,
+            last_accepted_manifest_authority_generation: "0".to_owned(),
+            last_accepted_manifest_authority_delegation_sha256: None,
             max_lifetime_seconds: 3600,
             max_clock_skew_seconds: 30,
             max_reference_age_seconds: 600,
@@ -2497,8 +2939,13 @@ mod tests {
                 },
                 &RuntimeConfigVerificationPolicy {
                     now: Utc::now(),
+                    manifest_url:
+                        "https://runtime-config.example.com/tlsn/runtime-config/v2/manifest.json"
+                            .to_owned(),
                     last_accepted_epoch: "0".to_owned(),
                     last_accepted_manifest_sha256: None,
+                    last_accepted_manifest_authority_generation: "0".to_owned(),
+                    last_accepted_manifest_authority_delegation_sha256: None,
                     max_lifetime_seconds: 3600,
                     max_clock_skew_seconds: 30,
                     max_reference_age_seconds: 600,
@@ -2528,8 +2975,13 @@ mod tests {
 
         assert!(validate_policy(&RuntimeConfigVerificationPolicy {
             now: Utc::now(),
+            manifest_url:
+                "https://runtime-config.example.com/tlsn/runtime-config/v2/manifest.json"
+                    .to_owned(),
             last_accepted_epoch: "00".to_owned(),
             last_accepted_manifest_sha256: None,
+            last_accepted_manifest_authority_generation: "0".to_owned(),
+            last_accepted_manifest_authority_delegation_sha256: None,
             max_lifetime_seconds: 3600,
             max_clock_skew_seconds: 30,
             max_reference_age_seconds: 600,

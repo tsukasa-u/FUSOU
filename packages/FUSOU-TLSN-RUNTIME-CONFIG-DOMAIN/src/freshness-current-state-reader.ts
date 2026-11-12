@@ -134,6 +134,7 @@ export interface FreshnessCurrentStateVerifierDependencies {
   };
   readonly releaseRootSigner: RuntimeConfigRootSigner;
   readonly manifestRootSigner: RuntimeConfigRootSigner;
+  readonly manifestUrl: string;
 }
 
 export interface FreshnessReleaseStateReaderDependencies
@@ -390,6 +391,8 @@ export function createFreshnessReleaseStateReader(
       const manifest = await verifyRuntimeConfigManifestEpochPointer({
         raw: evidence.manifestBytes,
         trustedSigner: dependencies.manifestRootSigner,
+        manifestUrl: dependencies.manifestUrl,
+        nowMs: journalClaims.observedAtMs,
       });
       assertReleaseStateBindings(
         evidence,
@@ -1027,7 +1030,9 @@ function assertReleaseStateReaderDependencies(
     typeof dependencies.antiRollbackWitness.verifier?.verifyExternalWitness !==
       "function" ||
     dependencies.releaseRootSigner === undefined ||
-    dependencies.manifestRootSigner === undefined
+    dependencies.manifestRootSigner === undefined ||
+    typeof dependencies.manifestUrl !== "string" ||
+    dependencies.manifestUrl.length === 0
   ) {
     throw new FreshnessCurrentStateReaderError(
       "MISSING_ADAPTER",

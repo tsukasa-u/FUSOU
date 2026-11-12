@@ -1,7 +1,7 @@
 use crate::tlsn_runtime_config_manifest::{
-    fetch_and_verify_with_fetcher, parse_epoch, validate_digest, RuntimeConfigBootstrap,
-    RuntimeConfigManifestError, RuntimeConfigObjectFetcher, RuntimeConfigVerificationPolicy,
-    VerifiedRuntimeConfigManifest,
+    fetch_and_verify_with_fetcher, parse_epoch, sha256_base64url, validate_digest,
+    RuntimeConfigBootstrap, RuntimeConfigManifestError, RuntimeConfigObjectFetcher,
+    RuntimeConfigVerificationPolicy, VerifiedRuntimeConfigManifest,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,9 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-const EPOCH_STATE_SCHEMA_VERSION: u32 = 1;
-const EPOCH_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v1";
+const EPOCH_STATE_SCHEMA_VERSION: u32 = 2;
+const EPOCH_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v2";
+const LEGACY_EPOCH_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v1";
 const EPOCH_STATE_MAX_BYTES: u64 = 1024;
 pub(crate) const MAX_MANIFEST_LIFETIME_SECONDS: u64 = 3600;
 pub(crate) const MAX_CLOCK_SKEW_SECONDS: u64 = 30;
@@ -62,18 +63,30 @@ impl RuntimeConfigManager {
         now: DateTime<Utc>,
     ) -> Result<VerifiedRuntimeConfigManifest, RuntimeConfigManifestError> {
         let _guard = self.refresh_lock.lock().await;
-        let accepted = self.epoch_state.read()?;
+        let manifest_audience_sha256 =
+            sha256_base64url(bootstrap.manifest_url().as_bytes());
+        let accepted = self
+            .epoch_state
+            .read("production", &manifest_audience_sha256)?;
         let policy = RuntimeConfigVerificationPolicy {
             now,
+            manifest_url: bootstrap.manifest_url().to_owned(),
             last_accepted_epoch: accepted.last_accepted_epoch.clone(),
             last_accepted_manifest_sha256: accepted.last_accepted_manifest_sha256.clone(),
+            last_accepted_manifest_authority_generation: accepted
+                .last_accepted_manifest_authority_generation
+                .clone(),
+            last_accepted_manifest_authority_delegation_sha256: accepted
+                .last_accepted_manifest_authority_delegation_sha256
+                .clone(),
             max_lifetime_seconds: MAX_MANIFEST_LIFETIME_SECONDS,
             max_clock_skew_seconds: MAX_CLOCK_SKEW_SECONDS,
             max_reference_age_seconds: MAX_WORKER_REFERENCE_AGE_SECONDS,
             max_envelope_bytes: MAX_MANIFEST_ENVELOPE_BYTES,
         };
         let verified = fetch_and_verify_with_fetcher(bootstrap, &policy, fetcher).await?;
-        self.epoch_state.accept(&verified)?;
+        self.epoch_state
+            .accept(&verified, "production", &manifest_audience_sha256)?;
         Ok(verified)
     }
 }
@@ -101,7 +114,17 @@ impl RuntimeConfigEpochStateStore {
         Self { path }
     }
 
-    fn read(&self) -> Result<PersistedEpochState, RuntimeConfigManifestError> {
+    fn read(
+        &self,
+        environment: &str,
+        manifest_audience_sha256: &str,
+    ) -> Result<PersistedEpochState, RuntimeConfigManifestError> {
+        validate_digest(manifest_audience_sha256)?;
+        if environment != "production" {
+            return Err(RuntimeConfigManifestError::State(
+                "Runtime Config epoch state environment is unsupported",
+            ));
+        }
         let parent = self.path.parent().ok_or(RuntimeConfigManifestError::State(
             "state path has no parent directory",
         ))?;
@@ -115,7 +138,10 @@ impl RuntimeConfigEpochStateStore {
         let metadata = match fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(PersistedEpochState::initial())
+                return Ok(PersistedEpochState::initial(
+                    environment,
+                    manifest_audience_sha256,
+                ))
             }
             Err(_) => {
                 return Err(RuntimeConfigManifestError::State(
@@ -143,6 +169,34 @@ impl RuntimeConfigEpochStateStore {
         let bytes = fs::read(&self.path).map_err(|_| {
             RuntimeConfigManifestError::State("persisted epoch state cannot be read")
         })?;
+        if let Ok(legacy) = serde_json::from_slice::<LegacyEpochState>(&bytes) {
+            if serde_json::to_vec(&legacy).ok().as_deref() == Some(bytes.as_slice())
+                && legacy.schema_version == 1
+                && legacy.scope == LEGACY_EPOCH_STATE_SCOPE
+            {
+                let epoch = parse_epoch(&legacy.last_accepted_epoch, true)?;
+                match (epoch, legacy.last_accepted_manifest_sha256.as_deref()) {
+                    (0, None) => {}
+                    (0, Some(_)) | (_, None) => {
+                        return Err(RuntimeConfigManifestError::State(
+                            "legacy epoch and Manifest digest are inconsistent",
+                        ))
+                    }
+                    (_, Some(digest)) => validate_digest(digest)?,
+                }
+                return Ok(PersistedEpochState {
+                    schema_version: EPOCH_STATE_SCHEMA_VERSION,
+                    scope: EPOCH_STATE_SCOPE.to_owned(),
+                    environment: environment.to_owned(),
+                    manifest_audience_sha256: manifest_audience_sha256.to_owned(),
+                    last_accepted_epoch: legacy.last_accepted_epoch,
+                    last_accepted_manifest_sha256: legacy.last_accepted_manifest_sha256,
+                    last_accepted_manifest_authority_generation: "0".to_owned(),
+                    last_accepted_manifest_authority_delegation_sha256: None,
+                    migration_pending: true,
+                });
+            }
+        }
         let state: PersistedEpochState = serde_json::from_slice(&bytes)
             .map_err(|_| RuntimeConfigManifestError::State("persisted epoch state is malformed"))?;
         let canonical = serde_json::to_vec(&state)
@@ -155,6 +209,13 @@ impl RuntimeConfigEpochStateStore {
                 "persisted epoch state schema or canonical form is invalid",
             ));
         }
+        if state.environment != environment
+            || state.manifest_audience_sha256 != manifest_audience_sha256
+        {
+            return Err(RuntimeConfigManifestError::State(
+                "persisted epoch state belongs to another environment or Manifest audience",
+            ));
+        }
         let epoch = parse_epoch(&state.last_accepted_epoch, true)?;
         match (epoch, state.last_accepted_manifest_sha256.as_deref()) {
             (0, None) => {}
@@ -165,14 +226,32 @@ impl RuntimeConfigEpochStateStore {
             }
             (_, Some(digest)) => validate_digest(digest)?,
         }
+        let authority_generation =
+            parse_epoch(&state.last_accepted_manifest_authority_generation, true)?;
+        match (
+            authority_generation,
+            state
+                .last_accepted_manifest_authority_delegation_sha256
+                .as_deref(),
+        ) {
+            (0, None) => {}
+            (0, Some(_)) | (_, None) => {
+                return Err(RuntimeConfigManifestError::State(
+                    "persisted Manifest authority generation and digest are inconsistent",
+                ))
+            }
+            (_, Some(digest)) => validate_digest(digest)?,
+        }
         Ok(state)
     }
 
     fn accept(
         &self,
         verified: &VerifiedRuntimeConfigManifest,
+        environment: &str,
+        manifest_audience_sha256: &str,
     ) -> Result<(), RuntimeConfigManifestError> {
-        let current = self.read()?;
+        let current = self.read(environment, manifest_audience_sha256)?;
         let current_epoch = parse_epoch(&current.last_accepted_epoch, true)?;
         let verified_epoch = parse_epoch(verified.epoch(), false)?;
         if verified_epoch < current_epoch
@@ -184,15 +263,50 @@ impl RuntimeConfigEpochStateStore {
                 "verified manifest does not advance or exactly match persisted state",
             ));
         }
-        if verified_epoch == current_epoch {
+        let current_authority_generation =
+            parse_epoch(&current.last_accepted_manifest_authority_generation, true)?;
+        let verified_authority_generation = verified
+            .authority()
+            .delegation_generation()
+            .map(|generation| parse_epoch(generation, false))
+            .transpose()?
+            .unwrap_or(0);
+        if verified_authority_generation < current_authority_generation
+            || (verified_authority_generation == current_authority_generation
+                && current
+                    .last_accepted_manifest_authority_delegation_sha256
+                    .as_deref()
+                    != verified.authority().delegation_sha256())
+        {
+            return Err(RuntimeConfigManifestError::State(
+                "verified Manifest authority does not advance or exactly match persisted state",
+            ));
+        }
+        if verified_epoch == current_epoch
+            && verified_authority_generation == current_authority_generation
+            && current
+                .last_accepted_manifest_authority_delegation_sha256
+                .as_deref()
+                == verified.authority().delegation_sha256()
+            && !current.migration_pending
+        {
             return Ok(());
         }
 
         let next = PersistedEpochState {
             schema_version: EPOCH_STATE_SCHEMA_VERSION,
             scope: EPOCH_STATE_SCOPE.to_owned(),
+            environment: environment.to_owned(),
+            manifest_audience_sha256: manifest_audience_sha256.to_owned(),
             last_accepted_epoch: verified.epoch().to_owned(),
             last_accepted_manifest_sha256: Some(verified.manifest_sha256().to_owned()),
+            last_accepted_manifest_authority_generation: verified_authority_generation
+                .to_string(),
+            last_accepted_manifest_authority_delegation_sha256: verified
+                .authority()
+                .delegation_sha256()
+                .map(str::to_owned),
+            migration_pending: false,
         };
         self.write_atomic(&next)
     }
@@ -256,19 +370,39 @@ pub(crate) fn write_state_atomic_bytes(
 struct PersistedEpochState {
     schema_version: u32,
     scope: String,
+    environment: String,
+    manifest_audience_sha256: String,
     last_accepted_epoch: String,
     last_accepted_manifest_sha256: Option<String>,
+    last_accepted_manifest_authority_generation: String,
+    last_accepted_manifest_authority_delegation_sha256: Option<String>,
+    #[serde(skip)]
+    migration_pending: bool,
 }
 
 impl PersistedEpochState {
-    fn initial() -> Self {
+    fn initial(environment: &str, manifest_audience_sha256: &str) -> Self {
         Self {
             schema_version: EPOCH_STATE_SCHEMA_VERSION,
             scope: EPOCH_STATE_SCOPE.to_owned(),
+            environment: environment.to_owned(),
+            manifest_audience_sha256: manifest_audience_sha256.to_owned(),
             last_accepted_epoch: "0".to_owned(),
             last_accepted_manifest_sha256: None,
+            last_accepted_manifest_authority_generation: "0".to_owned(),
+            last_accepted_manifest_authority_delegation_sha256: None,
+            migration_pending: false,
         }
     }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyEpochState {
+    schema_version: u32,
+    scope: String,
+    last_accepted_epoch: String,
+    last_accepted_manifest_sha256: Option<String>,
 }
 
 fn sync_parent_directory(parent: &Path) -> Result<(), std::io::Error> {
@@ -465,21 +599,36 @@ mod tests {
         (directory, path)
     }
 
+    fn test_manifest_audience_sha256() -> String {
+        sha256_base64url(TEST_MANIFEST_URL.as_bytes())
+    }
+
+    fn read_test_state(
+        store: &RuntimeConfigEpochStateStore,
+    ) -> Result<PersistedEpochState, RuntimeConfigManifestError> {
+        store.read("production", &test_manifest_audience_sha256())
+    }
+
     #[test]
     fn epoch_state_starts_empty_and_roundtrips_canonical_state_atomically() {
         let (directory, path) = test_store();
         let store = RuntimeConfigEpochStateStore::new(path.clone());
-        assert_eq!(store.read().unwrap().last_accepted_epoch, "0");
+        assert_eq!(read_test_state(&store).unwrap().last_accepted_epoch, "0");
         let state = PersistedEpochState {
             schema_version: EPOCH_STATE_SCHEMA_VERSION,
             scope: EPOCH_STATE_SCOPE.to_owned(),
+            environment: "production".to_owned(),
+            manifest_audience_sha256: test_manifest_audience_sha256(),
             last_accepted_epoch: "4".to_owned(),
             last_accepted_manifest_sha256: Some("A".repeat(43)),
+            last_accepted_manifest_authority_generation: "2".to_owned(),
+            last_accepted_manifest_authority_delegation_sha256: Some("B".repeat(43)),
+            migration_pending: false,
         };
         store.write_atomic(&state).unwrap();
-        assert_eq!(store.read().unwrap().last_accepted_epoch, "4");
+        assert_eq!(read_test_state(&store).unwrap().last_accepted_epoch, "4");
         assert_eq!(
-            store.read().unwrap().last_accepted_manifest_sha256,
+            read_test_state(&store).unwrap().last_accepted_manifest_sha256,
             state.last_accepted_manifest_sha256
         );
         fs::remove_dir_all(directory).unwrap();
@@ -491,7 +640,7 @@ mod tests {
         let store = RuntimeConfigEpochStateStore::new(path.clone());
         fs::write(&path, br#"{"schema_version":1,"scope":"wrong","last_accepted_epoch":"1","last_accepted_manifest_sha256":null}"#).unwrap();
         assert!(matches!(
-            store.read(),
+            read_test_state(&store),
             Err(RuntimeConfigManifestError::State(_))
         ));
 
@@ -501,24 +650,32 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             fs::write(
                 &path,
-                serde_json::to_vec(&PersistedEpochState::initial()).unwrap(),
+                serde_json::to_vec(&PersistedEpochState::initial(
+                    "production",
+                    &test_manifest_audience_sha256(),
+                ))
+                .unwrap(),
             )
             .unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
             assert!(matches!(
-                store.read(),
+                read_test_state(&store),
                 Err(RuntimeConfigManifestError::State(_))
             ));
             fs::remove_file(&path).unwrap();
             let target = directory.join("target.json");
             fs::write(
                 &target,
-                serde_json::to_vec(&PersistedEpochState::initial()).unwrap(),
+                serde_json::to_vec(&PersistedEpochState::initial(
+                    "production",
+                    &test_manifest_audience_sha256(),
+                ))
+                .unwrap(),
             )
             .unwrap();
             std::os::unix::fs::symlink(&target, &path).unwrap();
             assert!(matches!(
-                store.read(),
+                read_test_state(&store),
                 Err(RuntimeConfigManifestError::State(_))
             ));
         }
@@ -535,7 +692,7 @@ mod tests {
             .refresh_with_fetcher_at(&bootstrap, &fetcher, now)
             .await
             .unwrap();
-        let accepted = manager.epoch_state.read().unwrap();
+        let accepted = read_test_state(&manager.epoch_state).unwrap();
         assert_eq!(accepted.last_accepted_epoch, verified.epoch());
         assert_eq!(
             accepted.last_accepted_manifest_sha256.as_deref(),
@@ -560,7 +717,7 @@ mod tests {
                 .await,
             Err(RuntimeConfigManifestError::Invalid(_))
         ));
-        assert_eq!(manager.epoch_state.read().unwrap().last_accepted_epoch, "1");
+        assert_eq!(read_test_state(&manager.epoch_state).unwrap().last_accepted_epoch, "1");
 
         fetcher.replace("/worker-reference/", original);
         let repeated = manager
@@ -568,7 +725,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(repeated.manifest_sha256(), verified.manifest_sha256());
-        assert_eq!(manager.epoch_state.read().unwrap().last_accepted_epoch, "1");
+        assert_eq!(read_test_state(&manager.epoch_state).unwrap().last_accepted_epoch, "1");
 
         fs::remove_dir_all(directory).unwrap();
     }
@@ -584,7 +741,7 @@ mod tests {
         .unwrap();
 
         assert!(registered_manager.is_some());
-        assert_eq!(manager.epoch_state.read().unwrap().last_accepted_epoch, "0");
+        assert_eq!(read_test_state(&manager.epoch_state).unwrap().last_accepted_epoch, "0");
         assert!(!path.exists());
 
         let error = match register_runtime_config_manager(path, |_| false) {

@@ -8,11 +8,15 @@ import { test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import { canonicalJson } from "./production-trust-contract.mjs";
 import {
+  createTlsnRuntimeConfigDelegatedEnvelopeRaw,
   createTlsnRuntimeConfigPublicationObjects,
   createTlsnRuntimeConfigEnvelopeRaw,
   prepareTlsnRuntimeConfigManifest,
+  tlsnRuntimeConfigApprovedConfigurationSha256,
+  tlsnRuntimeConfigDelegatedSigningBytes,
   tlsnRuntimeConfigSigningBytes,
   verifyTlsnRuntimeConfigEnvelope,
+  verifyTlsnRuntimeConfigEpochPointer,
   verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
 import {
@@ -42,6 +46,9 @@ import { productionSecurityRegistrySetHash } from "./security-registry-set-contr
 
 const signerKeyId = "runtime-config-test";
 const keyPair = generateKeyPairSync("ed25519");
+const childSignerKeyId = "runtime-config-manifest-test-child";
+const childKeyPair = generateKeyPairSync("ed25519");
+const manifestUrl = "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json";
 const trustedSigner = {
   scope: "fusou-tlsn-runtime-config-signing-root-v2",
   key_id: signerKeyId,
@@ -83,6 +90,9 @@ function policy(prepared, overrides = {}) {
     max_clock_skew_seconds: 30,
     max_reference_age_seconds: 600,
     max_envelope_bytes: 1024 * 1024,
+    manifest_url: "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+    last_accepted_manifest_authority_generation: "0",
+    last_accepted_manifest_authority_delegation_sha256: null,
     ...overrides,
   };
 }
@@ -90,6 +100,13 @@ function policy(prepared, overrides = {}) {
 async function loadIndependentVerificationVector() {
   return JSON.parse(await readFile(
     new URL("./fixtures/tlsn-runtime-config-independent-v2-vector.json", import.meta.url),
+    "utf8",
+  ));
+}
+
+async function loadManifestDelegationGoldenVector() {
+  return JSON.parse(await readFile(
+    new URL("./fixtures/tlsn-runtime-config-manifest-delegation-v1-golden.json", import.meta.url),
     "utf8",
   ));
 }
@@ -142,12 +159,81 @@ function currentIndependentInputs(workerReferenceRaw = referenceRaw()) {
 function testSignerProvider() {
   return {
     mode: "test-only",
-    key_id: signerKeyId,
-    public_key_spki: trustedSigner.public_key_spki,
+    key_id: childSignerKeyId,
+    public_key_spki: childKeyPair.publicKey.export({ format: "der", type: "spki" }).toString("base64url"),
     sign(bytes) {
-      return sign(null, bytes, keyPair.privateKey);
+      return sign(null, bytes, childKeyPair.privateKey);
     },
   };
+}
+
+function manifestDelegation(prepared, overrides = {}) {
+  const issuedAt = Date.parse(prepared.payload.issued_at);
+  const childSigner = testSignerProvider();
+  const payload = {
+    schema_version: 1,
+    scope: "fusou-tlsn-runtime-config-manifest-delegation-v1",
+    purpose: "runtime-config-manifest-v1",
+    environment: "production",
+    key_id: childSigner.key_id,
+    public_key_spki: childSigner.public_key_spki,
+    signature_algorithm: "Ed25519",
+    audience_manifest_url_sha256: createHash("sha256").update(manifestUrl).digest("base64url"),
+    manifest_envelope_schema_version: 3,
+    manifest_payload_schema_version: 2,
+    approved_config_sha256: tlsnRuntimeConfigApprovedConfigurationSha256(
+      prepared.payload,
+      manifestUrl,
+    ),
+    delegation_generation: "1",
+    issued_at: new Date(issuedAt).toISOString(),
+    not_before: new Date(issuedAt).toISOString(),
+    not_after: new Date(issuedAt + 86_400_000).toISOString(),
+    max_validity_seconds: 86_400,
+    revocation_mode: "expiry-and-client-high-water-v1",
+    ...overrides,
+  };
+  const payloadBytes = Buffer.from(canonicalJson(payload), "utf8");
+  const keyIdBytes = Buffer.from(signerKeyId, "ascii");
+  const keyIdLength = Buffer.alloc(2);
+  keyIdLength.writeUInt16BE(keyIdBytes.length);
+  const signature = sign(
+    null,
+    Buffer.concat([
+      Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-DELEGATION-V1\0", "ascii"),
+      keyIdLength,
+      keyIdBytes,
+      payloadBytes,
+    ]),
+    keyPair.privateKey,
+  );
+  const raw = Buffer.from(canonicalJson({
+    schema_version: 1,
+    scope: "fusou-tlsn-runtime-config-manifest-delegation-v1",
+    signature_algorithm: "Ed25519",
+    root_key_id: signerKeyId,
+    payload_base64url: payloadBytes.toString("base64url"),
+    signature_base64url: signature.toString("base64url"),
+  }));
+  return Object.freeze({ raw, payload });
+}
+
+function signedDelegatedRaw(prepared, options = {}) {
+  const authority = options.authority ?? manifestDelegation(prepared);
+  const payload = { ...prepared.payload, ...(options.payloadOverrides ?? {}) };
+  const payloadBytes = Buffer.from(canonicalJson(payload), "utf8");
+  const signer = options.signer ?? testSignerProvider();
+  const signature = sign(
+    null,
+    tlsnRuntimeConfigDelegatedSigningBytes(signer.key_id, payload, new Date(policy(prepared).now_ms)),
+    options.privateKey ?? childKeyPair.privateKey,
+  );
+  return createTlsnRuntimeConfigDelegatedEnvelopeRaw({
+    signerKeyId: signer.key_id,
+    payloadBase64Url: payloadBytes.toString("base64url"),
+    signatureBase64Url: signature.toString("base64url"),
+    manifestAuthorityDelegationRaw: authority.raw,
+  });
 }
 
 function workerReferenceRevalidation() {
@@ -702,6 +788,9 @@ test("the Node-produced cross-language golden vector verifies without a producti
       max_clock_skew_seconds: 30,
       max_reference_age_seconds: 600,
       max_envelope_bytes: 4096,
+      manifest_url: "https://runtime-config.example.org/tlsn/runtime-config/v2/manifest.json",
+      last_accepted_manifest_authority_generation: "0",
+      last_accepted_manifest_authority_delegation_sha256: null,
     },
   });
   assert.equal(verified.epoch, "1");
@@ -736,6 +825,84 @@ test("Production verification binds raw artifacts to pins authenticated by the s
   );
   assert.equal(Object.isFrozen(verified.payload), true);
   assert.equal(Object.isFrozen(verified.matched_inputs), true);
+});
+
+test("Manifest delegation golden raw vectors agree across Node verification entry points", async () => {
+  const vector = await loadManifestDelegationGoldenVector();
+  assert.equal(vector.test_only, true);
+  for (const testVector of vector.vectors) {
+    const raw = Buffer.from(testVector.manifest_envelope_base64url, "base64url");
+    const independentInputs = {
+      ...independentInputsFrom(vector),
+      ...Object.fromEntries(
+        Object.entries(testVector.inputs_base64url ?? {}).map(([name, value]) => [
+          name,
+          Buffer.from(value, "base64url"),
+        ]),
+      ),
+    };
+    const selectedPolicy = {
+      ...vector.policy,
+      ...testVector.policy_overrides,
+    };
+    const selectedSigner = testVector.trusted_signer ?? vector.trusted_signer;
+    const pointer = () => verifyTlsnRuntimeConfigEpochPointer(raw, {
+      trustedSigner: selectedSigner,
+      maxEnvelopeBytes: selectedPolicy.max_envelope_bytes,
+      manifestUrl: selectedPolicy.manifest_url,
+      nowMs: selectedPolicy.now_ms,
+      maxClockSkewSeconds: selectedPolicy.max_clock_skew_seconds,
+      lastAcceptedEpoch: selectedPolicy.last_accepted_epoch,
+      lastAcceptedManifestSha256: selectedPolicy.last_accepted_manifest_sha256,
+      lastAcceptedManifestAuthorityGeneration:
+        selectedPolicy.last_accepted_manifest_authority_generation,
+      lastAcceptedManifestAuthorityDelegationSha256:
+        selectedPolicy.last_accepted_manifest_authority_delegation_sha256,
+    });
+    const production = () => verifyTlsnRuntimeConfigProductionEnvelope(raw, {
+      trustedSigner: selectedSigner,
+      policy: selectedPolicy,
+      independentInputs,
+    });
+    const [pointerResult, productionResult] = await Promise.allSettled([
+      Promise.resolve().then(pointer),
+      Promise.resolve().then(production),
+    ]);
+    assert.equal(
+      pointerResult.status === "fulfilled",
+      testVector.expected_accept,
+      `${testVector.name}: pointer verifier outcome`,
+    );
+    assert.equal(
+      productionResult.status === "fulfilled",
+      testVector.expected_accept,
+      `${testVector.name}: Production verifier outcome`,
+    );
+    if (testVector.expected_accept) {
+      assert.equal(
+        pointerResult.value.manifest_authority_generation,
+        testVector.expected_authority_generation,
+        `${testVector.name}: pointer generation`,
+      );
+      if (testVector.expected_epoch !== undefined) {
+        assert.equal(
+          pointerResult.value.epoch,
+          testVector.expected_epoch,
+          `${testVector.name}: pointer epoch`,
+        );
+        assert.equal(
+          productionResult.value.payload.epoch,
+          testVector.expected_epoch,
+          `${testVector.name}: Production epoch`,
+        );
+      }
+      assert.equal(
+        productionResult.value.manifest_authority_generation,
+        testVector.expected_authority_generation,
+        `${testVector.name}: Production generation`,
+      );
+    }
+  }
 });
 
 test("publication objects use signed content-addressed keys and publish the mutable manifest last", async () => {
@@ -778,15 +945,16 @@ test("publication objects use signed content-addressed keys and publish the muta
   }
 });
 
-test("test-only Runtime Config signing verifies the ephemeral signer against its explicit test pin", async () => {
+test("test-only Manifest publishing validates the root delegation before child signing", async () => {
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
+  const authority = manifestDelegation(prepared);
   let signerCalls = 0;
   const signerProvider = {
     ...testSignerProvider(),
     sign(bytes) {
       signerCalls += 1;
-      return sign(null, bytes, keyPair.privateKey);
+      return sign(null, bytes, childKeyPair.privateKey);
     },
   };
 
@@ -794,36 +962,43 @@ test("test-only Runtime Config signing verifies the ephemeral signer against its
     prepared,
     signerProvider,
     trustedSigner,
+    manifestAuthorityDelegationRaw: authority.raw,
     policy: policy(prepared),
     independentInputs: inputs,
   });
   assert.equal(signerCalls, 1);
   assert.equal(signed.verification.state, "MANIFEST_AND_SIGNED_PINS_VERIFIED");
-  assert.equal(JSON.parse(signed.raw_envelope).signer_key_id, trustedSigner.key_id);
+  assert.equal(JSON.parse(signed.raw_envelope).signer_key_id, childSignerKeyId);
+  assert.equal(
+    JSON.parse(signed.raw_envelope).manifest_authority_delegation_base64url,
+    authority.raw.toString("base64url"),
+  );
   assert.doesNotThrow(() => verifyTlsnRuntimeConfigEnvelope(signed.raw_envelope, {
-      trustedSigner,
+    trustedSigner,
     policy: policy(prepared),
-    }));
+  }));
 
   await assert.rejects(
     () => signTlsnRuntimeConfigManifestForTest({
       prepared,
       signerProvider: { ...signerProvider, key_id: "untrusted-signer" },
       trustedSigner,
+      manifestAuthorityDelegationRaw: authority.raw,
       policy: policy(prepared),
       independentInputs: inputs,
     }),
-    /does not match the independent signer pin/,
+    /does not match the root delegation/,
   );
   await assert.rejects(
     () => signTlsnRuntimeConfigManifestForTest({
       prepared,
       signerProvider: { ...testSignerProvider(), sign: async () => Buffer.alloc(64) },
       trustedSigner,
+      manifestAuthorityDelegationRaw: authority.raw,
       policy: policy(prepared),
       independentInputs: inputs,
     }),
-    /runtime configuration signature verification failed/,
+    /delegated runtime configuration signature verification failed/,
   );
   assert.equal(signerCalls, 1);
 });
@@ -884,12 +1059,13 @@ test("test-only publication refuses an unset signer before accessing the fake ob
       prepared,
       signerProvider: undefined,
       trustedSigner,
+      manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
       policy: policy(prepared),
       independentInputs: inputs,
       workerReferenceRevalidation: workerReferenceRevalidation(),
       objectStore: store,
     }),
-    /test-only manifest signer provider does not match the independent signer pin/,
+    /test-only Manifest child signer provider does not match the root delegation/,
   );
   assert.deepEqual(store.events, []);
   assert.equal(store.objects.size, 0);
@@ -904,6 +1080,7 @@ test("Runtime Config publisher reads back immutable artifacts before atomic mani
     prepared,
     signerProvider: testSignerProvider(),
     trustedSigner,
+    manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
     policy: policy(prepared),
     independentInputs: inputs,
     workerReferenceRevalidation: workerReferenceRevalidation(),
@@ -941,6 +1118,7 @@ test("Runtime Config publisher refuses a signed epoch rollback against the curre
       prepared,
       signerProvider: testSignerProvider(),
       trustedSigner,
+      manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
       policy: policy(prepared),
       independentInputs: inputs,
       workerReferenceRevalidation: workerReferenceRevalidation(),
@@ -966,6 +1144,7 @@ test("Runtime Config publisher fails closed when a nonzero epoch high-water has 
       prepared,
       signerProvider: testSignerProvider(),
       trustedSigner,
+      manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
       policy: policy(prepared, {
         last_accepted_epoch: "1",
         last_accepted_manifest_sha256: "A".repeat(43),
@@ -987,6 +1166,7 @@ test("Runtime Config publisher refuses different manifest bytes at the current s
   const options = {
     signerProvider: testSignerProvider(),
     trustedSigner,
+    manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
     policy: policy(prepared),
     independentInputs: inputs,
     workerReferenceRevalidation: workerReferenceRevalidation(),
@@ -1023,6 +1203,7 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
     prepared,
     signerProvider: testSignerProvider(),
     trustedSigner,
+    manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
     policy: policy(prepared),
     independentInputs: inputs,
     workerReferenceRevalidation: workerReferenceRevalidation(),
@@ -1069,6 +1250,7 @@ test("Runtime Config publication distinguishes a verified competing release from
     prepared,
     signerProvider: testSignerProvider(),
     trustedSigner,
+    manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
     policy: policy(prepared),
     independentInputs: inputs,
     workerReferenceRevalidation: workerReferenceRevalidation(),
@@ -1092,6 +1274,7 @@ test("Runtime Config publication distinguishes a verified competing release from
       prepared,
       signerProvider: testSignerProvider(),
       trustedSigner,
+      manifestAuthorityDelegationRaw: manifestDelegation(prepared).raw,
       policy: policy(prepared),
       independentInputs: inputs,
       workerReferenceRevalidation: workerReferenceRevalidation(),

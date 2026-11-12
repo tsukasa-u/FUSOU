@@ -35,9 +35,10 @@ const MAX_FRESHNESS_DEADLINE: Duration = Duration::from_secs(10);
 const MAX_FRESHNESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_FRESHNESS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_FRESHNESS_STATE_BYTES: u64 = 4_096;
-const FRESHNESS_STATE_SCHEMA_VERSION: u32 = 2;
-const FRESHNESS_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v2";
+const FRESHNESS_STATE_SCHEMA_VERSION: u32 = 3;
+const FRESHNESS_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v3";
 const LEGACY_EPOCH_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v1";
+const PREVIOUS_FRESHNESS_STATE_SCOPE: &str = "fusou-tlsn-runtime-config-epoch-state-v2";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -168,6 +169,23 @@ struct LegacyEpochState {
 struct FreshnessEpochState {
     schema_version: u32,
     scope: String,
+    environment: String,
+    manifest_audience_sha256: String,
+    last_accepted_epoch: String,
+    last_accepted_manifest_sha256: Option<String>,
+    manifest_authority_generation: String,
+    manifest_authority_delegation_sha256: Option<String>,
+    commit_generation: Option<String>,
+    release_commit_record_sha256: Option<String>,
+    freshness_delegation_generation: Option<String>,
+    freshness_delegation_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct PreviousFreshnessEpochState {
+    schema_version: u32,
+    scope: String,
     last_accepted_epoch: String,
     last_accepted_manifest_sha256: Option<String>,
     commit_generation: Option<String>,
@@ -180,6 +198,7 @@ struct FreshnessEpochState {
 enum PriorState {
     Missing,
     Legacy(LegacyEpochState),
+    Previous(PreviousFreshnessEpochState),
     Current(FreshnessEpochState),
 }
 
@@ -191,10 +210,24 @@ impl PriorState {
                 &state.last_accepted_epoch,
                 state.last_accepted_manifest_sha256.as_deref(),
             ),
+            Self::Previous(state) => (
+                &state.last_accepted_epoch,
+                state.last_accepted_manifest_sha256.as_deref(),
+            ),
             Self::Current(state) => (
                 &state.last_accepted_epoch,
                 state.last_accepted_manifest_sha256.as_deref(),
             ),
+        }
+    }
+
+    fn manifest_authority_high_water(&self) -> (&str, Option<&str>) {
+        match self {
+            Self::Current(state) => (
+                &state.manifest_authority_generation,
+                state.manifest_authority_delegation_sha256.as_deref(),
+            ),
+            Self::Missing | Self::Legacy(_) | Self::Previous(_) => ("0", None),
         }
     }
 
@@ -204,7 +237,18 @@ impl PriorState {
                 state.freshness_delegation_generation.as_deref()?,
                 state.freshness_delegation_sha256.as_deref()?,
             )),
+            Self::Previous(state) => Some((
+                state.freshness_delegation_generation.as_deref()?,
+                state.freshness_delegation_sha256.as_deref()?,
+            )),
             _ => None,
+        }
+    }
+
+    fn audience_binding(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Current(state) => Some((&state.environment, &state.manifest_audience_sha256)),
+            Self::Missing | Self::Legacy(_) | Self::Previous(_) => None,
         }
     }
 }
@@ -351,11 +395,19 @@ pub(crate) async fn refresh(
     validate_runtime_config_manifest_url(bootstrap.manifest_url.as_str())?;
     let state_store = FreshnessEpochStateStore::new(state_path.to_path_buf());
     let prior_state = state_store.read()?;
+    let manifest_audience_sha256 = sha256_base64url(bootstrap.manifest_url.as_str().as_bytes());
+    validate_state_audience_binding(&prior_state, &manifest_audience_sha256)?;
     let (last_accepted_epoch, last_accepted_manifest_sha256) = prior_state.manifest_high_water();
+    let (manifest_authority_generation, manifest_authority_delegation_sha256) =
+        prior_state.manifest_authority_high_water();
     let policy = RuntimeConfigVerificationPolicy {
         now: Utc::now(),
+        manifest_url: bootstrap.manifest_url.to_string(),
         last_accepted_epoch: last_accepted_epoch.to_owned(),
         last_accepted_manifest_sha256: last_accepted_manifest_sha256.map(str::to_owned),
+        last_accepted_manifest_authority_generation: manifest_authority_generation.to_owned(),
+        last_accepted_manifest_authority_delegation_sha256: manifest_authority_delegation_sha256
+            .map(str::to_owned),
         max_lifetime_seconds: MAX_MANIFEST_LIFETIME_SECONDS,
         max_clock_skew_seconds: MAX_CLOCK_SKEW_SECONDS,
         max_reference_age_seconds: MAX_WORKER_REFERENCE_AGE_SECONDS,
@@ -364,12 +416,11 @@ pub(crate) async fn refresh(
     let mut nonce = [0_u8; 32];
     nonce[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
     nonce[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-    let audience = sha256_base64url(bootstrap.manifest_url.as_str().as_bytes());
     let request = FreshnessRequest {
         schema_version: 1,
         scope: REQUEST_SCOPE.to_owned(),
         environment: "production".to_owned(),
-        audience_manifest_url_sha256: audience,
+        audience_manifest_url_sha256: manifest_audience_sha256.clone(),
         request_nonce: URL_SAFE_NO_PAD.encode(nonce),
     };
     let request_raw = canonical_json_bytes(&request)?;
@@ -481,8 +532,19 @@ pub(crate) async fn refresh(
     let next_state = FreshnessEpochState {
         schema_version: FRESHNESS_STATE_SCHEMA_VERSION,
         scope: FRESHNESS_STATE_SCOPE.to_owned(),
+        environment: "production".to_owned(),
+        manifest_audience_sha256,
         last_accepted_epoch: response.payload.latest_epoch.clone(),
         last_accepted_manifest_sha256: Some(response.payload.manifest_sha256.clone()),
+        manifest_authority_generation: verified
+            .authority()
+            .delegation_generation()
+            .unwrap_or("0")
+            .to_owned(),
+        manifest_authority_delegation_sha256: verified
+            .authority()
+            .delegation_sha256()
+            .map(str::to_owned),
         commit_generation: Some(response.payload.pointer_generation.clone()),
         release_commit_record_sha256: Some(response.payload.release_commit_record_sha256.clone()),
         freshness_delegation_generation: Some(
@@ -1060,63 +1122,119 @@ fn validate_state_transition(
             }
             Ok(())
         }
+        PriorState::Previous(state) => validate_freshness_transition(
+            &state.last_accepted_epoch,
+            state.last_accepted_manifest_sha256.as_deref(),
+            state.commit_generation.as_deref(),
+            state.release_commit_record_sha256.as_deref(),
+            state.freshness_delegation_generation.as_deref(),
+            state.freshness_delegation_sha256.as_deref(),
+            next_epoch,
+            next_generation,
+            response,
+        ),
         PriorState::Current(state) => {
-            let previous_epoch = parse_epoch(&state.last_accepted_epoch, false)?;
-            let previous_generation = parse_epoch(
-                state
-                    .commit_generation
-                    .as_deref()
-                    .ok_or(RuntimeConfigManifestError::State(
-                        "Freshness commit generation is missing",
-                    ))?,
-                false,
-            )?;
-            let previous_delegation_generation = parse_epoch(
-                state.freshness_delegation_generation.as_deref().ok_or(
-                    RuntimeConfigManifestError::State("Freshness delegation high-water is missing"),
-                )?,
-                false,
-            )?;
-            let next_delegation_generation = parse_epoch(
-                &response.freshness_delegation.payload.delegation_generation,
-                false,
-            )?;
-            if next_epoch < previous_epoch
-                || next_generation < previous_generation
-                || next_delegation_generation < previous_delegation_generation
-            {
-                return Err(RuntimeConfigManifestError::State(
-                    "Freshness response is below persisted state high-water",
-                ));
-            }
-            if next_epoch == previous_epoch
-                && (state.last_accepted_manifest_sha256.as_deref()
-                    != Some(response.payload.manifest_sha256.as_str())
-                    || state.commit_generation.as_deref()
-                        != Some(response.payload.pointer_generation.as_str())
-                    || state.release_commit_record_sha256.as_deref()
-                        != Some(response.payload.release_commit_record_sha256.as_str()))
-            {
-                return Err(RuntimeConfigManifestError::State(
-                    "same Manifest epoch does not match persisted commit state",
-                ));
-            }
-            if next_generation == previous_generation && next_epoch != previous_epoch {
-                return Err(RuntimeConfigManifestError::State(
-                    "Manifest advanced without a Release Commit generation",
-                ));
-            }
-            if next_delegation_generation == previous_delegation_generation
-                && state.freshness_delegation_sha256.as_deref()
-                    != Some(response.payload.freshness_delegation_sha256.as_str())
-            {
-                return Err(RuntimeConfigManifestError::State(
-                    "same Freshness delegation generation has different bytes",
-                ));
-            }
-            Ok(())
+            validate_freshness_transition(
+                &state.last_accepted_epoch,
+                state.last_accepted_manifest_sha256.as_deref(),
+                state.commit_generation.as_deref(),
+                state.release_commit_record_sha256.as_deref(),
+                state.freshness_delegation_generation.as_deref(),
+                state.freshness_delegation_sha256.as_deref(),
+                next_epoch,
+                next_generation,
+                response,
+            )
         }
     }
+}
+
+fn validate_state_audience_binding(
+    state: &PriorState,
+    expected_audience_sha256: &str,
+) -> Result<(), RuntimeConfigManifestError> {
+    if state
+        .audience_binding()
+        .is_some_and(|(environment, audience)| {
+            environment != "production" || audience != expected_audience_sha256
+        })
+    {
+        return Err(RuntimeConfigManifestError::State(
+            "Runtime Config state belongs to another environment or Manifest audience",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_freshness_transition(
+    previous_epoch_raw: &str,
+    previous_manifest_sha256: Option<&str>,
+    previous_generation_raw: Option<&str>,
+    previous_commit_record_sha256: Option<&str>,
+    previous_delegation_generation_raw: Option<&str>,
+    previous_delegation_sha256: Option<&str>,
+    next_epoch: u64,
+    next_generation: u64,
+    response: &VerifiedFreshnessResponse,
+) -> Result<(), RuntimeConfigManifestError> {
+    let previous_epoch = parse_epoch(previous_epoch_raw, true)?;
+    if previous_epoch == 0
+        && previous_manifest_sha256.is_none()
+        && previous_generation_raw.is_none()
+        && previous_commit_record_sha256.is_none()
+        && previous_delegation_generation_raw.is_none()
+        && previous_delegation_sha256.is_none()
+    {
+        return Ok(());
+    }
+    let previous_generation = parse_epoch(
+        previous_generation_raw.ok_or(RuntimeConfigManifestError::State(
+            "Freshness commit generation is missing",
+        ))?,
+        false,
+    )?;
+    let previous_delegation_generation = parse_epoch(
+        previous_delegation_generation_raw.ok_or(RuntimeConfigManifestError::State(
+            "Freshness delegation high-water is missing",
+        ))?,
+        false,
+    )?;
+    let next_delegation_generation = parse_epoch(
+        &response.freshness_delegation.payload.delegation_generation,
+        false,
+    )?;
+    if next_epoch < previous_epoch
+        || next_generation < previous_generation
+        || next_delegation_generation < previous_delegation_generation
+    {
+        return Err(RuntimeConfigManifestError::State(
+            "Freshness response is below persisted state high-water",
+        ));
+    }
+    if next_epoch == previous_epoch
+        && (previous_manifest_sha256 != Some(response.payload.manifest_sha256.as_str())
+            || previous_generation_raw != Some(response.payload.pointer_generation.as_str())
+            || previous_commit_record_sha256
+                != Some(response.payload.release_commit_record_sha256.as_str()))
+    {
+        return Err(RuntimeConfigManifestError::State(
+            "same Manifest epoch does not match persisted commit state",
+        ));
+    }
+    if next_generation == previous_generation && next_epoch != previous_epoch {
+        return Err(RuntimeConfigManifestError::State(
+            "Manifest advanced without a Release Commit generation",
+        ));
+    }
+    if next_delegation_generation == previous_delegation_generation
+        && previous_delegation_sha256
+            != Some(response.payload.freshness_delegation_sha256.as_str())
+    {
+        return Err(RuntimeConfigManifestError::State(
+            "same Freshness delegation generation has different bytes",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_uuid_v4(value: &str) -> Result<(), RuntimeConfigManifestError> {
@@ -1144,6 +1262,12 @@ fn validate_freshness_state(state: &FreshnessEpochState) -> Result<(), RuntimeCo
             "Freshness state schema is invalid",
         ));
     }
+    if state.environment != "production" {
+        return Err(RuntimeConfigManifestError::State(
+            "Freshness state environment is invalid",
+        ));
+    }
+    validate_digest(&state.manifest_audience_sha256)?;
     let epoch = parse_epoch(&state.last_accepted_epoch, true)?;
     match (
         epoch,
@@ -1177,6 +1301,72 @@ fn validate_freshness_state(state: &FreshnessEpochState) -> Result<(), RuntimeCo
             return Err(RuntimeConfigManifestError::State(
                 "Freshness state high-water fields are incomplete",
             ))
+        }
+    }
+    let manifest_authority_generation = parse_epoch(&state.manifest_authority_generation, true)?;
+    match (
+        manifest_authority_generation,
+        state
+            .manifest_authority_delegation_sha256
+            .as_deref(),
+    ) {
+        (0, None) => {}
+        (0, Some(_)) | (_, None) => {
+            return Err(RuntimeConfigManifestError::State(
+                "Manifest authority generation and digest are inconsistent",
+            ));
+        }
+        (_, Some(digest)) => validate_digest(digest)?,
+    }
+    if epoch == 0 && manifest_authority_generation != 0 {
+        return Err(RuntimeConfigManifestError::State(
+            "Manifest authority high-water cannot exist without an accepted Manifest",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_previous_freshness_state(
+    state: &PreviousFreshnessEpochState,
+) -> Result<(), RuntimeConfigManifestError> {
+    if state.schema_version != 2 || state.scope != PREVIOUS_FRESHNESS_STATE_SCOPE {
+        return Err(RuntimeConfigManifestError::State(
+            "previous Freshness state schema is invalid",
+        ));
+    }
+    let epoch = parse_epoch(&state.last_accepted_epoch, true)?;
+    match (
+        epoch,
+        state.last_accepted_manifest_sha256.as_deref(),
+        state.commit_generation.as_deref(),
+        state.release_commit_record_sha256.as_deref(),
+        state.freshness_delegation_generation.as_deref(),
+        state.freshness_delegation_sha256.as_deref(),
+    ) {
+        (0, None, None, None, None, None) => {}
+        (0, _, _, _, _, _) | (_, None, _, _, _, _) => {
+            return Err(RuntimeConfigManifestError::State(
+                "previous Freshness state epoch and digest are inconsistent",
+            ));
+        }
+        (
+            _,
+            Some(manifest),
+            Some(generation),
+            Some(record),
+            Some(delegation_generation),
+            Some(delegation),
+        ) => {
+            validate_digest(manifest)?;
+            parse_epoch(generation, false)?;
+            validate_digest(record)?;
+            parse_epoch(delegation_generation, false)?;
+            validate_digest(delegation)?;
+        }
+        _ => {
+            return Err(RuntimeConfigManifestError::State(
+                "previous Freshness state high-water fields are incomplete",
+            ));
         }
     }
     Ok(())
@@ -1255,6 +1445,13 @@ impl FreshnessEpochStateStore {
                 && validate_freshness_state(&current).is_ok()
             {
                 return Ok(PriorState::Current(current));
+            }
+        }
+        if let Ok(previous) = serde_json::from_slice::<PreviousFreshnessEpochState>(&bytes) {
+            if serde_json::to_vec(&previous).ok().as_deref() == Some(bytes.as_slice())
+                && validate_previous_freshness_state(&previous).is_ok()
+            {
+                return Ok(PriorState::Previous(previous));
             }
         }
         Err(RuntimeConfigManifestError::State(
@@ -1394,8 +1591,13 @@ mod tests {
             };
         let policy = RuntimeConfigVerificationPolicy {
             now: app_now,
+            manifest_url:
+                "https://runtime-config.example.com/tlsn/runtime-config/v2/manifest.json"
+                    .to_owned(),
             last_accepted_epoch: "0".to_owned(),
             last_accepted_manifest_sha256: None,
+            last_accepted_manifest_authority_generation: "0".to_owned(),
+            last_accepted_manifest_authority_delegation_sha256: None,
             max_lifetime_seconds: MAX_MANIFEST_LIFETIME_SECONDS,
             max_clock_skew_seconds: MAX_CLOCK_SKEW_SECONDS,
             max_reference_age_seconds: MAX_WORKER_REFERENCE_AGE_SECONDS,
@@ -1569,6 +1771,93 @@ mod tests {
             FreshnessEpochStateStore::new(path).read().unwrap(),
             PriorState::Legacy(legacy)
         );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn previous_freshness_state_migrates_without_losing_existing_high_waters() {
+        let directory = test_directory();
+        let path = directory.join("runtime-config-epoch-state.json");
+        let manifest_digest = URL_SAFE_NO_PAD.encode([7_u8; 32]);
+        let release_digest = URL_SAFE_NO_PAD.encode([8_u8; 32]);
+        let freshness_digest = URL_SAFE_NO_PAD.encode([9_u8; 32]);
+        let previous = PreviousFreshnessEpochState {
+            schema_version: 2,
+            scope: PREVIOUS_FRESHNESS_STATE_SCOPE.to_owned(),
+            last_accepted_epoch: "7".to_owned(),
+            last_accepted_manifest_sha256: Some(manifest_digest.clone()),
+            commit_generation: Some("12".to_owned()),
+            release_commit_record_sha256: Some(release_digest.clone()),
+            freshness_delegation_generation: Some("4".to_owned()),
+            freshness_delegation_sha256: Some(freshness_digest.clone()),
+        };
+        fs::write(&path, serde_json::to_vec(&previous).unwrap()).unwrap();
+        restrict_file_permissions(&path);
+        let store = FreshnessEpochStateStore::new(path.clone());
+        let prior = store.read().unwrap();
+        assert_eq!(
+            prior.manifest_high_water(),
+            ("7", Some(manifest_digest.as_str()))
+        );
+        assert_eq!(
+            prior.delegation_high_water(),
+            Some(("4", freshness_digest.as_str()))
+        );
+        assert_eq!(prior.manifest_authority_high_water(), ("0", None));
+
+        let audience = sha256_base64url(
+            b"https://runtime-config.example.com/tlsn/runtime-config/v2/manifest.json",
+        );
+        let migrated = FreshnessEpochState {
+            schema_version: FRESHNESS_STATE_SCHEMA_VERSION,
+            scope: FRESHNESS_STATE_SCOPE.to_owned(),
+            environment: "production".to_owned(),
+            manifest_audience_sha256: audience.clone(),
+            last_accepted_epoch: "8".to_owned(),
+            last_accepted_manifest_sha256: Some(URL_SAFE_NO_PAD.encode([10_u8; 32])),
+            manifest_authority_generation: "9".to_owned(),
+            manifest_authority_delegation_sha256: Some(URL_SAFE_NO_PAD.encode([11_u8; 32])),
+            commit_generation: Some("13".to_owned()),
+            release_commit_record_sha256: Some(URL_SAFE_NO_PAD.encode([12_u8; 32])),
+            freshness_delegation_generation: Some("5".to_owned()),
+            freshness_delegation_sha256: Some(URL_SAFE_NO_PAD.encode([13_u8; 32])),
+        };
+        validate_freshness_state(&migrated).unwrap();
+        let bytes = serde_json::to_vec(&migrated).unwrap();
+        write_state_atomic_bytes(
+            &path,
+            &bytes,
+            || Ok(()),
+            "state migration write failed",
+        )
+        .unwrap();
+        assert_eq!(
+            store.read().unwrap(),
+            PriorState::Current(migrated.clone())
+        );
+        assert_eq!(
+            store.read().unwrap().manifest_authority_high_water(),
+            (
+                "9",
+                migrated
+                    .manifest_authority_delegation_sha256
+                    .as_deref()
+            )
+        );
+        assert_eq!(
+            store.read().unwrap().audience_binding(),
+            Some(("production", audience.as_str()))
+        );
+        let current = PriorState::Current(migrated.clone());
+        assert!(validate_state_audience_binding(&current, &audience).is_ok());
+        assert!(validate_state_audience_binding(&current, &"A".repeat(43)).is_err());
+        let mut wrong_environment = migrated;
+        wrong_environment.environment = "staging".to_owned();
+        assert!(validate_state_audience_binding(
+            &PriorState::Current(wrong_environment),
+            &audience,
+        )
+        .is_err());
         fs::remove_dir_all(directory).unwrap();
     }
 

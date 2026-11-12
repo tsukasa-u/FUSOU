@@ -1,0 +1,28 @@
+[package]
+name = "fusou-tlsn-manifest-verification-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[features]
+default = ["tlsn-production"]
+tlsn-production = []
+freshness-gateway-integration-test = []
+
+[dependencies]
+authenticity-core = { path = "../../../authenticity/authenticity-core" }
+base64 = "0.22"
+chrono = { version = "0.4.31", features = ["serde"] }
+flate2 = "1.1.5"
+futures = "0.3.34"
+fusou-auth = { path = "../../../fusou-auth" }
+reqwest = { version = "0.12.5", default-features = false, features = ["json", "rustls-tls", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1.38.0", features = ["full"] }
+url = "2.5"
+uuid = { version = "1.16.0", features = ["v4"] }

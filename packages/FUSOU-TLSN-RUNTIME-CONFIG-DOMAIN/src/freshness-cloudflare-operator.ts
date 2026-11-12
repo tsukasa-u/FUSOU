@@ -122,6 +122,7 @@ export interface CloudflareOperatorReleaseStateReaderDependencies {
   readonly manifests: CloudflareOperatorManifestStore;
   readonly releaseRootSigner: RuntimeConfigRootSigner;
   readonly manifestRootSigner: RuntimeConfigRootSigner;
+  readonly manifestUrl: string;
 }
 
 export class CloudflareOperatorProfileError extends Error {
@@ -149,7 +150,9 @@ export function createCloudflareOperatorReleaseStateReader(
     dependencies.coordinator === null ||
     dependencies.manifests === null ||
     dependencies.releaseRootSigner === null ||
-    dependencies.manifestRootSigner === null
+    dependencies.manifestRootSigner === null ||
+    typeof dependencies.manifestUrl !== "string" ||
+    dependencies.manifestUrl.length === 0
   ) {
     throw new CloudflareOperatorProfileError(
       "UNAVAILABLE",
@@ -287,6 +290,8 @@ export function createCloudflareOperatorReleaseStateReader(
         await verifyRuntimeConfigManifestEpochPointer({
           raw: releaseOperation.manifestBytes,
           trustedSigner: dependencies.manifestRootSigner,
+          manifestUrl: dependencies.manifestUrl,
+          nowMs: observedAtMs,
         });
       if (
         manifest.epoch !== head.manifestEpoch ||
