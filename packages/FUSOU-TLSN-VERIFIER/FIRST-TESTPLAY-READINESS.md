@@ -1,38 +1,94 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Current Hosted CI status — 2026-11-10
+## Current Hosted CI baseline — 2026-11-11
 
-At review start, the repository was at branch
-`tlsn-first-testplay-candidate`, HEAD
-`69d30a7b1e3c62ae06018e405af019c3a3fba727`; pre-existing in-scope source
-and documentation worktree edits were present and preserved. Hosted run
-[#116](https://github.com/tsukasa-u/FUSOU/actions/runs/42638941184), attempt 1,
-completed with conclusion `success` for that exact SHA. All three jobs passed:
-`rust-tlsn-preflight`, `proxy-capture-source-unit-tests`, and
-`node-contract-tests`.
+The Manifest-delegation work starts from branch
+`tlsn-first-testplay-candidate`, baseline HEAD
+`47ff1f6a70f8825cbbc6ea8511a8400fd1382a3f`. Hosted run
+[#117](https://github.com/tsukasa-u/FUSOU/actions/runs/42970415077), attempt 1,
+completed successfully for that exact SHA: all three jobs passed. The
+`node-contract-tests` job reported Coordinator runtime **65/65**, Verifier
+library **149/149**, and Verifier CLI **5/5**. The run is pre-change evidence;
+Hosted CI for the Manifest-delegation changes in this work is **NOT_CHECKED**.
 
-The relevant `node-contract-tests` steps passed:
-
-- Step 21, “Test independent TLSN verifier, CLI, and candidate finalizer”:
-  Verifier library **149 passed, 0 failed**; Verifier CLI **5 passed,
-  0 failed**.
-- Step 27, “Test Freshness, Production Result, and candidate readiness
-  contracts”: Coordinator runtime **56 passed, 0 failed**. The captured
-  job logs contain no “An RPC stub was not disposed properly” warning.
-
-The earlier run
-[#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660) remains
+Run [#116](https://github.com/tsukasa-u/FUSOU/actions/runs/42638941184) remains
 successful evidence for its older baseline SHA
-`8a87314a055f45d37f1ae5b0524561575ab9b7ea`; it is not the current-HEAD
-result. Historical `uncommitted` and Hosted `NOT_CHECKED` entries below
-describe their dated snapshots. Run #116 supersedes only Hosted CI status
-for SHA `69d30a7b1e3c62ae06018e405af019c3a3fba727`.
+`69d30a7b1e3c62ae06018e405af019c3a3fba727`; it is not the current baseline.
+Run #117 supersedes it only for baseline SHA
+`47ff1f6a70f8825cbbc6ea8511a8400fd1382a3f`.
 
-Hosted CI does not verify Production bindings, a trusted clock, key custody,
-an independent witness, restore resistance, deployment, or a real
-Game Server/Notary exchange. Stage A/B/C and Production acceptance remain
+Hosted CI does not verify Production bindings, key custody, deployment,
+continuous Manifest issuance, real Game Server/Notary exchange, or
+Production acceptance. Stage A/B/C and Production acceptance remain
 **BLOCKED**. Current contract decisions and the approval draft are in the
 [Freshness contract revision proposal](./docs/runtime-config-freshness-contract-revision-proposal.md).
+
+## Manifest-only delegation — local implementation snapshot (2026-11-11)
+
+The local implementation adds an explicit Manifest envelope v3 while keeping
+the existing root-signed envelope v2 unchanged. V2 continues to require the
+external offline Bootstrap root pin. V3 requires the same root to verify a
+root-signed, Manifest-purpose-only child delegation; it does not try v2 or
+direct-child-pin fallback after a v3 failure. Release/Freshness signing
+purposes and their limits are unchanged.
+
+The root-approved configuration digest covers the Production environment,
+Manifest URL audience, payload schema, Worker/deployment/build identity,
+complete compile inputs, Production authority pins and Result Registry pins.
+Only epoch and Manifest validity timestamps plus the Worker reference digest
+and its matching observation time are reissuable. The reference remains bound
+to the approved Worker identity, version, commit, compile inputs, bindings and
+the exact referenced bytes; unknown Manifest/delegation fields are rejected.
+The root-signed delegation is limited to 24 hours from its signed `issued_at`,
+`not_before` cannot extend that interval, and the existing 30-second clock
+skew policy remains explicit. Revocation is expiry plus per-client generation
+high-water, not immediate revocation of an extracted child key.
+
+APP state tracks Manifest delegation generation/digest separately from
+Manifest epoch and Freshness delegation high-water, scoped to Production and
+the Manifest URL audience. Existing epoch/Manifest/Release/Freshness
+high-waters are retained on state migration; state writes remain after full
+Manifest, artifact, response, deadline and transition verification. Local
+test-only keys exercise the same publisher, Node/Domain verifier, APP Rust
+source and strict/operator Release readers; no Production key is registered.
+
+Local regression status: selected Node Manifest/R2/publisher suites
+**43/43** (Manifest file **26/26**) and deterministic vector `--check` pass;
+Domain **27/27** plus typecheck, Coordinator Workers runtime **66/66** (strict
+and operator cases; no skips or RPC-stub disposal warnings), isolated
+APP-source Rust **28/28 unit + 1/1 shared-vector test**, and Gateway typecheck/
+runtime regression pass. The Rust harness includes the APP Manifest/Freshness
+source directly; it is not the full APP Cargo integration build.
+
+The Gateway-to-APP Node integration entrypoint was not included in the final
+selected run because it launches APP Cargo as a child process. An earlier
+parallel test command inadvertently included that entrypoint; its child APP
+Cargo build failed before tests with `E0277` because the newly migrated legacy
+epoch state lacked `Serialize`. That derive is now present and the isolated
+APP-source harness passes, but the APP Cargo child test was not rerun; its
+integration status remains **NOT_CHECKED**, and its indirect compile-time
+access was not audited. Changed-source Hosted CI is **NOT_CHECKED**.
+Continuous Production Manifest issuance, key/operator/genesis registration,
+real artifacts and external Game Server/Notary evidence remain unverified;
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Manifest harness lockfile follow-up — 2026-11-12
+
+The root `Cargo.lock` ignore rule now has a narrow exception for
+`packages/FUSOU-APP/src-tauri/manifest-verification-harness/Cargo.lock`.
+The existing lockfile was retained unchanged, is no longer ignored, and is
+still untracked in this unstaged worktree; include it and the new harness
+sources/tests/manifest in the next user commit. The candidate workflow now
+checks existence, Git tracking and ignore status before fetching dependencies.
+
+Rust 1.98.1 verification passed in a clean temporary tree containing only the
+harness, its referenced APP source and vectors, and required path-dependency
+crate files. `cargo fetch --locked` and
+`cargo test --locked --offline --all-targets` passed; the lockfile hash was
+unchanged. The existing Cargo download cache was reused with network disabled.
+The protected APP roaming config, `.git`, existing `target`, `node_modules`
+and dotenv files were not copied. The workflow parsed with PyYAML; actionlint
+was not available. Changed-source Hosted CI remains **NOT_CHECKED**.
 
 ## Private Signer authorization audit — local result (2026-11-11)
 

@@ -698,6 +698,10 @@ and implementation unit for continuous Production issuance.
 
 ### 7.2 Private Signer authorization audit — 2026-11-11
 
+This section records the pre-Manifest-delegation local snapshot: Coordinator
+runtime **65/65** was the result at that point. Section 7.3 records the
+subsequent Manifest-only delegation implementation and current local result.
+
 Independent local DO diagnostics reproduced that the private
 `cloudflare-operator-v1` Signer could sign for a missing operation and for a
 persisted `RESULT_UNKNOWN` operation. This identified a private Signer
@@ -732,6 +736,104 @@ Candidate workflow step 27 already invokes these checks. This is local source
 and runtime evidence only: run #116 remains pre-change Hosted evidence,
 changed-source Hosted is **NOT_CHECKED**, and Production/Stage A/B/C remain
 **BLOCKED**.
+
+### 7.3 Manifest-only child delegation and cross-language verification — 2026-11-11
+
+**Status:** the local APP/Node/Domain implementation and common raw vectors are
+connected; Production key registration, deployment, continuous issuance and
+acceptance are **NOT_IMPLEMENTED / BLOCKED**. The baseline for this unit is
+`tlsn-first-testplay-candidate` at
+`47ff1f6a70f8825cbbc6ea8511a8400fd1382a3f`, for which Hosted run
+[#117](https://github.com/tsukasa-u/FUSOU/actions/runs/42970415077), attempt 1,
+passed. Run #117 predates this implementation. Hosted status after these local
+changes is **NOT_CHECKED**.
+
+The authentication formats are not interchangeable. V2 is the unchanged
+envelope schema 2 with payload schema 2, verified directly by the external
+offline Bootstrap root. V3 is envelope schema 3 with payload schema 2 and
+contains the exact canonical root-delegation envelope bytes, encoded as
+unpadded base64url. The child signature covers the exact canonical payload
+bytes under the dedicated `FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V3\0` domain and
+Manifest child key ID; the root delegation has its own exact canonical
+payload/signature bytes and
+`FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-DELEGATION-V1\0` domain. Release and
+Freshness `manifest_schema_version` continues to mean payload schema 2. The
+immutable R2 Manifest reference and all Release/Freshness digest bindings
+continue to cover SHA-256 of the entire raw envelope, including its delegation.
+V3 verification failure never retries as v2 or treats the child key as a root
+pin. Once a client has accepted a positive Manifest-delegation generation,
+v2 downgrade is rejected.
+
+The root-signed Manifest delegation binds the dedicated purpose and Ed25519
+algorithm, child ID/public key, Production environment, SHA-256 of the exact
+Manifest URL, envelope/payload schemas, approved-configuration digest,
+generation, timestamps, maximum lifetime and
+`expiry-and-client-high-water-v1` revocation mode. `not_before` cannot be later
+than root-signed `issued_at`; `not_after - issued_at` is at most 86,400
+seconds. The existing 30-second clock-skew policy remains a verification
+tolerance, not extra signed lifetime or a trusted-clock claim. There is no
+immediate revocation path: expiry and each client's generation high-water
+bound the exposure, and route shutdown/key replacement does not revoke an
+already extracted key on every client.
+
+The canonical approved-configuration projection is versioned and exact-key
+checked. It includes environment, Manifest URL digest, payload schema,
+Worker account/name/deployment/version/commit/disclosure identity, all
+compile inputs, Production authority pins (including Origin Inventory and
+Target Approval) and Result Registry pins. Only Manifest epoch and validity
+times plus Worker-reference digest/observation time are excluded for
+reissuance. A refreshed reference must still match the approved identity,
+build, compile inputs, public bindings and raw digest; observation time must
+match the raw artifact and remain within the existing 600-second age limit.
+Unknown payload, envelope or delegation fields are rejected, not omitted from
+the projection. Any change to trust pins, target approvals, compile inputs or
+artifact references therefore needs a new root-approved configuration digest
+and delegation.
+
+Node publication verifies the root delegation, exact Manifest URL/schema,
+approved digest, child signer ID/key correspondence and validity before using
+the child signer; it verifies the complete signed Manifest and independent
+artifact bytes after signing, then reads back immutable objects and conditionally
+publishes the mutable pointer. Release record, Freshness response, R2 pointer
+and immutable snapshot remain bound to exact raw Manifest bytes. Strict and
+`cloudflare-operator-v1` current-state readers use the offline Manifest root
+and configured URL to verify v3 bytes. The APP uses the same verifier source
+for v2/v3, checks all raw artifacts and preserves a separate
+Manifest-authority generation/digest high-water scoped to Production and the
+Manifest audience. A valid higher root-signed generation can advance by more
+than one; equal generation is accepted only with the same delegation digest.
+Existing epoch, Manifest digest, Release commit and Freshness-delegation
+high-waters are retained by the authenticated state transition. Legacy state
+without an audience is bound once to the current Bootstrap audience while its
+existing high-waters are preserved; that migration does not assert an
+historical audience binding. Malformed, cross-audience, failed or
+deadline-exceeded state transitions do not write new high-water.
+
+The common test-only raw vectors include valid root/child signatures,
+signature/delegation/payload tampering, purpose/environment/audience/schema/
+key mismatch, root/child-key mismatch, 24-hour duration and skew boundaries,
+approved trust/config mutation, allowed observation/time reissuance with its
+matching raw Worker artifact, canonical/unknown-field rejection, Manifest
+epoch and delegation-generation rollback/equivocation, generation gaps, and
+v2 downgrade. Node, Domain and the isolated APP-source Rust harness consume the same
+vectors. The candidate workflow runs the Node Worker Manifest suite,
+Domain tests/typecheck, Coordinator strict/operator runtime suite and locked
+isolated APP-source harness. Local validation is **43/43** across the selected
+Node Manifest/R2/publisher suites (Manifest file **26/26**) plus deterministic
+vector `--check`, Domain **27/27** plus typecheck, Coordinator **66/66** runtime
+cases, Gateway typecheck/runtime regression, and isolated APP-source Rust
+**28/28 unit + 1/1 shared-vector test**. The harness directly includes APP
+Manifest/Freshness source, but is not the full APP Cargo integration build.
+
+The Gateway-to-APP Node integration entrypoint is not part of the final
+selected run because it launches APP Cargo as a child. An earlier parallel
+command inadvertently included it; that child build failed before tests with
+`E0277` because the migrated legacy epoch-state helper lacked `Serialize`.
+The derive is now present and the isolated APP-source harness passes, but the
+child APP Cargo test was not rerun; full APP integration remains
+**NOT_CHECKED**, and its indirect compile-time access was not audited. This is
+not Hosted evidence: run #117 is the pre-change baseline and changed-source
+Hosted CI is **NOT_CHECKED**. No Production key or external service was used.
 
 ## 8. Cloudflare primary sources reviewed (checked 2026-11-10)
 
@@ -981,13 +1083,15 @@ removes those checks.
 > a bounded time source if required. No local prototype or Hosted CI result
 > supplies these approvals or proves real Game Server/Notary evidence.
 
-This draft deliberately records reduced rollback, time-cutoff and key-
-extraction guarantees. Until the trust owner approves it, the repository's
-existing mandatory Journal/witness validation, 8-second issue lease and
-Production key-custody gates remain in force. If any proposed reduction is
-rejected, retain the corresponding current contract; do not treat a
-same-account Cloudflare resource, logical fence or Worker Secret as an
-equivalent substitute.
+The Runtime Config Freshness Cloudflare/operator profile is now the
+explicitly selected local profile described in Sections 7.1–7.3. Its reduced
+rollback, elapsed-time-cutoff and key-extraction guarantees apply only when
+that fixed profile is selected; they do not alter the separate strict
+Journal/witness profile, its eight-second lease, or Result/Session/Notary/
+Inventory key contracts. The local selection is not Production operator,
+resource, key or genesis approval. Do not treat a same-account Cloudflare
+resource, logical fence or Worker Secret as an independent witness or
+equivalent substitute for an out-of-scope guarantee.
 
 ### Local implementation unit completed; Production execution remains gated
 
@@ -1001,10 +1105,12 @@ generic `sign(bytes)` API, or forced Unknown-clear/recovery authority.
 The remaining Production work is not an extension of this local verification:
 the trust owner must still approve named operator roles and recovery
 procedures, register the environment-specific DO/R2 bindings/endpoints and
-keys, validate the deployed clock assumption or an approved bounded source,
-and verify actual restore and issuance operations. Manifest v2 is still
-directly signed by the offline Bootstrap root and the APP still caps
-reference age at 600 seconds. Manifest signer delegation/APP compatibility
-and ongoing 24-hour Freshness-delegation renewal are a separate future unit.
-No deployment or Production acceptance is authorized here; Stage A/B/C and
-Production acceptance remain **BLOCKED**.
+keys, validate the deployed clock assumption, and verify actual restore and
+issuance operations. The older 7.1 snapshot recorded Manifest v2 as the only
+format; Section 7.3 supersedes that local implementation status with the
+explicit root-delegated v3 format while retaining v2 compatibility and the
+600-second Worker-reference limit. Continuous Production Manifest issuance,
+Production child-key registration and the operational renewal of the
+24-hour Freshness delegation remain unimplemented. No deployment or
+Production acceptance is authorized here; Stage A/B/C and Production
+acceptance remain **BLOCKED**.

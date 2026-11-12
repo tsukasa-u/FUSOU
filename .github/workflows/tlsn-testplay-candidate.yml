@@ -261,8 +261,47 @@ jobs:
             packages/FUSOU-APP/scripts/testplay-acceptance-stages.test.mjs \
             packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.test.mjs
 
+      - name: Verify isolated Manifest harness Cargo.lock is committed and not ignored
+        shell: bash
+        run: |
+          set -euo pipefail
+          lockfile=packages/FUSOU-APP/src-tauri/manifest-verification-harness/Cargo.lock
+          test -f "$lockfile"
+          git ls-files --error-unmatch -- "$lockfile"
+          if git check-ignore --quiet --no-index -- "$lockfile"; then
+            echo "Manifest harness Cargo.lock is still ignored" >&2
+            exit 1
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then
+              exit "$status"
+            fi
+          fi
+
+      - name: Fetch locked isolated APP-source Manifest harness dependencies
+        run: >-
+          cargo +1.98.1 fetch --locked
+          --manifest-path packages/FUSOU-APP/src-tauri/manifest-verification-harness/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "false"
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Run isolated APP-source Manifest verification suite
+        run: >-
+          cargo +1.98.1 test --locked --offline --all-targets
+          --manifest-path packages/FUSOU-APP/src-tauri/manifest-verification-harness/Cargo.toml
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-manifest-verification-harness-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
       - name: Run APP build handoff and Worker reference tests
         run: |
+          node --experimental-strip-types \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/generate-runtime-config-manifest-delegation-vectors.mjs \
+            --check
           node --test \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-build-handoff-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-dotenvx-inputs-test.mjs \

@@ -32,6 +32,19 @@ The APP can be modified by its user, so its Bootstrap pin, Manifest verdict,
 and report are not Worker trust roots. The Worker independently uses its own
 Notary, Origin, Approval and Result Registry configuration when verifying a
 Presentation and signing a Result.
+
+Runtime Config Manifest authentication is explicitly versioned: v2 remains
+the offline-root-signed format, while the local v3 path requires an
+offline-root-signed, Manifest-only child delegation and a digest over the
+root-approved configuration. The child can refresh only the allowlisted
+epoch, time and verified Worker-reference observation data; it cannot change
+trust pins, targets, compile inputs or approved artifacts. APP persists the
+Manifest delegation generation separately from Manifest epoch and Freshness
+delegation high-water. This is local implementation evidence only; it does not
+register Production keys or enable continuous Production issuance. See the
+[Runtime Config Freshness and Manifest delegation contract](docs/runtime-config-freshness-contract-revision-proposal.md)
+and [current readiness record](FIRST-TESTPLAY-READINESS.md).
+
 The native library now target-gates the WASM bridge to `wasm32`; native APP,
 Bundle and CLI checks do not load that protected bridge. WASM build/provenance
 was not performed. The active local mux patch has been removed in APP/Proxy;
