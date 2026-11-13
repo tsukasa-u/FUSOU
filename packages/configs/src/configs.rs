@@ -1207,23 +1207,35 @@ pub fn get_configs(config_path: &str) -> Configs {
     }
 
     // Read file and parse to Configs
-    let user_toml_file: String =
+    let mut user_toml_file: String =
         fs::read_to_string(config_path).expect_or_log("Failed to read config file");
-    let user_parse_result: Result<Configs, toml::de::Error> = toml::from_str(&user_toml_file);
-    let user_configs: Configs = match user_parse_result {
-        Ok(p) => p,
-        Err(_) => {
-            tracing::error!("Failed to parse TOML: {}", user_parse_result.err().unwrap());
-            default_configs
-        }
-    };
 
-    // Update config file to include any new fields from default template
-    if let Err(e) = update_config_file(config_path) {
+    // Preserve user values and merge in new defaults / schema updates before deserializing
+    let mut user_parse_result: Result<Configs, toml::de::Error> = toml::from_str(&user_toml_file);
+    let current_version = default_configs.version.as_deref();
+    let version_mismatch = user_parse_result
+        .as_ref()
+        .map(|cfg| current_version.is_some() && cfg.version.as_deref() != current_version)
+        .unwrap_or(true);
+
+    if version_mismatch {
+        if let Err(e) = update_config_file(config_path) {
+            tracing::warn!("Failed to update config file with new fields: {}", e);
+        } else if let Ok(updated) = fs::read_to_string(config_path) {
+            user_toml_file = updated;
+            user_parse_result = toml::from_str(&user_toml_file);
+        }
+    } else if let Err(e) = update_config_file(config_path) {
         tracing::warn!("Failed to update config file with new fields: {}", e);
     }
 
-    user_configs
+    match user_parse_result {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::error!("Failed to parse TOML after merge: {}", err);
+            default_configs
+        }
+    }
 }
 
 pub fn get_user_configs() -> Configs {
@@ -1270,44 +1282,44 @@ pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Recursively merge user values into default document
-fn merge_toml_values(default_doc: &mut toml_edit::DocumentMut, user_doc: &toml_edit::DocumentMut) {
+/// Recursively merge user values into default document while keeping schema/type safety
+fn merge_toml_item(default_item: &mut toml_edit::Item, user_item: &toml_edit::Item) {
+    use std::mem::discriminant;
     use toml_edit::Item;
 
+    match (default_item, user_item) {
+        (Item::Table(default_table), Item::Table(user_table)) => {
+            merge_table_values(default_table, user_table);
+        }
+        (Item::Value(default_value), Item::Value(user_value))
+            if discriminant(default_value) == discriminant(user_value) =>
+        {
+            *default_value = user_value.clone();
+        }
+        _ => {
+            // Type mismatch: keep default value
+        }
+    }
+}
+
+/// Recursively merge user values into default document
+fn merge_toml_values(default_doc: &mut toml_edit::DocumentMut, user_doc: &toml_edit::DocumentMut) {
     for (key, user_item) in user_doc.iter() {
+        // Keep the current default template's top-level version when upgrading configs.
+        if key == "version" {
+            continue;
+        }
         if let Some(default_item) = default_doc.get_mut(key) {
-            match (default_item, user_item) {
-                (Item::Table(default_table), Item::Table(user_table)) => {
-                    // Recursively merge tables
-                    merge_table_values(default_table, user_table);
-                }
-                (Item::Value(default_value), Item::Value(user_value)) => {
-                    // Copy user value to default
-                    *default_value = user_value.clone();
-                }
-                _ => {
-                    // Type mismatch, keep default
-                }
-            }
+            merge_toml_item(default_item, user_item);
         }
     }
 }
 
 /// Merge table values recursively
 fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_edit::Table) {
-    use toml_edit::Item;
-
     for (key, user_item) in user_table.iter() {
         if let Some(default_item) = default_table.get_mut(key) {
-            match (default_item, user_item) {
-                (Item::Table(nested_default), Item::Table(nested_user)) => {
-                    merge_table_values(nested_default, nested_user);
-                }
-                (Item::Value(default_value), Item::Value(user_value)) => {
-                    *default_value = user_value.clone();
-                }
-                _ => {}
-            }
+            merge_toml_item(default_item, user_item);
         }
     }
 }
@@ -1750,5 +1762,41 @@ mod tests {
             all_servers, expected_servers,
             "All servers should come from configs.toml"
         );
+    }
+
+    #[test]
+    fn test_get_configs_preserves_user_values_across_version_and_type_mismatch() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-merge-test-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let legacy_user_toml = r#"
+version = "0.0.1-legacy"
+
+[proxy]
+allow_save_api_responses = true
+
+[proxy.network]
+connect_timeout = "invalid-string-type"
+recv_buffer_size = 1234567
+"#;
+        std::fs::write(&path, legacy_user_toml).unwrap();
+
+        let loaded = get_configs(path.to_str().unwrap());
+        assert!(loaded.proxy.get_allow_save_api_responses());
+        assert_eq!(loaded.proxy.network.get_recv_buffer_size(), Some(1234567));
+        // Type mismatch falls back cleanly to default template without dropping valid user values
+        let default_cfg = get_default_configs();
+        assert_eq!(
+            loaded.proxy.network.connect_timeout,
+            default_cfg.proxy.network.connect_timeout
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

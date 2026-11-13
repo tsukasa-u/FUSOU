@@ -34,7 +34,7 @@ interface Env {
   TURSO_AUTH_TOKEN: string;
   // Cleanup job auth token
   MASTER_DATA_CLEANUP_TOKEN?: string;
-  // Bearer token required for /battle-data/upload (must be set; endpoint is disabled without it)
+  // Bearer token required for /battle-data/upload and /read (disabled without it)
   UPLOAD_INGEST_TOKEN?: string;
   // Optional cap for task batch size. Defaults to 100.
   QUEST_TREE_CRON_LIMIT?: string;
@@ -45,7 +45,7 @@ interface Env {
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 // Hybrid reader: delegate to reader.ts (buffer_logs + block_indexes)
@@ -283,6 +283,26 @@ export default {
     }
 
     if (path === "/read" && request.method === "GET") {
+      const readToken = env.UPLOAD_INGEST_TOKEN;
+      if (!readToken) {
+        return new Response(
+          JSON.stringify({ error: "Read endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
+          {
+            status: 403,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      const authHeader = request.headers.get("Authorization") ?? "";
+      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (!timingSafeEqual(provided, readToken)) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+
       return handleRead(request, env, ctx);
     }
 

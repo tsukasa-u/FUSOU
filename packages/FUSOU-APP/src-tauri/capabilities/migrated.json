@@ -45,6 +45,12 @@
           "path": "./../user/configs.toml"
         },
         {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$LOCALAPPDATA/**"
+        },
+        {
           "path": "$RESOURCE/resources/user/configs.toml"
         }
       ]

@@ -93,7 +93,7 @@ export const set_range_window_list = (
               <label class="label cursor-pointer relative">
                 <input
                   type="radio"
-                  name="radio-Level"
+                  name={`radio-${param}`}
                   class="radio radio-sm"
                   checked={
                     range_props[param].range && !range_props[param].reset
@@ -143,7 +143,7 @@ export const set_range_window_list = (
               <label class="label cursor-pointer relative">
                 <input
                   type="radio"
-                  name="radio-Level"
+                  name={`radio-${param}`}
                   class="radio radio-sm"
                   checked={
                     !range_props[param].range && !range_props[param].reset
@@ -253,7 +253,7 @@ export const set_discrete_range_window_list = (
               <label class="label cursor-pointer relative">
                 <input
                   type="radio"
-                  name="radio-Level"
+                  name={`radio-${param}`}
                   class="radio radio-sm"
                   checked={
                     range_props[param].range && !range_props[param].reset
@@ -313,7 +313,7 @@ export const set_discrete_range_window_list = (
               <label class="label cursor-pointer relative">
                 <input
                   type="radio"
-                  name="radio-Level"
+                  name={`radio-${param}`}
                   class="radio radio-sm"
                   checked={
                     !range_props[param].range && !range_props[param].reset

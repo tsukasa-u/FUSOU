@@ -15,34 +15,29 @@ export const prerender = false;
     summary: "条件で絞り込みながら対象戦闘を探せます。",
     controls: [
       {
-        sourceSelector: "#battles-filter-period",
+        sourceSelector: "#battle-filter-period",
         description: "集計対象期間（最新 / 全期間）を切り替えます。",
         tone: "outline",
       },
       {
-        sourceSelector: "#battles-filter-map",
+        sourceSelector: "#battle-filter-map",
         description: "海域で絞り込み、対象マップの戦闘だけを表示します。",
         tone: "outline",
       },
       {
-        sourceSelector: "#battles-filter-result",
+        sourceSelector: "#battle-filter-result",
         description: "勝敗ランクで絞り込み、S勝利や敗北戦闘を比較できます。",
         tone: "outline",
       },
       {
-        sourceSelector: "#battles-load-btn",
-        description: "最新の条件で戦闘一覧を再取得します。",
+        sourceSelector: "#battle-filter-settings-btn",
+        description: "詳細な絞り込み条件（期間・海域・勝敗など）を設定します。",
         tone: "primary",
       },
       {
-        sourceSelector: "#battles-detail-link",
-        description: "選択した行の戦闘詳細ページへ移動します。",
+        sourceSelector: "#battle-data-settings-btn",
+        description: "データソース設定やキャッシュの更新を行います。",
         tone: "ghost",
-      },
-      {
-        sourceSelector: "#tutorial-open-btn",
-        description: "この説明モーダルを再表示します。",
-        tone: "primary",
       },
     ],
     steps: [

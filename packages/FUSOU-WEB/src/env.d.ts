@@ -15,7 +15,7 @@ import type { Runtime } from "@astrojs/cloudflare/runtime";
 
 declare global {
   interface Window {
-    __fusouAccessToken?: string | null;
+    __fusouIsAuthenticated?: boolean;
   }
 
   namespace App {

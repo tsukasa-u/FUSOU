@@ -3963,7 +3963,7 @@ app.get("/detail", async (c) => {
           const directBuf = await detailObj.arrayBuffer();
           const directText = await decompressSnapshotPayload(directBuf);
           const directParsed = JSON.parse(directText);
-          const hasFriendly = Array.isArray(directParsed?.derived?.friendly_fleet) && directParsed.derived.friendly_fleet.length > 0;
+          const hasFriendly = Array.isArray(directParsed?.derived?.friendly_fleet);
           const hasTimestamp = Boolean(directParsed?.battle?.timestamp);
           if (hasFriendly && hasTimestamp) {
             const resp = new Response(directText, {
@@ -4416,7 +4416,19 @@ app.post("/internal/rebuild-detail-snapshots", async (c) => {
     return c.json({ error: "Storage not configured" }, 500);
   }
 
-  const tags = await getDynamicSnapshotPeriodTags(bucket, kv);
+  let requestedPeriodTag: string | undefined;
+  try {
+    const rawBody = await c.req.json() as { period_tag?: unknown };
+    if (typeof rawBody?.period_tag === "string" && rawBody.period_tag.trim()) {
+      requestedPeriodTag = rawBody.period_tag.trim();
+    }
+  } catch {
+    // Empty or non-JSON request body rebuilds all active snapshot periods.
+  }
+
+  const tags = requestedPeriodTag
+    ? [requestedPeriodTag]
+    : await getDynamicSnapshotPeriodTags(bucket, kv);
   const weaponIconFramesPayload = await fetchWeaponIconFramesDirect(c);
 
   let totalSortiesProcessed = 0;

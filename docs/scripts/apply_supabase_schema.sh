@@ -5,9 +5,9 @@ set -euo pipefail
 # Usage:
 #   SUPABASE_DB_URL="postgres://..." ./docs/scripts/apply_supabase_schema.sh
 # Or, if you use supabase CLI and are logged in:
-#   supabase db remote commit --file docs/sql/supabase_fleets_schema.sql
+#   supabase db remote commit --file docs/sql/supabase/schema.sql
 
-SQL_FILE="docs/sql/supabase_fleets_schema.sql"
+SQL_FILE="docs/sql/supabase/schema.sql"
 
 if [ -z "${SUPABASE_DB_URL:-}" ]; then
   echo "ERROR: SUPABASE_DB_URL environment variable is not set."

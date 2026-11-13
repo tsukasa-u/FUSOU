@@ -55,6 +55,8 @@ pub struct DatasetToken {
 pub struct DatasetTokenStore {
     #[serde(default)]
     pub tokens: HashMap<String, DatasetToken>,
+    #[serde(skip)]
+    pub(crate) loaded: bool,
 }
 
 impl MultiSession {

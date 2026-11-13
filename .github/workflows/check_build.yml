@@ -49,6 +49,13 @@ jobs:
       - run: pnpm --filter fusou-workflow typecheck
       - run: pnpm --filter @fusou/compaction-core test
       - run: pnpm --filter fusou-app check.tsc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install fusou-datasets test dependencies
+        run: python -m pip install -e "packages/fusou-datasets/python[dev]"
+      - name: Test fusou-datasets
+        run: python -m pytest packages/fusou-datasets/python/tests
 
   check_config:
     runs-on: ubuntu-latest

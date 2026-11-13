@@ -264,7 +264,6 @@ export function injectEnv(_locals?: unknown): Bindings {
   };
 
   return {
-    ASSETS_BUCKET: ctx.runtime["ASSETS_BUCKET"]!,
     ASSET_SYNC_BUCKET: ctx.runtime["ASSET_SYNC_BUCKET"]!,
     ASSET_INDEX_DB: ctx.runtime["ASSET_INDEX_DB"]!,
     BATTLE_INDEX_DB: ctx.runtime["BATTLE_INDEX_DB"]!,
@@ -933,7 +932,7 @@ export async function verifyR2SignedUrl(
  * @returns バイナリデータ（ArrayBuffer）
  */
 export async function readR2Binary(
-  bucket: Pick<Bindings["ASSETS_BUCKET"], "get">,
+  bucket: Pick<Bindings["ASSET_SYNC_BUCKET"], "get">,
   key: string,
 ): Promise<ArrayBuffer> {
   const obj = await bucket.get(key);
@@ -952,7 +951,7 @@ export async function readR2Binary(
  * @param metadata オプションのメタデータ
  */
 export async function writeR2Binary(
-  bucket: Pick<Bindings["ASSETS_BUCKET"], "put">,
+  bucket: Pick<Bindings["ASSET_SYNC_BUCKET"], "put">,
   key: string,
   data: ArrayBuffer | Uint8Array,
   metadata?: Record<string, string>,

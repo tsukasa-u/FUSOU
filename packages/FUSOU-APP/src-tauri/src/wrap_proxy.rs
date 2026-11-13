@@ -17,7 +17,7 @@ use fusou_auth::{AuthManager, FileStorage};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::cmd::native_cmd::check_ca_installed;
 
 pub async fn check_ca_and_install<R>(app: &tauri::AppHandle<R>) -> bool
@@ -40,7 +40,16 @@ where
 
     #[cfg(target_os = "windows")]
     {
-        return add_store_sync(app).await;
+        if check_ca_installed(app).await {
+            return true;
+        }
+
+        tracing::info!("CA certificate is not installed");
+        if !add_store_sync(app).await {
+            return false;
+        }
+
+        return check_ca_installed(app).await;
     }
 }
 
@@ -116,14 +125,8 @@ where
         } else {
             tracing::info!("Generated CA certificate does not exist, creating...");
             proxy_https::proxy_server_https::create_ca(ca_path.clone());
-            if !add_store_sync(app).await {
-                return Err("Failed to install regenerated CA certificate".into());
-            }
-            #[cfg(target_os = "linux")]
-            if !check_ca_installed(app).await {
-                return Err(
-                    "Generated CA certificate verification failed after regeneration".into(),
-                );
+            if !check_ca_and_install(app).await {
+                return Err("Failed to install or verify generated CA certificate".into());
             }
         }
     } else {

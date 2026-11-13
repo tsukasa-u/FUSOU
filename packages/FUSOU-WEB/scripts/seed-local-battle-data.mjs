@@ -24,6 +24,7 @@
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
+import { brotliDecompressSync } from "zlib";
 
 const TMP_DIR = join(process.cwd(), ".seed-battle-tmp");
 const SUPPORTED_TABLES = [
@@ -203,6 +204,9 @@ function parseArgs() {
     tables: [...DEFAULT_TABLES],
     limit: 2000,
     targetTimestamp: null,
+    syncSnapshots: true,
+    snapshotsOnly: false,
+    detailLimit: 30,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -225,6 +229,16 @@ function parseArgs() {
       const parsed = Number.parseInt(args[++i] || "", 10);
       if (Number.isFinite(parsed) && parsed > 0) {
         options.targetTimestamp = parsed;
+      }
+    } else if (arg === "--no-snapshots") {
+      options.syncSnapshots = false;
+    } else if (arg === "--snapshots-only") {
+      options.snapshotsOnly = true;
+      options.syncSnapshots = true;
+    } else if (arg === "--detail-limit") {
+      const parsed = Number.parseInt(args[++i] || "", 10);
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        options.detailLimit = Math.min(parsed, 5000);
       }
     }
   }
@@ -514,7 +528,7 @@ function seedR2Files(bucket, rows) {
         `npx wrangler r2 object get ${bucket}/${filePath} --file "${localFile}" --remote`,
       );
       runWithRetry(
-        `npx wrangler r2 object put ${bucket}/${filePath} --file "${localFile}"`,
+        `npx wrangler r2 object put ${bucket}/${filePath} --file "${localFile}" --local`,
       );
       ok++;
       uploadedPaths.add(filePath);
@@ -527,6 +541,107 @@ function seedR2Files(bucket, rows) {
 
   if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true });
   return { objectCount: ok, failedCount: failed, uploadedPaths };
+}
+
+function trySyncR2Object(bucket, objectKey, localFile, contentType = "application/json") {
+  try {
+    runWithRetry(
+      `npx wrangler r2 object get ${bucket}/${objectKey} --file "${localFile}" --remote`,
+      2,
+      250,
+    );
+    runWithRetry(
+      `npx wrangler r2 object put ${bucket}/${objectKey} --file "${localFile}" --local --content-type "${contentType}"`,
+      2,
+      250,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractEnvUuidsFromSnapshotFile(filePath) {
+  try {
+    const raw = readFileSync(filePath);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw.toString("utf8"));
+    } catch {
+      parsed = JSON.parse(brotliDecompressSync(raw).toString("utf8"));
+    }
+    const battles = Array.isArray(parsed?.battles) ? parsed.battles : [];
+    const seen = new Set();
+    for (const battle of battles) {
+      const envUuid = String(battle?.env_uuid || "").trim();
+      if (envUuid) seen.add(envUuid);
+    }
+    return [...seen];
+  } catch {
+    return [];
+  }
+}
+
+function syncPeriodSnapshots(bucket, periodTags, detailLimit) {
+  if (!periodTags.length) return { snapshotCount: 0, detailCount: 0 };
+
+  if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true });
+  mkdirSync(TMP_DIR, { recursive: true });
+
+  let snapshotCount = 0;
+  let detailCount = 0;
+
+  try {
+    for (const tag of periodTags) {
+      let overviewFile = null;
+
+      for (const kind of ["overview", "drops"]) {
+        let synced = false;
+        for (const ext of ["json.br", "json"]) {
+          const key = `snapshots/${kind}/${tag}.${ext}`;
+          const localFile = join(TMP_DIR, `${kind}-${tag}.${ext}`);
+          process.stdout.write(`  Snapshot ${key} ... `);
+          if (trySyncR2Object(bucket, key, localFile)) {
+            snapshotCount++;
+            synced = true;
+            console.log("OK");
+            if (kind === "overview") {
+              overviewFile = localFile;
+            }
+            break;
+          }
+          console.log("not found");
+        }
+        if (!synced && kind === "overview") {
+          console.warn(`  [warn] No overview snapshot found on remote R2 for period ${tag}`);
+        }
+      }
+
+      if (overviewFile && detailLimit > 0) {
+        const envUuids = extractEnvUuidsFromSnapshotFile(overviewFile).slice(
+          0,
+          detailLimit,
+        );
+        if (envUuids.length > 0) {
+          console.log(`  Syncing up to ${envUuids.length} sortie detail snapshot(s) for ${tag}...`);
+          for (const envUuid of envUuids) {
+            for (const ext of ["json.br", "json"]) {
+              const key = `snapshots/env_detail/${tag}/${envUuid}.${ext}`;
+              const localFile = join(TMP_DIR, `env_detail-${tag}-${envUuid}.${ext}`);
+              if (trySyncR2Object(bucket, key, localFile)) {
+                detailCount++;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true });
+  }
+
+  return { snapshotCount, detailCount };
 }
 
 function seedLocalD1(db, rows, tables, period, uploadedPaths) {
@@ -634,38 +749,69 @@ async function main() {
     );
   }
 
-  console.log("[1/4] Fetching remote block metadata from D1...");
-  const rows = getRemoteRows(opts, allowedPeriodTagSet);
-  if (!rows.length) {
-    console.log("No matching remote rows found. Nothing to seed.");
-    return;
+  let rows = [];
+  if (!opts.snapshotsOnly) {
+    console.log("[1/5] Fetching remote block metadata from D1...");
+    rows = getRemoteRows(opts, allowedPeriodTagSet);
+    if (!rows.length) {
+      console.log("No matching remote block rows found.");
+    } else {
+      console.log(`  Found ${rows.length} block row(s).`);
+    }
+
+    if (rows.length > 0) {
+      console.log("[2/5] Seeding local R2 Avro objects...");
+      const { objectCount, failedCount, uploadedPaths } = seedR2Files(
+        opts.bucket,
+        rows,
+      );
+      console.log(`  Uploaded ${objectCount} R2 object(s) to local bucket.`);
+      if (failedCount > 0) {
+        console.log(`  Failed to upload ${failedCount} object(s).`);
+      }
+
+      console.log("[3/5] Ensuring local D1 schema...");
+      ensureLocalSchema(opts.db);
+
+      console.log("[4/5] Seeding local D1 indexes...");
+      const { fileCount, blockCount } = seedLocalD1(
+        opts.db,
+        rows,
+        opts.tables,
+        opts.period,
+        uploadedPaths,
+      );
+      console.log(
+        `  Inserted ${fileCount} archived file row(s), ${blockCount} block index row(s).`,
+      );
+    }
+  } else {
+    console.log("[1/1] Skipping Avro/D1 seed (--snapshots-only).");
   }
-  console.log(`  Found ${rows.length} block row(s).`);
 
-  console.log("[2/4] Seeding local R2 objects...");
-  const { objectCount, failedCount, uploadedPaths } = seedR2Files(
-    opts.bucket,
-    rows,
-  );
-  console.log(`  Uploaded ${objectCount} R2 object(s) to local bucket.`);
-  if (failedCount > 0) {
-    console.log(`  Failed to upload ${failedCount} object(s).`);
+  if (opts.syncSnapshots) {
+    const sortedAllowed = [...allowedPeriodTagSet].filter((t) => isValidPeriodTagDate(t)).sort((a, b) => b.localeCompare(a));
+    const snapshotPeriods = (() => {
+      if (opts.period === "all") {
+        const fromRows = rows.map((r) => String(r.period_tag || "").trim()).filter(isValidPeriodTagDate);
+        return [...new Set([...sortedAllowed, ...fromRows])].sort((a, b) => b.localeCompare(a));
+      }
+      if (opts.period === "latest") {
+        const fromRows = rows.map((r) => String(r.period_tag || "").trim()).filter(isValidPeriodTagDate).sort((a, b) => b.localeCompare(a));
+        const latest = fromRows[0] || sortedAllowed[0];
+        return latest ? [latest] : [];
+      }
+      return isValidPeriodTagDate(opts.period) ? [opts.period] : [];
+    })();
+
+    console.log(`[5/5] Syncing R2 pre-built snapshots for period(s): ${snapshotPeriods.join(", ") || "(none)"}...`);
+    const { snapshotCount, detailCount } = syncPeriodSnapshots(
+      opts.bucket,
+      snapshotPeriods,
+      opts.detailLimit,
+    );
+    console.log(`  Synced ${snapshotCount} overview/drops snapshot(s), ${detailCount} env_detail snapshot(s).`);
   }
-
-  console.log("[3/4] Ensuring local D1 schema...");
-  ensureLocalSchema(opts.db);
-
-  console.log("[4/4] Seeding local D1 indexes...");
-  const { fileCount, blockCount } = seedLocalD1(
-    opts.db,
-    rows,
-    opts.tables,
-    opts.period,
-    uploadedPaths,
-  );
-  console.log(
-    `  Inserted ${fileCount} archived file row(s), ${blockCount} block index row(s).`,
-  );
 
   console.log();
   console.log("Done! Local battle data has been seeded to R2 + D1.");

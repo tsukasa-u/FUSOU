@@ -2,16 +2,9 @@ import { Hono, type Context } from "hono";
 import type { Bindings } from "../types";
 import {
   createEnvContext,
-  generateSignedToken,
   getEnv,
   parseStrictBoolean,
-  resolveDatasetToken,
   timingSafeEqual,
-  validateDatasetTokenSecret,
-  validateDatasetTokenWithConstraints,
-  resolveDatasetTokenRevocationConfig,
-  validateTokenPayloadWithSchema,
-  verifySignedToken,
   safeWaitUntil,
   safeGetExecutionCtx,
 } from "../utils";
@@ -22,7 +15,7 @@ import {
 import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
-import { readBodyWithinLimit } from "../utils/upload";
+import { handleTwoStageUpload } from "../utils/upload";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   RemodelDataIngestBodySchema,
@@ -90,7 +83,11 @@ async function archiveAndResetOnPeriodSwitch(
   archiveBucket: Bindings["SHIP_GROWTH_ARCHIVE_BUCKET"] | undefined,
   incomingPeriodTag: string,
   nowMs: number,
-): Promise<{ stalePeriods: string[] }> {
+): Promise<{
+  stalePeriods: string[];
+  latestPeriodTag: string | null;
+  isStalePeriodTag: boolean;
+}> {
   const periodsResult = await db
     .prepare(
       `SELECT DISTINCT period_tag FROM remodel_slotlist_entries
@@ -106,8 +103,15 @@ async function archiveAndResetOnPeriodSwitch(
   }
   const periods = parsedPeriods.data.map((row) => row.period_tag.trim()).filter(Boolean);
 
+  const latestPeriodTag = periods.sort((a, b) => a.localeCompare(b)).at(-1) ?? null;
+  if (latestPeriodTag && incomingPeriodTag < latestPeriodTag) {
+    return { stalePeriods: [], latestPeriodTag, isStalePeriodTag: true };
+  }
+
   const stalePeriods = periods.filter((tag) => tag !== incomingPeriodTag);
-  if (stalePeriods.length === 0) return { stalePeriods: [] };
+  if (stalePeriods.length === 0) {
+    return { stalePeriods: [], latestPeriodTag, isStalePeriodTag: false };
+  }
 
   if (!archiveBucket) {
     throw new Error(
@@ -178,7 +182,7 @@ async function archiveAndResetOnPeriodSwitch(
     },
   );
 
-  return { stalePeriods };
+  return { stalePeriods, latestPeriodTag, isStalePeriodTag: false };
 }
 
 async function pruneStalePeriodsAfterSuccessfulIngest(
@@ -186,12 +190,30 @@ async function pruneStalePeriodsAfterSuccessfulIngest(
   incomingPeriodTag: string,
 ): Promise<void> {
   await db
-    .prepare(`DELETE FROM remodel_slotlist_entries WHERE period_tag <> ?`)
-    .bind(incomingPeriodTag)
+    .prepare(
+      `DELETE FROM remodel_slotlist_entries
+       WHERE period_tag <> ?
+         AND ? >= (
+           SELECT MAX(period_tag) FROM (
+             SELECT period_tag FROM remodel_slotlist_entries
+             UNION ALL SELECT period_tag FROM remodel_detail_entries
+           )
+         )`,
+    )
+    .bind(incomingPeriodTag, incomingPeriodTag)
     .run();
   await db
-    .prepare(`DELETE FROM remodel_detail_entries WHERE period_tag <> ?`)
-    .bind(incomingPeriodTag)
+    .prepare(
+      `DELETE FROM remodel_detail_entries
+       WHERE period_tag <> ?
+         AND ? >= (
+           SELECT MAX(period_tag) FROM (
+             SELECT period_tag FROM remodel_slotlist_entries
+             UNION ALL SELECT period_tag FROM remodel_detail_entries
+           )
+         )`,
+    )
+    .bind(incomingPeriodTag, incomingPeriodTag)
     .run();
 }
 
@@ -488,334 +510,268 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "REMODEL_DATA_SIGNING_SECRET is required" }, 500);
   }
 
-  const uploadToken = c.req.header("X-Upload-Token");
-
-  // ── Stage 1: Handshake ─────────────────────────────────────────
-  if (!uploadToken) {
-    const handshakeRead = await readBodyWithinLimit(
-      c.req.raw,
-      REMODEL_DATA_HANDSHAKE_MAX_BYTES,
-    );
-    if (handshakeRead.kind === "too_large") {
-      return c.json({ error: "Request body exceeds maximum size" }, 413);
-    }
-    let rawHandshakeBody: unknown = null;
-    if (handshakeRead.kind === "ok") {
-      try {
-        rawHandshakeBody = JSON.parse(
-          new TextDecoder().decode(handshakeRead.data),
+  return handleTwoStageUpload(c, {
+    signingSecret,
+    requireDatasetToken: true,
+    tokenTTL: () => 300,
+    maxBodySize: REMODEL_DATA_MAX_UPLOAD_BYTES,
+    maxPreparationBodySize: REMODEL_DATA_HANDSHAKE_MAX_BYTES,
+    errorMessages: {
+      preparationBodyTooLarge: "Request body exceeds maximum size",
+      bodyTooLarge: "Upload payload exceeds maximum size",
+    },
+    preparationValidator: async (rawBody, _user, authContext) => {
+      const handshakeBody = parseRemodelDataIngestBody(rawBody);
+      const validated = validateIngestBody(handshakeBody);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
+        c,
+        String(handshakeBody?.["period_tag"] ?? "").trim(),
+        { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+      );
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
         );
-      } catch {
-        rawHandshakeBody = null;
       }
-    }
-    const handshakeBody = parseRemodelDataIngestBody(rawHandshakeBody);
 
-    const validated = validateIngestBody(handshakeBody);
-    if (!validated.ok) return c.json({ error: validated.error }, 400);
-    const periodTagValidation = await validateCachedPeriodTag(
-      c,
-      String(handshakeBody?.["period_tag"] ?? "").trim(),
-      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
-    );
-    if (!periodTagValidation.ok) {
-      return c.json(
-        { error: periodTagValidation.error },
-        periodTagValidation.status,
-      );
-    }
+      if (authContext.datasetToken?.dataset_id !== validated.datasetId) {
+        return c.json({ error: "dataset_id mismatch" }, 403);
+      }
 
-    // Require dataset_token possession and bind the request to its dataset_id.
-    const datasetToken = resolveDatasetToken(
-      c.req.header("X-Dataset-Token"),
-      (handshakeBody as Record<string, unknown>)?.["dataset_token"],
-    );
-    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-    // Validate secret length upfront
-    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
-    if (!secretValidation.ok) {
-      return c.json({ error: secretValidation.error }, 500);
-    }
-    const tokenValidation = await validateDatasetTokenWithConstraints({
-      token: datasetToken,
-      secret: datasetTokenSecret,
-      expectedDatasetId: validated.datasetId,
-      revocation: resolveDatasetTokenRevocationConfig(env),
-      // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (public_id) の照合で担保する。
-    });
-    if (!tokenValidation.ok) {
-      return c.json(
-        { error: tokenValidation.error },
-        tokenValidation.status ?? 401,
-      );
-    }
-    const actingUserId = tokenValidation.token!.user_id;
+      const contentHash = String(handshakeBody?.["content_hash"] ?? "").trim();
+      if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
 
-    const contentHash = String(handshakeBody?.["content_hash"] ?? "").trim();
-    if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
+      const declaredSize = Number(handshakeBody?.["file_size"] ?? 0);
+      if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+        return c.json({ error: "file_size must be > 0" }, 400);
+      }
+      if (declaredSize > REMODEL_DATA_MAX_UPLOAD_BYTES) {
+        return c.json(
+          {
+            error: `file_size exceeds maximum of ${REMODEL_DATA_MAX_UPLOAD_BYTES} bytes`,
+          },
+          400,
+        );
+      }
 
-    const declaredSize = Number(handshakeBody?.["file_size"] ?? 0);
-    if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
-      return c.json({ error: "file_size must be > 0" }, 400);
-    }
-    if (declaredSize > REMODEL_DATA_MAX_UPLOAD_BYTES) {
-      return c.json(
-        {
-          error: `file_size exceeds maximum of ${REMODEL_DATA_MAX_UPLOAD_BYTES} bytes`,
+      return {
+        tokenPayload: {
+          content_hash: contentHash,
+          declared_size: declaredSize,
+          dataset_id: validated.datasetId,
+          request_id: validated.requestId,
+          event_type: validated.eventType,
+          schema_version: validated.schemaVersion,
         },
-        400,
+      };
+    },
+    executionProcessor: async (tokenPayload, uploaded) => {
+      const payloadValidation =
+        UploadTokenPayloadSchema.safeParse(tokenPayload);
+      if (!payloadValidation.success) {
+        return c.json(
+          { error: payloadValidation.error.message ?? "Invalid upload token payload" },
+          400,
+        );
+      }
+      const validatedPayload = payloadValidation.data;
+
+      if (uploaded.byteLength !== validatedPayload.declared_size) {
+        return c.json(
+          {
+            error: "Data size mismatch",
+            expected: validatedPayload.declared_size,
+            actual: uploaded.byteLength,
+          },
+          400,
+        );
+      }
+
+      const actualHash = (await sha256Hex(uploaded)).toLowerCase();
+      const expectedHash = validatedPayload.content_hash.toLowerCase();
+      if (!timingSafeEqual(actualHash, expectedHash)) {
+        return c.json(
+          {
+            error: "Content hash mismatch - data may be corrupted",
+            expected: expectedHash,
+            actual: actualHash,
+          },
+          400,
+        );
+      }
+
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
+      } catch {
+        return c.json({ error: "Invalid JSON upload payload" }, 400);
+      }
+      const body = parseRemodelDataIngestBody(parsedBody);
+      if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+
+      const verified = validateIngestBody(body);
+      if (!verified.ok) return c.json({ error: verified.error }, 400);
+      const validatedBody = verified.body;
+      const periodTagValidation = await validateCachedPeriodTag(
+        c,
+        validatedBody.period_tag,
+        { cacheKV: c.env.DATA_LOADER_CACHE_KV },
       );
-    }
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
+        );
+      }
 
-    const token = await generateSignedToken(
-      {
-        user_id: actingUserId,
-        content_hash: contentHash,
-        declared_size: declaredSize,
-        dataset_id: validated.datasetId,
-        request_id: validated.requestId,
-        event_type: validated.eventType,
-        schema_version: validated.schemaVersion,
-      },
-      signingSecret,
-      300,
-    );
+      if (
+        verified.datasetId !== validatedPayload.dataset_id ||
+        verified.requestId !== validatedPayload.request_id ||
+        verified.eventType !== validatedPayload.event_type ||
+        verified.schemaVersion !== validatedPayload.schema_version
+      ) {
+        return c.json(
+          { error: "Upload payload does not match upload token claims" },
+          400,
+        );
+      }
 
-    const uploadUrl = new URL(c.req.url);
-    // stripApiPrefix() in [...route].ts removes /api/ before Hono sees the URL;
-    // restore it so Stage-2 clients post to the API endpoint.
-    if (!uploadUrl.pathname.startsWith("/api/")) {
-      uploadUrl.pathname =
-        "/api" +
-        (uploadUrl.pathname.startsWith("/")
-          ? uploadUrl.pathname
-          : `/${uploadUrl.pathname}`);
-    }
-    return c.json({
-      uploadUrl: uploadUrl.toString(),
-      token,
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    });
-  }
+      try {
+        const archiveResult = await archiveAndResetOnPeriodSwitch(
+          db,
+          c.env.SHIP_GROWTH_ARCHIVE_BUCKET,
+          verified.periodTag,
+          verified.timestampMs,
+        );
+        if (archiveResult.isStalePeriodTag) {
+          return c.json(
+            {
+              error: "Incoming period_tag is older than stored remodel data",
+              incoming_period_tag: verified.periodTag,
+              latest_period_tag: archiveResult.latestPeriodTag,
+            },
+            409,
+          );
+        }
 
-  // ── Stage 2: Execution ─────────────────────────────────────────
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload)
-    return c.json({ error: "Invalid or expired upload token" }, 401);
-
-  const payloadValidation = validateTokenPayloadWithSchema(
-    tokenPayload,
-    UploadTokenPayloadSchema,
-  );
-  if (!payloadValidation.valid) {
-    return c.json(
-      { error: payloadValidation.error ?? "Invalid upload token payload" },
-      400,
-    );
-  }
-  const validatedPayload = payloadValidation.data;
-  // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
-  // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
-
-  // Read binary body
-  const bodyRead = await readBodyWithinLimit(
-    c.req.raw,
-    REMODEL_DATA_MAX_UPLOAD_BYTES,
-  );
-  if (bodyRead.kind === "missing") {
-    return c.json({ error: "Upload payload is missing" }, 400);
-  }
-  if (bodyRead.kind === "too_large") {
-    return c.json({ error: "Upload payload exceeds maximum size" }, 413);
-  }
-  const uploaded = bodyRead.data;
-
-  // Size check
-  const declaredSize = validatedPayload.declared_size;
-  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
-    return c.json(
-      {
-        error: "Data size mismatch",
-        expected: declaredSize,
-        actual: uploaded.byteLength,
-      },
-      400,
-    );
-  }
-
-  // Hash check (timing-safe)
-  const actualHash = (await sha256Hex(uploaded)).toLowerCase();
-  const expectedHash = validatedPayload.content_hash.toLowerCase();
-  if (!timingSafeEqual(actualHash, expectedHash)) {
-    return c.json(
-      {
-        error: "Content hash mismatch - data may be corrupted",
-        expected: expectedHash,
-        actual: actualHash,
-      },
-      400,
-    );
-  }
-
-  // Parse JSON payload
-  let parsedBody: unknown;
-  try {
-    parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
-  } catch {
-    return c.json({ error: "Invalid JSON upload payload" }, 400);
-  }
-  const body = parseRemodelDataIngestBody(parsedBody);
-  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-
-  const verified = validateIngestBody(body);
-  if (!verified.ok) return c.json({ error: verified.error }, 400);
-  const validatedBody = verified.body;
-  const periodTagValidation = await validateCachedPeriodTag(
-    c,
-    validatedBody.period_tag,
-    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
-  );
-  if (!periodTagValidation.ok) {
-    return c.json(
-      { error: periodTagValidation.error },
-      periodTagValidation.status,
-    );
-  }
-
-  // Verify claims match payload
-  if (
-    verified.datasetId !== validatedPayload.dataset_id ||
-    verified.requestId !== validatedPayload.request_id ||
-    verified.eventType !== validatedPayload.event_type ||
-    verified.schemaVersion !== validatedPayload.schema_version
-  ) {
-    return c.json(
-      { error: "Upload payload does not match upload token claims" },
-      400,
-    );
-  }
-
-  // ── INSERT ─────────────────────────────────────────────────────
-  try {
-    const archiveResult = await archiveAndResetOnPeriodSwitch(
-      db,
-      c.env.SHIP_GROWTH_ARCHIVE_BUCKET,
-      verified.periodTag,
-      verified.timestampMs,
-    );
-
-    if (validatedBody.event_type === "slotlist") {
-      // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity.
-      const stmts = validatedBody.entries.map(
-        (entry) =>
-          db
+        if (validatedBody.event_type === "slotlist") {
+          const stmts = validatedBody.entries.map(
+            (entry) =>
+              db
+                .prepare(
+                  `INSERT OR REPLACE INTO remodel_slotlist_entries (
+                  period_tag,
+                  secretary_ship_master_id, weekday_jst,
+                  remodel_id, remodel_step_id, remodel_level, slotitem_master_id, sp_type,
+                  req_fuel, req_bull, req_steel, req_bauxite,
+                  req_buildkit, req_remodelkit,
+                  req_slot_id, req_slot_num,
+                  updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                )
+                .bind(
+                  verified.periodTag,
+                  validatedBody.secretary_ship_master_id,
+                  validatedBody.weekday_jst,
+                  entry.remodel_id,
+                  entry.remodel_step_id ?? entry.remodel_id,
+                  entry.remodel_level,
+                  entry.slotitem_master_id,
+                  entry.sp_type,
+                  entry.req_fuel,
+                  entry.req_bull,
+                  entry.req_steel,
+                  entry.req_bauxite,
+                  entry.req_buildkit,
+                  entry.req_remodelkit,
+                  entry.req_slot_id,
+                  entry.req_slot_num,
+                  verified.timestampMs,
+                ),
+          );
+          const BATCH_SIZE = 100;
+          for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+            await db.batch(stmts.slice(i, i + BATCH_SIZE));
+          }
+        } else if (validatedBody.event_type === "detail") {
+          await db
             .prepare(
-              `INSERT OR REPLACE INTO remodel_slotlist_entries (
-              period_tag,
-              secretary_ship_master_id, weekday_jst,
-              remodel_id, remodel_step_id, remodel_level, slotitem_master_id, sp_type,
-              req_fuel, req_bull, req_steel, req_bauxite,
-              req_buildkit, req_remodelkit,
-              req_slot_id, req_slot_num,
-              updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT OR REPLACE INTO remodel_detail_entries (
+                period_tag,
+                slotitem_master_id, remodel_id, remodel_step_id, remodel_level,
+                certain_buildkit, certain_remodelkit,
+                req_slot_id, req_slot_num,
+                change_flag,
+                req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2,
+                updated_at_ms
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               verified.periodTag,
-              validatedBody.secretary_ship_master_id,
-              validatedBody.weekday_jst,
-              entry.remodel_id,
-              entry.remodel_step_id ?? entry.remodel_id,
-              entry.remodel_level,
-              entry.slotitem_master_id,
-              entry.sp_type,
-              entry.req_fuel,
-              entry.req_bull,
-              entry.req_steel,
-              entry.req_bauxite,
-              entry.req_buildkit,
-              entry.req_remodelkit,
-              entry.req_slot_id,
-              entry.req_slot_num,
+              validatedBody.slotitem_master_id,
+              validatedBody.remodel_id,
+              validatedBody.remodel_step_id ?? validatedBody.remodel_id,
+              validatedBody.remodel_level,
+              validatedBody.certain_buildkit,
+              validatedBody.certain_remodelkit,
+              validatedBody.req_slot_id ?? null,
+              validatedBody.req_slot_num ?? null,
+              validatedBody.change_flag,
+              validatedBody.req_useitem_id ?? null,
+              validatedBody.req_useitem_id2 ?? null,
+              validatedBody.req_useitem_num ?? null,
+              validatedBody.req_useitem_num2 ?? null,
               verified.timestampMs,
-            ),
+            )
+            .run();
+        }
+
+        if (archiveResult.stalePeriods.length > 0) {
+          await pruneStalePeriodsAfterSuccessfulIngest(db, verified.periodTag);
+        }
+      } catch (error) {
+        console.error("remodel ingest DB write failed:", error);
+        return c.json({ error: "Database write failed" }, 500);
+      }
+
+      const responseBody = {
+        ok: true,
+        event_type: verified.eventType,
+        dataset_id: verified.datasetId,
+        request_id: verified.requestId,
+      };
+
+      scheduleRemodelTask(
+        c,
+        (async () => {
+          await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+            "remodel:summary",
+          ]);
+          try {
+            await app.request(`/summary`, {}, c.env, safeGetExecutionCtx(c));
+            await app.request(
+              `/effective-summary`,
+              {},
+              c.env,
+              safeGetExecutionCtx(c),
+            );
+          } catch (err) {
+            console.warn("[remodel-data] Failed to pre-warm caches:", err);
+          }
+        })(),
       );
-      const BATCH_SIZE = 100;
-      for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
-        await db.batch(stmts.slice(i, i + BATCH_SIZE));
+
+      const cache = (globalThis as { caches?: { default?: Cache } }).caches
+        ?.default;
+      if (cache) {
+        scheduleRemodelTask(c, invalidateRemodelCaches(cache, c.req.url));
       }
-    } else if (validatedBody.event_type === "detail") {
-      await db
-        .prepare(
-          `INSERT OR REPLACE INTO remodel_detail_entries (
-            period_tag,
-            slotitem_master_id, remodel_id, remodel_step_id, remodel_level,
-            certain_buildkit, certain_remodelkit,
-            req_slot_id, req_slot_num,
-            change_flag,
-            req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2,
-            updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          verified.periodTag,
-          validatedBody.slotitem_master_id,
-          validatedBody.remodel_id,
-          validatedBody.remodel_step_id ?? validatedBody.remodel_id,
-          validatedBody.remodel_level,
-          validatedBody.certain_buildkit,
-          validatedBody.certain_remodelkit,
-          validatedBody.req_slot_id ?? null,
-          validatedBody.req_slot_num ?? null,
-          validatedBody.change_flag,
-          validatedBody.req_useitem_id ?? null,
-          validatedBody.req_useitem_id2 ?? null,
-          validatedBody.req_useitem_num ?? null,
-          validatedBody.req_useitem_num2 ?? null,
-          verified.timestampMs,
-        )
-        .run();
-    }
 
-    if (archiveResult.stalePeriods.length > 0) {
-      await pruneStalePeriodsAfterSuccessfulIngest(db, verified.periodTag);
-    }
-  } catch (error) {
-    console.error("remodel ingest DB write failed:", error);
-    return c.json({ error: "Database write failed" }, 500);
-  }
-
-  const responseBody = {
-    ok: true,
-    event_type: verified.eventType,
-    dataset_id: verified.datasetId,
-    request_id: verified.requestId,
-  };
-
-  scheduleRemodelTask(
-    c,
-    (async () => {
-      await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-        "remodel:summary",
-      ]);
-      try {
-        await app.request(`/summary`, {}, c.env, safeGetExecutionCtx(c));
-        await app.request(`/effective-summary`, {}, c.env, safeGetExecutionCtx(c));
-      } catch (err) {
-        console.warn("[remodel-data] Failed to pre-warm caches:", err);
-      }
-    })()
-  );
-
-  // Best-effort cache invalidation after successful ingest
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
-  if (cache) {
-    scheduleRemodelTask(c, invalidateRemodelCaches(cache, c.req.url));
-  }
-
-  return c.json(responseBody);
+      return c.json(responseBody);
+    },
+  });
 });
 
 export default app;

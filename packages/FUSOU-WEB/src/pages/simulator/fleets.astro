@@ -11,7 +11,7 @@ export const prerender = false;
 const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 
-let safeAccessToken: string | null = null;
+let isAuthenticated = false;
 
 const accessTokenCookie = cookies.get("sb-access-token");
 const refreshTokenCookie = cookies.get("sb-refresh-token");
@@ -23,9 +23,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       refresh_token: refreshTokenCookie.value,
       access_token: accessTokenCookie.value,
     });
-    if (session.data.session?.access_token) {
-      safeAccessToken = session.data.session.access_token;
-    }
+    isAuthenticated = Boolean(session.data.session?.access_token);
   } catch {
     // Session invalid — user is not logged in
   }
@@ -119,18 +117,16 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   </footer>
 </PageLayout>
 
-<script is:inline define:vars={{ accessToken: safeAccessToken }}>
-  window.__fusouAccessToken = accessToken;
+<script is:inline define:vars={{ isAuthenticated }}>
+  window.__fusouIsAuthenticated = isAuthenticated;
 </script>
 
 <script>
   import { mountFleetListPanel } from "@/components/features/simulator/solid/FleetListPanel";
 
-  type FusouWindow = Window & { __fusouAccessToken?: string | null };
-  const accessToken = (window as FusouWindow).__fusouAccessToken ?? null;
   const root = document.getElementById("fleet-list-body");
   if (root) {
-    mountFleetListPanel(root, accessToken);
+    mountFleetListPanel(root, window.__fusouIsAuthenticated ?? false);
   }
 </script>
 

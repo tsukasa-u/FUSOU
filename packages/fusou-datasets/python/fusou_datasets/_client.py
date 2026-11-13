@@ -147,7 +147,7 @@ def _verify_device_colab() -> bool:
             "google_token": creds.get("token"),
         })
         if resp.status_code == 200:
-            print(f"? Device verified via Google account: {creds['email']}", file=sys.stderr)
+            print(f"[OK] Device verified via Google account: {creds['email']}", file=sys.stderr)
             return True
     except Exception as e:
         print(f"[fusou_datasets] Colab verification failed: {e}", file=sys.stderr)
@@ -157,14 +157,14 @@ def _verify_device_colab() -> bool:
 def _verify_device_code() -> bool:
     """Verify device using email code (interactive)."""
     # Non-interactive check (CI / background process / scripts without TTY)
-    if not sys.stdin.isatty():
+    if not (sys.stdin.isatty() or "ipykernel" in sys.modules or "google.colab" in sys.modules):
         raise VerificationError(
-            "? Device verification required but running in a non-interactive environment (no TTY).\n"
+            "[WARN] Device verification required but running in a non-interactive environment (no TTY).\n"
             "Please verify this device first by running an interactive session (e.g. fusou_datasets.list_tables())."
         )
 
     print("\n" + "=" * 60, file=sys.stderr)
-    print("?? DEVICE VERIFICATION REQUIRED", file=sys.stderr)
+    print("[INFO] DEVICE VERIFICATION REQUIRED", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
     print("A 6-digit verification code has been sent to your email address.", file=sys.stderr)
     print("Check spam folder if not received. Code expires in 10 minutes.", file=sys.stderr)

@@ -14,7 +14,6 @@
     // "jsx": "react-jsx" // Reactプロジェクトがあるため
   },
   "references": [
-    // { "path": "./packages/shared-ui" },
     // { "path": "./packages/fusou-app" },
     // { "path": "./packages/fusou-web" }
   ]

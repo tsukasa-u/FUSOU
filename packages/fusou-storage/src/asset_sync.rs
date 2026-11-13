@@ -40,6 +40,31 @@ static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::ne
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
+static SHARED_PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
+static SHARED_RETRY_SERVICE: OnceLock<Arc<UploadRetryService>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetUploadOutcome {
+    Uploaded,
+    SkippedRemote,
+    QueuedPending,
+}
+
+/// Register the application-wide PendingStore and UploadRetryService for asset sync
+/// so asset retries share the main retry loop and custom handler instead of creating a second store.
+pub fn set_shared_pending_retry(
+    pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>,
+) -> Result<(), String> {
+    let _ = PENDING_STORE.set(pending_store.clone());
+    SHARED_PENDING_STORE
+        .set(pending_store)
+        .map_err(|_| "shared asset sync pending store already initialized".to_string())?;
+    SHARED_RETRY_SERVICE
+        .set(retry_service)
+        .map_err(|_| "shared asset sync retry service already initialized".to_string())?;
+    Ok(())
+}
 // Counter for monitoring dropped notifications when queue is closed.
 static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
 static BLOCKED_EXTENSIONS: OnceLock<Vec<String>> = OnceLock::new();
@@ -267,15 +292,25 @@ pub fn start(
         tracing::warn!(error = %err, "failed to enable persistent asset suppression cache");
     }
 
-    // Initialize PendingStore
-    let pending_dir = init.save_root.join("pending");
-    let pending_store = Arc::new(PendingStore::new(pending_dir));
-    let _ = PENDING_STORE.set(pending_store.clone());
-    let retry_service = Arc::new(UploadRetryService::new(
-        pending_store.clone(),
-        auth_manager.clone(),
-        None,
-    ));
+    // Reuse injected shared PendingStore/UploadRetryService when available;
+    // otherwise fall back to a local store under save_root.
+    let (pending_store, retry_service, spawn_local_retry_loop) =
+        match (SHARED_PENDING_STORE.get(), SHARED_RETRY_SERVICE.get()) {
+            (Some(shared_store), Some(shared_retry)) => {
+                (shared_store.clone(), shared_retry.clone(), false)
+            }
+            _ => {
+                let pending_dir = init.save_root.join("pending");
+                let pending_store = Arc::new(PendingStore::new(pending_dir));
+                let _ = PENDING_STORE.set(pending_store.clone());
+                let retry_service = Arc::new(UploadRetryService::new(
+                    pending_store.clone(),
+                    auth_manager.clone(),
+                    None,
+                ));
+                (pending_store, retry_service, true)
+            }
+        };
 
     let _ = BLOCKED_EXTENSIONS.set(init.blocked_extensions.clone());
 
@@ -300,16 +335,18 @@ pub fn start(
         }
     });
 
-    let retry_service_for_background = retry_service.clone();
-    let retry_interval_secs = settings.retry_interval_secs;
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(retry_interval_secs));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            retry_service_for_background.trigger_retry().await;
-        }
-    });
+    if spawn_local_retry_loop {
+        let retry_service_for_background = retry_service.clone();
+        let retry_interval_secs = settings.retry_interval_secs;
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(retry_interval_secs));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                retry_service_for_background.trigger_retry().await;
+            }
+        });
+    }
 
     ASSET_SYNC_HANDLE
         .set(handle)
@@ -617,7 +654,7 @@ async fn process_path(
         );
     }
 
-    upload_via_api(
+    let outcome = upload_via_api(
         client,
         settings,
         path,
@@ -630,7 +667,9 @@ async fn process_path(
         Some(pending_store),
     )
     .await?;
-    ASSET_REQUEST_CACHE.mark_processed(key, local_hash);
+    if !matches!(outcome, AssetUploadOutcome::QueuedPending) {
+        ASSET_REQUEST_CACHE.mark_processed(key, local_hash);
+    }
     tracing::info!(file = %path.display(), "processing path completed");
     Ok(())
 }
@@ -754,7 +793,7 @@ pub async fn upload_via_api(
     file_hash: &str,
     auth_manager: &AuthManager<FileStorage>,
     pending_store: Option<&PendingStore>,
-) -> Result<(), String> {
+) -> Result<AssetUploadOutcome, String> {
     tracing::info!(
         key = %mask_sensitive(key),
         file = %path.display(),
@@ -812,7 +851,7 @@ pub async fn upload_via_api(
                 "member_id_hash (dataset_id) not ready; queued asset upload as pending"
             );
             tracing::info!(key = %mask_sensitive(key), "asset upload event completed (queued pending)");
-            return Ok(());
+            return Ok(AssetUploadOutcome::QueuedPending);
         }
 
         return Err("dataset_id is not ready and pending store is unavailable".to_string());
@@ -863,7 +902,7 @@ pub async fn upload_via_api(
             register_remote_key(key, Some(file_hash));
             // Reset auth failure flag on successful upload
             SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
-            Ok(())
+            Ok(AssetUploadOutcome::Uploaded)
         }
         Ok(UploadResult::Skipped) => {
             tracing::info!(
@@ -871,7 +910,7 @@ pub async fn upload_via_api(
                 "asset upload event completed (already exists upstream)"
             );
             register_remote_key(key, Some(file_hash));
-            Ok(())
+            Ok(AssetUploadOutcome::SkippedRemote)
         }
         Err(e) => {
             // Improved error detection: Check if error contains "Authentication error" prefix
@@ -1446,5 +1485,80 @@ fn save_persistent_cache(
         Err(e) => {
             tracing::warn!("Failed to serialize persistent asset cache: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fusou_auth::manager::AuthConfig;
+
+    #[tokio::test]
+    async fn pending_asset_deferral_does_not_suppress_future_scans() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "fusou-asset-sync-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let save_root = temp_dir.join("save");
+        let cache_root = temp_dir.join("cache");
+        let pending_dir = temp_dir.join("pending");
+        std::fs::create_dir_all(&save_root).unwrap();
+        std::fs::create_dir_all(&cache_root).unwrap();
+
+        let asset_path = save_root.join("kcs2").join("ship.png");
+        std::fs::create_dir_all(asset_path.parent().unwrap()).unwrap();
+        std::fs::write(&asset_path, b"png-bytes").unwrap();
+
+        let settings = AssetSyncInit {
+            save_root: save_root.clone(),
+            cache_root,
+            api_endpoint: "https://example.test/api/asset-sync/upload".to_string(),
+            api_origin: "https://example.test".to_string(),
+            key_prefix: Some("assets".to_string()),
+            scan_interval: Duration::from_secs(60),
+            require_supabase_auth: false,
+            finder_tag: None,
+            dataset_id: None,
+            period_endpoint: None,
+            blocked_extensions: vec![],
+            existing_keys_endpoint: None,
+            auth_backoff_secs: 60,
+            retry_interval_secs: 60,
+        };
+        let auth_manager = Arc::new(AuthManager::new(
+            AuthConfig {
+                supabase_url: "https://example.test".to_string(),
+                api_key: "key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            Arc::new(FileStorage::new(temp_dir.join("auth.json"))),
+        ));
+        let pending_store = PendingStore::new(pending_dir);
+
+        let key = format!("assets/kcs2/ship-pending-{}.png", uuid::Uuid::new_v4());
+        let outcome = upload_via_api(
+            &Client::new(),
+            &settings,
+            &asset_path,
+            Path::new("kcs2/ship.png"),
+            &key,
+            9,
+            b"png-bytes".to_vec(),
+            "deadbeef",
+            &auth_manager,
+            Some(&pending_store),
+        )
+        .await
+        .expect("deferring to pending should return Ok(QueuedPending)");
+
+        assert_eq!(outcome, AssetUploadOutcome::QueuedPending);
+        assert!(
+            !ASSET_REQUEST_CACHE.should_skip(&key, "deadbeef"),
+            "pending deferral must not suppress subsequent retries/scans"
+        );
+        assert_eq!(pending_store.list_pending().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

@@ -448,11 +448,13 @@ impl UploadRetryService {
             return RetryKind::Other;
         };
 
-        if context_json.get("provider").and_then(|v| v.as_str()) == Some("r2") {
+        let payload = context_json.get("Custom").unwrap_or(&context_json);
+
+        if payload.get("provider").and_then(|v| v.as_str()) == Some("r2") {
             return RetryKind::DatasetBound;
         }
 
-        let operation = context_json.get("operation").and_then(|v| v.as_str());
+        let operation = payload.get("operation").and_then(|v| v.as_str());
         if operation == Some("localfs_write") {
             return RetryKind::Other;
         }
@@ -565,5 +567,35 @@ impl UploadRetryService {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn classify_retry_kind_unwraps_upload_context_custom() {
+        let context = UploadContext::Custom(serde_json::json!({
+            "provider": "r2",
+            "tag": "t1",
+            "table": "battle",
+        }));
+        let meta = PendingMeta {
+            id: "1".to_string(),
+            created_at: 0,
+            last_attempt_at: None,
+            attempt_count: 0,
+            target_url: "https://example.test/upload".to_string(),
+            headers: HashMap::new(),
+            file_path: std::path::PathBuf::from("1.bin"),
+            context: Some(serde_json::to_string(&context).unwrap()),
+        };
+
+        assert!(matches!(
+            UploadRetryService::classify_retry_kind(&meta),
+            RetryKind::DatasetBound
+        ));
     }
 }

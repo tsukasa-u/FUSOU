@@ -27,7 +27,7 @@ pub fn get_log_file_name() -> String {
     LOG_FILE_NAME
         .get()
         .cloned()
-        .unwrap_or_else(|| "fuosu-app.log".to_string())
+        .unwrap_or_else(|| "fusou-app.log".to_string())
 }
 
 #[derive(Default, Clone, serde::Serialize)]
@@ -112,7 +112,7 @@ pub fn setup(app: &mut tauri::App) {
     let _ = LOG_STORAGE.set(Arc::new(Mutex::new(Vec::with_capacity(MAX_LOGS))));
 
     let log_path = get_ROAMING_DIR().join("log");
-    let log_file_name = format!("fuosu-app-v{}.log", app.package_info().version);
+    let log_file_name = format!("fusou-app-v{}.log", app.package_info().version);
     LOG_FILE_NAME.set(log_file_name).ok();
 
     let file_appender = RollingFileAppender::new(

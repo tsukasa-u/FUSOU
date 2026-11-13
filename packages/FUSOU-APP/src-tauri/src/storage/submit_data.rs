@@ -65,6 +65,7 @@ pub fn submit_get_data_table() {
 pub fn submit_port_table() {
     if !Cells::reset_flag() {
         let cells = Cells::load();
+        Cells::reset();
         let maparea_id = cells.maparea_id;
         let mapinfo_no = cells.mapinfo_no;
         tracing::info!(
@@ -111,7 +112,6 @@ pub fn submit_port_table() {
                 Ok(tables) => {
                     if tables.is_empty() {
                         tracing::info!("submit_port_table: all tables empty — skipping upload");
-                        Cells::reset();
                         return;
                     }
 
@@ -132,7 +132,6 @@ pub fn submit_port_table() {
                             "submit_port_table: upload failed for all providers; retry pipeline will handle pending uploads"
                         );
                     }
-                    Cells::reset();
                 }
                 Err(e) => {
                     tracing::error!("Failed to encode port table (non-empty): {}", e);

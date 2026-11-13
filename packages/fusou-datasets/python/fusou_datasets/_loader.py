@@ -262,14 +262,14 @@ def load(
                 print(f"[Cache] Validation failed, re-downloading: {e}", file=sys.stderr)
         elif offline:
             raise DatasetNotFoundError(
-                f"? No cached data for '{table}' (period_tag='{period_tag}')\n\n"
+                f"[WARN] No cached data for '{table}' (period_tag='{period_tag}')\n\n"
                 "Offline mode requires cached data. To fix:\n"
                 f"  1. Run: fusou_datasets.load('{table}', period_tag='{period_tag}')\n"
                 "  2. Then use: fusou_datasets.load(..., offline=True)"
             )
     elif offline:
         raise DatasetNotFoundError(
-            "? Offline mode requires cache configuration\n\n"
+            "[WARN] Offline mode requires cache configuration\n\n"
             "To use offline mode:\n"
             "  1. Configure cache: fusou_datasets.configure(cache_dir='~/.fusou_datasets/cache')\n"
             f"  2. Load data once: fusou_datasets.load('{table}')\n"

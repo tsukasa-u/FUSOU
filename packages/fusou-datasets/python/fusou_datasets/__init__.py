@@ -79,6 +79,7 @@ from ._config import (
     configure,
     save_api_key,
     get_client_id,
+    get_config,
     _config,
     _get_api_key,
     _get_client_id,
@@ -145,6 +146,7 @@ __all__ = [
     "configure",
     "save_api_key",
     "get_client_id",
+    "get_config",
     # Data Loading
     "load",
     "list_tables",

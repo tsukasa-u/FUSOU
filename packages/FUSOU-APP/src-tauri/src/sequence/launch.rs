@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 use crate::auth::supabase;
@@ -15,6 +16,9 @@ use tracing_unwrap::OptionExt;
 
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
+
+static PROXY_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
+static PARSER_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[cfg(any(not(dev), check_release))]
 use tracing_unwrap::ResultExt;
@@ -108,27 +112,38 @@ pub async fn launch_with_options(
                             }
                         };
 
-                        let addr = wrap_proxy::serve_proxy(
-                            server_address.to_string(),
-                            save_path,
-                            asset_sync_save_path,
-                            pac_path,
-                            ca_path,
-                            window.app_handle(),
-                            Some(file_prefix),
-                            auth_manager.clone(),
-                        )
-                        .await;
-                        match addr {
-                            Ok(addr) => Some(addr),
-                            Err(e) => {
-                                tracing::error!("failed to start proxy: {e}");
-                                crate::notify::show(
-                                    window.app_handle(),
-                                    "FUSOU - プロキシ起動エラー",
-                                    &format!("プロキシの起動に失敗しました: {e}"),
-                                );
-                                None
+                        if PROXY_SERVER_RUNNING
+                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                            .is_err()
+                        {
+                            tracing::info!(
+                                "proxy server is already running; skipping duplicate start"
+                            );
+                            None
+                        } else {
+                            let addr = wrap_proxy::serve_proxy(
+                                server_address.to_string(),
+                                save_path,
+                                asset_sync_save_path,
+                                pac_path,
+                                ca_path,
+                                window.app_handle(),
+                                Some(file_prefix),
+                                auth_manager.clone(),
+                            )
+                            .await;
+                            match addr {
+                                Ok(addr) => Some(addr),
+                                Err(e) => {
+                                    PROXY_SERVER_RUNNING.store(false, Ordering::Release);
+                                    tracing::error!("failed to start proxy: {e}");
+                                    crate::notify::show(
+                                        window.app_handle(),
+                                        "FUSOU - Proxy Startup Error",
+                                        &format!("Failed to start the proxy: {e}"),
+                                    );
+                                    None
+                                }
                             }
                         }
                     } else {
@@ -147,11 +162,18 @@ pub async fn launch_with_options(
 
     if let Some(&flag) = options.get("open_app") {
         if flag != 0 {
-            json_parser::serve_reponse_parser(
-                window.app_handle(),
-                get_response_parse_bidirectional_channel().clone_slave(),
-                get_proxy_log_bidirectional_channel().clone_slave(),
-            );
+            if PARSER_SERVER_RUNNING
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                json_parser::serve_reponse_parser(
+                    window.app_handle(),
+                    get_response_parse_bidirectional_channel().clone_slave(),
+                    get_proxy_log_bidirectional_channel().clone_slave(),
+                );
+            } else {
+                tracing::info!("response parser is already running; skipping duplicate start");
+            }
             window
                 .get_webview_window("main")
                 .expect_or_log("no window labeled 'main' found")

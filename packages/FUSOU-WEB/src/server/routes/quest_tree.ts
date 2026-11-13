@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 import type { Bindings, D1Database, D1Result } from "../types";
 import {
@@ -7,25 +7,13 @@ import {
 } from "../constants";
 import {
   createEnvContext,
-  generateSignedToken,
   getEnv,
   parseStrictBoolean,
-  resolveDatasetToken,
   timingSafeEqual,
-  validateDatasetTokenSecret,
-  validateDatasetTokenWithConstraints,
-  resolveDatasetTokenRevocationConfig,
-  validateTokenPayloadWithSchema,
-  verifySignedToken,
-  safeWaitUntil,
-  safeGetExecutionCtx,
 } from "../utils";
-import {
-  invalidateCanonicalSnapshots,
-  loadOrRefreshCanonicalSnapshot,
-} from "../utils/snapshot-cache";
+import { loadOrRefreshCanonicalSnapshot } from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
-import { readBodyWithinLimit } from "../utils/upload";
+import { handleTwoStageUpload } from "../utils/upload";
 import { QuestTreeUploadTokenPayloadSchema } from "../schemas/tokens";
 import { PublicIdSchema } from "../schemas/public-id";
 import {
@@ -125,34 +113,6 @@ function nowMs(): number {
   return Date.now();
 }
 
-async function invalidateQuestTreeCaches(
-  cache: Cache,
-  requestUrl: string,
-): Promise<void> {
-  const url = new URL(requestUrl);
-  const targets = [
-    new URL("/quest-tree/rules", url.origin).toString(),
-    new URL("/quest-tree/graph", url.origin).toString(),
-    new URL("/api/quest-tree/rules", url.origin).toString(),
-    new URL("/api/quest-tree/graph", url.origin).toString(),
-  ];
-
-  for (const target of targets) {
-    try {
-      await cache.delete(new Request(target, { method: "GET" }));
-    } catch (err) {
-      console.warn("[quest-tree] Failed to invalidate cache:", target, err);
-    }
-  }
-}
-
-function scheduleQuestTreeTask(
-  c: Context<{ Bindings: Bindings }>,
-  task: Promise<unknown>,
-): void {
-  safeWaitUntil(c, task);
-}
-
 function toInt(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.trunc(value);
@@ -248,7 +208,7 @@ function validateIngestBody(body: IngestBody | null):
   };
 }
 
-async function ingestQuestBody(db: D1Database, body: IngestBody) {
+export async function ingestQuestBody(db: D1Database, body: IngestBody) {
   const validated = validateIngestBody(body);
   if (!validated.ok) {
     return { status: 400, body: { error: validated.error } };
@@ -320,10 +280,10 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
   const session = await getOrCreateSession(db, datasetId, atMs);
 
   const questId = toInt(body.quest_id);
-  const pageNo = toInt(body.page_no) ?? 1;
+  const pageNo = toInt(body.page_no) ?? 0;
 
   try {
-    const { bootstrapNowCompleted } = await processIngestEvents(db, {
+    const { appearedCount } = await processIngestEvents(db, {
       datasetId,
       requestId,
       payloadHash,
@@ -338,8 +298,7 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
       quests: (body.quests as QuestListEntry[] | undefined) ?? [],
     });
 
-    const shouldEnqueueTask =
-      session.bootstrapCompleted || bootstrapNowCompleted;
+    const shouldEnqueueTask = appearedCount > 0;
     const taskId = shouldEnqueueTask
       ? await enqueueTask(db, datasetId, session.sessionId, atMs)
       : null;
@@ -618,6 +577,26 @@ async function enqueueTask(
   sessionId: string,
   atMs: number,
 ): Promise<string> {
+  const existingTask = await db
+    .prepare(
+      `SELECT task_id, from_ts FROM quest_inference_tasks
+       WHERE dataset_id = ? AND collection_session_id = ? AND status = 'pending'
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(datasetId, sessionId)
+    .first<{ task_id: string; from_ts: number }>();
+  if (existingTask?.task_id) {
+    await db
+      .prepare(
+        `UPDATE quest_inference_tasks
+         SET to_ts = MAX(to_ts, ?), updated_at = ?
+         WHERE task_id = ?`,
+      )
+      .bind(atMs + 1, atMs, existingTask.task_id)
+      .run();
+    return existingTask.task_id;
+  }
+
   const taskId = makeId("qtask");
   await db
     .prepare(
@@ -662,8 +641,9 @@ async function processIngestEvents(
     pageNo?: number;
     quests?: QuestListEntry[];
   },
-): Promise<{ bootstrapNowCompleted: boolean }> {
+): Promise<{ bootstrapNowCompleted: boolean; appearedCount: number }> {
   let bootstrapNowCompleted = false;
+  let appearedCount = 0;
 
   await db
     .prepare(
@@ -689,7 +669,7 @@ async function processIngestEvents(
       params.sessionId,
       params.eventType,
       params.questId ?? null,
-      params.pageNo ?? 1,
+      params.pageNo ?? 0,
       params.atMs,
       params.periodTag,
       params.tableVersion,
@@ -713,7 +693,8 @@ async function processIngestEvents(
        FROM questlist_snapshots
        WHERE dataset_id = ?
          AND collection_session_id = ?
-       ORDER BY captured_at_ms DESC`,
+       ORDER BY captured_at_ms DESC
+       LIMIT 20`,
       )
       .bind(params.datasetId, params.sessionId)
       .all();
@@ -725,22 +706,15 @@ async function processIngestEvents(
     }
     const previousSnapshots = parsedPreviousSnapshots.data;
 
-    const latestByPage = new Map<number, number[]>();
-    for (const snap of previousSnapshots) {
-      const page = toInt(snap.page_no);
-      if (page == null || latestByPage.has(page)) continue;
-      latestByPage.set(
-        page,
-        parseJsonArray(snap.visible_quest_ids_json, toInt),
-      );
-    }
-
     const previousGlobalVisible = new Set<number>();
-    for (const ids of latestByPage.values()) {
-      for (const id of ids) {
+    for (const snap of previousSnapshots) {
+      for (const id of parseJsonArray(snap.visible_quest_ids_json, toInt)) {
         previousGlobalVisible.add(id);
       }
     }
+    const hasPreviousGlobalSnapshot = previousSnapshots.some(
+      (snap) => toInt(snap.page_no) === 0,
+    );
 
     await db
       .prepare(
@@ -762,7 +736,7 @@ async function processIngestEvents(
         params.sessionId,
         params.pageNo ?? 1,
         params.payloadHash,
-        JSON.stringify(quests),
+        "[]",
         JSON.stringify(visibleQuestIds),
         params.atMs,
         params.periodTag,
@@ -771,14 +745,15 @@ async function processIngestEvents(
       )
       .run();
 
-    if (!params.isBootstrapCompleted) {
-      bootstrapNowCompleted = await markBootstrapCompleted(
-        db,
-        params.sessionId,
-        params.atMs,
-      );
-    } else {
-      const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
+    if (params.pageNo === 0) {
+      if (!params.isBootstrapCompleted) {
+        bootstrapNowCompleted = await markBootstrapCompleted(
+          db,
+          params.sessionId,
+          params.atMs,
+        );
+      } else if (hasPreviousGlobalSnapshot) {
+        const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
       if (appeared.length > 0) {
         const appearanceMs = nowMs();
         const appearStmts = appeared.map((targetQuestId) =>
@@ -810,7 +785,12 @@ async function processIngestEvents(
         );
         // D1 batch limit: 100 statements per call
         for (let i = 0; i < appearStmts.length; i += 100) {
-          await db.batch(appearStmts.slice(i, i + 100));
+            const results = await db.batch(appearStmts.slice(i, i + 100));
+            appearedCount += results.reduce(
+              (count, result) => count + Number(result.meta?.changes ?? 0),
+              0,
+            );
+          }
         }
       }
     }
@@ -889,7 +869,7 @@ async function processIngestEvents(
     ]);
   }
 
-  return { bootstrapNowCompleted };
+  return { bootstrapNowCompleted, appearedCount };
 }
 
 app.post("/ingest", async (c) => {
@@ -920,259 +900,147 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "QUEST_TREE_SIGNING_SECRET is required" }, 500);
   }
 
-  const uploadToken = c.req.header("X-Upload-Token");
-
-  if (!uploadToken) {
-    const handshakeRead = await readBodyWithinLimit(
-      c.req.raw,
-      QUEST_TREE_HANDSHAKE_MAX_BYTES,
-    );
-    if (handshakeRead.kind === "too_large") {
-      return c.json({ error: "Request body exceeds maximum size" }, 413);
-    }
-    let rawHandshakeBody: unknown = null;
-    if (handshakeRead.kind === "ok") {
-      try {
-        rawHandshakeBody = JSON.parse(
-          new TextDecoder().decode(handshakeRead.data),
-        );
-      } catch {
-        rawHandshakeBody = null;
+  return handleTwoStageUpload(c, {
+    signingSecret,
+    requireDatasetToken: true,
+    tokenTTL: () => 300,
+    maxBodySize: MAX_QUEST_TREE_UPLOAD_BYTES,
+    maxPreparationBodySize: QUEST_TREE_HANDSHAKE_MAX_BYTES,
+    errorMessages: {
+      preparationBodyTooLarge: "Request body exceeds maximum size",
+      bodyTooLarge: "request_too_large",
+    },
+    preparationValidator: async (rawBody, _user, authContext) => {
+      const handshakeParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
+      if (!handshakeParsed.success) {
+        return c.json({ error: "Invalid JSON body" }, 400);
       }
-    }
-    const handshakeParsed = QuestTreeIngestBodySchema.safeParse(
-      rawHandshakeBody,
-    );
-    if (!handshakeParsed.success) {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-    const handshakeBody = {
-      ...handshakeParsed.data,
-      quests: handshakeParsed.data.quests ?? [],
-    };
+      const handshakeBody = {
+        ...handshakeParsed.data,
+        quests: handshakeParsed.data.quests ?? [],
+      };
 
-    const validated = validateIngestBody(handshakeBody);
-    if (!validated.ok) return c.json({ error: validated.error }, 400);
-    const periodTagValidation = await validateCachedPeriodTag(
-      c,
-      validated.periodTag,
-      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
-    );
-    if (!periodTagValidation.ok) {
-      return c.json(
-        { error: periodTagValidation.error },
-        periodTagValidation.status,
-      );
-    }
-
-    // Require dataset_token possession and bind the request to its dataset_id.
-    const datasetToken = resolveDatasetToken(
-      c.req.header("X-Dataset-Token"),
-      handshakeBody.dataset_token,
-    );
-    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-    // Validate secret length upfront
-    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
-    if (!secretValidation.ok) {
-      return c.json({ error: secretValidation.error }, 500);
-    }
-    const tokenValidation = await validateDatasetTokenWithConstraints({
-      token: datasetToken,
-      secret: datasetTokenSecret,
-      expectedDatasetId: validated.datasetId,
-      revocation: resolveDatasetTokenRevocationConfig(env),
-      // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (public_id) の照合で担保する。
-    });
-    if (!tokenValidation.ok) {
-      return c.json(
-        { error: tokenValidation.error },
-        tokenValidation.status ?? 401,
-      );
-    }
-    // dataset_token.sub を actingUserId として使う（全端末で一貫した帰属者）
-    const actingUserId = tokenValidation.token!.user_id;
-
-    const contentHash = handshakeBody.content_hash ?? "";
-    if (!contentHash) {
-      return c.json({ error: "content_hash is required" }, 400);
-    }
-
-    const declaredSize = handshakeBody.file_size ?? 0;
-    if (declaredSize <= 0) {
-      return c.json({ error: "file_size must be > 0" }, 400);
-    }
-    if (declaredSize > MAX_QUEST_TREE_UPLOAD_BYTES) {
-      return c.json(
-        {
-          error: `file_size exceeds maximum of ${MAX_QUEST_TREE_UPLOAD_BYTES} bytes`,
-        },
-        400,
-      );
-    }
-
-    const token = await generateSignedToken(
-      {
-        user_id: actingUserId,
-        content_hash: contentHash,
-        declared_size: declaredSize,
-        dataset_id: validated.datasetId,
-        request_id: validated.requestId,
-        event_type: validated.eventType,
-      },
-      signingSecret,
-      300,
-    );
-
-    const uploadUrl = new URL(c.req.url);
-    // stripApiPrefix() in [...route].ts removes /api/ before Hono sees the URL;
-    // restore it so Stage-2 clients post to the API endpoint.
-    if (!uploadUrl.pathname.startsWith("/api/")) {
-      uploadUrl.pathname =
-        "/api" +
-        (uploadUrl.pathname.startsWith("/")
-          ? uploadUrl.pathname
-          : `/${uploadUrl.pathname}`);
-    }
-    return c.json({
-      uploadUrl: uploadUrl.toString(),
-      token,
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    });
-  }
-
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload)
-    return c.json({ error: "Invalid or expired upload token" }, 401);
-
-  const payloadValidation = validateTokenPayloadWithSchema(
-    tokenPayload,
-    QuestTreeUploadTokenPayloadSchema,
-  );
-  if (!payloadValidation.valid) {
-    return c.json(
-      { error: payloadValidation.error ?? "Invalid upload token payload" },
-      400,
-    );
-  }
-  const validatedPayload = payloadValidation.data;
-  // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
-  // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
-
-  const bodyResult = await readBodyWithinLimit(
-    c.req.raw,
-    MAX_QUEST_TREE_UPLOAD_BYTES,
-  );
-  if (bodyResult.kind === "missing") {
-    return c.json({ error: "Upload payload is missing" }, 400);
-  }
-  if (bodyResult.kind === "too_large") {
-    return c.json({ error: "request_too_large" }, 413);
-  }
-  const uploaded = bodyResult.data;
-
-  const declaredSize = validatedPayload.declared_size;
-  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
-    return c.json(
-      {
-        error: "Data size mismatch",
-        expected: declaredSize,
-        actual: uploaded.byteLength,
-      },
-      400,
-    );
-  }
-
-  const actualHash = await sha256Hex(uploaded);
-  const expectedHash = validatedPayload.content_hash.toLowerCase();
-  if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
-    return c.json(
-      {
-        error: "Content hash mismatch - data may be corrupted",
-      },
-      400,
-    );
-  }
-
-  const rawBody = (() => {
-    try {
-      const parsed: unknown = JSON.parse(new TextDecoder().decode(uploaded));
-      return parsed;
-    } catch {
-      return null;
-    }
-  })();
-  if (rawBody === null) {
-    return c.json({ error: "Invalid JSON upload payload" }, 400);
-  }
-  const bodyParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
-  if (!bodyParsed.success) {
-    return c.json({ error: "Invalid JSON upload payload" }, 400);
-  }
-  const body = {
-    ...bodyParsed.data,
-    quests: bodyParsed.data.quests ?? [],
-  };
-  const verified = validateIngestBody(body);
-  if (!verified.ok) return c.json({ error: verified.error }, 400);
-  const periodTagValidation = await validateCachedPeriodTag(
-    c,
-    verified.periodTag,
-    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
-  );
-  if (!periodTagValidation.ok) {
-    return c.json(
-      { error: periodTagValidation.error },
-      periodTagValidation.status,
-    );
-  }
-
-  if (
-    verified.datasetId !== validatedPayload.dataset_id ||
-    verified.requestId !== validatedPayload.request_id ||
-    verified.eventType !== validatedPayload.event_type
-  ) {
-    return c.json(
-      { error: "Upload payload does not match upload token claims" },
-      400,
-    );
-  }
-
-  const result = await ingestQuestBody(db, body);
-
-  // Best-effort cache invalidation after successful ingest
-  if (result.status === 200) {
-    const periodTag = (body.period_tag ?? "").trim();
-    const tableVersion = (body.table_version ?? "").trim();
-    if (periodTag && tableVersion) {
-      scheduleQuestTreeTask(
+      const validated = validateIngestBody(handshakeBody);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
         c,
-        (async () => {
-          await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-            `qtree:graph:${periodTag}:${tableVersion}`,
-          ]);
-          try {
-            await app.request(
-              `/graph?period_tag=${periodTag}&table_version=${tableVersion}`,
-              {},
-              c.env,
-              safeGetExecutionCtx(c),
-            );
-          } catch (err) {
-            console.warn("[quest-tree] Failed to pre-warm caches:", err);
-          }
-        })()
+        validated.periodTag,
+        { cacheKV: c.env.DATA_LOADER_CACHE_KV },
       );
-    }
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
+        );
+      }
 
-    const cache = (globalThis as { caches?: { default?: Cache } }).caches
-      ?.default;
-    if (cache) {
-      scheduleQuestTreeTask(c, invalidateQuestTreeCaches(cache, c.req.url));
-    }
-  }
+      if (authContext.datasetToken?.dataset_id !== validated.datasetId) {
+        return c.json({ error: "dataset_id mismatch" }, 403);
+      }
 
-  return c.json(result.body, result.status as 200 | 400 | 409 | 500);
+      const contentHash = handshakeBody.content_hash ?? "";
+      if (!contentHash) {
+        return c.json({ error: "content_hash is required" }, 400);
+      }
+
+      const declaredSize = handshakeBody.file_size ?? 0;
+      if (declaredSize <= 0) {
+        return c.json({ error: "file_size must be > 0" }, 400);
+      }
+      if (declaredSize > MAX_QUEST_TREE_UPLOAD_BYTES) {
+        return c.json(
+          {
+            error: `file_size exceeds maximum of ${MAX_QUEST_TREE_UPLOAD_BYTES} bytes`,
+          },
+          400,
+        );
+      }
+
+      return {
+        tokenPayload: {
+          content_hash: contentHash,
+          declared_size: declaredSize,
+          dataset_id: validated.datasetId,
+          request_id: validated.requestId,
+          event_type: validated.eventType,
+        },
+      };
+    },
+    executionProcessor: async (tokenPayload, uploaded) => {
+      const payloadValidation =
+        QuestTreeUploadTokenPayloadSchema.safeParse(tokenPayload);
+      if (!payloadValidation.success) {
+        return c.json(
+          { error: payloadValidation.error.message ?? "Invalid upload token payload" },
+          400,
+        );
+      }
+      const validatedPayload = payloadValidation.data;
+
+      const declaredSize = validatedPayload.declared_size;
+      if (uploaded.byteLength !== declaredSize) {
+        return c.json(
+          {
+            error: "Data size mismatch",
+            expected: declaredSize,
+            actual: uploaded.byteLength,
+          },
+          400,
+        );
+      }
+
+      const actualHash = await sha256Hex(uploaded);
+      const expectedHash = validatedPayload.content_hash.toLowerCase();
+      if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
+        return c.json(
+          { error: "Content hash mismatch - data may be corrupted" },
+          400,
+        );
+      }
+
+      let rawBody: unknown;
+      try {
+        rawBody = JSON.parse(new TextDecoder().decode(uploaded));
+      } catch {
+        return c.json({ error: "Invalid JSON upload payload" }, 400);
+      }
+      const bodyParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
+      if (!bodyParsed.success) {
+        return c.json({ error: "Invalid JSON upload payload" }, 400);
+      }
+      const body = {
+        ...bodyParsed.data,
+        quests: bodyParsed.data.quests ?? [],
+      };
+      const verified = validateIngestBody(body);
+      if (!verified.ok) return c.json({ error: verified.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
+        c,
+        verified.periodTag,
+        { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+      );
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
+        );
+      }
+
+      if (
+        verified.datasetId !== validatedPayload.dataset_id ||
+        verified.requestId !== validatedPayload.request_id ||
+        verified.eventType !== validatedPayload.event_type
+      ) {
+        return c.json(
+          { error: "Upload payload does not match upload token claims" },
+          400,
+        );
+      }
+
+      const result = await ingestQuestBody(db, body);
+      return c.json(result.body, result.status as 200 | 400 | 409 | 500);
+    },
+  });
 });
 
 app.get("/rules", async (c) => {
@@ -1197,7 +1065,7 @@ app.get("/rules", async (c) => {
     cacheKey,
     ttlMs: KV_SNAPSHOT_TTL_MS,
     expirationTtlSeconds: KV_EXPIRATION_TTL_S,
-    probeWhenFresh: true,
+    probeWhenFresh: false,
     isValidSnapshot: isRulesSnapshot,
     refreshFromDelta: async (cached) => {
       const changedRowsResult = await db
@@ -1329,7 +1197,7 @@ app.get("/graph", async (c) => {
     cacheKey,
     ttlMs: KV_SNAPSHOT_TTL_MS,
     expirationTtlSeconds: KV_EXPIRATION_TTL_S,
-    probeWhenFresh: true,
+    probeWhenFresh: false,
     isValidSnapshot: isGraphSnapshot,
     refreshFromDelta: async (cached) => {
       const changedTargetsResult = await db

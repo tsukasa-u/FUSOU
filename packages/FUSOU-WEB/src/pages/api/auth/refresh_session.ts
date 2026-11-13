@@ -1,8 +1,22 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { validateOrigin } from "@/utils/security";
+import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
-export const POST: APIRoute = async ({ cookies }) => {
+export const POST: APIRoute = async ({ request, cookies }) => {
+  const envCtx = createEnvContext({
+    env: cfEnv as Record<string, unknown>,
+  });
+  const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
+  if (!siteUrl) {
+    console.error("[auth/refresh_session] PUBLIC_SITE_URL is not configured");
+    return new Response("Server misconfiguration", { status: 500 });
+  }
+  if (!validateOrigin(request, siteUrl)) {
+    return new Response("Invalid request origin", { status: 403 });
+  }
+
   const refreshTokenCookie = cookies.get("sb-refresh-token");
 
   const noCacheHeaders = {
@@ -36,12 +50,10 @@ export const POST: APIRoute = async ({ cookies }) => {
       );
     }
 
-    // The createCookieStorage logic in createSupabaseServerClient will automatically
-    // update the cookies with the new tokens (access_token, refresh_token).
-    // We just need to return the new access token to the client.
+    // The cookie storage updates the HttpOnly access and refresh token cookies.
 
     return new Response(
-      JSON.stringify({ access_token: data.session.access_token }),
+      JSON.stringify({ ok: true }),
       { status: 200, headers: noCacheHeaders },
     );
   } catch (error) {

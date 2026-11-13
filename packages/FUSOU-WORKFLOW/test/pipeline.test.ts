@@ -20,7 +20,7 @@ CREATE TABLE archived_files (
   created_at INTEGER, last_modified_at INTEGER
 );
 CREATE TABLE block_indexes (
-  dataset_id TEXT, table_name TEXT, table_version TEXT, period_tag TEXT, compaction_tier TEXT,
+  id INTEGER PRIMARY KEY, dataset_id TEXT, table_name TEXT, table_version TEXT, period_tag TEXT, compaction_tier TEXT,
   file_id INTEGER, start_byte INTEGER, length INTEGER, record_count INTEGER,
   start_timestamp INTEGER, end_timestamp INTEGER, window_start_ms INTEGER, window_end_ms INTEGER,
   source_file_count INTEGER, trust_tag TEXT
@@ -217,5 +217,42 @@ describe("message-level acknowledgement and HTTP errors", () => {
     expect((await worker.fetch(request("wrong"), env, ctx)).status).toBe(401);
     expect((await worker.fetch(request("cleanup"), env, ctx)).status).toBe(200);
     expect(fixture.bucket.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("read endpoint authentication and cache isolation", () => {
+  it("rejects missing and invalid bearer tokens and disables the route without a token", async () => {
+    const fixture = await setup();
+    const env = { ...fixture.env, UPLOAD_INGEST_TOKEN: "read-token" };
+    const request = (authorization?: string) =>
+      new Request(
+        "https://example.test/read?dataset_id=dataset&table_name=battle",
+        authorization ? { headers: { Authorization: authorization } } : {},
+      );
+
+    expect((await worker.fetch(request(), env, ctx)).status).toBe(401);
+    expect(
+      (await worker.fetch(request("Bearer wrong"), env, ctx)).status,
+    ).toBe(401);
+    expect((await worker.fetch(request("Bearer read-token"), fixture.env, ctx)).status).toBe(
+      403,
+    );
+  });
+
+  it("does not cache responses containing hot records", async () => {
+    const fixture = await setup();
+    await bulkInsertActive(fixture.client, [fixture.row], "test");
+    const env = { ...fixture.env, UPLOAD_INGEST_TOKEN: "read-token" };
+    const response = await worker.fetch(
+      new Request(
+        "https://example.test/read?dataset_id=dataset&table_name=battle",
+        { headers: { Authorization: "Bearer read-token" } },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
 });

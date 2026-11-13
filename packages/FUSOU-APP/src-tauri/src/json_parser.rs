@@ -25,6 +25,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
         EmitData::Add(data) => match data {
             Add::Materials(data) => {
+                data.add_or();
                 let _ = handle.emit_to("main", events::ADD_KCS_MATERIALS, data);
             }
             Add::Ships(data) => {
@@ -65,6 +66,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 });
             }
             Set::Materials(data) => {
+                data.restore();
                 let _ = handle.emit_to("main", events::SET_KCS_MATERIALS, data);
             }
             Set::UseItems(data) => {

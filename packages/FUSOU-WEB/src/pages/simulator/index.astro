@@ -11,7 +11,7 @@ export const prerender = false;
 const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 
-let safeAccessToken: string | null = null;
+let isAuthenticated = false;
 
 const accessTokenCookie = cookies.get("sb-access-token");
 const refreshTokenCookie = cookies.get("sb-refresh-token");
@@ -23,9 +23,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       refresh_token: refreshTokenCookie.value,
       access_token: accessTokenCookie.value,
     });
-    if (session.data.session?.access_token) {
-      safeAccessToken = session.data.session.access_token;
-    }
+    isAuthenticated = Boolean(session.data.session?.access_token);
   } catch {
     // Session invalid — user is not logged in
   }
@@ -148,9 +146,9 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
 
 <script
   is:inline
-  define:vars={{ accessToken: safeAccessToken, initialTab: tabQuery }}
+  define:vars={{ isAuthenticated, initialTab: tabQuery }}
 >
-  window.__fusouAccessToken = accessToken;
+  window.__fusouIsAuthenticated = isAuthenticated;
   window.__fusouInitialTab = initialTab;
 </script>
 
@@ -160,13 +158,11 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
   const root = document.getElementById("simulator-tab-manager-root");
   if (root) {
     type FusouWindow = Window & {
-      __fusouAccessToken?: string | null;
       __fusouInitialTab?: string;
     };
     const appWindow = window as FusouWindow;
-    const accessToken = appWindow.__fusouAccessToken ?? null;
     const initialTab = appWindow.__fusouInitialTab ?? "fleet";
-    mountSimulatorTabManager(root, initialTab, accessToken);
+    mountSimulatorTabManager(root, initialTab);
   }
 </script>
 

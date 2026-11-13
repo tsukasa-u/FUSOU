@@ -88,6 +88,18 @@ def _resolve_cached_file(
     Resolve cached parquet file path handling split partitioning, table_version nesting, and legacy structures.
     """
     candidate_splits = [split] if split else ["train", "validation"]
+    candidate_versions = [table_version] if table_version else []
+    if "latest" not in candidate_versions:
+        candidate_versions.append("latest")
+    candidate_periods = [period_tag]
+    if period_tag != "latest":
+        candidate_periods.append("latest")
+
+    for version in candidate_versions:
+        for period in candidate_periods:
+            master_file = cache_path / "master" / version / period / f"{table}.parquet"
+            if master_file.exists():
+                return master_file
     
     # 1. If explicit table_version is provided
     if table_version:
@@ -220,7 +232,7 @@ def query(
     cache_path = Path(cache_dir)
     
     for table in sorted(list(all_required_tables)):
-        data_file = _resolve_cached_file(cache_path, table, period_tag, table_version)
+        data_file = _resolve_cached_file(cache_path, table, period_tag, table_version, split=split)
         if data_file is not None and data_file.exists():
             cached_data[table] = pd.read_parquet(data_file)
         else:
@@ -229,9 +241,9 @@ def query(
     if missing_tables:
         missing_list = "\n".join(f"  - fusou_datasets.load('{t}', period_tag='{period_tag}')" for t in sorted(missing_tables))
         raise DatasetNotFoundError(
-            f"? Missing cached data for query\n\n"
+            f"[WARN] Missing cached data for query\n\n"
             f"The following tables need to be loaded first:\n{missing_list}\n\n"
-            "?? After loading, run your query again."
+            "[INFO] After loading, run your query again."
         )
 
     # 4. Execute joins using cached data

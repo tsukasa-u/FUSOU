@@ -435,6 +435,22 @@ function buildPages(
   const pages: AssetIndexPage[] = [];
   let pageNo = 1;
   let current: AssetIndexItem[] = [];
+  let currentItemsByteLength = 0;
+
+  const pageByteLength = (
+    firstUploadedAt: NullableNumber,
+    lastUploadedAt: NullableNumber,
+    itemsByteLength: number,
+  ) =>
+    JSON_ENCODER.encode(
+      JSON.stringify({
+        version,
+        pageNo,
+        maxUploadedAtMs: firstUploadedAt,
+        minUploadedAtMs: lastUploadedAt,
+        items: [],
+      }),
+    ).byteLength + itemsByteLength;
 
   const flush = () => {
     if (current.length === 0) {
@@ -450,58 +466,54 @@ function buildPages(
     });
 
     current = [];
+    currentItemsByteLength = 0;
     pageNo += 1;
   };
 
   for (const item of items) {
+    const itemBytes = JSON_ENCODER.encode(JSON.stringify(item)).byteLength + 1;
     if (current.length === 0) {
       current.push(item);
+      currentItemsByteLength = itemBytes - 1;
+      if (
+        pageByteLength(item.uploadedAt, item.uploadedAt, currentItemsByteLength) >
+        ASSET_INDEX_PAGE_MAX_BYTES
+      ) {
+        flush();
+      }
       continue;
     }
 
-    const candidate = [...current, item];
-    const overCount = candidate.length > ASSET_INDEX_PAGE_SIZE;
-    const overSize =
-      estimatePageByteLength(version, pageNo, candidate) >
-      ASSET_INDEX_PAGE_MAX_BYTES;
+    const candidateItemsByteLength = currentItemsByteLength + itemBytes;
+    const overCount = current.length + 1 > ASSET_INDEX_PAGE_SIZE;
+    const overSize = pageByteLength(
+      current[0]?.uploadedAt ?? null,
+      item.uploadedAt,
+      candidateItemsByteLength,
+    ) > ASSET_INDEX_PAGE_MAX_BYTES;
 
     if (overCount || overSize) {
       flush();
       current.push(item);
+      currentItemsByteLength = itemBytes - 1;
 
-      const singleOver =
-        estimatePageByteLength(version, pageNo, current) >
-        ASSET_INDEX_PAGE_MAX_BYTES;
+      const singleOver = pageByteLength(
+        item.uploadedAt,
+        item.uploadedAt,
+        currentItemsByteLength,
+      ) > ASSET_INDEX_PAGE_MAX_BYTES;
       if (singleOver) {
         flush();
       }
       continue;
     }
 
-    current = candidate;
+    current.push(item);
+    currentItemsByteLength = candidateItemsByteLength;
   }
 
   flush();
   return pages;
-}
-
-function estimatePageByteLength(
-  version: string,
-  pageNo: number,
-  items: AssetIndexItem[],
-): number {
-  const maxUploadedAtMs = items[0]?.uploadedAt ?? null;
-  const minUploadedAtMs = items[items.length - 1]?.uploadedAt ?? null;
-
-  const page: AssetIndexPage = {
-    version,
-    pageNo,
-    maxUploadedAtMs,
-    minUploadedAtMs,
-    items,
-  };
-
-  return JSON_ENCODER.encode(JSON.stringify(page)).length;
 }
 
 async function writePagesAndManifest(

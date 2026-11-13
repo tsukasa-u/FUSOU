@@ -23,6 +23,11 @@ const OptionalIntegerFieldSchema = z.preprocess(
   z.number().int().optional(),
 );
 
+const OptionalNonnegativeIntegerFieldSchema = z.preprocess(
+  toInteger,
+  z.number().int().min(0).optional(),
+);
+
 const OptionalTrimmedStringFieldSchema = z.preprocess(
   (value) => (value == null ? undefined : String(value).trim()),
   z.string().max(256).optional(),
@@ -184,7 +189,7 @@ export const QuestTreeIngestBodySchema = z
     timestamp_ms: OptionalIntegerFieldSchema,
     period_tag: OptionalTrimmedStringFieldSchema,
     table_version: OptionalTrimmedStringFieldSchema,
-    page_no: OptionalIntegerFieldSchema,
+    page_no: OptionalNonnegativeIntegerFieldSchema,
     quest_id: OptionalIntegerFieldSchema,
     quests: z.preprocess(
       (value) => (Array.isArray(value) ? value : []),

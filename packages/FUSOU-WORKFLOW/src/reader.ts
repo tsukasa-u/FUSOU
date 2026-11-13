@@ -607,12 +607,12 @@ export async function handleRead(
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
 
-      // Cache Cold data aggressively (immutable)
-      // If only Hot data: short cache (1 minute)
       "Cache-Control":
-        coldRecords.length > 0
-          ? "public, max-age=3600, immutable" // 1 hour
-          : "public, max-age=60", // 1 minute
+        hotRecords.length > 0
+          ? "private, no-store"
+          : coldRecords.length > 0
+            ? "public, max-age=3600, immutable"
+            : "private, no-store",
     });
 
     const detectedVersionsList = Array.from(uniqueVersions);
