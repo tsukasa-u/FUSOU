@@ -96,6 +96,23 @@ const wrongPathResponse = await app.fetch(
 );
 assert.equal(wrongPathResponse.status, 400);
 
+// Accept valid /share/data URL
+const shareDataResponse = await app.fetch(
+  new Request("https://s.fusou.dev/api/shorten", {
+    method: "POST",
+    headers: {
+      Origin: "https://fusou.dev",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url: "https://fusou.dev/share/data?dataset=2026-09-10" }),
+  }),
+  env,
+);
+assert.equal(shareDataResponse.status, 200);
+const shareDataPayload = await shareDataResponse.json();
+assert.match(shareDataPayload.key, /^[0-9a-f]{16}$/);
+assert.equal(shareDataPayload.shortUrl, `https://s.fusou.dev/${shareDataPayload.key}`);
+
 // Reject unallowed target hostname even with valid Origin header
 const disallowedHostResponse = await app.fetch(
   new Request("https://s.fusou.dev/api/shorten", {

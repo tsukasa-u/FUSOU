@@ -49,6 +49,14 @@ schema_v0_6_0 = ["schema_v0_5_1"]
 genesis = ["kc-api-interface/genesis"]
 epoch_20250627 = ["kc-api-interface/epoch_20250627"]
 
+[[bin]]
+name = "print_schema"
+required-features = ["full"]
+
+[[bin]]
+name = "print_master_schema"
+required-features = ["full"]
+
 # Optional: Override uuid for WASM target to include js feature
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1.19", features = ["v4", "v7", "js"] }

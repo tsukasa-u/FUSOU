@@ -47,8 +47,8 @@ SOFTWARE.
 
 FUSOU-APP は **Tauri v2** を採用したデスクトップアプリケーションです。ユーザー環境に配布されるバイナリには以下が含まれます：
 
-1. **Rust ネイティブバックエンド**: プロキシ通信の傍受・復号、艦これAPIレスポンスのパース、ローカルSQLite/DuckDBへの保存、暗号化処理、OSネイティブ通知、自動更新機能などを担当します（計 920 クレート）。
-2. **Webview フロントエンド**: SolidJS で構築されたUIコンポーネントであり、Tauri の WebView2（Windows）上で実行されます（計 18 パッケージ）。
+1. **Rust ネイティブバックエンド**: プロキシ通信の傍受・復号、艦これAPIレスポンスのパース、ローカルSQLite/DuckDBへの保存、暗号化処理、OSネイティブ通知、自動更新機能などを担当します（計 776 クレート）。
+2. **Webview フロントエンド**: SolidJS で構築されたUIコンポーネントであり、Tauri の WebView2（Windows）上で実行されます（計 13 パッケージ）。
 
 配布されるプログラムは、すべての依存関係において **パーミッシブなライセンス（MIT, Apache-2.0, BSD, ISC, Zlib 等）** または **ファイル単位の弱コピーレフトライセンス（MPL-2.0）** を採用しており、GPL/AGPL 等の強コピーレフトライセンスの混入はありません。
 
@@ -74,23 +74,18 @@ FUSOU-APP のバックエンドでは、CSSパーサー等の補助機能とし�
 
 ---
 
-## 4. フロントエンド依存ライブラリ一覧 (18 パッケージ)
+## 4. フロントエンド依存ライブラリ一覧 (13 パッケージ)
 
 配布バイナリのUI（WebView）に同梱される npm 本番依存パッケージです：
 
 | パッケージ名 | バージョン | ライセンス |
 | :--- | :--- | :--- |
-| `@solid-primitives/cookies` | `0.0.1` | MIT |
 | `@solidjs/router` | `0.15.4` | MIT |
-| `@tauri-apps/api` | `2.11.1` | Apache-2.0 OR MIT |
-| `@tauri-apps/plugin-autostart` | `2.5.1` | MIT OR Apache-2.0 |
-| `@tauri-apps/plugin-deep-link` | `2.4.5` | MIT OR Apache-2.0 |
-| `@tauri-apps/plugin-notification` | `2.3.3` | MIT OR Apache-2.0 |
+| `@tauri-apps/api` | `2.12.4` | Apache-2.0 OR MIT |
 | `@tauri-apps/plugin-process` | `2.3.1` | MIT OR Apache-2.0 |
 | `@tauri-apps/plugin-shell` | `2.3.3` | MIT OR Apache-2.0 |
-| `@tauri-apps/plugin-updater` | `2.10.1` | MIT OR Apache-2.0 |
+| `@tauri-apps/plugin-updater` | `2.14.1` | MIT OR Apache-2.0 |
 | `csstype` | `3.2.3` | MIT |
-| `dotenv` | `16.6.1` | BSD-2-Clause |
 | `react` | `19.2.0` | MIT |
 | `react-dom` | `19.2.0` | MIT |
 | `scheduler` | `0.27.0` | MIT |
@@ -101,7 +96,7 @@ FUSOU-APP のバックエンドでは、CSSパーサー等の補助機能とし�
 
 ---
 
-## 5. バックエンド Rust クレート一覧 (920 クレート)
+## 5. バックエンド Rust クレート一覧 (776 クレート)
 
 FUSOU-APP のネイティブバイナリにコンパイル・静的リンクされるクレートの一覧です。
 
@@ -111,14 +106,12 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | クレート名 | バージョン | ライセンス | リポジトリ |
 | :--- | :--- | :--- | :--- |
 | `adler2` | `2.0.1` | 0BSD OR MIT OR Apache-2.0 | [リンク](https://github.com/oyvindln/adler2) |
-| `ahash` | `0.8.12` | MIT OR Apache-2.0 | [リンク](https://github.com/tkaitchuck/ahash) |
 | `ahash` | `0.7.8` | MIT OR Apache-2.0 | [リンク](https://github.com/tkaitchuck/ahash) |
 | `aho-corasick` | `1.1.4` | Unlicense OR MIT | [リンク](https://github.com/BurntSushi/aho-corasick) |
 | `alloc-no-stdlib` | `2.0.4` | BSD-3-Clause | [リンク](https://github.com/dropbox/rust-alloc-no-stdlib) |
 | `alloc-no-stdlib` | `3.0.0` | BSD-3-Clause | [リンク](https://github.com/dropbox/rust-alloc-no-stdlib) |
 | `alloc-stdlib` | `0.2.2` | BSD-3-Clause | [リンク](https://github.com/dropbox/rust-alloc-no-stdlib) |
 | `alloc-stdlib` | `0.3.0` | BSD-3-Clause | [リンク](https://github.com/dropbox/rust-alloc-no-stdlib) |
-| `allocator-api2` | `0.2.21` | MIT OR Apache-2.0 | [リンク](https://github.com/zakarumych/allocator-api2) |
 | `ambient-authority` | `0.0.2` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/sunfishcode/ambient-authority) |
 | `android_log-sys` | `0.3.2` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-mobile/android_log-sys-rs) |
 | `android_logger` | `0.15.1` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-mobile/android_logger-rs) |
@@ -131,23 +124,7 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `anyhow` | `1.0.104` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/anyhow) |
 | `apache-avro` | `0.19.0` | Apache-2.0 | [リンク](https://github.com/apache/avro-rs) |
 | `apache-avro-derive` | `0.19.0` | Apache-2.0 | [リンク](https://github.com/apache/avro-rs) |
-| `ar_archive_writer` | `0.5.3` | Apache-2.0 WITH LLVM-exception | [リンク](https://github.com/rust-lang/ar_archive_writer) |
-| `arrayref` | `0.3.9` | BSD-2-Clause | [リンク](https://github.com/droundy/arrayref) |
 | `arrayvec` | `0.7.6` | MIT OR Apache-2.0 | [リンク](https://github.com/bluss/arrayvec) |
-| `arrow` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-arith` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-array` | `58.4.1` | Apache-2.0 AND MIT | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-buffer` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-cast` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-csv` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-data` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-ipc` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-json` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-ord` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-row` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-schema` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-select` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `arrow-string` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
 | `asn1-rs` | `0.6.2` | MIT OR Apache-2.0 | [リンク](https://github.com/rusticata/asn1-rs.git) |
 | `asn1-rs-derive` | `0.5.1` | MIT OR Apache-2.0 | [リンク](https://github.com/rusticata/asn1-rs.git) |
 | `asn1-rs-impl` | `0.2.0` | MIT/Apache-2.0 | [リンク](https://github.com/rusticata/asn1-rs.git) |
@@ -164,7 +141,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `async-trait` | `0.1.89` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/async-trait) |
 | `atk` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk3-rs) |
 | `atk-sys` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk3-rs) |
-| `atoi` | `2.0.0` | MIT | [リンク](https://github.com/pacman82/atoi-rs) |
 | `atomic-waker` | `1.1.2` | Apache-2.0 OR MIT | [リンク](https://github.com/smol-rs/atomic-waker) |
 | `auto-launch` | `0.5.0` | MIT | [リンク](https://github.com/zzzgydi/auto-launch.git) |
 | `autocfg` | `1.5.1` | Apache-2.0 OR MIT | [リンク](https://github.com/cuviper/autocfg) |
@@ -180,10 +156,7 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `bitflags` | `2.13.0` | MIT OR Apache-2.0 | [リンク](https://github.com/bitflags/bitflags) |
 | `bitflags` | `1.3.2` | MIT/Apache-2.0 | [リンク](https://github.com/bitflags/bitflags) |
 | `bitvec` | `1.0.1` | MIT | [リンク](https://github.com/bitvecto-rs/bitvec) |
-| `blake2` | `0.10.6` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hashes) |
-| `blake3` | `1.8.5` | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception | [リンク](https://github.com/BLAKE3-team/BLAKE3) |
 | `block-buffer` | `0.10.4` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/utils) |
-| `block-buffer` | `0.12.1` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/utils) |
 | `block2` | `0.6.2` | MIT | [リンク](https://github.com/madsmtm/objc2) |
 | `blocking` | `1.6.2` | Apache-2.0 OR MIT | [リンク](https://github.com/smol-rs/blocking) |
 | `bon` | `3.9.1` | MIT OR Apache-2.0 | [リンク](https://github.com/elastio/bon) |
@@ -205,7 +178,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `bytemuck` | `1.25.0` | Zlib OR Apache-2.0 OR MIT | [リンク](https://github.com/Lokathor/bytemuck) |
 | `byteorder` | `1.5.0` | Unlicense OR MIT | [リンク](https://github.com/BurntSushi/byteorder) |
 | `bytes` | `1.11.1` | MIT | [リンク](https://github.com/tokio-rs/bytes) |
-| `bzip2` | `0.6.1` | MIT OR Apache-2.0 | [リンク](https://github.com/trifectatechfoundation/bzip2-rs) |
 | `cairo-rs` | `0.18.5` | MIT | [リンク](https://github.com/gtk-rs/gtk-rs-core) |
 | `cairo-sys-rs` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk-rs-core) |
 | `camino` | `1.2.2` | MIT OR Apache-2.0 | [リンク](https://github.com/camino-rs/camino) |
@@ -230,17 +202,14 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `cmake` | `0.1.58` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/cmake-rs) |
 | `colorchoice` | `1.0.5` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-cli/anstyle.git) |
 | `combine` | `4.6.7` | MIT | [リンク](https://github.com/Marwes/combine) |
-| `comfy-table` | `7.2.2` | MIT | [リンク](https://github.com/nukesor/comfy-table) |
 | `compression-codecs` | `0.4.39` | MIT OR Apache-2.0 | [リンク](https://github.com/Nullus157/async-compression) |
 | `compression-core` | `0.4.34` | MIT OR Apache-2.0 | [リンク](https://github.com/Nullus157/async-compression) |
 | `concurrent-queue` | `2.5.0` | Apache-2.0 OR MIT | [リンク](https://github.com/smol-rs/concurrent-queue) |
 | `configs` | `0.5.0` | MIT OR Apache-2.0 | - |
 | `confy` | `0.6.1` | MIT/X11 OR Apache-2.0 | [リンク](https://github.com/rust-cli/confy) |
 | `const-oid` | `0.9.6` | Apache-2.0 OR MIT | [リンク](https://github.com/RustCrypto/formats/tree/master/const-oid) |
-| `const-oid` | `0.10.2` | Apache-2.0 OR MIT | [リンク](https://github.com/RustCrypto/formats) |
 | `const-random` | `0.1.18` | MIT OR Apache-2.0 | [リンク](https://github.com/tkaitchuck/constrandom) |
 | `const-random-macro` | `0.1.16` | MIT OR Apache-2.0 | [リンク](https://github.com/tkaitchuck/constrandom) |
-| `constant_time_eq` | `0.4.2` | CC0-1.0 OR MIT-0 OR Apache-2.0 | [リンク](https://github.com/cesarb/constant_time_eq) |
 | `cookie` | `0.18.1` | MIT OR Apache-2.0 | [リンク](https://github.com/SergioBenitez/cookie-rs) |
 | `core-foundation` | `0.9.4` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/core-foundation-rs) |
 | `core-foundation` | `0.10.1` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/core-foundation-rs) |
@@ -256,11 +225,8 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `crossbeam-utils` | `0.8.21` | MIT OR Apache-2.0 | [リンク](https://github.com/crossbeam-rs/crossbeam) |
 | `crunchy` | `0.2.4` | MIT | [リンク](https://github.com/eira-fransham/crunchy) |
 | `crypto-common` | `0.1.7` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/traits) |
-| `crypto-common` | `0.2.2` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/traits) |
 | `cssparser` | `0.37.0` | MPL-2.0 | [リンク](https://github.com/servo/rust-cssparser) |
 | `cssparser-macros` | `0.7.1` | MPL-2.0 | [リンク](https://github.com/servo/rust-cssparser) |
-| `csv` | `1.4.0` | Unlicense/MIT | [リンク](https://github.com/BurntSushi/rust-csv) |
-| `csv-core` | `0.1.13` | Unlicense/MIT | [リンク](https://github.com/BurntSushi/rust-csv) |
 | `ctor` | `1.0.13` | Apache-2.0 OR MIT | [リンク](https://github.com/mmastrac/linktime) |
 | `curve25519-dalek` | `4.1.3` | BSD-3-Clause | [リンク](https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek) |
 | `curve25519-dalek-derive` | `0.1.1` | MIT/Apache-2.0 | [リンク](https://github.com/dalek-cryptography/curve25519-dalek) |
@@ -271,39 +237,7 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `darling_macro` | `0.20.11` | MIT | [リンク](https://github.com/TedDriggs/darling) |
 | `darling_macro` | `0.23.0` | MIT | [リンク](https://github.com/TedDriggs/darling) |
 | `dashmap` | `5.5.3` | MIT | [リンク](https://github.com/xacrimon/dashmap) |
-| `dashmap` | `6.2.1` | MIT | [リンク](https://github.com/xacrimon/dashmap) |
 | `data-encoding` | `2.11.0` | MIT | [リンク](https://github.com/ia0/data-encoding) |
-| `datafusion` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-catalog` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-catalog-listing` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-common` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-common-runtime` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-datasource` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-datasource-arrow` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-datasource-csv` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-datasource-json` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-datasource-parquet` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-doc` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-execution` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-expr` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-expr-common` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions-aggregate` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions-aggregate-common` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions-nested` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions-table` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions-window` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-functions-window-common` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-macros` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-optimizer` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-physical-expr` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-physical-expr-adapter` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-physical-expr-common` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-physical-optimizer` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-physical-plan` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-pruning` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-session` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
-| `datafusion-sql` | `54.1.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion) |
 | `dbus` | `0.9.11` | Apache-2.0/MIT | [リンク](https://github.com/diwic/dbus-rs) |
 | `der` | `0.7.10` | Apache-2.0 OR MIT | [リンク](https://github.com/RustCrypto/formats/tree/master/der) |
 | `der-parser` | `9.0.0` | MIT/Apache-2.0 | [リンク](https://github.com/rusticata/der-parser.git) |
@@ -314,7 +248,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `derive_more` | `2.1.1` | MIT | [リンク](https://github.com/JelteF/derive_more) |
 | `derive_more-impl` | `2.1.1` | MIT | [リンク](https://github.com/JelteF/derive_more) |
 | `digest` | `0.10.7` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/traits) |
-| `digest` | `0.11.3` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/traits) |
 | `directories` | `5.0.1` | MIT OR Apache-2.0 | [リンク](https://github.com/soc/directories-rs) |
 | `dirs` | `5.0.1` | MIT OR Apache-2.0 | [リンク](https://github.com/soc/dirs-rs) |
 | `dirs` | `7.0.0` | MIT OR Apache-2.0 | [リンク](https://codeberg.org/dirs/dirs-rs) |
@@ -356,17 +289,12 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `field-offset` | `0.3.6` | MIT OR Apache-2.0 | [リンク](https://github.com/Diggsey/rust-field-offset) |
 | `filetime` | `0.2.29` | MIT/Apache-2.0 | [リンク](https://github.com/alexcrichton/filetime) |
 | `find-msvc-tools` | `0.1.9` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/cc-rs) |
-| `fixedbitset` | `0.5.7` | MIT OR Apache-2.0 | [リンク](https://github.com/petgraph/fixedbitset) |
-| `fixedbitset` | `0.4.2` | MIT/Apache-2.0 | [リンク](https://github.com/petgraph/fixedbitset) |
-| `flatbuffers` | `25.12.19` | Apache-2.0 | [リンク](https://github.com/google/flatbuffers) |
 | `flate2` | `1.1.9` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/flate2-rs) |
 | `fnv` | `1.0.7` | Apache-2.0 / MIT | [リンク](https://github.com/servo/rust-fnv) |
-| `foldhash` | `0.2.0` | Zlib | [リンク](https://github.com/orlp/foldhash) |
 | `foldhash` | `0.1.5` | Zlib | [リンク](https://github.com/orlp/foldhash) |
-| `foreign-types` | `0.3.2` | MIT/Apache-2.0 | [リンク](https://github.com/sfackler/foreign-types) |
+| `foldhash` | `0.2.0` | Zlib | [リンク](https://github.com/orlp/foldhash) |
 | `foreign-types` | `0.5.0` | MIT/Apache-2.0 | [リンク](https://github.com/sfackler/foreign-types) |
 | `foreign-types-macros` | `0.2.3` | MIT/Apache-2.0 | [リンク](https://github.com/sfackler/foreign-types) |
-| `foreign-types-shared` | `0.1.1` | MIT/Apache-2.0 | [リンク](https://github.com/sfackler/foreign-types) |
 | `foreign-types-shared` | `0.3.1` | MIT/Apache-2.0 | [リンク](https://github.com/sfackler/foreign-types) |
 | `form_urlencoded` | `1.2.2` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/rust-url) |
 | `fs_extra` | `1.3.0` | MIT | [リンク](https://github.com/webdesus/fs_extra) |
@@ -408,34 +336,24 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `gtk-sys` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk3-rs) |
 | `gtk3-macros` | `0.18.2` | MIT | [リンク](https://github.com/gtk-rs/gtk3-rs) |
 | `h2` | `0.4.20` | MIT | [リンク](https://github.com/hyperium/h2) |
-| `h2` | `0.3.27` | MIT | [リンク](https://github.com/hyperium/h2) |
-| `half` | `2.7.1` | MIT OR Apache-2.0 | [リンク](https://github.com/VoidStarKat/half-rs) |
 | `hashbrown` | `0.17.1` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/hashbrown) |
 | `hashbrown` | `0.15.5` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/hashbrown) |
 | `hashbrown` | `0.14.5` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/hashbrown) |
 | `hashbrown` | `0.12.3` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/hashbrown) |
-| `headers` | `0.3.9` | MIT | [リンク](https://github.com/hyperium/headers) |
-| `headers-core` | `0.2.0` | MIT | [リンク](https://github.com/hyperium/headers) |
 | `heck` | `0.5.0` | MIT OR Apache-2.0 | [リンク](https://github.com/withoutboats/heck) |
 | `heck` | `0.4.1` | MIT OR Apache-2.0 | [リンク](https://github.com/withoutboats/heck) |
 | `hermit-abi` | `0.5.2` | MIT OR Apache-2.0 | [リンク](https://github.com/hermit-os/hermit-rs) |
 | `hex` | `0.4.3` | MIT OR Apache-2.0 | [リンク](https://github.com/KokaKiwi/rust-hex) |
-| `home` | `0.5.12` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/cargo) |
 | `html5ever` | `0.39.0` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/html5ever) |
 | `http` | `1.4.1` | MIT OR Apache-2.0 | [リンク](https://github.com/hyperium/http) |
-| `http` | `0.2.12` | MIT OR Apache-2.0 | [リンク](https://github.com/hyperium/http) |
 | `http-body` | `1.0.1` | MIT | [リンク](https://github.com/hyperium/http-body) |
-| `http-body` | `0.4.6` | MIT | [リンク](https://github.com/hyperium/http-body) |
 | `http-body-util` | `0.1.3` | MIT | [リンク](https://github.com/hyperium/http-body) |
 | `httparse` | `1.10.1` | MIT OR Apache-2.0 | [リンク](https://github.com/seanmonstar/httparse) |
 | `httpdate` | `1.0.3` | MIT OR Apache-2.0 | [リンク](https://github.com/pyfisch/httpdate) |
 | `hudsucker` | `0.23.0` | MIT OR Apache-2.0 | [リンク](https://github.com/omjadas/hudsucker) |
 | `humantime` | `2.3.0` | MIT OR Apache-2.0 | [リンク](https://github.com/chronotope/humantime) |
-| `hybrid-array` | `0.4.15` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hybrid-array) |
 | `hyper` | `1.10.1` | MIT | [リンク](https://github.com/hyperium/hyper) |
-| `hyper` | `0.14.32` | MIT | [リンク](https://github.com/hyperium/hyper) |
 | `hyper-rustls` | `0.27.9` | Apache-2.0 OR ISC OR MIT | [リンク](https://github.com/rustls/hyper-rustls) |
-| `hyper-tls` | `0.6.0` | MIT/Apache-2.0 | [リンク](https://github.com/hyperium/hyper-tls) |
 | `hyper-tungstenite` | `0.15.0` | BSD-2-Clause | [リンク](https://github.com/de-vri-es/hyper-tungstenite-rs) |
 | `hyper-util` | `0.1.20` | MIT | [リンク](https://github.com/hyperium/hyper-util) |
 | `iana-time-zone` | `0.1.65` | MIT OR Apache-2.0 | [リンク](https://github.com/strawlab/iana-time-zone) |
@@ -455,7 +373,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `indexmap` | `2.14.0` | Apache-2.0 OR MIT | [リンク](https://github.com/indexmap-rs/indexmap) |
 | `indexmap` | `1.9.3` | Apache-2.0 OR MIT | [リンク](https://github.com/bluss/indexmap) |
 | `infer` | `0.22.0` | MIT | [リンク](https://github.com/bojand/infer) |
-| `integer-encoding` | `3.0.4` | MIT | [リンク](https://github.com/dermesser/integer-encoding-rs) |
 | `io-extras` | `0.18.4` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/sunfishcode/io-extras) |
 | `io-lifetimes` | `2.0.4` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/sunfishcode/io-lifetimes) |
 | `ipnet` | `2.12.0` | MIT OR Apache-2.0 | [リンク](https://github.com/krisprice/ipnet) |
@@ -463,7 +380,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `is-docker` | `0.2.0` | MIT | [リンク](https://github.com/TheLarkInn/is-docker) |
 | `is-wsl` | `0.4.0` | MIT | [リンク](https://github.com/TheLarkInn/is-wsl) |
 | `itertools` | `0.14.0` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-itertools/itertools) |
-| `itertools` | `0.10.5` | MIT/Apache-2.0 | [リンク](https://github.com/rust-itertools/itertools) |
 | `itoa` | `1.0.18` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/itoa) |
 | `javascriptcore-rs` | `1.1.2` | MIT | [リンク](https://github.com/tauri-apps/javascriptcore-rs) |
 | `javascriptcore-rs-sys` | `1.1.1` | MIT | [リンク](https://github.com/tauri-apps/javascriptcore-rs) |
@@ -488,36 +404,24 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `keyboard-types` | `0.8.3` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-windowing/keyboard-types) |
 | `lazy_static` | `1.5.0` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang-nursery/lazy-static.rs) |
 | `leb128fmt` | `0.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/bluk/leb128fmt) |
-| `lexical-core` | `1.0.6` | MIT/Apache-2.0 | [リンク](https://github.com/Alexhuszagh/rust-lexical) |
-| `lexical-parse-float` | `1.0.6` | MIT/Apache-2.0 | [リンク](https://github.com/Alexhuszagh/rust-lexical) |
-| `lexical-parse-integer` | `1.0.6` | MIT/Apache-2.0 | [リンク](https://github.com/Alexhuszagh/rust-lexical) |
-| `lexical-util` | `1.0.7` | MIT/Apache-2.0 | [リンク](https://github.com/Alexhuszagh/rust-lexical) |
-| `lexical-write-float` | `1.0.6` | MIT/Apache-2.0 | [リンク](https://github.com/Alexhuszagh/rust-lexical) |
-| `lexical-write-integer` | `1.0.6` | MIT/Apache-2.0 | [リンク](https://github.com/Alexhuszagh/rust-lexical) |
 | `libappindicator` | `0.9.0` | Apache-2.0 OR MIT | - |
 | `libappindicator-sys` | `0.9.0` | Apache-2.0 OR MIT | - |
-| `libbz2-rs-sys` | `0.2.6` | bzip2-1.0.6 | [リンク](https://github.com/trifectatechfoundation/libbzip2-rs) |
 | `libc` | `0.2.186` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/libc) |
 | `libdbus-sys` | `0.2.7` | Apache-2.0/MIT | [リンク](https://github.com/diwic/dbus-rs) |
 | `libloading` | `0.7.4` | ISC | [リンク](https://github.com/nagisa/rust_libloading/) |
-| `liblzma` | `0.4.9` | MIT OR Apache-2.0 | [リンク](https://github.com/portable-network-archive/liblzma-rs) |
-| `liblzma-sys` | `0.4.9` | MIT OR Apache-2.0 | [リンク](https://github.com/portable-network-archive/liblzma-rs) |
 | `libm` | `0.2.16` | MIT | [リンク](https://github.com/rust-lang/compiler-builtins) |
 | `libredox` | `0.1.17` | MIT | [リンク](https://gitlab.redox-os.org/redox-os/libredox.git) |
 | `linux-raw-sys` | `0.12.1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/sunfishcode/linux-raw-sys) |
-| `linux-raw-sys` | `0.4.15` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/sunfishcode/linux-raw-sys) |
 | `litemap` | `0.8.2` | Unicode-3.0 | [リンク](https://github.com/unicode-org/icu4x) |
 | `lock_api` | `0.4.14` | MIT OR Apache-2.0 | [リンク](https://github.com/Amanieu/parking_lot) |
 | `log` | `0.4.32` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/log) |
 | `loom` | `0.7.2` | MIT | [リンク](https://github.com/tokio-rs/loom) |
 | `lru-slab` | `0.1.2` | MIT OR Apache-2.0 OR Zlib | [リンク](https://github.com/Ralith/lru-slab) |
-| `lz4_flex` | `0.13.1` | MIT | [リンク](https://github.com/pseitz/lz4_flex) |
 | `mac-notification-sys` | `0.6.13` | MIT/Apache-2.0 | [リンク](https://github.com/h4llow3En/mac-notification-sys) |
 | `markup5ever` | `0.39.0` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/html5ever) |
 | `matchers` | `0.2.0` | MIT | [リンク](https://github.com/hawkw/matchers) |
 | `maybe-owned` | `0.3.4` | MIT OR Apache-2.0 | [リンク](https://github.com/rustonaut/maybe-owned) |
 | `md-5` | `0.10.6` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hashes) |
-| `md-5` | `0.11.0` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hashes) |
 | `memchr` | `2.8.1` | Unlicense OR MIT | [リンク](https://github.com/BurntSushi/memchr) |
 | `memoffset` | `0.9.1` | MIT | [リンク](https://github.com/Gilnaa/memoffset) |
 | `mime` | `0.3.17` | MIT OR Apache-2.0 | [リンク](https://github.com/hyperium/mime) |
@@ -528,9 +432,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `mio` | `1.2.1` | MIT | [リンク](https://github.com/tokio-rs/mio) |
 | `moka` | `0.12.15` | (MIT OR Apache-2.0) AND Apache-2.0 | [リンク](https://github.com/moka-rs/moka) |
 | `muda` | `0.20.0` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/muda) |
-| `multer` | `2.1.0` | MIT | [リンク](https://github.com/rousan/multer-rs) |
-| `multimap` | `0.8.3` | MIT/Apache-2.0 | [リンク](https://github.com/havarnov/multimap) |
-| `native-tls` | `0.2.18` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-native-tls/rust-native-tls) |
 | `ndk` | `0.9.0` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-mobile/ndk) |
 | `ndk-context` | `0.1.1` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-windowing/android-ndk-rs) |
 | `ndk-sys` | `0.6.0+11769913` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-mobile/ndk) |
@@ -543,7 +444,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `num_enum_derive` | `0.7.6` | BSD-3-Clause OR MIT OR Apache-2.0 | [リンク](https://github.com/illicitonion/num_enum) |
 | `num_threads` | `0.1.7` | MIT OR Apache-2.0 | [リンク](https://github.com/jhpratt/num_threads) |
 | `num-bigint` | `0.4.6` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-num/num-bigint) |
-| `num-complex` | `0.4.6` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-num/num-complex) |
 | `num-conv` | `0.2.2` | MIT OR Apache-2.0 | [リンク](https://github.com/jhpratt/num-conv) |
 | `num-derive` | `0.4.2` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-num/num-derive) |
 | `num-integer` | `0.1.46` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-num/num-integer) |
@@ -566,18 +466,13 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `objc2-ui-kit` | `0.3.2` | Zlib OR Apache-2.0 OR MIT | [リンク](https://github.com/madsmtm/objc2) |
 | `objc2-user-notifications` | `0.3.2` | Zlib OR Apache-2.0 OR MIT | [リンク](https://github.com/madsmtm/objc2) |
 | `objc2-web-kit` | `0.3.2` | Zlib OR Apache-2.0 OR MIT | [リンク](https://github.com/madsmtm/objc2) |
-| `object` | `0.39.1` | Apache-2.0 OR MIT | [リンク](https://github.com/gimli-rs/object) |
 | `object_store` | `0.13.2` | MIT/Apache-2.0 | [リンク](https://github.com/apache/arrow-rs-object-store) |
 | `oid-registry` | `0.7.1` | MIT OR Apache-2.0 | [リンク](https://github.com/rusticata/oid-registry.git) |
 | `once_cell` | `1.21.4` | MIT OR Apache-2.0 | [リンク](https://github.com/matklad/once_cell) |
 | `once_cell_polyfill` | `1.70.2` | MIT OR Apache-2.0 | [リンク](https://github.com/polyfill-rs/once_cell_polyfill) |
 | `open` | `5.3.5` | MIT | [リンク](https://github.com/Byron/open-rs) |
-| `openssl` | `0.10.80` | Apache-2.0 | [リンク](https://github.com/rust-openssl/rust-openssl) |
-| `openssl-macros` | `0.1.1` | MIT/Apache-2.0 | - |
 | `openssl-probe` | `0.2.1` | MIT OR Apache-2.0 | [リンク](https://github.com/rustls/openssl-probe) |
-| `openssl-sys` | `0.9.116` | MIT | [リンク](https://github.com/rust-openssl/rust-openssl) |
 | `option-ext` | `0.2.0` | MPL-2.0 | [リンク](https://github.com/soc/option-ext.git) |
-| `ordered-float` | `3.9.2` | MIT | [リンク](https://github.com/reem/rust-ordered-float) |
 | `ordered-multimap` | `0.7.3` | MIT | [リンク](https://github.com/sgodwincs/ordered-multimap-rs) |
 | `ordered-stream` | `0.2.0` | MIT OR Apache-2.0 | [リンク](https://github.com/danieldg/ordered-stream) |
 | `os_pipe` | `1.2.3` | MIT | [リンク](https://github.com/oconnor663/os_pipe.rs) |
@@ -587,13 +482,9 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `parking` | `2.2.1` | Apache-2.0 OR MIT | [リンク](https://github.com/smol-rs/parking) |
 | `parking_lot` | `0.12.5` | MIT OR Apache-2.0 | [リンク](https://github.com/Amanieu/parking_lot) |
 | `parking_lot_core` | `0.9.12` | MIT OR Apache-2.0 | [リンク](https://github.com/Amanieu/parking_lot) |
-| `parquet` | `58.4.1` | Apache-2.0 | [リンク](https://github.com/apache/arrow-rs) |
-| `paste` | `1.0.15` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/paste) |
 | `pathdiff` | `0.2.3` | MIT/Apache-2.0 | [リンク](https://github.com/Manishearth/pathdiff) |
 | `pem` | `3.0.6` | MIT | [リンク](https://github.com/jcreekmore/pem-rs.git) |
 | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/rust-url/) |
-| `petgraph` | `0.8.3` | MIT OR Apache-2.0 | [リンク](https://github.com/petgraph/petgraph) |
-| `petgraph` | `0.6.5` | MIT OR Apache-2.0 | [リンク](https://github.com/petgraph/petgraph) |
 | `phf` | `0.12.1` | MIT | [リンク](https://github.com/rust-phf/rust-phf) |
 | `phf` | `0.13.1` | MIT | [リンク](https://github.com/rust-phf/rust-phf) |
 | `phf_codegen` | `0.13.1` | MIT | [リンク](https://github.com/rust-phf/rust-phf) |
@@ -601,8 +492,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `phf_macros` | `0.13.1` | MIT | [リンク](https://github.com/rust-phf/rust-phf) |
 | `phf_shared` | `0.12.1` | MIT | [リンク](https://github.com/rust-phf/rust-phf) |
 | `phf_shared` | `0.13.1` | MIT | [リンク](https://github.com/rust-phf/rust-phf) |
-| `pin-project` | `1.1.13` | Apache-2.0 OR MIT | [リンク](https://github.com/taiki-e/pin-project) |
-| `pin-project-internal` | `1.1.13` | Apache-2.0 OR MIT | [リンク](https://github.com/taiki-e/pin-project) |
 | `pin-project-lite` | `0.2.17` | Apache-2.0 OR MIT | [リンク](https://github.com/taiki-e/pin-project-lite) |
 | `pin-utils` | `0.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang-nursery/pin-utils) |
 | `piper` | `0.2.5` | MIT OR Apache-2.0 | [リンク](https://github.com/smol-rs/piper) |
@@ -617,28 +506,13 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `ppv-lite86` | `0.2.21` | MIT OR Apache-2.0 | [リンク](https://github.com/cryptocorrosion/cryptocorrosion) |
 | `precomputed-hash` | `0.1.1` | MIT | [リンク](https://github.com/emilio/precomputed-hash) |
 | `prettyplease` | `0.2.37` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/prettyplease) |
-| `prettyplease` | `0.1.25` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/prettyplease) |
 | `proc-macro-crate` | `2.0.0` | MIT OR Apache-2.0 | [リンク](https://github.com/bkchr/proc-macro-crate) |
 | `proc-macro-crate` | `1.3.1` | MIT OR Apache-2.0 | [リンク](https://github.com/bkchr/proc-macro-crate) |
 | `proc-macro-crate` | `3.5.0` | MIT OR Apache-2.0 | [リンク](https://github.com/bkchr/proc-macro-crate) |
 | `proc-macro-error` | `1.0.4` | MIT OR Apache-2.0 | [リンク](https://gitlab.com/CreepySkeleton/proc-macro-error) |
 | `proc-macro-error-attr` | `1.0.4` | MIT OR Apache-2.0 | [リンク](https://gitlab.com/CreepySkeleton/proc-macro-error) |
 | `proc-macro2` | `1.0.106` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/proc-macro2) |
-| `prost` | `0.11.9` | Apache-2.0 | [リンク](https://github.com/tokio-rs/prost) |
-| `prost-build` | `0.11.9` | Apache-2.0 | [リンク](https://github.com/tokio-rs/prost) |
-| `prost-derive` | `0.11.9` | Apache-2.0 | [リンク](https://github.com/tokio-rs/prost) |
-| `prost-types` | `0.11.9` | Apache-2.0 | [リンク](https://github.com/tokio-rs/prost) |
-| `protoc-bin-vendored` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-linux-aarch_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-linux-ppcle_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-linux-s390_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-linux-x86_32` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-linux-x86_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-macos-aarch_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-macos-x86_64` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
-| `protoc-bin-vendored-win32` | `3.2.0` | MIT | [リンク](https://github.com/stepancheg/rust-protoc-bin-vendored/) |
 | `proxy-https` | `0.2.0` | MIT OR Apache-2.0 | - |
-| `psm` | `0.1.32` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/stacker/) |
 | `ptr_meta` | `0.1.4` | MIT | [リンク](https://github.com/djkoloski/ptr_meta) |
 | `ptr_meta_derive` | `0.1.4` | MIT | [リンク](https://github.com/djkoloski/ptr_meta) |
 | `quad-rand` | `0.2.3` | MIT | [リンク](https://github.com/not-fl3/quad-rand) |
@@ -662,8 +536,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `rand_pcg` | `0.10.2` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-random/rngs) |
 | `raw-window-handle` | `0.6.2` | MIT OR Apache-2.0 OR Zlib | [リンク](https://github.com/rust-windowing/raw-window-handle) |
 | `rcgen` | `0.13.2` | MIT OR Apache-2.0 | [リンク](https://github.com/rustls/rcgen) |
-| `recursive` | `0.1.1` | MIT | [リンク](https://github.com/orlp/recursive) |
-| `recursive-proc-macro-impl` | `0.1.1` | MIT | [リンク](https://github.com/orlp/recursive) |
 | `redox_syscall` | `0.5.18` | MIT | [リンク](https://gitlab.redox-os.org/redox-os/syscall) |
 | `redox_users` | `0.4.6` | MIT | [リンク](https://gitlab.redox-os.org/redox-os/users) |
 | `redox_users` | `0.5.2` | MIT | [リンク](https://gitlab.redox-os.org/redox-os/users) |
@@ -688,7 +560,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `rustc-hash` | `2.1.2` | Apache-2.0 OR MIT | [リンク](https://github.com/rust-lang/rustc-hash) |
 | `rusticata-macros` | `4.1.0` | MIT/Apache-2.0 | [リンク](https://github.com/rusticata/rusticata-macros.git) |
 | `rustix` | `1.1.4` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/bytecodealliance/rustix) |
-| `rustix` | `0.38.44` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/bytecodealliance/rustix) |
 | `rustix-linux-procfs` | `0.1.1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/sunfishcode/rustix-linux-procfs) |
 | `rustls` | `0.23.46` | Apache-2.0 OR ISC OR MIT | [リンク](https://github.com/rustls/rustls) |
 | `rustls-native-certs` | `0.8.4` | Apache-2.0 OR ISC OR MIT | [リンク](https://github.com/rustls/rustls-native-certs) |
@@ -711,7 +582,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `security-framework-sys` | `2.17.0` | MIT OR Apache-2.0 | [リンク](https://github.com/kornelski/rust-security-framework) |
 | `selectors` | `0.38.0` | MPL-2.0 | [リンク](https://github.com/servo/stylo) |
 | `semver` | `1.0.28` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/semver) |
-| `seq-macro` | `0.3.6` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/seq-macro) |
 | `serde` | `1.0.229` | MIT OR Apache-2.0 | [リンク](https://github.com/serde-rs/serde) |
 | `serde_bytes` | `0.11.19` | MIT OR Apache-2.0 | [リンク](https://github.com/serde-rs/bytes) |
 | `serde_core` | `1.0.229` | MIT OR Apache-2.0 | [リンク](https://github.com/serde-rs/serde) |
@@ -720,8 +590,8 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `serde_json` | `1.0.150` | MIT OR Apache-2.0 | [リンク](https://github.com/serde-rs/json) |
 | `serde_qs` | `0.14.0` | MIT/Apache-2.0 | [リンク](https://github.com/samscott89/serde_qs) |
 | `serde_repr` | `0.1.20` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/serde-repr) |
-| `serde_spanned` | `1.1.1` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `serde_spanned` | `0.6.9` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
+| `serde_spanned` | `1.1.1` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `serde_urlencoded` | `0.7.1` | MIT/Apache-2.0 | [リンク](https://github.com/nox/serde_urlencoded) |
 | `serde_with` | `3.21.0` | MIT OR Apache-2.0 | [リンク](https://github.com/jonasbb/serde_with/) |
 | `serde_with_macros` | `3.21.0` | MIT OR Apache-2.0 | [リンク](https://github.com/jonasbb/serde_with/) |
@@ -731,7 +601,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `servo_arc` | `0.4.3` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/stylo) |
 | `sha1` | `0.10.6` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hashes) |
 | `sha2` | `0.10.9` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hashes) |
-| `sha2` | `0.11.0` | MIT OR Apache-2.0 | [リンク](https://github.com/RustCrypto/hashes) |
 | `sharded-slab` | `0.1.7` | MIT | [リンク](https://github.com/hawkw/sharded-slab) |
 | `shared_child` | `1.1.1` | MIT | [リンク](https://github.com/oconnor663/shared_child.rs) |
 | `shlex` | `2.0.1` | MIT OR Apache-2.0 | [リンク](https://github.com/comex/rust-shlex) |
@@ -742,7 +611,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `simd_cesu8` | `1.1.1` | Apache-2.0 OR MIT | [リンク](https://github.com/seancroach/simd_cesu8) |
 | `simd-adler32` | `0.3.9` | MIT | [リンク](https://github.com/mcountryman/simd-adler32) |
 | `simdutf8` | `0.1.5` | MIT OR Apache-2.0 | [リンク](https://github.com/rusticstuff/simdutf8) |
-| `similar` | `2.7.0` | Apache-2.0 | [リンク](https://github.com/mitsuhiko/similar) |
 | `siphasher` | `1.0.3` | MIT/Apache-2.0 | [リンク](https://github.com/jedisct1/rust-siphash) |
 | `slab` | `0.4.12` | MIT | [リンク](https://github.com/tokio-rs/slab) |
 | `smallvec` | `1.15.1` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/rust-smallvec) |
@@ -752,13 +620,9 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `softbuffer` | `0.4.8` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-windowing/softbuffer) |
 | `soup3` | `0.5.0` | MIT | [リンク](https://gitlab.gnome.org/World/Rust/soup3-rs) |
 | `soup3-sys` | `0.5.0` | MIT | [リンク](https://gitlab.gnome.org/World/Rust/soup3-rs) |
-| `spin` | `0.9.8` | MIT | [リンク](https://github.com/mvdnes/spin-rs.git) |
 | `spki` | `0.7.3` | Apache-2.0 OR MIT | [リンク](https://github.com/RustCrypto/formats/tree/master/spki) |
 | `sqids` | `0.4.2` | MIT | [リンク](https://github.com/sqids/sqids-rust) |
-| `sqlparser` | `0.62.0` | Apache-2.0 | [リンク](https://github.com/apache/datafusion-sqlparser-rs) |
-| `sqlparser_derive` | `0.5.0` | Apache-2.0 | [リンク](https://github.com/sqlparser-rs/sqlparser-rs) |
 | `stable_deref_trait` | `1.2.1` | MIT OR Apache-2.0 | [リンク](https://github.com/storyyeller/stable_deref_trait) |
-| `stacker` | `0.1.25` | MIT OR Apache-2.0 | [リンク](https://github.com/rust-lang/stacker) |
 | `static_vcruntime` | `3.0.0` | MIT OR Apache-2.0 OR Zlib | [リンク](https://github.com/ChrisDenton/static_vcruntime) |
 | `string_cache` | `0.9.0` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/string-cache) |
 | `string_cache_codegen` | `0.6.1` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/string-cache) |
@@ -812,7 +676,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `thiserror-impl` | `1.0.69` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/thiserror) |
 | `thiserror-impl` | `2.0.18` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/thiserror) |
 | `thread_local` | `1.1.9` | MIT OR Apache-2.0 | [リンク](https://github.com/Amanieu/thread_local-rs) |
-| `thrift` | `0.23.0` | Apache-2.0 | [リンク](https://github.com/apache/thrift/tree/master/lib/rs) |
 | `time` | `0.3.47` | MIT OR Apache-2.0 | [リンク](https://github.com/time-rs/time) |
 | `time-core` | `0.1.8` | MIT OR Apache-2.0 | [リンク](https://github.com/time-rs/time) |
 | `time-macros` | `0.2.27` | MIT OR Apache-2.0 | [リンク](https://github.com/time-rs/time) |
@@ -824,17 +687,14 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `tokio-cron-scheduler` | `0.14.0` | MIT/Apache-2.0 | [リンク](https://github.com/mvniekerk/tokio-cron-scheduler) |
 | `tokio-graceful` | `0.1.6` | MIT OR Apache-2.0 | [リンク](https://github.com/plabayo/tokio-graceful) |
 | `tokio-macros` | `2.7.0` | MIT | [リンク](https://github.com/tokio-rs/tokio) |
-| `tokio-native-tls` | `0.3.1` | MIT | [リンク](https://github.com/tokio-rs/tls) |
 | `tokio-rustls` | `0.26.4` | MIT OR Apache-2.0 | [リンク](https://github.com/rustls/tokio-rustls) |
-| `tokio-stream` | `0.1.18` | MIT | [リンク](https://github.com/tokio-rs/tokio) |
 | `tokio-tungstenite` | `0.24.0` | MIT | [リンク](https://github.com/snapview/tokio-tungstenite) |
-| `tokio-tungstenite` | `0.21.0` | MIT | [リンク](https://github.com/snapview/tokio-tungstenite) |
 | `tokio-util` | `0.7.18` | MIT | [リンク](https://github.com/tokio-rs/tokio) |
-| `toml` | `0.9.12+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml` | `0.8.23` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
+| `toml` | `0.9.12+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml` | `1.1.2+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
-| `toml_datetime` | `0.7.5+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml_datetime` | `0.6.11` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
+| `toml_datetime` | `0.7.5+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml_datetime` | `1.1.1+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml_edit` | `0.22.27` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml_edit` | `0.20.7` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
@@ -843,7 +703,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `toml_parser` | `1.1.2+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml_write` | `0.1.2` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
 | `toml_writer` | `1.1.1+spec-1.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/toml-rs/toml) |
-| `tonic-build` | `0.9.2` | MIT | [リンク](https://github.com/hyperium/tonic) |
 | `tower` | `0.5.3` | MIT | [リンク](https://github.com/tower-rs/tower) |
 | `tower-http` | `0.6.11` | MIT | [リンク](https://github.com/tower-rs/tower-http) |
 | `tower-layer` | `0.3.3` | MIT | [リンク](https://github.com/tower-rs/tower) |
@@ -860,8 +719,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `ts-rs` | `11.1.0` | MIT | [リンク](https://github.com/Aleph-Alpha/ts-rs) |
 | `ts-rs-macros` | `11.1.0` | MIT | [リンク](https://github.com/Aleph-Alpha/ts-rs) |
 | `tungstenite` | `0.24.0` | MIT OR Apache-2.0 | [リンク](https://github.com/snapview/tungstenite-rs) |
-| `tungstenite` | `0.21.0` | MIT OR Apache-2.0 | [リンク](https://github.com/snapview/tungstenite-rs) |
-| `twox-hash` | `2.1.2` | MIT | [リンク](https://github.com/shepmaster/twox-hash) |
 | `typed-path` | `0.13.0` | MIT OR Apache-2.0 | [リンク](https://github.com/chipsenkbeil/typed-path) |
 | `typeid` | `1.0.3` | MIT OR Apache-2.0 | [リンク](https://github.com/dtolnay/typeid) |
 | `typenum` | `1.20.1` | MIT OR Apache-2.0 | [リンク](https://github.com/paholg/typenum) |
@@ -869,11 +726,9 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `unicase` | `2.9.0` | MIT OR Apache-2.0 | [リンク](https://github.com/seanmonstar/unicase) |
 | `unicode-ident` | `1.0.24` | (MIT OR Apache-2.0) AND Unicode-3.0 | [リンク](https://github.com/dtolnay/unicode-ident) |
 | `unicode-segmentation` | `1.13.3` | MIT OR Apache-2.0 | [リンク](https://github.com/unicode-rs/unicode-segmentation) |
-| `unicode-width` | `0.2.2` | MIT OR Apache-2.0 | [リンク](https://github.com/unicode-rs/unicode-width) |
 | `unicode-xid` | `0.2.6` | MIT OR Apache-2.0 | [リンク](https://github.com/unicode-rs/unicode-xid) |
 | `untrusted` | `0.9.0` | ISC | [リンク](https://github.com/briansmith/untrusted) |
 | `url` | `2.5.8` | MIT OR Apache-2.0 | [リンク](https://github.com/servo/rust-url) |
-| `urlencoding` | `2.1.3` | MIT | [リンク](https://github.com/kornelski/rust_urlencoding) |
 | `urlpattern` | `0.6.0` | MIT | [リンク](https://github.com/denoland/rust-urlpattern) |
 | `utf-8` | `0.7.6` | MIT OR Apache-2.0 | [リンク](https://github.com/SimonSapin/rust-utf8) |
 | `utf8_iter` | `1.0.4` | Apache-2.0 OR MIT | [リンク](https://github.com/hsivonen/utf8_iter) |
@@ -883,14 +738,12 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `uuid` | `1.23.2` | Apache-2.0 OR MIT | [リンク](https://github.com/uuid-rs/uuid) |
 | `valuable` | `0.1.1` | MIT | [リンク](https://github.com/tokio-rs/valuable) |
 | `value-bag` | `1.12.0` | Apache-2.0 OR MIT | [リンク](https://github.com/sval-rs/value-bag) |
-| `vcpkg` | `0.2.15` | MIT/Apache-2.0 | [リンク](https://github.com/mcgoo/vcpkg-rs) |
 | `version_check` | `0.9.5` | MIT/Apache-2.0 | [リンク](https://github.com/SergioBenitez/version_check) |
 | `version-compare` | `0.2.1` | MIT | [リンク](https://gitlab.com/timvisee/version-compare) |
 | `vswhom` | `0.1.0` | MIT | [リンク](https://github.com/nabijaczleweli/vswhom.rs) |
 | `vswhom-sys` | `0.1.3` | MIT | [リンク](https://github.com/nabijaczleweli/vswhom-sys.rs) |
 | `walkdir` | `2.5.0` | Unlicense/MIT | [リンク](https://github.com/BurntSushi/walkdir) |
 | `want` | `0.3.1` | MIT | [リンク](https://github.com/seanmonstar/want) |
-| `warp` | `0.3.7` | MIT | [リンク](https://github.com/seanmonstar/warp) |
 | `wasi` | `0.11.1+wasi-snapshot-preview1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/bytecodealliance/wasi) |
 | `wasip2` | `1.0.3+wasi-0.2.9` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/bytecodealliance/wasi-rs) |
 | `wasip3` | `0.4.0+wasi-0.3.0-rc-2026-01-06` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [リンク](https://github.com/bytecodealliance/wasi-rs) |
@@ -916,7 +769,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `webview2-com` | `0.39.1` | MIT | [リンク](https://github.com/wravery/webview2-rs) |
 | `webview2-com-macros` | `0.8.1` | MIT | [リンク](https://github.com/wravery/webview2-rs) |
 | `webview2-com-sys` | `0.39.1` | MIT | [リンク](https://github.com/wravery/webview2-rs) |
-| `which` | `4.4.2` | MIT | [リンク](https://github.com/harryfei/which-rs.git) |
 | `winapi` | `0.3.9` | MIT/Apache-2.0 | [リンク](https://github.com/retep998/winapi-rs) |
 | `winapi-i686-pc-windows-gnu` | `0.4.0` | MIT/Apache-2.0 | [リンク](https://github.com/retep998/winapi-rs) |
 | `winapi-util` | `0.1.11` | Unlicense OR MIT | [リンク](https://github.com/BurntSushi/winapi-util) |
@@ -924,35 +776,35 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `window-vibrancy` | `0.8.1` | Apache-2.0 OR MIT | [リンク](https://github.com/tauri-apps/tauri-plugin-vibrancy) |
 | `windows` | `0.62.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows` | `0.61.3` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_aarch64_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_aarch64_gnullvm` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_aarch64_gnullvm` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_aarch64_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_aarch64_gnullvm` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_aarch64_msvc` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_aarch64_msvc` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_aarch64_msvc` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_aarch64_msvc` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_aarch64_msvc` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_i686_gnu` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_gnu` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_gnu` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_i686_gnu` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_gnu` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_i686_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_gnullvm` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_i686_msvc` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_i686_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_msvc` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_msvc` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_i686_msvc` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_i686_msvc` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_x86_64_gnu` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_gnu` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_gnu` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_x86_64_gnu` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_gnu` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_x86_64_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_gnullvm` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_gnullvm` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_x86_64_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_gnullvm` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows_x86_64_msvc` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_msvc` | `0.53.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_msvc` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows_x86_64_msvc` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows_x86_64_msvc` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-collections` | `0.3.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-collections` | `0.2.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
@@ -971,22 +823,22 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `windows-result` | `0.3.4` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-strings` | `0.5.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-strings` | `0.4.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows-sys` | `0.52.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows-sys` | `0.59.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-sys` | `0.60.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-sys` | `0.48.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-sys` | `0.61.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows-sys` | `0.52.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows-sys` | `0.59.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-sys` | `0.45.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `windows-targets` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-targets` | `0.53.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-targets` | `0.48.5` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
+| `windows-targets` | `0.52.6` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-targets` | `0.42.2` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-threading` | `0.2.1` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-threading` | `0.1.0` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
 | `windows-version` | `0.1.7` | MIT OR Apache-2.0 | [リンク](https://github.com/microsoft/windows-rs) |
-| `winnow` | `1.0.3` | MIT | [リンク](https://github.com/winnow-rs/winnow) |
 | `winnow` | `0.7.15` | MIT | [リンク](https://github.com/winnow-rs/winnow) |
 | `winnow` | `0.5.40` | MIT | [リンク](https://github.com/winnow-rs/winnow) |
+| `winnow` | `1.0.3` | MIT | [リンク](https://github.com/winnow-rs/winnow) |
 | `winreg` | `0.55.0` | MIT | [リンク](https://github.com/gentoo90/winreg-rs) |
 | `winreg` | `0.10.1` | MIT | [リンク](https://github.com/gentoo90/winreg-rs) |
 | `winreg` | `0.52.0` | MIT | [リンク](https://github.com/gentoo90/winreg-rs) |
@@ -1021,7 +873,6 @@ FUSOU-APP のネイティブバイナリにコンパイル・静的リンクさ�
 | `zerovec` | `0.11.6` | Unicode-3.0 | [リンク](https://github.com/unicode-org/icu4x) |
 | `zerovec-derive` | `0.11.3` | Unicode-3.0 | [リンク](https://github.com/unicode-org/icu4x) |
 | `zip` | `9.3.0` | MIT | [リンク](https://github.com/zip-rs/zip2) |
-| `zlib-rs` | `0.6.8` | Zlib | [リンク](https://github.com/trifectatechfoundation/zlib-rs) |
 | `zmij` | `1.0.21` | MIT | [リンク](https://github.com/dtolnay/zmij) |
 | `zstd` | `0.13.4` | BSD-3-Clause | [リンク](https://github.com/gyscos/zstd-rs) |
 | `zstd-safe` | `7.4.0` | BSD-3-Clause | [リンク](https://github.com/gyscos/zstd-rs) |

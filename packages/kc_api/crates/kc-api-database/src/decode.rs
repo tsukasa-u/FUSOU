@@ -40,11 +40,15 @@ mod tests {
         let schema = DecodeTestRecord::get_schema();
         let mut writer = Writer::new(&schema, Vec::new());
         writer
-            .append(Value::Record(vec![("value".to_owned(), Value::Long(1))]))
+            .append(Value::Record(vec![("value".to_owned(), Value::Long(42))]))
             .unwrap();
-        let mut encoded = writer.into_inner().unwrap();
-        *encoded.last_mut().unwrap() ^= 0xff;
+        let encoded = writer.into_inner().unwrap();
+        let decoded = decode::<DecodeTestRecord>(encoded.clone()).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].value, 42);
 
-        assert!(decode::<DecodeTestRecord>(encoded).is_err());
+        let mut corrupted = encoded;
+        *corrupted.last_mut().unwrap() ^= 0xff;
+        assert!(decode::<DecodeTestRecord>(corrupted).is_err());
     }
 }
