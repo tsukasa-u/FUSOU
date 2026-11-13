@@ -1077,6 +1077,33 @@ app.get("/download", async (c) => {
       );
     }
 
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
+    if (!kv) {
+      return jsonResponse(
+        {
+          error: "SERVICE_UNAVAILABLE",
+          message:
+            "Rate limiting system is unavailable. Please try again later.",
+        },
+        503,
+      );
+    }
+    const ruStatus = await checkAndDeductRU(
+      kv,
+      apiKeyData.user_id,
+      RU_COSTS.DOWNLOAD,
+    );
+    if (!ruStatus.allowed) {
+      return jsonResponse(
+        {
+          error: "RATE_LIMITED",
+          message: `RU limit exceeded. Cost: ${RU_COSTS.DOWNLOAD}. Remaining: ${ruStatus.remaining}.`,
+        },
+        429,
+        ruStatus,
+      );
+    }
+
     if (blockIdParam) {
       const blockId = parseInt(blockIdParam, 10);
       if (isNaN(blockId)) {
@@ -1159,9 +1186,28 @@ app.get("/download", async (c) => {
     }
 
     if (filePath) {
+      const globalSharingEnabled = getEnv(
+        env,
+        "ENABLE_GLOBAL_DATA_SHARING",
+      )?.trim().toLowerCase();
+      if (globalSharingEnabled !== "true" && globalSharingEnabled !== "1") {
+        return jsonResponse(
+          {
+            error: "GLOBAL_SHARING_DISABLED",
+            message: "Global dataset sharing is not enabled",
+          },
+          403,
+        );
+      }
+
       // Security check: Verify file exists in registry to prevent IDOR
       const fileRecord = await indexDb
-        .prepare("SELECT 1 FROM archived_files WHERE file_path = ? LIMIT 1")
+        .prepare(
+          `SELECT 1 FROM archived_files
+           WHERE file_path = ?
+             AND lifecycle_state IN ('ready', 'registered', 'completed')
+           LIMIT 1`,
+        )
         .bind(filePath)
         .first();
 
@@ -1181,6 +1227,23 @@ app.get("/download", async (c) => {
           { error: "FILE_NOT_FOUND", message: "File not found in storage" },
           404,
         );
+      }
+
+      try {
+        await indexDb
+          .prepare(
+            `INSERT INTO dataset_access_log
+               (user_id, client_id, table_name, period_tag, split, record_count)
+             SELECT ?, ?, bi.table_name, bi.period_tag, bi.split, SUM(bi.record_count)
+             FROM block_indexes bi
+             JOIN archived_files af ON af.id = bi.file_id
+             WHERE af.file_path = ?
+             GROUP BY bi.table_name, bi.period_tag, bi.split`,
+          )
+          .bind(apiKeyData.user_id, clientId, filePath)
+          .run();
+      } catch (logErr) {
+        console.warn("[data-loader] Failed to write download access audit log:", logErr);
       }
 
       const fileName = filePath.split("/").pop() || "data.avro";
@@ -1263,6 +1326,23 @@ async function checkRateLimit(
   });
 
   return false;
+}
+
+async function checkVerificationAttemptLimits(
+  kv: KVNamespace,
+  route: "verify" | "verify-google",
+  keys: { clientId?: string; clientIp?: string; userId?: string },
+): Promise<boolean> {
+  const rateLimitKeys = [
+    keys.clientId ? `${route}:client:${keys.clientId}` : null,
+    keys.clientIp ? `${route}:ip:${keys.clientIp}` : null,
+    keys.userId ? `${route}:user:${keys.userId}` : null,
+  ].filter((key): key is string => key !== null);
+
+  const results = await Promise.all(
+    rateLimitKeys.map((key) => checkRateLimit(kv, key, 5, 300)),
+  );
+  return results.some(Boolean);
 }
 
 // =============================================================================
@@ -1633,25 +1713,32 @@ app.post("/verify", async (c) => {
     );
   }
 
-  // Rate limiting: 5 attempts per client per 5 minutes
+  // Rate limit by client and Cloudflare's trusted client IP before checking credentials.
   const env = createEnvContext(c);
   const kv = env.runtime["DATA_LOADER_CACHE_KV"];
-  if (kv) {
-    const isRateLimited = await checkRateLimit(
-      kv,
-      `verify:${clientId}`,
-      5,
-      300,
+  if (!kv) {
+    return jsonResponse(
+      {
+        error: "SERVICE_UNAVAILABLE",
+        message: "Verification rate limiting is unavailable",
+      },
+      503,
     );
-    if (isRateLimited) {
-      return jsonResponse(
-        {
-          error: "RATE_LIMITED",
-          message: "Too many verification attempts. Please try again later.",
-        },
-        429,
-      );
-    }
+  }
+  const clientIp = c.req.header("CF-Connecting-IP")?.trim() || "unknown";
+  if (
+    await checkVerificationAttemptLimits(kv, "verify", {
+      clientId,
+      clientIp,
+    })
+  ) {
+    return jsonResponse(
+      {
+        error: "RATE_LIMITED",
+        message: "Too many verification attempts. Please try again later.",
+      },
+      429,
+    );
   }
 
   let rawBody: unknown;
@@ -1686,6 +1773,20 @@ app.post("/verify", async (c) => {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
         403,
+      );
+    }
+
+    if (
+      await checkVerificationAttemptLimits(kv, "verify", {
+        userId: apiKeyData.user_id,
+      })
+    ) {
+      return jsonResponse(
+        {
+          error: "RATE_LIMITED",
+          message: "Too many verification attempts. Please try again later.",
+        },
+        429,
       );
     }
 
@@ -1740,25 +1841,32 @@ app.post("/verify-google", async (c) => {
     );
   }
 
-  // Rate limiting: 5 attempts per client per 5 minutes
+  // Rate limit by client and Cloudflare's trusted client IP before checking credentials.
   const env = createEnvContext(c);
   const kv = env.runtime["DATA_LOADER_CACHE_KV"];
-  if (kv) {
-    const isRateLimited = await checkRateLimit(
-      kv,
-      `verify-google:${clientId}`,
-      5,
-      300,
+  if (!kv) {
+    return jsonResponse(
+      {
+        error: "SERVICE_UNAVAILABLE",
+        message: "Verification rate limiting is unavailable",
+      },
+      503,
     );
-    if (isRateLimited) {
-      return jsonResponse(
-        {
-          error: "RATE_LIMITED",
-          message: "Too many verification attempts. Please try again later.",
-        },
-        429,
-      );
-    }
+  }
+  const clientIp = c.req.header("CF-Connecting-IP")?.trim() || "unknown";
+  if (
+    await checkVerificationAttemptLimits(kv, "verify-google", {
+      clientId,
+      clientIp,
+    })
+  ) {
+    return jsonResponse(
+      {
+        error: "RATE_LIMITED",
+        message: "Too many verification attempts. Please try again later.",
+      },
+      429,
+    );
   }
 
   let rawBody: unknown;
@@ -1801,6 +1909,20 @@ app.post("/verify-google", async (c) => {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
         403,
+      );
+    }
+
+    if (
+      await checkVerificationAttemptLimits(kv, "verify-google", {
+        userId: apiKeyData.user_id,
+      })
+    ) {
+      return jsonResponse(
+        {
+          error: "RATE_LIMITED",
+          message: "Too many verification attempts. Please try again later.",
+        },
+        429,
       );
     }
 

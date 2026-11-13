@@ -20,7 +20,7 @@ if [ -z "$changed_files" ]; then
 fi
 
 # Paths that indicate schema changes in kc-api-database
-schema_touch_regex='^kc_api/crates/kc-api-database/src/(models/|table.rs|encode.rs|decode.rs|integrate.rs|batch_upload.rs|avro_to_parquet.rs|bin/print_schema.rs)'
+schema_touch_regex='^packages/kc_api/crates/kc-api-database/src/(models/|table.rs|encode.rs|decode.rs|integrate.rs|batch_upload.rs|avro_to_parquet.rs|bin/print_schema.rs)'
 needs_bump=$(printf "%s\n" "$changed_files" | grep -E "$schema_touch_regex" || true)
 
 if [ -z "$needs_bump" ]; then
@@ -29,7 +29,7 @@ if [ -z "$needs_bump" ]; then
 fi
 
 # Was schema_version.rs updated?
-table_version_changed=$(printf "%s\n" "$changed_files" | grep -E '^kc_api/crates/kc-api-database/src/schema_version.rs' || true)
+table_version_changed=$(printf "%s\n" "$changed_files" | grep -E '^packages/kc_api/crates/kc-api-database/src/schema_version.rs' || true)
 
 if [ -n "$table_version_changed" ]; then
   echo "[check-schema-version-bump] schema_version.rs updated ✅" >&2

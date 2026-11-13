@@ -167,6 +167,10 @@ pub async fn run() {
             cmd::tauri_cmd::get_mst_ships,
             cmd::tauri_cmd::get_mst_slot_items,
             cmd::tauri_cmd::get_slot_items,
+            cmd::tauri_cmd::get_ships,
+            cmd::tauri_cmd::get_materials,
+            cmd::tauri_cmd::get_deck_ports,
+            cmd::tauri_cmd::get_air_bases_ports,
             cmd::tauri_cmd::get_mst_equip_exslot_ships,
             cmd::tauri_cmd::get_mst_slotitem_equip_types,
             cmd::tauri_cmd::get_mst_equip_ships,
@@ -260,15 +264,23 @@ pub async fn run() {
             let retry_handler =
                 Arc::new(crate::storage::retry_handler::AppUploadRetryHandler::new(
                     auth_manager_for_retry.clone(),
+                    pending_store.clone(),
                 ));
             let retry_service = Arc::new(UploadRetryService::new(
                 pending_store.clone(),
                 auth_manager_for_retry,
-                Some(retry_handler),
+                Some(retry_handler.clone()),
             ));
+            retry_handler.attach_retry_service(&retry_service);
 
             app.manage(pending_store.clone());
             app.manage(retry_service.clone());
+            if let Err(err) = fusou_storage::set_shared_pending_retry(
+                pending_store.clone(),
+                retry_service.clone(),
+            ) {
+                tracing::debug!(%err, "shared asset sync retry dependencies already initialized");
+            }
 
             // Ensure user config file path is initialized before reading retry settings.
             builder_setup::setup::setup_configs()?;

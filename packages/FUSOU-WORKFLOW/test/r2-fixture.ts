@@ -3,19 +3,40 @@ import { vi } from "vitest";
 export function memoryBucket() {
   const objects = new Map<string, { bytes: Uint8Array; etag: string }>();
   let version = 0;
-  const get = vi.fn(async (key: string) => {
+  const get = vi.fn(async (key: string, options?: R2GetOptions) => {
     const stored = objects.get(key);
     if (!stored) return null;
+    let slice = stored.bytes;
+    const range = options?.range;
+    if (range && !(range instanceof Headers)) {
+      if ("suffix" in range && typeof range.suffix === "number") {
+        slice = stored.bytes.subarray(Math.max(0, stored.bytes.byteLength - range.suffix));
+      } else {
+        const start = "offset" in range && typeof range.offset === "number" ? range.offset : 0;
+        const end =
+          "length" in range && typeof range.length === "number"
+            ? Math.min(stored.bytes.byteLength, start + range.length)
+            : stored.bytes.byteLength;
+        slice = stored.bytes.subarray(start, end);
+      }
+    }
+    const copy = Uint8Array.from(slice);
     return {
       key, size: stored.bytes.byteLength, etag: stored.etag,
       version: stored.etag, uploaded: new Date(), httpEtag: `"${stored.etag}"`,
       storageClass: "Standard", checksums: { toJSON: () => ({}) }, customMetadata: {}, httpMetadata: {},
       writeHttpMetadata: () => {},
-      body: new ReadableStream<Uint8Array>(), bodyUsed: false,
-      arrayBuffer: async () => Uint8Array.from(stored.bytes).buffer,
-      text: async () => new TextDecoder().decode(stored.bytes),
-      json: async () => JSON.parse(new TextDecoder().decode(stored.bytes)),
-      blob: async () => new Blob([Uint8Array.from(stored.bytes)]),
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (copy.byteLength > 0) controller.enqueue(copy);
+          controller.close();
+        },
+      }),
+      bodyUsed: false,
+      arrayBuffer: async () => copy.buffer,
+      text: async () => new TextDecoder().decode(copy),
+      json: async () => JSON.parse(new TextDecoder().decode(copy)),
+      blob: async () => new Blob([copy]),
     };
   });
   const put = vi.fn(async (key: string, value: string | Uint8Array, options?: R2PutOptions) => {

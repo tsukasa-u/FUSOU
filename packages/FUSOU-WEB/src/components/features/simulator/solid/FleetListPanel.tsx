@@ -24,11 +24,11 @@ function formatUploadedAt(input: string | Date | undefined): string {
   return date.toLocaleString();
 }
 
-function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
+function FleetListPanel(props: { isAuthenticated: boolean }): JSX.Element {
   const [deletedTags, setDeletedTags] = createSignal<Set<string>>(new Set());
 
   const [fleets] = createResource(async () => {
-    if (!props.accessToken) return null;
+    if (!props.isAuthenticated) return null;
     const res = await authFetch("/api/fleet/snapshots/list");
     if (!res.ok) throw new Error("Failed to load fleet list");
     const parsed = FleetSnapshotsListResponseSchema.safeParse(await res.json());
@@ -69,7 +69,7 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
 
   return (
     <>
-      <Show when={!props.accessToken}>
+      <Show when={!props.isAuthenticated}>
         <tr>
           <td colspan={3} class="text-center py-12 text-warning">
             一覧表示には Webサービス連携が必要です
@@ -77,7 +77,7 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
         </tr>
       </Show>
 
-      <Show when={props.accessToken}>
+      <Show when={props.isAuthenticated}>
         <Show when={fleets.loading}>
           <tr>
             <td colspan={3} class="text-center py-12">
@@ -144,7 +144,7 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
 
 export function mountFleetListPanel(
   root: HTMLElement,
-  accessToken: string | null,
+  isAuthenticated: boolean,
 ): void {
-  render(() => <FleetListPanel accessToken={accessToken} />, root);
+  render(() => <FleetListPanel isAuthenticated={isAuthenticated} />, root);
 }

@@ -39,7 +39,10 @@
       "providerShortName": null,
       "signingIdentity": null
     },
-    "resources": ["./resources/**/*"],
+    "resources": {
+      "resources/": "resources/",
+      "../../FUSOU-PROXY/proxy-https/cmd/": "resources/cmd/"
+    },
     "shortDescription": "",
     "linux": {
       "deb": {

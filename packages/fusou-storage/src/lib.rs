@@ -7,6 +7,7 @@ pub mod root_validator;
 pub mod runtime_hooks;
 pub mod service;
 
+pub use asset_sync::set_shared_pending_retry;
 pub use cloud_provider_trait::CloudProviderFactory;
 pub use runtime_hooks::{
     launch_auth_page, resolve_dataset_id, set_auth_page_launcher, set_dataset_id_resolver,

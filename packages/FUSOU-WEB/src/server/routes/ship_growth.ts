@@ -22,16 +22,9 @@ import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { getSynergyManifestR2Keys } from "../types/synergy";
 import {
   createEnvContext,
-  generateSignedToken,
   getEnv,
   parseStrictBoolean,
-  resolveDatasetToken,
   timingSafeEqual,
-  validateDatasetTokenSecret,
-  validateDatasetTokenWithConstraints,
-  resolveDatasetTokenRevocationConfig,
-  validateTokenPayloadWithSchema,
-  verifySignedToken,
   safeWaitUntil,
 } from "../utils";
 import {
@@ -44,7 +37,7 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { validateSynergyPayload } from "../utils/synergy-payload";
-import { readBodyWithinLimit } from "../utils/upload";
+import { handleTwoStageUpload } from "../utils/upload";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import { PublicIdSchema } from "../schemas/public-id";
 import {
@@ -1380,6 +1373,7 @@ function buildArchivePruneStatements(
   db: D1Database,
   oldBounds: ShipGrowthArchiveBoundRow[],
   oldCaps: ShipGrowthArchiveCapRow[],
+  incomingPeriodTag: string,
 ): ReturnType<D1Database["prepare"]>[] {
   const stmts: ReturnType<D1Database["prepare"]>[] = [];
   const boundRowIds = Array.from(new Set(oldBounds.map((row) => row.row_id)));
@@ -1389,9 +1383,17 @@ function buildArchivePruneStatements(
     stmts.push(
       db
         .prepare(
-          `DELETE FROM ship_growth_bounds WHERE rowid IN (${placeholders})`,
+          `DELETE FROM ship_growth_bounds
+           WHERE rowid IN (${placeholders})
+             AND ? >= (
+               SELECT MAX(period_tag) FROM (
+                 SELECT period_tag FROM ship_level_exp_pairs
+                 UNION ALL SELECT period_tag FROM ship_growth_bounds
+                 UNION ALL SELECT period_tag FROM ship_growth_caps
+               )
+             )`,
         )
-        .bind(...chunk),
+        .bind(...chunk, incomingPeriodTag),
     );
   }
   const capRowIds = Array.from(new Set(oldCaps.map((row) => row.row_id)));
@@ -1401,9 +1403,17 @@ function buildArchivePruneStatements(
     stmts.push(
       db
         .prepare(
-          `DELETE FROM ship_growth_caps WHERE rowid IN (${placeholders})`,
+          `DELETE FROM ship_growth_caps
+           WHERE rowid IN (${placeholders})
+             AND ? >= (
+               SELECT MAX(period_tag) FROM (
+                 SELECT period_tag FROM ship_level_exp_pairs
+                 UNION ALL SELECT period_tag FROM ship_growth_bounds
+                 UNION ALL SELECT period_tag FROM ship_growth_caps
+               )
+             )`,
         )
-        .bind(...chunk),
+        .bind(...chunk, incomingPeriodTag),
     );
   }
   return stmts;
@@ -1973,6 +1983,42 @@ async function processShipGrowthIngest(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const { period_tag, table_version, ships } = body;
 
+  let latestPeriodTag: string | null;
+  try {
+    const latestPeriodRow = await db
+      .prepare(
+        `SELECT MAX(period_tag) AS latest_period_tag
+         FROM (
+           SELECT period_tag FROM ship_level_exp_pairs
+           UNION ALL SELECT period_tag FROM ship_growth_bounds
+           UNION ALL SELECT period_tag FROM ship_growth_caps
+         )`,
+      )
+      .first<{ latest_period_tag?: string | null }>();
+    latestPeriodTag =
+      typeof latestPeriodRow?.latest_period_tag === "string"
+        ? latestPeriodRow.latest_period_tag.trim()
+        : null;
+  } catch (error) {
+    return {
+      status: 500,
+      body: {
+        error: "Failed to verify current ship-growth period",
+        detail: String(error),
+      },
+    };
+  }
+  if (latestPeriodTag && period_tag < latestPeriodTag) {
+    return {
+      status: 409,
+      body: {
+        error: "Incoming period_tag is older than stored ship-growth data",
+        incoming_period_tag: period_tag,
+        latest_period_tag: latestPeriodTag,
+      },
+    };
+  }
+
   const nowSec = Math.floor(Date.now() / 1000);
 
   let slotStatsMap: Map<number, MasterSlotStats>;
@@ -2208,7 +2254,9 @@ async function processShipGrowthIngest(
   }
 
   // DELETEs last — see ordering note above.
-  stmts.push(...buildArchivePruneStatements(db, oldBounds, oldCaps));
+  stmts.push(
+    ...buildArchivePruneStatements(db, oldBounds, oldCaps, period_tag),
+  );
 
   const BATCH_SIZE = 100;
   try {
@@ -2454,14 +2502,6 @@ function scheduleShipGrowthTask(
 app.get("/summary", async (c) => {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache && !c.env.SHIP_GROWTH_ARCHIVE_BUCKET) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
 
   // 1. Check R2 snapshot first (Zero-D1 streaming)
   const archiveBucket = c.env.SHIP_GROWTH_ARCHIVE_BUCKET;
@@ -2474,6 +2514,15 @@ app.get("/summary", async (c) => {
     } catch (err) {
       console.warn("[ship-growth] Failed to fetch summary snapshot from R2:", err);
       return c.json({ error: "Ship-growth snapshot unavailable" }, 503);
+    }
+  }
+
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
     }
   }
 
@@ -2571,14 +2620,6 @@ app.get("/exp", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache && !c.env.SHIP_GROWTH_ARCHIVE_BUCKET) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
 
   const periodTag = (c.req.query("period_tag") ?? "").trim();
   const tableVersion = (c.req.query("table_version") ?? "").trim();
@@ -2603,6 +2644,15 @@ app.get("/exp", async (c) => {
     } catch (err) {
       console.warn("[ship-growth] Failed to fetch exp snapshot from R2:", err);
       return c.json({ error: "Ship-growth snapshot unavailable" }, 503);
+    }
+  }
+
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
     }
   }
 
@@ -2777,14 +2827,6 @@ app.get("/bounds", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache && !c.env.SHIP_GROWTH_ARCHIVE_BUCKET) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
 
   const periodTag = (c.req.query("period_tag") ?? "").trim();
   const tableVersion = (c.req.query("table_version") ?? "").trim();
@@ -2829,6 +2871,15 @@ app.get("/bounds", async (c) => {
     } catch (err) {
       console.warn("[ship-growth] Failed to fetch bounds snapshot from R2:", err);
       return c.json({ error: "Ship-growth snapshot unavailable" }, 503);
+    }
+  }
+
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
     }
   }
 
@@ -3205,14 +3256,6 @@ app.get("/cumulative", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache && !env.SHIP_GROWTH_ARCHIVE_BUCKET) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
 
   // 1. Check R2 snapshot first (Zero-LIST direct streaming)
   if (env.SHIP_GROWTH_ARCHIVE_BUCKET) {
@@ -3224,6 +3267,15 @@ app.get("/cumulative", async (c) => {
     } catch (err) {
       console.warn("[ship-growth] Failed to fetch cumulative snapshot from R2:", err);
       return c.json({ error: "Ship-growth snapshot unavailable" }, 503);
+    }
+  }
+
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
     }
   }
 
@@ -3557,14 +3609,6 @@ app.get("/all-periods", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache && !env.SHIP_GROWTH_ARCHIVE_BUCKET) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
 
   // 1. Check R2 snapshot first (Zero-LIST direct streaming)
   if (env.SHIP_GROWTH_ARCHIVE_BUCKET) {
@@ -3576,6 +3620,15 @@ app.get("/all-periods", async (c) => {
     } catch (err) {
       console.warn("[ship-growth] Failed to fetch all-periods snapshot from R2:", err);
       return c.json({ error: "Ship-growth snapshot unavailable" }, 503);
+    }
+  }
+
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
     }
   }
 
@@ -3642,263 +3695,179 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "SHIP_GROWTH_SIGNING_SECRET is required" }, 500);
   }
 
-  const uploadToken = c.req.header("X-Upload-Token");
-
-  // ── Stage 1: Handshake ───────────────────────────────────────────
-  if (!uploadToken) {
-    const handshakeRead = await readBodyWithinLimit(
-      c.req.raw,
-      SHIP_GROWTH_HANDSHAKE_MAX_BYTES,
-    );
-    if (handshakeRead.kind === "too_large") {
-      return c.json({ error: "Request body exceeds maximum size" }, 413);
-    }
-    let rawHandshakeBody: unknown = null;
-    if (handshakeRead.kind === "ok") {
-      try {
-        rawHandshakeBody = JSON.parse(
-          new TextDecoder().decode(handshakeRead.data),
+  return handleTwoStageUpload(c, {
+    signingSecret,
+    requireDatasetToken: true,
+    tokenTTL: () => 300,
+    maxBodySize: SHIP_GROWTH_MAX_UPLOAD_BYTES,
+    maxPreparationBodySize: SHIP_GROWTH_HANDSHAKE_MAX_BYTES,
+    errorMessages: {
+      preparationBodyTooLarge: "Request body exceeds maximum size",
+      bodyTooLarge: "Upload payload exceeds maximum size",
+    },
+    preparationValidator: async (rawBody, _user, authContext) => {
+      const handshakeBody = parseShipGrowthIngestBody(rawBody);
+      const validated = validateIngestBody(handshakeBody);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
+        c,
+        String(handshakeBody?.period_tag ?? "").trim(),
+        c.env.DATA_LOADER_CACHE_KV
+          ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
+          : {},
+      );
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
         );
-      } catch {
-        rawHandshakeBody = null;
       }
-    }
-    const handshakeBody = parseShipGrowthIngestBody(rawHandshakeBody);
 
-    const validated = validateIngestBody(handshakeBody);
-    if (!validated.ok) return c.json({ error: validated.error }, 400);
-    const periodTagValidation = await validateCachedPeriodTag(
-      c,
-      String(handshakeBody?.period_tag ?? "").trim(),
-      c.env.DATA_LOADER_CACHE_KV
-        ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
-        : {},
-    );
-    if (!periodTagValidation.ok) {
-      return c.json(
-        { error: periodTagValidation.error },
-        periodTagValidation.status,
-      );
-    }
+      if (authContext.datasetToken?.dataset_id !== validated.datasetId) {
+        return c.json({ error: "dataset_id mismatch" }, 403);
+      }
 
-    // Require dataset_token possession and bind the request to its dataset_id.
-    const datasetToken = resolveDatasetToken(
-      c.req.header("X-Dataset-Token"),
-      handshakeBody?.dataset_token,
-    );
-    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-    // Validate secret length upfront
-    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
-    if (!secretValidation.ok) {
-      return c.json({ error: secretValidation.error }, 500);
-    }
-    const tokenValidation = await validateDatasetTokenWithConstraints({
-      token: datasetToken,
-      secret: datasetTokenSecret,
-      expectedDatasetId: validated.datasetId,
-      revocation: resolveDatasetTokenRevocationConfig(env),
-      // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (public_id) の照合で担保する。
-    });
-    if (!tokenValidation.ok) {
-      return c.json(
-        { error: tokenValidation.error },
-        tokenValidation.status ?? 401,
-      );
-    }
-    const actingUserId = tokenValidation.token!.user_id;
+      const contentHash = String(handshakeBody?.content_hash ?? "").trim();
+      if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
+      const declaredSize = Number(handshakeBody?.file_size ?? 0);
+      if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+        return c.json({ error: "file_size must be > 0" }, 400);
+      }
+      if (declaredSize > SHIP_GROWTH_MAX_UPLOAD_BYTES) {
+        return c.json(
+          {
+            error: `file_size exceeds maximum allowed size (${SHIP_GROWTH_MAX_UPLOAD_BYTES} bytes)`,
+          },
+          400,
+        );
+      }
 
-    const contentHash = String(handshakeBody?.content_hash ?? "").trim();
-    if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
-
-    const declaredSize = Number(handshakeBody?.file_size ?? 0);
-    if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
-      return c.json({ error: "file_size must be > 0" }, 400);
-    }
-    if (declaredSize > SHIP_GROWTH_MAX_UPLOAD_BYTES) {
-      return c.json(
-        {
-          error: `file_size exceeds maximum allowed size (${SHIP_GROWTH_MAX_UPLOAD_BYTES} bytes)`,
+      return {
+        tokenPayload: {
+          content_hash: contentHash,
+          declared_size: declaredSize,
+          dataset_id: validated.datasetId,
+          request_id: validated.requestId,
+          event_type: validated.eventType,
+          schema_version: validated.schemaVersion,
         },
-        400,
-      );
-    }
+      };
+    },
+    executionProcessor: async (tokenPayload, uploaded) => {
+      const payloadValidation =
+        UploadTokenPayloadSchema.safeParse(tokenPayload);
+      if (!payloadValidation.success) {
+        return c.json(
+          { error: payloadValidation.error.message ?? "Invalid upload token payload" },
+          400,
+        );
+      }
+      const validatedPayload = payloadValidation.data;
 
-    // Calculate token expiry based on file size to accommodate slow/large uploads.
-    // Base 30s + 10s per 10MB, clamped to [300, 3600] seconds.
-    const tokenTtl = Math.max(
-      300,
-      Math.min(3600, 30 + Math.ceil(declaredSize / (10 * 1024 * 1024)) * 10),
-    );
+      if (uploaded.byteLength !== validatedPayload.declared_size) {
+        return c.json(
+          {
+            error: "Data size mismatch",
+            expected: validatedPayload.declared_size,
+            actual: uploaded.byteLength,
+          },
+          400,
+        );
+      }
 
-    const token = await generateSignedToken(
-      {
-        user_id: actingUserId,
-        content_hash: contentHash,
-        declared_size: declaredSize,
-        dataset_id: validated.datasetId,
-        request_id: validated.requestId,
-        event_type: validated.eventType,
-        schema_version: validated.schemaVersion,
-      },
-      signingSecret,
-      tokenTtl,
-    );
+      const actualHash = await sha256Hex(uploaded);
+      const expectedHash = validatedPayload.content_hash.toLowerCase();
+      if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
+        return c.json(
+          { error: "Content hash mismatch - data may be corrupted" },
+          400,
+        );
+      }
 
-    const uploadUrl = new URL(c.req.url);
-    // stripApiPrefix() removes /api/ before Hono sees the URL; restore it for Stage-2 clients.
-    if (!uploadUrl.pathname.startsWith("/api/")) {
-      uploadUrl.pathname =
-        "/api" +
-        (uploadUrl.pathname.startsWith("/")
-          ? uploadUrl.pathname
-          : "/" + uploadUrl.pathname);
-    }
-    return c.json({
-      uploadUrl: uploadUrl.toString(),
-      token,
-      expiresAt: new Date(Date.now() + tokenTtl * 1000).toISOString(),
-    });
-  }
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
+      } catch {
+        return c.json({ error: "Invalid JSON upload payload" }, 400);
+      }
+      const body = parseShipGrowthIngestBody(parsedBody);
+      if (!body) return c.json({ error: "Invalid JSON upload payload" }, 400);
 
-  // ── Stage 2: Execution ───────────────────────────────────────────
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload)
-    return c.json({ error: "Invalid or expired upload token" }, 401);
-
-  const payloadValidation = validateTokenPayloadWithSchema(
-    tokenPayload,
-    UploadTokenPayloadSchema,
-  );
-  if (!payloadValidation.valid) {
-    return c.json(
-      { error: payloadValidation.error ?? "Invalid upload token payload" },
-      400,
-    );
-  }
-  const validatedPayload = payloadValidation.data;
-  // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
-  // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
-
-  // Read binary body
-  const bodyRead = await readBodyWithinLimit(
-    c.req.raw,
-    SHIP_GROWTH_MAX_UPLOAD_BYTES,
-  );
-  if (bodyRead.kind === "missing") {
-    return c.json({ error: "Upload payload is missing" }, 400);
-  }
-  if (bodyRead.kind === "too_large") {
-    return c.json({ error: "Upload payload exceeds maximum size" }, 413);
-  }
-  const uploaded = bodyRead.data;
-
-  // Size check
-  const declaredSize = validatedPayload.declared_size;
-  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
-    return c.json(
-      {
-        error: "Data size mismatch",
-        expected: declaredSize,
-        actual: uploaded.byteLength,
-      },
-      400,
-    );
-  }
-
-  // Hash check
-  const actualHash = await sha256Hex(uploaded);
-  const expectedHash = validatedPayload.content_hash.toLowerCase();
-  if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
-    return c.json(
-      { error: "Content hash mismatch - data may be corrupted" },
-      400,
-    );
-  }
-
-  // Parse JSON payload
-  let parsedBody: unknown;
-  try {
-    parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
-  } catch {
-    return c.json({ error: "Invalid JSON upload payload" }, 400);
-  }
-  const body = parseShipGrowthIngestBody(parsedBody);
-  if (!body) return c.json({ error: "Invalid JSON upload payload" }, 400);
-
-  const verified = validateIngestBody(body);
-  if (!verified.ok) return c.json({ error: verified.error }, 400);
-  const periodTagValidation = await validateCachedPeriodTag(
-    c,
-    body.period_tag,
-    c.env.DATA_LOADER_CACHE_KV
-      ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
-      : {},
-  );
-  if (!periodTagValidation.ok) {
-    return c.json(
-      { error: periodTagValidation.error },
-      periodTagValidation.status,
-    );
-  }
-
-  // Verify claims match payload
-  if (
-    verified.datasetId !== validatedPayload.dataset_id ||
-    verified.requestId !== validatedPayload.request_id ||
-    verified.eventType !== validatedPayload.event_type ||
-    verified.schemaVersion !== validatedPayload.schema_version
-  ) {
-    return c.json(
-      { error: "Upload payload does not match upload token claims" },
-      400,
-    );
-  }
-
-  const result = await processShipGrowthIngest(c.env, db, body);
-
-  // On successful ingest, invalidate KV snapshots and CF Cache entries.
-  if (result.status === 200) {
-    const period_tag = body.period_tag;
-    const table_version = body.table_version;
-
-    // KV invalidation (primary cache layer)
-    if (period_tag && table_version) {
-      scheduleShipGrowthTask(
+      const verified = validateIngestBody(body);
+      if (!verified.ok) return c.json({ error: verified.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
         c,
-        (async () => {
-          await invalidateShipGrowthKvSnapshots(
-            c.env.DATA_LOADER_CACHE_KV,
-            period_tag,
-            table_version,
-          );
-          await refreshShipGrowthPeriodSnapshots(c.env, db, period_tag, table_version);
-        })().catch((error) => {
-          console.error("[ship-growth] Failed to publish post-ingest snapshots:", error);
-        })
+        body.period_tag,
+        c.env.DATA_LOADER_CACHE_KV
+          ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
+          : {},
       );
-    }
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
+        );
+      }
 
-    // Cumulative archive KV snapshot is invalidated as part of
-    // invalidateShipGrowthKvSnapshots (see CUMULATIVE_KV_KEY) above.
+      if (
+        verified.datasetId !== validatedPayload.dataset_id ||
+        verified.requestId !== validatedPayload.request_id ||
+        verified.eventType !== validatedPayload.event_type ||
+        verified.schemaVersion !== validatedPayload.schema_version
+      ) {
+        return c.json(
+          { error: "Upload payload does not match upload token claims" },
+          400,
+        );
+      }
 
-    // CF Cache invalidation (best-effort, non-critical)
-    const cfCache = (globalThis as { caches?: { default?: Cache } }).caches
-      ?.default;
-    if (cfCache) {
-      scheduleShipGrowthTask(
-        c,
-        invalidateShipGrowthCaches(cfCache, c.req.url).catch((err) => {
-          console.warn(
-            "[ship-growth] Failed to invalidate CF caches after ingest:",
-            err,
+      const result = await processShipGrowthIngest(c.env, db, body);
+      if (result.status === 200) {
+        const period_tag = body.period_tag;
+        const table_version = body.table_version;
+
+        if (period_tag && table_version) {
+          scheduleShipGrowthTask(
+            c,
+            (async () => {
+              await invalidateShipGrowthKvSnapshots(
+                c.env.DATA_LOADER_CACHE_KV,
+                period_tag,
+                table_version,
+              );
+              await refreshShipGrowthPeriodSnapshots(
+                c.env,
+                db,
+                period_tag,
+                table_version,
+              );
+            })().catch((error) => {
+              console.error(
+                "[ship-growth] Failed to publish post-ingest snapshots:",
+                error,
+              );
+            }),
           );
-        }),
-      );
-    }
-  }
+        }
 
-  return c.json(result.body, result.status as 200 | 400 | 409 | 500 | 503);
+        const cfCache = (globalThis as { caches?: { default?: Cache } }).caches
+          ?.default;
+        if (cfCache) {
+          scheduleShipGrowthTask(
+            c,
+            invalidateShipGrowthCaches(cfCache, c.req.url).catch((error) => {
+              console.warn(
+                "[ship-growth] Failed to invalidate CF caches after ingest:",
+                error,
+              );
+            }),
+          );
+        }
+      }
+
+      return c.json(result.body, result.status as 200 | 400 | 409 | 500 | 503);
+    },
+  });
 });
 
 app.post("/internal/rebuild-snapshots", async (c) => {

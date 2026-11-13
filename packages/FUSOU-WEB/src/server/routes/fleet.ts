@@ -22,6 +22,10 @@ import {
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
 import {
+  extractSupabaseAccessTokenFromCookie,
+  isCookieMutationOriginValid,
+} from "../utils/request-auth";
+import {
   parseFleetSnapshotPayload,
 } from "../schemas/fleet";
 import { FleetSnapshotTokenPayloadSchema } from "../schemas/tokens";
@@ -35,6 +39,7 @@ type FleetAuthResolution = {
   ok: true;
   datasetId: string;
   authSource: AuthSource;
+  fromCookie?: boolean;
 };
 
 type FleetAuthFailure = {
@@ -141,7 +146,13 @@ async function resolveDatasetId(
     if (tokenResolution) return tokenResolution;
   }
 
-  const accessToken = extractBearer(c.req.header("Authorization"));
+  const bearerToken = extractBearer(c.req.header("Authorization"));
+  const cookieToken = bearerToken
+    ? null
+    : extractSupabaseAccessTokenFromCookie(c.req.header("Cookie"));
+  const accessToken = bearerToken ?? cookieToken;
+  const fromCookie = !bearerToken && cookieToken !== null;
+
   if (accessToken) {
     const user = await validateJWT(accessToken);
     if (!user?.id) {
@@ -167,6 +178,7 @@ async function resolveDatasetId(
           ok: true,
           datasetId: resolvedMember.publicId,
           authSource: "jwt",
+          ...(fromCookie ? { fromCookie: true } : {}),
         };
       }
       const tokenFallback = await tryResolveFromDatasetToken();
@@ -584,6 +596,17 @@ app.delete("/snapshot/:tag", async (c) => {
 
   const resolved = await resolveDatasetId(c);
   if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
+
+  if (
+    resolved.fromCookie &&
+    !isCookieMutationOriginValid(
+      c.req.raw,
+      getEnv(env, "PUBLIC_SITE_URL"),
+      getEnv(env, "PUBLIC_SITE_ALLOWED_HOSTS"),
+    )
+  ) {
+    return c.json({ error: "Invalid request origin" }, 403);
+  }
 
   const safeTag = encodeFleetTagPath(normalizedTag);
 

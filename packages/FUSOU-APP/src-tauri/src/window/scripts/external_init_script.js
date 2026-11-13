@@ -9,6 +9,21 @@ const isTopWindow = () => {
     return false;
   }
 };
+const isAllowedGameMessageOrigin = (origin) => {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "https:" || parsed.port) return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === "dmm.com" ||
+      hostname.endsWith(".dmm.com") ||
+      hostname === "kancolle-server.com" ||
+      hostname.endsWith(".kancolle-server.com")
+    );
+  } catch (_) {
+    return false;
+  }
+};
 const isTop = isTopWindow();
 
 const isLinuxPlatform =
@@ -343,6 +358,8 @@ if (!isTop) {
 
   // Message listener for cross-frame coordination in subframe
   window.addEventListener("message", (e) => {
+    if (!isAllowedGameMessageOrigin(e.origin)) return;
+
     let data = e.data;
     if (typeof data === "string") {
       if (data.includes("fusou-")) {
@@ -587,6 +604,8 @@ window.__fusouSetVolume = (volume, muted, fromRust = false) => {
 };
 
 window.addEventListener("message", (e) => {
+  if (!isAllowedGameMessageOrigin(e.origin)) return;
+
   let data = e.data;
   if (typeof data === "string") {
     if (data.includes("fusou-")) {

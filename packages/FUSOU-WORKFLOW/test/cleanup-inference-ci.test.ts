@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { cleanupOrphanedMasterData, handleCleanupRequest } from "../src/master_data_cleanup";
 import { runQuestInferenceTasks } from "../src/quest_tree_inference";
@@ -99,12 +99,12 @@ describe("quest inference atomicity and recovery", () => {
 });
 
 describe("CI regression gates", () => {
-  it("disables the incompatible legacy daily trigger rather than reporting curl errors as success", () => {
-    const source = readFileSync(new URL("../../../.github/workflows/trigger_daily_compaction.yml", import.meta.url), "utf8");
-    expect(source).not.toMatch(/^\s+schedule:/m);
-    expect(source).not.toContain("curl ");
-    expect(source).toContain("exit 1");
-    expect(source).toContain("workflow_dispatch:");
+  it("removes the incompatible legacy daily trigger workflow", () => {
+    const legacyWorkflowPath = new URL(
+      "../../../.github/workflows/trigger_daily_compaction.yml",
+      import.meta.url,
+    );
+    expect(existsSync(legacyWorkflowPath)).toBe(false);
   });
 
   it("fails schema regeneration immediately and runs workflow tests on PRs", () => {

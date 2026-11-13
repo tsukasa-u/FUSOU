@@ -20,7 +20,6 @@ import type {
 // Cloudflare bindings and app environment
 export type Bindings = {
   // R2 Buckets
-  ASSETS_BUCKET: R2BucketBinding;
   ASSET_SYNC_BUCKET: R2BucketBinding;
   ASSET_INDEX_DB: D1Database;
   BATTLE_INDEX_DB: D1Database;
@@ -54,6 +53,7 @@ export type Bindings = {
   ADMIN_TOKEN?: string; // For securing admin endpoints
   PUBLIC_SITE_URL?: string; // Canonical public origin for the web app
   PUBLIC_SITE_ALLOWED_HOSTS?: string; // Comma-separated host allowlist for simulator share URLs
+  ENABLE_GLOBAL_DATA_SHARING?: string;
   ASSET_BASE_URL?: string; // R2 custom domain base URL (e.g. https://assets.fusou.dev)
 
   // Queues

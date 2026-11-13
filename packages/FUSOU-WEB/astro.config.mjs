@@ -91,6 +91,36 @@ function resolveLatestFusouVersion() {
 
 const latestFusouVersion = resolveLatestFusouVersion();
 
+// Vite 8 forwards `@astrojs/react` include/exclude filters to `oxc.jsxRefreshInclude`.
+// Excluding non-JS assets prevents CSS/asset files under `**/react/**` from being
+// parsed as JS by Oxc while preserving extensionless component matching for Astro SSR.
+const nonJsAssetExcludes = [
+  "**/*.css",
+  "**/*.scss",
+  "**/*.sass",
+  "**/*.less",
+  "**/*.styl",
+  "**/*.stylus",
+  "**/*.pcss",
+  "**/*.postcss",
+  "**/*.json",
+  "**/*.svg",
+  "**/*.png",
+  "**/*.jpg",
+  "**/*.jpeg",
+  "**/*.webp",
+  "**/*.gif",
+  "**/*.ico",
+  "**/*.avif",
+  "**/*.woff",
+  "**/*.woff2",
+  "**/*.ttf",
+  "**/*.eot",
+  "**/*.wasm",
+  "**/*.md",
+  "**/*.mdx",
+];
+
 /**
  * @param {string} value
  */
@@ -158,11 +188,11 @@ export default defineConfig({
     sitemap(),
     react({
       include: ["**/react/**"],
-      exclude: ["**/solid/**"],
+      exclude: ["**/solid/**", ...nonJsAssetExcludes],
     }),
     solid({
       include: ["**/solid/**"],
-      exclude: ["**/react/**"],
+      exclude: ["**/react/**", ...nonJsAssetExcludes],
     }),
   ],
   output: "server",

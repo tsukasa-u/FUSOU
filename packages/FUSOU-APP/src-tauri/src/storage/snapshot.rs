@@ -10,19 +10,40 @@ use tauri::AppHandle;
 use tauri::Manager;
 use uuid::Uuid;
 
+fn build_fleet_snapshot_value(
+    ships: &ship::Ships,
+    use_items: &use_items::UseItems,
+    slot_items: &slot_item::SlotItems,
+    deck_data: &deck_port::DeckPorts,
+) -> serde_json::Value {
+    let mut ships_vec: Vec<_> = ships.ships.values().cloned().collect();
+    ships_vec.sort_by_key(|s| s.id);
+
+    let mut use_items_vec: Vec<_> = use_items.use_items.values().cloned().collect();
+    use_items_vec.sort_by_key(|u| u.id);
+
+    let mut slot_items_vec: Vec<_> = slot_items.slot_items.values().cloned().collect();
+    slot_items_vec.sort_by_key(|s| s.id);
+
+    let mut deck_ports_vec: Vec<_> = deck_data.deck_ports.values().cloned().collect();
+    deck_ports_vec.sort_by_key(|d| d.id);
+
+    let payload = FleetSnapshot::new(
+        ships_vec,
+        use_items_vec,
+        slot_items_vec,
+        deck_ports_vec,
+        deck_data.combined_flag,
+    );
+    json!(payload)
+}
+
 fn get_payload_data() -> serde_json::Value {
     let use_items = use_items::UseItems::load();
     let ships = ship::Ships::load();
     let slot_items = slot_item::SlotItems::load();
     let deck_data = deck_port::DeckPorts::load();
-    let payload = FleetSnapshot::new(
-        ships.ships.values().cloned().collect(),
-        use_items.use_items.values().cloned().collect(),
-        slot_items.slot_items.values().cloned().collect(),
-        deck_data.deck_ports.values().cloned().collect(),
-        deck_data.combined_flag,
-    );
-    json!(payload)
+    build_fleet_snapshot_value(&ships, &use_items, &slot_items, &deck_data)
 }
 
 fn canonicalize_json(value: &serde_json::Value) -> serde_json::Value {
@@ -139,5 +160,133 @@ pub async fn perform_snapshot_sync_app(
             tracing::error!(error = %e, "Snapshot upload failed");
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kc_api::interface::deck_port::DeckPort;
+    use kc_api::interface::slot_item::SlotItem;
+    use kc_api::interface::use_items::UseItem;
+    use std::collections::HashMap;
+
+    #[test]
+    fn build_fleet_snapshot_value_is_deterministic_across_insertion_orders() {
+        let make_ship = |id| kc_api::interface::ship::Ship {
+            id,
+            ship_id: Some(1),
+            lv: Some(1),
+            exp: None,
+            nowhp: None,
+            maxhp: None,
+            soku: None,
+            leng: None,
+            slot: None,
+            onslot: None,
+            slot_ex: None,
+            fuel: None,
+            bull: None,
+            slotnum: None,
+            cond: None,
+            cond_state: None,
+            karyoku: None,
+            raisou: None,
+            taiku: None,
+            soukou: None,
+            kaihi: None,
+            taisen: None,
+            sakuteki: None,
+            lucky: None,
+            sally_area: None,
+            sortie_tag_id: None,
+            sp_effect_items: None,
+        };
+        let make_deck = |id| DeckPort {
+            id,
+            name: format!("Deck {id}"),
+            mission: vec![],
+            ship: None,
+            chart_seiku_value: None,
+            chart_tp_value: None,
+        };
+
+        let mut ships_a = HashMap::new();
+        for id in [30_i64, 10, 20] {
+            ships_a.insert(id, make_ship(id));
+        }
+        let mut ships_b = HashMap::new();
+        for id in [20_i64, 30, 10] {
+            ships_b.insert(id, make_ship(id));
+        }
+
+        let mut use_a = HashMap::new();
+        for id in [9_i64, 2] {
+            use_a.insert(id, UseItem { id, count: id * 5 });
+        }
+        let mut use_b = HashMap::new();
+        for id in [2_i64, 9] {
+            use_b.insert(id, UseItem { id, count: id * 5 });
+        }
+
+        let mut slot_a = HashMap::new();
+        for id in [500_i64, 100] {
+            slot_a.insert(
+                id,
+                SlotItem {
+                    id,
+                    slotitem_id: 1,
+                    locked: 0,
+                    level: 0,
+                    alv: None,
+                },
+            );
+        }
+        let mut slot_b = HashMap::new();
+        for id in [100_i64, 500] {
+            slot_b.insert(
+                id,
+                SlotItem {
+                    id,
+                    slotitem_id: 1,
+                    locked: 0,
+                    level: 0,
+                    alv: None,
+                },
+            );
+        }
+
+        let mut deck_a = HashMap::new();
+        for id in [2_i64, 1] {
+            deck_a.insert(id, make_deck(id));
+        }
+        let mut deck_b = HashMap::new();
+        for id in [1_i64, 2] {
+            deck_b.insert(id, make_deck(id));
+        }
+
+        let val_a = canonicalize_json(&build_fleet_snapshot_value(
+            &ship::Ships { ships: ships_a },
+            &use_items::UseItems { use_items: use_a },
+            &slot_item::SlotItems { slot_items: slot_a },
+            &deck_port::DeckPorts {
+                deck_ports: deck_a,
+                combined_flag: Some(0),
+            },
+        ));
+        let val_b = canonicalize_json(&build_fleet_snapshot_value(
+            &ship::Ships { ships: ships_b },
+            &use_items::UseItems { use_items: use_b },
+            &slot_item::SlotItems { slot_items: slot_b },
+            &deck_port::DeckPorts {
+                deck_ports: deck_b,
+                combined_flag: Some(0),
+            },
+        ));
+
+        assert_eq!(
+            serde_json::to_vec(&val_a).unwrap(),
+            serde_json::to_vec(&val_b).unwrap()
+        );
     }
 }

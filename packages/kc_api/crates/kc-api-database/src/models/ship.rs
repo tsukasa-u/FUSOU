@@ -20,6 +20,14 @@ pub type OwnShipId = Uuid;
 pub type EnemyShipId = Uuid;
 pub type FriendShipId = Uuid;
 
+fn opt_stat_at<T: Copy>(values: &Option<Vec<T>>, idx: usize) -> Option<T> {
+    values.as_ref().and_then(|v| v.get(idx).copied())
+}
+
+fn opt_stat_i32(values: &Option<Vec<i64>>, idx: usize) -> Option<i32> {
+    opt_stat_at(values, idx).map(|v| v as i32)
+}
+
 #[derive(
     Debug,
     Clone,
@@ -193,56 +201,56 @@ impl OwnShip {
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            karyoku: ship.karyoku.clone().map(|values| values[0] as i32),
+            karyoku: opt_stat_i32(&ship.karyoku, 0),
             #[cfg(schema_until = "0.5.0")]
-          raisou: ship
+            raisou: ship
                 .raisou
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            raisou: ship.raisou.clone().map(|values| values[0] as i32),
+            raisou: opt_stat_i32(&ship.raisou, 0),
             #[cfg(schema_until = "0.5.0")]
             taiku: ship
                 .taiku
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            taiku: ship.taiku.clone().map(|values| values[0] as i32),
+            taiku: opt_stat_i32(&ship.taiku, 0),
             #[cfg(schema_until = "0.5.0")]
             soukou: ship
                 .soukou
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            soukou: ship.soukou.clone().map(|values| values[0] as i32),
+            soukou: opt_stat_i32(&ship.soukou, 0),
             #[cfg(schema_until = "0.5.0")]
             kaihi: ship
                 .kaihi
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            kaihi: ship.kaihi.clone().map(|values| values[0] as i32),
+            kaihi: opt_stat_i32(&ship.kaihi, 0),
             #[cfg(schema_until = "0.5.0")]
             taisen: ship
                 .taisen
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            taisen: ship.taisen.clone().map(|values| values[0] as i32),
+            taisen: opt_stat_i32(&ship.taisen, 0),
             #[cfg(schema_until = "0.5.0")]
             sakuteki: ship
                 .sakuteki
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            sakuteki: ship.sakuteki.clone().map(|values| values[0] as i32),
+            sakuteki: opt_stat_i32(&ship.sakuteki, 0),
             #[cfg(schema_until = "0.5.0")]
             lucky: ship
                 .lucky
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
             #[cfg(schema_since = "0.5.0")]
-            lucky: ship.lucky.clone().map(|values| values[0] as i32),
+            lucky: opt_stat_i32(&ship.lucky, 0),
             sally_area: ship.sally_area.map(|value| value as i32),
             #[cfg(schema_since = "0.6.0")]
             sortie_tag_id: ship.sortie_tag_id.map(|value| value as i32),
@@ -330,10 +338,10 @@ impl EnemyShip {
             nowhp,
             maxhp,
             slot: new_slot_wrap,
-            karyoku: param_values.clone().map(|x| x[0]),
-            raisou: param_values.clone().map(|x| x[1]),
-            taiku: param_values.clone().map(|x| x[2]),
-            soukou: param_values.clone().map(|x| x[3]),
+            karyoku: opt_stat_at(&param_values, 0),
+            raisou: opt_stat_at(&param_values, 1),
+            taiku: opt_stat_at(&param_values, 2),
+            soukou: opt_stat_at(&param_values, 3),
             mst_ship_id,
         };
         table.enemy_ship.push(new_data);
@@ -418,14 +426,63 @@ impl FriendShip {
             maxhp,
             slot: new_slot_wrap,
             slotnum,
-            karyoku: param_values.clone().map(|x| x[0]),
-            raisou: param_values.clone().map(|x| x[1]),
-            taiku: param_values.clone().map(|x| x[2]),
-            soukou: param_values.clone().map(|x| x[3]),
+            karyoku: opt_stat_at(&param_values, 0),
+            raisou: opt_stat_at(&param_values, 1),
+            taiku: opt_stat_at(&param_values, 2),
+            soukou: opt_stat_at(&param_values, 3),
             mst_ship_id,
         };
         table.friend_ship.push(new_data);
 
         Some(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opt_stat_at_handles_none_empty_and_short_vectors_without_panic() {
+        assert_eq!(opt_stat_at::<i32>(&None, 0), None);
+        assert_eq!(opt_stat_at::<i32>(&Some(vec![]), 0), None);
+        assert_eq!(opt_stat_at(&Some(vec![42]), 0), Some(42));
+        assert_eq!(opt_stat_at(&Some(vec![42]), 1), None);
+        assert_eq!(opt_stat_at(&Some(vec![10, 20, 30]), 2), Some(30));
+        assert_eq!(opt_stat_at(&Some(vec![10, 20, 30]), 3), None);
+    }
+
+    #[test]
+    fn enemy_ship_short_param_values_do_not_panic() {
+        let uuid = Uuid::new_v4();
+        let env_uuid = Uuid::new_v4();
+        let ts = uuid::Timestamp::from_unix(uuid::NoContext, 1_700_000_000, 0);
+        let mut table = PortTable::default();
+
+        let res = EnemyShip::new_ret_option(
+            ts,
+            uuid,
+            (Some(1), Some(10), Some(10), None, Some(vec![99]), 1501),
+            &mut table,
+            env_uuid,
+            0,
+        );
+        assert_eq!(res, Some(()));
+        assert_eq!(table.enemy_ship.len(), 1);
+        assert_eq!(table.enemy_ship[0].karyoku, Some(99));
+        assert_eq!(table.enemy_ship[0].raisou, None);
+        assert_eq!(table.enemy_ship[0].taiku, None);
+        assert_eq!(table.enemy_ship[0].soukou, None);
+
+        let empty_res = EnemyShip::new_ret_option(
+            ts,
+            uuid,
+            (Some(1), Some(10), Some(10), None, Some(vec![]), 1502),
+            &mut table,
+            env_uuid,
+            1,
+        );
+        assert_eq!(empty_res, Some(()));
+        assert_eq!(table.enemy_ship[1].karyoku, None);
     }
 }

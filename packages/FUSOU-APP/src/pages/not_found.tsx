@@ -1,5 +1,6 @@
 import { createEffect } from "solid-js";
 import { location_route } from "../utility/location";
+import errorImg from "../assets/pages/not_found/error.jpg";
 
 function NotFound() {
   createEffect(location_route);
@@ -11,7 +12,7 @@ function NotFound() {
         <div class="flex justify-center items-center h-dvh max-w-5xl">
           <img
             class="inline-block"
-            src="/src/assets/pages/not_found/error.jpg"
+            src={errorImg}
             alt="Not Found"
           />
           <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-3/5">

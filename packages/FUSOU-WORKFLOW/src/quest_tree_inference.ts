@@ -37,6 +37,10 @@ const MIN_CONF_SINGLE = 0.55;
 const MIN_CONF_PAIR = 0.65;
 const MAX_TASK_RETRY_COUNT = 8;
 const STALE_TASK_MS = 30 * 60 * 1000;
+const MAX_STORED_PREREQUISITES = 20;
+const MAX_SINGLE_CANDIDATES = 10;
+const MAX_PAIR_QUESTS = 15;
+const MAX_SAVED_CANDIDATES = 30;
 
 function nowMs(): number {
   return Date.now();
@@ -85,7 +89,11 @@ async function getCompletedAndRecentSets(
   datasetId: string,
   sessionId: string,
   atMs: number,
-): Promise<{ completed: number[]; recent: number[]; hasCrossSessionInference: boolean }> {
+): Promise<{
+  candidatePrerequisites: number[];
+  recent: number[];
+  hasCrossSessionInference: boolean;
+}> {
   // Intentionally query full dataset history up to atMs.
   // Quests are often one-time completable, so period-only filtering would erase valid prerequisites.
   const rows = ((await db
@@ -119,90 +127,75 @@ async function getCompletedAndRecentSets(
     }
   }
 
-  const completed: number[] = [];
   let hasCrossSessionInference = false;
   for (const [questId, info] of latestByQuest.entries()) {
     if (info.eventType === "complete") {
-      completed.push(questId);
       if (info.sessionId !== sessionId) {
         hasCrossSessionInference = true;
       }
     }
   }
 
-  completed.sort((a, b) => a - b);
-  return { completed, recent: [...recent].sort((a, b) => a - b), hasCrossSessionInference };
+  const candidatePrerequisites = [...latestByQuest.entries()]
+    .filter(
+      ([questId, info]) =>
+        info.eventType === "complete" &&
+        (recent.has(questId) || info.sessionId === sessionId),
+    )
+    .sort(([, left], [, right]) => right.ts - left.ts)
+    .slice(0, MAX_STORED_PREREQUISITES)
+    .map(([questId]) => questId)
+    .sort((a, b) => a - b);
+
+  return {
+    candidatePrerequisites,
+    recent: [...recent].sort((a, b) => a - b),
+    hasCrossSessionInference,
+  };
 }
 
-async function getExposureForPrereq(
-  db: D1DatabaseLike,
-  prereq: number[],
-  periodTag: string,
-  tableVersion: string,
-): Promise<number> {
-  if (prereq.length === 1) {
-    const row = (await db
-      .prepare(
-        `SELECT COUNT(DISTINCT o.occurrence_id) AS c
-         FROM quest_occurrence_contexts o
-         JOIN quest_occurrence_prerequisites p
-           ON p.occurrence_id = o.occurrence_id
-         WHERE o.period_tag = ?
-           AND o.table_version = ?
-           AND o.is_bootstrap_unknown = 0
-           AND p.is_completed = 1
-           AND p.quest_id = ?`
-      )
-      .bind(periodTag, tableVersion, prereq[0])
-      .first<{ c?: number }>());
-    return Math.max(1, toInt(row?.c) ?? 0);
-  }
-
-  if (prereq.length === 2) {
-    const row = (await db
-      .prepare(
-        `SELECT COUNT(DISTINCT o.occurrence_id) AS c
-         FROM quest_occurrence_contexts o
-         JOIN quest_occurrence_prerequisites p1
-           ON p1.occurrence_id = o.occurrence_id
-         JOIN quest_occurrence_prerequisites p2
-           ON p2.occurrence_id = o.occurrence_id
-         WHERE o.period_tag = ?
-           AND o.table_version = ?
-           AND o.is_bootstrap_unknown = 0
-           AND p1.is_completed = 1
-           AND p2.is_completed = 1
-           AND p1.quest_id = ?
-           AND p2.quest_id = ?`
-      )
-      .bind(periodTag, tableVersion, prereq[0], prereq[1])
-      .first<{ c?: number }>());
-    return Math.max(1, toInt(row?.c) ?? 0);
-  }
-
-  return 1;
-}
-
-async function recomputeRulesForTarget(
+export async function recomputeRulesForTarget(
   db: D1DatabaseLike,
   targetQuestId: number,
   periodTag: string,
   tableVersion: string,
 ): Promise<void> {
-  const occurrences = ((await db
+  const occurrenceRows = ((await db
     .prepare(
-      `SELECT occurrence_id
-       FROM quest_occurrence_contexts
-       WHERE target_quest_id = ?
-         AND period_tag = ?
-         AND table_version = ?
-         AND is_bootstrap_unknown = 0`
+      `SELECT o.occurrence_id, p.quest_id, p.is_recent
+       FROM quest_occurrence_contexts o
+       LEFT JOIN quest_occurrence_prerequisites p
+         ON p.occurrence_id = o.occurrence_id AND p.is_completed = 1
+       WHERE o.target_quest_id = ?
+         AND o.period_tag = ?
+         AND o.table_version = ?
+         AND o.is_bootstrap_unknown = 0
+       ORDER BY o.occurrence_id, p.quest_id ASC`
     )
     .bind(targetQuestId, periodTag, tableVersion)
-    .all<{ occurrence_id: string }>())
+    .all<{
+      occurrence_id: string;
+      quest_id: number | null;
+      is_recent: number | null;
+    }>())
     .results ?? []);
 
-  const totalOccurrences = occurrences.length;
+  const prerequisitesByOccurrence = new Map<string, number[]>();
+  const recentCount = new Map<number, number>();
+  for (const row of occurrenceRows) {
+    const occurrencePrerequisites =
+      prerequisitesByOccurrence.get(row.occurrence_id) ?? [];
+    prerequisitesByOccurrence.set(row.occurrence_id, occurrencePrerequisites);
+
+    const questId = toInt(row.quest_id);
+    if (questId == null || questId === targetQuestId) continue;
+    occurrencePrerequisites.push(questId);
+    if (row.is_recent === 1) {
+      recentCount.set(questId, (recentCount.get(questId) ?? 0) + 1);
+    }
+  }
+
+  const totalOccurrences = prerequisitesByOccurrence.size;
   if (totalOccurrences === 0) {
     await db
       .prepare(
@@ -224,33 +217,105 @@ async function recomputeRulesForTarget(
   const singleCount = new Map<string, number>();
   const pairCount = new Map<string, number>();
 
-  for (const { occurrence_id: occurrenceId } of occurrences) {
-    const prereqs = ((await db
-      .prepare(
-        `SELECT quest_id
-         FROM quest_occurrence_prerequisites
-         WHERE occurrence_id = ?
-           AND is_completed = 1
-         ORDER BY quest_id ASC`
-      )
-      .bind(occurrenceId)
-      .all<{ quest_id: number }>())
-      .results ?? []);
-
-    const ids = prereqs
-      .map((row) => toInt(row.quest_id))
-      .filter((v): v is number => v != null)
-      .filter((v) => v !== targetQuestId);
-
+  for (const occurrencePrerequisites of prerequisitesByOccurrence.values()) {
+    const ids = [...new Set(occurrencePrerequisites)].sort((a, b) => a - b);
     for (const id of ids) {
       const key = prereqHash([id]);
       singleCount.set(key, (singleCount.get(key) ?? 0) + 1);
     }
+  }
+
+  const rankedSingles = [...singleCount.entries()]
+    .map(([key, support]) => {
+      const [questId] = key.split("+").map(Number);
+      return {
+        prereq: [questId ?? 0],
+        support,
+        recentSupport: recentCount.get(questId ?? 0) ?? 0,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.support - left.support ||
+        right.recentSupport - left.recentSupport ||
+        (left.prereq[0] ?? 0) - (right.prereq[0] ?? 0),
+    );
+
+  const pairQuestIds = rankedSingles
+    .slice(0, MAX_PAIR_QUESTS)
+    .map((candidate) => candidate.prereq[0])
+    .filter((questId): questId is number => questId != null);
+  const pairQuestSet = new Set(pairQuestIds);
+  for (const occurrencePrerequisites of prerequisitesByOccurrence.values()) {
+    const ids = [...new Set(occurrencePrerequisites)]
+      .filter((questId) => pairQuestSet.has(questId))
+      .sort((a, b) => a - b);
     for (const pair of combinationsOfTwo(ids)) {
       const key = prereqHash(pair);
       pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
     }
   }
+
+  const candidateSets = [
+    ...rankedSingles.slice(0, MAX_SINGLE_CANDIDATES).map((candidate) => ({
+      prereq: candidate.prereq,
+      support: candidate.support,
+      setSize: 1,
+    })),
+    ...[...pairCount.entries()]
+      .filter(([, support]) => support >= 2)
+      .map(([key, support]) => ({
+        prereq: key.split("+").map(Number),
+        support,
+        setSize: 2,
+      })),
+  ];
+
+  const candidateQuestIds = [
+    ...new Set(candidateSets.flatMap((candidate) => candidate.prereq)),
+  ].sort((a, b) => a - b);
+  const exposureRows =
+    candidateQuestIds.length === 0
+      ? []
+      : ((await db
+          .prepare(
+            `SELECT p.quest_id, p.occurrence_id
+             FROM quest_occurrence_prerequisites p
+             JOIN quest_occurrence_contexts o ON o.occurrence_id = p.occurrence_id
+             WHERE o.period_tag = ?
+               AND o.table_version = ?
+               AND o.is_bootstrap_unknown = 0
+               AND p.is_completed = 1
+               AND p.quest_id IN (${candidateQuestIds.map(() => "?").join(", ")})`,
+          )
+          .bind(periodTag, tableVersion, ...candidateQuestIds)
+          .all<{ quest_id: number; occurrence_id: string }>()).results ?? []);
+  const occurrenceIdsByQuest = new Map<number, Set<string>>();
+  for (const row of exposureRows) {
+    const ids = occurrenceIdsByQuest.get(row.quest_id) ?? new Set<string>();
+    ids.add(row.occurrence_id);
+    occurrenceIdsByQuest.set(row.quest_id, ids);
+  }
+
+  const exposureFor = (prereq: number[]): number => {
+    const firstId = prereq[0];
+    if (firstId == null) return 1;
+    const firstSet = occurrenceIdsByQuest.get(firstId) ?? new Set<string>();
+    if (prereq.length === 1) return Math.max(1, firstSet.size);
+
+    const secondId = prereq[1];
+    if (secondId == null) return 1;
+    const secondSet = occurrenceIdsByQuest.get(secondId) ?? new Set<string>();
+    const [smaller, larger] =
+      firstSet.size <= secondSet.size
+        ? [firstSet, secondSet]
+        : [secondSet, firstSet];
+    let intersectionSize = 0;
+    for (const occurrenceId of smaller) {
+      if (larger.has(occurrenceId)) intersectionSize += 1;
+    }
+    return Math.max(1, intersectionSize);
+  };
 
   const allAppearanceCountRow = (await db
     .prepare(
@@ -264,63 +329,56 @@ async function recomputeRulesForTarget(
   const allAppearanceCount = Math.max(1, toInt(allAppearanceCountRow?.c) ?? totalOccurrences);
   const baseRate = totalOccurrences / allAppearanceCount;
 
-  const candidates: CandidateMetric[] = [];
-
-  for (const [key, supportRaw] of singleCount.entries()) {
-    const ids = key.split("+").map((s) => Number(s));
-    const support = supportRaw;
-    const exposure = await getExposureForPrereq(db, ids, periodTag, tableVersion);
+  const candidates: CandidateMetric[] = candidateSets.map(
+    ({ prereq, support, setSize }) => {
+      const exposure = exposureFor(prereq);
     const confidence = support / exposure;
     const lift = baseRate > 0 ? confidence / baseRate : confidence;
     const score = calcScore(support, exposure, confidence, lift);
-    candidates.push({ prereq: ids, support, exposure, confidence, lift, score, setSize: 1 });
-  }
-
-  for (const [key, supportRaw] of pairCount.entries()) {
-    const ids = key.split("+").map((s) => Number(s));
-    const support = supportRaw;
-    const exposure = await getExposureForPrereq(db, ids, periodTag, tableVersion);
-    const confidence = support / exposure;
-    const lift = baseRate > 0 ? confidence / baseRate : confidence;
-    const score = calcScore(support, exposure, confidence, lift);
-    candidates.push({ prereq: ids, support, exposure, confidence, lift, score, setSize: 2 });
-  }
-
+      return { prereq, support, exposure, confidence, lift, score, setSize };
+    },
+  );
   candidates.sort((a, b) => b.score - a.score);
+  const savedCandidates = candidates.slice(0, MAX_SAVED_CANDIDATES);
 
-  // Pass 1: collect metadata and build INSERT stmts for quest_rule_candidates
-  // (no DB I/O here — allows a single batched write below)
-  let bestSingle: CandidateMetric | null = null;
-  let bestPair: CandidateMetric | null = null;
   const candidateByHash = new Map<string, CandidateMetric>();
-  const candidateInsertStmts: ReturnType<D1DatabaseLike["prepare"]>[] = [];
+  for (const candidate of savedCandidates) {
+    candidateByHash.set(prereqHash(candidate.prereq), candidate);
+  }
+  const bestSingle =
+    savedCandidates.find((candidate) => candidate.setSize === 1) ?? null;
+  const bestPair =
+    savedCandidates.find((candidate) => candidate.setSize === 2) ?? null;
+
   const nowForCandidates = nowMs();
+  const publishStatements = [
+    db
+      .prepare(
+        `DELETE FROM quest_rule_candidates
+         WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
+      )
+      .bind(targetQuestId, periodTag, tableVersion),
+    db
+      .prepare(
+        `DELETE FROM quest_rule_edges
+         WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
+      )
+      .bind(targetQuestId, periodTag, tableVersion),
+  ];
 
-  for (const candidate of candidates) {
-    if (candidate.setSize === 1 && !bestSingle) bestSingle = candidate;
-    if (candidate.setSize === 2 && !bestPair) bestPair = candidate;
-
+  // Prepare one INSERT per row so each statement stays well below Cloudflare D1's
+  // 100 bound-parameter limit while still publishing atomically in a single db.batch().
+  for (const candidate of savedCandidates) {
     const prereqJson = JSON.stringify(candidate.prereq);
     const hash = prereqHash(candidate.prereq);
-    candidateByHash.set(hash, candidate);
-    candidateInsertStmts.push(
+    publishStatements.push(
       db
         .prepare(
           `INSERT INTO quest_rule_candidates (
-             target_quest_id,
-             prereq_set_hash,
-             prereq_set_json,
-             set_size,
-             support,
-             exposure,
-             confidence,
-             lift,
-             score,
-             period_tag,
-             table_version,
-             quality_tier,
-             updated_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             target_quest_id, prereq_set_hash, prereq_set_json, set_size,
+             support, exposure, confidence, lift, score, period_tag,
+             table_version, quality_tier, updated_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           targetQuestId,
@@ -336,25 +394,9 @@ async function recomputeRulesForTarget(
           tableVersion,
           "high",
           nowForCandidates,
-        )
+        ),
     );
   }
-
-  const deletePlusCandidates = [
-    db
-      .prepare(
-        `DELETE FROM quest_rule_candidates
-         WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
-      )
-      .bind(targetQuestId, periodTag, tableVersion),
-    db
-      .prepare(
-        `DELETE FROM quest_rule_edges
-         WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
-      )
-      .bind(targetQuestId, periodTag, tableVersion),
-    ...candidateInsertStmts,
-  ];
 
   let primaryPairHash: string | null = null;
   let primarySingleHash: string | null = null;
@@ -382,11 +424,8 @@ async function recomputeRulesForTarget(
     primarySingleHash = prereqHash(bestSingle.prereq);
   }
 
-  // Pass 2: build INSERT stmts for quest_rule_edges, then batch
-  const edgeInsertStmts: ReturnType<D1DatabaseLike["prepare"]>[] = [];
   const nowForEdges = nowMs();
-
-  for (const candidate of candidates) {
+  for (const candidate of savedCandidates) {
     const prereqJson = JSON.stringify(candidate.prereq);
     const hash = prereqHash(candidate.prereq);
 
@@ -404,25 +443,14 @@ async function recomputeRulesForTarget(
     const isPrimary = primaryPairHash === hash || primarySingleHash === hash ? 1 : 0;
     if (isPrimary) className = "accepted_primary";
 
-    edgeInsertStmts.push(
+    publishStatements.push(
       db
         .prepare(
           `INSERT INTO quest_rule_edges (
-             rule_id,
-             target_quest_id,
-             prereq_set_json,
-             set_size,
-             class,
-             support,
-             confidence,
-             lift,
-             score,
-             period_tag,
-             table_version,
-             is_primary,
-             quality_tier,
-             updated_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             rule_id, target_quest_id, prereq_set_json, set_size, class,
+             support, confidence, lift, score, period_tag, table_version,
+             is_primary, quality_tier, updated_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           makeId("qrule"),
@@ -439,15 +467,18 @@ async function recomputeRulesForTarget(
           isPrimary,
           "high",
           nowForEdges,
-        )
+        ),
     );
   }
 
   // Publish a target's candidates and edges in one D1 transaction.
-  await db.batch([...deletePlusCandidates, ...edgeInsertStmts]);
+  await db.batch(publishStatements);
 }
 
-async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<void> {
+async function processTask(
+  db: D1DatabaseLike,
+  task: InferenceTask,
+): Promise<Set<string>> {
   const appearances = ((await db
     .prepare(
       `SELECT dataset_id, collection_session_id, target_quest_id, appeared_at_ms, period_tag, table_version, is_bootstrap_unknown
@@ -474,51 +505,63 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
       appearance.appeared_at_ms,
     );
 
-    const occurrenceStatements = [db
-      .prepare(
-        `INSERT INTO quest_occurrence_contexts (
-           occurrence_id,
-           dataset_id,
-           collection_session_id,
-           target_quest_id,
-           occurred_at_ms,
-           period_tag,
-           table_version,
-           is_bootstrap_unknown,
-           has_cross_session_inference,
-           created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(occurrence_id) DO NOTHING`
-      )
-      .bind(
-        occurrenceId,
-        appearance.dataset_id,
-        appearance.collection_session_id,
-        appearance.target_quest_id,
-        appearance.appeared_at_ms,
-        appearance.period_tag,
-        appearance.table_version,
-        appearance.is_bootstrap_unknown,
-        sets.hasCrossSessionInference ? 1 : 0,
-        nowMs(),
-      )
-    ];
-    occurrenceStatements.push(db.prepare(
-      "DELETE FROM quest_occurrence_prerequisites WHERE occurrence_id = ?",
-    ).bind(occurrenceId));
-
-    for (const questId of sets.completed) {
-      occurrenceStatements.push(db
+    const occurrenceStatements = [
+      db
         .prepare(
-          `INSERT OR IGNORE INTO quest_occurrence_prerequisites (
+          `INSERT INTO quest_occurrence_contexts (
              occurrence_id,
-             quest_id,
-             is_recent,
-             is_completed,
+             dataset_id,
+             collection_session_id,
+             target_quest_id,
+             occurred_at_ms,
+             period_tag,
+             table_version,
+             is_bootstrap_unknown,
+             has_cross_session_inference,
              created_at
-           ) VALUES (?, ?, ?, 1, ?)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING`
         )
-        .bind(occurrenceId, questId, sets.recent.includes(questId) ? 1 : 0, nowMs())
+        .bind(
+          occurrenceId,
+          appearance.dataset_id,
+          appearance.collection_session_id,
+          appearance.target_quest_id,
+          appearance.appeared_at_ms,
+          appearance.period_tag,
+          appearance.table_version,
+          appearance.is_bootstrap_unknown,
+          sets.hasCrossSessionInference ? 1 : 0,
+          nowMs(),
+        ),
+      db
+        .prepare("DELETE FROM quest_occurrence_prerequisites WHERE occurrence_id = ?")
+        .bind(occurrenceId),
+    ];
+
+    for (const questId of sets.candidatePrerequisites) {
+      occurrenceStatements.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO quest_occurrence_prerequisites (
+               occurrence_id,
+               quest_id,
+               is_recent,
+               is_completed,
+               created_at
+             )
+             SELECT ?, ?, ?, 1, ?
+             WHERE EXISTS (
+               SELECT 1 FROM quest_occurrence_contexts WHERE occurrence_id = ?
+             )`
+          )
+          .bind(
+            occurrenceId,
+            questId,
+            sets.recent.includes(questId) ? 1 : 0,
+            nowMs(),
+            occurrenceId,
+          )
       );
     }
     await db.batch(occurrenceStatements);
@@ -526,18 +569,7 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
     touchedTargets.add(`${appearance.target_quest_id}:${appearance.period_tag}:${appearance.table_version}`);
   }
 
-  for (const key of touchedTargets) {
-    const [targetStr, periodTag, tableVersion] = key.split(":");
-    const targetQuestId = Number(targetStr);
-    if (
-      !Number.isFinite(targetQuestId) ||
-      periodTag === undefined ||
-      tableVersion === undefined
-    ) {
-      continue;
-    }
-    await recomputeRulesForTarget(db, targetQuestId, periodTag, tableVersion);
-  }
+  return touchedTargets;
 }
 
 export async function runQuestInferenceTasks(
@@ -597,29 +629,143 @@ export async function runQuestInferenceTasks(
     tasks = result.results ?? [];
   }
 
-  let completed = 0;
-  let failed = 0;
+  const successfulTasks: InferenceTask[] = [];
+  const taskErrors = new Map<string, string>();
+  const tasksByTarget = new Map<string, Set<string>>();
+  const allTouchedTargets = new Set<string>();
 
   for (const task of tasks) {
     try {
-      await processTask(db, task);
-      await db
-        .prepare(`UPDATE quest_inference_tasks SET status = 'completed', updated_at = ? WHERE task_id = ?`)
-        .bind(nowMs(), task.task_id)
-        .run();
-      completed += 1;
+      const touchedTargets = await processTask(db, task);
+      successfulTasks.push(task);
+      for (const key of touchedTargets) {
+        allTouchedTargets.add(key);
+        const taskIds = tasksByTarget.get(key) ?? new Set<string>();
+        taskIds.add(task.task_id);
+        tasksByTarget.set(key, taskIds);
+      }
     } catch (err) {
+      taskErrors.set(task.task_id, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  for (const key of allTouchedTargets) {
+    const [targetStr, periodTag, tableVersion] = key.split(":");
+    const targetQuestId = Number(targetStr);
+    if (
+      !Number.isFinite(targetQuestId) ||
+      periodTag === undefined ||
+      tableVersion === undefined
+    ) {
+      continue;
+    }
+    try {
+      await recomputeRulesForTarget(db, targetQuestId, periodTag, tableVersion);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      for (const taskId of tasksByTarget.get(key) ?? []) {
+        taskErrors.set(taskId, message);
+      }
+    }
+  }
+
+  let completed = 0;
+  let failed = 0;
+  for (const task of successfulTasks) {
+    const errorMessage = taskErrors.get(task.task_id);
+    if (errorMessage !== undefined) {
       await db
         .prepare(
           `UPDATE quest_inference_tasks
            SET status = 'failed', retry_count = retry_count + 1, error_message = ?, updated_at = ?
-           WHERE task_id = ?`
+           WHERE task_id = ?`,
         )
-        .bind(err instanceof Error ? err.message : String(err), nowMs(), task.task_id)
+        .bind(errorMessage, nowMs(), task.task_id)
         .run();
       failed += 1;
+      continue;
     }
+
+    await db
+      .prepare(
+        `UPDATE quest_inference_tasks SET status = 'completed', updated_at = ? WHERE task_id = ?`,
+      )
+      .bind(nowMs(), task.task_id)
+      .run();
+    completed += 1;
+  }
+
+  for (const [taskId, errorMessage] of taskErrors) {
+    if (successfulTasks.some((task) => task.task_id === taskId)) continue;
+    await db
+      .prepare(
+        `UPDATE quest_inference_tasks
+         SET status = 'failed', retry_count = retry_count + 1, error_message = ?, updated_at = ?
+         WHERE task_id = ?`,
+      )
+      .bind(errorMessage, nowMs(), taskId)
+      .run();
+    failed += 1;
   }
 
   return { picked: tasks.length, completed, failed };
+}
+
+export async function recomputeAllRuleTargets(
+  db: D1DatabaseLike,
+  options?: { limit?: number; offset?: number },
+): Promise<{ recomputed: number; totalTargets: number }> {
+  const limit = Math.max(1, Math.min(1000, options?.limit ?? 500));
+  const offset = Math.max(0, options?.offset ?? 0);
+
+  const countRow = await db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM (
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_occurrence_contexts
+         WHERE is_bootstrap_unknown = 0
+         UNION
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_rule_candidates
+       )`,
+    )
+    .first<{ count: number }>();
+  const totalTargets = Number(countRow?.count ?? 0);
+
+  const targets = ((await db
+    .prepare(
+      `SELECT target_quest_id, period_tag, table_version
+       FROM (
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_occurrence_contexts
+         WHERE is_bootstrap_unknown = 0
+         UNION
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_rule_candidates
+       )
+       ORDER BY target_quest_id ASC, period_tag ASC, table_version ASC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(limit, offset)
+    .all<{
+      target_quest_id: number;
+      period_tag: string;
+      table_version: string;
+    }>())
+    .results ?? []);
+
+  let recomputed = 0;
+  for (const target of targets) {
+    const targetQuestId = toInt(target.target_quest_id);
+    if (targetQuestId == null) continue;
+    await recomputeRulesForTarget(
+      db,
+      targetQuestId,
+      target.period_tag,
+      target.table_version,
+    );
+    recomputed += 1;
+  }
+
+  return { recomputed, totalTargets };
 }

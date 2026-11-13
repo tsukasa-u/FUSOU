@@ -13,7 +13,6 @@ paths:
   only:
     - packages/FUSOU-APP
     - packages/FUSOU-WEB
-    - packages/shared-ui
     - packages/FUSOU-WORKFLOW
     - packages/FUSOU-URL-SHORTER
     - packages/kc_api

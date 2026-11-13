@@ -9,7 +9,6 @@ import authApp from "./routes/auth";
 import assetsApp from "./routes/assets";
 import fleetApp from "./routes/fleet";
 import kcApp from "./routes/kc";
-import compactApp from "./routes/compact";
 import battleDataApp from "./routes/battle_data";
 import userApp from "./routes/user";
 import sokuSpeedObserved from "./routes/soku_speed_observed";
@@ -176,7 +175,6 @@ app.route("/auth", authApp);
 app.route("/asset-sync", assetsApp); // assetsApp declares /upload, /keys, etc.
 app.route("/fleet", fleetApp); // fleetApp declares /snapshot, etc.
 app.route("/kc-period", kcApp); // kcApp declares /latest, etc.
-app.route("/compaction", compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
 app.route("/battle-data", battleDataApp); // battleDataApp declares /upload, /health
 app.route("/user", userApp); // userApp declares /member-map
 app.route("/admin", adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index

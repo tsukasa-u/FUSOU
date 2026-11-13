@@ -528,13 +528,21 @@ impl StorageProvider for CloudTableStorageProvider {
 
                     // Download all files
                     let mut file_contents = Vec::new();
+                    let mut downloaded_files = Vec::new();
                     for file_name in &files_to_process {
                         let file_path = format!("{}/{}", table_path, file_name);
                         match self.download_bytes(&file_path).await {
-                            Ok(content) => file_contents.push(content),
+                            Ok(content) => {
+                                file_contents.push(content);
+                                downloaded_files.push(file_name.clone());
+                            }
                             Err(e) => {
-                                tracing::warn!("Failed to download {}: {}", file_path, e);
-                                continue;
+                                tracing::error!(
+                                    "Failed to download {}; aborting table integration: {}",
+                                    file_path,
+                                    e
+                                );
+                                return Err(e);
                             }
                         }
                     }
@@ -567,7 +575,7 @@ impl StorageProvider for CloudTableStorageProvider {
                                     );
 
                                     // Delete original files
-                                    for file_name in &files_to_process {
+                                    for file_name in &downloaded_files {
                                         let file_path = format!("{}/{}", table_path, file_name);
                                         self.delete_file(&file_path).await;
                                     }

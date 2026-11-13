@@ -91,6 +91,18 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
         .clone();
 }
 
+#[allow(non_snake_case)]
+pub fn get_CMD_DIR() -> PathBuf {
+    #[cfg(all(dev, not(check_release)))]
+    {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../FUSOU-PROXY/proxy-https/cmd")
+    }
+    #[cfg(any(not(dev), check_release))]
+    {
+        get_RESOURCES_DIR().join("cmd")
+    }
+}
+
 /// Deprecated: Returns an environment-scoped ID (ENV_UNIQ_ID). Do not use for user identification.
 ///
 /// Use [`get_user_member_id()`] instead. It returns the game-provided `api_member_id`

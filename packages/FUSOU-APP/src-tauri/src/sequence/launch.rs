@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 use crate::auth::supabase;
@@ -15,6 +16,37 @@ use tracing_unwrap::OptionExt;
 
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
+
+static PROXY_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
+static PARSER_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct RunningFlagGuard {
+    flag: &'static AtomicBool,
+}
+
+impl Drop for RunningFlagGuard {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
+    }
+}
+
+fn try_acquire_running_flag(flag: &'static AtomicBool) -> Option<RunningFlagGuard> {
+    flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()
+        .map(|_| RunningFlagGuard { flag })
+}
+
+fn track_running_task(
+    guard: RunningFlagGuard,
+    handle: tokio::task::JoinHandle<()>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let _guard = guard;
+        if let Err(err) = handle.await {
+            tracing::error!("tracked background task exited abnormally: {}", err);
+        }
+    })
+}
 
 #[cfg(any(not(dev), check_release))]
 use tracing_unwrap::ResultExt;
@@ -108,28 +140,41 @@ pub async fn launch_with_options(
                             }
                         };
 
-                        let addr = wrap_proxy::serve_proxy(
-                            server_address.to_string(),
-                            save_path,
-                            asset_sync_save_path,
-                            pac_path,
-                            ca_path,
-                            window.app_handle(),
-                            Some(file_prefix),
-                            auth_manager.clone(),
-                        )
-                        .await;
-                        match addr {
-                            Ok(addr) => Some(addr),
-                            Err(e) => {
-                                tracing::error!("failed to start proxy: {e}");
-                                crate::notify::show(
-                                    window.app_handle(),
-                                    "FUSOU - プロキシ起動エラー",
-                                    &format!("プロキシの起動に失敗しました: {e}"),
-                                );
-                                None
+                        if let Some(proxy_flag_guard) =
+                            try_acquire_running_flag(&PROXY_SERVER_RUNNING)
+                        {
+                            let started = wrap_proxy::serve_proxy(
+                                server_address.to_string(),
+                                save_path,
+                                asset_sync_save_path,
+                                pac_path,
+                                ca_path,
+                                window.app_handle(),
+                                Some(file_prefix),
+                                auth_manager.clone(),
+                            )
+                            .await;
+                            match started {
+                                Ok((addr, proxy_handle)) => {
+                                    track_running_task(proxy_flag_guard, proxy_handle);
+                                    Some(addr)
+                                }
+                                Err(e) => {
+                                    drop(proxy_flag_guard);
+                                    tracing::error!("failed to start proxy: {e}");
+                                    crate::notify::show(
+                                        window.app_handle(),
+                                        "FUSOU - Proxy Startup Error",
+                                        &format!("Failed to start the proxy: {e}"),
+                                    );
+                                    None
+                                }
                             }
+                        } else {
+                            tracing::info!(
+                                "proxy server is already running; skipping duplicate start"
+                            );
+                            None
                         }
                     } else {
                         None
@@ -147,11 +192,16 @@ pub async fn launch_with_options(
 
     if let Some(&flag) = options.get("open_app") {
         if flag != 0 {
-            json_parser::serve_reponse_parser(
-                window.app_handle(),
-                get_response_parse_bidirectional_channel().clone_slave(),
-                get_proxy_log_bidirectional_channel().clone_slave(),
-            );
+            if let Some(parser_flag_guard) = try_acquire_running_flag(&PARSER_SERVER_RUNNING) {
+                let parser_handle = json_parser::serve_reponse_parser(
+                    window.app_handle(),
+                    get_response_parse_bidirectional_channel().clone_slave(),
+                    get_proxy_log_bidirectional_channel().clone_slave(),
+                );
+                track_running_task(parser_flag_guard, parser_handle);
+            } else {
+                tracing::info!("response parser is already running; skipping duplicate start");
+            }
             window
                 .get_webview_window("main")
                 .expect_or_log("no window labeled 'main' found")
@@ -194,4 +244,41 @@ pub async fn launch_with_options(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_flag_guard_resets_when_startup_fails() {
+        static TEST_FLAG: AtomicBool = AtomicBool::new(false);
+
+        let guard = try_acquire_running_flag(&TEST_FLAG).expect("first acquire succeeds");
+        assert!(TEST_FLAG.load(Ordering::Acquire));
+        assert!(try_acquire_running_flag(&TEST_FLAG).is_none());
+
+        drop(guard);
+        assert!(!TEST_FLAG.load(Ordering::Acquire));
+        assert!(try_acquire_running_flag(&TEST_FLAG).is_some());
+    }
+
+    #[tokio::test]
+    async fn track_running_task_resets_flag_after_shutdown_or_panic() {
+        static TEST_FLAG: AtomicBool = AtomicBool::new(false);
+
+        let guard = try_acquire_running_flag(&TEST_FLAG).expect("acquire for normal exit");
+        let handle = tokio::spawn(async {});
+        track_running_task(guard, handle).await.expect("watcher joins");
+        assert!(!TEST_FLAG.load(Ordering::Acquire));
+
+        let panic_guard = try_acquire_running_flag(&TEST_FLAG).expect("acquire after exit");
+        let panic_handle = tokio::spawn(async {
+            panic!("simulated background task panic");
+        });
+        track_running_task(panic_guard, panic_handle)
+            .await
+            .expect("watcher catches panic cleanly");
+        assert!(!TEST_FLAG.load(Ordering::Acquire));
+    }
 }

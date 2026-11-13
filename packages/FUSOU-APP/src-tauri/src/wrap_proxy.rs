@@ -14,10 +14,40 @@ use crate::{
 };
 
 use fusou_auth::{AuthManager, FileStorage};
+use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
-#[cfg(target_os = "linux")]
+static PAC_SERVER_ADDR: OnceLock<Mutex<Option<SocketAddr>>> = OnceLock::new();
+
+fn pac_server_addr() -> &'static Mutex<Option<SocketAddr>> {
+    PAC_SERVER_ADDR.get_or_init(|| Mutex::new(None))
+}
+
+struct PacAddrResetGuard;
+
+impl Drop for PacAddrResetGuard {
+    fn drop(&mut self) {
+        let mut guard = pac_server_addr().lock().unwrap_or_else(|e| e.into_inner());
+        *guard = None;
+    }
+}
+
+async fn shutdown_proxy_after_partial_failure(proxy_handle: tokio::task::JoinHandle<()>) {
+    let channel = get_proxy_bidirectional_channel().clone_master();
+    if channel
+        .send(StatusInfo::SHUTDOWN {
+            status: "SHUTTING DOWN".to_string(),
+            message: "Shutting down proxy after startup failure".to_string(),
+        })
+        .await
+        .is_err()
+    {
+        proxy_handle.abort();
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::cmd::native_cmd::check_ca_installed;
 
 pub async fn check_ca_and_install<R>(app: &tauri::AppHandle<R>) -> bool
@@ -40,7 +70,16 @@ where
 
     #[cfg(target_os = "windows")]
     {
-        return add_store_sync(app).await;
+        if check_ca_installed(app).await {
+            return true;
+        }
+
+        tracing::info!("CA certificate is not installed");
+        if !add_store_sync(app).await {
+            return false;
+        }
+
+        return check_ca_installed(app).await;
     }
 }
 
@@ -91,7 +130,7 @@ pub async fn serve_proxy<R>(
     app: &tauri::AppHandle<R>,
     file_prefix: Option<String>,
     auth_manager: Arc<Mutex<AuthManager<FileStorage>>>,
-) -> Result<Url, Box<dyn std::error::Error>>
+) -> Result<(Url, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>>
 where
     R: tauri::Runtime,
 {
@@ -116,14 +155,8 @@ where
         } else {
             tracing::info!("Generated CA certificate does not exist, creating...");
             proxy_https::proxy_server_https::create_ca(ca_path.clone());
-            if !add_store_sync(app).await {
-                return Err("Failed to install regenerated CA certificate".into());
-            }
-            #[cfg(target_os = "linux")]
-            if !check_ca_installed(app).await {
-                return Err(
-                    "Generated CA certificate verification failed after regeneration".into(),
-                );
+            if !check_ca_and_install(app).await {
+                return Err("Failed to install or verify generated CA certificate".into());
             }
         }
     } else {
@@ -146,7 +179,7 @@ where
         Arc::new(guard.clone())
     };
 
-    let proxy_addr = proxy_https::proxy_server_https::serve_proxy(
+    let (proxy_addr, proxy_handle) = proxy_https::proxy_server_https::serve_proxy_with_handle(
         0,
         proxy_bidirectional_channel_slave,
         proxy_log_bidirectional_channel_master,
@@ -155,46 +188,57 @@ where
         ca_path,
         file_prefix.unwrap_or("".to_string()),
         auth_manager_for_proxy,
-    );
+    )
+    .map_err(|err| format!("Failed to start proxy server: {err}"))?;
 
-    if proxy_addr.is_err() {
-        return Err("Failed to start proxy server".into());
-    }
+    let existing_pac_addr = { *pac_server_addr().lock().unwrap_or_else(|e| e.into_inner()) };
+    let pac_socket = match existing_pac_addr {
+        Some(addr) => addr,
+        None => {
+            let (addr, pac_handle) = match proxy_https::pac_server::serve_pac_file_with_handle(
+                pac_path.clone(),
+                0,
+                pac_bidirectional_channel_slave,
+            )
+            .map_err(|err| format!("Failed to start pac server: {err}"))
+            {
+                Ok(started) => started,
+                Err(msg) => {
+                    shutdown_proxy_after_partial_failure(proxy_handle).await;
+                    return Err(msg.into());
+                }
+            };
+            {
+                let mut guard = pac_server_addr().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(addr);
+            }
+            tokio::spawn(async move {
+                let _reset_guard = PacAddrResetGuard;
+                let _ = pac_handle.await;
+            });
+            addr
+        }
+    };
 
-    // start pac server
-    // let pac_addr = proxy::pac_server::serve_pac_file(pac_path.clone(), 0, pac_bidirectional_channel_slave);
-    let pac_addr = proxy_https::pac_server::serve_pac_file(
-        pac_path.clone(),
-        0,
-        pac_bidirectional_channel_slave,
-    );
-
-    if pac_addr.is_err() {
-        return Err("Failed to start pac server".into());
-    }
-
-    // edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str());
     let host = if proxy_target.is_empty() {
         None
     } else {
         Some(proxy_target.as_str())
     };
-    let proxy_addr_string = match proxy_addr {
-        Ok(addr) => addr.to_string(),
-        Err(_) => return Err("Failed to start proxy server".into()),
+    let proxy_addr_string = proxy_addr.to_string();
+    edit_pac(pac_path.as_str(), proxy_addr_string.as_str(), host);
+
+    native_cmd::add_pac(
+        format!("http://localhost:{}/proxy.pac", pac_socket.port()),
+        app,
+    );
+
+    let proxy_url = match Url::parse(&format!("http://{proxy_addr_string}")) {
+        Ok(url) => url,
+        Err(_) => {
+            shutdown_proxy_after_partial_failure(proxy_handle).await;
+            return Err("Failed to parse proxy URL".into());
+        }
     };
-    edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
-
-    if let Ok(pac_socket) = pac_addr {
-        native_cmd::add_pac(
-            format!("http://localhost:{}/proxy.pac", pac_socket.port()),
-            app,
-        );
-    } else {
-        return Err("Failed to start pac server".into());
-    }
-
-    let proxy_url = Url::parse(&format!("http://{proxy_addr_string}"))
-        .map_err(|_| "Failed to parse proxy URL")?;
-    Ok(proxy_url)
+    Ok((proxy_url, proxy_handle))
 }
