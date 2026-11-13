@@ -1,6 +1,14 @@
 import {
+  LocalTestBadGenesisRecordSignatureCoordinatorDO,
+  LocalTestExpiredGenesisDelegationCoordinatorDO,
+  LocalTestGenesisInstallRecoveryCoordinatorDO,
+  LocalTestMissingGenesisApprovalCoordinatorDO,
   LocalTestFreshnessIssueCoordinatorDO,
   LocalTestReleaseLedgerCoordinatorDO,
+  LocalTestWrongGenesisCoordinatorIdDO,
+  LocalTestWrongGenesisChainCoordinatorDO,
+  LocalTestWrongGenesisEnvironmentCoordinatorDO,
+  LocalTestWrongGenesisProfileCoordinatorDO,
 } from "./local-test-coordinator.ts";
 import {
   decodeRuntimeRpcValue,
@@ -10,8 +18,16 @@ import {
 } from "./rpc-data.ts";
 
 export {
+  LocalTestBadGenesisRecordSignatureCoordinatorDO,
+  LocalTestExpiredGenesisDelegationCoordinatorDO,
+  LocalTestGenesisInstallRecoveryCoordinatorDO,
+  LocalTestMissingGenesisApprovalCoordinatorDO,
   LocalTestFreshnessIssueCoordinatorDO,
   LocalTestReleaseLedgerCoordinatorDO,
+  LocalTestWrongGenesisCoordinatorIdDO,
+  LocalTestWrongGenesisChainCoordinatorDO,
+  LocalTestWrongGenesisEnvironmentCoordinatorDO,
+  LocalTestWrongGenesisProfileCoordinatorDO,
 };
 
 // This entrypoint is bundled only by the loopback runtime harness, never Production.
@@ -46,6 +62,9 @@ const RPC_METHOD_NAMES = [
   "deleteCoordinatorStateForLocalTest",
   "deleteReleaseLedgerHeadForLocalTest",
   "failNextR2ReadbackForLocalTest",
+  "failNextGenesisAfterInstallFinalizationForLocalTest",
+  "failNextGenesisInstallBeforeFinalizationForLocalTest",
+  "failAfterR2ReadsForLocalTest",
   "finalizeIfCurrent",
   "finalizeCloudflareOperatorBindingInstall",
   "finalizeCloudflareOperatorIssue",
@@ -58,11 +77,13 @@ const RPC_METHOD_NAMES = [
   "getReleaseOperation",
   "inspectOperationForLocalTest",
   "inspectStateForLocalTest",
+  "inspectGenesisInstallProgressForLocalTest",
   "loseNextAppendResponseForLocalTest",
   "markReleaseOperationUnknown",
   "markResultUnknown",
   "markCloudflareOperatorIssueUnknown",
   "mismatchNextPointerEtagForLocalTest",
+  "mutateGenesisInstallRecoveryStateForLocalTest",
   "publishBaselineManifestForLocalTest",
   "readClock",
   "readCloudflareOperatorReleaseSnapshot",

@@ -869,12 +869,14 @@ export class LocalTestFreshnessIssueCoordinatorDO
 type R2FaultMode =
   | "NONE"
   | "DELAY_POINTER_WRITE"
+  | "FAIL_AFTER_READS"
   | "FAIL_NEXT_READBACK"
   | "WRONG_POINTER_ETAG";
 
 interface LocalR2FaultState {
   mode: R2FaultMode;
   remainingReadFailures: number;
+  remainingSuccessfulReads: number;
   loseNextAppendResponse: boolean;
   startedPromise: Promise<void> | null;
   signalStarted: (() => void) | null;
@@ -887,11 +889,14 @@ export class LocalTestReleaseLedgerCoordinatorDO
 {
   readonly #fault: LocalR2FaultState;
   readonly #releaseBucket: R2Bucket;
+  #genesisInstallFault: "NONE" | "BEFORE_FINALIZATION" | "AFTER_FINALIZATION" =
+    "NONE";
 
   constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
     const fault: LocalR2FaultState = {
       mode: "NONE",
       remainingReadFailures: 0,
+      remainingSuccessfulReads: 0,
       loseNextAppendResponse: false,
       startedPromise: null,
       signalStarted: null,
@@ -930,6 +935,13 @@ export class LocalTestReleaseLedgerCoordinatorDO
                 fault.mode = "NONE";
               }
               throw new Error("Local test simulated R2 readback failure");
+            }
+            if (fault.mode === "FAIL_AFTER_READS") {
+              if (fault.remainingSuccessfulReads === 0) {
+                fault.mode = "NONE";
+                throw new Error("Local test simulated R2 readback failure");
+              }
+              fault.remainingSuccessfulReads -= 1;
             }
             const object = await Reflect.apply(target.get, target, args);
             if (
@@ -1151,12 +1163,390 @@ export class LocalTestReleaseLedgerCoordinatorDO
     this.#fault.remainingReadFailures = 2;
   }
 
+  failAfterR2ReadsForLocalTest(successfulReads: number): void {
+    if (
+      this.#fault.mode !== "NONE" ||
+      !Number.isSafeInteger(successfulReads) ||
+      successfulReads < 0
+    ) {
+      throw new Error("Local R2 readback fault configuration is invalid");
+    }
+    this.#fault.mode = "FAIL_AFTER_READS";
+    this.#fault.remainingSuccessfulReads = successfulReads;
+  }
+
   mismatchNextPointerEtagForLocalTest(): void {
     if (this.#fault.mode !== "NONE") {
       throw new Error("An R2 fault is already armed");
     }
     this.#fault.mode = "WRONG_POINTER_ETAG";
   }
+
+  failNextGenesisInstallBeforeFinalizationForLocalTest(): void {
+    if (this.#genesisInstallFault !== "NONE") {
+      throw new Error("A Genesis install fault is already armed");
+    }
+    this.#genesisInstallFault = "BEFORE_FINALIZATION";
+  }
+
+  failNextGenesisAfterInstallFinalizationForLocalTest(): void {
+    if (this.#genesisInstallFault !== "NONE") {
+      throw new Error("A Genesis install fault is already armed");
+    }
+    this.#genesisInstallFault = "AFTER_FINALIZATION";
+  }
+
+  override async finalizeCloudflareOperatorBindingInstall(
+    input: Parameters<
+      SqliteFreshnessIssueCoordinatorDO["finalizeCloudflareOperatorBindingInstall"]
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<
+        SqliteFreshnessIssueCoordinatorDO["finalizeCloudflareOperatorBindingInstall"]
+      >
+    >
+  > {
+    if (this.#genesisInstallFault === "BEFORE_FINALIZATION") {
+      this.#genesisInstallFault = "NONE";
+      throw new Error(
+        "Local test interrupted Genesis immediately before install finalization",
+      );
+    }
+    const faultAfterFinalization =
+      this.#genesisInstallFault === "AFTER_FINALIZATION";
+    const result = await super.finalizeCloudflareOperatorBindingInstall(input);
+    if (faultAfterFinalization && result.status === "INSTALLED") {
+      this.#genesisInstallFault = "NONE";
+      throw new Error(
+        "Local test interrupted Genesis after install commit and before status update",
+      );
+    }
+    return result;
+  }
+
+  inspectGenesisInstallProgressForLocalTest(operationId: string): {
+    readonly genesisStatus: string | null;
+    readonly installStatus: string | null;
+    readonly installCount: number;
+    readonly bootstrapAuthorizationCount: number;
+    readonly writerPending: boolean;
+    readonly writerOperationId: string | null;
+    readonly nextFencingToken: string;
+    readonly writeFencingToken: string;
+    readonly currentStateJson: string | null;
+    readonly profileLocalRestoreEpoch: string;
+    readonly installFencingToken: string | null;
+    readonly releaseFencingToken: string | null;
+    readonly expectedRestoreEpoch: string | null;
+    readonly targetRecordSha256: string | null;
+    readonly releaseHeadRecordSha256: string | null;
+  } {
+    return this.ctx.storage.transactionSync(() => {
+      const profileRows = this.ctx.storage.sql.exec<{
+        readonly writer_pending: number;
+        readonly writer_operation_id: string | null;
+        readonly next_fencing_token: string;
+        readonly write_fencing_token: string;
+        readonly current_state_json: string | null;
+        readonly local_restore_epoch: string;
+      }>(
+        `SELECT writer_pending, writer_operation_id, next_fencing_token,
+                write_fencing_token, current_state_json, local_restore_epoch
+         FROM freshness_profile WHERE singleton = 1`,
+      ).toArray();
+      const genesisRows = this.ctx.storage.sql.exec<{
+        readonly status: string;
+      }>(
+        `SELECT status FROM cloudflare_operator_genesis_operations
+         WHERE operation_id = ?`,
+        operationId,
+      ).toArray();
+      const installRows = this.ctx.storage.sql.exec<{
+        readonly status: string;
+        readonly install_fencing_token: string;
+        readonly release_fencing_token: string;
+        readonly expected_restore_epoch: string;
+        readonly target_record_sha256: string;
+      }>(
+        `SELECT status, install_fencing_token, release_fencing_token,
+                expected_restore_epoch, target_record_sha256
+         FROM cloudflare_operator_binding_installs WHERE operation_id = ?`,
+        operationId,
+      ).toArray();
+      const releaseHeadRows = this.ctx.storage.sql.exec<{
+        readonly record_sha256: string;
+      }>(
+        "SELECT record_sha256 FROM release_ledger_head WHERE singleton = 1",
+      ).toArray();
+      const installCountRows = this.ctx.storage.sql.exec<{
+        readonly count: number;
+      }>(
+        "SELECT COUNT(*) AS count FROM cloudflare_operator_binding_installs",
+      ).toArray();
+      const authorizationCountRows = this.ctx.storage.sql.exec<{
+        readonly count: number;
+      }>(
+        "SELECT COUNT(*) AS count FROM cloudflare_operator_bootstrap_authorizations",
+      ).toArray();
+      if (
+        profileRows.length !== 1 ||
+        genesisRows.length > 1 ||
+        installRows.length > 1 ||
+        releaseHeadRows.length > 1 ||
+        installCountRows.length !== 1 ||
+        authorizationCountRows.length !== 1 ||
+        !Number.isSafeInteger(installCountRows[0]!.count) ||
+        !Number.isSafeInteger(authorizationCountRows[0]!.count)
+      ) {
+        throw new Error("Local Genesis install inspection found invalid state");
+      }
+      const profile = profileRows[0]!;
+      const genesis = genesisRows[0] ?? null;
+      const install = installRows[0] ?? null;
+      return {
+        genesisStatus: genesis?.status ?? null,
+        installStatus: install?.status ?? null,
+        installCount: installCountRows[0]!.count,
+        bootstrapAuthorizationCount: authorizationCountRows[0]!.count,
+        writerPending: profile.writer_pending === 1,
+        writerOperationId: profile.writer_operation_id,
+        nextFencingToken: profile.next_fencing_token,
+        writeFencingToken: profile.write_fencing_token,
+        currentStateJson: profile.current_state_json,
+        profileLocalRestoreEpoch: profile.local_restore_epoch,
+        installFencingToken: install?.install_fencing_token ?? null,
+        releaseFencingToken: install?.release_fencing_token ?? null,
+        expectedRestoreEpoch: install?.expected_restore_epoch ?? null,
+        targetRecordSha256: install?.target_record_sha256 ?? null,
+        releaseHeadRecordSha256:
+          releaseHeadRows[0]?.record_sha256 ?? null,
+      };
+    });
+  }
+
+  async mutateGenesisInstallRecoveryStateForLocalTest(
+    operationId: string,
+    mutation:
+      | "INSTALL_TARGET_RECORD"
+      | "INSTALL_RESTORE_EPOCH"
+      | "INSTALL_RELEASE_FENCE"
+      | "PROFILE_LOCAL_RESTORE_EPOCH"
+      | "PROFILE_OTHER_WRITER"
+      | "PROFILE_WRITE_FENCE"
+      | "RELEASE_HEAD_RECORD"
+      | "QUARANTINE_INSTALL",
+    value: string,
+  ): Promise<void> {
+    this.ctx.storage.transactionSync(() => {
+      let updatedRowsWritten: number;
+      switch (mutation) {
+        case "INSTALL_TARGET_RECORD":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            `UPDATE cloudflare_operator_binding_installs
+             SET target_record_sha256 = ?
+             WHERE operation_id = ? AND status = 'VERIFYING'`,
+            value,
+            operationId,
+          ).rowsWritten;
+          break;
+        case "INSTALL_RESTORE_EPOCH":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            `UPDATE cloudflare_operator_binding_installs
+             SET expected_restore_epoch = ?
+             WHERE operation_id = ? AND status = 'VERIFYING'`,
+            value,
+            operationId,
+          ).rowsWritten;
+          break;
+        case "INSTALL_RELEASE_FENCE":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            `UPDATE cloudflare_operator_binding_installs
+             SET release_fencing_token = ?
+             WHERE operation_id = ? AND status = 'VERIFYING'`,
+            value,
+            operationId,
+          ).rowsWritten;
+          break;
+        case "PROFILE_LOCAL_RESTORE_EPOCH":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            "UPDATE freshness_profile SET local_restore_epoch = ? WHERE singleton = 1",
+            value,
+          ).rowsWritten;
+          break;
+        case "PROFILE_OTHER_WRITER":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            `UPDATE freshness_profile SET writer_operation_id = ?
+             WHERE singleton = 1 AND writer_pending = 1`,
+            value,
+          ).rowsWritten;
+          break;
+        case "PROFILE_WRITE_FENCE":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            "UPDATE freshness_profile SET write_fencing_token = ? WHERE singleton = 1",
+            value,
+          ).rowsWritten;
+          break;
+        case "RELEASE_HEAD_RECORD":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            "UPDATE release_ledger_head SET record_sha256 = ? WHERE singleton = 1",
+            value,
+          ).rowsWritten;
+          break;
+        case "QUARANTINE_INSTALL":
+          updatedRowsWritten = this.ctx.storage.sql.exec(
+            `UPDATE cloudflare_operator_binding_installs
+             SET status = 'QUARANTINED', reason = ?
+             WHERE operation_id = ?`,
+            value,
+            operationId,
+          ).rowsWritten;
+          break;
+      }
+      if (updatedRowsWritten < 1) {
+        const rows = this.ctx.storage.sql.exec<{
+          readonly status: string;
+        }>(
+          `SELECT status FROM cloudflare_operator_binding_installs
+           WHERE operation_id = ?`,
+          operationId,
+        ).toArray();
+        throw new Error(
+          `Local Genesis ${mutation} mutation updated ${updatedRowsWritten} rows ` +
+            `for ${operationId}; persisted install statuses: ` +
+            rows.map((row) => row.status).join(","),
+        );
+      }
+    });
+  }
+}
+
+export class LocalTestMissingGenesisApprovalCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    const missingApprovalEnv = { ...env };
+    delete missingApprovalEnv.FRESHNESS_GENESIS_APPROVAL_JSON;
+    super(ctx, missingApprovalEnv);
+  }
+}
+
+export class LocalTestWrongGenesisCoordinatorIdDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    super(ctx, alterGenesisApproval(env, {
+      coordinator_id: "0".repeat(64),
+    }));
+  }
+}
+
+export class LocalTestGenesisInstallRecoveryCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    super(ctx, alterGenesisApproval(env, {
+      coordinator_id: ctx.id.toString(),
+    }));
+  }
+}
+
+export class LocalTestBadGenesisRecordSignatureCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(
+    ctx: DurableObjectState,
+    env: CoordinatorEnv & {
+      readonly TEST_GENESIS_BAD_RECORD_SHA256?: string;
+    },
+  ) {
+    const recordSha256 = env.TEST_GENESIS_BAD_RECORD_SHA256;
+    if (typeof recordSha256 !== "string") {
+      throw new Error("Local invalid Genesis Record fixture is unavailable");
+    }
+    super(ctx, alterGenesisApproval(env, {
+      coordinator_id: ctx.id.toString(),
+      release_record_sha256: recordSha256,
+    }));
+  }
+}
+
+export class LocalTestExpiredGenesisDelegationCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(
+    ctx: DurableObjectState,
+    env: CoordinatorEnv & {
+      readonly TEST_GENESIS_EXPIRED_APPROVAL_JSON?: string;
+    },
+  ) {
+    const approval = env.TEST_GENESIS_EXPIRED_APPROVAL_JSON;
+    if (typeof approval !== "string") {
+      throw new Error("Local expired Genesis delegation fixture is unavailable");
+    }
+    super(ctx, alterGenesisApproval({
+      ...env,
+      FRESHNESS_GENESIS_APPROVAL_JSON: approval,
+    }, {
+      coordinator_id: ctx.id.toString(),
+    }));
+  }
+}
+
+export class LocalTestWrongGenesisEnvironmentCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    super(ctx, alterGenesisApproval(env, {
+      environment: "canary",
+    }));
+  }
+}
+
+export class LocalTestWrongGenesisProfileCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    super(ctx, alterGenesisApproval(env, {
+      profile_id: "wrong-profile",
+    }));
+  }
+}
+
+export class LocalTestWrongGenesisChainCoordinatorDO
+  extends LocalTestReleaseLedgerCoordinatorDO
+{
+  constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
+    const chainId = env.RELEASE_LEDGER_CHAIN_ID;
+    if (typeof chainId !== "string") {
+      throw new Error("Local Genesis approval fixture is unavailable");
+    }
+    super(ctx, alterGenesisApproval(env, {
+      coordinator_id: ctx.id.toString(),
+      chain_id: `${chainId}-wrong`,
+    }));
+  }
+}
+
+function alterGenesisApproval(
+  env: CoordinatorEnv,
+  changes: Readonly<Record<string, string>>,
+): CoordinatorEnv {
+  const rawApproval = env.FRESHNESS_GENESIS_APPROVAL_JSON;
+  if (typeof rawApproval !== "string") {
+    throw new Error("Local Genesis approval fixture is unavailable");
+  }
+  const parsed: unknown = JSON.parse(rawApproval);
+  if (!isRecord(parsed)) {
+    throw new Error("Local Genesis approval fixture is invalid");
+  }
+  return {
+    ...env,
+    FRESHNESS_GENESIS_APPROVAL_JSON: JSON.stringify({
+      ...parsed,
+      ...changes,
+    }),
+  };
 }
 
 function localTestErrorOutcome(error: unknown): LocalTestCallOutcome<never> {

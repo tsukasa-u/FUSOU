@@ -1,7 +1,31 @@
 import privateSigner, {
   deriveCloudflareOperatorFreshnessOperationId,
 } from "../../src/private-signer-worker.ts";
-import runtimeTestWorker from "./worker.ts";
+export {
+  SqliteFreshnessIssueCoordinatorDO,
+} from "../../src/private-signer-worker.ts";
+import runtimeTestWorker, {
+  LocalTestBadGenesisRecordSignatureCoordinatorDO,
+  LocalTestExpiredGenesisDelegationCoordinatorDO,
+  LocalTestGenesisInstallRecoveryCoordinatorDO,
+  LocalTestMissingGenesisApprovalCoordinatorDO,
+  LocalTestReleaseLedgerCoordinatorDO,
+  LocalTestWrongGenesisCoordinatorIdDO,
+  LocalTestWrongGenesisChainCoordinatorDO,
+  LocalTestWrongGenesisEnvironmentCoordinatorDO,
+  LocalTestWrongGenesisProfileCoordinatorDO,
+} from "./worker.ts";
+export {
+  LocalTestBadGenesisRecordSignatureCoordinatorDO,
+  LocalTestExpiredGenesisDelegationCoordinatorDO,
+  LocalTestGenesisInstallRecoveryCoordinatorDO,
+  LocalTestMissingGenesisApprovalCoordinatorDO,
+  LocalTestReleaseLedgerCoordinatorDO,
+  LocalTestWrongGenesisCoordinatorIdDO,
+  LocalTestWrongGenesisChainCoordinatorDO,
+  LocalTestWrongGenesisEnvironmentCoordinatorDO,
+  LocalTestWrongGenesisProfileCoordinatorDO,
+};
 import { RUNTIME_RPC_PATH } from "./rpc-data.ts";
 import { runtimeConfigFreshnessWire } from "../../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 
@@ -93,10 +117,35 @@ const invalidConfigurations = {
   }),
 };
 
+const genesisTestCoordinatorBindings = {
+  "bad-signature": "TEST_GENESIS_BAD_SIGNATURE_COORDINATOR",
+  "expired-delegation": "TEST_GENESIS_EXPIRED_DELEGATION_COORDINATOR",
+  "install-recovery": "TEST_GENESIS_INSTALL_RECOVERY_COORDINATOR",
+  "missing-approval": "TEST_GENESIS_MISSING_APPROVAL_COORDINATOR",
+  "wrong-coordinator-id": "TEST_GENESIS_WRONG_COORDINATOR_ID",
+  "wrong-chain": "TEST_GENESIS_WRONG_CHAIN_COORDINATOR",
+  "wrong-environment": "TEST_GENESIS_WRONG_ENVIRONMENT_COORDINATOR",
+  "wrong-profile": "TEST_GENESIS_WRONG_PROFILE_COORDINATOR",
+};
+
 async function fetch(request, env, context) {
   const url = new URL(request.url);
   if (url.pathname === RUNTIME_RPC_PATH) {
     return runtimeTestWorker.fetch(request, env, context);
+  }
+  if (url.pathname === "/__runtime_test/genesis/rpc/install-recovery") {
+    const internalRequest = new Request(
+      `https://freshness-signer.internal${RUNTIME_RPC_PATH}`,
+      request,
+    );
+    return runtimeTestWorker.fetch(
+      internalRequest,
+      withOverrides(env, {
+        FRESHNESS_ISSUE_COORDINATOR:
+          env.TEST_GENESIS_INSTALL_RECOVERY_COORDINATOR,
+      }),
+      context,
+    );
   }
   if (url.pathname === "/__runtime_test/signature-metrics") {
     return jsonResponse({ ...signatureMetrics });
@@ -105,6 +154,52 @@ async function fetch(request, env, context) {
     signatureMetrics.keyPairCheckSignatures = 0;
     signatureMetrics.freshnessResponseSignatures = 0;
     return jsonResponse({ reset: true });
+  }
+  if (url.pathname.startsWith("/__runtime_test/genesis/config/")) {
+    const variant = url.pathname.slice(
+      "/__runtime_test/genesis/config/".length,
+    );
+    const bindingName = genesisTestCoordinatorBindings[variant];
+    if (bindingName === undefined || env[bindingName] === undefined) {
+      return jsonResponse({ error: "unknown_test_configuration" });
+    }
+    const internalRequest = new Request(
+      "https://freshness-signer.internal/__private/admin/genesis",
+      request,
+    );
+    return privateSigner.fetch(
+      internalRequest,
+      withOverrides(env, {
+        FRESHNESS_ISSUE_COORDINATOR: env[bindingName],
+      }),
+      context,
+    );
+  }
+  if (url.pathname.startsWith("/__runtime_test/genesis/operation/")) {
+    const [variant, operationId, ...remainingPath] = url.pathname.slice(
+      "/__runtime_test/genesis/operation/".length,
+    ).split("/");
+    const bindingName = genesisTestCoordinatorBindings[variant];
+    if (
+      request.method !== "GET" ||
+      bindingName === undefined ||
+      env[bindingName] === undefined ||
+      operationId === undefined ||
+      remainingPath.length !== 0
+    ) {
+      return new Response("Not Found", { status: 404 });
+    }
+    const internalRequest = new Request(
+      `https://freshness-signer.internal/__private/admin/genesis/${operationId}`,
+      request,
+    );
+    return privateSigner.fetch(
+      internalRequest,
+      withOverrides(env, {
+        FRESHNESS_ISSUE_COORDINATOR: env[bindingName],
+      }),
+      context,
+    );
   }
   if (
     url.pathname === "/__runtime_test/operation-id" ||

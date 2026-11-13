@@ -26,16 +26,22 @@ import {
 import {
   canonicalJsonBytes,
   createRuntimeConfigFreshnessRequest,
+  runtimeConfigManifestAudienceSha256,
   runtimeConfigFreshnessWire,
   signRuntimeConfigFreshnessResponseEnvelope,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+import {
+  CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
 import {
   createFreshnessCurrentStateInstallProofContext,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-current-state-reader.ts";
 import {
   DurableObjectFreshnessIssueCoordinatorAdapter,
 } from "../src/durable-object-adapter.ts";
-import { RUNTIME_CONFIG_MANIFEST_POINTER_KEY } from "../src/r2-release-store.ts";
+import {
+  RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+} from "../src/r2-release-store.ts";
 import {
   decodeRuntimeRpcValue,
   encodeRuntimeRpcValue,
@@ -75,7 +81,11 @@ const RELEASE_WORKER_NAME = "fusou-release-ledger-runtime-test";
 const RELEASE_CLASS_NAME = "LocalTestReleaseLedgerCoordinatorDO";
 const RELEASE_R2_BUCKET_NAME = "fusou-release-ledger-runtime-test";
 const PRIVATE_SIGNER_WORKER_NAME = "fusou-private-freshness-signer-runtime-test";
+const GENESIS_PRIVATE_SIGNER_WORKER_NAME =
+  "fusou-private-genesis-signer-runtime-test";
 const GATEWAY_WORKER_NAME = "fusou-freshness-gateway-e2e-runtime-test";
+const GENESIS_GATEWAY_WORKER_NAME =
+  "fusou-genesis-gateway-e2e-runtime-test";
 const PRIVATE_SIGNER_COORDINATOR_NAME = "private-signer-gateway-integration";
 const PRIVATE_SIGNER_WRONG_CHAIN_COORDINATOR_NAME =
   "private-signer-gateway-wrong-chain";
@@ -83,6 +93,16 @@ const PRIVATE_SIGNER_WRONG_CHAIN_ID = "test-release-chain-mismatch-v1";
 const GATEWAY_COMPATIBILITY_DATE = "2026-11-06";
 const GATEWAY_COMPATIBILITY_FLAGS = ["enable_request_signal"];
 const PRIVATE_SIGNER_COMPATIBILITY_DATE = "2026-11-08";
+const GENESIS_COORDINATOR_NAME = "private-signer-genesis-runtime-test";
+const GENESIS_R2_BUCKET_NAME = "fusou-genesis-release-ledger-runtime-test";
+const GENESIS_ADMIN_CAPABILITY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const GENESIS_ADMIN_PATH = "/__private/admin/genesis";
+const GENESIS_RECOVERY_RPC_PATH =
+  "/__runtime_test/genesis/rpc/install-recovery";
+const PRIVATE_SIGNER_EXAMPLE_CONFIG = resolve(
+  PACKAGE_ROOT,
+  "wrangler.private-signer.example.toml",
+);
 const LOCAL_CONFIG = resolve(
   PACKAGE_ROOT,
   "tests/runtime/local-only.wrangler.toml",
@@ -120,7 +140,22 @@ function registerRuntimeTests() {
     releaseNamespace: undefined,
     workerBundle: undefined,
     privateSignerBundle: undefined,
+    genesisPrivateSignerBundle: undefined,
     gatewayBundle: undefined,
+    genesisApprovalJson: undefined,
+    genesisAdminCapability: undefined,
+    genesisNamespace: undefined,
+    genesisObjectId: undefined,
+    genesisRecoveryNamespace: undefined,
+    genesisRecoveryObjectId: undefined,
+    genesisFixture: undefined,
+    genesisRequestBytes: undefined,
+    genesisInvalidSignatureRequestBytes: undefined,
+    genesisInvalidSignatureRecordSha256: undefined,
+    expiredGenesisFixture: undefined,
+    expiredGenesisApprovalJson: undefined,
+    expiredGenesisRequestBytes: undefined,
+    genesisCompatibility: undefined,
     fixture: undefined,
     signedReleaseFixture: undefined,
     privateSignerFixture: undefined,
@@ -153,6 +188,21 @@ function registerRuntimeTests() {
         context.privateSignerFixture = await makeSignedCurrentStateFixture({
           nowMs: Date.now(),
         });
+        context.genesisAdminCapability = GENESIS_ADMIN_CAPABILITY;
+        const privateSignerExample = readPrivateSignerExampleConfig();
+        context.genesisCompatibility = privateSignerExample;
+        if (
+          privateSignerExample.compatibilityDate !==
+          PRIVATE_SIGNER_COMPATIBILITY_DATE
+        ) {
+          context.genesisCompatibility = {
+            ...privateSignerExample,
+            compatibilityDate: PRIVATE_SIGNER_COMPATIBILITY_DATE,
+          };
+          console.log(
+            `Genesis compatibility parity: NOT_CHECKED; example date ${privateSignerExample.compatibilityDate} differs from the supported runtime date used by this test suite, ${PRIVATE_SIGNER_COMPATIBILITY_DATE}. Behavioral tests use the example flags ${JSON.stringify(privateSignerExample.compatibilityFlags)}.`,
+          );
+        }
         const expiredDelegationNowMs = Date.now() - 86_340_000;
         context.expiredFreshnessDelegationFixture =
           await makeSignedCurrentStateFixture({
@@ -170,11 +220,21 @@ function registerRuntimeTests() {
         context.compatibilityDate = readLocalRuntimeConfig();
         await buildWorker(context);
         await startRuntime(context);
+        await prepareGenesisFixture(context);
+        await restartRuntime(context);
       });
 
       after(async () => {
         await cleanupRuntime(context);
       });
+
+      it(
+        "initializes the pinned Cloudflare/operator genesis through the private route",
+        { timeout: 90_000 },
+        async () => {
+          await runCloudflareOperatorGenesisRuntimeTest(context);
+        },
+      );
 
       it(
         "routes finalized operator bytes through Gateway and the private Signer Worker",
@@ -4915,8 +4975,12 @@ async function makeGatewayFreshnessRequestBytes() {
   return created.raw;
 }
 
-async function fetchGatewayFreshness(context, requestBytes) {
-  const worker = await context.currentRuntime.getWorker(GATEWAY_WORKER_NAME);
+async function fetchGatewayFreshness(
+  context,
+  requestBytes,
+  workerName = GATEWAY_WORKER_NAME,
+) {
+  const worker = await context.currentRuntime.getWorker(workerName);
   return worker.fetch(
     new Request(
       `${new URL(vector.manifest_url).origin}${runtimeConfigFreshnessWire.requestPath}`,
@@ -4936,9 +5000,10 @@ async function privateSignerOperationId(
   context,
   requestBytes,
   path = "/__runtime_test/operation-id",
+  workerName = PRIVATE_SIGNER_WORKER_NAME,
 ) {
   const worker = await context.currentRuntime.getWorker(
-    PRIVATE_SIGNER_WORKER_NAME,
+    workerName,
   );
   const response = await worker.fetch(
     new Request(
@@ -4956,9 +5021,12 @@ async function privateSignerOperationId(
   return result.operationId;
 }
 
-async function readPrivateSignerSignatureMetrics(context) {
+async function readPrivateSignerSignatureMetrics(
+  context,
+  workerName = PRIVATE_SIGNER_WORKER_NAME,
+) {
   const worker = await context.currentRuntime.getWorker(
-    PRIVATE_SIGNER_WORKER_NAME,
+    workerName,
   );
   const response = await worker.fetch(
     new Request(
@@ -5130,6 +5198,112 @@ async function startRuntime(context) {
         },
       },
       {
+        name: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+        scriptPath: context.privateSignerBundle,
+        modules: true,
+        compatibilityDate: context.genesisCompatibility.compatibilityDate,
+        compatibilityFlags: context.genesisCompatibility.compatibilityFlags,
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
+          FRESHNESS_COORDINATOR_NAME: GENESIS_COORDINATOR_NAME,
+          RELEASE_LEDGER_CHAIN_ID:
+            context.genesisFixture?.releaseHead.chainId ??
+              "test-release-chain-v1",
+          RELEASE_LEDGER_ROOT_KEY_ID:
+            context.genesisFixture?.rootSigner.key_id ??
+              context.privateSignerFixture.rootSigner.key_id,
+          RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI:
+            context.genesisFixture?.rootSigner.public_key_spki ??
+              context.privateSignerFixture.rootSigner.public_key_spki,
+          RELEASE_LEDGER_MANIFEST_KEY_ID:
+            context.genesisFixture?.manifestRootSigner.key_id ??
+              context.privateSignerFixture.manifestRootSigner.key_id,
+          RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI:
+            context.genesisFixture?.manifestRootSigner.public_key_spki ??
+              context.privateSignerFixture.manifestRootSigner.public_key_spki,
+          FRESHNESS_MANIFEST_URL: vector.manifest_url,
+          FRESHNESS_SIGNER_KEY_ID:
+            context.genesisFixture?.freshnessKeyId ??
+              context.privateSignerFixture.freshnessKeyId,
+          FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL: Buffer.from(
+            context.genesisFixture?.freshnessPrivateKeyPkcs8Bytes ??
+              context.privateSignerFixture.freshnessPrivateKeyPkcs8Bytes,
+          ).toString("base64url"),
+          FRESHNESS_SIGNER_DELEGATION_BASE64URL: Buffer.from(
+            context.genesisFixture?.freshnessDelegationBytes ??
+              context.privateSignerFixture.freshnessDelegationBytes,
+          ).toString("base64url"),
+          FRESHNESS_GENESIS_APPROVAL_JSON:
+            context.genesisApprovalJson ?? "",
+          FRESHNESS_GENESIS_ADMIN_CAPABILITY:
+            context.genesisAdminCapability,
+          TEST_GENESIS_BAD_RECORD_SHA256:
+            context.genesisInvalidSignatureRecordSha256 ?? "A".repeat(43),
+          TEST_GENESIS_EXPIRED_APPROVAL_JSON:
+            context.expiredGenesisApprovalJson ?? "",
+        },
+        r2Buckets: {
+          RELEASE_LEDGER_R2: GENESIS_R2_BUCKET_NAME,
+        },
+        unsafeEphemeralDurableObjects: false,
+        durableObjects: {
+          [BINDING_NAME]: {
+            className: "LocalTestReleaseLedgerCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-local-runtime-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_MISSING_APPROVAL_COORDINATOR: {
+            className: "LocalTestMissingGenesisApprovalCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-missing-approval-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_BAD_SIGNATURE_COORDINATOR: {
+            className: "LocalTestBadGenesisRecordSignatureCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-bad-signature-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_EXPIRED_DELEGATION_COORDINATOR: {
+            className: "LocalTestExpiredGenesisDelegationCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-expired-delegation-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_WRONG_COORDINATOR_ID: {
+            className: "LocalTestWrongGenesisCoordinatorIdDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-wrong-id-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_WRONG_CHAIN_COORDINATOR: {
+            className: "LocalTestWrongGenesisChainCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-wrong-chain-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_WRONG_ENVIRONMENT_COORDINATOR: {
+            className: "LocalTestWrongGenesisEnvironmentCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-wrong-environment-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_WRONG_PROFILE_COORDINATOR: {
+            className: "LocalTestWrongGenesisProfileCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-wrong-profile-runtime-test-v1",
+            useSQLite: true,
+          },
+          TEST_GENESIS_INSTALL_RECOVERY_COORDINATOR: {
+            className: "LocalTestGenesisInstallRecoveryCoordinatorDO",
+            scriptName: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            unsafeUniqueKey: "fusou-genesis-install-recovery-runtime-test-v1",
+            useSQLite: true,
+          },
+        },
+      },
+      {
         name: GATEWAY_WORKER_NAME,
         scriptPath: context.gatewayBundle,
         modules: true,
@@ -5140,6 +5314,19 @@ async function startRuntime(context) {
         },
         serviceBindings: {
           TLSN_FRESHNESS_SIGNER: PRIVATE_SIGNER_WORKER_NAME,
+        },
+      },
+      {
+        name: GENESIS_GATEWAY_WORKER_NAME,
+        scriptPath: context.gatewayBundle,
+        modules: true,
+        compatibilityDate: GATEWAY_COMPATIBILITY_DATE,
+        compatibilityFlags: GATEWAY_COMPATIBILITY_FLAGS,
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
+        },
+        serviceBindings: {
+          TLSN_FRESHNESS_SIGNER: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
         },
       },
     ],
@@ -5171,6 +5358,21 @@ async function startRuntime(context) {
     PRIVATE_SIGNER_COMPATIBILITY_DATE,
   );
   assert.deepEqual(configuredPrivateSignerWorker.compatibilityFlags, []);
+  const configuredGenesisPrivateSignerWorker = options.workers.find(
+    (worker) => worker.config.name === GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredGenesisPrivateSignerWorker,
+    "Miniflare did not configure the private genesis Signer Worker",
+  );
+  assert.equal(
+    configuredGenesisPrivateSignerWorker.compatibilityDate,
+    context.genesisCompatibility.compatibilityDate,
+  );
+  assert.deepEqual(
+    configuredGenesisPrivateSignerWorker.compatibilityFlags,
+    context.genesisCompatibility.compatibilityFlags,
+  );
   const configuredGatewayWorker = options.workers.find(
     (worker) => worker.config.name === GATEWAY_WORKER_NAME,
   )?.config;
@@ -5184,6 +5386,21 @@ async function startRuntime(context) {
   );
   assert.deepEqual(
     configuredGatewayWorker.compatibilityFlags,
+    GATEWAY_COMPATIBILITY_FLAGS,
+  );
+  const configuredGenesisGatewayWorker = options.workers.find(
+    (worker) => worker.config.name === GENESIS_GATEWAY_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredGenesisGatewayWorker,
+    "Miniflare did not configure the genesis Gateway Worker",
+  );
+  assert.equal(
+    configuredGenesisGatewayWorker.compatibilityDate,
+    GATEWAY_COMPATIBILITY_DATE,
+  );
+  assert.deepEqual(
+    configuredGenesisGatewayWorker.compatibilityFlags,
     GATEWAY_COMPATIBILITY_FLAGS,
   );
 
@@ -5207,6 +5424,42 @@ async function startRuntime(context) {
     8_000,
     "local Release ledger DO namespace readiness",
   );
+  context.genesisNamespace = await withTimeout(
+    runtime.getDurableObjectNamespace(
+      BINDING_NAME,
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    ),
+    8_000,
+    "local production genesis DO namespace readiness",
+  );
+  context.genesisRecoveryNamespace = await withTimeout(
+    runtime.getDurableObjectNamespace(
+      "TEST_GENESIS_INSTALL_RECOVERY_COORDINATOR",
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    ),
+    8_000,
+    "local Genesis recovery DO namespace readiness",
+  );
+  const genesisRecoveryObjectId = context.genesisRecoveryNamespace
+    .idFromName(GENESIS_COORDINATOR_NAME)
+    .toString();
+  if (context.genesisRecoveryObjectId !== undefined) {
+    assert.equal(
+      genesisRecoveryObjectId,
+      context.genesisRecoveryObjectId,
+      "the pinned Genesis recovery Durable Object identity must persist across restart",
+    );
+  }
+  context.genesisRecoveryObjectId = genesisRecoveryObjectId;
+  if (context.genesisObjectId !== undefined) {
+    assert.equal(
+      context.genesisNamespace
+        .idFromName(GENESIS_COORDINATOR_NAME)
+        .toString(),
+      context.genesisObjectId,
+      "the pinned genesis Durable Object identity must persist across restart",
+    );
+  }
   const worker = await runtime.getWorker(WORKER_NAME);
   const response = await withTimeout(
     worker.fetch(new Request("http://runtime-test.local/ready")),
@@ -5214,6 +5467,1292 @@ async function startRuntime(context) {
     "Worker runtime readiness request",
   );
   assert.equal(response.status, 404);
+}
+
+async function prepareGenesisFixture(context) {
+  const runtime = context.currentRuntime;
+  assert.ok(runtime, "Miniflare runtime is unavailable");
+  assert.ok(context.genesisNamespace, "Genesis coordinator namespace is unavailable");
+  const nowMs = Date.now();
+  const manifestEpoch = "801";
+  const template = await makeSignedCurrentStateFixture({
+    nowMs,
+    manifestEpoch,
+  });
+  const bucket = await runtime.getR2Bucket(
+    "RELEASE_LEDGER_R2",
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const pointerEtag = await putRuntimeR2Object(
+    bucket,
+    RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    template.manifestBytes,
+  );
+  await putRuntimeR2Object(bucket, template.manifestRef, template.manifestBytes);
+  const fixture = await makeSignedCurrentStateFixture({
+    nowMs,
+    manifestEpoch,
+    pointerEtag,
+  });
+  assert.ok(
+    equalBytes(template.manifestBytes, fixture.manifestBytes),
+    "the signed fixture must retain the R2-published exact Manifest bytes",
+  );
+  context.genesisFixture = fixture;
+  context.genesisObjectId = context.genesisNamespace
+    .idFromName(GENESIS_COORDINATOR_NAME)
+    .toString();
+
+  const approval = {
+    schema_version: 1,
+    scope: "fusou-cloudflare-operator-genesis-v1",
+    environment: "production",
+    profile_id: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+    coordinator_name: GENESIS_COORDINATOR_NAME,
+    coordinator_id: context.genesisObjectId,
+    chain_id: fixture.releaseHead.chainId,
+    restore_epoch: "genesis-local-restore-v1",
+    initial_position: "1",
+    initial_generation: "1",
+    release_record_sha256: digest(fixture.recordBytes),
+    release_delegation_sha256: digest(fixture.releaseDelegationBytes),
+    release_record_manifest_schema_version: 2,
+    manifest_epoch: fixture.manifestEpoch,
+    manifest_sha256: fixture.manifestSha256,
+    manifest_ref: fixture.manifestRef,
+    manifest_url: vector.manifest_url,
+    audience_manifest_url_sha256:
+      await runtimeConfigManifestAudienceSha256(vector.manifest_url),
+    release_root_key_id: fixture.rootSigner.key_id,
+    release_root_public_key_spki: fixture.rootSigner.public_key_spki,
+    manifest_root_key_id: fixture.manifestRootSigner.key_id,
+    manifest_root_public_key_spki:
+      fixture.manifestRootSigner.public_key_spki,
+  };
+  context.genesisApprovalJson = new TextDecoder().decode(
+    canonicalJsonBytes(approval),
+  );
+  context.genesisRequestBytes = canonicalJsonBytes({
+    manifest_bytes_base64url: Buffer.from(fixture.manifestBytes).toString(
+      "base64url",
+    ),
+    record_bytes_base64url: Buffer.from(fixture.recordBytes).toString(
+      "base64url",
+    ),
+    release_delegation_bytes_base64url: Buffer.from(
+      fixture.releaseDelegationBytes,
+    ).toString("base64url"    ),
+  });
+  const invalidRecord = JSON.parse(
+    new TextDecoder().decode(fixture.recordBytes),
+  );
+  const originalSignature = invalidRecord.signature_base64url;
+  assert.equal(typeof originalSignature, "string");
+  invalidRecord.signature_base64url = `${
+    originalSignature[0] === "A" ? "B" : "A"
+  }${originalSignature.slice(1)}`;
+  const invalidRecordBytes = canonicalJsonBytes(invalidRecord);
+  const invalidRequest = JSON.parse(
+    new TextDecoder().decode(context.genesisRequestBytes),
+  );
+  invalidRequest.record_bytes_base64url = Buffer.from(
+    invalidRecordBytes,
+  ).toString("base64url");
+  context.genesisInvalidSignatureRequestBytes = canonicalJsonBytes(
+    invalidRequest,
+  );
+  context.genesisInvalidSignatureRecordSha256 = digest(invalidRecordBytes);
+
+  const expiredNowMs = Date.now();
+  const expiredManifestEpoch = "802";
+  const expiredDelegationOptions = {
+    nowMs: expiredNowMs,
+    manifestEpoch: expiredManifestEpoch,
+    releaseDelegationNotAfterMs: expiredNowMs - 1_000,
+  };
+  const expiredTemplate = await makeSignedCurrentStateFixture(
+    expiredDelegationOptions,
+  );
+  const expiredPointerEtag = await putRuntimeR2Object(
+    bucket,
+    RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    expiredTemplate.manifestBytes,
+  );
+  await putRuntimeR2Object(
+    bucket,
+    expiredTemplate.manifestRef,
+    expiredTemplate.manifestBytes,
+  );
+  const expiredFixture = await makeSignedCurrentStateFixture({
+    ...expiredDelegationOptions,
+    pointerEtag: expiredPointerEtag,
+  });
+  assert.ok(
+    equalBytes(expiredTemplate.manifestBytes, expiredFixture.manifestBytes),
+    "the expired-delegation fixture must retain exact R2 Manifest bytes",
+  );
+  context.expiredGenesisFixture = expiredFixture;
+  context.expiredGenesisApprovalJson = new TextDecoder().decode(
+    canonicalJsonBytes({
+      schema_version: 1,
+      scope: "fusou-cloudflare-operator-genesis-v1",
+      environment: "production",
+      profile_id: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+      coordinator_name: GENESIS_COORDINATOR_NAME,
+      coordinator_id: context.genesisObjectId,
+      chain_id: expiredFixture.releaseHead.chainId,
+      restore_epoch: "expired-genesis-local-restore-v1",
+      initial_position: "1",
+      initial_generation: "1",
+      release_record_sha256: digest(expiredFixture.recordBytes),
+      release_delegation_sha256: digest(
+        expiredFixture.releaseDelegationBytes,
+      ),
+      release_record_manifest_schema_version: 2,
+      manifest_epoch: expiredFixture.manifestEpoch,
+      manifest_sha256: expiredFixture.manifestSha256,
+      manifest_ref: expiredFixture.manifestRef,
+      manifest_url: vector.manifest_url,
+      audience_manifest_url_sha256:
+        await runtimeConfigManifestAudienceSha256(vector.manifest_url),
+      release_root_key_id: expiredFixture.rootSigner.key_id,
+      release_root_public_key_spki:
+        expiredFixture.rootSigner.public_key_spki,
+      manifest_root_key_id: expiredFixture.manifestRootSigner.key_id,
+      manifest_root_public_key_spki:
+        expiredFixture.manifestRootSigner.public_key_spki,
+    }),
+  );
+  context.expiredGenesisRequestBytes = canonicalJsonBytes({
+    manifest_bytes_base64url: Buffer.from(expiredFixture.manifestBytes).toString(
+      "base64url",
+    ),
+    record_bytes_base64url: Buffer.from(expiredFixture.recordBytes).toString(
+      "base64url",
+    ),
+    release_delegation_bytes_base64url: Buffer.from(
+      expiredFixture.releaseDelegationBytes,
+    ).toString("base64url"),
+  });
+  const mainPointerEtag = await putRuntimeR2Object(
+    bucket,
+    RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    fixture.manifestBytes,
+  );
+  assert.equal(
+    mainPointerEtag,
+    fixture.releaseHead.pointerEtag,
+    "restoring the main genesis pointer must retain its signed ETag",
+  );
+  await putRuntimeR2Object(bucket, fixture.manifestRef, fixture.manifestBytes);
+}
+
+async function runCloudflareOperatorGenesisRuntimeTest(context) {
+  const runtime = context.currentRuntime;
+  assert.ok(runtime, "Miniflare runtime is unavailable");
+  assert.ok(context.genesisFixture);
+  assert.ok(context.genesisRequestBytes);
+  assert.ok(context.genesisNamespace);
+  let privateSigner = await runtime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const authorizedHeaders = {
+    "content-type": "application/json",
+    "x-fusou-genesis-capability": context.genesisAdminCapability,
+  };
+  const genesisRequest = (body, capability = context.genesisAdminCapability) =>
+    new Request(`https://freshness-signer.internal${GENESIS_ADMIN_PATH}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-fusou-genesis-capability": capability,
+      },
+      body,
+    });
+
+  const unauthorized = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes, "B".repeat(43)),
+  );
+  assert.equal(unauthorized.status, 403);
+  const wrongMethod = await privateSigner.fetch(
+    new Request(`https://freshness-signer.internal${GENESIS_ADMIN_PATH}`, {
+      method: "GET",
+      headers: { "x-fusou-genesis-capability": context.genesisAdminCapability },
+    }),
+  );
+  assert.equal(wrongMethod.status, 405);
+
+  const oversized = await privateSigner.fetch(
+    genesisRequest(new Uint8Array(2_000_001)),
+  );
+  assert.equal(oversized.status, 413);
+  const nonCanonical = await privateSigner.fetch(
+    genesisRequest(
+      Buffer.concat([Buffer.from(context.genesisRequestBytes), Buffer.from(" ")]),
+    ),
+  );
+  assert.equal(nonCanonical.status, 400);
+  const alteredMaterial = JSON.parse(
+    new TextDecoder().decode(context.genesisRequestBytes),
+  );
+  alteredMaterial.record_bytes_base64url = changeBase64UrlDigest(
+    alteredMaterial.record_bytes_base64url,
+  );
+  const wrongPin = await privateSigner.fetch(
+    genesisRequest(canonicalJsonBytes(alteredMaterial)),
+  );
+  assert.equal(wrongPin.status, 400);
+
+  for (const [variant, status, error] of [
+    ["missing-approval", 503, "genesis_unavailable"],
+    ["wrong-coordinator-id", 409, "genesis_not_available"],
+    ["wrong-chain", 409, "genesis_not_available"],
+    ["wrong-environment", 400, "invalid_genesis_material"],
+    ["wrong-profile", 400, "invalid_genesis_material"],
+  ]) {
+    const invalidApprovalConfiguration = await privateSigner.fetch(
+      new Request(
+        `https://freshness-signer.internal/__runtime_test/genesis/config/${variant}`,
+        {
+          method: "POST",
+          headers: authorizedHeaders,
+          body: context.genesisRequestBytes,
+        },
+      ),
+    );
+    assert.equal(invalidApprovalConfiguration.status, status);
+    assert.deepEqual(await invalidApprovalConfiguration.json(), { error });
+  }
+
+  const invalidSignature = await privateSigner.fetch(
+    new Request(
+      "https://freshness-signer.internal/__runtime_test/genesis/config/bad-signature",
+      {
+        method: "POST",
+        headers: authorizedHeaders,
+        body: context.genesisInvalidSignatureRequestBytes,
+      },
+    ),
+  );
+  assert.equal(invalidSignature.status, 409);
+  assert.deepEqual(await invalidSignature.json(), {
+    error: "genesis_material_rejected",
+  });
+
+  const wrongOperation = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${randomUUID()}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(wrongOperation.status, 404);
+  let coordinatorStub = context.genesisNamespace.get(
+    context.genesisNamespace.idFromName(GENESIS_COORDINATOR_NAME),
+  );
+  let coordinator = new DurableObjectFreshnessIssueCoordinatorAdapter(
+    coordinatorStub,
+  );
+  let genesisTestStub = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisNamespace,
+  ).stub;
+  const expectedGenesisOperationId = await deriveGenesisOperationId(
+    context.genesisApprovalJson,
+  );
+  const absentOperation = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(absentOperation.status, 404);
+
+  const blockedChallenge = await makeGatewayFreshnessRequestBytes();
+  const blockedFreshness = await fetchGatewayFreshness(
+    context,
+    blockedChallenge,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(blockedFreshness.status, 502);
+
+  const bucket = await runtime.getR2Bucket(
+    "RELEASE_LEDGER_R2",
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  assert.ok(context.expiredGenesisFixture);
+  const expiredPointerEtag = await putRuntimeR2Object(
+    bucket,
+    RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    context.expiredGenesisFixture.manifestBytes,
+  );
+  assert.equal(
+    expiredPointerEtag,
+    context.expiredGenesisFixture.releaseHead.pointerEtag,
+  );
+  await putRuntimeR2Object(
+    bucket,
+    context.expiredGenesisFixture.manifestRef,
+    context.expiredGenesisFixture.manifestBytes,
+  );
+  const expiredDelegation = await privateSigner.fetch(
+    new Request(
+      "https://freshness-signer.internal/__runtime_test/genesis/config/expired-delegation",
+      {
+        method: "POST",
+        headers: authorizedHeaders,
+        body: context.expiredGenesisRequestBytes,
+      },
+    ),
+  );
+  assert.equal(expiredDelegation.status, 409);
+  assert.deepEqual(await expiredDelegation.json(), {
+    error: "genesis_material_rejected",
+  });
+  const restoredMainPointerEtag = await putRuntimeR2Object(
+    bucket,
+    RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    context.genesisFixture.manifestBytes,
+  );
+  assert.equal(
+    restoredMainPointerEtag,
+    context.genesisFixture.releaseHead.pointerEtag,
+  );
+  await putRuntimeR2Object(
+    bucket,
+    context.genesisFixture.manifestRef,
+    context.genesisFixture.manifestBytes,
+  );
+
+  const deletePointer = bucket.delete(RUNTIME_CONFIG_MANIFEST_POINTER_KEY);
+  try {
+    await deletePointer;
+  } finally {
+    disposeRuntimeRpcResult(deletePointer);
+  }
+  const missingPointer = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes),
+  );
+  assert.equal(missingPointer.status, 409);
+  const stillAbsent = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(
+    stillAbsent.status,
+    404,
+    "missing R2 evidence must not durably admit or partially initialize genesis",
+  );
+
+  const restoredPointerEtag = await putRuntimeR2Object(
+    bucket,
+    RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+    context.genesisFixture.manifestBytes,
+  );
+  assert.equal(
+    restoredPointerEtag,
+    context.genesisFixture.releaseHead.pointerEtag,
+    "restoring exact pointer bytes must restore the signed pointer ETag",
+  );
+  const corruptedSnapshot = Uint8Array.from(
+    context.genesisFixture.manifestBytes,
+  );
+  corruptedSnapshot[0] ^= 0x01;
+  await putRuntimeR2Object(
+    bucket,
+    context.genesisFixture.manifestRef,
+    corruptedSnapshot,
+  );
+  const mismatchedSnapshot = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes),
+  );
+  assert.equal(mismatchedSnapshot.status, 409);
+  await putRuntimeR2Object(
+    bucket,
+    context.genesisFixture.manifestRef,
+    context.genesisFixture.manifestBytes,
+  );
+
+  await rpc(
+    coordinatorStub.failAfterR2ReadsForLocalTest(4),
+    "arm a post-admission Genesis R2 readback fault",
+  );
+  const unknownInitialization = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes),
+  );
+  assert.equal(unknownInitialization.status, 503);
+  const unknownResult = await unknownInitialization.json();
+  assert.equal(unknownResult.operation_id, expectedGenesisOperationId);
+  assert.equal(unknownResult.status, "RESULT_UNKNOWN");
+  assert.equal(unknownResult.release_status, "RESULT_UNKNOWN");
+  assert.equal(unknownResult.install_status, null);
+
+  const unknownQuery = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(unknownQuery.status, 503);
+  assert.equal((await unknownQuery.json()).status, "RESULT_UNKNOWN");
+  const blockedDuringUnknown = await fetchGatewayFreshness(
+    context,
+    await makeGatewayFreshnessRequestBytes(),
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(blockedDuringUnknown.status, 502);
+  assert.equal(
+    (await readPrivateSignerSignatureMetrics(
+      context,
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    )).freshnessResponseSignatures,
+    0,
+    "Freshness must remain unsigned while genesis is Unknown",
+  );
+
+  await restartRuntime(context);
+  privateSigner = await context.currentRuntime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const unknownAfterRestart = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(unknownAfterRestart.status, 503);
+  assert.equal(
+    (await unknownAfterRestart.json()).status,
+    "RESULT_UNKNOWN",
+    "runtime recreation and a read-only query must preserve Genesis Unknown",
+  );
+  const differentOperationQuery = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${randomUUID()}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(differentOperationQuery.status, 404);
+
+  coordinatorStub = context.genesisNamespace.get(
+    context.genesisNamespace.idFromName(GENESIS_COORDINATOR_NAME),
+  );
+  coordinator = new DurableObjectFreshnessIssueCoordinatorAdapter(
+    coordinatorStub,
+  );
+  genesisTestStub = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisNamespace,
+  ).stub;
+  await rpc(
+    genesisTestStub.failNextGenesisInstallBeforeFinalizationForLocalTest(),
+    "arm a fault immediately before Genesis install finalization",
+  );
+  const interruptedInstall = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes),
+  );
+  assert.equal(interruptedInstall.status, 503);
+  await interruptedInstall.body?.cancel();
+  const progressBeforeInstallGet = snapshotGenesisInstallProgress(
+    await rpc(
+      genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+        expectedGenesisOperationId,
+      ),
+      "inspect interrupted Genesis install admission",
+    ),
+  );
+  assert.equal(progressBeforeInstallGet.genesisStatus, "INSTALLING");
+  assert.equal(progressBeforeInstallGet.installStatus, "VERIFYING");
+  assert.equal(progressBeforeInstallGet.installCount, 1);
+  assert.equal(progressBeforeInstallGet.writerPending, true);
+  assert.equal(
+    progressBeforeInstallGet.writerOperationId,
+    `cloudflare-operator-install:${expectedGenesisOperationId}`,
+  );
+  assert.equal(
+    progressBeforeInstallGet.writeFencingToken,
+    progressBeforeInstallGet.installFencingToken,
+  );
+  assert.equal(
+    progressBeforeInstallGet.nextFencingToken,
+    progressBeforeInstallGet.installFencingToken,
+  );
+  assert.equal(progressBeforeInstallGet.currentStateJson, null);
+  assert.equal(progressBeforeInstallGet.bootstrapAuthorizationCount, 1);
+
+  const changedApprovedMaterial = JSON.parse(
+    new TextDecoder().decode(context.genesisRequestBytes),
+  );
+  changedApprovedMaterial.record_bytes_base64url = changeBase64UrlDigest(
+    changedApprovedMaterial.record_bytes_base64url,
+  );
+  const changedInputRetry = await privateSigner.fetch(
+    genesisRequest(canonicalJsonBytes(changedApprovedMaterial)),
+  );
+  assert.equal(changedInputRetry.status, 400);
+  await changedInputRetry.body?.cancel();
+  const callerChosenOperation = JSON.parse(
+    new TextDecoder().decode(context.genesisRequestBytes),
+  );
+  callerChosenOperation.operation_id = randomUUID();
+  const callerOperationRetry = await privateSigner.fetch(
+    genesisRequest(canonicalJsonBytes(callerChosenOperation)),
+  );
+  assert.equal(callerOperationRetry.status, 400);
+  await callerOperationRetry.body?.cancel();
+
+  const alteredRecordDigest = changeBase64UrlDigest(
+    digest(context.genesisFixture.recordBytes),
+  );
+  const recoveryMutations = [
+    [
+      "INSTALL_TARGET_RECORD",
+      alteredRecordDigest,
+      progressBeforeInstallGet.targetRecordSha256,
+    ],
+    [
+      "INSTALL_RESTORE_EPOCH",
+      "different-restore-epoch",
+      progressBeforeInstallGet.expectedRestoreEpoch,
+    ],
+    [
+      "INSTALL_RELEASE_FENCE",
+      "0",
+      progressBeforeInstallGet.releaseFencingToken,
+    ],
+    [
+      "PROFILE_LOCAL_RESTORE_EPOCH",
+      "different-profile-restore-epoch",
+      progressBeforeInstallGet.profileLocalRestoreEpoch,
+    ],
+    [
+      "PROFILE_OTHER_WRITER",
+      "cloudflare-operator-install:00000000-0000-4000-8000-000000000001",
+      `cloudflare-operator-install:${expectedGenesisOperationId}`,
+    ],
+    [
+      "PROFILE_WRITE_FENCE",
+      "0",
+      progressBeforeInstallGet.writeFencingToken,
+    ],
+    [
+      "RELEASE_HEAD_RECORD",
+      alteredRecordDigest,
+      progressBeforeInstallGet.releaseHeadRecordSha256,
+    ],
+  ];
+  for (const [mutation, corruptedValue, originalValue] of recoveryMutations) {
+    await rpc(
+      genesisTestStub.mutateGenesisInstallRecoveryStateForLocalTest(
+        expectedGenesisOperationId,
+        mutation,
+        corruptedValue,
+      ),
+      `corrupt Genesis recovery binding ${mutation}`,
+    );
+    const rejectedRecovery = await privateSigner.fetch(
+      genesisRequest(context.genesisRequestBytes),
+    );
+    const expectedRejection = mutation === "RELEASE_HEAD_RECORD"
+      ? { status: 503, body: { error: "genesis_unavailable" } }
+      : { status: 409, body: { error: "genesis_not_available" } };
+    assert.equal(
+      rejectedRecovery.status,
+      expectedRejection.status,
+      `${mutation} must block resume`,
+    );
+    assert.deepEqual(await rejectedRecovery.json(), {
+      ...expectedRejection.body,
+    });
+    const blockedProgress = snapshotGenesisInstallProgress(
+      await rpc(
+        genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+          expectedGenesisOperationId,
+        ),
+        `inspect retained Genesis gate after ${mutation} rejection`,
+      ),
+    );
+    assert.equal(blockedProgress.installStatus, "VERIFYING");
+    assert.equal(blockedProgress.writerPending, true);
+    assert.equal(blockedProgress.installCount, 1);
+    assert.equal(blockedProgress.bootstrapAuthorizationCount, 1);
+    await rpc(
+      genesisTestStub.mutateGenesisInstallRecoveryStateForLocalTest(
+        expectedGenesisOperationId,
+        mutation,
+        originalValue,
+      ),
+      `restore isolated Genesis test mutation ${mutation}`,
+    );
+    assertSameGenesisInstallProgress(
+      await rpc(
+        genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+          expectedGenesisOperationId,
+        ),
+        `confirm Genesis gate after restoring ${mutation}`,
+      ),
+      progressBeforeInstallGet,
+    );
+  }
+
+  const wrongSnapshotBytes = Uint8Array.from(
+    context.genesisFixture.manifestBytes,
+  );
+  wrongSnapshotBytes[0] ^= 0x01;
+  await rpc(
+    genesisTestStub.writeReleaseObjectForLocalTest(
+      context.genesisFixture.manifestRef,
+      wrongSnapshotBytes,
+    ),
+    "corrupt the exact Genesis Manifest snapshot before install recovery",
+  );
+  const wrongSnapshotRetry = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes),
+  );
+  assert.equal(wrongSnapshotRetry.status, 409);
+  await wrongSnapshotRetry.body?.cancel();
+  assertSameGenesisInstallProgress(
+    await rpc(
+      genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+        expectedGenesisOperationId,
+      ),
+      "confirm R2 mismatch retained the Genesis install gate",
+    ),
+    progressBeforeInstallGet,
+  );
+  await rpc(
+    genesisTestStub.writeReleaseObjectForLocalTest(
+      context.genesisFixture.manifestRef,
+      context.genesisFixture.manifestBytes,
+    ),
+    "restore exact Genesis Manifest snapshot bytes",
+  );
+
+  const installQuery = () => privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  const differentQueryDuringInstall = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${randomUUID()}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(differentQueryDuringInstall.status, 404);
+  assertSameGenesisInstallProgress(
+    await rpc(
+      genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+        expectedGenesisOperationId,
+      ),
+      "confirm a different operation ID cannot bypass in-progress Genesis",
+    ),
+    progressBeforeInstallGet,
+  );
+  const duringInstallQuery = await installQuery();
+  assert.equal(duringInstallQuery.status, 200);
+  assert.deepEqual(await duringInstallQuery.json(), {
+    operation_id: expectedGenesisOperationId,
+    status: "INSTALLING",
+    release_status: "AVAILABLE",
+    install_status: "VERIFYING",
+  });
+  assertSameGenesisInstallProgress(
+    await rpc(
+      genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+        expectedGenesisOperationId,
+      ),
+      "confirm Genesis GET did not advance an install",
+    ),
+    progressBeforeInstallGet,
+  );
+
+  await restartRuntime(context);
+  privateSigner = await context.currentRuntime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  coordinatorStub = context.genesisNamespace.get(
+    context.genesisNamespace.idFromName(GENESIS_COORDINATOR_NAME),
+  );
+  coordinator = new DurableObjectFreshnessIssueCoordinatorAdapter(
+    coordinatorStub,
+  );
+  genesisTestStub = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisNamespace,
+  ).stub;
+  const progressAfterInstallRestart = await rpc(
+    genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+      expectedGenesisOperationId,
+    ),
+    "inspect Genesis install after runtime recreation",
+  );
+  assertSameGenesisInstallProgress(
+    progressAfterInstallRestart,
+    progressBeforeInstallGet,
+  );
+  const afterRestartInstallQuery = await installQuery();
+  assert.equal(afterRestartInstallQuery.status, 200);
+  assert.equal((await afterRestartInstallQuery.json()).status, "INSTALLING");
+  assertSameGenesisInstallProgress(
+    await rpc(
+      genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+        expectedGenesisOperationId,
+      ),
+      "confirm post-restart Genesis GET remained read-only",
+    ),
+    progressBeforeInstallGet,
+  );
+
+  const [recoveredResponse, concurrentRecoveryResponse] = await Promise.all([
+    privateSigner.fetch(genesisRequest(context.genesisRequestBytes)),
+    privateSigner.fetch(genesisRequest(context.genesisRequestBytes)),
+  ]);
+  assert.equal(recoveredResponse.status, 200);
+  assert.equal(concurrentRecoveryResponse.status, 200);
+  const [recoveredBody, concurrentRecoveryBody] = await Promise.all([
+    recoveredResponse.json(),
+    concurrentRecoveryResponse.json(),
+  ]);
+  assert.equal(recoveredBody.operation_id, expectedGenesisOperationId);
+  assert.equal(concurrentRecoveryBody.operation_id, expectedGenesisOperationId);
+  assert.equal(recoveredBody.status, "INSTALLED");
+  assert.equal(concurrentRecoveryBody.status, "INSTALLED");
+  const progressAfterInstallRecovery = await rpc(
+    genesisTestStub.inspectGenesisInstallProgressForLocalTest(
+      expectedGenesisOperationId,
+    ),
+    "inspect finalized Genesis install recovery",
+  );
+  assert.equal(progressAfterInstallRecovery.genesisStatus, "INSTALLED");
+  assert.equal(progressAfterInstallRecovery.installStatus, "INSTALLED");
+  assert.equal(progressAfterInstallRecovery.installCount, 1);
+  assert.equal(progressAfterInstallRecovery.writerPending, false);
+  assert.equal(progressAfterInstallRecovery.writerOperationId, null);
+  assert.equal(progressAfterInstallRecovery.currentStateJson !== null, true);
+  assert.equal(progressAfterInstallRecovery.bootstrapAuthorizationCount, 0);
+  assert.equal(
+    progressAfterInstallRecovery.installFencingToken,
+    progressBeforeInstallGet.installFencingToken,
+  );
+  assert.equal(
+    progressAfterInstallRecovery.nextFencingToken,
+    progressBeforeInstallGet.nextFencingToken,
+  );
+  assert.equal(
+    progressAfterInstallRecovery.writeFencingToken,
+    progressBeforeInstallGet.writeFencingToken,
+  );
+
+  const resultAfterLostResponse = await privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(resultAfterLostResponse.status, 200);
+  assert.equal((await resultAfterLostResponse.json()).status, "INSTALLED");
+
+  const [firstInitialization, concurrentInitialization] = await Promise.all([
+    privateSigner.fetch(genesisRequest(context.genesisRequestBytes)),
+    privateSigner.fetch(genesisRequest(context.genesisRequestBytes)),
+  ]);
+  assert.equal(firstInitialization.status, 200);
+  assert.equal(concurrentInitialization.status, 200);
+  const firstResult = await firstInitialization.json();
+  const concurrentResult = await concurrentInitialization.json();
+  assert.equal(firstResult.operation_id, expectedGenesisOperationId);
+  assert.equal(concurrentResult.operation_id, expectedGenesisOperationId);
+  assert.equal(firstResult.status, "INSTALLED");
+  assert.equal(concurrentResult.status, "INSTALLED");
+  assert.equal(firstResult.release_status, "AVAILABLE");
+  assert.equal(firstResult.install_status, "INSTALLED");
+
+  const persistedGenesis = await coordinator.getCloudflareOperatorGenesisOperation(
+    expectedGenesisOperationId,
+    context.genesisAdminCapability,
+  );
+  assert.equal(persistedGenesis.status, "INSTALLED");
+  const head = await coordinator.readReleaseLedgerHead();
+  assert.ok(head);
+  assert.equal(head.position, "1");
+  assert.equal(head.generation, "1");
+  assert.equal(head.recordSha256, digest(context.genesisFixture.recordBytes));
+  assert.ok(
+    equalBytes(head.recordBytes, context.genesisFixture.recordBytes),
+    "production genesis must commit the exact approved Release Record bytes",
+  );
+
+  const freshnessRequestBytes = await makeGatewayFreshnessRequestBytes();
+  const firstGatewayResponse = await fetchGatewayFreshness(
+    context,
+    freshnessRequestBytes,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(firstGatewayResponse.status, 200);
+  const firstGatewayBytes = new Uint8Array(
+    await firstGatewayResponse.arrayBuffer(),
+  );
+  const issueOperationId = await privateSignerOperationId(
+    context,
+    freshnessRequestBytes,
+    "/__runtime_test/operation-id",
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const finalizedIssue = await coordinator.getCloudflareOperatorIssue({
+    operationId: issueOperationId,
+    requestBytes: freshnessRequestBytes,
+    chainId: context.genesisFixture.releaseHead.chainId,
+  });
+  assert.equal(finalizedIssue.status, "FINALIZED");
+  assert.equal(
+    finalizedIssue.responseBytes?.byteLength,
+    firstGatewayBytes.byteLength,
+  );
+  assert.equal(finalizedIssue.responseSha256, digest(firstGatewayBytes));
+  assert.ok(equalBytes(firstGatewayBytes, finalizedIssue.responseBytes));
+
+  const manifests = await runtimeR2ManifestReader(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const stateReader = createCloudflareOperatorReleaseStateReader({
+    coordinator,
+    manifests,
+    releaseRootSigner: context.genesisFixture.rootSigner,
+    manifestRootSigner: context.genesisFixture.manifestRootSigner,
+    manifestUrl: vector.manifest_url,
+  });
+  const verifiedState = await stateReader.readCurrentState();
+  await verifyCloudflareOperatorFreshnessResponse({
+    raw: firstGatewayBytes,
+    bootstrapSigner: context.genesisFixture.rootSigner,
+    manifestUrl: vector.manifest_url,
+    requestBytes: freshnessRequestBytes,
+    nowMs: Date.now(),
+    expectedState: verifiedState.state,
+  });
+  assert.equal(
+    (await readPrivateSignerSignatureMetrics(
+      context,
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    )).freshnessResponseSignatures,
+    1,
+  );
+
+  const duplicateInitialization = await privateSigner.fetch(
+    genesisRequest(context.genesisRequestBytes),
+  );
+  assert.equal(duplicateInitialization.status, 200);
+  assert.equal((await duplicateInitialization.json()).status, "INSTALLED");
+  const replay = await fetchGatewayFreshness(
+    context,
+    freshnessRequestBytes,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(replay.status, 200);
+  assert.ok(
+    equalBytes(firstGatewayBytes, new Uint8Array(await replay.arrayBuffer())),
+    "same-operation replay must return saved exact Freshness bytes",
+  );
+  assert.equal(
+    (await readPrivateSignerSignatureMetrics(
+      context,
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    )).freshnessResponseSignatures,
+    1,
+    "same-operation replay must not sign a second Freshness response",
+  );
+
+  await restartRuntime(context);
+  const reopenedWorker = await context.currentRuntime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const reopenedResult = await reopenedWorker.fetch(
+    new Request(
+      `https://freshness-signer.internal${GENESIS_ADMIN_PATH}/${expectedGenesisOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+  assert.equal(reopenedResult.status, 200);
+  assert.equal((await reopenedResult.json()).status, "INSTALLED");
+  const replayAfterRestart = await fetchGatewayFreshness(
+    context,
+    freshnessRequestBytes,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(replayAfterRestart.status, 200);
+  assert.ok(
+    equalBytes(
+      firstGatewayBytes,
+      new Uint8Array(await replayAfterRestart.arrayBuffer()),
+    ),
+    "runtime regeneration must preserve the finalized exact Freshness response",
+  );
+  assert.equal(
+    (await readPrivateSignerSignatureMetrics(
+      context,
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    )).freshnessResponseSignatures,
+    0,
+    "recovery query and replay must not re-sign the finalized operation",
+  );
+
+  privateSigner = await context.currentRuntime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const recoveryApproval = JSON.parse(context.genesisApprovalJson);
+  recoveryApproval.coordinator_id = context.genesisRecoveryObjectId;
+  const recoveryApprovalJson = new TextDecoder().decode(
+    canonicalJsonBytes(recoveryApproval),
+  );
+  const recoveryOperationId = await deriveGenesisOperationId(
+    recoveryApprovalJson,
+  );
+  const recoveryTestStub = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisRecoveryNamespace,
+  ).stub;
+  const postRecoveryGenesis = () => privateSigner.fetch(
+    new Request(
+      "https://freshness-signer.internal/__runtime_test/genesis/config/install-recovery",
+      {
+        method: "POST",
+        headers: authorizedHeaders,
+        body: context.genesisRequestBytes,
+      },
+    ),
+  );
+  const getRecoveryGenesis = () => privateSigner.fetch(
+    new Request(
+      `https://freshness-signer.internal/__runtime_test/genesis/operation/install-recovery/${recoveryOperationId}`,
+      {
+        method: "GET",
+        headers: {
+          "x-fusou-genesis-capability": context.genesisAdminCapability,
+        },
+      },
+    ),
+  );
+
+  await rpc(
+    recoveryTestStub.failNextGenesisAfterInstallFinalizationForLocalTest(),
+    "arm a fault after durable Genesis install finalization",
+  );
+  const lostGenesisStatusUpdate = await postRecoveryGenesis();
+  assert.equal(lostGenesisStatusUpdate.status, 503);
+  await lostGenesisStatusUpdate.body?.cancel();
+  const installedBeforeGenesisStatusUpdate = snapshotGenesisInstallProgress(
+    await rpc(
+      recoveryTestStub.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "inspect install commit before Genesis status update",
+    ),
+  );
+  assert.equal(
+    installedBeforeGenesisStatusUpdate.genesisStatus,
+    "INSTALLING",
+  );
+  assert.equal(installedBeforeGenesisStatusUpdate.installStatus, "INSTALLED");
+  assert.equal(installedBeforeGenesisStatusUpdate.installCount, 1);
+  assert.equal(
+    installedBeforeGenesisStatusUpdate.bootstrapAuthorizationCount,
+    0,
+  );
+  assert.equal(installedBeforeGenesisStatusUpdate.writerPending, false);
+  assert.equal(
+    installedBeforeGenesisStatusUpdate.writerOperationId,
+    null,
+  );
+  assert.ok(installedBeforeGenesisStatusUpdate.currentStateJson);
+
+  const laggingStatusQuery = await getRecoveryGenesis();
+  assert.equal(laggingStatusQuery.status, 200);
+  assert.deepEqual(await laggingStatusQuery.json(), {
+    operation_id: recoveryOperationId,
+    status: "INSTALLED",
+    release_status: "AVAILABLE",
+    install_status: "INSTALLED",
+  });
+  assertSameGenesisInstallProgress(
+    await rpc(
+      recoveryTestStub.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "confirm completed Genesis GET did not repair state",
+    ),
+    installedBeforeGenesisStatusUpdate,
+  );
+
+  await restartRuntime(context);
+  privateSigner = await context.currentRuntime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const recoveryTestStubAfterRestart = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisRecoveryNamespace,
+  ).stub;
+  assertSameGenesisInstallProgress(
+    await rpc(
+      recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "inspect committed Genesis install after runtime recreation",
+    ),
+    installedBeforeGenesisStatusUpdate,
+  );
+  const laggingStatusAfterRestart = await getRecoveryGenesis();
+  assert.equal(laggingStatusAfterRestart.status, 200);
+  assert.equal((await laggingStatusAfterRestart.json()).status, "INSTALLED");
+  assertSameGenesisInstallProgress(
+    await rpc(
+      recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "confirm post-restart Genesis GET remained read-only",
+    ),
+    installedBeforeGenesisStatusUpdate,
+  );
+
+  const completedGenesisRepair = await postRecoveryGenesis();
+  assert.equal(completedGenesisRepair.status, 200);
+  assert.deepEqual(await completedGenesisRepair.json(), {
+    operation_id: recoveryOperationId,
+    status: "INSTALLED",
+    release_status: "AVAILABLE",
+    install_status: "INSTALLED",
+  });
+  const repairedGenesisInstall = await rpc(
+    recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+      recoveryOperationId,
+    ),
+    "inspect Genesis completion status repair",
+  );
+  assert.equal(repairedGenesisInstall.genesisStatus, "INSTALLED");
+  assert.equal(repairedGenesisInstall.installStatus, "INSTALLED");
+  assert.equal(repairedGenesisInstall.installCount, 1);
+  assert.equal(repairedGenesisInstall.bootstrapAuthorizationCount, 0);
+  assert.equal(repairedGenesisInstall.writerPending, false);
+  assert.equal(repairedGenesisInstall.writerOperationId, null);
+  assert.equal(
+    repairedGenesisInstall.installFencingToken,
+    installedBeforeGenesisStatusUpdate.installFencingToken,
+  );
+  assert.equal(
+    repairedGenesisInstall.nextFencingToken,
+    installedBeforeGenesisStatusUpdate.nextFencingToken,
+  );
+  assert.equal(
+    repairedGenesisInstall.writeFencingToken,
+    installedBeforeGenesisStatusUpdate.writeFencingToken,
+  );
+  assert.equal(
+    repairedGenesisInstall.currentStateJson,
+    installedBeforeGenesisStatusUpdate.currentStateJson,
+  );
+  await rpc(
+    recoveryTestStubAfterRestart.mutateGenesisInstallRecoveryStateForLocalTest(
+      recoveryOperationId,
+      "PROFILE_WRITE_FENCE",
+      "0",
+    ),
+    "introduce a stale profile fence for completed Genesis result lookup",
+  );
+  const staleFenceLookup = await postRecoveryGenesis();
+  assert.equal(staleFenceLookup.status, 409);
+  assert.deepEqual(await staleFenceLookup.json(), {
+    error: "genesis_not_available",
+  });
+  const staleFenceProgress = snapshotGenesisInstallProgress(
+    await rpc(
+      recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "inspect completed Genesis result after stale fence rejection",
+    ),
+  );
+  assert.equal(staleFenceProgress.installStatus, "INSTALLED");
+  assert.equal(staleFenceProgress.writerPending, false);
+  assert.equal(staleFenceProgress.writeFencingToken, "0");
+  assert.equal(
+    staleFenceProgress.nextFencingToken,
+    repairedGenesisInstall.nextFencingToken,
+  );
+  assert.equal(
+    staleFenceProgress.currentStateJson,
+    repairedGenesisInstall.currentStateJson,
+  );
+  await rpc(
+    recoveryTestStubAfterRestart.mutateGenesisInstallRecoveryStateForLocalTest(
+      recoveryOperationId,
+      "PROFILE_WRITE_FENCE",
+      repairedGenesisInstall.writeFencingToken,
+    ),
+    "restore only the isolated stale-fence test mutation",
+  );
+  const completedReplayAfterFenceRestore = await postRecoveryGenesis();
+  assert.equal(completedReplayAfterFenceRestore.status, 200);
+  assert.equal(
+    (await completedReplayAfterFenceRestore.json()).status,
+    "INSTALLED",
+  );
+
+  await rpc(
+    recoveryTestStubAfterRestart.mutateGenesisInstallRecoveryStateForLocalTest(
+      recoveryOperationId,
+      "QUARANTINE_INSTALL",
+      "LOCAL_TEST_QUARANTINE",
+    ),
+    "quarantine a completed Genesis install for refusal coverage",
+  );
+  const quarantinedBeforeQuery = snapshotGenesisInstallProgress(
+    await rpc(
+      recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "inspect quarantined Genesis install before GET",
+    ),
+  );
+  assert.equal(quarantinedBeforeQuery.genesisStatus, "INSTALLED");
+  assert.equal(quarantinedBeforeQuery.installStatus, "QUARANTINED");
+  assert.equal(quarantinedBeforeQuery.writerPending, false);
+  const quarantinedQuery = await getRecoveryGenesis();
+  assert.equal(quarantinedQuery.status, 409);
+  assert.equal((await quarantinedQuery.json()).status, "QUARANTINED");
+  assertSameGenesisInstallProgress(
+    await rpc(
+      recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "confirm quarantined Genesis GET did not update state",
+    ),
+    quarantinedBeforeQuery,
+  );
+  const quarantinedReplay = await postRecoveryGenesis();
+  assert.equal(quarantinedReplay.status, 503);
+  assert.deepEqual(await quarantinedReplay.json(), {
+    error: "genesis_unavailable",
+  });
+  const quarantinedAfterReplay = snapshotGenesisInstallProgress(
+    await rpc(
+      recoveryTestStubAfterRestart.inspectGenesisInstallProgressForLocalTest(
+        recoveryOperationId,
+      ),
+      "inspect rejected quarantined Genesis replay",
+    ),
+  );
+  assertSameGenesisInstallProgress(
+    quarantinedAfterReplay,
+    quarantinedBeforeQuery,
+  );
+}
+
+function assertSameGenesisInstallProgress(actual, expected) {
+  for (const field of GENESIS_INSTALL_PROGRESS_FIELDS) {
+    assert.equal(actual[field], expected[field], `Genesis progress field ${field}`);
+  }
+}
+
+const GENESIS_INSTALL_PROGRESS_FIELDS = [
+    "genesisStatus",
+    "installStatus",
+    "installCount",
+    "bootstrapAuthorizationCount",
+    "writerPending",
+    "writerOperationId",
+    "nextFencingToken",
+    "writeFencingToken",
+    "currentStateJson",
+    "profileLocalRestoreEpoch",
+    "installFencingToken",
+    "releaseFencingToken",
+    "expectedRestoreEpoch",
+    "targetRecordSha256",
+    "releaseHeadRecordSha256",
+];
+
+function snapshotGenesisInstallProgress(progress) {
+  return Object.fromEntries(
+    GENESIS_INSTALL_PROGRESS_FIELDS.map((field) => [field, progress[field]]),
+  );
+}
+
+async function putRuntimeR2Object(bucket, key, bytes) {
+  const putCall = bucket.put(key, bytes);
+  let result;
+  try {
+    result = await putCall;
+    if (result === null || typeof result.etag !== "string") {
+      throw new Error(`R2 put did not return an ETag for ${key}`);
+    }
+    return result.etag;
+  } finally {
+    disposeRuntimeRpcResult(result);
+    disposeRuntimeRpcResult(putCall);
+  }
 }
 
 async function restartRuntime(context) {
@@ -5227,6 +6766,8 @@ async function disposeCurrentRuntime(context) {
   context.currentRuntime = undefined;
   context.namespace = undefined;
   context.releaseNamespace = undefined;
+  context.genesisNamespace = undefined;
+  context.genesisRecoveryNamespace = undefined;
   await withTimeout(
     runtime.dispose(),
     RUNTIME_DISPOSE_TIMEOUT_MS,
@@ -5583,12 +7124,15 @@ async function prepareReleaseBindingInstall(
   };
 }
 
-async function runtimeR2ManifestReader(context) {
+async function runtimeR2ManifestReader(
+  context,
+  workerName = RELEASE_WORKER_NAME,
+) {
   const runtime = context.currentRuntime;
   assert.ok(runtime, "Miniflare runtime is unavailable");
   const bucket = await runtime.getR2Bucket(
     "RELEASE_LEDGER_R2",
-    RELEASE_WORKER_NAME,
+    workerName,
   );
   return {
     async readCurrentManifestPointer() {
@@ -5730,8 +7274,16 @@ function coordinatorForName(
   const id = objectId === undefined
     ? namespace.idFromName(objectName)
     : namespace.idFromString(objectId);
+  const isGenesisNamespace = namespace === context.genesisNamespace ||
+    namespace === context.genesisRecoveryNamespace;
   const workerName = namespace === context.releaseNamespace
-    ? RELEASE_WORKER_NAME : WORKER_NAME;
+    ? RELEASE_WORKER_NAME
+    : isGenesisNamespace
+    ? GENESIS_PRIVATE_SIGNER_WORKER_NAME
+    : WORKER_NAME;
+  const rpcPath = namespace === context.genesisRecoveryNamespace
+    ? GENESIS_RECOVERY_RPC_PATH
+    : RUNTIME_RPC_PATH;
   const worker = context.currentRuntime.getWorker(workerName);
   const stub = new Proxy({}, {
     get(_target, method) {
@@ -5742,7 +7294,7 @@ function coordinatorForName(
         });
         assert.ok(Buffer.byteLength(body) <= MAX_RUNTIME_RPC_REQUEST_BYTES);
         const response = await (await worker).fetch(
-          `http://runtime-test.local${RUNTIME_RPC_PATH}`,
+          `http://runtime-test.local${rpcPath}`,
           { method: "POST", headers: { "Content-Type": "application/json" }, body },
         );
         assert.equal(response.status, 200, "test-only RPC transport rejected the call");
@@ -6014,6 +7566,33 @@ function readLocalRuntimeConfig() {
   return compatibilityDate;
 }
 
+function readPrivateSignerExampleConfig() {
+  const source = readFileSync(PRIVATE_SIGNER_EXAMPLE_CONFIG, "utf8");
+  const compatibilityDate = source.match(
+    /^compatibility_date\s*=\s*"([^"]+)"\s*$/m,
+  )?.[1];
+  assert.ok(
+    compatibilityDate,
+    "private Signer example config needs compatibility_date",
+  );
+  const flagsValue = source.match(
+    /^compatibility_flags\s*=\s*\[([^\]]*)\]\s*$/m,
+  )?.[1];
+  const compatibilityFlags = flagsValue === undefined
+    ? []
+    : [...flagsValue.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+  if (flagsValue !== undefined) {
+    assert.equal(
+      flagsValue.replace(/"[^"]+"/gu, "").replace(/[\s,]/gu, ""),
+      "",
+      "private Signer example config has unsupported compatibility_flags syntax",
+    );
+  }
+  assert.match(source, /^workers_dev\s*=\s*false\s*$/m);
+  assert.match(source, /^preview_urls\s*=\s*false\s*$/m);
+  return { compatibilityDate, compatibilityFlags };
+}
+
 function deferred() {
   let resolvePromise;
   let rejectPromise;
@@ -6030,6 +7609,23 @@ function deferred() {
 
 function changeBase64UrlDigest(value) {
   return `${value[0] === "A" ? "B" : "A"}${value.slice(1)}`;
+}
+
+async function deriveGenesisOperationId(approvalJson) {
+  const approvalBytes = Buffer.from(approvalJson, "utf8");
+  const preimage = canonicalJsonBytes({
+    domain: "FUSOU-TLSN-CLOUDFLARE-OPERATOR-GENESIS-OPERATION-ID-V1\0",
+    approval: approvalBytes.toString("base64url"),
+  });
+  const uuid = new Uint8Array(
+    await webcrypto.subtle.digest("SHA-256", preimage),
+  ).slice(0, 16);
+  uuid[6] = (uuid[6] & 0x0f) | 0x40;
+  uuid[8] = (uuid[8] & 0x3f) | 0x80;
+  const hex = [...uuid].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${
+    hex.slice(16, 20)
+  }-${hex.slice(20)}`;
 }
 
 async function rpc(promise, description) {
