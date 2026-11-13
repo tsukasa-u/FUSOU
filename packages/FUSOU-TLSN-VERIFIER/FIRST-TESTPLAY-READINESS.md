@@ -1,5 +1,115 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Genesis binding-install recovery — local verification follow-up
+
+**SOURCE_IMPLEMENTED:** The independently reproduced recovery failure was
+caused by treating the `VERIFYING` install's own persistent writer gate as a
+new-bootstrap blocker. Recovery now distinguishes pristine one-time bootstrap,
+the exact same approved `VERIFYING` install, and a matching durable `INSTALLED`
+result. The `VERIFYING` path rechecks the operation/input and approval binding,
+Release/head and restore-epoch binding, writer owner and fences, install state,
+and blocker/quarantine conditions before reusing the existing finalizer. The
+`INSTALLED` path validates the durable install/current-state relationship and
+returns the existing result without reinstalling or issuing authorization.
+Later monotonic fence advancement is accepted only when the persisted fences
+remain canonical and no lower than the installed fence.
+
+**LOCAL_TEST_VERIFIED:** The runtime suite now exercises interruption after
+install admission but before finalization, runtime recreation, read-only GET,
+and same-input POST recovery through `INSTALLED`; it also exercises interruption
+after install commit but before the Genesis status update, including read-only
+GET and same-operation status repair after recreation. Both cases verify that
+the install is not duplicated and that authorization, writer ownership, fences,
+and current state are preserved as applicable. Concurrent same-operation
+recovery and refusal of changed approval/input, foreign writer/fence, Release
+head/restore mismatch, and quarantined or inconsistent state are covered.
+Coordinator typecheck passed and the full runtime suite passed **68/68**, with
+**0 failed, 0 skipped** and no RPC-stub disposal or unhandled-promise warnings.
+
+The local suite used Miniflare `5.20261104.0-beta`, workerd `1.20261104.1`,
+`compatibility_date = "2026-11-08"`, and flags `[]`. The example configuration
+uses `2026-11-13`; parity at that date remains **NOT_CHECKED**.
+**Hosted CI after this recovery change: NOT_CHECKED.** Production genesis,
+resource/key registration, deployment, and restore validation remain
+unperformed. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Hosted baseline before Production genesis changes — 2026-11-13
+
+Hosted run [#120](https://github.com/tsukasa-u/FUSOU/actions/runs/43368457187),
+attempt 1, passed all three jobs for branch
+`tlsn-first-testplay-candidate`, baseline HEAD
+`20d5d090cc9b8b263720850a07d7b9da1a5b601e`. The Coordinator runtime
+reported **67/67**, including Gateway → private Signer → DO/R2 →
+finalization → exact response bytes. This is pre-genesis-change evidence;
+Hosted CI for the genesis implementation below is **NOT_CHECKED**.
+
+## One-time fixed-approval Cloudflare/operator genesis — local implementation
+
+**SOURCE_IMPLEMENTED:** The private Signer now has a separate management-only
+genesis route, distinct from the ordinary Freshness challenge. It requires the
+operator-managed canonical `FRESHNESS_GENESIS_APPROVAL_JSON` and a dedicated
+`FRESHNESS_GENESIS_ADMIN_CAPABILITY` secret at both the HTTP and DO RPC
+boundaries. The caller cannot declare approval or supply an operation ID. The
+deterministic operation ID is derived from the exact fixed approval.
+
+The approval pins the Production environment/profile, chain, coordinator
+name and actual DO identity, restore epoch, initial position/generation,
+exact Release Record and Release delegation digests, Manifest epoch/digest/
+immutable reference/URL/audience digest, and the Release/Manifest root public
+key pins. The existing verifiers check the signed Record, delegation and
+Manifest, their time and reference bindings, and exact R2 pointer/snapshot
+bytes and ETag before durable admission. A short SQLite transaction admits
+only a pristine target and sets the writer gate; the existing Release append,
+exact R2 readback/`AVAILABLE`, and conditional current-state install are then
+reused. Freshness remains blocked until install succeeds.
+The current Release Record schema has no `chain_id`; chain binding comes from
+the fixed approval and Coordinator profile/config, not from a chain field in
+the Record signature. `restore_epoch` is likewise an operator-managed
+binding, not an independent witness or common-rollback detector.
+
+Same-operation lookup is read-only. Same exact input may continue an admitted
+operation through the existing verified stages; changed or unapproved input,
+other operation IDs, retained history, mismatch, or quarantine cannot reset
+or bypass it. A post-admission R2 readback fault remains `RESULT_UNKNOWN`
+across runtime recreation and blocks Freshness. Only a same-operation retry
+that observes exact positive R2 evidence can continue. Test-only R2 fault
+injection exists only in the runtime test Worker; successful genesis state is
+not inserted directly into SQLite.
+
+The [private Signer example](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/wrangler.private-signer.example.toml)
+now names the fixed approval setting and required management capability
+secret. It remains placeholder-only, has `workers_dev = false`, no public
+route, and is not selected by deployment automation. No Production resource,
+operator, key, pin, initial material, or R2 object was registered or
+deployed.
+
+**LOCAL_TEST_VERIFIED:** Coordinator typecheck passed. The full pinned
+Coordinator runtime suite passed **68/68**, **0 failed**, **0 skipped**. The
+genesis integration uses test-signed material and the real production genesis,
+Release, install, private Signer, Gateway, and independent state/response
+verifiers. It checks pre-initialization Freshness denial, exact approved
+Record/head binding, missing approval and mismatched DO/environment/profile/
+chain rejection, wrong digest, invalid Record signature, expired Release
+delegation, and missing/corrupt R2 rejection before admission. It also checks
+concurrent same-operation calls, post-admission `RESULT_UNKNOWN`, Unknown
+retention across runtime recreation, rejection of a different operation ID,
+same-operation recovery only after exact readback, discarded-response result
+lookup, finalized exact response bytes, and replay without a second response
+signature. RPC-stub disposal warnings and unhandled/background-promise
+warnings were not observed.
+
+The pinned workerd runtime supports `compatibility_date = "2026-11-08"` with
+the example's flags `[]`; the example's `2026-11-13` date is newer than the
+runtime's observed maximum `2026-11-11`. Therefore behavioral parity at the
+example date is **NOT_CHECKED**. No APP Cargo or APP-launching Node group was
+run.
+
+**Hosted after this change: NOT_CHECKED.** Production configuration,
+registration, genesis material issuance/R2 publication, deployment, and
+restore validation remain unperformed. Continuous Manifest/Release issuance
+and renewal also remain outstanding. Stage A/B/C and Production acceptance
+remain **BLOCKED**.
+
 ## Latest Hosted baseline before private Signer integration — 2026-11-13
 
 Hosted run [#119](https://github.com/tsukasa-u/FUSOU/actions/runs/43261801324),

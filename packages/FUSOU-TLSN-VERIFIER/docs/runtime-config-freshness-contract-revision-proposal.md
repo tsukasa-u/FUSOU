@@ -835,6 +835,62 @@ child APP Cargo test was not rerun; full APP integration remains
 not Hosted evidence: run #117 is the pre-change baseline and changed-source
 Hosted CI is **NOT_CHECKED**. No Production key or external service was used.
 
+### 7.4 One-time fixed-approval Cloudflare/operator genesis — local implementation
+
+The production genesis contract is one-time admission for one explicitly
+pinned target, not "missing state means genesis" and not a caller assertion.
+The deployment operator is the trust anchor for the exact canonical
+`FRESHNESS_GENESIS_APPROVAL_JSON` and the restricted
+`FRESHNESS_GENESIS_ADMIN_CAPABILITY` secret. The capability authorizes entry
+to the management operation; the immutable approval pins authorize which
+initial materials and target that operation may install. This is the selected
+Cloudflare/operator trust boundary, not a new external approval service or a
+cryptographic proof of two-person review.
+
+The approval fixes `environment=production`, the selected operator profile,
+chain, named Coordinator and its actual DO ID, restore epoch, initial
+position/generation `1`, exact Record/delegation/Manifest digests, Manifest
+epoch/reference/URL/audience, and the Release and Manifest root public-key
+pins. The Record and Manifest are independently verified under existing
+verifiers and purpose/expiry rules. The Record must be the initial predecessor-
+free checkpoint at the pinned generation and bind the approved Manifest.
+Before durable admission, the existing R2 adapter must read back the exact
+pointer and immutable snapshot bytes with the Record's pointer ETag.
+The current Release Record schema has no `chain_id`; chain binding comes from
+the fixed approval and Coordinator profile/config, not from a signed Record
+field. The operator-managed `restore_epoch` is an initialization binding, not
+an independent witness or common-rollback detector.
+
+Verification and R2 I/O remain outside SQLite transactions. A short
+`transactionSync` admits only the fixed operation when the target has no
+profile, Release/issue/install history, pending operation or retained blocker;
+it records the exact input binding and holds the writer gate. The existing
+Release append and durable ledger path then run, followed by exact R2
+readback/`AVAILABLE`, followed by the existing conditional bootstrap binding
+install. These are separate saga stages, not a distributed transaction.
+Freshness issuance is unavailable before the final install.
+
+The operation ID is derived from the canonical approval, not caller input.
+An identical same-operation request may inspect or continue the exact stored
+operation through existing verified stages. Changed bytes cannot match the
+approved digests. A different ID cannot select another genesis. Response loss,
+restart, negative reads, or timeout do not clear a writer or Unknown blocker.
+`RESULT_UNKNOWN` is retained across restart; only a same-operation positive
+exact readback may continue. Conflicting evidence or an unsafe stage is
+quarantined. Repeating an installed operation is a result lookup; a second
+genesis or overwrite is rejected.
+
+The local implementation and its negative/Unknown/restart/response-byte
+checks are recorded in
+[FIRST-TESTPLAY-READINESS.md](../FIRST-TESTPLAY-READINESS.md). Hosted CI after
+these changes is **NOT_CHECKED**. The runtime suite uses the pinned
+`2026-11-08` compatibility date and the example flags; parity with the
+example's `2026-11-13` date is **NOT_CHECKED** because the pinned workerd does
+not support that date. No Production resources, operator registration,
+genesis materials, R2 writes, or deployment were performed. The deployment
+example contains placeholders only. Stage A/B/C and Production acceptance
+remain **BLOCKED**.
+
 ## 8. Cloudflare primary sources reviewed (checked 2026-11-10)
 
 The following current Cloudflare documentation supports only the stated
