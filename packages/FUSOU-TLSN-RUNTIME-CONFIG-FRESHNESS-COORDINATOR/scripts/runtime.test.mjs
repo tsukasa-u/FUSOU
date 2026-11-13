@@ -24,6 +24,9 @@ import {
   verifyCloudflareOperatorFreshnessResponse,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-cloudflare-operator.ts";
 import {
+  canonicalJsonBytes,
+  createRuntimeConfigFreshnessRequest,
+  runtimeConfigFreshnessWire,
   signRuntimeConfigFreshnessResponseEnvelope,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 import {
@@ -71,11 +74,28 @@ const CLASS_NAME = "LocalTestFreshnessIssueCoordinatorDO";
 const RELEASE_WORKER_NAME = "fusou-release-ledger-runtime-test";
 const RELEASE_CLASS_NAME = "LocalTestReleaseLedgerCoordinatorDO";
 const RELEASE_R2_BUCKET_NAME = "fusou-release-ledger-runtime-test";
+const PRIVATE_SIGNER_WORKER_NAME = "fusou-private-freshness-signer-runtime-test";
+const GATEWAY_WORKER_NAME = "fusou-freshness-gateway-e2e-runtime-test";
+const PRIVATE_SIGNER_COORDINATOR_NAME = "private-signer-gateway-integration";
+const PRIVATE_SIGNER_WRONG_CHAIN_COORDINATOR_NAME =
+  "private-signer-gateway-wrong-chain";
+const PRIVATE_SIGNER_WRONG_CHAIN_ID = "test-release-chain-mismatch-v1";
+const GATEWAY_COMPATIBILITY_DATE = "2026-11-06";
+const GATEWAY_COMPATIBILITY_FLAGS = ["enable_request_signal"];
+const PRIVATE_SIGNER_COMPATIBILITY_DATE = "2026-11-08";
 const LOCAL_CONFIG = resolve(
   PACKAGE_ROOT,
   "tests/runtime/local-only.wrangler.toml",
 );
 const WORKER_SOURCE = resolve(PACKAGE_ROOT, "tests/runtime/worker.ts");
+const PRIVATE_SIGNER_TEST_WORKER_SOURCE = resolve(
+  PACKAGE_ROOT,
+  "tests/runtime/private-signer-test-worker.mjs",
+);
+const GATEWAY_WORKER_SOURCE = resolve(
+  PACKAGE_ROOT,
+  "tests/runtime/gateway-test-worker.mjs",
+);
 const TOTAL_TIMEOUT_MS = 180_000;
 const CHILD_SHUTDOWN_GRACE_MS = 8_000;
 const RUNTIME_DISPOSE_TIMEOUT_MS = 10_000;
@@ -99,8 +119,11 @@ function registerRuntimeTests() {
     namespace: undefined,
     releaseNamespace: undefined,
     workerBundle: undefined,
+    privateSignerBundle: undefined,
+    gatewayBundle: undefined,
     fixture: undefined,
     signedReleaseFixture: undefined,
+    privateSignerFixture: undefined,
     compatibilityDate: undefined,
     interruptions: new Set(),
     cleanupPromise: undefined,
@@ -127,6 +150,23 @@ function registerRuntimeTests() {
       before(async () => {
         context.fixture = await makeVerifiedCurrentState();
         context.signedReleaseFixture = await makeSignedCurrentStateFixture();
+        context.privateSignerFixture = await makeSignedCurrentStateFixture({
+          nowMs: Date.now(),
+        });
+        const expiredDelegationNowMs = Date.now() - 86_340_000;
+        context.expiredFreshnessDelegationFixture =
+          await makeSignedCurrentStateFixture({
+            nowMs: expiredDelegationNowMs,
+            freshnessDelegationNotAfterMs: Date.now() - 1_000,
+          });
+        assert.equal(
+          context.expiredFreshnessDelegationFixture.rootSigner.key_id,
+          context.privateSignerFixture.rootSigner.key_id,
+        );
+        assert.equal(
+          context.expiredFreshnessDelegationFixture.freshnessKeyId,
+          context.privateSignerFixture.freshnessKeyId,
+        );
         context.compatibilityDate = readLocalRuntimeConfig();
         await buildWorker(context);
         await startRuntime(context);
@@ -135,6 +175,442 @@ function registerRuntimeTests() {
       after(async () => {
         await cleanupRuntime(context);
       });
+
+      it(
+        "routes finalized operator bytes through Gateway and the private Signer Worker",
+        { timeout: 90_000 },
+        async () => {
+          const privateWorker = await context.currentRuntime.getWorker(
+            PRIVATE_SIGNER_WORKER_NAME,
+          );
+          const whitespaceRequestBytes = new Uint8Array(
+            requestBytes.byteLength + 1,
+          );
+          whitespaceRequestBytes.set(requestBytes);
+          whitespaceRequestBytes[whitespaceRequestBytes.length - 1] = 0x0a;
+          const unknownFieldRequestBytes = canonicalJsonBytes({
+            ...JSON.parse(new TextDecoder().decode(requestBytes)),
+            unrecognized_test_field: true,
+          });
+          const invalidRequests = [
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                { method: "GET" },
+              ),
+              405,
+            ],
+            [
+              new Request("https://freshness-signer.internal/not-the-private-route", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: requestBytes,
+              }),
+              404,
+            ],
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                { method: "POST", body: requestBytes },
+              ),
+              415,
+            ],
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: new Uint8Array(),
+                },
+              ),
+              400,
+            ],
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: whitespaceRequestBytes,
+                },
+              ),
+              400,
+            ],
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: unknownFieldRequestBytes,
+                },
+              ),
+              400,
+            ],
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: new Uint8Array(
+                    runtimeConfigFreshnessWire.maxRequestBytes + 1,
+                  ),
+                },
+              ),
+              413,
+            ],
+            [
+              new Request(
+                `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: "{}",
+                },
+              ),
+              400,
+            ],
+          ];
+          for (const [invalidRequest, expectedStatus] of invalidRequests) {
+            const response = await privateWorker.fetch(invalidRequest);
+            assert.equal(response.status, expectedStatus);
+          }
+
+          const wrongAudience = await createRuntimeConfigFreshnessRequest({
+            manifestUrl:
+              "https://unapproved.example.com/tlsn/runtime-config/v2/manifest.json",
+            requestNonce: webcrypto.getRandomValues(new Uint8Array(32)),
+          });
+          const audienceResponse = await privateWorker.fetch(
+            new Request(
+              `https://freshness-signer.internal${runtimeConfigFreshnessWire.requestPath}`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: wrongAudience.raw,
+              },
+            ),
+          );
+          assert.equal(audienceResponse.status, 400);
+
+          for (const variant of [
+            "missing-coordinator",
+            "missing-r2",
+            "missing-private-key",
+            "wrong-key-id",
+            "wrong-root-pin",
+            "wrong-private-key",
+            "malformed-delegation",
+            "expired-delegation",
+            "manifest-url-mismatch",
+          ]) {
+            const response = await privateWorker.fetch(
+              new Request(
+                `https://freshness-signer.internal/__runtime_test/config/${variant}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: requestBytes,
+                },
+              ),
+            );
+            assert.equal(response.status, 503, `${variant} must fail closed`);
+            assert.deepEqual(await response.json(), {
+              error: "freshness_unavailable",
+            });
+          }
+
+          const resetMetrics = await privateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/reset-signature-metrics",
+            ),
+          );
+          assert.equal(resetMetrics.status, 200);
+
+          const uninitializedRequest = await fetchGatewayFreshness(
+            context,
+            requestBytes,
+          );
+          assert.equal(uninitializedRequest.status, 502);
+          assert.deepEqual(await uninitializedRequest.json(), {
+            error: "invalid_freshness_response",
+          });
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            0,
+            "an uninitialized DO must not cause a Freshness response signature",
+          );
+          const resetAfterUninitialized = await privateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/reset-signature-metrics",
+            ),
+          );
+          assert.equal(resetAfterUninitialized.status, 200);
+
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "private-signer-gateway-integration",
+            { objectName: PRIVATE_SIGNER_COORDINATOR_NAME },
+          );
+          const harness = await makeCloudflareOperatorHarness(context, seeded);
+          const operationId = await privateSignerOperationId(
+            context,
+            requestBytes,
+          );
+          assert.match(
+            operationId,
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+          );
+          assert.equal(
+            await privateSignerOperationId(context, requestBytes),
+            operationId,
+            "the same exact challenge must map to the same operation",
+          );
+
+          const firstResponse = await fetchGatewayFreshness(
+            context,
+            requestBytes,
+          );
+          const finalized = await rpc(
+            seeded.coordinator.getCloudflareOperatorIssue({
+              operationId,
+              requestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "read finalized private Signer response bytes",
+          );
+          assert.equal(
+            finalized.status,
+            "FINALIZED",
+            `Gateway issue must finalize before returning bytes: ${finalized.status} ${
+              finalized.reason ?? ""
+            }`,
+          );
+          assert.equal(firstResponse.status, 200);
+          assert.equal(
+            firstResponse.headers.get("content-type"),
+            "application/json",
+          );
+          assert.equal(firstResponse.headers.get("cache-control"), "no-store");
+          const firstBytes = new Uint8Array(await firstResponse.arrayBuffer());
+          assert.equal(firstBytes.byteLength, finalized.responseBytes.byteLength);
+          assert.equal(digest(firstBytes), finalized.responseSha256);
+          assert.ok(equalBytes(firstBytes, finalized.responseBytes));
+          assert.equal(finalized.responseSha256, digest(finalized.responseBytes));
+
+          const verifiedState = await harness.stateReader.readCurrentState();
+          const verified = await verifyCloudflareOperatorFreshnessResponse({
+            raw: firstBytes,
+            bootstrapSigner: seeded.fixture.rootSigner,
+            manifestUrl: vector.manifest_url,
+            requestBytes,
+            nowMs: Date.now(),
+            expectedState: verifiedState.state,
+          });
+          assert.equal(
+            verified.payload.request_nonce,
+            JSON.parse(new TextDecoder().decode(requestBytes)).request_nonce,
+          );
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .keyPairCheckSignatures,
+            1,
+            "startup key correspondence proof must remain distinct from response signatures",
+          );
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            1,
+          );
+
+          const replayed = await fetchGatewayFreshness(context, requestBytes);
+          assert.equal(replayed.status, 200);
+          assert.ok(
+            equalBytes(firstBytes, new Uint8Array(await replayed.arrayBuffer())),
+            "a finalized replay must return the saved exact response bytes",
+          );
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            1,
+            "a finalized replay must not sign again",
+          );
+
+          const concurrentRequestBytes = await makeGatewayFreshnessRequestBytes();
+          const concurrentOperationId = await privateSignerOperationId(
+            context,
+            concurrentRequestBytes,
+          );
+          const [concurrentA, concurrentB] = await Promise.all([
+            fetchGatewayFreshness(context, concurrentRequestBytes),
+            fetchGatewayFreshness(context, concurrentRequestBytes),
+          ]);
+          assert.ok(
+            [200, 502].includes(concurrentA.status) &&
+              [200, 502].includes(concurrentB.status),
+            "same-operation contention must either return the saved result or a bounded unavailable response",
+          );
+          const concurrentFinal = await fetchGatewayFreshness(
+            context,
+            concurrentRequestBytes,
+          );
+          assert.equal(concurrentFinal.status, 200);
+          const concurrentFinalBytes = new Uint8Array(
+            await concurrentFinal.arrayBuffer(),
+          );
+          const concurrentStored = await rpc(
+            seeded.coordinator.getCloudflareOperatorIssue({
+              operationId: concurrentOperationId,
+              requestBytes: concurrentRequestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "read the finalized concurrent private Signer operation",
+          );
+          assert.equal(concurrentStored.status, "FINALIZED");
+          assert.ok(equalBytes(concurrentFinalBytes, concurrentStored.responseBytes));
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            2,
+            "concurrent requests for one operation must produce at most one response signature",
+          );
+
+          const unknownRequestBytes = await makeGatewayFreshnessRequestBytes();
+          const unknownOperationId = await privateSignerOperationId(
+            context,
+            unknownRequestBytes,
+          );
+          await rpc(
+            seeded.stub.attemptClearReleasePointerForLocalTest(),
+            "remove the R2 pointer before the private issue claim",
+          );
+          const unknownResponse = await fetchGatewayFreshness(
+            context,
+            unknownRequestBytes,
+          );
+          assert.equal(unknownResponse.status, 502);
+          const unknownAdmission = await rpc(
+            seeded.coordinator.getCloudflareOperatorIssue({
+              operationId: unknownOperationId,
+              requestBytes: unknownRequestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "confirm missing R2 evidence retains the operation as Unknown",
+          );
+          assert.equal(unknownAdmission.status, "RESULT_UNKNOWN");
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            2,
+            "failed R2 verification must not produce a response signature",
+          );
+
+          await rpc(
+            seeded.stub.publishBaselineManifestForLocalTest(
+              seeded.fixture.manifestRef,
+              seeded.fixture.manifestBytes,
+            ),
+            "restore the exact R2 pointer after the Unknown test",
+          );
+          const unknownReplay = await fetchGatewayFreshness(
+            context,
+            unknownRequestBytes,
+          );
+          assert.equal(unknownReplay.status, 502);
+          const blockedNewChallenge = await fetchGatewayFreshness(
+            context,
+            await makeGatewayFreshnessRequestBytes(),
+          );
+          assert.equal(blockedNewChallenge.status, 502);
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            2,
+            "restored R2 or a new challenge must not clear Unknown or trigger signing",
+          );
+
+          await restartRuntime(context);
+          const reloadedCoordinator = coordinatorForName(
+            context,
+            seeded.objectName,
+            seeded.objectId,
+            context.releaseNamespace,
+          ).coordinator;
+          const finalReplay = await fetchGatewayFreshness(context, requestBytes);
+          assert.equal(finalReplay.status, 200);
+          assert.ok(
+            equalBytes(firstBytes, new Uint8Array(await finalReplay.arrayBuffer())),
+            "runtime recreation must preserve finalized exact response bytes",
+          );
+          const unknownAfterRestart = await fetchGatewayFreshness(
+            context,
+            unknownRequestBytes,
+          );
+          assert.equal(unknownAfterRestart.status, 502);
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            0,
+            "runtime recreation must neither re-sign finalized work nor clear Unknown",
+          );
+          const unknownAfterRestartAdmission = await rpc(
+            reloadedCoordinator.getCloudflareOperatorIssue({
+              operationId: unknownOperationId,
+              requestBytes: unknownRequestBytes,
+              chainId: seeded.fixture.releaseHead.chainId,
+            }),
+            "confirm Unknown survives runtime recreation",
+          );
+          assert.equal(unknownAfterRestartAdmission.status, "RESULT_UNKNOWN");
+
+          const wrongChainSeeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "private-signer-wrong-chain",
+            { objectName: PRIVATE_SIGNER_WRONG_CHAIN_COORDINATOR_NAME },
+          );
+          const wrongChainRequestBytes = await makeGatewayFreshnessRequestBytes();
+          const wrongChainOperationId = await privateSignerOperationId(
+            context,
+            wrongChainRequestBytes,
+            "/__runtime_test/operation-id/wrong-chain",
+          );
+          const reloadedPrivateWorker = await context.currentRuntime.getWorker(
+            PRIVATE_SIGNER_WORKER_NAME,
+          );
+          const wrongChainResponse = await reloadedPrivateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/config/wrong-chain",
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: wrongChainRequestBytes,
+              },
+            ),
+          );
+          assert.equal(wrongChainResponse.status, 503);
+          assert.deepEqual(await wrongChainResponse.json(), {
+            error: "freshness_unavailable",
+          });
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(context))
+              .freshnessResponseSignatures,
+            0,
+            "a chain mismatch must not start response signing",
+          );
+          const wrongChainAdmission = await rpc(
+            wrongChainSeeded.coordinator.getCloudflareOperatorIssue({
+              operationId: wrongChainOperationId,
+              requestBytes: wrongChainRequestBytes,
+              chainId: wrongChainSeeded.fixture.releaseHead.chainId,
+            }),
+            "confirm chain mismatch retains a blocked Unknown operation",
+          );
+          assert.equal(wrongChainAdmission.status, "RESULT_UNKNOWN");
+        },
+      );
 
       it(
         "rechecks Release delegation expiry at the ledger commit point",
@@ -4431,10 +4907,80 @@ function registerRuntimeTests() {
   );
 }
 
+async function makeGatewayFreshnessRequestBytes() {
+  const created = await createRuntimeConfigFreshnessRequest({
+    manifestUrl: vector.manifest_url,
+    requestNonce: webcrypto.getRandomValues(new Uint8Array(32)),
+  });
+  return created.raw;
+}
+
+async function fetchGatewayFreshness(context, requestBytes) {
+  const worker = await context.currentRuntime.getWorker(GATEWAY_WORKER_NAME);
+  return worker.fetch(
+    new Request(
+      `${new URL(vector.manifest_url).origin}${runtimeConfigFreshnessWire.requestPath}`,
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: requestBytes,
+      },
+    ),
+  );
+}
+
+async function privateSignerOperationId(
+  context,
+  requestBytes,
+  path = "/__runtime_test/operation-id",
+) {
+  const worker = await context.currentRuntime.getWorker(
+    PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const response = await worker.fetch(
+    new Request(
+      `https://freshness-signer.internal${path}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: requestBytes,
+      },
+    ),
+  );
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(typeof result.operationId, "string");
+  return result.operationId;
+}
+
+async function readPrivateSignerSignatureMetrics(context) {
+  const worker = await context.currentRuntime.getWorker(
+    PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const response = await worker.fetch(
+    new Request(
+      "https://freshness-signer.internal/__runtime_test/signature-metrics",
+    ),
+  );
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
 async function buildWorker(context) {
   context.workerBundle = resolve(context.root, "freshness-coordinator-worker.mjs");
-  await withTimeout(
-    build({
+  context.privateSignerBundle = resolve(
+    context.root,
+    "private-freshness-signer-test-worker.mjs",
+  );
+  context.gatewayBundle = resolve(
+    context.root,
+    "freshness-gateway-e2e-worker.mjs",
+  );
+  await Promise.all([
+    withTimeout(build({
       entryPoints: [WORKER_SOURCE],
       outfile: context.workerBundle,
       bundle: true,
@@ -4443,10 +4989,27 @@ async function buildWorker(context) {
       target: "es2022",
       external: ["cloudflare:workers"],
       logLevel: "silent",
-    }),
-    30_000,
-    "local coordinator Worker bundle",
-  );
+    }), 30_000, "local coordinator Worker bundle"),
+    withTimeout(build({
+      entryPoints: [PRIVATE_SIGNER_TEST_WORKER_SOURCE],
+      outfile: context.privateSignerBundle,
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      external: ["cloudflare:workers"],
+      logLevel: "silent",
+    }), 30_000, "private Signer integration Worker bundle"),
+    withTimeout(build({
+      entryPoints: [GATEWAY_WORKER_SOURCE],
+      outfile: context.gatewayBundle,
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      logLevel: "silent",
+    }), 30_000, "Gateway integration Worker bundle"),
+  ]);
 }
 
 async function startRuntime(context) {
@@ -4509,6 +5072,76 @@ async function startRuntime(context) {
           },
         },
       },
+      {
+        name: PRIVATE_SIGNER_WORKER_NAME,
+        scriptPath: context.privateSignerBundle,
+        modules: true,
+        compatibilityDate: PRIVATE_SIGNER_COMPATIBILITY_DATE,
+        compatibilityFlags: [],
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
+          FRESHNESS_COORDINATOR_NAME: PRIVATE_SIGNER_COORDINATOR_NAME,
+          RELEASE_LEDGER_CHAIN_ID:
+            context.privateSignerFixture.releaseHead.chainId,
+          RELEASE_LEDGER_ROOT_KEY_ID:
+            context.privateSignerFixture.rootSigner.key_id,
+          RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI:
+            context.privateSignerFixture.rootSigner.public_key_spki,
+          RELEASE_LEDGER_MANIFEST_KEY_ID:
+            context.privateSignerFixture.manifestRootSigner.key_id,
+          RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI:
+            context.privateSignerFixture.manifestRootSigner.public_key_spki,
+          FRESHNESS_MANIFEST_URL: vector.manifest_url,
+          FRESHNESS_SIGNER_KEY_ID:
+            context.privateSignerFixture.freshnessKeyId,
+          FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL:
+            Buffer.from(
+              context.privateSignerFixture.freshnessPrivateKeyPkcs8Bytes,
+            ).toString("base64url"),
+          FRESHNESS_SIGNER_DELEGATION_BASE64URL:
+            Buffer.from(
+              context.privateSignerFixture.freshnessDelegationBytes,
+            ).toString("base64url"),
+          TEST_EXPIRED_FRESHNESS_DELEGATION_BASE64URL: Buffer.from(
+            context.expiredFreshnessDelegationFixture.freshnessDelegationBytes,
+          ).toString("base64url"),
+          TEST_WRONG_CHAIN_COORDINATOR_NAME:
+            PRIVATE_SIGNER_WRONG_CHAIN_COORDINATOR_NAME,
+          TEST_WRONG_CHAIN_ID: PRIVATE_SIGNER_WRONG_CHAIN_ID,
+          TEST_WRONG_FRESHNESS_PRIVATE_KEY_PKCS8_BASE64URL: (() => {
+            const wrongKey = Uint8Array.from(
+              context.privateSignerFixture.freshnessPrivateKeyPkcs8Bytes,
+            );
+            wrongKey[wrongKey.length - 1] ^= 0x01;
+            return Buffer.from(wrongKey).toString("base64url");
+          })(),
+        },
+        r2Buckets: {
+          RELEASE_LEDGER_R2: RELEASE_R2_BUCKET_NAME,
+        },
+        unsafeEphemeralDurableObjects: false,
+        durableObjects: {
+          [BINDING_NAME]: {
+            className: RELEASE_CLASS_NAME,
+            scriptName: RELEASE_WORKER_NAME,
+            unsafeUniqueKey: "fusou-release-ledger-local-runtime-v1",
+            useSQLite: true,
+          },
+        },
+      },
+      {
+        name: GATEWAY_WORKER_NAME,
+        scriptPath: context.gatewayBundle,
+        modules: true,
+        compatibilityDate: GATEWAY_COMPATIBILITY_DATE,
+        compatibilityFlags: GATEWAY_COMPATIBILITY_FLAGS,
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
+        },
+        serviceBindings: {
+          TLSN_FRESHNESS_SIGNER: PRIVATE_SIGNER_WORKER_NAME,
+        },
+      },
     ],
   });
   const configuredWorker = options.workers.find(
@@ -4526,6 +5159,33 @@ async function startRuntime(context) {
   );
   assert.equal(configuredReleaseWorker.compatibilityDate, compatibilityDate);
   assert.deepEqual(configuredReleaseWorker.compatibilityFlags, []);
+  const configuredPrivateSignerWorker = options.workers.find(
+    (worker) => worker.config.name === PRIVATE_SIGNER_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredPrivateSignerWorker,
+    "Miniflare did not configure the private Signer Worker",
+  );
+  assert.equal(
+    configuredPrivateSignerWorker.compatibilityDate,
+    PRIVATE_SIGNER_COMPATIBILITY_DATE,
+  );
+  assert.deepEqual(configuredPrivateSignerWorker.compatibilityFlags, []);
+  const configuredGatewayWorker = options.workers.find(
+    (worker) => worker.config.name === GATEWAY_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredGatewayWorker,
+    "Miniflare did not configure the Gateway Worker",
+  );
+  assert.equal(
+    configuredGatewayWorker.compatibilityDate,
+    GATEWAY_COMPATIBILITY_DATE,
+  );
+  assert.deepEqual(
+    configuredGatewayWorker.compatibilityFlags,
+    GATEWAY_COMPATIBILITY_FLAGS,
+  );
 
   const runtime = new Miniflare(options);
   context.currentRuntime = runtime;
@@ -4756,10 +5416,14 @@ async function seededInitialReleaseCoordinator(context, scenario) {
 async function seededCloudflareOperatorCoordinator(
   context,
   scenario,
-  { install = true, delegatedManifest = false } = {},
+  {
+    install = true,
+    delegatedManifest = false,
+    objectName: configuredObjectName,
+  } = {},
 ) {
   assert.ok(context.releaseNamespace, "Release ledger namespace is unavailable");
-  const objectName = `${scenario}-${randomUUID()}`;
+  const objectName = configuredObjectName ?? `${scenario}-${randomUUID()}`;
   const { stub, coordinator } = coordinatorForName(
     context,
     objectName,

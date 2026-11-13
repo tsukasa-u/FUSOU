@@ -1,0 +1,46 @@
+# Example only. This file is not selected by CI or a deployment workflow.
+# Do not deploy until the Production resources, pins, delegation, and key are
+# explicitly approved and registered. The signing key is never stored here.
+name = "fusou-tlsn-runtime-config-freshness-signer"
+main = "src/private-signer-worker.ts"
+compatibility_date = "2026-11-13"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
+
+[vars]
+TLSN_RUNTIME_CONFIG_MANIFEST_URL = "https://replace-before-registration.invalid/tlsn/runtime-config/v2/manifest.json"
+FRESHNESS_MANIFEST_URL = "https://replace-before-registration.invalid/tlsn/runtime-config/v2/manifest.json"
+FRESHNESS_COORDINATOR_NAME = "replace-before-registration"
+RELEASE_LEDGER_CHAIN_ID = "replace-before-registration"
+RELEASE_LEDGER_ROOT_KEY_ID = "replace-before-registration"
+RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI = "REPLACE_WITH_APPROVED_RELEASE_ROOT_SPKI"
+RELEASE_LEDGER_MANIFEST_KEY_ID = "replace-before-registration"
+RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI = "REPLACE_WITH_APPROVED_MANIFEST_ROOT_SPKI"
+FRESHNESS_SIGNER_KEY_ID = "replace-before-registration"
+FRESHNESS_SIGNER_DELEGATION_BASE64URL = "REPLACE_WITH_ROOT_SIGNED_FRESHNESS_DELEGATION"
+
+[[durable_objects.bindings]]
+name = "FRESHNESS_ISSUE_COORDINATOR"
+class_name = "SqliteFreshnessIssueCoordinatorDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SqliteFreshnessIssueCoordinatorDO"]
+
+[[r2_buckets]]
+binding = "RELEASE_LEDGER_R2"
+bucket_name = "replace-after-explicit-registration"
+
+# Required secret, provisioned only after explicit key registration:
+# FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL

@@ -1,0 +1,26 @@
+# Example only. This file is not selected by CI or a deployment workflow.
+# No route, workers.dev hostname, or Preview URL is configured here.
+name = "fusou-tlsn-runtime-config-freshness-gateway"
+main = "src/index.ts"
+compatibility_date = "2026-11-13"
+compatibility_flags = ["enable_request_signal"]
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
+
+[vars]
+TLSN_RUNTIME_CONFIG_MANIFEST_URL = "https://replace-before-registration.invalid/tlsn/runtime-config/v2/manifest.json"
+
+[[services]]
+binding = "TLSN_FRESHNESS_SIGNER"
+service = "fusou-tlsn-runtime-config-freshness-signer"
