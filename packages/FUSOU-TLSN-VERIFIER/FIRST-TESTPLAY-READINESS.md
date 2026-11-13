@@ -1,6 +1,75 @@
 # First real APP TLSN testplay: current readiness boundary
 
-## Latest Hosted CI — APP Runtime Config epoch-state failure (#118)
+## Latest Hosted baseline before private Signer integration — 2026-11-13
+
+Hosted run [#119](https://github.com/tsukasa-u/FUSOU/actions/runs/43261801324),
+attempt 1, passed all three jobs for baseline HEAD
+`08dd6f9d0e22a8111383ba5467bb99c8deff4b63` on
+`tlsn-first-testplay-candidate`. It reported APP Runtime **46 passed**,
+Manifest harness **28 unit + 1 shared-vector passed**, Coordinator runtime
+**66 passed**, Verifier **149 library + 5 CLI passed**, and Proxy **29 + 4
+passed**. This is pre-change evidence only. Hosted CI for the private Signer
+integration below is **NOT_CHECKED**.
+
+## Gateway-to-private Signer connection — local implementation snapshot
+
+**SOURCE_IMPLEMENTED:** The Gateway's existing `TLSN_RUNTIME_CONFIG_MANIFEST_URL`
+and `TLSN_FRESHNESS_SIGNER` contract now has a private Worker entrypoint in
+[private-signer-worker.ts](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/src/private-signer-worker.ts).
+It validates the bounded canonical challenge, environment and Manifest
+audience, constructs the existing operator issue core with the Release reader,
+SQLite DO, R2 adapter and Worker-readable signer, and returns only finalized
+response bytes. The operation ID is derived from the exact challenge,
+environment-bound configuration and chain; the HTTP caller cannot supply one.
+DO stubs are created per request rather than cached across Worker requests;
+only parsed configuration and cryptographic key material are cached.
+The first local integration failure exposed why: caching a DO stub across
+requests violates Workers' request-scoped I/O ownership and produced an
+`OutgoingFactory` error. The restart check also now creates a fresh Miniflare
+stub, and compares Gateway bytes to the persisted response-byte DTO shape.
+
+The existing one-time persistent signing claim, state/fence checks,
+independent response verification, durable finalization and exact-byte replay
+remain in the shared operator core. A timeout, Gateway disconnect, negative
+read or new request does not clear an Unknown operation or prove it was
+cancelled. Test-only metric/configuration routes are in the runtime wrapper,
+not the production Worker entrypoint.
+
+The unregistered configuration examples are
+[private Signer](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/wrangler.private-signer.example.toml)
+and
+[Gateway](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/wrangler.private-signer.example.toml).
+They disable workers.dev and Preview URLs, define no public route, contain
+placeholder pins/resources, and are not selected by CI. The private signing
+key is only named as a required secret; no secret value is present. No
+Production key, resource, operator, or genesis registration or deployment was
+performed.
+
+**LOCAL_TEST_VERIFIED:** The existing candidate workflow already runs the
+Gateway and Coordinator runtime suites, so the new integration test is reached
+without changing CI selectors. Coordinator typecheck passed, and the complete
+Coordinator runtime suite passed **67/67**, **0 failed**, **0 skipped**. The
+new end-to-end case verifies finalized response length, digest and exact bytes
+through Gateway, replay without a second response signature, concurrent
+one-operation signing, Unknown retention and runtime-restart recovery.
+It also rejects missing bindings, wrong pins/keys, malformed or expired
+delegations, wrong audience/chain, and an uninitialized profile.
+Gateway typecheck passed and its local HTTP runtime suite passed all **11**
+reported checks. Domain typecheck and all **27/27** Domain tests passed.
+Wrangler **4.135.0** local `deploy --dry-run` succeeded for both examples and
+performed no upload. The Worker runtime suite remains on the pinned Miniflare
+compatibility date `2026-11-08`; the example configs use the current
+`2026-11-13` compatibility date and were build-checked, not runtime-tested at
+that date. No RPC-stub disposal warning or unhandled-background-promise warning
+was observed.
+
+**Hosted after this change: NOT_CHECKED.** Production configuration,
+registration and deployment remain unperformed. Continuous Manifest/Release
+issuance and renewal, genesis, real Game Server/Notary evidence, Production
+execution/delivery receipts and human gameplay remain outstanding. Stage A/B/C
+and Production acceptance remain **BLOCKED**.
+
+## Hosted CI history — APP Runtime Config epoch-state failure (#118)
 
 Hosted run [#118](https://github.com/tsukasa-u/FUSOU/actions/runs/43233657703),
 attempt 1, tested baseline
