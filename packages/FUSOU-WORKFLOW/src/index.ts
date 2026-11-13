@@ -2,7 +2,10 @@ import { handleRead as handleHybridRead } from "./reader";
 import { handleCron } from "./cron";
 import { handleBufferConsumerChunked } from "./buffer-consumer";
 import type { QueueMessage, QueueSendBatchItem } from "./types";
-import { runQuestInferenceTasks } from "./quest_tree_inference";
+import {
+  recomputeAllRuleTargets,
+  runQuestInferenceTasks,
+} from "./quest_tree_inference";
 import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
@@ -19,6 +22,16 @@ const UploadIngestPayloadSchema = z.object({
   table_version: z.string().optional(),
   tableVersion: z.string().optional(),
   slices: z.array(z.string().min(1)).optional(),
+});
+
+const QuestInferenceRecomputeRequestSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+const QuestInferenceRunRequestSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  datasetId: z.string().trim().min(1).optional(),
 });
 
 interface Env {
@@ -109,6 +122,60 @@ function parseStrictBoolean(value: string | undefined, envKey: string): boolean 
   throw new Error(`${envKey} must be explicitly set to one of: true, false, 1, 0`);
 }
 
+function readStrictBooleanSafe(value: string | undefined, envKey: string): boolean | null {
+  try {
+    return parseStrictBoolean(value, envKey);
+  } catch {
+    return null;
+  }
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
+}
+
+function requireUploadIngestAuth(
+  request: Request,
+  env: Env,
+  endpointName: string,
+): Response | null {
+  const token = env.UPLOAD_INGEST_TOKEN;
+  if (!token) {
+    return jsonResponse(
+      { error: `${endpointName} disabled: UPLOAD_INGEST_TOKEN not configured` },
+      403,
+    );
+  }
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!timingSafeEqual(provided, token)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  return null;
+}
+
+async function parseOptionalJsonObject(
+  request: Request,
+): Promise<{ data: Record<string, unknown> } | { error: Response }> {
+  const raw = await request.text();
+  if (!raw.trim()) {
+    return { data: {} };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: jsonResponse({ error: "Invalid JSON body" }, 400) };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { error: jsonResponse({ error: "JSON body must be an object" }, 400) };
+  }
+  return { data: parsed as Record<string, unknown> };
+}
+
 async function runQuestInferenceCron(env: Env): Promise<void> {
   const enabled = parseStrictBoolean(
     env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
@@ -143,21 +210,8 @@ export default {
 
     if (path === "/battle-data/upload" && request.method === "POST") {
       // Require bearer token auth (fail closed if not configured)
-      const uploadToken = env.UPLOAD_INGEST_TOKEN;
-      if (!uploadToken) {
-        return new Response(
-          JSON.stringify({ error: "Upload endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
-          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
-      const authHeader = request.headers.get("Authorization") ?? "";
-      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!timingSafeEqual(provided, uploadToken)) {
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
+      const authError = requireUploadIngestAuth(request, env, "Upload endpoint");
+      if (authError) return authError;
       // Authenticated upload handler: accept base64 Avro slices and enqueue
       try {
         const rawPayload: unknown = await request.json();
@@ -250,58 +304,123 @@ export default {
     }
 
     if (path === "/admin/compact" && request.method === "POST") {
-      const adminToken = env.UPLOAD_INGEST_TOKEN;
-      if (!adminToken) {
-        return new Response(
-          JSON.stringify({ error: "Admin compact endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
-          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
-      const authHeader = request.headers.get("Authorization") ?? "";
-      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!timingSafeEqual(provided, adminToken)) {
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
+      const authError = requireUploadIngestAuth(request, env, "Admin compact endpoint");
+      if (authError) return authError;
 
       try {
         console.log("[Admin] Manual compaction triggered via /admin/compact");
         await handleCron(env);
-        return new Response(
-          JSON.stringify({ status: "success", message: "Compaction completed successfully" }),
-          { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
+        return jsonResponse({ status: "success", message: "Compaction completed successfully" }, 200);
       } catch (err) {
         console.error("[Admin] Manual compaction failed:", err);
-        return new Response(
-          JSON.stringify({ error: "Compaction failed", detail: err instanceof Error ? err.message : String(err) }),
-          { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        return jsonResponse(
+          { error: "Compaction failed", detail: err instanceof Error ? err.message : String(err) },
+          500,
+        );
+      }
+    }
+
+    if (path === "/admin/quest-inference/recompute" && request.method === "POST") {
+      const authError = requireUploadIngestAuth(
+        request,
+        env,
+        "Admin quest-inference recompute endpoint",
+      );
+      if (authError) return authError;
+      if (!env.QUEST_INDEX_DB) {
+        return jsonResponse({ error: "Quest index database not configured" }, 503);
+      }
+
+      const bodyResult = await parseOptionalJsonObject(request);
+      if ("error" in bodyResult) return bodyResult.error;
+
+      const parsedParams = QuestInferenceRecomputeRequestSchema.safeParse({
+        ...(url.searchParams.has("limit") ? { limit: url.searchParams.get("limit") } : {}),
+        ...(url.searchParams.has("offset") ? { offset: url.searchParams.get("offset") } : {}),
+        ...bodyResult.data,
+      });
+      if (!parsedParams.success) {
+        return jsonResponse(
+          { error: "Invalid request parameters", issues: parsedParams.error.issues },
+          400,
+        );
+      }
+
+      const limit = parsedParams.data.limit ?? 50;
+      const offset = parsedParams.data.offset ?? 0;
+
+      try {
+        const result = await recomputeAllRuleTargets(env.QUEST_INDEX_DB, { limit, offset });
+        return jsonResponse({ status: "success", ...result, limit, offset }, 200);
+      } catch (err) {
+        console.error("[Admin] Quest rule recomputation failed:", err);
+        return jsonResponse(
+          {
+            error: "Quest inference recomputation failed",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          500,
+        );
+      }
+    }
+
+    if (path === "/admin/quest-inference/run" && request.method === "POST") {
+      const authError = requireUploadIngestAuth(
+        request,
+        env,
+        "Admin quest-inference run endpoint",
+      );
+      if (authError) return authError;
+      if (!env.QUEST_INDEX_DB) {
+        return jsonResponse({ error: "Quest index database not configured" }, 503);
+      }
+
+      const bodyResult = await parseOptionalJsonObject(request);
+      if ("error" in bodyResult) return bodyResult.error;
+
+      const parsedParams = QuestInferenceRunRequestSchema.safeParse({
+        ...(url.searchParams.has("limit") ? { limit: url.searchParams.get("limit") } : {}),
+        ...(url.searchParams.has("datasetId") ? { datasetId: url.searchParams.get("datasetId") } : {}),
+        ...bodyResult.data,
+      });
+      if (!parsedParams.success) {
+        return jsonResponse(
+          { error: "Invalid request parameters", issues: parsedParams.error.issues },
+          400,
+        );
+      }
+
+      const limit = parsedParams.data.limit ?? 50;
+      const datasetId = parsedParams.data.datasetId;
+
+      try {
+        const result = await runQuestInferenceTasks(env.QUEST_INDEX_DB, {
+          limit,
+          ...(datasetId ? { datasetId } : {}),
+        });
+        const cronEnabled = readStrictBooleanSafe(
+          env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
+          "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED",
+        );
+        return jsonResponse(
+          { status: "success", ...result, limit, cronEnabled },
+          200,
+        );
+      } catch (err) {
+        console.error("[Admin] Quest inference run failed:", err);
+        return jsonResponse(
+          {
+            error: "Quest inference execution failed",
+            detail: err instanceof Error ? err.message : String(err),
+          },
+          500,
         );
       }
     }
 
     if (path === "/read" && request.method === "GET") {
-      const readToken = env.UPLOAD_INGEST_TOKEN;
-      if (!readToken) {
-        return new Response(
-          JSON.stringify({ error: "Read endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
-          {
-            status: 403,
-            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-          },
-        );
-      }
-
-      const authHeader = request.headers.get("Authorization") ?? "";
-      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!timingSafeEqual(provided, readToken)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
+      const readAuthError = requireUploadIngestAuth(request, env, "Read endpoint");
+      if (readAuthError) return readAuthError;
 
       return handleRead(request, env, ctx);
     }

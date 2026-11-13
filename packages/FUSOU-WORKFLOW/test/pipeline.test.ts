@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { bufferDatabase, d1Fixture } from "./sqlite-fixture";
 import { memoryBucket } from "./r2-fixture";
@@ -303,5 +304,178 @@ describe("read endpoint authentication and cache isolation", () => {
     expect(coldOcfResponse.status).toBe(200);
     expect(coldOcfResponse.headers.get("Cache-Control")).toBe("private, no-store");
     await coldOcfResponse.arrayBuffer();
+  });
+});
+
+function loadQuestIndexMigrationsSql(): string {
+  const migrationsDir = new URL("../../FUSOU-WEB/migrations/quest-index/", import.meta.url);
+  return readdirSync(migrationsDir)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()
+    .map((name) => readFileSync(new URL(name, migrationsDir), "utf8"))
+    .join("\n;\n");
+}
+
+describe("quest inference admin endpoints", () => {
+  it("enforces fail-closed auth and validates parameters", async () => {
+    const fixture = await setup();
+    const questIndex = d1Fixture(loadQuestIndexMigrationsSql());
+    const env = {
+      ...fixture.env,
+      QUEST_INDEX_DB: questIndex.db,
+      UPLOAD_INGEST_TOKEN: "admin-token",
+    };
+
+    for (const path of ["/admin/quest-inference/recompute", "/admin/quest-inference/run"]) {
+      const noConfig = await worker.fetch(
+        new Request(`https://example.test${path}`, {
+          method: "POST",
+          headers: { Authorization: "Bearer admin-token" },
+        }),
+        { ...fixture.env, QUEST_INDEX_DB: questIndex.db },
+        ctx,
+      );
+      expect(noConfig.status).toBe(403);
+
+      const unauthorized = await worker.fetch(
+        new Request(`https://example.test${path}`, {
+          method: "POST",
+          headers: { Authorization: "Bearer wrong" },
+        }),
+        env,
+        ctx,
+      );
+      expect(unauthorized.status).toBe(401);
+
+      const badJson = await worker.fetch(
+        new Request(`https://example.test${path}`, {
+          method: "POST",
+          headers: { Authorization: "Bearer admin-token", "Content-Type": "application/json" },
+          body: "{",
+        }),
+        env,
+        ctx,
+      );
+      expect(badJson.status).toBe(400);
+
+      const badLimit = await worker.fetch(
+        new Request(`https://example.test${path}?limit=0`, {
+          method: "POST",
+          headers: { Authorization: "Bearer admin-token" },
+        }),
+        env,
+        ctx,
+      );
+      expect(badLimit.status).toBe(400);
+    }
+
+    const noDb = await worker.fetch(
+      new Request("https://example.test/admin/quest-inference/recompute", {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-token" },
+      }),
+      { ...fixture.env, UPLOAD_INGEST_TOKEN: "admin-token" },
+      ctx,
+    );
+    expect(noDb.status).toBe(503);
+  });
+
+  it("runs pending inference tasks and paginates rule recomputation", async () => {
+    const fixture = await setup();
+    const questIndex = d1Fixture(loadQuestIndexMigrationsSql());
+    const now = 1_700_000_000_000;
+
+    questIndex.database.exec(`
+      INSERT INTO quest_collection_sessions (
+        collection_session_id, dataset_id, started_at_ms, created_at
+      ) VALUES ('sess-1', 'ds-1', ${now - 1000}, ${now - 1000});
+
+      INSERT INTO quest_appearance_events (
+        dataset_id, collection_session_id, target_quest_id,
+        appeared_at_ms, source_event_type, period_tag, table_version,
+        is_bootstrap_unknown, created_at
+      ) VALUES
+        ('ds-1', 'sess-1', 201, ${now}, 'questlist', '2026-11', '0.6.0', 0, ${now}),
+        ('ds-1', 'sess-1', 202, ${now + 100}, 'questlist', '2026-11', '0.6.0', 0, ${now + 100});
+
+      INSERT INTO quest_state_events (
+        dataset_id, collection_session_id, quest_id, event_type, state_after,
+        timestamp_ms, period_tag, table_version, payload_hash, created_at
+      ) VALUES
+        ('ds-1', 'sess-1', 101, 'clearitemget', 'completed', ${now - 500}, '2026-11', '0.6.0', 'hash-1', ${now - 500});
+
+      INSERT INTO quest_inference_tasks (
+        task_id, dataset_id, collection_session_id, from_ts, to_ts,
+        status, retry_count, created_at, updated_at
+      ) VALUES
+        ('task-1', 'ds-1', 'sess-1', ${now - 1000}, ${now + 200}, 'pending', 0, ${now}, ${now});
+    `);
+
+    const env = {
+      ...fixture.env,
+      QUEST_INDEX_DB: questIndex.db,
+      UPLOAD_INGEST_TOKEN: "admin-token",
+      QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED: "false",
+    };
+
+    const runResponse = await worker.fetch(
+      new Request("https://example.test/admin/quest-inference/run", {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 10 }),
+      }),
+      env,
+      ctx,
+    );
+    expect(runResponse.status).toBe(200);
+    const runBody = (await runResponse.json()) as {
+      status: string;
+      picked: number;
+      completed: number;
+      failed: number;
+      cronEnabled: boolean | null;
+    };
+    expect(runBody).toMatchObject({
+      status: "success",
+      picked: 1,
+      completed: 1,
+      failed: 0,
+      cronEnabled: false,
+    });
+
+    const page1 = await worker.fetch(
+      new Request("https://example.test/admin/quest-inference/recompute", {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 1, offset: 0 }),
+      }),
+      env,
+      ctx,
+    );
+    expect(page1.status).toBe(200);
+    expect(await page1.json()).toMatchObject({
+      status: "success",
+      recomputed: 1,
+      totalTargets: 2,
+      limit: 1,
+      offset: 0,
+    });
+
+    const page2 = await worker.fetch(
+      new Request("https://example.test/admin/quest-inference/recompute?limit=1&offset=1", {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-token" },
+      }),
+      env,
+      ctx,
+    );
+    expect(page2.status).toBe(200);
+    expect(await page2.json()).toMatchObject({
+      status: "success",
+      recomputed: 1,
+      totalTargets: 2,
+      limit: 1,
+      offset: 1,
+    });
   });
 });
