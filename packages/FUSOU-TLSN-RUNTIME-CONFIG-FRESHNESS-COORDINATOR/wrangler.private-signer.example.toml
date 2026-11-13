@@ -1,6 +1,7 @@
 # Example only. This file is not selected by CI or a deployment workflow.
-# Do not deploy until the Production resources, pins, delegation, and key are
-# explicitly approved and registered. The signing key is never stored here.
+# Do not deploy until the Production resources, pins, genesis approval,
+# delegation, and key are explicitly approved and registered. The signing key
+# is never stored here.
 name = "fusou-tlsn-runtime-config-freshness-signer"
 main = "src/private-signer-worker.ts"
 compatibility_date = "2026-11-13"
@@ -29,6 +30,9 @@ RELEASE_LEDGER_MANIFEST_KEY_ID = "replace-before-registration"
 RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI = "REPLACE_WITH_APPROVED_MANIFEST_ROOT_SPKI"
 FRESHNESS_SIGNER_KEY_ID = "replace-before-registration"
 FRESHNESS_SIGNER_DELEGATION_BASE64URL = "REPLACE_WITH_ROOT_SIGNED_FRESHNESS_DELEGATION"
+# Exact canonical v1 approval JSON with Production target and material digests.
+# This placeholder is intentionally invalid and must not be deployed.
+FRESHNESS_GENESIS_APPROVAL_JSON = "REPLACE_WITH_EXACT_CANONICAL_GENESIS_APPROVAL_JSON"
 
 [[durable_objects.bindings]]
 name = "FRESHNESS_ISSUE_COORDINATOR"
@@ -44,3 +48,4 @@ bucket_name = "replace-after-explicit-registration"
 
 # Required secret, provisioned only after explicit key registration:
 # FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL
+# FRESHNESS_GENESIS_ADMIN_CAPABILITY (restricted to the private management caller)

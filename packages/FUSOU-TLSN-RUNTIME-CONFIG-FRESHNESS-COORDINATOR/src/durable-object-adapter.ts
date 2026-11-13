@@ -29,6 +29,7 @@ import type {
   CloudflareOperatorReleaseSnapshotReader,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/freshness-cloudflare-operator.ts";
 import type {
+  CloudflareOperatorGenesisOperation,
   ReleaseLedgerActionResult,
   ReleaseBindingInstallActionResult,
   ReleaseBindingInstallOperation,
@@ -70,6 +71,25 @@ export class DurableObjectFreshnessIssueCoordinatorAdapter
 
   constructor(stub: FreshnessIssueCoordinatorRpcStub) {
     this.#stub = stub;
+  }
+
+  initializeCloudflareOperatorGenesis(input: {
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+    readonly manifestBytes: Uint8Array;
+    readonly adminCapability: string;
+  }): Promise<CloudflareOperatorGenesisOperation> {
+    return this.#stub.initializeCloudflareOperatorGenesis(input);
+  }
+
+  getCloudflareOperatorGenesisOperation(
+    operationId: string,
+    adminCapability: string,
+  ): Promise<CloudflareOperatorGenesisOperation> {
+    return this.#stub.getCloudflareOperatorGenesisOperation(
+      operationId,
+      adminCapability,
+    );
   }
 
   beginOrGet(

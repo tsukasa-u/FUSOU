@@ -87,6 +87,28 @@ export interface ReleaseBindingInstallOperation {
   readonly installedState: FreshnessIssueCurrentStateBinding | null;
 }
 
+export interface CloudflareOperatorGenesisOperation {
+  readonly operationId: string;
+  readonly status:
+    | "VERIFYING"
+    | "LEDGER_COMMITTED"
+    | "R2_READBACK_PENDING"
+    | "RESULT_UNKNOWN"
+    | "AVAILABLE"
+    | "INSTALLING"
+    | "INSTALLED"
+    | "QUARANTINED"
+    | "CONFLICT"
+    | "NOT_FOUND";
+  readonly releaseStatus: ReleaseLedgerStatus | null;
+  readonly installStatus:
+    | "VERIFYING"
+    | "INSTALLED"
+    | "QUARANTINED"
+    | "CONFLICT"
+    | null;
+}
+
 export type ReleaseBindingInstallActionResult =
   | {
       readonly status:
@@ -117,6 +139,16 @@ export type ReleaseLedgerActionResult =
     };
 
 export interface ReleaseLedgerCoordinator {
+  initializeCloudflareOperatorGenesis(input: {
+    readonly recordBytes: Uint8Array;
+    readonly releaseDelegationBytes: Uint8Array;
+    readonly manifestBytes: Uint8Array;
+    readonly adminCapability: string;
+  }): Promise<CloudflareOperatorGenesisOperation>;
+  getCloudflareOperatorGenesisOperation(
+    operationId: string,
+    adminCapability: string,
+  ): Promise<CloudflareOperatorGenesisOperation>;
   readReleaseLedgerHead(): Promise<ReleaseLedgerHead | null>;
   beginReleaseOperation(input: {
     readonly operationId: string;

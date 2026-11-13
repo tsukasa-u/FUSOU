@@ -21,6 +21,8 @@ import {
   DurableObjectFreshnessIssueCoordinatorAdapter,
 } from "./durable-object-adapter.ts";
 import {
+  RuntimeConfigR2ReleaseConflictError,
+  RuntimeConfigR2ReleaseIntegrityError,
   RuntimeConfigR2ReleaseStore,
 } from "./r2-release-store.ts";
 import type {
@@ -33,6 +35,14 @@ export {
 } from "./sqlite-freshness-issue-coordinator.ts";
 
 const PRIVATE_SERVICE_ORIGIN = "https://freshness-signer.internal";
+const GENESIS_ADMIN_PATH = "/__private/admin/genesis";
+const GENESIS_ADMIN_MAX_BODY_BYTES = 2_000_000;
+const GENESIS_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const GENESIS_ADMIN_FIELDS = [
+  "manifest_bytes_base64url",
+  "record_bytes_base64url",
+  "release_delegation_bytes_base64url",
+] as const;
 const CONFIG_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const CHAIN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const MAX_DELEGATION_BYTES = 8_192;
@@ -496,12 +506,12 @@ async function cancelRequestBody(request: Request): Promise<void> {
   }
 }
 
-async function readBoundedBody(request: Request): Promise<Uint8Array> {
+async function readBoundedBody(
+  request: Request,
+  maximum: number = runtimeConfigFreshnessWire.maxRequestBytes,
+): Promise<Uint8Array> {
   const contentLength = request.headers.get("content-length");
-  const lengthState = declaredLength(
-    contentLength,
-    runtimeConfigFreshnessWire.maxRequestBytes,
-  );
+  const lengthState = declaredLength(contentLength, maximum);
   if (lengthState !== "valid") {
     await cancelRequestBody(request);
     throw new BoundedBodyError(
@@ -527,8 +537,7 @@ async function readBoundedBody(request: Request): Promise<Uint8Array> {
         break;
       }
       if (
-        next.value.byteLength >
-        runtimeConfigFreshnessWire.maxRequestBytes - byteLength
+        next.value.byteLength > maximum - byteLength
       ) {
         throw new BoundedBodyError("too-large");
       }
@@ -568,6 +577,312 @@ async function readBoundedBody(request: Request): Promise<Uint8Array> {
 async function hashBase64Url(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", exactArrayBuffer(bytes));
   return encodeBase64Url(new Uint8Array(digest));
+}
+
+function hasGenesisAdminCapability(
+  request: Request,
+  env: PrivateFreshnessSignerEnv,
+): boolean {
+  const expected = env.FRESHNESS_GENESIS_ADMIN_CAPABILITY;
+  const supplied = request.headers.get("x-fusou-genesis-capability");
+  if (
+    typeof expected !== "string" ||
+    !GENESIS_ADMIN_CAPABILITY_PATTERN.test(expected) ||
+    supplied === null ||
+    !GENESIS_ADMIN_CAPABILITY_PATTERN.test(supplied)
+  ) {
+    return false;
+  }
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+function parseGenesisRequest(bytes: Uint8Array): {
+  readonly recordBytes: Uint8Array;
+  readonly releaseDelegationBytes: Uint8Array;
+  readonly manifestBytes: Uint8Array;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new BoundedBodyError("invalid");
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed)
+  ) {
+    throw new BoundedBodyError("invalid");
+  }
+  const value = parsed as Record<string, unknown>;
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== GENESIS_ADMIN_FIELDS.length ||
+    keys.some((key, index) => key !== GENESIS_ADMIN_FIELDS[index])
+  ) {
+    throw new BoundedBodyError("invalid");
+  }
+  try {
+    if (!equalBytes(bytes, canonicalJsonBytes(value))) {
+      throw new BoundedBodyError("invalid");
+    }
+    const manifestValue = value.manifest_bytes_base64url;
+    const recordValue = value.record_bytes_base64url;
+    const delegationValue = value.release_delegation_bytes_base64url;
+    if (
+      typeof manifestValue !== "string" ||
+      typeof recordValue !== "string" ||
+      typeof delegationValue !== "string"
+    ) {
+      throw new BoundedBodyError("invalid");
+    }
+    return {
+      manifestBytes: decodeBase64Url(
+        manifestValue,
+        "Genesis Manifest",
+        1_048_576,
+      ),
+      recordBytes: decodeBase64Url(
+        recordValue,
+        "Genesis Release Record",
+        262_144,
+      ),
+      releaseDelegationBytes: decodeBase64Url(
+        delegationValue,
+        "Genesis Release delegation",
+        8_192,
+      ),
+    };
+  } catch (error) {
+    if (error instanceof BoundedBodyError) throw error;
+    throw new BoundedBodyError("invalid");
+  }
+}
+
+function genesisOperationResponse(
+  operation: Awaited<
+    ReturnType<
+      DurableObjectFreshnessIssueCoordinatorAdapter["initializeCloudflareOperatorGenesis"]
+    >
+  >,
+): Response {
+  const status = operation.status === "NOT_FOUND"
+    ? 404
+    : operation.status === "CONFLICT" || operation.status === "QUARANTINED"
+    ? 409
+    : operation.status === "RESULT_UNKNOWN"
+    ? 503
+    : 200;
+  return new Response(
+    JSON.stringify({
+      operation_id: operation.operationId,
+      status: operation.status,
+      release_status: operation.releaseStatus,
+      install_status: operation.installStatus,
+    }),
+    {
+      status,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      },
+    },
+  );
+}
+
+function genesisManagementFailure(error: unknown): Response {
+  const errorName = remoteErrorName(error);
+  const storageErrorCode = remoteCoordinatorStorageErrorCode(error);
+  if (storageErrorCode !== null) {
+    logFailure("private_signer_genesis_operation_rejected", error);
+    if (storageErrorCode === "INVALID_INPUT") {
+      return jsonResponse(400, "invalid_genesis_material");
+    }
+    if (
+      storageErrorCode === "PROFILE_MISMATCH" ||
+      storageErrorCode === "RELEASE_CONFLICT" ||
+      storageErrorCode === "RELEASE_BLOCKED" ||
+      storageErrorCode === "ILLEGAL_TRANSITION"
+    ) {
+      return jsonResponse(409, "genesis_not_available");
+    }
+    return jsonResponse(503, "genesis_unavailable");
+  }
+  if (
+    error instanceof RuntimeConfigDomainError ||
+    errorName === "RuntimeConfigDomainError" ||
+    error instanceof RuntimeConfigR2ReleaseConflictError ||
+    errorName === "RuntimeConfigR2ReleaseConflictError" ||
+    error instanceof RuntimeConfigR2ReleaseIntegrityError ||
+    errorName === "RuntimeConfigR2ReleaseIntegrityError"
+  ) {
+    logFailure("private_signer_genesis_material_rejected", error);
+    return jsonResponse(409, "genesis_material_rejected");
+  }
+  logFailure("private_signer_genesis_operation_failed", error);
+  return jsonResponse(503, "genesis_unavailable");
+}
+
+function remoteErrorName(error: unknown): string | null {
+  if (error instanceof Error) return error.name;
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    "name" in error &&
+    typeof error.name === "string"
+  ) {
+    return error.name;
+  }
+  return null;
+}
+
+function remoteCoordinatorStorageErrorCode(error: unknown): string | null {
+  if (
+    remoteErrorName(error) !== "FreshnessIssueCoordinatorStorageError" ||
+    error === null ||
+    typeof error !== "object" ||
+    !("code" in error) ||
+    typeof error.code !== "string"
+  ) {
+    return null;
+  }
+  return [
+    "INVALID_INPUT",
+    "NOT_INITIALIZED",
+    "CORRUPT_STORAGE",
+    "ILLEGAL_TRANSITION",
+    "FENCE_EXHAUSTED",
+    "RELEASE_CONFLICT",
+    "RELEASE_BLOCKED",
+    "PROFILE_MISMATCH",
+    "INVALID_TIME",
+    "MISSING_ADAPTER",
+  ].includes(error.code)
+    ? error.code
+    : null;
+}
+
+function genesisCoordinatorFor(
+  env: PrivateFreshnessSignerEnv,
+): DurableObjectFreshnessIssueCoordinatorAdapter {
+  const coordinatorName = requiredString(
+    env.FRESHNESS_COORDINATOR_NAME,
+    "Freshness coordinator identity",
+  );
+  const { coordinatorNamespace } = requiredBindings(env);
+  const stub = coordinatorNamespace.get(
+    coordinatorNamespace.idFromName(coordinatorName),
+  );
+  return new DurableObjectFreshnessIssueCoordinatorAdapter(stub);
+}
+
+async function handleGenesisManagementRequest(
+  request: Request,
+  env: PrivateFreshnessSignerEnv,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const operationMatch = /^\/__private\/admin\/genesis\/([0-9a-f-]{36})$/u.exec(
+    url.pathname,
+  );
+  const isInitializePath = url.pathname === GENESIS_ADMIN_PATH;
+  if (!isInitializePath && operationMatch === null) return null;
+  if (url.origin !== PRIVATE_SERVICE_ORIGIN || url.search.length !== 0) {
+    return jsonResponse(404, "not_found");
+  }
+  const expectedMethod = isInitializePath ? "POST" : "GET";
+  if (request.method !== expectedMethod) {
+    return new Response(null, {
+      status: 405,
+      headers: {
+        allow: expectedMethod,
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+  if (!hasGenesisAdminCapability(request, env)) {
+    await cancelRequestBody(request);
+    return jsonResponse(403, "forbidden");
+  }
+
+  if (isInitializePath) {
+    if (mediaType(request.headers.get("content-type")) !== "application/json") {
+      return jsonResponse(415, "unsupported_media_type");
+    }
+    const contentEncoding = request.headers.get("content-encoding");
+    if (
+      contentEncoding !== null &&
+      contentEncoding.toLowerCase() !== "identity"
+    ) {
+      return jsonResponse(415, "unsupported_media_type");
+    }
+    let requestBytes: Uint8Array;
+    try {
+      requestBytes = await readBoundedBody(
+        request,
+        GENESIS_ADMIN_MAX_BODY_BYTES,
+      );
+    } catch (error) {
+      if (!(error instanceof BoundedBodyError)) throw error;
+      return jsonResponse(
+        error.reason === "too-large" ? 413 : 400,
+        error.reason === "too-large" ? "request_too_large" : "invalid_request",
+      );
+    }
+    let input: ReturnType<typeof parseGenesisRequest>;
+    try {
+      input = parseGenesisRequest(requestBytes);
+    } catch (error) {
+      if (!(error instanceof BoundedBodyError)) throw error;
+      return jsonResponse(400, "invalid_request");
+    }
+    try {
+      const coordinator = genesisCoordinatorFor(env);
+      return genesisOperationResponse(
+        await coordinator.initializeCloudflareOperatorGenesis({
+          ...input,
+          adminCapability: requiredString(
+            env.FRESHNESS_GENESIS_ADMIN_CAPABILITY,
+            "Genesis management capability",
+            GENESIS_ADMIN_CAPABILITY_PATTERN,
+          ),
+        }),
+      );
+    } catch (error) {
+      return genesisManagementFailure(error);
+    }
+  }
+
+  if (
+    request.body !== null ||
+    (request.headers.has("content-length") &&
+      request.headers.get("content-length") !== "0")
+  ) {
+    await cancelRequestBody(request);
+    return jsonResponse(400, "invalid_request");
+  }
+  const operationId = operationMatch?.[1];
+  if (operationId === undefined) return jsonResponse(404, "not_found");
+  try {
+    const coordinator = genesisCoordinatorFor(env);
+    return genesisOperationResponse(
+      await coordinator.getCloudflareOperatorGenesisOperation(
+        operationId,
+        requiredString(
+          env.FRESHNESS_GENESIS_ADMIN_CAPABILITY,
+          "Genesis management capability",
+          GENESIS_ADMIN_CAPABILITY_PATTERN,
+        ),
+      ),
+    );
+  } catch (error) {
+    return genesisManagementFailure(error);
+  }
 }
 
 async function handleFreshnessRequest(
@@ -720,6 +1035,8 @@ const privateFreshnessSigner = {
     env: PrivateFreshnessSignerEnv,
     context: ExecutionContext,
   ): Promise<Response> {
+    const genesisResponse = await handleGenesisManagementRequest(request, env);
+    if (genesisResponse !== null) return genesisResponse;
     return handleFreshnessRequest(request, env, context);
   },
 } satisfies ExportedHandler<PrivateFreshnessSignerEnv>;

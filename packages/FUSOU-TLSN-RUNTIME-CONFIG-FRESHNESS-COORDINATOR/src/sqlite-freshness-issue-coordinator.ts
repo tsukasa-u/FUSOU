@@ -16,6 +16,7 @@ import {
   encodeBase64Url,
   parseCanonicalUnsignedDecimal,
   runtimeConfigFreshnessWire,
+  runtimeConfigManifestAudienceSha256,
   RuntimeConfigDomainError,
   verifyRuntimeConfigManifestEpochPointer,
   verifyRuntimeConfigFreshnessRequest,
@@ -57,6 +58,7 @@ import {
   RuntimeConfigR2ReleaseStore,
 } from "./r2-release-store.ts";
 import type {
+  CloudflareOperatorGenesisOperation,
   ReleaseBindingInstallActionResult,
   ReleaseBindingInstallOperation,
   ReleaseLedgerActionResult,
@@ -69,6 +71,39 @@ const UINT64_MAX = 18_446_744_073_709_551_615n;
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const GENESIS_COORDINATOR_ID_PATTERN = /^[a-f0-9]{64}$/u;
+const GENESIS_CHAIN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const GENESIS_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const GENESIS_MAX_RECORD_BYTES = 262_144;
+const GENESIS_MAX_DELEGATION_BYTES = 8_192;
+const GENESIS_MAX_MANIFEST_BYTES = 1_048_576;
+const GENESIS_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const GENESIS_OPERATION_ID_DOMAIN =
+  "FUSOU-TLSN-CLOUDFLARE-OPERATOR-GENESIS-OPERATION-ID-V1\0";
+const GENESIS_APPROVAL_FIELDS = [
+  "audience_manifest_url_sha256",
+  "chain_id",
+  "coordinator_id",
+  "coordinator_name",
+  "environment",
+  "initial_generation",
+  "initial_position",
+  "manifest_epoch",
+  "manifest_ref",
+  "manifest_root_key_id",
+  "manifest_root_public_key_spki",
+  "manifest_sha256",
+  "manifest_url",
+  "profile_id",
+  "release_delegation_sha256",
+  "release_record_manifest_schema_version",
+  "release_record_sha256",
+  "release_root_key_id",
+  "release_root_public_key_spki",
+  "restore_epoch",
+  "schema_version",
+  "scope",
+] as const;
 const OPERATION_STATUSES = [
   "IN_PROGRESS",
   "RESULT_UNKNOWN",
@@ -109,6 +144,72 @@ export interface CoordinatorEnv {
   readonly RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI?: string;
   readonly RELEASE_LEDGER_R2?: R2Bucket;
   readonly FRESHNESS_MANIFEST_URL?: string;
+  readonly FRESHNESS_COORDINATOR_NAME?: string;
+  readonly FRESHNESS_GENESIS_APPROVAL_JSON?: string;
+  readonly FRESHNESS_GENESIS_ADMIN_CAPABILITY?: string;
+}
+
+interface CloudflareOperatorGenesisApproval {
+  readonly schema_version: 1;
+  readonly scope: "fusou-cloudflare-operator-genesis-v1";
+  readonly environment: "production";
+  readonly profile_id: typeof CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID;
+  readonly coordinator_name: string;
+  readonly coordinator_id: string;
+  readonly chain_id: string;
+  readonly restore_epoch: string;
+  readonly initial_position: "1";
+  readonly initial_generation: "1";
+  readonly release_record_sha256: string;
+  readonly release_delegation_sha256: string;
+  readonly release_record_manifest_schema_version: 2;
+  readonly manifest_epoch: string;
+  readonly manifest_sha256: string;
+  readonly manifest_ref: string;
+  readonly manifest_url: string;
+  readonly audience_manifest_url_sha256: string;
+  readonly release_root_key_id: string;
+  readonly release_root_public_key_spki: string;
+  readonly manifest_root_key_id: string;
+  readonly manifest_root_public_key_spki: string;
+}
+
+interface CloudflareOperatorGenesisRow {
+  readonly [column: string]: string | number | ArrayBuffer | null;
+  readonly operation_id: string;
+  readonly request_sha256: string;
+  readonly approval_sha256: string;
+  readonly record_bytes: ArrayBuffer;
+  readonly release_delegation_bytes: ArrayBuffer;
+  readonly manifest_bytes: ArrayBuffer;
+  readonly restore_epoch: string;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly created_at_ms: number;
+}
+
+interface CloudflareOperatorGenesisInput {
+  readonly recordBytes: Uint8Array;
+  readonly releaseDelegationBytes: Uint8Array;
+  readonly manifestBytes: Uint8Array;
+}
+
+interface PreparedCloudflareOperatorGenesis {
+  readonly approval: CloudflareOperatorGenesisApproval;
+  readonly approvalSha256: string;
+  readonly operationId: string;
+  readonly requestSha256: string;
+  readonly input: CloudflareOperatorGenesisInput;
+}
+
+interface VerifiedCloudflareOperatorGenesis {
+  readonly manifest: Awaited<
+    ReturnType<typeof verifyRuntimeConfigManifestEpochPointer>
+  >;
+  readonly record: Awaited<
+    ReturnType<typeof verifyRuntimeConfigReleaseCommitRecord>
+  >;
+  readonly pointerEtag: string;
 }
 
 interface CloudflareOperatorProfileRow {
@@ -517,6 +618,25 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           generation TEXT NOT NULL,
           record_sha256 TEXT NOT NULL,
           restore_epoch TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS cloudflare_operator_genesis_operations (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          operation_id TEXT NOT NULL UNIQUE,
+          request_sha256 TEXT NOT NULL,
+          approval_sha256 TEXT NOT NULL,
+          record_bytes BLOB NOT NULL,
+          release_delegation_bytes BLOB NOT NULL,
+          manifest_bytes BLOB NOT NULL,
+          restore_epoch TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN (
+              'ADMITTED', 'LEDGER_COMMITTED', 'R2_READBACK_PENDING',
+              'RESULT_UNKNOWN', 'AVAILABLE', 'INSTALLING', 'INSTALLED',
+              'QUARANTINED'
+            )
+          ),
+          reason TEXT,
+          created_at_ms INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS cloudflare_operator_binding_installs (
           operation_id TEXT PRIMARY KEY,
@@ -1055,6 +1175,104 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     return row === null ? null : releaseBindingInstallFromRow(row);
   }
 
+  async initializeCloudflareOperatorGenesis(
+    input: CloudflareOperatorGenesisInput & {
+      readonly adminCapability: string;
+    },
+  ): Promise<CloudflareOperatorGenesisOperation> {
+    this.assertCloudflareOperatorGenesisCapability(input.adminCapability);
+    const prepared = await this.prepareCloudflareOperatorGenesis(input);
+    const existing = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorGenesis(),
+    );
+    if (existing !== null) {
+      if (!this.genesisInputMatches(existing, prepared)) {
+        return genesisConflict(prepared.operationId);
+      }
+      return this.resumeCloudflareOperatorGenesis(prepared);
+    }
+
+    const verified = await this.verifyCloudflareOperatorGenesisMaterial(prepared);
+    const admitted = this.ctx.storage.transactionSync(() =>
+      this.admitCloudflareOperatorGenesis(prepared, verified),
+    );
+    if (!admitted) {
+      const raced = this.ctx.storage.transactionSync(() =>
+        this.findCloudflareOperatorGenesis(),
+      );
+      if (raced === null || !this.genesisInputMatches(raced, prepared)) {
+        return genesisConflict(prepared.operationId);
+      }
+    }
+    return this.resumeCloudflareOperatorGenesis(prepared);
+  }
+
+  async getCloudflareOperatorGenesisOperation(
+    operationId: string,
+    adminCapability: string,
+  ): Promise<CloudflareOperatorGenesisOperation> {
+    this.assertCloudflareOperatorGenesisCapability(adminCapability);
+    return this.readCloudflareOperatorGenesisOperation(operationId);
+  }
+
+  private async readCloudflareOperatorGenesisOperation(
+    operationId: string,
+  ): Promise<CloudflareOperatorGenesisOperation> {
+    assertUuid(operationId, "Cloudflare/operator genesis operation ID");
+    const approval = await this.requireCloudflareOperatorGenesisApproval();
+    const expectedOperationId = await cloudflareOperatorGenesisOperationId(
+      canonicalJsonBytes(approval),
+    );
+    if (operationId !== expectedOperationId) {
+      return {
+        operationId,
+        status: "NOT_FOUND",
+        releaseStatus: null,
+        installStatus: null,
+      };
+    }
+    const row = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorGenesis(operationId),
+    );
+    if (row === null) {
+      return {
+        operationId,
+        status: "NOT_FOUND",
+        releaseStatus: null,
+        installStatus: null,
+      };
+    }
+    const release = await this.getReleaseOperation(operationId);
+    if (
+      release === null ||
+      release.requestSha256 !== row.request_sha256 ||
+      !equalBytes(release.manifestBytes, bytesFromArrayBuffer(row.manifest_bytes)) ||
+      (release.recordBytes !== null &&
+        !equalBytes(
+          release.recordBytes,
+          bytesFromArrayBuffer(row.record_bytes),
+        )) ||
+      (release.releaseDelegationBytes !== null &&
+        !equalBytes(
+          release.releaseDelegationBytes,
+          bytesFromArrayBuffer(row.release_delegation_bytes),
+        )) ||
+      ((release.recordBytes === null) !==
+        (release.releaseDelegationBytes === null))
+    ) {
+      throw corruptStorage(
+        "Persisted genesis operation does not match its Release ledger operation",
+      );
+    }
+    const install = await this.getCloudflareOperatorBindingInstall(operationId);
+    return {
+      operationId,
+      status: cloudflareOperatorGenesisStatus(row, release, install),
+      releaseStatus: release.status,
+      installStatus: install?.status ?? null,
+    };
+  }
+
   async beginCloudflareOperatorBindingInstall(input: {
     readonly operationId: string;
     readonly mode: "BOOTSTRAP" | "ADVANCE";
@@ -1088,15 +1306,9 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     }
     const chainId = this.requireReleaseChainId();
     const requestSha256 = await sha256Base64Url(
-      canonicalJsonBytes({
-        profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
-        operationId: input.operationId,
-        mode: input.mode,
-        releaseOperationId: input.releaseOperationId,
+      cloudflareOperatorInstallRequestBytes({
+        ...input,
         releaseFencingToken: releaseOperation.fencingToken,
-        expectedCurrentStateSha256: input.expectedCurrentStateSha256,
-        expectedRestoreEpoch: input.expectedRestoreEpoch,
-        environment: "production",
         chainId,
       }),
     );
@@ -3452,6 +3664,1085 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       operation.status === "AVAILABLE" &&
       coordinatorStateMatchesReleaseHead(currentState, head)
     );
+  }
+
+  private assertCloudflareOperatorGenesisCapability(
+    supplied: string,
+  ): void {
+    const expected = this.#env.FRESHNESS_GENESIS_ADMIN_CAPABILITY;
+    if (
+      typeof expected !== "string" ||
+      !GENESIS_ADMIN_CAPABILITY_PATTERN.test(expected)
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Cloudflare/operator genesis capability is not configured",
+      );
+    }
+    if (
+      typeof supplied !== "string" ||
+      !GENESIS_ADMIN_CAPABILITY_PATTERN.test(supplied)
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "PROFILE_MISMATCH",
+        "Cloudflare/operator genesis capability is invalid",
+      );
+    }
+    let difference = 0;
+    for (let index = 0; index < expected.length; index += 1) {
+      difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+    }
+    if (difference !== 0) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "PROFILE_MISMATCH",
+        "Cloudflare/operator genesis capability is invalid",
+      );
+    }
+  }
+
+  private async prepareCloudflareOperatorGenesis(
+    input: CloudflareOperatorGenesisInput,
+  ): Promise<PreparedCloudflareOperatorGenesis> {
+    if (
+      input === null ||
+      typeof input !== "object" ||
+      !(input.recordBytes instanceof Uint8Array) ||
+      !(input.releaseDelegationBytes instanceof Uint8Array) ||
+      !(input.manifestBytes instanceof Uint8Array) ||
+      input.recordBytes.byteLength === 0 ||
+      input.recordBytes.byteLength > GENESIS_MAX_RECORD_BYTES ||
+      input.releaseDelegationBytes.byteLength === 0 ||
+      input.releaseDelegationBytes.byteLength > GENESIS_MAX_DELEGATION_BYTES ||
+      input.manifestBytes.byteLength === 0 ||
+      input.manifestBytes.byteLength > GENESIS_MAX_MANIFEST_BYTES
+    ) {
+      throw invalidInput("Cloudflare/operator genesis material is invalid");
+    }
+
+    const approval = await this.requireCloudflareOperatorGenesisApproval();
+    const copiedInput = {
+      recordBytes: copyBytes(input.recordBytes),
+      releaseDelegationBytes: copyBytes(input.releaseDelegationBytes),
+      manifestBytes: copyBytes(input.manifestBytes),
+    };
+    const recordSha256 = await sha256Base64Url(copiedInput.recordBytes);
+    const releaseDelegationSha256 = await sha256Base64Url(
+      copiedInput.releaseDelegationBytes,
+    );
+    const manifestSha256 = await sha256Base64Url(copiedInput.manifestBytes);
+    if (
+      recordSha256 !== approval.release_record_sha256 ||
+      releaseDelegationSha256 !== approval.release_delegation_sha256 ||
+      manifestSha256 !== approval.manifest_sha256
+    ) {
+      throw invalidInput(
+        "Cloudflare/operator genesis material does not match the fixed approval",
+      );
+    }
+
+    const approvalBytes = canonicalJsonBytes(approval);
+    const approvalSha256 = await sha256Base64Url(approvalBytes);
+    const operationId = await cloudflareOperatorGenesisOperationId(
+      approvalBytes,
+    );
+    const requestSha256 = await sha256Base64Url(
+      canonicalJsonBytes({
+        scope: "fusou-cloudflare-operator-genesis-request-v1",
+        operationId,
+        approvalSha256,
+        recordLength: copiedInput.recordBytes.byteLength,
+        recordSha256,
+        releaseDelegationLength:
+          copiedInput.releaseDelegationBytes.byteLength,
+        releaseDelegationSha256,
+        manifestLength: copiedInput.manifestBytes.byteLength,
+        manifestSha256,
+      }),
+    );
+    return {
+      approval,
+      approvalSha256,
+      operationId,
+      requestSha256,
+      input: copiedInput,
+    };
+  }
+
+  private async requireCloudflareOperatorGenesisApproval():
+    Promise<CloudflareOperatorGenesisApproval> {
+    const raw = this.#env.FRESHNESS_GENESIS_APPROVAL_JSON;
+    if (typeof raw !== "string" || raw.length === 0) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "MISSING_ADAPTER",
+        "Cloudflare/operator genesis approval is not configured",
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw invalidInput("Cloudflare/operator genesis approval is malformed");
+    }
+    if (!isRecord(parsed)) {
+      throw invalidInput("Cloudflare/operator genesis approval is not an object");
+    }
+    const actualFields = Object.keys(parsed).sort();
+    if (
+      actualFields.length !== GENESIS_APPROVAL_FIELDS.length ||
+      actualFields.some((field, index) => field !== GENESIS_APPROVAL_FIELDS[index]) ||
+      !equalBytes(
+        new TextEncoder().encode(raw),
+        canonicalJsonBytes(parsed),
+      )
+    ) {
+      throw invalidInput(
+        "Cloudflare/operator genesis approval is not exact canonical JSON",
+      );
+    }
+
+    const stringField = (name: string): string => {
+      const value = parsed[name];
+      if (typeof value !== "string" || value.length === 0 || value !== value.trim()) {
+        throw invalidInput(
+          `Cloudflare/operator genesis approval field ${name} is invalid`,
+        );
+      }
+      return value;
+    };
+    if (
+      parsed.schema_version !== 1 ||
+      parsed.scope !== "fusou-cloudflare-operator-genesis-v1" ||
+      parsed.environment !== "production" ||
+      parsed.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+      parsed.initial_position !== "1" ||
+      parsed.initial_generation !== "1" ||
+      parsed.release_record_manifest_schema_version !== 2
+    ) {
+      throw invalidInput(
+        "Cloudflare/operator genesis approval has an unsupported scope or initial position",
+      );
+    }
+
+    const approval: CloudflareOperatorGenesisApproval = {
+      schema_version: 1,
+      scope: "fusou-cloudflare-operator-genesis-v1",
+      environment: "production",
+      profile_id: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+      coordinator_name: stringField("coordinator_name"),
+      coordinator_id: stringField("coordinator_id"),
+      chain_id: stringField("chain_id"),
+      restore_epoch: stringField("restore_epoch"),
+      initial_position: "1",
+      initial_generation: "1",
+      release_record_sha256: stringField("release_record_sha256"),
+      release_delegation_sha256: stringField("release_delegation_sha256"),
+      release_record_manifest_schema_version: 2,
+      manifest_epoch: stringField("manifest_epoch"),
+      manifest_sha256: stringField("manifest_sha256"),
+      manifest_ref: stringField("manifest_ref"),
+      manifest_url: stringField("manifest_url"),
+      audience_manifest_url_sha256: stringField(
+        "audience_manifest_url_sha256",
+      ),
+      release_root_key_id: stringField("release_root_key_id"),
+      release_root_public_key_spki: stringField(
+        "release_root_public_key_spki",
+      ),
+      manifest_root_key_id: stringField("manifest_root_key_id"),
+      manifest_root_public_key_spki: stringField(
+        "manifest_root_public_key_spki",
+      ),
+    };
+    if (
+      !GENESIS_COORDINATOR_ID_PATTERN.test(approval.coordinator_id) ||
+      !GENESIS_CHAIN_ID_PATTERN.test(approval.chain_id) ||
+      !GENESIS_KEY_ID_PATTERN.test(approval.release_root_key_id) ||
+      !GENESIS_KEY_ID_PATTERN.test(approval.manifest_root_key_id) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(approval.coordinator_name) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(approval.restore_epoch) ||
+      !SHA256_BASE64URL_PATTERN.test(approval.release_record_sha256) ||
+      !SHA256_BASE64URL_PATTERN.test(approval.release_delegation_sha256) ||
+      !SHA256_BASE64URL_PATTERN.test(approval.manifest_sha256) ||
+      !SHA256_BASE64URL_PATTERN.test(approval.audience_manifest_url_sha256) ||
+      !/^[A-Za-z0-9_-]+$/u.test(approval.release_root_public_key_spki) ||
+      !/^[A-Za-z0-9_-]+$/u.test(approval.manifest_root_public_key_spki) ||
+      approval.manifest_ref !==
+        `${runtimeConfigFreshnessWire.immutableManifestPrefix}${approval.manifest_sha256}` ||
+      !/^[1-9][0-9]*$/u.test(approval.manifest_epoch)
+    ) {
+      throw invalidInput("Cloudflare/operator genesis approval binding is invalid");
+    }
+    parseCanonicalUnsignedDecimal(approval.manifest_epoch, "genesis Manifest epoch");
+
+    const expectedCoordinatorName = this.#env.FRESHNESS_COORDINATOR_NAME;
+    if (
+      typeof expectedCoordinatorName !== "string" ||
+      approval.coordinator_name !== expectedCoordinatorName ||
+      approval.coordinator_id !== this.ctx.id.toString() ||
+      approval.chain_id !== this.requireReleaseChainId() ||
+      approval.manifest_url !== this.requireFreshnessManifestUrl() ||
+      approval.release_root_key_id !== this.#env.RELEASE_LEDGER_ROOT_KEY_ID ||
+      approval.release_root_public_key_spki !==
+        this.#env.RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI ||
+      approval.manifest_root_key_id !== this.#env.RELEASE_LEDGER_MANIFEST_KEY_ID ||
+      approval.manifest_root_public_key_spki !==
+        this.#env.RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI
+    ) {
+      throw new FreshnessIssueCoordinatorStorageError(
+        "PROFILE_MISMATCH",
+        "Cloudflare/operator genesis approval does not match the configured target",
+      );
+    }
+    const audienceSha256 = await runtimeConfigManifestAudienceSha256(
+      approval.manifest_url,
+    );
+    if (audienceSha256 !== approval.audience_manifest_url_sha256) {
+      throw invalidInput(
+        "Cloudflare/operator genesis Manifest audience pin is invalid",
+      );
+    }
+    return approval;
+  }
+
+  private async verifyCloudflareOperatorGenesisMaterial(
+    prepared: PreparedCloudflareOperatorGenesis,
+  ): Promise<VerifiedCloudflareOperatorGenesis> {
+    const { approval, input } = prepared;
+    const nowMs = runtimeUtcNow();
+    const manifest = await this.verifyManifestPointer(input.manifestBytes);
+    const manifestSha256 = await sha256Base64Url(input.manifestBytes);
+    if (
+      manifestSha256 !== approval.manifest_sha256 ||
+      manifest.manifestSha256 !== approval.manifest_sha256 ||
+      manifest.epoch !== approval.manifest_epoch ||
+      manifest.notBeforeMs > nowMs ||
+      manifest.expiresAtMs <= nowMs
+    ) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "Genesis Manifest does not match the approved active Manifest",
+      );
+    }
+
+    const record = await verifyRuntimeConfigReleaseCommitRecord({
+      raw: input.recordBytes,
+      rootSigner: this.requireReleaseRootSigner(),
+      environment: "production",
+      releaseDelegationRaw: input.releaseDelegationBytes,
+      appendedAt: timestampFromMilliseconds(nowMs),
+    });
+    const releaseDelegationSha256 = await sha256Base64Url(
+      input.releaseDelegationBytes,
+    );
+    if (
+      record.digest !== approval.release_record_sha256 ||
+      releaseDelegationSha256 !== approval.release_delegation_sha256 ||
+      record.payload.environment !== "production" ||
+      record.payload.commit_generation !== approval.initial_generation ||
+      record.payload.previous_commit_generation !== null ||
+      record.payload.previous_commit_record_sha256 !== null ||
+      record.payload.manifest_schema_version !==
+        approval.release_record_manifest_schema_version ||
+      record.payload.manifest_epoch !== manifest.epoch ||
+      record.payload.manifest_sha256 !== manifest.manifestSha256 ||
+      record.payload.manifest_ref !== approval.manifest_ref
+    ) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "Genesis Release Record does not match the approved initial Release",
+      );
+    }
+
+    const readback = await this.requireReleaseStore().verifyExactReadback({
+      manifestRef: approval.manifest_ref,
+      manifestBytes: input.manifestBytes,
+      pointerEtag: record.payload.pointer_etag,
+    });
+    if (
+      !equalBytes(readback.pointerBytes, input.manifestBytes) ||
+      !equalBytes(readback.snapshotBytes, input.manifestBytes)
+    ) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "Genesis R2 pointer and immutable snapshot do not match exact Manifest bytes",
+      );
+    }
+    const verifiedAtMs = runtimeUtcNow();
+    if (
+      verifiedAtMs < manifest.notBeforeMs ||
+      verifiedAtMs >= manifest.expiresAtMs ||
+      verifiedAtMs < record.delegation.notBeforeMs ||
+      verifiedAtMs >= record.delegation.notAfterMs
+    ) {
+      throw new RuntimeConfigDomainError(
+        "INVALID_TIME",
+        "Genesis materials expired during verification",
+      );
+    }
+    return {
+      manifest,
+      record,
+      pointerEtag: readback.pointerEtag,
+    };
+  }
+
+  private admitCloudflareOperatorGenesis(
+    prepared: PreparedCloudflareOperatorGenesis,
+    verified: VerifiedCloudflareOperatorGenesis,
+  ): boolean {
+    if (this.findCloudflareOperatorGenesis() !== null) return false;
+    if (!this.cloudflareOperatorGenesisStateIsPristine()) return false;
+
+    const nowMs = runtimeUtcNow();
+    if (
+      nowMs < verified.manifest.notBeforeMs ||
+      nowMs >= verified.manifest.expiresAtMs ||
+      nowMs < verified.record.delegation.notBeforeMs ||
+      nowMs >= verified.record.delegation.notAfterMs
+    ) {
+      throw new RuntimeConfigDomainError(
+        "INVALID_TIME",
+        "Genesis materials expired before durable admission",
+      );
+    }
+    const { approval, input, operationId, requestSha256, approvalSha256 } =
+      prepared;
+    const manifestBytes = arrayBufferFromBytes(input.manifestBytes);
+    this.sql.exec(
+      `INSERT INTO cloudflare_operator_genesis_operations (
+         singleton, operation_id, request_sha256, approval_sha256,
+         record_bytes, release_delegation_bytes, manifest_bytes,
+         restore_epoch, status, reason, created_at_ms
+       ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, 'ADMITTED', NULL, ?)`,
+      operationId,
+      requestSha256,
+      approvalSha256,
+      arrayBufferFromBytes(input.recordBytes),
+      arrayBufferFromBytes(input.releaseDelegationBytes),
+      manifestBytes,
+      approval.restore_epoch,
+      nowMs,
+    );
+    this.sql.exec(
+      `INSERT INTO freshness_profile (
+         singleton, profile_id, environment, chain_id, current_state_json,
+         local_restore_epoch, last_observed_utc_ms, next_fencing_token,
+         write_fencing_token, writer_pending, writer_operation_id
+       ) VALUES (1, ?, 'production', ?, NULL, ?, ?, '1', '1', 1, ?)`,
+      CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+      approval.chain_id,
+      approval.restore_epoch,
+      nowMs,
+      operationId,
+    );
+    this.sql.exec(
+      `INSERT INTO release_ledger_operations (
+         operation_id, request_sha256, environment, chain_id, status,
+         reason, unknown_stage, resume_status, fencing_token,
+         expected_position, expected_generation, expected_record_sha256,
+         expected_pointer_etag, manifest_bytes, manifest_length,
+         manifest_sha256, manifest_epoch, manifest_ref,
+         pointer_bytes, pointer_etag, snapshot_bytes
+       ) VALUES (?, ?, 'production', ?, 'R2_STAGED', NULL, NULL, NULL, '1',
+                 NULL, NULL, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      operationId,
+      requestSha256,
+      approval.chain_id,
+      manifestBytes,
+      input.manifestBytes.byteLength,
+      approval.manifest_sha256,
+      approval.manifest_epoch,
+      approval.manifest_ref,
+      manifestBytes,
+      verified.pointerEtag,
+      manifestBytes,
+    );
+    return true;
+  }
+
+  private async resumeCloudflareOperatorGenesis(
+    prepared: PreparedCloudflareOperatorGenesis,
+  ): Promise<CloudflareOperatorGenesisOperation> {
+    let genesis = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorGenesis(prepared.operationId),
+    );
+    if (genesis === null || !this.genesisInputMatches(genesis, prepared)) {
+      return genesisConflict(prepared.operationId);
+    }
+    if (genesis.status === "QUARANTINED") {
+      return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+    }
+
+    let release = await this.getReleaseOperation(prepared.operationId);
+    if (
+      release === null ||
+      release.requestSha256 !== prepared.requestSha256 ||
+      !equalBytes(release.manifestBytes, prepared.input.manifestBytes)
+    ) {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "QUARANTINED",
+        "RELEASE_OPERATION_MISMATCH",
+      );
+      return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+    }
+
+    if (release.status === "R2_STAGED") {
+      try {
+        await this.verifyCloudflareOperatorGenesisMaterial(prepared);
+      } catch (error) {
+        if (
+          error instanceof RuntimeConfigDomainError ||
+          error instanceof RuntimeConfigR2ReleaseIntegrityError
+        ) {
+          if (release.fencingToken === null) {
+            throw corruptStorage(
+              "Genesis Release operation is missing its fencing token",
+            );
+          }
+          await this.quarantineReleaseOperation(
+            prepared.operationId,
+            release.fencingToken,
+            "Genesis materials failed verification after durable admission",
+          );
+          this.updateCloudflareOperatorGenesisStatus(
+            prepared.operationId,
+            "QUARANTINED",
+            "MATERIAL_VERIFICATION_FAILED",
+          );
+          return this.readCloudflareOperatorGenesisOperation(
+            prepared.operationId,
+          );
+        }
+        throw error;
+      }
+
+      try {
+        const appended = await this.appendReleaseRecord({
+          operationId: prepared.operationId,
+          fencingToken: requireFencingToken(release),
+          recordBytes: prepared.input.recordBytes,
+          releaseDelegationBytes: prepared.input.releaseDelegationBytes,
+        });
+        if (
+          appended.status === "QUARANTINED" ||
+          appended.status === "CONFLICT"
+        ) {
+          this.updateCloudflareOperatorGenesisStatus(
+            prepared.operationId,
+            "QUARANTINED",
+            "RELEASE_APPEND_REJECTED",
+          );
+          return this.readCloudflareOperatorGenesisOperation(
+            prepared.operationId,
+          );
+        }
+      } catch (error) {
+        const persisted = await this.getReleaseOperation(prepared.operationId);
+        if (persisted?.status === "QUARANTINED") {
+          this.updateCloudflareOperatorGenesisStatus(
+            prepared.operationId,
+            "QUARANTINED",
+            "RELEASE_APPEND_QUARANTINED",
+          );
+          return this.readCloudflareOperatorGenesisOperation(
+            prepared.operationId,
+          );
+        }
+        throw error;
+      }
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "LEDGER_COMMITTED",
+      );
+      release = await this.getReleaseOperation(prepared.operationId);
+      if (release === null) {
+        throw corruptStorage("Genesis Release operation disappeared after append");
+      }
+    }
+
+    if (
+      release.status === "LEDGER_COMMITTED" ||
+      release.status === "R2_READBACK_PENDING" ||
+      (release.status === "RESULT_UNKNOWN" &&
+        release.unknownStage === "R2_READBACK")
+    ) {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        release.status === "RESULT_UNKNOWN"
+          ? "RESULT_UNKNOWN"
+          : "R2_READBACK_PENDING",
+      );
+      const readback = release.status === "RESULT_UNKNOWN"
+        ? await this.reconcileReleaseOperation({
+            operationId: prepared.operationId,
+            fencingToken: requireFencingToken(release),
+          })
+        : await this.finalizeReleaseR2Readback({
+            operationId: prepared.operationId,
+            fencingToken: requireFencingToken(release),
+          });
+      if (
+        readback.status === "RESULT_UNKNOWN" ||
+        readback.status === "R2_READBACK_PENDING"
+      ) {
+        this.updateCloudflareOperatorGenesisStatus(
+          prepared.operationId,
+          "RESULT_UNKNOWN",
+        );
+        return this.readCloudflareOperatorGenesisOperation(
+          prepared.operationId,
+        );
+      }
+      if (
+        readback.status === "QUARANTINED" ||
+        readback.status === "CONFLICT"
+      ) {
+        this.updateCloudflareOperatorGenesisStatus(
+          prepared.operationId,
+          "QUARANTINED",
+          "R2_EXACT_READBACK_REJECTED",
+        );
+        return this.readCloudflareOperatorGenesisOperation(
+          prepared.operationId,
+        );
+      }
+      if (readback.status === "AVAILABLE") {
+        this.updateCloudflareOperatorGenesisStatus(
+          prepared.operationId,
+          "AVAILABLE",
+        );
+      }
+      release = await this.getReleaseOperation(prepared.operationId);
+      if (release === null) {
+        throw corruptStorage(
+          "Genesis Release operation disappeared after R2 readback",
+        );
+      }
+    }
+
+    if (release.status !== "AVAILABLE") {
+      return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+    }
+    const existingInstall =
+      await this.ensureCloudflareOperatorGenesisBootstrapAuthorization(
+        prepared,
+        requireFencingToken(release),
+      );
+    if (existingInstall === null) {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "AVAILABLE",
+      );
+    } else if (existingInstall.status === "INSTALLED") {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "INSTALLED",
+      );
+      return this.readCloudflareOperatorGenesisOperation(
+        prepared.operationId,
+      );
+    } else if (
+      existingInstall.status === "QUARANTINED" ||
+      existingInstall.status === "CONFLICT"
+    ) {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "QUARANTINED",
+        "BINDING_INSTALL_NOT_RESUMABLE",
+      );
+      return this.readCloudflareOperatorGenesisOperation(
+        prepared.operationId,
+      );
+    } else {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "INSTALLING",
+      );
+    }
+
+    const installStart = await this.beginCloudflareOperatorBindingInstall({
+      operationId: prepared.operationId,
+      mode: "BOOTSTRAP",
+      releaseOperationId: prepared.operationId,
+      expectedCurrentStateSha256: null,
+      expectedRestoreEpoch: prepared.approval.restore_epoch,
+    });
+    if (installStart.status === "CONFLICT") {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "QUARANTINED",
+        "BINDING_INSTALL_CONFLICT",
+      );
+      return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+    }
+    if (installStart.status === "WAITING_FOR_ISSUES") {
+      return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+    }
+    if (installStart.status === "QUARANTINED") {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "QUARANTINED",
+        "BINDING_INSTALL_QUARANTINED",
+      );
+      return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+    }
+    if (installStart.status === "STARTED") {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "INSTALLING",
+      );
+    }
+
+    if (!("operation" in installStart)) {
+      throw corruptStorage("Genesis install operation is missing");
+    }
+    const install = installStart.operation;
+    const installed = install.status === "INSTALLED"
+      ? { status: "INSTALLED" as const, operation: install }
+      : await this.finalizeCloudflareOperatorBindingInstall({
+          operationId: prepared.operationId,
+        });
+    if (installed.status === "INSTALLED") {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "INSTALLED",
+      );
+    } else if (
+      installed.status === "QUARANTINED" ||
+      installed.status === "CONFLICT"
+    ) {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "QUARANTINED",
+        "BINDING_INSTALL_FINALIZATION_REJECTED",
+      );
+    } else {
+      this.updateCloudflareOperatorGenesisStatus(
+        prepared.operationId,
+        "INSTALLING",
+      );
+    }
+    return this.readCloudflareOperatorGenesisOperation(prepared.operationId);
+  }
+
+  private async ensureCloudflareOperatorGenesisBootstrapAuthorization(
+    prepared: PreparedCloudflareOperatorGenesis,
+    releaseFencingToken: string,
+  ): Promise<CloudflareOperatorBindingInstallOperation | null> {
+    const expectedInstallRequestSha256 = await sha256Base64Url(
+      cloudflareOperatorInstallRequestBytes({
+        operationId: prepared.operationId,
+        mode: "BOOTSTRAP",
+        releaseOperationId: prepared.operationId,
+        releaseFencingToken,
+        expectedCurrentStateSha256: null,
+        expectedRestoreEpoch: prepared.approval.restore_epoch,
+        chainId: prepared.approval.chain_id,
+      }),
+    );
+    return this.ctx.storage.transactionSync(() => {
+      const genesis = this.findCloudflareOperatorGenesis(
+        prepared.operationId,
+      );
+      const profile = this.requireCloudflareOperatorProfile();
+      const release = this.requireReleaseOperation(prepared.operationId);
+      const head = this.readReleaseLedgerHeadRow();
+      const existingInstall = this.findCloudflareOperatorInstall(
+        prepared.operationId,
+      );
+      const currentHeadMatchesRelease =
+        head !== null &&
+        releaseHeadMatchesOperation(head, release) &&
+        equalBytes(
+          bytesFromArrayBuffer(head.record_bytes),
+          prepared.input.recordBytes,
+        ) &&
+        equalBytes(
+          bytesFromArrayBuffer(head.release_delegation_bytes),
+          prepared.input.releaseDelegationBytes,
+        );
+      if (
+        genesis === null ||
+        !this.genesisInputMatches(genesis, prepared) ||
+        genesis.status === "QUARANTINED" ||
+        profile.profile_id !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+        profile.environment !== "production" ||
+        profile.chain_id !== prepared.approval.chain_id ||
+        profile.local_restore_epoch !== prepared.approval.restore_epoch ||
+        release.status !== "AVAILABLE" ||
+        release.environment !== "production" ||
+        release.chain_id !== prepared.approval.chain_id ||
+        release.fencing_token !== releaseFencingToken ||
+        !isCanonicalFencingToken(releaseFencingToken) ||
+        release.record_sha256 !== prepared.approval.release_record_sha256 ||
+        release.record_bytes === null ||
+        !equalBytes(
+          bytesFromArrayBuffer(release.record_bytes),
+          prepared.input.recordBytes,
+        ) ||
+        release.release_delegation_bytes === null ||
+        !equalBytes(
+          bytesFromArrayBuffer(release.release_delegation_bytes),
+          prepared.input.releaseDelegationBytes,
+        ) ||
+        release.position !== prepared.approval.initial_position ||
+        release.generation !== prepared.approval.initial_generation ||
+        release.manifest_sha256 !== prepared.approval.manifest_sha256 ||
+        release.manifest_epoch !== prepared.approval.manifest_epoch ||
+        release.manifest_ref !== prepared.approval.manifest_ref ||
+        !equalBytes(
+          bytesFromArrayBuffer(release.manifest_bytes),
+          prepared.input.manifestBytes,
+        ) ||
+        (existingInstall?.status !== "INSTALLED" &&
+          !currentHeadMatchesRelease) ||
+        (existingInstall?.status !== "INSTALLED" &&
+          this.hasRetainedIssueBlockers())
+      ) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_BLOCKED",
+          "Genesis Release is not eligible for binding installation",
+        );
+      }
+      if (existingInstall !== null) {
+        const existingOperation =
+          cloudflareOperatorInstallFromRow(existingInstall);
+        if (
+          existingInstall.request_sha256 !== expectedInstallRequestSha256 ||
+          existingOperation.environment !== "production" ||
+          existingOperation.chainId !== prepared.approval.chain_id ||
+          existingOperation.mode !== "BOOTSTRAP" ||
+          existingOperation.releaseOperationId !== prepared.operationId ||
+          existingOperation.releaseFencingToken !== releaseFencingToken ||
+          !isCanonicalFencingToken(existingOperation.installFencingToken) ||
+          existingOperation.expectedCurrentStateSha256 !== null ||
+          existingOperation.expectedRestoreEpoch !==
+            prepared.approval.restore_epoch ||
+          existingOperation.targetPosition !==
+            prepared.approval.initial_position ||
+          existingOperation.targetGeneration !==
+            prepared.approval.initial_generation ||
+          existingOperation.targetRecordSha256 !==
+            prepared.approval.release_record_sha256 ||
+          this.hasOtherCloudflareOperatorInstallHistory(
+            prepared.operationId,
+          )
+        ) {
+          throw new FreshnessIssueCoordinatorStorageError(
+            "RELEASE_BLOCKED",
+            "Existing genesis binding install does not match the approved genesis",
+          );
+        }
+        if (
+          genesis.status === "INSTALLED" &&
+          existingOperation.status !== "INSTALLED"
+        ) {
+          throw corruptStorage(
+            "Genesis operation is installed without a finalized binding",
+          );
+        }
+        if (
+          existingOperation.status === "QUARANTINED" ||
+          existingOperation.status === "CONFLICT"
+        ) {
+          return existingOperation;
+        }
+        if (existingOperation.status === "VERIFYING") {
+          const authorization =
+            this.readCloudflareOperatorBootstrapAuthorization();
+          if (
+            !["AVAILABLE", "INSTALLING", "RESULT_UNKNOWN"].includes(
+              genesis.status,
+            ) ||
+            profile.current_state_json !== null ||
+            profile.writer_pending !== 1 ||
+            profile.writer_operation_id !==
+              `cloudflare-operator-install:${prepared.operationId}` ||
+            profile.write_fencing_token !==
+              existingOperation.installFencingToken ||
+            profile.next_fencing_token !==
+              existingOperation.installFencingToken ||
+            authorization === null ||
+            authorization.operation_id !== prepared.operationId ||
+            authorization.chain_id !== prepared.approval.chain_id ||
+            authorization.position !== prepared.approval.initial_position ||
+            authorization.generation !==
+              prepared.approval.initial_generation ||
+            authorization.record_sha256 !==
+              prepared.approval.release_record_sha256 ||
+            authorization.restore_epoch !==
+              prepared.approval.restore_epoch
+          ) {
+            throw new FreshnessIssueCoordinatorStorageError(
+              "RELEASE_BLOCKED",
+              "Genesis install recovery no longer owns its authorized writer gate",
+            );
+          }
+          return existingOperation;
+        }
+        if (
+          !["AVAILABLE", "INSTALLING", "INSTALLED"].includes(genesis.status) ||
+          profile.writer_pending !== 0 ||
+          profile.writer_operation_id !== null ||
+          this.readCloudflareOperatorBootstrapAuthorization() !== null ||
+          profile.current_state_json === null ||
+          existingInstall.installed_state_json === null
+        ) {
+          throw new FreshnessIssueCoordinatorStorageError(
+            "RELEASE_BLOCKED",
+            "Finalized genesis install does not match the durable profile state",
+          );
+        }
+        const installedState = existingOperation.installedState;
+        const currentState = decodeCloudflareOperatorBinding(
+          profile.current_state_json,
+        );
+        const installedGeneration = BigInt(existingOperation.targetGeneration);
+        const currentGeneration = BigInt(currentState.generation);
+        if (
+          installedState === null ||
+          installedState.profileId !==
+            CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+          installedState.environment !== "production" ||
+          installedState.chainId !== prepared.approval.chain_id ||
+          installedState.releaseOperationId !== prepared.operationId ||
+          installedState.releaseFencingToken !== releaseFencingToken ||
+          installedState.position !== prepared.approval.initial_position ||
+          installedState.generation !==
+            prepared.approval.initial_generation ||
+          installedState.recordSha256 !==
+            prepared.approval.release_record_sha256 ||
+          installedState.localRestoreEpoch !==
+            prepared.approval.restore_epoch ||
+          installedState.manifestEpoch !== prepared.approval.manifest_epoch ||
+          installedState.manifestSha256 !== prepared.approval.manifest_sha256 ||
+          installedState.manifestRef !== prepared.approval.manifest_ref ||
+          installedState.pointerEtag !== release.pointer_etag ||
+          installedState.releaseCommitId !== release.release_commit_id ||
+          installedState.appendedAt !== release.record_appended_at ||
+          currentState.profileId !==
+            CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+          currentState.environment !== "production" ||
+          currentState.chainId !== prepared.approval.chain_id ||
+          currentState.localRestoreEpoch !==
+            prepared.approval.restore_epoch ||
+          currentGeneration < installedGeneration ||
+          !isCanonicalFencingToken(profile.write_fencing_token) ||
+          !isCanonicalFencingToken(profile.next_fencing_token) ||
+          BigInt(profile.write_fencing_token) <
+            BigInt(existingOperation.installFencingToken) ||
+          BigInt(profile.next_fencing_token) <
+            BigInt(existingOperation.installFencingToken) ||
+          (currentGeneration === installedGeneration &&
+            currentState.stateSha256 !== installedState.stateSha256)
+        ) {
+          throw new FreshnessIssueCoordinatorStorageError(
+            "RELEASE_BLOCKED",
+            "Finalized genesis result does not match its approved binding",
+          );
+        }
+        return existingOperation;
+      }
+      if (
+        genesis.status === "INSTALLED" ||
+        profile.current_state_json !== null ||
+        profile.writer_pending !== 0 ||
+        profile.writer_operation_id !== null
+      ) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_BLOCKED",
+          "Genesis bootstrap is no longer in its pristine profile state",
+        );
+      }
+      const authorization = this.readCloudflareOperatorBootstrapAuthorization();
+      if (authorization !== null) {
+        if (
+          authorization.operation_id === prepared.operationId &&
+          authorization.chain_id === prepared.approval.chain_id &&
+          authorization.position === prepared.approval.initial_position &&
+          authorization.generation === prepared.approval.initial_generation &&
+          authorization.record_sha256 ===
+            prepared.approval.release_record_sha256 &&
+          authorization.restore_epoch === prepared.approval.restore_epoch &&
+          !this.hasOtherCloudflareOperatorInstallHistory(
+            prepared.operationId,
+          )
+        ) {
+          return null;
+        }
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_CONFLICT",
+          "Existing bootstrap authorization differs from the approved genesis",
+        );
+      }
+      if (
+        this.hasCloudflareOperatorInstallHistory() ||
+        this.hasOtherCloudflareOperatorInstallHistory(prepared.operationId)
+      ) {
+        throw new FreshnessIssueCoordinatorStorageError(
+          "RELEASE_CONFLICT",
+          "Genesis binding install history already exists",
+        );
+      }
+      this.sql.exec(
+        `INSERT INTO cloudflare_operator_bootstrap_authorizations (
+           singleton, operation_id, chain_id, position, generation,
+           record_sha256, restore_epoch
+         ) VALUES (1, ?, ?, ?, ?, ?, ?)`,
+        prepared.operationId,
+        prepared.approval.chain_id,
+        prepared.approval.initial_position,
+        prepared.approval.initial_generation,
+        prepared.approval.release_record_sha256,
+        prepared.approval.restore_epoch,
+      );
+      return null;
+    });
+  }
+
+  private cloudflareOperatorGenesisStateIsPristine(): boolean {
+    const rows = this.sql.exec<{ readonly count: number }>(
+      `SELECT
+         (SELECT COUNT(*) FROM coordinator_state) +
+         (SELECT COUNT(*) FROM freshness_profile) +
+         (SELECT COUNT(*) FROM freshness_issue_operations) +
+         (SELECT COUNT(*) FROM cloudflare_operator_issue_operations) +
+         (SELECT COUNT(*) FROM release_ledger_operations) +
+         (SELECT COUNT(*) FROM release_ledger_entries) +
+         (SELECT COUNT(*) FROM release_ledger_head) +
+         (SELECT COUNT(*) FROM current_state_binding_installs) +
+         (SELECT COUNT(*) FROM current_state_bootstrap_authorizations) +
+         (SELECT COUNT(*) FROM cloudflare_operator_bootstrap_authorizations) +
+         (SELECT COUNT(*) FROM cloudflare_operator_binding_installs)
+         AS count`,
+    ).toArray();
+    if (
+      rows.length !== 1 ||
+      !Number.isSafeInteger(rows[0]!.count) ||
+      rows[0]!.count < 0
+    ) {
+      throw corruptStorage("Genesis pristine-state count is invalid");
+    }
+    return rows[0]!.count === 0;
+  }
+
+  private findCloudflareOperatorGenesis(
+    operationId?: string,
+  ): CloudflareOperatorGenesisRow | null {
+    const rows = operationId === undefined
+      ? this.sql.exec<CloudflareOperatorGenesisRow>(
+          `SELECT operation_id, request_sha256, approval_sha256,
+                  record_bytes, release_delegation_bytes, manifest_bytes,
+                  restore_epoch, status, reason, created_at_ms
+           FROM cloudflare_operator_genesis_operations
+           WHERE singleton = 1`,
+        ).toArray()
+      : this.sql.exec<CloudflareOperatorGenesisRow>(
+          `SELECT operation_id, request_sha256, approval_sha256,
+                  record_bytes, release_delegation_bytes, manifest_bytes,
+                  restore_epoch, status, reason, created_at_ms
+           FROM cloudflare_operator_genesis_operations
+           WHERE operation_id = ?`,
+          operationId,
+        ).toArray();
+    if (rows.length > 1) {
+      throw corruptStorage("Cloudflare/operator genesis operation is not unique");
+    }
+    if (rows.length === 0) return null;
+    const row = rows[0]!;
+    if (
+      !UUID_V4_PATTERN.test(row.operation_id) ||
+      !SHA256_BASE64URL_PATTERN.test(row.request_sha256) ||
+      !SHA256_BASE64URL_PATTERN.test(row.approval_sha256) ||
+      !(row.record_bytes instanceof ArrayBuffer) ||
+      !(row.release_delegation_bytes instanceof ArrayBuffer) ||
+      !(row.manifest_bytes instanceof ArrayBuffer) ||
+      typeof row.restore_epoch !== "string" ||
+      ![
+        "ADMITTED",
+        "LEDGER_COMMITTED",
+        "R2_READBACK_PENDING",
+        "RESULT_UNKNOWN",
+        "AVAILABLE",
+        "INSTALLING",
+        "INSTALLED",
+        "QUARANTINED",
+      ].includes(row.status) ||
+      (row.reason !== null && typeof row.reason !== "string") ||
+      !Number.isSafeInteger(row.created_at_ms) ||
+      row.created_at_ms < 0
+    ) {
+      throw corruptStorage("Cloudflare/operator genesis operation is malformed");
+    }
+    return row;
+  }
+
+  private genesisInputMatches(
+    row: CloudflareOperatorGenesisRow,
+    prepared: PreparedCloudflareOperatorGenesis,
+  ): boolean {
+    return (
+      row.operation_id === prepared.operationId &&
+      row.request_sha256 === prepared.requestSha256 &&
+      row.approval_sha256 === prepared.approvalSha256 &&
+      row.restore_epoch === prepared.approval.restore_epoch &&
+      equalBytes(
+        bytesFromArrayBuffer(row.record_bytes),
+        prepared.input.recordBytes,
+      ) &&
+      equalBytes(
+        bytesFromArrayBuffer(row.release_delegation_bytes),
+        prepared.input.releaseDelegationBytes,
+      ) &&
+      equalBytes(
+        bytesFromArrayBuffer(row.manifest_bytes),
+        prepared.input.manifestBytes,
+      )
+    );
+  }
+
+  private updateCloudflareOperatorGenesisStatus(
+    operationId: string,
+    status:
+      | "LEDGER_COMMITTED"
+      | "R2_READBACK_PENDING"
+      | "RESULT_UNKNOWN"
+      | "AVAILABLE"
+      | "INSTALLING"
+      | "INSTALLED"
+      | "QUARANTINED",
+    reason: string | null = null,
+  ): void {
+    const statusRank = {
+      ADMITTED: 0,
+      LEDGER_COMMITTED: 1,
+      R2_READBACK_PENDING: 2,
+      RESULT_UNKNOWN: 2,
+      AVAILABLE: 3,
+      INSTALLING: 4,
+      INSTALLED: 5,
+      QUARANTINED: 6,
+    } as const;
+    this.ctx.storage.transactionSync(() => {
+      const row = this.findCloudflareOperatorGenesis(operationId);
+      if (row === null) {
+        throw corruptStorage("Cloudflare/operator genesis operation disappeared");
+      }
+      if (
+        row.status === "INSTALLED" ||
+        row.status === "QUARANTINED" ||
+        statusRank[status] < statusRank[row.status as keyof typeof statusRank] ||
+        (row.status === "RESULT_UNKNOWN" && status === "R2_READBACK_PENDING")
+      ) {
+        return;
+      }
+      this.sql.exec(
+        `UPDATE cloudflare_operator_genesis_operations
+         SET status = ?, reason = ?
+         WHERE singleton = 1 AND operation_id = ?`,
+        status,
+        reason,
+        operationId,
+      );
+    });
   }
 
   private requireReleaseRootSigner(): RuntimeConfigRootSigner {
@@ -6341,6 +7632,121 @@ async function sha256Base64Url(bytes: Uint8Array): Promise<string> {
   new Uint8Array(buffer).set(bytes);
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return encodeBase64Url(new Uint8Array(digest));
+}
+
+async function cloudflareOperatorGenesisOperationId(
+  approvalBytes: Uint8Array,
+): Promise<string> {
+  const preimage = canonicalJsonBytes({
+    domain: GENESIS_OPERATION_ID_DOMAIN,
+    approval: encodeBase64Url(approvalBytes),
+  });
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", arrayBufferFromBytes(preimage)),
+  );
+  const uuid = digest.slice(0, 16);
+  uuid[6] = (uuid[6]! & 0x0f) | 0x40;
+  uuid[8] = (uuid[8]! & 0x3f) | 0x80;
+  const hex = [...uuid]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${
+    hex.slice(16, 20)
+  }-${hex.slice(20)}`;
+}
+
+function genesisConflict(
+  operationId: string,
+): CloudflareOperatorGenesisOperation {
+  return {
+    operationId,
+    status: "CONFLICT",
+    releaseStatus: null,
+    installStatus: null,
+  };
+}
+
+function requireFencingToken(operation: ReleaseLedgerOperation): string {
+  if (operation.fencingToken === null) {
+    throw corruptStorage("Release operation is missing its fencing token");
+  }
+  return operation.fencingToken;
+}
+
+function isCanonicalFencingToken(value: string): boolean {
+  return value.length <= 20 && /^(0|[1-9][0-9]*)$/u.test(value);
+}
+
+function cloudflareOperatorInstallRequestBytes(input: {
+  readonly operationId: string;
+  readonly mode: "BOOTSTRAP" | "ADVANCE";
+  readonly releaseOperationId: string;
+  readonly releaseFencingToken: string;
+  readonly expectedCurrentStateSha256: string | null;
+  readonly expectedRestoreEpoch: string;
+  readonly chainId: string;
+}): Uint8Array {
+  return canonicalJsonBytes({
+    profileId: CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+    operationId: input.operationId,
+    mode: input.mode,
+    releaseOperationId: input.releaseOperationId,
+    releaseFencingToken: input.releaseFencingToken,
+    expectedCurrentStateSha256: input.expectedCurrentStateSha256,
+    expectedRestoreEpoch: input.expectedRestoreEpoch,
+    environment: "production",
+    chainId: input.chainId,
+  });
+}
+
+function cloudflareOperatorGenesisStatus(
+  row: CloudflareOperatorGenesisRow,
+  release: ReleaseLedgerOperation,
+  install: CloudflareOperatorBindingInstallOperation | null,
+): CloudflareOperatorGenesisOperation["status"] {
+  if (row.status === "QUARANTINED" || release.status === "QUARANTINED") {
+    return "QUARANTINED";
+  }
+  if (install?.status === "QUARANTINED") return "QUARANTINED";
+  if (install?.status === "CONFLICT" || release.status === "CONFLICT") {
+    return "CONFLICT";
+  }
+  if (install?.status === "INSTALLED") {
+    if (release.status !== "AVAILABLE") {
+      throw corruptStorage(
+        "Genesis binding is installed without an Available Release",
+      );
+    }
+    return "INSTALLED";
+  }
+  if (row.status === "INSTALLED") {
+    throw corruptStorage(
+      "Genesis operation is installed without a finalized binding",
+    );
+  }
+  if (install?.status === "VERIFYING") return "INSTALLING";
+
+  switch (release.status) {
+    case "R2_STAGED":
+      return row.status === "RESULT_UNKNOWN" ? "RESULT_UNKNOWN" : "VERIFYING";
+    case "LEDGER_COMMITTED":
+      return row.status === "RESULT_UNKNOWN"
+        ? "RESULT_UNKNOWN"
+        : "LEDGER_COMMITTED";
+    case "R2_READBACK_PENDING":
+      return row.status === "RESULT_UNKNOWN"
+        ? "RESULT_UNKNOWN"
+        : "R2_READBACK_PENDING";
+    case "RESULT_UNKNOWN":
+      return "RESULT_UNKNOWN";
+    case "AVAILABLE":
+      return row.status === "INSTALLING" ? "INSTALLING" : "AVAILABLE";
+    case "INTENT":
+    case "R2_WRITE_PENDING":
+      throw corruptStorage(
+        "Genesis Release operation is in an unsupported pre-staged state",
+      );
+  }
 }
 
 function copyBytes(bytes: Uint8Array): Uint8Array {
