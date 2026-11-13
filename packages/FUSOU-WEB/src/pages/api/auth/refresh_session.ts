@@ -1,8 +1,10 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { validateOrigin } from "@/utils/security";
+import { SECURE_COOKIE_OPTIONS, validateOrigin } from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
+
+const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   const envCtx = createEnvContext({
@@ -50,7 +52,14 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       );
     }
 
-    // The cookie storage updates the HttpOnly access and refresh token cookies.
+    cookies.set("sb-access-token", data.session.access_token, COOKIE_OPTIONS);
+    if (data.session.refresh_token) {
+      cookies.set(
+        "sb-refresh-token",
+        data.session.refresh_token,
+        COOKIE_OPTIONS,
+      );
+    }
 
     return new Response(
       JSON.stringify({ ok: true }),

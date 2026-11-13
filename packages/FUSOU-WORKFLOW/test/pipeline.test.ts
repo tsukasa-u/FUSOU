@@ -223,7 +223,11 @@ describe("message-level acknowledgement and HTTP errors", () => {
 describe("read endpoint authentication and cache isolation", () => {
   it("rejects missing and invalid bearer tokens and disables the route without a token", async () => {
     const fixture = await setup();
-    const env = { ...fixture.env, UPLOAD_INGEST_TOKEN: "read-token" };
+    const env = {
+      ...fixture.env,
+      UPLOAD_INGEST_TOKEN: "read-token",
+      TABLE_FINGERPRINTS_JSON: "{}",
+    };
     const request = (authorization?: string) =>
       new Request(
         "https://example.test/read?dataset_id=dataset&table_name=battle",
@@ -242,7 +246,11 @@ describe("read endpoint authentication and cache isolation", () => {
   it("does not cache responses containing hot records", async () => {
     const fixture = await setup();
     await bulkInsertActive(fixture.client, [fixture.row], "test");
-    const env = { ...fixture.env, UPLOAD_INGEST_TOKEN: "read-token" };
+    const env = {
+      ...fixture.env,
+      UPLOAD_INGEST_TOKEN: "read-token",
+      TABLE_FINGERPRINTS_JSON: "{}",
+    };
     const response = await worker.fetch(
       new Request(
         "https://example.test/read?dataset_id=dataset&table_name=battle",
@@ -254,5 +262,46 @@ describe("read endpoint authentication and cache isolation", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  it("never sets public Cache-Control on authenticated cold-only JSON or OCF /read responses", async () => {
+    const fixture = await setup(2);
+    await bulkInsertActive(fixture.client, [fixture.row], "test");
+    await handleCron(fixture.env);
+    const env = {
+      ...fixture.env,
+      UPLOAD_INGEST_TOKEN: "read-token",
+      TABLE_FINGERPRINTS_JSON: "{}",
+    };
+
+    const coldJsonResponse = await worker.fetch(
+      new Request(
+        "https://example.test/read?dataset_id=dataset&table_name=battle",
+        { headers: { Authorization: "Bearer read-token" } },
+      ),
+      env,
+      ctx,
+    );
+    expect(coldJsonResponse.status).toBe(200);
+    expect(coldJsonResponse.headers.get("Cache-Control")).toBe("private, no-store");
+    const jsonBody = (await coldJsonResponse.json()) as {
+      records: unknown[];
+      cold_count: number;
+      hot_count: number;
+    };
+    expect(jsonBody.cold_count).toBe(2);
+    expect(jsonBody.hot_count).toBe(0);
+
+    const coldOcfResponse = await worker.fetch(
+      new Request(
+        "https://example.test/read?dataset_id=dataset&table_name=battle&format=ocf",
+        { headers: { Authorization: "Bearer read-token" } },
+      ),
+      env,
+      ctx,
+    );
+    expect(coldOcfResponse.status).toBe(200);
+    expect(coldOcfResponse.headers.get("Cache-Control")).toBe("private, no-store");
+    await coldOcfResponse.arrayBuffer();
   });
 });

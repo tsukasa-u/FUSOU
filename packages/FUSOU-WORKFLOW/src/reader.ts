@@ -543,12 +543,6 @@ export async function handleRead(
       const filePath = firstIndex.file_path;
       const blocks = indexes.filter((i) => i.file_path === filePath);
       const header = await fetchAvroHeader(env.BATTLE_DATA_BUCKET, filePath);
-      const { readable, writable } = new TransformStream<
-        Uint8Array,
-        Uint8Array
-      >();
-      const writer = writable.getWriter();
-      await writer.write(header);
       const blockPromises = blocks.map((b) =>
         fetchColdBlock(
           env.BATTLE_DATA_BUCKET,
@@ -559,13 +553,18 @@ export async function handleRead(
         ),
       );
       const buffers = await Promise.all(blockPromises);
-      for (const buf of buffers) {
-        await writer.write(buf);
-      }
-      await writer.close();
+      const readable = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(header);
+          for (const buf of buffers) {
+            controller.enqueue(buf);
+          }
+          controller.close();
+        },
+      });
       const headers = new Headers({
         "Content-Type": "application/octet-stream",
-        "Cache-Control": "public, max-age=3600, immutable",
+        "Cache-Control": "private, no-store",
         "Access-Control-Allow-Origin": "*",
       });
       return new Response(readable, { status: 200, headers });
@@ -606,13 +605,7 @@ export async function handleRead(
     const headers = new Headers({
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
-
-      "Cache-Control":
-        hotRecords.length > 0
-          ? "private, no-store"
-          : coldRecords.length > 0
-            ? "public, max-age=3600, immutable"
-            : "private, no-store",
+      "Cache-Control": "private, no-store",
     });
 
     const detectedVersionsList = Array.from(uniqueVersions);

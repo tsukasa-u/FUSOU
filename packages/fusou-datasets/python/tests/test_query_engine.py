@@ -110,3 +110,54 @@ def test_resolve_cached_file_finds_master_cache_fallback(tmp_path):
     assert _resolve_cached_file(
         tmp_path, "mst_ships", "2026-09", table_version="0.6.0"
     ) == master_file
+
+
+def test_resolve_cached_file_prefers_exact_period_and_regular_over_latest_master(tmp_path):
+    from fusou_datasets.query_engine import _resolve_cached_file
+
+    # Create broad master/latest/latest fallback as well as narrower exact files.
+    latest_master = tmp_path / "master" / "latest" / "latest" / "mst_ships.parquet"
+    latest_master.parent.mkdir(parents=True)
+    latest_master.touch()
+
+    latest_version_exact_period_master = (
+        tmp_path / "master" / "latest" / "2026-09" / "mst_ships.parquet"
+    )
+    latest_version_exact_period_master.parent.mkdir(parents=True)
+    latest_version_exact_period_master.touch()
+
+    assert _resolve_cached_file(
+        tmp_path, "mst_ships", "2026-09", table_version="0.6.0"
+    ) == latest_version_exact_period_master
+
+    exact_master = tmp_path / "master" / "0.6.0" / "2026-09" / "mst_ships.parquet"
+    exact_master.parent.mkdir(parents=True)
+    exact_master.touch()
+
+    assert _resolve_cached_file(
+        tmp_path, "mst_ships", "2026-09", table_version="0.6.0"
+    ) == exact_master
+
+    exact_regular = tmp_path / "mst_ships" / "0.6.0" / "2026-09" / "train" / "data.parquet"
+    exact_regular.parent.mkdir(parents=True)
+    exact_regular.touch()
+
+    assert _resolve_cached_file(
+        tmp_path, "mst_ships", "2026-09", table_version="0.6.0", split="train"
+    ) == exact_regular
+
+
+def test_resolve_cached_file_prefers_exact_legacy_regular_over_latest_master(tmp_path):
+    from fusou_datasets.query_engine import _resolve_cached_file
+
+    latest_master = tmp_path / "master" / "latest" / "latest" / "mst_ships.parquet"
+    latest_master.parent.mkdir(parents=True)
+    latest_master.touch()
+
+    legacy_regular = tmp_path / "mst_ships" / "2026-09" / "train" / "data.parquet"
+    legacy_regular.parent.mkdir(parents=True)
+    legacy_regular.touch()
+
+    assert _resolve_cached_file(
+        tmp_path, "mst_ships", "2026-09", table_version="0.6.0", split="train"
+    ) == legacy_regular

@@ -19,6 +19,7 @@ import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 import "../../css/divider.css";
 import "../../css/specification_table.css";
 import { ComponentEquipmentModal, IconPlaneProficiency } from "ui";
+import { matchesEquipRangeFilters } from "./equipment_filter.ts";
 import {
   buildVisibleSpecRows,
   CategoryTabStrip,
@@ -328,28 +329,6 @@ export function EquipmentListComponent() {
     if (Object.keys(slot_items.slot_items).length == 0) return ret;
     if (Object.keys(check_equip_types).length == 0) return ret;
 
-    const check_range = (param: string, value: number) => {
-      if (range_props[param].reset == true) return true;
-      if (range_props[param].range) {
-        if (
-          Number.isInteger(range_props[param].min) &&
-          range_props[param].min != 0
-        ) {
-          if (value < range_props[param].min) return false;
-        }
-        if (
-          Number.isInteger(range_props[param].max) &&
-          range_props[param].max != 0
-        ) {
-          if (value > range_props[param].max) return false;
-        }
-      } else {
-        if (!Number.isInteger(range_props[param].eq)) return false;
-        if (value != range_props[param].eq) return false;
-      }
-      return true;
-    };
-
     (set_order()
       ? Object.keys(slot_items.slot_items)
       : Object.keys(slot_items.slot_items).reverse()
@@ -371,20 +350,9 @@ export function EquipmentListComponent() {
             }
           }
           if (!check_name[Number(equip_id)]) return false;
-          if (!check_range("Level", slot_item.level)) return false;
-          if (!check_range("Firepower", mst_slot_item.houg)) return false;
-          if (!check_range("Torpedo", mst_slot_item.raig)) return false;
-          if (!check_range("Anti-Air", mst_slot_item.tyku)) return false;
-          if (!check_range("Armor", mst_slot_item.souk)) return false;
-          if (!check_range("Evasion", mst_slot_item.houm)) return false;
-          if (!check_range("Anti-Submarine", mst_slot_item.tais)) return false;
-          if (!check_range("Reconnaissance", mst_slot_item.saku)) return false;
-          if (!check_range("Proficiency", slot_item.alv ?? 0)) return false;
-          if (!check_range("Bomb", mst_slot_item.baku)) return false;
-          if (!check_range("Anti-Bomber", mst_slot_item.houm)) return false;
-          if (!check_range("Interception", mst_slot_item.houk)) return false;
-          if (!check_range("Distance", mst_slot_item.distance ?? 0))
+          if (!matchesEquipRangeFilters(slot_item, mst_slot_item, range_props)) {
             return false;
+          }
         }
         return true;
       })();

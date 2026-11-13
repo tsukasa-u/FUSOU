@@ -154,7 +154,7 @@ async function getCompletedAndRecentSets(
   };
 }
 
-async function recomputeRulesForTarget(
+export async function recomputeRulesForTarget(
   db: D1DatabaseLike,
   targetQuestId: number,
   periodTag: string,
@@ -505,51 +505,63 @@ async function processTask(
       appearance.appeared_at_ms,
     );
 
-    const occurrenceStatements = [db
-      .prepare(
-        `INSERT INTO quest_occurrence_contexts (
-           occurrence_id,
-           dataset_id,
-           collection_session_id,
-           target_quest_id,
-           occurred_at_ms,
-           period_tag,
-           table_version,
-           is_bootstrap_unknown,
-           has_cross_session_inference,
-           created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(occurrence_id) DO NOTHING`
-      )
-      .bind(
-        occurrenceId,
-        appearance.dataset_id,
-        appearance.collection_session_id,
-        appearance.target_quest_id,
-        appearance.appeared_at_ms,
-        appearance.period_tag,
-        appearance.table_version,
-        appearance.is_bootstrap_unknown,
-        sets.hasCrossSessionInference ? 1 : 0,
-        nowMs(),
-      )
+    const occurrenceStatements = [
+      db
+        .prepare(
+          `INSERT INTO quest_occurrence_contexts (
+             occurrence_id,
+             dataset_id,
+             collection_session_id,
+             target_quest_id,
+             occurred_at_ms,
+             period_tag,
+             table_version,
+             is_bootstrap_unknown,
+             has_cross_session_inference,
+             created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING`
+        )
+        .bind(
+          occurrenceId,
+          appearance.dataset_id,
+          appearance.collection_session_id,
+          appearance.target_quest_id,
+          appearance.appeared_at_ms,
+          appearance.period_tag,
+          appearance.table_version,
+          appearance.is_bootstrap_unknown,
+          sets.hasCrossSessionInference ? 1 : 0,
+          nowMs(),
+        ),
+      db
+        .prepare("DELETE FROM quest_occurrence_prerequisites WHERE occurrence_id = ?")
+        .bind(occurrenceId),
     ];
-    occurrenceStatements.push(db.prepare(
-      "DELETE FROM quest_occurrence_prerequisites WHERE occurrence_id = ?",
-    ).bind(occurrenceId));
 
     for (const questId of sets.candidatePrerequisites) {
-      occurrenceStatements.push(db
-        .prepare(
-          `INSERT OR IGNORE INTO quest_occurrence_prerequisites (
-             occurrence_id,
-             quest_id,
-             is_recent,
-             is_completed,
-             created_at
-           ) VALUES (?, ?, ?, 1, ?)`
-        )
-        .bind(occurrenceId, questId, sets.recent.includes(questId) ? 1 : 0, nowMs())
+      occurrenceStatements.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO quest_occurrence_prerequisites (
+               occurrence_id,
+               quest_id,
+               is_recent,
+               is_completed,
+               created_at
+             )
+             SELECT ?, ?, ?, 1, ?
+             WHERE EXISTS (
+               SELECT 1 FROM quest_occurrence_contexts WHERE occurrence_id = ?
+             )`
+          )
+          .bind(
+            occurrenceId,
+            questId,
+            sets.recent.includes(questId) ? 1 : 0,
+            nowMs(),
+            occurrenceId,
+          )
       );
     }
     await db.batch(occurrenceStatements);
@@ -697,4 +709,63 @@ export async function runQuestInferenceTasks(
   }
 
   return { picked: tasks.length, completed, failed };
+}
+
+export async function recomputeAllRuleTargets(
+  db: D1DatabaseLike,
+  options?: { limit?: number; offset?: number },
+): Promise<{ recomputed: number; totalTargets: number }> {
+  const limit = Math.max(1, Math.min(1000, options?.limit ?? 500));
+  const offset = Math.max(0, options?.offset ?? 0);
+
+  const countRow = await db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM (
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_occurrence_contexts
+         WHERE is_bootstrap_unknown = 0
+         UNION
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_rule_candidates
+       )`,
+    )
+    .first<{ count: number }>();
+  const totalTargets = Number(countRow?.count ?? 0);
+
+  const targets = ((await db
+    .prepare(
+      `SELECT target_quest_id, period_tag, table_version
+       FROM (
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_occurrence_contexts
+         WHERE is_bootstrap_unknown = 0
+         UNION
+         SELECT target_quest_id, period_tag, table_version
+         FROM quest_rule_candidates
+       )
+       ORDER BY target_quest_id ASC, period_tag ASC, table_version ASC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(limit, offset)
+    .all<{
+      target_quest_id: number;
+      period_tag: string;
+      table_version: string;
+    }>())
+    .results ?? []);
+
+  let recomputed = 0;
+  for (const target of targets) {
+    const targetQuestId = toInt(target.target_quest_id);
+    if (targetQuestId == null) continue;
+    await recomputeRulesForTarget(
+      db,
+      targetQuestId,
+      target.period_tag,
+      target.table_version,
+    );
+    recomputed += 1;
+  }
+
+  return { recomputed, totalTargets };
 }

@@ -264,12 +264,14 @@ pub async fn run() {
             let retry_handler =
                 Arc::new(crate::storage::retry_handler::AppUploadRetryHandler::new(
                     auth_manager_for_retry.clone(),
+                    pending_store.clone(),
                 ));
             let retry_service = Arc::new(UploadRetryService::new(
                 pending_store.clone(),
                 auth_manager_for_retry,
-                Some(retry_handler),
+                Some(retry_handler.clone()),
             ));
+            retry_handler.attach_retry_service(&retry_service);
 
             app.manage(pending_store.clone());
             app.manage(retry_service.clone());

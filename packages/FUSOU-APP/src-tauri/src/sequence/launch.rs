@@ -20,6 +20,34 @@ use std::sync::{Arc, Mutex};
 static PROXY_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 static PARSER_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
+struct RunningFlagGuard {
+    flag: &'static AtomicBool,
+}
+
+impl Drop for RunningFlagGuard {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
+    }
+}
+
+fn try_acquire_running_flag(flag: &'static AtomicBool) -> Option<RunningFlagGuard> {
+    flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()
+        .map(|_| RunningFlagGuard { flag })
+}
+
+fn track_running_task(
+    guard: RunningFlagGuard,
+    handle: tokio::task::JoinHandle<()>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let _guard = guard;
+        if let Err(err) = handle.await {
+            tracing::error!("tracked background task exited abnormally: {}", err);
+        }
+    })
+}
+
 #[cfg(any(not(dev), check_release))]
 use tracing_unwrap::ResultExt;
 
@@ -112,16 +140,10 @@ pub async fn launch_with_options(
                             }
                         };
 
-                        if PROXY_SERVER_RUNNING
-                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                            .is_err()
+                        if let Some(proxy_flag_guard) =
+                            try_acquire_running_flag(&PROXY_SERVER_RUNNING)
                         {
-                            tracing::info!(
-                                "proxy server is already running; skipping duplicate start"
-                            );
-                            None
-                        } else {
-                            let addr = wrap_proxy::serve_proxy(
+                            let started = wrap_proxy::serve_proxy(
                                 server_address.to_string(),
                                 save_path,
                                 asset_sync_save_path,
@@ -132,10 +154,13 @@ pub async fn launch_with_options(
                                 auth_manager.clone(),
                             )
                             .await;
-                            match addr {
-                                Ok(addr) => Some(addr),
+                            match started {
+                                Ok((addr, proxy_handle)) => {
+                                    track_running_task(proxy_flag_guard, proxy_handle);
+                                    Some(addr)
+                                }
                                 Err(e) => {
-                                    PROXY_SERVER_RUNNING.store(false, Ordering::Release);
+                                    drop(proxy_flag_guard);
                                     tracing::error!("failed to start proxy: {e}");
                                     crate::notify::show(
                                         window.app_handle(),
@@ -145,6 +170,11 @@ pub async fn launch_with_options(
                                     None
                                 }
                             }
+                        } else {
+                            tracing::info!(
+                                "proxy server is already running; skipping duplicate start"
+                            );
+                            None
                         }
                     } else {
                         None
@@ -162,15 +192,13 @@ pub async fn launch_with_options(
 
     if let Some(&flag) = options.get("open_app") {
         if flag != 0 {
-            if PARSER_SERVER_RUNNING
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                json_parser::serve_reponse_parser(
+            if let Some(parser_flag_guard) = try_acquire_running_flag(&PARSER_SERVER_RUNNING) {
+                let parser_handle = json_parser::serve_reponse_parser(
                     window.app_handle(),
                     get_response_parse_bidirectional_channel().clone_slave(),
                     get_proxy_log_bidirectional_channel().clone_slave(),
                 );
+                track_running_task(parser_flag_guard, parser_handle);
             } else {
                 tracing::info!("response parser is already running; skipping duplicate start");
             }
@@ -216,4 +244,41 @@ pub async fn launch_with_options(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_flag_guard_resets_when_startup_fails() {
+        static TEST_FLAG: AtomicBool = AtomicBool::new(false);
+
+        let guard = try_acquire_running_flag(&TEST_FLAG).expect("first acquire succeeds");
+        assert!(TEST_FLAG.load(Ordering::Acquire));
+        assert!(try_acquire_running_flag(&TEST_FLAG).is_none());
+
+        drop(guard);
+        assert!(!TEST_FLAG.load(Ordering::Acquire));
+        assert!(try_acquire_running_flag(&TEST_FLAG).is_some());
+    }
+
+    #[tokio::test]
+    async fn track_running_task_resets_flag_after_shutdown_or_panic() {
+        static TEST_FLAG: AtomicBool = AtomicBool::new(false);
+
+        let guard = try_acquire_running_flag(&TEST_FLAG).expect("acquire for normal exit");
+        let handle = tokio::spawn(async {});
+        track_running_task(guard, handle).await.expect("watcher joins");
+        assert!(!TEST_FLAG.load(Ordering::Acquire));
+
+        let panic_guard = try_acquire_running_flag(&TEST_FLAG).expect("acquire after exit");
+        let panic_handle = tokio::spawn(async {
+            panic!("simulated background task panic");
+        });
+        track_running_task(panic_guard, panic_handle)
+            .await
+            .expect("watcher catches panic cleanly");
+        assert!(!TEST_FLAG.load(Ordering::Acquire));
+    }
 }

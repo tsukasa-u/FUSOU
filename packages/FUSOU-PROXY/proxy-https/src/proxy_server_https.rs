@@ -772,6 +772,29 @@ pub fn setup_default_crypto_provider() {
 #[allow(clippy::too_many_arguments)]
 pub fn serve_proxy(
     port: u16,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    log_save_path: String,
+    asset_sync_save_path: String,
+    ca_save_path: String,
+    file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    serve_proxy_with_handle(
+        port,
+        slave,
+        tx_proxy_log,
+        log_save_path,
+        asset_sync_save_path,
+        ca_save_path,
+        file_prefix,
+        auth_manager,
+    )
+    .map(|(addr, _handle)| addr)
+}
+
+pub fn serve_proxy_with_handle(
+    port: u16,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     log_save_path: String,
@@ -779,7 +802,7 @@ pub fn serve_proxy(
     ca_save_path: String,
     file_prefix: String,
     _auth_manager: Arc<AuthManager<FileStorage>>,
-) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
     let configs = configs::get_user_configs_for_proxy();
@@ -979,9 +1002,13 @@ pub fn serve_proxy(
 
     tracing::info!("Proxy server addr: {}", addr);
 
-    tokio::task::spawn(server_proxy.start());
+    let handle = tokio::task::spawn(async move {
+        if let Err(err) = server_proxy.start().await {
+            tracing::error!("Proxy server stopped with error: {}", err);
+        }
+    });
 
-    Ok(addr)
+    Ok((addr, handle))
 }
 
 #[cfg(test)]
