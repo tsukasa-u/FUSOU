@@ -784,7 +784,7 @@ impl ConfigsAppAssetSync {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
-    deny_auth: Option<bool>,
+    allow_auth: Option<bool>,
     auth_page_url: Option<String>,
     anonymous_sync_v2_register_endpoint: Option<String>,
     anonymous_sync_v2_challenge_endpoint: Option<String>,
@@ -793,9 +793,9 @@ pub struct ConfigsAppAuth {
 }
 
 impl ConfigsAppAuth {
-    pub fn get_deny_auth(&self) -> bool {
-        self.deny_auth
-            .unwrap_or_else(|| get_default_configs().app.auth.deny_auth.unwrap())
+    pub fn get_allow_auth(&self) -> bool {
+        self.allow_auth
+            .unwrap_or_else(|| get_default_configs().app.auth.allow_auth.unwrap())
     }
 
     pub fn get_auth_page_url(&self) -> String {
@@ -1310,11 +1310,21 @@ mod tests {
     }
 
     #[test]
-    fn test_bundled_app_config_is_valid() {
-        let config_content = include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
+    fn test_bundled_app_config_is_mapped_to_single_source() {
+        let tauri_conf = include_str!("../../FUSOU-APP/src-tauri/tauri.conf.json");
+        assert!(
+            tauri_conf.contains(r#""../../configs/configs.toml": "resources/user/configs.toml""#),
+            "tauri.conf.json must map ../../configs/configs.toml to resources/user/configs.toml"
+        );
 
-        toml::from_str::<Configs>(config_content)
-            .expect("bundled FUSOU-APP configs.toml must match Configs");
+        assert!(
+            !std::path::Path::new("../FUSOU-APP/src-tauri/resources/user/configs.toml").exists(),
+            "duplicate FUSOU-APP/src-tauri/resources/user/configs.toml should not exist"
+        );
+
+        let roaming_content = include_str!("../../FUSOU-APP/src-tauri/roaming/user/configs.toml");
+        toml::from_str::<Configs>(roaming_content)
+            .expect("dev roaming FUSOU-APP configs.toml must match Configs");
     }
 
     #[test]
@@ -1634,7 +1644,7 @@ mod tests {
 
         // Test App Auth defaults
         let empty_auth = ConfigsAppAuth {
-            deny_auth: None,
+            allow_auth: None,
             auth_page_url: None,
             anonymous_sync_v2_register_endpoint: None,
             anonymous_sync_v2_challenge_endpoint: None,
@@ -1642,10 +1652,11 @@ mod tests {
             anonymous_sync_v2_complete_endpoint: None,
         };
 
+        assert!(!default_configs.app.auth.get_allow_auth());
         assert_eq!(
-            empty_auth.get_deny_auth(),
-            default_configs.app.auth.get_deny_auth(),
-            "auth deny_auth getter should return configs.toml default"
+            empty_auth.get_allow_auth(),
+            default_configs.app.auth.get_allow_auth(),
+            "auth allow_auth getter should return configs.toml default"
         );
         assert_eq!(
             empty_auth.get_auth_page_url(),
@@ -1854,7 +1865,7 @@ allow_data_to_local = true
         assert!(merged.app.quest_tree_sender.get_allow_data_to_local());
         assert!(merged.app.ship_growth_sender.get_enable());
         assert!(merged.app.ship_growth_sender.get_allow_data_to_local());
-        assert!(merged.app.soku_speed_sender.get_enable());
+        assert!(!merged.app.soku_speed_sender.get_enable());
         assert!(merged.app.soku_speed_sender.get_allow_data_to_local());
         assert!(merged.app.remodel_sender.get_enable());
         assert!(merged.app.remodel_sender.get_allow_data_to_local());

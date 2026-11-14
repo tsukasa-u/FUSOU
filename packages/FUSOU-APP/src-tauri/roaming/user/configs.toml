@@ -183,7 +183,7 @@ save_file_location = ""
 
     [app.map_cell_labels]
     # URL of the FUSOU-WEB map cell label bundle used by FUSOU-APP
-    bundle_url = " https://fusou.dev/battle-maps/cell_labels.json"
+    bundle_url = "https://fusou.dev/battle-maps/cell_labels.json"
 
 
     [app.database]
@@ -231,11 +231,8 @@ save_file_location = ""
 
 
     [app.asset_sync]
-    # Whether to upload non-kcsapi proxy resources to Cloudflare R2
+    # Whether asset upload worker (Cloudflare R2) is enabled
     # default is false
-    enable = true
-
-    # Whether asset upload worker is enabled
     asset_upload_enable = true
 
     # The polling interval (in seconds) for scanning the cache directory
@@ -277,9 +274,9 @@ save_file_location = ""
 
 
     [app.auth]
-    # Whether to deny user authentication
-    # To be careful because there is no method to reset the authentication state until the authentication expires
-    deny_auth = false
+    # Whether to allow user authentication (currently unused; app runs in anonymous session mode)
+    # default is false
+    allow_auth = false
 
     # Authentication page URL
     # The URL to open when authentication is required
@@ -303,7 +300,7 @@ save_file_location = ""
     # Whether to save quest tree data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
-    allow_data_to_local = false
+    allow_data_to_local = true
 
     # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
     # If empty, quest tree sender is disabled
@@ -317,7 +314,7 @@ save_file_location = ""
     # Whether to save ship growth (parameter progression) data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
-    allow_data_to_local = false
+    allow_data_to_local = true
 
     # Endpoint to ingest ship growth data
     # If empty, ship growth sender is disabled
@@ -331,7 +328,7 @@ save_file_location = ""
     # Whether to save soku_speed observed data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
-    allow_data_to_local = false
+    allow_data_to_local = true
 
     # Endpoint to ingest soku_speed observed data
     ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
@@ -345,7 +342,7 @@ save_file_location = ""
     # Whether to save remodel data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
-    allow_data_to_local = false
+    allow_data_to_local = true
 
     # Endpoint to ingest remodel data
     # Must be set when enable=true

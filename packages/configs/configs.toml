@@ -231,11 +231,8 @@ save_file_location = ""
 
 
     [app.asset_sync]
-    # Whether to upload non-kcsapi proxy resources to Cloudflare R2
+    # Whether asset upload worker (Cloudflare R2) is enabled
     # default is false
-    enable = false
-
-    # Whether asset upload worker is enabled
     asset_upload_enable = false
 
     # The polling interval (in seconds) for scanning the cache directory
@@ -277,9 +274,9 @@ save_file_location = ""
 
 
     [app.auth]
-    # Whether to deny user authentication
-    # To be careful because there is no method to reset the authentication state until the authentication expires
-    deny_auth = true
+    # Whether to allow user authentication (currently unused; app runs in anonymous session mode)
+    # default is false
+    allow_auth = false
 
     # Authentication page URL
     # The URL to open when authentication is required
@@ -326,7 +323,7 @@ save_file_location = ""
     [app.soku_speed_sender]
     # Whether to enable speed observed data collection
     # default is false
-    enable = true
+    enable = false
 
     # Whether to save soku_speed observed data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)

@@ -41,7 +41,8 @@
     },
     "resources": {
       "resources/": "resources/",
-      "../../FUSOU-PROXY/proxy-https/cmd/": "resources/cmd/"
+      "../../FUSOU-PROXY/proxy-https/cmd/": "resources/cmd/",
+      "../../configs/configs.toml": "resources/user/configs.toml"
     },
     "shortDescription": "",
     "linux": {

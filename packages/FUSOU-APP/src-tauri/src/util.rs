@@ -81,6 +81,7 @@ pub fn get_ROAMING_DIR() -> PathBuf {
         .clone();
 }
 
+#[cfg_attr(all(dev, not(check_release)), allow(dead_code))]
 #[allow(non_snake_case)]
 pub fn get_RESOURCES_DIR() -> PathBuf {
     return RESOURCES_DIR
@@ -100,6 +101,18 @@ pub fn get_CMD_DIR() -> PathBuf {
     #[cfg(any(not(dev), check_release))]
     {
         get_RESOURCES_DIR().join("cmd")
+    }
+}
+
+#[allow(non_snake_case)]
+pub fn get_DEFAULT_CONFIG_PATH() -> PathBuf {
+    #[cfg(all(dev, not(check_release)))]
+    {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../configs/configs.toml")
+    }
+    #[cfg(any(not(dev), check_release))]
+    {
+        get_RESOURCES_DIR().join("user").join("configs.toml")
     }
 }
 
