@@ -3,10 +3,6 @@ import { handleCron } from "./cron";
 import { handleBufferConsumerChunked } from "./buffer-consumer";
 import type { QueueMessage, QueueSendBatchItem } from "./types";
 import {
-  recomputeAllRuleTargets,
-  runQuestInferenceTasks,
-} from "./quest_tree_inference";
-import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
 } from "./master_data_cleanup";
@@ -24,21 +20,10 @@ const UploadIngestPayloadSchema = z.object({
   slices: z.array(z.string().min(1)).optional(),
 });
 
-const QuestInferenceRecomputeRequestSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
-});
-
-const QuestInferenceRunRequestSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-  datasetId: z.string().trim().min(1).optional(),
-});
-
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
   WORKFLOW_STATE_KV?: KVNamespace;
-  QUEST_INDEX_DB?: D1Database;
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
@@ -49,10 +34,6 @@ interface Env {
   MASTER_DATA_CLEANUP_TOKEN?: string;
   // Bearer token required for /battle-data/upload and /read (disabled without it)
   UPLOAD_INGEST_TOKEN?: string;
-  // Optional cap for task batch size. Defaults to 100.
-  QUEST_TREE_CRON_LIMIT?: string;
-  // Required explicit switch for experimental quest collection/inference.
-  QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED?: string;
 }
 
 const CORS_HEADERS = {
@@ -109,27 +90,6 @@ const queueDLQ = {
   },
 };
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.trunc(parsed);
-}
-
-function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw new Error(`${envKey} must be explicitly set to one of: true, false, 1, 0`);
-}
-
-function readStrictBooleanSafe(value: string | undefined, envKey: string): boolean | null {
-  try {
-    return parseStrictBoolean(value, envKey);
-  } catch {
-    return null;
-  }
-}
-
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -155,44 +115,6 @@ function requireUploadIngestAuth(
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
   return null;
-}
-
-async function parseOptionalJsonObject(
-  request: Request,
-): Promise<{ data: Record<string, unknown> } | { error: Response }> {
-  const raw = await request.text();
-  if (!raw.trim()) {
-    return { data: {} };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return { error: jsonResponse({ error: "Invalid JSON body" }, 400) };
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { error: jsonResponse({ error: "JSON body must be an object" }, 400) };
-  }
-  return { data: parsed as Record<string, unknown> };
-}
-
-async function runQuestInferenceCron(env: Env): Promise<void> {
-  const enabled = parseStrictBoolean(
-    env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
-    "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED",
-  );
-  if (!enabled) {
-    console.log("[scheduled] quest inference cron skipped: experimental collection disabled");
-    return;
-  }
-
-  const limit = Math.min(200, parsePositiveInt(env.QUEST_TREE_CRON_LIMIT, 100));
-  if (!env.QUEST_INDEX_DB) {
-    console.warn("[scheduled] quest inference cron skipped: QUEST_INDEX_DB is not configured");
-    return;
-  }
-  const result = await runQuestInferenceTasks(env.QUEST_INDEX_DB, { limit });
-  console.log("[scheduled] quest inference cron completed", result);
 }
 
 export default {
@@ -320,104 +242,6 @@ export default {
       }
     }
 
-    if (path === "/admin/quest-inference/recompute" && request.method === "POST") {
-      const authError = requireUploadIngestAuth(
-        request,
-        env,
-        "Admin quest-inference recompute endpoint",
-      );
-      if (authError) return authError;
-      if (!env.QUEST_INDEX_DB) {
-        return jsonResponse({ error: "Quest index database not configured" }, 503);
-      }
-
-      const bodyResult = await parseOptionalJsonObject(request);
-      if ("error" in bodyResult) return bodyResult.error;
-
-      const parsedParams = QuestInferenceRecomputeRequestSchema.safeParse({
-        ...(url.searchParams.has("limit") ? { limit: url.searchParams.get("limit") } : {}),
-        ...(url.searchParams.has("offset") ? { offset: url.searchParams.get("offset") } : {}),
-        ...bodyResult.data,
-      });
-      if (!parsedParams.success) {
-        return jsonResponse(
-          { error: "Invalid request parameters", issues: parsedParams.error.issues },
-          400,
-        );
-      }
-
-      const limit = parsedParams.data.limit ?? 50;
-      const offset = parsedParams.data.offset ?? 0;
-
-      try {
-        const result = await recomputeAllRuleTargets(env.QUEST_INDEX_DB, { limit, offset });
-        return jsonResponse({ status: "success", ...result, limit, offset }, 200);
-      } catch (err) {
-        console.error("[Admin] Quest rule recomputation failed:", err);
-        return jsonResponse(
-          {
-            error: "Quest inference recomputation failed",
-            detail: err instanceof Error ? err.message : String(err),
-          },
-          500,
-        );
-      }
-    }
-
-    if (path === "/admin/quest-inference/run" && request.method === "POST") {
-      const authError = requireUploadIngestAuth(
-        request,
-        env,
-        "Admin quest-inference run endpoint",
-      );
-      if (authError) return authError;
-      if (!env.QUEST_INDEX_DB) {
-        return jsonResponse({ error: "Quest index database not configured" }, 503);
-      }
-
-      const bodyResult = await parseOptionalJsonObject(request);
-      if ("error" in bodyResult) return bodyResult.error;
-
-      const parsedParams = QuestInferenceRunRequestSchema.safeParse({
-        ...(url.searchParams.has("limit") ? { limit: url.searchParams.get("limit") } : {}),
-        ...(url.searchParams.has("datasetId") ? { datasetId: url.searchParams.get("datasetId") } : {}),
-        ...bodyResult.data,
-      });
-      if (!parsedParams.success) {
-        return jsonResponse(
-          { error: "Invalid request parameters", issues: parsedParams.error.issues },
-          400,
-        );
-      }
-
-      const limit = parsedParams.data.limit ?? 50;
-      const datasetId = parsedParams.data.datasetId;
-
-      try {
-        const result = await runQuestInferenceTasks(env.QUEST_INDEX_DB, {
-          limit,
-          ...(datasetId ? { datasetId } : {}),
-        });
-        const cronEnabled = readStrictBooleanSafe(
-          env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
-          "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED",
-        );
-        return jsonResponse(
-          { status: "success", ...result, limit, cronEnabled },
-          200,
-        );
-      } catch (err) {
-        console.error("[Admin] Quest inference run failed:", err);
-        return jsonResponse(
-          {
-            error: "Quest inference execution failed",
-            detail: err instanceof Error ? err.message : String(err),
-          },
-          500,
-        );
-      }
-    }
-
     if (path === "/read" && request.method === "GET") {
       const readAuthError = requireUploadIngestAuth(request, env, "Read endpoint");
       if (readAuthError) return readAuthError;
@@ -487,11 +311,5 @@ export default {
         }),
       );
     }
-
-    ctx.waitUntil(
-      runQuestInferenceCron(env).catch((err) => {
-        console.error("[scheduled] Quest inference cron error:", err);
-      }),
-    );
   },
 };
