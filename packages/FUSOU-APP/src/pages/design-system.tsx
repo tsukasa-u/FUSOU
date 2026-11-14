@@ -34,7 +34,6 @@ import { FormationComponent } from "../components/battles/shared/formation";
 import { SpriteMotionCounts } from "../components/battles/shared/sprite_motion_counts";
 import { DamageCommonComponent } from "../components/battles/dmg";
 import IconShield from "../icons/shield";
-import IconChevronRightS from "../icons/chevron_right_s";
 import "../global.css";
 import "../css/divider.css";
 import "../css/back_slash.css";
@@ -2434,10 +2433,8 @@ export default function DesignSystemPage() {
                   <details open>
                     <summary class="flex">
                       <div class="w-20 flex-none">Fleet 1</div>
-                      <div class="w-4 flex-none -mx-4">
-                        <IconChevronRightS class="h-4 w-4" />
-                      </div>
-                      <div class="pl-4">第一艦隊</div>
+                      <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+                      <div>第一艦隊</div>
                       <span class="flex-auto" />
                     </summary>
                     <ul class="pl-0">
@@ -2819,21 +2816,43 @@ export default function DesignSystemPage() {
                     <details open={true}>
                       <summary class="flex">
                         Battles
-                        <IconChevronRightS class="h-4 w-4" />
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div>Map : 5-5</div>
                         <span class="flex-auto" />
                       </summary>
                       <ul class="pl-0">
-                        <div class="flex flex-row pl-2 items-center">
-                          <div class="h-4 mt-px pt-px text-xs">cells</div>
-                          <IconChevronRightS class="h-4 w-4 m-1" />
-                          <button class="btn btn-xs btn-square">A</button>
-                          <div class="divider divider-horizontal mr-0 ml-0" />
-                          <button class="btn btn-xs btn-square">E</button>
-                          <div class="divider divider-horizontal mr-0 ml-0" />
-                          <button class="btn btn-xs btn-square btn-active">
-                            G
-                          </button>
+                        <div class="flex flex-row items-center pl-2">
+                          <div class="text-xs flex-none">cells</div>
+                          <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                          <div
+                            role="group"
+                            aria-label="Cell selection"
+                            class="inline-flex flex-wrap items-center"
+                          >
+                            <button
+                              type="button"
+                              aria-pressed={false}
+                              class="btn btn-ghost btn-xs btn-square rounded-none"
+                            >
+                              A
+                            </button>
+                            <div class="divider divider-horizontal mr-0 ml-0 w-px self-stretch" />
+                            <button
+                              type="button"
+                              aria-pressed={false}
+                              class="btn btn-ghost btn-xs btn-square rounded-none"
+                            >
+                              E
+                            </button>
+                            <div class="divider divider-horizontal mr-0 ml-0 w-px self-stretch" />
+                            <button
+                              type="button"
+                              aria-pressed={true}
+                              class="btn btn-ghost btn-xs btn-square rounded-none btn-active font-semibold"
+                            >
+                              G
+                            </button>
+                          </div>
                         </div>
                         <div class="flex flex-nowrap text-xs py-0.5 pl-2">
                           Search : <span class="w-1" />
@@ -3765,9 +3784,7 @@ export default function DesignSystemPage() {
                           <details open>
                             <summary class="flex">
                               1-1
-                              <div class="w-4">
-                                <IconChevronRightS class="h-4 w-4" />
-                              </div>
+                              <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                               <div class="truncate w-32">第一基地航空隊</div>
                               <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                               <div class="flex-none">R : 7</div>

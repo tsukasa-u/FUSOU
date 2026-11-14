@@ -12,7 +12,6 @@ import {
 
 import "../../css/divider.css";
 import { EmptySlot, EmptyValue } from "ui";
-import IconChevronRightS from "../../icons/chevron_right_s";
 import {
   implementsAirBaseAirAttack,
   implementsAirBaseAssult,
@@ -430,7 +429,7 @@ export function BattlesComponent() {
         <details open={true}>
           <summary class="flex">
             Battles
-            <IconChevronRightS class="h-4 w-4" />
+            <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
             <div>
               Map : {cells.maparea_id}-{cells.mapinfo_no}
             </div>
@@ -441,27 +440,39 @@ export function BattlesComponent() {
             fallback={<div class="text-xs pl-4 py-1">No Cell Data ...</div>}
           >
             <ul class="pl-0">
-              <div class="flex flex-row pl-2">
-                <div class="h-4 mt-px pt-px">cells</div>
-                <IconChevronRightS class="h-4 w-4 m-1 " />
-                <For each={cells.cell_index}>
-                  {(_, index) => (
-                    <>
-                      <Show when={index() > 0}>
-                        <div class="divider divider-horizontal mr-0 ml-0 w-px" />
-                      </Show>
-                      <button
-                        class={`${cell_index_selected() == index() ? "btn-active" : ""} btn btn-xs btn-square`}
-                        onClick={() => {
-                          set_cell_index_selected(index());
-                          if (import.meta.env.DEV) console.log(cells);
-                        }}
-                      >
-                        {cellLabel(cells.cell_index[index()])}
-                      </button>
-                    </>
-                  )}
-                </For>
+              <div class="flex flex-row items-center pl-2">
+                <div class="text-xs flex-none">cells</div>
+                <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                <div
+                  role="group"
+                  aria-label="Cell selection"
+                  class="inline-flex flex-wrap items-center"
+                >
+                  <For each={cells.cell_index}>
+                    {(_, index) => (
+                      <>
+                        <Show when={index() > 0}>
+                          <div class="divider divider-horizontal mr-0 ml-0 w-px self-stretch" />
+                        </Show>
+                        <button
+                          type="button"
+                          aria-pressed={cell_index_selected() == index()}
+                          class={`btn btn-ghost btn-xs btn-square rounded-none ${
+                            cell_index_selected() == index()
+                              ? "btn-active font-semibold"
+                              : ""
+                          }`}
+                          onClick={() => {
+                            set_cell_index_selected(index());
+                            if (import.meta.env.DEV) console.log(cells);
+                          }}
+                        >
+                          {cellLabel(cells.cell_index[index()])}
+                        </button>
+                      </>
+                    )}
+                  </For>
+                </div>
               </div>
               <DestructionBattleSummaryComponent
                 area_id={cells.maparea_id}

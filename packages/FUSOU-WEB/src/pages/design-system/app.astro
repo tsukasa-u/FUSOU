@@ -3694,17 +3694,9 @@ const materialList = [
               <details open>
                 <summary class="flex">
                   <div class="w-20 flex-none">First Fleet</div>
-                  <div class="w-4 flex-none -mx-4">
-                    <svg
-                      class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 21 21"
-                      stroke="currentColor"
-                      ><path d="m 10 16 l 5 -5 l -5 -5" stroke-width="1.5"
-                      ></path></svg
-                    >
+                  <div class="divider divider-horizontal mr-0 ml-0 flex-none">
                   </div>
-                  <div class="pl-4">第一艦隊</div>
+                  <div>第一艦隊</div>
                   <span class="flex-auto"></span>
                 </summary>
 
@@ -5200,40 +5192,52 @@ const materialList = [
               <details open>
                 <summary class="flex">
                   Battles
-                  <svg
-                    class="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 21 21"
-                    stroke="currentColor"
-                    ><path d="m 10 16 l 5 -5 l -5 -5" stroke-width="1.5"
-                    ></path></svg
-                  >
+                  <div class="divider divider-horizontal mr-0 ml-0 flex-none">
+                  </div>
                   <div>Map : 7-1</div>
                   <span class="flex-auto"></span>
                 </summary>
 
                 <ul class="pl-0">
                   <!-- Cell Route Buttons -->
-                  <div class="flex flex-row pl-2 items-center">
-                    <div class="h-4 mt-px pt-px text-xs">cells</div>
-                    <svg
-                      class="h-4 w-4 m-1"
-                      fill="none"
-                      viewBox="0 0 21 21"
-                      stroke="currentColor"
-                      ><path d="m 10 16 l 5 -5 l -5 -5" stroke-width="1.5"
-                      ></path></svg
+                  <div class="flex flex-row items-center pl-2">
+                    <div class="text-xs flex-none">cells</div>
+                    <div
+                      class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"
                     >
-                    <button class="btn btn-xs btn-square rounded-none">A</button
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="Cell selection"
+                      class="inline-flex flex-wrap items-center"
                     >
-                    <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    <button class="btn btn-xs btn-square rounded-none">E</button
-                    >
-                    <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    <button
-                      class="btn btn-xs btn-square rounded-none btn-active"
-                      >G</button
-                    >
+                      <button
+                        type="button"
+                        aria-pressed="false"
+                        class="btn btn-ghost btn-xs btn-square rounded-none"
+                        >A</button
+                      >
+                      <div
+                        class="divider divider-horizontal mr-0 ml-0 w-px self-stretch"
+                      >
+                      </div>
+                      <button
+                        type="button"
+                        aria-pressed="false"
+                        class="btn btn-ghost btn-xs btn-square rounded-none"
+                        >E</button
+                      >
+                      <div
+                        class="divider divider-horizontal mr-0 ml-0 w-px self-stretch"
+                      >
+                      </div>
+                      <button
+                        type="button"
+                        aria-pressed="true"
+                        class="btn btn-ghost btn-xs btn-square rounded-none btn-active font-semibold"
+                        >G</button
+                      >
+                    </div>
                   </div>
 
                   <!-- Reconnaissance Search Message -->
@@ -7575,16 +7579,9 @@ const materialList = [
                       <details open>
                         <summary class="flex">
                           1-1
-                          <div class="w-4">
-                            <svg
-                              class="h-4 w-4"
-                              fill="none"
-                              viewBox="0 0 21 21"
-                              stroke="currentColor"
-                              ><path
-                                d="m 10 16 l 5 -5 l -5 -5"
-                                stroke-width="1.5"></path></svg
-                            >
+                          <div
+                            class="divider divider-horizontal mr-0 ml-0 flex-none"
+                          >
                           </div>
                           <div class="truncate w-32">第一基地航空隊</div>
                           <div

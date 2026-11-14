@@ -685,10 +685,8 @@ Each deck item is structured as:
   <details open>
     <summary class="flex">
       <div class="w-20 flex-none">{fleet_name}</div>
-      <div class="w-4 flex-none -mx-4">
-        <IconChevronRightS class="h-4 w-4" />
-      </div>
-      <div class="pl-4">{deck_name}</div>
+      <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+      <div>{deck_name}</div>
       <span class="flex-auto" />
     </summary>
     <ul class="pl-0">
@@ -750,9 +748,9 @@ In production (`src/components/battles/battles.tsx`), combat operations are orga
 ### 1. Combat Header & Phase Indicators
 
 1. **Map Header**:
-   - `<summary class="flex">Battles<IconChevronRightS class="h-4 w-4" /><div>Map : {maparea_id}-{mapinfo_no}</div><span class="flex-auto" /></summary>`.
+   - `<summary class="flex">Battles<div class="divider divider-horizontal mr-0 ml-0 flex-none" /><div>Map : {maparea_id}-{mapinfo_no}</div><span class="flex-auto" /></summary>`.
 2. **Cell Route Selection**:
-   - Horizontal navigation bar: `<div class="flex flex-row pl-2 items-center"><div class="h-4 mt-px pt-px text-xs">cells</div><IconChevronRightS class="h-4 w-4 m-1" /><button class="btn btn-xs btn-square">A</button>...`.
+   - Horizontal navigation bar: `<div class="flex flex-row items-center pl-2"><div class="text-xs flex-none">cells</div><div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" /><div role="group" aria-label="Cell selection" class="inline-flex flex-wrap items-center">` with sharp-cornered square ghost cell buttons (`btn btn-ghost btn-xs btn-square rounded-none`; active cell adds `btn-active font-semibold`, idle cells keep full `--color-base-content` legibility) separated by `divider divider-horizontal mr-0 ml-0 w-px self-stretch` so hover (`9%`) and active (`16%`) theme-adaptive fills align flush with the vertical dividers without rounded corners or excessive contrast in Light theme.
 3. **Search Status**:
    - Inline indicator (`battles.tsx`): `Search : <div class="text-lime-500">Enemy in sight; Accuracy &amp; Evacuation Up</div>` (or corresponding reconnaissance status / `<EmptyValue />` fallback).
 4. **Formations & Form**:
@@ -915,7 +913,7 @@ Rendered as an inline summary of aircraft sprite trajectories and anti-air attri
 
 Organized under `ul.menu.menu-xs` by base squadron:
 
-- **Base Summary**: `<summary class="flex">{map}-{area} <IconChevronRightS /> {name} <divider /> R : {distance} <divider /> {action}</summary>`.
+- **Base Summary**: `<summary class="flex">{map}-{area} <divider /> {name} <divider /> R : {distance} <divider /> {action}</summary>`.
 - **Action Statuses**: `Standby` (待機), `Sortie` (出撃), `Defense` (防空), `Evacuation` (退避), `Rest` (休息).
 - **Squadron Plane Rows**:
   - Each plane row is `li.h-auto > a.justify-start.gap-x-0.gap-y-1.flex.flex-wrap > div.justify-start.gap-0.flex` containing:

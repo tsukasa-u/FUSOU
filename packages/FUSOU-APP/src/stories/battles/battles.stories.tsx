@@ -1,3 +1,4 @@
+import { expect, waitFor } from "storybook/test";
 import { BattlesComponent } from "../../components/battles/battles.tsx";
 import {
   DeckBattlesContext,
@@ -140,4 +141,105 @@ export const WithDecorator = {
       );
     },
   ],
+};
+
+export const CellSelectionStatesLightAndDark = {
+  render: () => (
+    <div class="space-y-4 p-2">
+      <div
+        data-theme="light"
+        class="bg-base-100 p-2 rounded-box border border-base-300"
+      >
+        <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+          <MstSlotItemsContext.Provider value={[mst_slot_itmes]}>
+            <SlotItemsContext.Provider value={[slot_items]}>
+              <ShipsContext.Provider value={[ships]}>
+                <MstShipsContext.Provider value={[mst_ships]}>
+                  <DeckBattlesContext.Provider value={[ports_1_5]}>
+                    <AirBasesBattlesContext.Provider value={[air_bases]}>
+                      <CellsContext.Provider value={[cells_1_5]}>
+                        <BattlesComponent />
+                      </CellsContext.Provider>
+                    </AirBasesBattlesContext.Provider>
+                  </DeckBattlesContext.Provider>
+                </MstShipsContext.Provider>
+              </ShipsContext.Provider>
+            </SlotItemsContext.Provider>
+          </MstSlotItemsContext.Provider>
+        </ul>
+      </div>
+      <div
+        data-theme="dark"
+        class="bg-base-100 p-2 rounded-box border border-base-300"
+      >
+        <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+          <MstSlotItemsContext.Provider value={[mst_slot_itmes]}>
+            <SlotItemsContext.Provider value={[slot_items]}>
+              <ShipsContext.Provider value={[ships]}>
+                <MstShipsContext.Provider value={[mst_ships]}>
+                  <DeckBattlesContext.Provider value={[ports_1_5]}>
+                    <AirBasesBattlesContext.Provider value={[air_bases]}>
+                      <CellsContext.Provider value={[cells_1_5]}>
+                        <BattlesComponent />
+                      </CellsContext.Provider>
+                    </AirBasesBattlesContext.Provider>
+                  </DeckBattlesContext.Provider>
+                </MstShipsContext.Provider>
+              </ShipsContext.Provider>
+            </SlotItemsContext.Provider>
+          </MstSlotItemsContext.Provider>
+        </ul>
+      </div>
+    </div>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    for (const theme of ["light", "dark"] as const) {
+      const themedRoot = canvasElement.querySelector(
+        `[data-theme="${theme}"]`,
+      ) as HTMLElement;
+      const cellGroup = themedRoot.querySelector(
+        '[role="group"][aria-label="Cell selection"]',
+      ) as HTMLElement;
+      const buttons = Array.from(
+        cellGroup.querySelectorAll("button.btn.btn-xs.btn-square"),
+      ) as HTMLButtonElement[];
+      expect(buttons.length).toBeGreaterThanOrEqual(2);
+
+      const dividers = Array.from(
+        cellGroup.querySelectorAll(".divider-horizontal"),
+      ) as HTMLElement[];
+      expect(dividers.length).toBe(buttons.length - 1);
+      expect(dividers[0].getBoundingClientRect().height).toBeGreaterThanOrEqual(
+        20,
+      );
+
+      for (const btn of buttons) {
+        expect(window.getComputedStyle(btn).borderRadius).toBe("0px");
+      }
+
+      const activeBtn = buttons[buttons.length - 1];
+      const idleBtn = buttons[0];
+      expect(activeBtn.getAttribute("aria-pressed")).toBe("true");
+      expect(activeBtn.classList.contains("btn-ghost")).toBe(true);
+      expect(activeBtn.classList.contains("btn-active")).toBe(true);
+      expect(idleBtn.getAttribute("aria-pressed")).toBe("false");
+      expect(idleBtn.classList.contains("btn-ghost")).toBe(true);
+      expect(idleBtn.classList.contains("btn-active")).toBe(false);
+
+      const containerBg = window.getComputedStyle(themedRoot).backgroundColor;
+      const activeBg = window.getComputedStyle(activeBtn).backgroundColor;
+      const idleBg = window.getComputedStyle(idleBtn).backgroundColor;
+      expect(activeBg).not.toBe(containerBg);
+      expect(activeBg).not.toBe(idleBg);
+
+      idleBtn.click();
+      await waitFor(() => {
+        expect(idleBtn.getAttribute("aria-pressed")).toBe("true");
+        expect(idleBtn.classList.contains("btn-active")).toBe(true);
+        expect(activeBtn.getAttribute("aria-pressed")).toBe("false");
+        expect(activeBtn.classList.contains("btn-active")).toBe(false);
+        expect(window.getComputedStyle(idleBtn).backgroundColor).toBe(activeBg);
+      });
+    }
+  },
 };
