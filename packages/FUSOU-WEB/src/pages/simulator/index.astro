@@ -51,13 +51,8 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
         tone: "outline",
       },
       {
-        sourceSelector: "#btn-load-fleet",
-        description: "保存済み編成をR2から読み込みます。",
-        tone: "outline",
-      },
-      {
         sourceSelector: "#btn-import",
-        description: "API JSONを貼り付けて編成へ反映します。",
+        description: "保存済み編成の読込やAPI JSONの貼り付けで編成を取り込みます。",
         tone: "outline",
       },
       {
@@ -71,12 +66,12 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
         tone: "primary",
       },
       {
-        sourceSelector: "#btn-workspace-add-current",
+        sourceSelector: "#btn-workspace-save-current",
         description: "現在のPlayground編成をワークスペースに登録します。",
         tone: "ghost",
       },
       {
-        sourceSelector: "#btn-workspace-add",
+        sourceSelector: "#btn-workspace-add-url",
         description: "共有URLをワークスペース一覧へ追加します。",
         tone: "ghost",
       },

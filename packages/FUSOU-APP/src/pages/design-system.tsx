@@ -1529,10 +1529,10 @@ export default function DesignSystemPage() {
               新しいマスターデータ（Ver 2026.11）を正常に読み込みました。
             </AlertMessage>
             <AlertMessage type="success" title="成功">
-              編成シミュレーション計算完了。制空値 432 (優勢確定)。
+              艦隊データ読み込み完了。制空値計算や装備構成の確認が可能です。
             </AlertMessage>
             <AlertMessage type="warning" title="警告">
-              第2艦隊 3番艦の疲労度低下（Cond 28）。休養を推奨します。
+              艦隊の疲労状態（Cond値）に注意してください。出撃前の補給・休養確認を推奨します。
             </AlertMessage>
             <AlertMessage type="error" title="危険">
               大破進撃警告！ 旗艦・随伴艦に大破艦が存在します。
@@ -2681,7 +2681,7 @@ export default function DesignSystemPage() {
               11 / Combat Systems &amp; Battle Summary
             </h2>
             <p class="text-xs text-base-content/60 mt-0.5">
-              戦闘結果サマリー、陣形判定、航空戦ヘッダーおよびダメージ計算の生体仕様。
+              戦闘結果サマリー、陣形判定、航空戦ヘッダーおよびログ表示のコンポーネント仕様。
             </p>
           </div>
 
@@ -2690,7 +2690,7 @@ export default function DesignSystemPage() {
             <div class="space-y-3">
               <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
                 <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/70">
-                  戦闘結果サマリー生体表示 (&lt;BattleSummaryComponent /&gt;)
+                  戦闘結果サマリー表示 (&lt;BattleSummaryComponent /&gt;)
                 </h3>
                 <span class="text-[11px] text-base-content/50 font-mono">
                   &lt;table class="table table-xs"&gt; • 6カラム (Own Main / HP

@@ -38,7 +38,7 @@ import type { FingerprintVersionMap } from "./schemas";
 import { toUint8Array } from "./utils/binary";
 import { tableVersionAliases, normalizeTableVersion } from "./version";
 
-// Bundled fingerprints — kept in sync via: pnpm --filter fusou-workflow run generate:all
+// Bundled fingerprints — kept in sync via: pnpm --filter fusou-workflow run generate:schemas && pnpm --filter fusou-workflow run generate:fingerprints
 // This import is resolved at build time, so no manual env var setup is needed.
 // The env var TABLE_FINGERPRINTS_JSON can still override this at runtime.
 import bundledFingerprints from "../../configs/fingerprints.json";
