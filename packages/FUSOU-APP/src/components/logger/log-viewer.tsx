@@ -13,7 +13,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { VList } from "virtua/solid";
 import { createStore } from "solid-js/store";
 
-export function LogViewerComponent() {
+export type LogEntry = {
+  datetime: string;
+  level: string;
+  target: string;
+  message: string;
+};
+
+export type LogViewerProps = {
+  initialLogs?: LogEntry[];
+};
+
+export function LogViewerComponent(props: LogViewerProps = {}) {
   type MessageVisitor = {
     datetime: string;
     level: string;
@@ -26,14 +37,9 @@ export function LogViewerComponent() {
     content_type?: string;
   };
 
-  type LogEntry = {
-    datetime: string;
-    level: string;
-    target: string;
-    message: string;
-  };
-
-  const [logStore, setLogStore] = createStore<LogEntry[]>([]);
+  const [logStore, setLogStore] = createStore<LogEntry[]>(
+    props.initialLogs ? [...props.initialLogs] : [],
+  );
   const [isLoading, setIsLoading] = createSignal(false);
 
   // UI state for search and filters
@@ -422,40 +428,53 @@ export function LogViewerComponent() {
               checkScrollPosition();
             }, 100);
           }}
-          class="absolute inset-0 rounded-box border-base-300 border overflow-auto"
+          class="absolute inset-0 rounded-box border-base-300 border flex flex-col overflow-hidden bg-base-100"
         >
-          <VList
-            data={filteredLogs()}
-            style={{
-              height: "100%",
-            }}
+          <div
+            data-log-header
+            class="px-1 py-1.5 bg-base-200/70 border-b border-base-300 text-[11px] font-semibold uppercase tracking-wider text-base-content/60 flex items-center gap-2 shrink-0 select-none"
           >
-            {(d) => (
-              <div
-                data-log-entry
-                class="p-1 text-xs flex items-start gap-2 min-w-0"
-              >
-                <div class="px-2 shrink-0 text-nowrap text-[11px] font-mono tabular-nums text-base-content/70">
-                  {d.datetime}
-                </div>
-                <div class="px-2 shrink-0 w-16">
-                  <span
-                    class={`px-2 py-0.5 rounded-md text-[10px] font-medium whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
+            <div class="px-2 shrink-0 w-44">Timestamp</div>
+            <div class="px-2 shrink-0 w-16 text-center">Level</div>
+            <div class="px-2 flex-1 min-w-0 truncate">Target / Message</div>
+          </div>
+          <div class="flex-1 min-h-0">
+            <VList
+              data={filteredLogs()}
+              style={{
+                height: "100%",
+              }}
+            >
+              {(d) => (
+                <div
+                  data-log-entry
+                  class="p-1 text-xs flex items-start gap-2 min-w-0 border-b border-base-200/60 hover:bg-base-200/40"
+                >
+                  <div
+                    class="px-2 shrink-0 w-44 truncate text-[11px] font-mono tabular-nums text-base-content/70"
+                    title={d.datetime}
                   >
-                    {d.level}
-                  </span>
+                    {d.datetime}
+                  </div>
+                  <div class="px-2 shrink-0 w-16">
+                    <span
+                      class={`px-2 py-0.5 rounded-md text-[10px] font-medium whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
+                    >
+                      {d.level}
+                    </span>
+                  </div>
+                  <div class="px-2 flex-1 min-w-0 wrap-break-word">
+                    <span
+                      class={`px-2 py-0.5 rounded-md text-[10px] font-medium mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
+                    >
+                      {d.target}
+                    </span>
+                    <span class="break-all">{d.message}</span>
+                  </div>
                 </div>
-                <div class="px-2 flex-1 min-w-0 wrap-break-word">
-                  <span
-                    class={`px-2 py-0.5 rounded-md text-[10px] font-medium mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
-                  >
-                    {d.target}
-                  </span>
-                  <span class="break-all">{d.message}</span>
-                </div>
-              </div>
-            )}
-          </VList>
+              )}
+            </VList>
+          </div>
         </div>
 
         {/* Floating buttons */}
