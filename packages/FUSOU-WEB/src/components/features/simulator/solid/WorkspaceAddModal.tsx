@@ -212,7 +212,7 @@ export function WorkspaceAddModal() {
           <textarea
             class="textarea textarea-bordered textarea-sm w-full min-h-24 leading-relaxed"
             maxlength="500"
-            placeholder="例: 制空値380調整。ボス優勢狙い。夜戦火力を重視して魚雷CI艦を後ろに配置。"
+            placeholder="例: 4-5攻略用の第1艦隊編成。装備ボーナスと基地航空隊の行動半径を確認済み。"
             value={memo()}
             onInput={(e) => setMemo(e.currentTarget.value)}
             disabled={mode() === "edit" && target()?.locked}
