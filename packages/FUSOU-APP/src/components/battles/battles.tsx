@@ -429,10 +429,6 @@ export function BattlesComponent() {
         <details open={true}>
           <summary class="flex">
             Battles
-            <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-            <div>
-              Map : {cells.maparea_id}-{cells.mapinfo_no}
-            </div>
             <span class="flex-auto" />
           </summary>
           <Show
@@ -441,8 +437,16 @@ export function BattlesComponent() {
           >
             <ul class="pl-0">
               <div class="flex flex-row items-center pl-2">
-                <div class="text-xs flex-none">cells</div>
-                <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                <div class="text-xs flex-none w-16 flex flex-nowrap">
+                  <div>Map :</div>
+                  <div class="mx-auto">
+                    {cells.maparea_id}-{cells.mapinfo_no}
+                  </div>
+                </div>
+                <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+                <div class="text-xs flex-none">Cells :</div>
+                <div class="w-2" />
+                {/* <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" /> */}
                 <div
                   role="group"
                   aria-label="Cell selection"
