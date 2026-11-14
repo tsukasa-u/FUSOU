@@ -186,7 +186,7 @@ app.route("/api-keys", apiKeysApp); // apiKeysApp declares /, /:id, /devices, /d
 app.route("/auth", anonymousSyncApp); // anonymousSyncApp declares legacy /anonymous-sync (deprecated and access denied)
 app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares identity, device lifecycle, and pending handoff endpoints
 app.route("/shorten", shortenerApp); // shortener app declares POST /
-app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
+app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /changes
 app.route("/remodel-data", remodelDataApp); // remodelDataApp declares /ingest
 app.route("/soku-speed-observed", sokuSpeedObserved); // Mount new route for sokuSpeedObserved
 app.route("/internal/compaction", internalCompactionApp); // internal compaction control plane APIs for Trigger.dev

@@ -115,36 +115,6 @@ export const QuestCollectionSessionIdRowSchema = z
   .passthrough()
   .nullable();
 
-export const QuestRuleRowSchema = z
-  .object({
-    rule_id: z.string().min(1),
-    target_quest_id: z.number().int(),
-    prereq_set_json: z.string(),
-    set_size: z.number().int().nonnegative(),
-    class: z.string(),
-    support: z.number().finite(),
-    confidence: z.number().finite(),
-    lift: z.number().finite(),
-    score: z.number().finite(),
-    period_tag: z.string().min(1),
-    table_version: z.string().min(1),
-    is_primary: z.number().int(),
-    quality_tier: z.string(),
-    updated_at_ms: z.number().finite(),
-  })
-  .passthrough();
-
-export type QuestRuleRow = z.infer<typeof QuestRuleRowSchema>;
-
-export const QuestRuleRowsSchema = z.array(QuestRuleRowSchema);
-
-export const QuestRuleUpdatedRowSchema = z
-  .object({
-    target_quest_id: z.number().int(),
-    updated_at_ms: z.number().finite(),
-  })
-  .passthrough();
-
 export const QuestAppearanceEventRowSchema = z
   .object({
     target_quest_id: z.number().int(),
@@ -170,14 +140,6 @@ export const QuestSnapshotPageRowSchema = z
     visible_quest_ids_json: z.string().nullable().optional(),
   })
   .passthrough();
-
-export function parseQuestRuleRows(value: unknown): QuestRuleRow[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((row) => {
-    const parsed = QuestRuleRowSchema.safeParse(row);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
 
 export const QuestTreeIngestBodySchema = z
   .object({

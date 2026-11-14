@@ -134,13 +134,20 @@ async function checkQuestTree() {
     console.log("\n[quest_collection_sessions] セッション総数:");
     table(sessions);
 
-    // ルール数
-    const rules = d1query(
+    // 状態変化イベント・出現イベント数
+    const stateEvents = d1query(
       db,
-      `SELECT period_tag, table_version, COUNT(*) AS rule_count, COUNT(DISTINCT target_quest_id) AS target_count FROM quest_rule_edges GROUP BY period_tag, table_version ORDER BY period_tag DESC, table_version DESC LIMIT 10`,
+      `SELECT period_tag, table_version, COUNT(*) AS state_event_count, COUNT(DISTINCT quest_id) AS quest_count FROM quest_state_events GROUP BY period_tag, table_version ORDER BY period_tag DESC, table_version DESC LIMIT 10`,
     );
-    console.log("\n[quest_rule_edges] 導出ルール数:");
-    table(rules);
+    console.log("\n[quest_state_events] period 別 状態変化イベント数:");
+    table(stateEvents);
+
+    const appearanceEvents = d1query(
+      db,
+      `SELECT period_tag, table_version, COUNT(*) AS appearance_event_count, COUNT(DISTINCT target_quest_id) AS target_count FROM quest_appearance_events GROUP BY period_tag, table_version ORDER BY period_tag DESC, table_version DESC LIMIT 10`,
+    );
+    console.log("\n[quest_appearance_events] period 別 出現イベント数:");
+    table(appearanceEvents);
 
     // 最新 10 件のイベント
     const recent = d1query(

@@ -11,7 +11,6 @@ import {
   parseStrictBoolean,
   timingSafeEqual,
 } from "../utils";
-import { loadOrRefreshCanonicalSnapshot } from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { QuestTreeUploadTokenPayloadSchema } from "../schemas/tokens";
@@ -19,37 +18,24 @@ import { PublicIdSchema } from "../schemas/public-id";
 import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
-  QuestIngestEventIdRowSchema,
   QuestAppearanceEventRowSchema,
-  QuestRuleRowsSchema,
-  QuestRuleUpdatedRowSchema,
   QuestSnapshotPageRowSchema,
   QuestStateEventRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
   type QuestListEntry,
-  type QuestRuleRow,
   type QuestTreeIngestBody,
 } from "../schemas/quest-tree";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 const GAP_THRESHOLD_MS = 30 * 60 * 1000;
-const RECENT_WINDOW_MS = 10 * 60 * 1000;
+const SESSION_TOUCH_INTERVAL_MS = 60 * 1000;
+const INGEST_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const INGEST_CLEANUP_BATCH_LIMIT = 200;
 const QUEST_TREE_HANDSHAKE_MAX_BYTES = MAX_QUEST_TREE_UPLOAD_BYTES + 64 * 1024;
 const QUEST_CHANGES_CACHE_CONTROL =
   "public, max-age=60, stale-while-revalidate=300";
-
-const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
-
-function parseQuestRuleRowsStrict(value: unknown): QuestRuleRow[] {
-  const parsed = QuestRuleRowsSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("Invalid quest rule rows");
-  }
-  return parsed.data;
-}
-const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const QUEST_TREE_COLLECTION_SWITCH_ENV =
   "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED";
@@ -60,54 +46,6 @@ app.options(
 );
 
 type IngestBody = QuestTreeIngestBody;
-
-type RulesSnapshot = {
-  period_tag: string;
-  table_version: string;
-  target_quest_id: number;
-  include_low: boolean;
-  rows: QuestRuleRow[];
-  refreshed_at: number;
-  db_synced_at: number;
-};
-
-type GraphSnapshot = {
-  period_tag: string;
-  table_version: string;
-  rows: QuestRuleRow[];
-  refreshed_at: number;
-  db_synced_at: number;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isRulesSnapshot(v: unknown): v is RulesSnapshot {
-  if (!isRecord(v)) return false;
-  const s = v;
-  return (
-    typeof s["period_tag"] === "string" &&
-    typeof s["table_version"] === "string" &&
-    typeof s["target_quest_id"] === "number" &&
-    typeof s["include_low"] === "boolean" &&
-    Array.isArray(s["rows"]) &&
-    typeof s["refreshed_at"] === "number" &&
-    typeof s["db_synced_at"] === "number"
-  );
-}
-
-function isGraphSnapshot(v: unknown): v is GraphSnapshot {
-  if (!isRecord(v)) return false;
-  const s = v;
-  return (
-    typeof s["period_tag"] === "string" &&
-    typeof s["table_version"] === "string" &&
-    Array.isArray(s["rows"]) &&
-    typeof s["refreshed_at"] === "number" &&
-    typeof s["db_synced_at"] === "number"
-  );
-}
 
 function nowMs(): number {
   return Date.now();
@@ -224,28 +162,24 @@ export async function ingestQuestBody(db: D1Database, body: IngestBody) {
     atMs,
   } = validated;
 
-  const existingResult = await db
-    .prepare(
-      `SELECT id FROM quest_ingest_events WHERE request_id = ? AND payload_hash = ? LIMIT 1`,
-    )
-    .bind(requestId, payloadHash)
-    .first<D1Result>();
-  const parsedExisting = QuestIngestEventIdRowSchema.safeParse(existingResult);
-  if (!parsedExisting.success) {
-    return {
-      status: 500,
-      body: { error: "Invalid quest ingest lookup response" },
-    };
-  }
+  const questId = toInt(body.quest_id);
+  const pageNo = toInt(body.page_no) ?? 0;
 
-  if (parsedExisting.data?.id) {
+  if (eventType === "snapshot" && pageNo !== 0) {
     return {
       status: 200,
-      body: { ok: true, idempotent: true, message: "already ingested" },
+      body: {
+        ok: true,
+        idempotent: false,
+        skipped: true,
+        collection_session_id: null,
+        task_id: null,
+        task_enqueued: false,
+      },
     };
   }
 
-  const conflictResult = await db
+  const existingResult = await db
     .prepare(
       `SELECT id, payload_hash
        FROM quest_ingest_events
@@ -254,36 +188,52 @@ export async function ingestQuestBody(db: D1Database, body: IngestBody) {
     )
     .bind(requestId)
     .first<D1Result>();
-  const parsedConflict = QuestIngestConflictRowSchema.safeParse(conflictResult);
-  if (!parsedConflict.success) {
+  const parsedExisting = QuestIngestConflictRowSchema.safeParse(existingResult);
+  if (!parsedExisting.success) {
     return {
       status: 500,
-      body: { error: "Invalid quest conflict lookup response" },
+      body: { error: "Invalid quest ingest lookup response" },
     };
   }
 
-  if (
-    parsedConflict.data?.id &&
-    parsedConflict.data.payload_hash !== payloadHash
-  ) {
+  if (parsedExisting.data?.id) {
+    if (parsedExisting.data.payload_hash === payloadHash) {
+      return {
+        status: 200,
+        body: { ok: true, idempotent: true, message: "already ingested" },
+      };
+    }
     return {
       status: 409,
       body: {
         error: "request_id conflict",
         message: "Same request_id already exists with different payload_hash",
         existing_request_id: requestId,
-        existing_payload_hash: parsedConflict.data.payload_hash,
+        existing_payload_hash: parsedExisting.data.payload_hash,
       },
     };
   }
 
   const session = await getOrCreateSession(db, datasetId, atMs);
 
-  const questId = toInt(body.quest_id);
-  const pageNo = toInt(body.page_no) ?? 0;
-
   try {
-    const { appearedCount } = await processIngestEvents(db, {
+    if (session.isNew) {
+      const retentionCutoffMs = nowMs() - INGEST_RETENTION_MS;
+      await db
+        .prepare(
+          `DELETE FROM quest_ingest_events
+           WHERE id IN (
+             SELECT id
+             FROM quest_ingest_events
+             WHERE created_at < ?
+             LIMIT ?
+           )`,
+        )
+        .bind(retentionCutoffMs, INGEST_CLEANUP_BATCH_LIMIT)
+        .run();
+    }
+
+    await processIngestEvents(db, {
       datasetId,
       requestId,
       payloadHash,
@@ -298,19 +248,14 @@ export async function ingestQuestBody(db: D1Database, body: IngestBody) {
       quests: (body.quests as QuestListEntry[] | undefined) ?? [],
     });
 
-    const shouldEnqueueTask = appearedCount > 0;
-    const taskId = shouldEnqueueTask
-      ? await enqueueTask(db, datasetId, session.sessionId, atMs)
-      : null;
-
     return {
       status: 200,
       body: {
         ok: true,
         idempotent: false,
         collection_session_id: session.sessionId,
-        task_id: taskId,
-        task_enqueued: shouldEnqueueTask,
+        task_id: null,
+        task_enqueued: false,
       },
     };
   } catch (err) {
@@ -326,11 +271,11 @@ export async function ingestQuestBody(db: D1Database, body: IngestBody) {
 
 async function upsertQuestMasterEntries(
   db: D1Database,
-  periodTag: string,
-  tableVersion: string,
   quests: QuestListEntry[],
 ) {
-  // Compute SHA-256 hashes in parallel, then batch-insert to avoid N sequential D1 round-trips.
+  if (quests.length === 0) return;
+
+  // Compute SHA-256 hashes in parallel and skip DB writes for unchanged quests.
   type QuestCandidate = {
     questId: number;
     title: string;
@@ -379,48 +324,79 @@ async function upsertQuestMasterEntries(
     }),
   );
 
-  const stmts = candidates
-    .filter((c): c is QuestCandidate => c !== null)
-    .map((c) =>
-      db
-        .prepare(
-          `INSERT INTO quest_master_entries (
-             quest_id,
-             period_tag,
-             table_version,
-             title,
-             detail,
-             quest_type,
-             category,
-             label_type,
-             master_hash,
-             created_at,
-             updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(quest_id, period_tag, table_version) DO UPDATE SET
-             title = excluded.title,
-             detail = excluded.detail,
-             quest_type = excluded.quest_type,
-             category = excluded.category,
-             label_type = excluded.label_type,
-             master_hash = excluded.master_hash,
-             updated_at = excluded.updated_at
-           WHERE quest_master_entries.master_hash <> excluded.master_hash`,
-        )
-        .bind(
-          c.questId,
-          periodTag,
-          tableVersion,
-          c.title,
-          c.detail,
-          c.questType,
-          c.category,
-          c.labelType,
-          c.masterHash,
-          nowMs(),
-          nowMs(),
-        ),
-    );
+  const uniqueByQuestId = new Map<number, QuestCandidate>();
+  for (const c of candidates) {
+    if (c) uniqueByQuestId.set(c.questId, c);
+  }
+  const uniqueCandidates = [...uniqueByQuestId.values()];
+  if (uniqueCandidates.length === 0) return;
+
+  const existingHashByQuestId = new Map<number, string>();
+  const QUERY_CHUNK = 90;
+  for (let i = 0; i < uniqueCandidates.length; i += QUERY_CHUNK) {
+    const chunkIds = uniqueCandidates
+      .slice(i, i + QUERY_CHUNK)
+      .map((c) => c.questId);
+    const placeholders = chunkIds.map(() => "?").join(", ");
+    const existingRows = await db
+      .prepare(
+        `SELECT quest_id, master_hash
+         FROM quest_master_entries
+         WHERE quest_id IN (${placeholders})`,
+      )
+      .bind(...chunkIds)
+      .all<{ quest_id: unknown; master_hash: unknown }>();
+    for (const row of existingRows.results ?? []) {
+      const qid = toInt(row.quest_id);
+      const hash = typeof row.master_hash === "string" ? row.master_hash : "";
+      if (qid != null && hash) {
+        existingHashByQuestId.set(qid, hash);
+      }
+    }
+  }
+
+  const changedCandidates = uniqueCandidates.filter(
+    (c) => existingHashByQuestId.get(c.questId) !== c.masterHash,
+  );
+  if (changedCandidates.length === 0) return;
+
+  const timestamp = nowMs();
+  const stmts = changedCandidates.map((c) =>
+    db
+      .prepare(
+        `INSERT INTO quest_master_entries (
+           quest_id,
+           title,
+           detail,
+           quest_type,
+           category,
+           label_type,
+           master_hash,
+           created_at,
+           updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(quest_id) DO UPDATE SET
+           title = excluded.title,
+           detail = excluded.detail,
+           quest_type = excluded.quest_type,
+           category = excluded.category,
+           label_type = excluded.label_type,
+           master_hash = excluded.master_hash,
+           updated_at = excluded.updated_at
+         WHERE quest_master_entries.master_hash <> excluded.master_hash`,
+      )
+      .bind(
+        c.questId,
+        c.title,
+        c.detail,
+        c.questType,
+        c.category,
+        c.labelType,
+        c.masterHash,
+        timestamp,
+        timestamp,
+      ),
+  );
 
   const BATCH_SIZE = 100;
   for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
@@ -458,14 +434,16 @@ export async function getOrCreateSession(
     latestEndedAt != null &&
     atMs - latestEndedAt <= GAP_THRESHOLD_MS
   ) {
-    await db
-      .prepare(
-        `UPDATE quest_collection_sessions
-         SET ended_at_ms = ?
-         WHERE collection_session_id = ?`,
-      )
-      .bind(atMs, latestSessionId)
-      .run();
+    if (atMs - latestEndedAt >= SESSION_TOUCH_INTERVAL_MS) {
+      await db
+        .prepare(
+          `UPDATE quest_collection_sessions
+           SET ended_at_ms = ?
+           WHERE collection_session_id = ?`,
+        )
+        .bind(atMs, latestSessionId)
+        .run();
+    }
 
     return {
       sessionId: latestSessionId,
@@ -535,20 +513,18 @@ export async function getOrCreateSession(
   };
 }
 
-async function markBootstrapCompleted(
+function prepareMarkBootstrapCompleted(
   db: D1Database,
   sessionId: string,
   atMs: number,
-): Promise<boolean> {
-  const result = await db
+) {
+  return db
     .prepare(
       `UPDATE quest_collection_sessions
        SET bootstrap_completed_at_ms = ?, ended_at_ms = ?
        WHERE collection_session_id = ? AND bootstrap_completed_at_ms IS NULL`,
     )
-    .bind(atMs, atMs, sessionId)
-    .run();
-  return Number(result.meta?.changes ?? 1) > 0;
+    .bind(atMs, atMs, sessionId);
 }
 
 function toVisibleQuestIds(quests: QuestListEntry[]): number[] {
@@ -570,82 +546,23 @@ function setDiff(next: number[], prev: number[]): number[] {
   return diff;
 }
 
-
-async function enqueueTask(
-  db: D1Database,
-  datasetId: string,
-  sessionId: string,
-  atMs: number,
-): Promise<string> {
-  const existingTask = await db
-    .prepare(
-      `SELECT task_id, from_ts FROM quest_inference_tasks
-       WHERE dataset_id = ? AND collection_session_id = ? AND status = 'pending'
-       ORDER BY created_at DESC LIMIT 1`,
-    )
-    .bind(datasetId, sessionId)
-    .first<{ task_id: string; from_ts: number }>();
-  if (existingTask?.task_id) {
-    await db
-      .prepare(
-        `UPDATE quest_inference_tasks
-         SET to_ts = MAX(to_ts, ?), updated_at = ?
-         WHERE task_id = ?`,
-      )
-      .bind(atMs + 1, atMs, existingTask.task_id)
-      .run();
-    return existingTask.task_id;
-  }
-
-  const taskId = makeId("qtask");
-  await db
-    .prepare(
-      `INSERT INTO quest_inference_tasks (
-         task_id,
-         dataset_id,
-         collection_session_id,
-         from_ts,
-         to_ts,
-         status,
-         retry_count,
-         created_at,
-         updated_at
-       ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
-    )
-    .bind(
-      taskId,
-      datasetId,
-      sessionId,
-      Math.max(0, atMs - RECENT_WINDOW_MS),
-      atMs + 1,
-      atMs,
-      atMs,
-    )
-    .run();
-  return taskId;
-}
-
-async function processIngestEvents(
+function buildQuestIngestEventStatement(
   db: D1Database,
   params: {
-    datasetId: string;
     requestId: string;
     payloadHash: string;
-    eventType: string;
-    periodTag: string;
-    tableVersion: string;
-    atMs: number;
+    datasetId: string;
     sessionId: string;
-    isBootstrapCompleted: boolean;
+    eventType: string;
     questId?: number | null;
     pageNo?: number;
-    quests?: QuestListEntry[];
+    atMs: number;
+    periodTag: string;
+    tableVersion: string;
   },
-): Promise<{ bootstrapNowCompleted: boolean; appearedCount: number }> {
-  let bootstrapNowCompleted = false;
-  let appearedCount = 0;
-
-  await db
+  createdAtMs: number,
+) {
+  return db
     .prepare(
       `INSERT INTO quest_ingest_events (
          request_id,
@@ -673,28 +590,52 @@ async function processIngestEvents(
       params.atMs,
       params.periodTag,
       params.tableVersion,
-      nowMs(),
-    )
-    .run();
+      createdAtMs,
+    );
+}
+
+async function processIngestEvents(
+  db: D1Database,
+  params: {
+    datasetId: string;
+    requestId: string;
+    payloadHash: string;
+    eventType: string;
+    periodTag: string;
+    tableVersion: string;
+    atMs: number;
+    sessionId: string;
+    isBootstrapCompleted: boolean;
+    questId?: number | null;
+    pageNo?: number;
+    quests?: QuestListEntry[];
+  },
+): Promise<{ bootstrapNowCompleted: boolean; appearedCount: number }> {
+  let bootstrapNowCompleted = false;
+  let appearedCount = 0;
 
   if (params.eventType === "snapshot") {
+    const pageNo = params.pageNo ?? 0;
+    const eventNow = nowMs();
+
+    if (pageNo !== 0) {
+      await buildQuestIngestEventStatement(db, params, eventNow).run();
+      return { bootstrapNowCompleted: false, appearedCount: 0 };
+    }
+
     const quests = Array.isArray(params.quests) ? params.quests : [];
-    await upsertQuestMasterEntries(
-      db,
-      params.periodTag,
-      params.tableVersion,
-      quests,
-    );
+    await upsertQuestMasterEntries(db, quests);
     const visibleQuestIds = toVisibleQuestIds(quests);
+    const visibleQuestIdsJson = JSON.stringify(visibleQuestIds);
 
     const previousSnapshotsResult = await db
       .prepare(
         `SELECT page_no, visible_quest_ids_json
-       FROM questlist_snapshots
-       WHERE dataset_id = ?
-         AND collection_session_id = ?
-       ORDER BY captured_at_ms DESC
-       LIMIT 20`,
+         FROM questlist_snapshots
+         WHERE dataset_id = ?
+           AND collection_session_id = ?
+           AND page_no = 0
+         LIMIT 1`,
       )
       .bind(params.datasetId, params.sessionId)
       .all();
@@ -704,169 +645,157 @@ async function processIngestEvents(
     if (!parsedPreviousSnapshots.success) {
       throw new Error("Invalid quest snapshot page rows");
     }
-    const previousSnapshots = parsedPreviousSnapshots.data;
-
-    const previousGlobalVisible = new Set<number>();
-    for (const snap of previousSnapshots) {
-      for (const id of parseJsonArray(snap.visible_quest_ids_json, toInt)) {
-        previousGlobalVisible.add(id);
-      }
-    }
-    const hasPreviousGlobalSnapshot = previousSnapshots.some(
+    const previousGlobal = parsedPreviousSnapshots.data.find(
       (snap) => toInt(snap.page_no) === 0,
     );
+    const shouldUpsertSnapshot =
+      !previousGlobal ||
+      previousGlobal.visible_quest_ids_json !== visibleQuestIdsJson;
 
-    await db
-      .prepare(
-        `INSERT INTO questlist_snapshots (
-           dataset_id,
-           collection_session_id,
-           page_no,
-           snapshot_hash,
-           snapshot_json,
-           visible_quest_ids_json,
-           captured_at_ms,
-           period_tag,
-           table_version,
-           created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        params.datasetId,
-        params.sessionId,
-        params.pageNo ?? 1,
-        params.payloadHash,
-        "[]",
-        JSON.stringify(visibleQuestIds),
-        params.atMs,
-        params.periodTag,
-        params.tableVersion,
-        nowMs(),
-      )
-      .run();
+    const batchStatements = [
+      buildQuestIngestEventStatement(db, params, eventNow),
+    ];
 
-    if (params.pageNo === 0) {
-      if (!params.isBootstrapCompleted) {
-        bootstrapNowCompleted = await markBootstrapCompleted(
-          db,
-          params.sessionId,
-          params.atMs,
-        );
-      } else if (hasPreviousGlobalSnapshot) {
-        const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
+    if (shouldUpsertSnapshot) {
+      batchStatements.push(
+        db
+          .prepare(
+            `INSERT INTO questlist_snapshots (
+               dataset_id,
+               collection_session_id,
+               page_no,
+               visible_quest_ids_json,
+               captured_at_ms,
+               created_at
+             ) VALUES (?, ?, 0, ?, ?, ?)
+             ON CONFLICT(dataset_id, page_no) DO UPDATE SET
+               collection_session_id = excluded.collection_session_id,
+               visible_quest_ids_json = excluded.visible_quest_ids_json,
+               captured_at_ms = excluded.captured_at_ms,
+               created_at = excluded.created_at
+             WHERE questlist_snapshots.collection_session_id <> excluded.collection_session_id
+                OR questlist_snapshots.visible_quest_ids_json <> excluded.visible_quest_ids_json`,
+          )
+          .bind(
+            params.datasetId,
+            params.sessionId,
+            visibleQuestIdsJson,
+            params.atMs,
+            eventNow,
+          ),
+      );
+    }
+
+    let bootstrapStmtIndex = -1;
+    let appearanceStartIndex = -1;
+    if (!params.isBootstrapCompleted) {
+      bootstrapStmtIndex = batchStatements.length;
+      batchStatements.push(
+        prepareMarkBootstrapCompleted(db, params.sessionId, params.atMs),
+      );
+    } else if (previousGlobal) {
+      const appeared = setDiff(
+        visibleQuestIds,
+        parseJsonArray(previousGlobal.visible_quest_ids_json, toInt),
+      );
       if (appeared.length > 0) {
-        const appearanceMs = nowMs();
-        const appearStmts = appeared.map((targetQuestId) =>
-          db
-            .prepare(
-              `INSERT OR IGNORE INTO quest_appearance_events (
-                 dataset_id,
-                 collection_session_id,
-                 target_quest_id,
-                 appeared_at_ms,
-                 source_event_type,
-                 source_event_id,
-                 period_tag,
-                 table_version,
-                 is_bootstrap_unknown,
-                 created_at
-               ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`,
-            )
-            .bind(
-              params.datasetId,
-              params.sessionId,
-              targetQuestId,
-              params.atMs,
-              params.eventType,
-              params.periodTag,
-              params.tableVersion,
-              appearanceMs,
-            ),
-        );
-        // D1 batch limit: 100 statements per call
-        for (let i = 0; i < appearStmts.length; i += 100) {
-            const results = await db.batch(appearStmts.slice(i, i + 100));
-            appearedCount += results.reduce(
-              (count, result) => count + Number(result.meta?.changes ?? 0),
-              0,
-            );
-          }
+        appearanceStartIndex = batchStatements.length;
+        for (const targetQuestId of appeared) {
+          batchStatements.push(
+            db
+              .prepare(
+                `INSERT OR IGNORE INTO quest_appearance_events (
+                   dataset_id,
+                   collection_session_id,
+                   target_quest_id,
+                   appeared_at_ms,
+                   source_event_type,
+                   source_event_id,
+                   period_tag,
+                   table_version,
+                   is_bootstrap_unknown,
+                   created_at
+                 ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`,
+              )
+              .bind(
+                params.datasetId,
+                params.sessionId,
+                targetQuestId,
+                params.atMs,
+                params.eventType,
+                params.periodTag,
+                params.tableVersion,
+                eventNow,
+              ),
+          );
         }
       }
     }
-  } else if (params.questId != null && params.questId > 0) {
-    const stateAfter =
-      params.eventType === "start"
-        ? "active"
-        : params.eventType === "stop"
-          ? "visible_inactive"
-          : "claimed";
 
+    // D1 batch limit: 100 statements per call.
+    const batchResults: Array<{ meta?: { changes?: unknown } }> = [];
+    for (let i = 0; i < batchStatements.length; i += 100) {
+      const chunkResults = await db.batch(batchStatements.slice(i, i + 100));
+      batchResults.push(
+        ...(chunkResults as Array<{ meta?: { changes?: unknown } }>),
+      );
+    }
+
+    if (bootstrapStmtIndex >= 0) {
+      bootstrapNowCompleted =
+        Number(batchResults[bootstrapStmtIndex]?.meta?.changes ?? 1) > 0;
+    }
+    if (appearanceStartIndex >= 0) {
+      for (let i = appearanceStartIndex; i < batchResults.length; i += 1) {
+        appearedCount += Number(batchResults[i]?.meta?.changes ?? 0);
+      }
+    }
+  } else {
     const stateEventMs = nowMs();
-    // Batch both writes atomically: if the Worker is killed between them the
-    // quest_state_events row and quest_state_latest row would diverge.
-    await db.batch([
-      db
-        .prepare(
-          `INSERT INTO quest_state_events (
-             dataset_id,
-             collection_session_id,
-             quest_id,
-             event_type,
-             state_after,
-             timestamp_ms,
-             period_tag,
-             table_version,
-             payload_hash,
-             created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          params.datasetId,
-          params.sessionId,
-          params.questId,
-          params.eventType,
-          stateAfter,
-          params.atMs,
-          params.periodTag,
-          params.tableVersion,
-          params.payloadHash,
-          stateEventMs,
-        ),
-      db
-        .prepare(
-          `INSERT INTO quest_state_latest (
-             dataset_id,
-             quest_id,
-             collection_session_id,
-             state,
-             updated_at_ms,
-             last_event_type,
-             period_tag,
-             table_version,
-             is_claimed
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(dataset_id, quest_id) DO UPDATE SET
-             collection_session_id = excluded.collection_session_id,
-             state = excluded.state,
-             updated_at_ms = excluded.updated_at_ms,
-             last_event_type = excluded.last_event_type,
-             period_tag = excluded.period_tag,
-             table_version = excluded.table_version,
-             is_claimed = excluded.is_claimed`,
-        )
-        .bind(
-          params.datasetId,
-          params.questId,
-          params.sessionId,
-          stateAfter,
-          params.atMs,
-          params.eventType,
-          params.periodTag,
-          params.tableVersion,
-          params.eventType === "complete" ? 1 : 0,
-        ),
-    ]);
+    const batchStatements = [
+      buildQuestIngestEventStatement(db, params, stateEventMs),
+    ];
+
+    if (params.questId != null && params.questId > 0) {
+      const stateAfter =
+        params.eventType === "start"
+          ? "active"
+          : params.eventType === "stop"
+            ? "visible_inactive"
+            : "claimed";
+
+      batchStatements.push(
+        db
+          .prepare(
+            `INSERT INTO quest_state_events (
+               dataset_id,
+               collection_session_id,
+               quest_id,
+               event_type,
+               state_after,
+               timestamp_ms,
+               period_tag,
+               table_version,
+               payload_hash,
+               created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            params.datasetId,
+            params.sessionId,
+            params.questId,
+            params.eventType,
+            stateAfter,
+            params.atMs,
+            params.periodTag,
+            params.tableVersion,
+            params.payloadHash,
+            stateEventMs,
+          ),
+      );
+    }
+
+    await db.batch(batchStatements);
   }
 
   return { bootstrapNowCompleted, appearedCount };
@@ -1041,316 +970,6 @@ app.post("/ingest", async (c) => {
       return c.json(result.body, result.status as 200 | 400 | 409 | 500);
     },
   });
-});
-
-app.get("/rules", async (c) => {
-  const db = c.env.QUEST_INDEX_DB;
-  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
-
-  const targetRaw = c.req.query("target");
-  const target = toInt(targetRaw);
-  const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
-  const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
-  const includeLow = c.req.query("include_low") === "1";
-
-  if (target == null || target <= 0) {
-    return c.json({ error: "target query is required" }, 400);
-  }
-
-  const kv = c.env.DATA_LOADER_CACHE_KV;
-  const cacheKey = `qtree:rules:${periodTag}:${tableVersion}:${target}:${includeLow ? 1 : 0}`;
-
-  const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
-    kv,
-    cacheKey,
-    ttlMs: KV_SNAPSHOT_TTL_MS,
-    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
-    probeWhenFresh: false,
-    isValidSnapshot: isRulesSnapshot,
-    refreshFromDelta: async (cached) => {
-      const changedRowsResult = await db
-        .prepare(
-          `SELECT updated_at_ms
-           FROM quest_rule_edges
-           WHERE target_quest_id = ?
-             AND period_tag = ?
-             AND table_version = ?
-             AND updated_at_ms > ?
-           ORDER BY updated_at_ms DESC`,
-        )
-        .bind(target, periodTag, tableVersion, cached.db_synced_at)
-        .all();
-      const parsedChangedRows = z
-        .array(z.object({ updated_at_ms: z.number().finite() }).passthrough())
-        .safeParse(changedRowsResult.results ?? []);
-      if (!parsedChangedRows.success) {
-        throw new Error("Invalid quest rule change rows");
-      }
-      const changedRows = parsedChangedRows.data;
-
-      if (changedRows.length === 0) {
-        return {
-          changed: false,
-          snapshot: {
-            ...cached,
-            refreshed_at: Date.now(),
-          },
-        };
-      }
-
-      // Re-load the full current view for this target when anything changed.
-      // This avoids stale rows when a rule's quality_tier transitions to/from low.
-      const rows = parseQuestRuleRowsStrict(
-        (
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE target_quest_id = ?
-                 AND period_tag = ?
-                 AND table_version = ?
-                 AND (? = 1 OR quality_tier != 'low')
-               ORDER BY is_primary DESC, score DESC`,
-            )
-            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-            .all()
-        ).results ?? [],
-      );
-
-      const maxUpdatedAt = changedRows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
-
-      return {
-        changed: true,
-        snapshot: {
-          ...cached,
-          rows,
-          refreshed_at: Date.now(),
-          db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
-        },
-      };
-    },
-    loadFull: async () => {
-      const rows = parseQuestRuleRowsStrict(
-        (
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE target_quest_id = ?
-                 AND period_tag = ?
-                 AND table_version = ?
-                 AND (? = 1 OR quality_tier != 'low')
-               ORDER BY is_primary DESC, score DESC`,
-            )
-            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-            .all()
-        ).results ?? [],
-      );
-
-      const maxUpdatedAt = rows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
-
-      return {
-        period_tag: periodTag,
-        table_version: tableVersion,
-        target_quest_id: target,
-        include_low: includeLow,
-        rows,
-        refreshed_at: Date.now(),
-        db_synced_at: maxUpdatedAt,
-      };
-    },
-  });
-
-  const response = c.json({
-    ok: true,
-    target,
-    period_tag: periodTag,
-    table_version: tableVersion,
-    rules: snapshot.rows,
-  });
-  response.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, stale-while-revalidate=86400",
-  );
-  response.headers.set("X-FUSOU-Cache", cacheStatus);
-  return response;
-});
-
-app.get("/graph", async (c) => {
-  const db = c.env.QUEST_INDEX_DB;
-  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
-
-  const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
-  const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
-
-  const kv = c.env.DATA_LOADER_CACHE_KV;
-  const cacheKey = `qtree:graph:${periodTag}:${tableVersion}`;
-
-  const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
-    kv,
-    cacheKey,
-    ttlMs: KV_SNAPSHOT_TTL_MS,
-    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
-    probeWhenFresh: false,
-    isValidSnapshot: isGraphSnapshot,
-    refreshFromDelta: async (cached) => {
-      const changedTargetsResult = await db
-        .prepare(
-          `SELECT DISTINCT target_quest_id, updated_at_ms
-           FROM quest_rule_edges
-           WHERE period_tag = ?
-             AND table_version = ?
-             AND updated_at_ms > ?`,
-        )
-        .bind(periodTag, tableVersion, cached.db_synced_at)
-        .all();
-      const parsedChangedTargets = z
-        .array(QuestRuleUpdatedRowSchema)
-        .safeParse(changedTargetsResult.results ?? []);
-      if (!parsedChangedTargets.success) {
-        throw new Error("Invalid quest rule target change rows");
-      }
-      const changedTargets = parsedChangedTargets.data;
-
-      if (changedTargets.length === 0) {
-        return {
-          changed: false,
-          snapshot: {
-            ...cached,
-            refreshed_at: Date.now(),
-          },
-        };
-      }
-
-      const rowsByRuleId = new Map(
-        cached.rows.map((row) => [row.rule_id, row]),
-      );
-      const targetSet = new Set<number>();
-      for (const row of changedTargets) {
-        const target = toInt(row.target_quest_id);
-        if (target != null) targetSet.add(target);
-      }
-
-      for (const target of targetSet) {
-        for (const [ruleId, row] of rowsByRuleId.entries()) {
-          if (row.target_quest_id === target) rowsByRuleId.delete(ruleId);
-        }
-
-        const currentPrimaryRows = parseQuestRuleRowsStrict(
-          (
-            await db
-              .prepare(
-                `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-                 FROM quest_rule_edges
-                 WHERE period_tag = ?
-                   AND table_version = ?
-                   AND target_quest_id = ?
-                   AND is_primary = 1
-                 ORDER BY score DESC`,
-              )
-              .bind(periodTag, tableVersion, target)
-              .all()
-          ).results ?? [],
-        );
-
-        for (const row of currentPrimaryRows) {
-          rowsByRuleId.set(row.rule_id, row);
-        }
-      }
-
-      const maxUpdatedAt = changedTargets.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
-
-      return {
-        changed: true,
-        snapshot: {
-          ...cached,
-          rows: Array.from(rowsByRuleId.values()).sort(
-            (a, b) => b.score - a.score,
-          ),
-          refreshed_at: Date.now(),
-          db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
-        },
-      };
-    },
-    loadFull: async () => {
-      const rows = parseQuestRuleRowsStrict(
-        (
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE period_tag = ?
-                 AND table_version = ?
-                 AND is_primary = 1
-               ORDER BY score DESC`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? [],
-      );
-
-      const maxUpdatedAt = rows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
-
-      return {
-        period_tag: periodTag,
-        table_version: tableVersion,
-        rows,
-        refreshed_at: Date.now(),
-        db_synced_at: maxUpdatedAt,
-      };
-    },
-  });
-
-  const nodes = new Set<number>();
-  const graphEdges: Array<{
-    from: number;
-    to: number;
-    score: number;
-    class: string;
-  }> = [];
-
-  for (const row of snapshot.rows) {
-    const target = toInt(row.target_quest_id);
-    if (target == null) continue;
-    const prereqs = parseJsonArray(row.prereq_set_json, toInt);
-
-    nodes.add(target);
-    for (const from of prereqs) {
-      nodes.add(from);
-      graphEdges.push({
-        from,
-        to: target,
-        score: Number(row.score ?? 0),
-        class: row.class,
-      });
-    }
-  }
-
-  const response = c.json({
-    ok: true,
-    period_tag: periodTag,
-    table_version: tableVersion,
-    nodes: [...nodes].sort((a, b) => a - b),
-    edges: graphEdges,
-  });
-  response.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, stale-while-revalidate=86400",
-  );
-  response.headers.set("X-FUSOU-Cache", cacheStatus);
-  return response;
 });
 
 app.get("/changes", async (c) => {
