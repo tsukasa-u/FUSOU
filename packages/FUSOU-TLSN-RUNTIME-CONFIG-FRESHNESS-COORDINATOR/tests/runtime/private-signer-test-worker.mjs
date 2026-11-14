@@ -32,10 +32,19 @@ import { runtimeConfigFreshnessWire } from "../../../FUSOU-TLSN-RUNTIME-CONFIG-D
 const freshnessResponseDomain = new TextEncoder().encode(
   "FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-RESPONSE-V1\0",
 );
+const releaseCommitDomain = new TextEncoder().encode(
+  "FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-COMMIT-V1\0",
+);
+const releaseSignerKeyCheckDomain = new TextEncoder().encode(
+  "FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-SIGNER-KEY-CHECK-V1\0",
+);
 const signatureMetrics = {
   keyPairCheckSignatures: 0,
   freshnessResponseSignatures: 0,
+  releaseRecordSignatures: 0,
+  releaseSignerKeyCheckSignatures: 0,
 };
+let loseNextReleaseRecordSignatureResponse = false;
 const originalSign = crypto.subtle.sign.bind(crypto.subtle);
 
 Object.defineProperty(crypto.subtle, "sign", {
@@ -47,16 +56,35 @@ Object.defineProperty(crypto.subtle, "sign", {
       : ArrayBuffer.isView(data)
       ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
       : null;
+    let isReleaseRecordSignature = false;
     if (
       bytes !== null &&
       bytes.byteLength >= freshnessResponseDomain.byteLength &&
       freshnessResponseDomain.every((value, index) => bytes[index] === value)
     ) {
       signatureMetrics.freshnessResponseSignatures += 1;
+    } else if (
+      bytes !== null &&
+      bytes.byteLength >= releaseCommitDomain.byteLength &&
+      releaseCommitDomain.every((value, index) => bytes[index] === value)
+    ) {
+      signatureMetrics.releaseRecordSignatures += 1;
+      isReleaseRecordSignature = true;
+    } else if (
+      bytes !== null &&
+      bytes.byteLength >= releaseSignerKeyCheckDomain.byteLength &&
+      releaseSignerKeyCheckDomain.every((value, index) => bytes[index] === value)
+    ) {
+      signatureMetrics.releaseSignerKeyCheckSignatures += 1;
     } else if (bytes?.byteLength === 32) {
       signatureMetrics.keyPairCheckSignatures += 1;
     }
-    return originalSign(algorithm, key, data);
+    const signature = await originalSign(algorithm, key, data);
+    if (isReleaseRecordSignature && loseNextReleaseRecordSignatureResponse) {
+      loseNextReleaseRecordSignatureResponse = false;
+      throw new Error("Local test simulated lost Release signer response");
+    }
+    return signature;
   },
 });
 
@@ -153,7 +181,37 @@ async function fetch(request, env, context) {
   if (url.pathname === "/__runtime_test/reset-signature-metrics") {
     signatureMetrics.keyPairCheckSignatures = 0;
     signatureMetrics.freshnessResponseSignatures = 0;
+    signatureMetrics.releaseRecordSignatures = 0;
+    signatureMetrics.releaseSignerKeyCheckSignatures = 0;
     return jsonResponse({ reset: true });
+  }
+  if (
+    url.pathname ===
+      "/__runtime_test/lose-next-release-record-signature-response"
+  ) {
+    if (request.method !== "POST" || loseNextReleaseRecordSignatureResponse) {
+      return new Response(null, { status: 409 });
+    }
+    loseNextReleaseRecordSignatureResponse = true;
+    return jsonResponse({ armed: true });
+  }
+  if (
+    url.pathname === "/__runtime_test/release/update" ||
+    /^\/__runtime_test\/release\/operation\/[0-9a-f-]{36}$/u.test(url.pathname)
+  ) {
+    const operationId = url.pathname.startsWith(
+      "/__runtime_test/release/operation/",
+    )
+      ? url.pathname.slice("/__runtime_test/release/operation/".length)
+      : null;
+    const internalPath = operationId === null
+      ? "/__private/admin/release"
+      : `/__private/admin/release/${operationId}`;
+    return privateSigner.fetch(
+      new Request(`https://freshness-signer.internal${internalPath}`, request),
+      env,
+      context,
+    );
   }
   if (url.pathname.startsWith("/__runtime_test/genesis/config/")) {
     const variant = url.pathname.slice(

@@ -1,6 +1,8 @@
 export const RUNTIME_CONFIG_MANIFEST_POINTER_KEY =
   "tlsn/runtime-config/v2/manifest.json";
 const IMMUTABLE_MANIFEST_PREFIX = "tlsn/runtime-config/v2/manifests/";
+const IMMUTABLE_ARTIFACT_PATTERN =
+  /^tlsn\/runtime-config\/v2\/artifacts\/(?:worker-reference|origin-inventory|target-approval|security-registry-set|result-registry-envelope)\/[A-Za-z0-9_-]{43}$/u;
 
 export class RuntimeConfigR2ReleaseConflictError extends Error {
   constructor(message: string) {
@@ -30,11 +32,47 @@ export interface RuntimeConfigR2ReleaseReadback {
   readonly snapshotBytes: Uint8Array;
 }
 
+export interface RuntimeConfigR2ImmutableObject {
+  readonly key: string;
+  readonly body: Uint8Array;
+}
+
 export class RuntimeConfigR2ReleaseStore {
   readonly #bucket: R2Bucket;
 
   constructor(bucket: R2Bucket) {
     this.#bucket = bucket;
+  }
+
+  async publishImmutableObjects(
+    objects: readonly RuntimeConfigR2ImmutableObject[],
+  ): Promise<void> {
+    for (const object of objects) {
+      assertImmutableArtifactObject(object);
+      await this.#ensureImmutableSnapshot(object.key, object.body);
+      const readback = await this.#readObject(object.key);
+      if (readback === null || !equalBytes(readback.bytes, object.body)) {
+        throw new RuntimeConfigR2ReleaseIntegrityError(
+          "Content-addressed R2 artifact readback differs from the publication bytes",
+        );
+      }
+    }
+  }
+
+  async verifyImmutableObjects(
+    objects: readonly RuntimeConfigR2ImmutableObject[],
+  ): Promise<boolean> {
+    for (const object of objects) {
+      assertImmutableArtifactObject(object);
+      const readback = await this.#readObject(object.key);
+      if (readback === null) return false;
+      if (!equalBytes(readback.bytes, object.body)) {
+        throw new RuntimeConfigR2ReleaseIntegrityError(
+          "Content-addressed R2 artifact contains different bytes",
+        );
+      }
+    }
+    return true;
   }
 
   async publishManifest(
@@ -238,6 +276,24 @@ function immutableManifestKey(manifestRef: string): string {
     );
   }
   return manifestRef;
+}
+
+function assertImmutableArtifactObject(
+  object: RuntimeConfigR2ImmutableObject,
+): void {
+  if (
+    object === null ||
+    typeof object !== "object" ||
+    typeof object.key !== "string" ||
+    !IMMUTABLE_ARTIFACT_PATTERN.test(object.key) ||
+    !(object.body instanceof Uint8Array) ||
+    object.body.byteLength === 0 ||
+    object.body.byteLength > 2_000_000
+  ) {
+    throw new RuntimeConfigR2ReleaseIntegrityError(
+      "Release artifact is outside the bounded immutable R2 namespace",
+    );
+  }
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {

@@ -21,9 +21,12 @@ import {
   runtimeConfigFreshnessWire,
 } from "../../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/index.ts";
 import {
+  createTlsnRuntimeConfigPublicationObjects,
   createTlsnRuntimeConfigDelegatedEnvelopeRaw,
+  prepareTlsnRuntimeConfigManifest,
   tlsnRuntimeConfigApprovedConfigurationSha256,
   tlsnRuntimeConfigDelegatedSigningBytes,
+  verifyTlsnRuntimeConfigProductionEnvelope,
 } from "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs";
 import {
   createR2RuntimeConfigFreshnessManifestStore,
@@ -570,6 +573,10 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     freshnessPrivateKeyPkcs8Bytes: Uint8Array.from(
       freshnessKey.privateKey.export({ format: "der", type: "pkcs8" }),
     ),
+    releaseSignerKeyId: releaseKey.keyId,
+    releaseSignerPrivateKeyPkcs8Bytes: Uint8Array.from(
+      releaseKey.privateKey.export({ format: "der", type: "pkcs8" }),
+    ),
     freshnessDelegationBytes: Uint8Array.from(freshnessDelegationBytes),
     nowMs,
     currentState,
@@ -635,6 +642,229 @@ export async function makeSignedCurrentStateFixture(options = {}) {
       },
       verifier: journalVerifier,
     },
+  };
+}
+
+export async function makeSignedCloudflareOperatorReleaseUpdateFixture(
+  previousFixture,
+  options = {},
+) {
+  const nowMs = options.nowMs ?? Date.now();
+  const rootKey = testKey(0x10, "local-test-root");
+  const manifestRootKey = testKey(0xB0, "local-test-manifest-root");
+  const manifestChildKey = testKey(0xD0, "local-test-manifest-child");
+  const manifestRootSigner = Object.freeze({
+    scope: "fusou-tlsn-runtime-config-signing-root-v2",
+    key_id: manifestRootKey.keyId,
+    public_key_spki: manifestRootKey.publicKeySpki,
+  });
+  const issuedAt = iso(nowMs - 60_000);
+  const workerReference = JSON.parse(
+    Buffer.from(
+      manifestVector.inputs_base64url.worker_reference_raw,
+      "base64url",
+    ).toString("utf8"),
+  );
+  workerReference.observed_at = issuedAt;
+  const workerReferenceRaw = Buffer.from(
+    `${JSON.stringify(workerReference, null, 2)}\n`,
+  );
+  const manifestTemplate = JSON.parse(manifestVector.manifest_envelope_utf8);
+  const priorPayload = JSON.parse(
+    Buffer.from(
+      manifestTemplate.payload_base64url,
+      "base64url",
+    ).toString("utf8"),
+  );
+  const compileInputs = { ...priorPayload.compile_inputs };
+  delete compileInputs.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID;
+  const approvedRelease = {
+    context: workerReference.release_context,
+    publicBindings: workerReference.cloudflare.checked_public_bindings,
+    disclosureMode: workerReference.disclosure_mode,
+    production_authority_pins: priorPayload.production_authority_pins,
+    compile_inputs: compileInputs,
+  };
+  const prepared = prepareTlsnRuntimeConfigManifest({
+    workerReferenceRaw,
+    approvedRelease,
+    epoch: options.epoch ??
+      (BigInt(previousFixture.manifestEpoch) + 1n).toString(10),
+    issuedAt,
+    notBefore: issuedAt,
+    expiresAt: iso(nowMs + 30 * 60_000),
+  });
+  const manifestBytes = signDelegatedManifestEnvelope({
+    payload: prepared.payload,
+    manifestUrl: vector.manifest_url,
+    nowMs,
+    root: manifestRootKey,
+    child: manifestChildKey,
+  });
+  const manifestEnvelope = JSON.parse(manifestBytes.toString("utf8"));
+  const independentInputs = {
+    ...Object.fromEntries(
+      Object.entries(manifestVector.inputs_base64url).map(([name, value]) => [
+        name,
+        Buffer.from(value, "base64url"),
+      ]),
+    ),
+    worker_reference_raw: workerReferenceRaw,
+  };
+  const policy = {
+    now_ms: nowMs,
+    last_accepted_epoch: previousFixture.manifestEpoch,
+    last_accepted_manifest_sha256: previousFixture.manifestSha256,
+    max_lifetime_seconds: 3_600,
+    max_clock_skew_seconds: 30,
+    max_reference_age_seconds: 600,
+    max_envelope_bytes: 1_048_576,
+    manifest_url: vector.manifest_url,
+    last_accepted_manifest_authority_generation: "0",
+    last_accepted_manifest_authority_delegation_sha256: null,
+  };
+  const verification = verifyTlsnRuntimeConfigProductionEnvelope(
+    manifestBytes,
+    {
+      trustedSigner: manifestRootSigner,
+      policy,
+      independentInputs,
+    },
+  );
+  const publicationObjects = createTlsnRuntimeConfigPublicationObjects(
+    manifestBytes,
+    {
+      trustedSigner: manifestRootSigner,
+      policy,
+      independentInputs,
+    },
+  );
+  return {
+    manifestBytes: Uint8Array.from(manifestBytes),
+    manifestAuthorityDelegationBytes: Buffer.from(
+      manifestEnvelope.manifest_authority_delegation_base64url,
+      "base64url",
+    ),
+    publicationObjects: publicationObjects.slice(0, 5).map((object) => ({
+      key: object.key,
+      body: Uint8Array.from(object.body),
+    })),
+    manifestRootSigner,
+    rootSigner: previousFixture.rootSigner,
+    releaseDelegationBytes: Uint8Array.from(
+      previousFixture.releaseDelegationBytes,
+    ),
+    releaseSignerKeyId: previousFixture.releaseSignerKeyId,
+    releaseSignerPrivateKeyPkcs8Bytes: Uint8Array.from(
+      previousFixture.releaseSignerPrivateKeyPkcs8Bytes,
+    ),
+    manifestEpoch: verification.payload.epoch,
+    manifestSha256: digest(manifestBytes),
+    manifestRef: `tlsn/runtime-config/v2/manifests/${digest(manifestBytes)}`,
+    manifestUrl: vector.manifest_url,
+    manifestPolicy: policy,
+    nowMs,
+    workerReferenceRaw,
+    independentInputs,
+    verification,
+  };
+}
+
+export async function makeSignedInvalidWorkerIdentityReleaseUpdateFixture(
+  previousFixture,
+  options = {},
+) {
+  const valid = await makeSignedCloudflareOperatorReleaseUpdateFixture(
+    previousFixture,
+    options,
+  );
+  const envelope = JSON.parse(
+    Buffer.from(valid.manifestBytes).toString("utf8"),
+  );
+  const payload = JSON.parse(
+    Buffer.from(envelope.payload_base64url, "base64url").toString("utf8"),
+  );
+  const workerReference = JSON.parse(
+    valid.workerReferenceRaw.toString("utf8"),
+  );
+  workerReference.cloudflare.script_name = "unapproved-worker";
+  const workerReferenceRaw = Buffer.from(
+    `${JSON.stringify(workerReference, null, 2)}\n`,
+  );
+  payload.source.worker_reference_sha256 = digest(workerReferenceRaw);
+
+  const child = testKey(0xD0, "local-test-manifest-child");
+  const payloadBytes = Buffer.from(canonicalJsonBytes(payload));
+  const signature = sign(
+    null,
+    tlsnRuntimeConfigDelegatedSigningBytes(
+      child.keyId,
+      payload,
+      new Date(valid.nowMs),
+    ),
+    child.privateKey,
+  );
+  const manifestAuthorityDelegationBytes = Buffer.from(
+    envelope.manifest_authority_delegation_base64url,
+    "base64url",
+  );
+  const manifestBytes = Buffer.from(
+    createTlsnRuntimeConfigDelegatedEnvelopeRaw({
+      signerKeyId: child.keyId,
+      payloadBase64Url: payloadBytes.toString("base64url"),
+      signatureBase64Url: signature.toString("base64url"),
+      manifestAuthorityDelegationRaw: manifestAuthorityDelegationBytes,
+    }),
+    "utf8",
+  );
+  const independentInputs = {
+    ...valid.independentInputs,
+    worker_reference_raw: workerReferenceRaw,
+  };
+  const publicationObjects = [
+    [
+      "worker-reference",
+      payload.source.worker_reference_sha256,
+      workerReferenceRaw,
+    ],
+    [
+      "origin-inventory",
+      payload.production_authority_pins.origin_inventory_sha256,
+      independentInputs.origin_inventory_raw,
+    ],
+    [
+      "target-approval",
+      payload.production_authority_pins.target_approval_artifact_sha256,
+      independentInputs.target_approval_raw,
+    ],
+    [
+      "security-registry-set",
+      payload.production_authority_pins.security_registry_set_sha256,
+      independentInputs.security_registry_set_raw,
+    ],
+    [
+      "result-registry-envelope",
+      payload.result_registry_pins.result_registry_envelope_sha256,
+      independentInputs.result_registry_envelope_raw,
+    ],
+  ].map(([kind, artifactDigest, body]) => ({
+    key: `tlsn/runtime-config/v2/artifacts/${kind}/${artifactDigest}`,
+    body: Uint8Array.from(body),
+  }));
+  const base = { ...valid };
+  delete base.verification;
+  return {
+    ...base,
+    manifestBytes,
+    manifestAuthorityDelegationBytes,
+    originalManifestAuthorityDelegationBytes: Uint8Array.from(
+      valid.manifestAuthorityDelegationBytes,
+    ),
+    publicationObjects,
+    manifestSha256: digest(manifestBytes),
+    manifestRef: `tlsn/runtime-config/v2/manifests/${digest(manifestBytes)}`,
+    workerReferenceRaw,
+    independentInputs,
   };
 }
 

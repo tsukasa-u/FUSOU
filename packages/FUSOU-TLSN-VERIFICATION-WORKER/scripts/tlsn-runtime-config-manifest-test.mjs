@@ -20,6 +20,8 @@ import {
   verifyTlsnRuntimeConfigProductionEnvelope,
 } from "./tlsn-runtime-config-manifest.mjs";
 import {
+  prepareTlsnRuntimeConfigReleaseUpdate,
+  prepareTlsnRuntimeConfigReleaseUpdateForTest,
   publishTlsnRuntimeConfig,
   publishTlsnRuntimeConfigForTest,
   signTlsnRuntimeConfigManifest,
@@ -1072,6 +1074,112 @@ test("test-only publication refuses an unset signer before accessing the fake ob
   assert.equal(store.manifestBody, null);
 });
 
+test("Release update preparation returns independently verifiable V3 material without a pointer write", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "2");
+  const authority = manifestDelegation(prepared);
+  const signer = testSignerProvider();
+  let signerCalls = 0;
+  const signerProvider = {
+    ...signer,
+    sign(bytes) {
+      signerCalls += 1;
+      return signer.sign(bytes);
+    },
+  };
+  const preparedUpdate = await prepareTlsnRuntimeConfigReleaseUpdateForTest({
+    prepared,
+    signerProvider,
+    trustedSigner,
+    manifestAuthorityDelegationRaw: authority.raw,
+    policy: policy(prepared),
+    independentInputs: inputs,
+    workerReferenceRevalidation: workerReferenceRevalidation(),
+  });
+  const expectedObjects = createTlsnRuntimeConfigPublicationObjects(
+    preparedUpdate.manifest_bytes,
+    {
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+    },
+  );
+
+  assert.equal(preparedUpdate.state, "READY_FOR_COORDINATOR_ADMISSION");
+  assert.equal(preparedUpdate.verification.manifest_authority_generation, "1");
+  assert.equal(signerCalls, 1);
+  assert.equal(preparedUpdate.publication_objects.length, 5);
+  assert.deepEqual(
+    preparedUpdate.publication_objects.map(({ key, body }) => ({
+      key,
+      body: Buffer.from(body),
+    })),
+    expectedObjects.slice(0, 5).map(({ key, body }) => ({ key, body })),
+  );
+  assert.equal(
+    preparedUpdate.publication_objects.some(({ key }) =>
+      key === "tlsn/runtime-config/v2/manifest.json"
+    ),
+    false,
+  );
+  const independentlyVerified = verifyTlsnRuntimeConfigProductionEnvelope(
+    preparedUpdate.manifest_bytes,
+    {
+      trustedSigner,
+      policy: policy(prepared),
+      independentInputs: inputs,
+    },
+  );
+  assert.equal(independentlyVerified.payload.epoch, "2");
+  assert.equal(
+    expectedObjects.at(-2).key,
+    `tlsn/runtime-config/v2/manifests/${createHash("sha256")
+      .update(preparedUpdate.manifest_bytes)
+      .digest("base64url")}`,
+  );
+  assert.equal(
+    expectedObjects.at(-1).key,
+    "tlsn/runtime-config/v2/manifest.json",
+  );
+});
+
+test("Release update preparation rejects stale Worker reference before signing and keeps Production gated", async () => {
+  const inputs = currentIndependentInputs();
+  const prepared = preparedOptions(inputs.worker_reference_raw, release, "2");
+  const authority = manifestDelegation(prepared);
+  const signer = testSignerProvider();
+  let signerCalls = 0;
+  const signerProvider = {
+    ...signer,
+    sign(bytes) {
+      signerCalls += 1;
+      return signer.sign(bytes);
+    },
+  };
+
+  await assert.rejects(
+    () => prepareTlsnRuntimeConfigReleaseUpdateForTest({
+      prepared,
+      signerProvider,
+      trustedSigner,
+      manifestAuthorityDelegationRaw: authority.raw,
+      policy: policy(prepared),
+      independentInputs: inputs,
+      workerReferenceRevalidation: {
+        ...workerReferenceRevalidation(),
+        fetchImpl: async (url) =>
+          new Response(JSON.stringify(controlPlaneResponse(url, release, version2))),
+      },
+    }),
+    /deployment or endpoint mapping changed before Manifest admission/,
+  );
+  assert.equal(signerCalls, 0);
+  await assert.rejects(
+    () => prepareTlsnRuntimeConfigReleaseUpdate({}),
+    /Production Runtime Config signing is blocked/,
+  );
+});
+
 test("Runtime Config publisher reads back immutable artifacts before atomic manifest CAS", async () => {
   const inputs = currentIndependentInputs();
   const prepared = preparedOptions(inputs.worker_reference_raw, release, "1");
@@ -1235,7 +1343,7 @@ test("Runtime Config publisher refuses a bad artifact readback or a raced manife
       },
       objectStore: rotatedStore,
     }),
-    /deployment or endpoint mapping changed before manifest publication/,
+    /active Worker deployment or endpoint mapping changed before Manifest admission/,
   );
   assert.equal(rotatedStore.manifestETag, null);
   assert.equal(rotatedStore.events.includes("manifest-cas"), false);

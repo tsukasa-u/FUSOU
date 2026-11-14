@@ -223,6 +223,101 @@ export async function signTlsnRuntimeConfigManifestForTest(options) {
   return signTlsnRuntimeConfigManifestWithMode(options, "test-only");
 }
 
+async function verifyFreshApprovedWorkerReference(
+  workerReferenceRevalidation,
+  independentInputs,
+) {
+  if (
+    !workerReferenceRevalidation ||
+    typeof workerReferenceRevalidation !== "object" ||
+    !workerReferenceRevalidation.environment ||
+    !workerReferenceRevalidation.provenance ||
+    !workerReferenceRevalidation.publicManifest
+  ) {
+    throw new Error("fresh approved Worker release inputs are required before Manifest admission");
+  }
+  const latestReference = await acquireAppWorkerReference(
+    workerReferenceRevalidation,
+  );
+  const latestReferenceRaw = Buffer.from(
+    `${JSON.stringify(latestReference, null, 2)}\n`,
+  );
+  if (
+    stableWorkerReference(latestReferenceRaw, "fresh Worker reference") !==
+    stableWorkerReference(
+      independentInputs.worker_reference_raw,
+      "approved Worker reference",
+    )
+  ) {
+    throw new Error(
+      "active Worker deployment or endpoint mapping changed before Manifest admission",
+    );
+  }
+}
+
+async function prepareTlsnRuntimeConfigReleaseUpdateWithMode(
+  options,
+  signManifest,
+) {
+  const {
+    prepared,
+    signerProvider,
+    trustedSigner,
+    manifestAuthorityDelegationRaw,
+    policy,
+    independentInputs,
+    workerReferenceRevalidation,
+  } = options ?? {};
+  await verifyFreshApprovedWorkerReference(
+    workerReferenceRevalidation,
+    independentInputs,
+  );
+  const { raw_envelope: rawEnvelope, verification } = await signManifest({
+    prepared,
+    signerProvider,
+    trustedSigner,
+    manifestAuthorityDelegationRaw,
+    policy,
+    independentInputs,
+  });
+  if (verification.manifest_authority_generation === null) {
+    throw new Error("Release update preparation requires a delegated Manifest V3");
+  }
+  const objects = createTlsnRuntimeConfigPublicationObjects(rawEnvelope, {
+    trustedSigner,
+    policy,
+    independentInputs,
+  });
+  if (objects.length !== 7) {
+    throw new Error("Manifest V3 publication inventory is incomplete");
+  }
+  return Object.freeze({
+    state: "READY_FOR_COORDINATOR_ADMISSION",
+    manifest_bytes: Buffer.from(rawEnvelope),
+    publication_objects: Object.freeze(
+      objects.slice(0, 5).map(({ key, body }) =>
+        Object.freeze({ key, body: Buffer.from(body) })
+      ),
+    ),
+    verification,
+  });
+}
+
+export async function prepareTlsnRuntimeConfigReleaseUpdate(options) {
+  assertRuntimeConfigProductionSigningRegistered();
+  return prepareTlsnRuntimeConfigReleaseUpdateWithMode(
+    options,
+    signTlsnRuntimeConfigManifest,
+  );
+}
+
+export async function prepareTlsnRuntimeConfigReleaseUpdateForTest(options) {
+  return prepareTlsnRuntimeConfigReleaseUpdateWithMode(
+    options,
+    signTlsnRuntimeConfigManifestForTest,
+  );
+}
+
 async function publishTlsnRuntimeConfigWithMode({
   prepared,
   signerProvider,
@@ -331,23 +426,10 @@ async function publishTlsnRuntimeConfigWithMode({
     }
   }
 
-  if (
-    !workerReferenceRevalidation ||
-    typeof workerReferenceRevalidation !== "object" ||
-    !workerReferenceRevalidation.environment ||
-    !workerReferenceRevalidation.provenance ||
-    !workerReferenceRevalidation.publicManifest
-  ) {
-    throw new Error("fresh approved Worker release inputs are required before manifest publication");
-  }
-  const latestReference = await acquireAppWorkerReference(workerReferenceRevalidation);
-  const latestReferenceRaw = Buffer.from(`${JSON.stringify(latestReference, null, 2)}\n`);
-  if (
-    stableWorkerReference(latestReferenceRaw, "fresh Worker reference") !==
-    stableWorkerReference(independentInputs.worker_reference_raw, "approved Worker reference")
-  ) {
-    throw new Error("active Worker deployment or endpoint mapping changed before manifest publication");
-  }
+  await verifyFreshApprovedWorkerReference(
+    workerReferenceRevalidation,
+    independentInputs,
+  );
 
   let committedETag;
   try {

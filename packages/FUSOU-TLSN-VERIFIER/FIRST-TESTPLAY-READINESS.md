@@ -1,5 +1,93 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Production artifact semantic verification — local hardening
+
+**SOURCE_IMPLEMENTED:** Independent review reproduced that valid Manifest and
+artifact hashes could admit a Worker reference whose identity did not match
+the signed Manifest. A Workers-compatible Production artifact verifier now
+checks the exact five ordered publication objects and their content-addressed
+bytes, Worker identity/build/bindings and observation time, freshness, Origin
+Inventory, Target Approval, security registry cross-references, and the
+root-signed Result registry envelope. The private HTTP route and Coordinator
+RPC admission both run it before admission or R2 writes; persisted exact inputs
+are rechecked before Release progress and `ADVANCE` install. The Node and
+Workers-compatible verifiers agree on the shared positive vector and invalid
+artifact cases. This does not claim APP process/image attestation.
+
+**LOCAL_TEST_VERIFIED:** The correctly hashed and correctly child-signed
+identity-mismatch reproduction is rejected by the formal Node verifier, the
+private route, and direct Coordinator RPC. The test confirms the root-signed
+Manifest delegation remains unchanged and that R2 pointer, ledger head,
+current-state binding, Release signature count, and install state do not
+change. Shared-contract tests cover Worker identity/observation/freshness and
+JSON failures, role/order/duplicate/missing publication objects, and semantic
+inconsistency in all four other artifacts. Domain tests passed **33/33**,
+Node Manifest tests **28/28**, and Coordinator runtime tests **72/72**;
+Coordinator and Domain typechecks passed. Gateway runtime checks passed,
+including exact response bytes and cleanup/reset scenarios. No RPC-stub
+disposal or unhandled-promise warnings were reported.
+
+The local Coordinator runtime used Miniflare `5.20261104.0-beta`, workerd
+`1.20261104.1`, `compatibility_date = "2026-11-08"`, and flags `[]`.
+The private Signer example date `2026-11-13` remains **NOT_CHECKED**.
+Candidate workflow already runs the Domain tests, Coordinator runtime suite,
+and Node Manifest tests; no workflow change was needed.
+
+**HOSTED:** Changed-source Hosted CI is **NOT_CHECKED**. Hosted run [#121](https://github.com/tsukasa-u/FUSOU/actions/runs/43469695925)
+remains only the pre-change baseline.
+**PRODUCTION:** No registration, deployment, or Production operation was
+performed. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## One cloudflare-operator Release update — local implementation
+
+**SOURCE_IMPLEMENTED:** The update uses the configured Production
+`cloudflare-operator-v1` profile, environment, chain, Coordinator name/DO, and
+current restore epoch. Admission binds the stable operation ID and exact
+Manifest V3/publication bytes to the expected prior Release head and current
+state. The private Release-management capability is separate from the Genesis
+capability and ordinary Freshness challenge; the caller cannot choose or
+declare an approved target.
+
+The root-delegated Manifest V3 and exact Worker-reference artifacts are
+verified against the configured pins and allowed configuration. Manifest
+signing and `release-commit-record-v1` signing use separate purpose-limited
+keys/delegations; the latter is claimed and persisted by exact bytes before
+append. The Node publisher is preparation-only for this path. The DO
+coordinates immutable R2 writes, the sole mutable pointer update, exact
+readback, conditional ledger append, `AVAILABLE`, and conditional `ADVANCE`
+binding install. Completion is reported only when the installed current state
+matches the committed Release.
+
+Same-operation POST resumes only the exact persisted request; a changed input
+or competing/stale operation is rejected. GET is read-only. R2 write,
+Release-signing, append, readback, and install outcomes remain distinct:
+Unknown is not cleared by timeout, restart, or a negative read, and a new
+operation ID cannot bypass a retained writer. A persisted signer result is
+reused; an unresolved Release signature is not re-signed.
+
+**LOCAL_TEST_VERIFIED:** Test-signed Manifest/Release material traverses the
+private route, DO coordination, local R2, Gateway, and independent
+verification. Tests cover concurrent same-operation POST, exact replay and
+conflict, Release signer result loss/Unknown across restart, R2 write and
+readback recovery, append response loss, both `ADVANCE` install interruption
+boundaries, read-only GET, no duplicate install/signature, and post-recovery
+Freshness exact-byte verification. Test-only faults are isolated to the local
+runtime Worker/subclass.
+The complete Coordinator runtime suite passed **72/72**, with **0 failed**,
+**0 skipped**, and no RPC-stub disposal or unhandled-promise warnings.
+
+Hosted run [#121](https://github.com/tsukasa-u/FUSOU/actions/runs/43469695925)
+is the **pre-change** baseline (all three jobs passed; Coordinator runtime
+68/68). Hosted CI after this Release-update change is **NOT_CHECKED**.
+Local runtime compatibility is Miniflare `5.20261104.0-beta`, workerd
+`1.20261104.1`, date `2026-11-08`, flags `[]`. The private Signer example uses
+`2026-11-13`; compatibility parity at that date remains **NOT_CHECKED**.
+
+Production operator/resource/key/pin registration, initial material issuance
+and R2 publication, deployment/restore validation, and renewal/continuous
+publishing were not performed. Stage A/B/C and Production acceptance remain
+**BLOCKED**.
+
 ## Genesis binding-install recovery — local verification follow-up
 
 **SOURCE_IMPLEMENTED:** The independently reproduced recovery failure was

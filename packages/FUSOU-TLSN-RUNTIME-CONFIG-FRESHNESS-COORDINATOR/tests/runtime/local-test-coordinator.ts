@@ -157,9 +157,12 @@ export class LocalTestFreshnessIssueCoordinatorDO
     readings: readonly number[],
   ): void {
     if (
-      readings.length !== 3 ||
+      readings.length < 2 ||
+      readings.length > 8 ||
       readings.some((reading) => !Number.isSafeInteger(reading) || reading < 0) ||
-      readings[1]! < readings[0]!
+      readings.some((reading, index) =>
+        index > 0 && reading < readings[index - 1]!
+      )
     ) {
       throw new Error("Local Cloudflare/operator UTC sequence is invalid");
     }
@@ -891,6 +894,8 @@ export class LocalTestReleaseLedgerCoordinatorDO
   readonly #releaseBucket: R2Bucket;
   #genesisInstallFault: "NONE" | "BEFORE_FINALIZATION" | "AFTER_FINALIZATION" =
     "NONE";
+  #releaseInstallFault: "NONE" | "BEFORE_FINALIZATION" | "AFTER_FINALIZATION" =
+    "NONE";
 
   constructor(ctx: DurableObjectState, env: CoordinatorEnv) {
     const fault: LocalR2FaultState = {
@@ -1183,17 +1188,43 @@ export class LocalTestReleaseLedgerCoordinatorDO
   }
 
   failNextGenesisInstallBeforeFinalizationForLocalTest(): void {
-    if (this.#genesisInstallFault !== "NONE") {
+    if (
+      this.#genesisInstallFault !== "NONE" ||
+      this.#releaseInstallFault !== "NONE"
+    ) {
       throw new Error("A Genesis install fault is already armed");
     }
     this.#genesisInstallFault = "BEFORE_FINALIZATION";
   }
 
   failNextGenesisAfterInstallFinalizationForLocalTest(): void {
-    if (this.#genesisInstallFault !== "NONE") {
+    if (
+      this.#genesisInstallFault !== "NONE" ||
+      this.#releaseInstallFault !== "NONE"
+    ) {
       throw new Error("A Genesis install fault is already armed");
     }
     this.#genesisInstallFault = "AFTER_FINALIZATION";
+  }
+
+  failNextReleaseInstallBeforeFinalizationForLocalTest(): void {
+    if (
+      this.#genesisInstallFault !== "NONE" ||
+      this.#releaseInstallFault !== "NONE"
+    ) {
+      throw new Error("A binding install fault is already armed");
+    }
+    this.#releaseInstallFault = "BEFORE_FINALIZATION";
+  }
+
+  failNextReleaseAfterInstallFinalizationForLocalTest(): void {
+    if (
+      this.#genesisInstallFault !== "NONE" ||
+      this.#releaseInstallFault !== "NONE"
+    ) {
+      throw new Error("A binding install fault is already armed");
+    }
+    this.#releaseInstallFault = "AFTER_FINALIZATION";
   }
 
   override async finalizeCloudflareOperatorBindingInstall(
@@ -1213,13 +1244,30 @@ export class LocalTestReleaseLedgerCoordinatorDO
         "Local test interrupted Genesis immediately before install finalization",
       );
     }
+    if (this.#releaseInstallFault === "BEFORE_FINALIZATION") {
+      this.#releaseInstallFault = "NONE";
+      throw new Error(
+        "Local test interrupted Release immediately before install finalization",
+      );
+    }
     const faultAfterFinalization =
       this.#genesisInstallFault === "AFTER_FINALIZATION";
+    const releaseFaultAfterFinalization =
+      this.#releaseInstallFault === "AFTER_FINALIZATION";
     const result = await super.finalizeCloudflareOperatorBindingInstall(input);
     if (faultAfterFinalization && result.status === "INSTALLED") {
       this.#genesisInstallFault = "NONE";
       throw new Error(
         "Local test interrupted Genesis after install commit and before status update",
+      );
+    }
+    if (
+      releaseFaultAfterFinalization &&
+      result.status === "INSTALLED"
+    ) {
+      this.#releaseInstallFault = "NONE";
+      throw new Error(
+        "Local test interrupted Release after install commit and before response",
       );
     }
     return result;

@@ -28,8 +28,13 @@ import {
   createRuntimeConfigFreshnessRequest,
   runtimeConfigManifestAudienceSha256,
   runtimeConfigFreshnessWire,
+  signRuntimeConfigReleaseCommitRecord,
   signRuntimeConfigFreshnessResponseEnvelope,
+  verifyRuntimeConfigManifestEpochPointer,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+import {
+  verifyTlsnRuntimeConfigProductionEnvelope,
+} from "../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest.mjs";
 import {
   CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
@@ -57,6 +62,8 @@ import {
   makeDifferentRequestBytes,
   makeRequestIdentity,
   makeSignedCurrentStateFixture,
+  makeSignedInvalidWorkerIdentityReleaseUpdateFixture,
+  makeSignedCloudflareOperatorReleaseUpdateFixture,
   makeSignedReleaseStateReader,
   makeSignedNextReleaseRecord,
   makeSignedCurrentStateReader,
@@ -96,7 +103,9 @@ const PRIVATE_SIGNER_COMPATIBILITY_DATE = "2026-11-08";
 const GENESIS_COORDINATOR_NAME = "private-signer-genesis-runtime-test";
 const GENESIS_R2_BUCKET_NAME = "fusou-genesis-release-ledger-runtime-test";
 const GENESIS_ADMIN_CAPABILITY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const RELEASE_ADMIN_CAPABILITY = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const GENESIS_ADMIN_PATH = "/__private/admin/genesis";
+const RELEASE_ADMIN_TEST_PATH = "/__runtime_test/release/update";
 const GENESIS_RECOVERY_RPC_PATH =
   "/__runtime_test/genesis/rpc/install-recovery";
 const PRIVATE_SIGNER_EXAMPLE_CONFIG = resolve(
@@ -233,6 +242,36 @@ function registerRuntimeTests() {
         { timeout: 90_000 },
         async () => {
           await runCloudflareOperatorGenesisRuntimeTest(context);
+        },
+      );
+
+      it(
+        "advances the initialized operator release through private admission, R2, signing, install, and Gateway",
+        { timeout: 120_000 },
+        async () => {
+          await runCloudflareOperatorReleaseUpdateRuntimeTest(context);
+        },
+      );
+
+      it(
+        "recovers an ADVANCE install interrupted before finalization after runtime recreation",
+        { timeout: 90_000 },
+        async () => {
+          await runCloudflareOperatorReleaseInstallRecoveryRuntimeTest(
+            context,
+            "BEFORE_FINALIZATION",
+          );
+        },
+      );
+
+      it(
+        "returns an installed ADVANCE result after response loss without reinstalling",
+        { timeout: 90_000 },
+        async () => {
+          await runCloudflareOperatorReleaseInstallRecoveryRuntimeTest(
+            context,
+            "AFTER_FINALIZATION",
+          );
         },
       );
 
@@ -689,21 +728,45 @@ function registerRuntimeTests() {
               manifestEpoch: "71002",
               nowMs,
               releaseDelegationNotAfterMs: notAfterMs,
+              operatorProfile: true,
             },
           );
           const staged = await stageReleaseIntent(
             seeded.coordinator,
             intent,
           );
-          await rpc(
-            seeded.stub.setCloudflareOperatorRuntimeUtcSequenceForLocalTest(
-              [nowMs, nowMs, notAfterMs],
-            ),
-            "advance operator UTC between Release verification and commit",
-          );
           const appended = await appendReleaseIntent(
             seeded.coordinator,
             staged,
+            {
+              beforeAppend: async ({ claim }) => {
+                const releaseDelegation = JSON.parse(
+                  Buffer.from(
+                    staged.committedFixture.releaseDelegationBytes,
+                  ).toString("utf8"),
+                );
+                const releaseDelegationPayload = JSON.parse(
+                  Buffer.from(
+                    releaseDelegation.payload_base64url,
+                    "base64url",
+                  ).toString("utf8"),
+                );
+                assert.equal(
+                  Date.parse(releaseDelegationPayload.not_after),
+                  notAfterMs,
+                );
+                assert.ok(
+                  Date.parse(claim.payload.authorized_at) < notAfterMs,
+                  "Release signing claim must precede delegation expiry",
+                );
+                await rpc(
+                  seeded.stub.setCloudflareOperatorRuntimeUtcSequenceForLocalTest(
+                    [nowMs, nowMs, notAfterMs],
+                  ),
+                  "expire the Release delegation between signer claim and ledger commit",
+                );
+              },
+            },
           );
           assert.equal(appended.appended.status, "QUARANTINED");
           assert.match(
@@ -1345,7 +1408,11 @@ function registerRuntimeTests() {
           const releaseIntent = await startReleaseIntent(
             seeded.coordinator,
             seeded.fixture,
-            { manifestEpoch: "71001", nowMs: Date.now() },
+            {
+              manifestEpoch: "71001",
+              nowMs: Date.now(),
+              operatorProfile: true,
+            },
           );
           assert.equal(releaseIntent.started.status, "WAITING_FOR_ISSUES");
           const blockedStage = await rpc(
@@ -1495,7 +1562,11 @@ function registerRuntimeTests() {
           const releaseIntent = await startReleaseIntent(
             seeded.coordinator,
             seeded.fixture,
-            { manifestEpoch: "71002", nowMs: Date.now() },
+            {
+              manifestEpoch: "71002",
+              nowMs: Date.now(),
+              operatorProfile: true,
+            },
           );
           assert.equal(releaseIntent.started.status, "STARTED");
         },
@@ -4776,7 +4847,7 @@ function registerRuntimeTests() {
               context,
               `release-stale-${staleBinding.toLowerCase()}`,
             );
-            const { coordinator, fixture } = seeded;
+            const { stub, coordinator, fixture } = seeded;
             const intent = await startReleaseIntent(coordinator, fixture);
             const staged = await stageReleaseIntent(coordinator, intent);
             const stalePreviousHead = staleBinding === "PREDECESSOR_DIGEST"
@@ -4797,7 +4868,7 @@ function registerRuntimeTests() {
               intent.nextFixture.manifestBytes,
             ));
             const result = await rpc(
-              coordinator.appendReleaseRecord({
+              stub.attemptAppendReleaseRecordForLocalTest({
                 operationId: intent.operationId,
                 fencingToken: intent.fencingToken,
                 recordBytes: staleFixture.recordBytes,
@@ -4805,7 +4876,16 @@ function registerRuntimeTests() {
               }),
               "compare the signed predecessor with the current ledger head",
             );
-            assert.equal(result.status, "QUARANTINED");
+            assert.equal(result.status, "THREW");
+            assert.match(
+              result.errorMessage,
+              /Release Record does not match the stored operation binding/i,
+            );
+            const quarantined = await rpc(
+              coordinator.getReleaseOperation(intent.operationId),
+              "confirm stale predecessor quarantined the operation",
+            );
+            assert.equal(quarantined.status, "QUARANTINED");
             const head = await rpc(
               coordinator.readReleaseLedgerHead(),
               "confirm stale predecessor did not advance the ledger",
@@ -4960,6 +5040,228 @@ function registerRuntimeTests() {
           assert.equal(appended.appended.status, "LEDGER_COMMITTED");
           const finalized = await finalizeReleaseIntent(coordinator, appended);
           assert.equal(finalized.finalized.status, "AVAILABLE");
+        },
+      );
+
+      it(
+        "retains an uncertain Release signer result across restart without re-signing or bypass",
+        { timeout: 90_000 },
+        async () => {
+          const previousFixture = context.releaseUpdateFixture;
+          assert.ok(previousFixture, "the current operator Release must be available");
+          const { stub, coordinator } = coordinatorForName(
+            context,
+            GENESIS_COORDINATOR_NAME,
+            undefined,
+            context.genesisNamespace,
+          );
+          const updateFixture =
+            await makeSignedCloudflareOperatorReleaseUpdateFixture(
+              previousFixture,
+            );
+          const operationId = randomUUID();
+          const requestBytes = releaseUpdateRequestBytes(
+            operationId,
+            updateFixture,
+          );
+          const competingOperationId = randomUUID();
+          const competingRequestBytes = releaseUpdateRequestBytes(
+            competingOperationId,
+            updateFixture,
+          );
+          const privateWorker = await context.currentRuntime.getWorker(
+            GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          const resetMetrics = await privateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/reset-signature-metrics",
+            ),
+          );
+          assert.equal(resetMetrics.status, 200);
+          const beforeMetrics = await readPrivateSignerSignatureMetrics(
+            context,
+            GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          const armSignatureLoss = await privateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/lose-next-release-record-signature-response",
+              { method: "POST" },
+            ),
+          );
+          assert.equal(armSignatureLoss.status, 200);
+          assert.deepEqual(await armSignatureLoss.json(), { armed: true });
+
+          const submit = (body, worker = privateWorker) =>
+            worker.fetch(
+              new Request(
+                `https://freshness-signer.internal${RELEASE_ADMIN_TEST_PATH}`,
+                {
+                  method: "POST",
+                  headers: {
+                    "content-type": "application/json",
+                    "x-fusou-release-capability": RELEASE_ADMIN_CAPABILITY,
+                  },
+                  body,
+                },
+              ),
+            );
+          const query = (worker = privateWorker) =>
+            worker.fetch(
+              new Request(
+                `https://freshness-signer.internal/__runtime_test/release/operation/${operationId}`,
+                {
+                  headers: {
+                    "x-fusou-release-capability": RELEASE_ADMIN_CAPABILITY,
+                  },
+                },
+              ),
+            );
+          const firstResponse = await submit(requestBytes);
+          assert.equal(firstResponse.status, 503);
+          assert.deepEqual(await firstResponse.json(), {
+            error: "release_update_unavailable",
+          });
+          const afterSignatureLoss = await readPrivateSignerSignatureMetrics(
+            context,
+            GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          assert.equal(
+            afterSignatureLoss.releaseRecordSignatures -
+              beforeMetrics.releaseRecordSignatures,
+            1,
+            "the signer must execute once before its result becomes unknown",
+          );
+
+          const operation = await rpc(
+            coordinator.getReleaseOperation(operationId),
+            "inspect Release signer result after response loss",
+          );
+          assert.equal(operation.status, "RESULT_UNKNOWN");
+          assert.equal(operation.unknownStage, "RELEASE_SIGNER");
+          assert.equal(operation.releaseSigningClaimed, true);
+          assert.equal(operation.signedRecordBytes, null);
+          assert.equal(
+            await rpc(
+              coordinator.getCloudflareOperatorBindingInstall(operationId),
+              "confirm unknown Release signer result created no install",
+            ),
+            null,
+          );
+          const beforeQueries = snapshotGenesisInstallProgress(
+            await rpc(
+              stub.inspectGenesisInstallProgressForLocalTest(operationId),
+              "inspect retained Release writer after signer response loss",
+            ),
+          );
+          assert.equal(beforeQueries.writerPending, true);
+          assert.equal(
+            beforeQueries.writerOperationId,
+            operationId,
+          );
+          assert.equal(beforeQueries.installStatus, null);
+
+          const unknownResponse = await query();
+          assert.equal(unknownResponse.status, 503);
+          const unknownBody = await unknownResponse.json();
+          assert.deepEqual(unknownBody, {
+            operation_id: operationId,
+            status: "RESULT_UNKNOWN",
+            release_status: "RESULT_UNKNOWN",
+            install_status: null,
+            unknown_stage: "RELEASE_SIGNER",
+          });
+          const differentOperationResponse = await submit(
+            competingRequestBytes,
+          );
+          assert.equal(differentOperationResponse.status, 409);
+          const sameOperationRetry = await submit(requestBytes);
+          assert.equal(sameOperationRetry.status, 503);
+          assert.deepEqual(await sameOperationRetry.json(), unknownBody);
+          const afterRetryMetrics = await readPrivateSignerSignatureMetrics(
+            context,
+            GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          assert.equal(
+            afterRetryMetrics.releaseRecordSignatures,
+            afterSignatureLoss.releaseRecordSignatures,
+            "an unknown Release signature result must not be re-signed",
+          );
+          assertSameGenesisInstallProgress(
+            snapshotGenesisInstallProgress(
+              await rpc(
+                stub.inspectGenesisInstallProgressForLocalTest(operationId),
+                "confirm unknown Release retry did not release its writer",
+              ),
+            ),
+            beforeQueries,
+          );
+
+          await restartRuntime(context);
+          const reopened = coordinatorForName(
+            context,
+            GENESIS_COORDINATOR_NAME,
+            undefined,
+            context.genesisNamespace,
+          );
+          const restartedWorker = await context.currentRuntime.getWorker(
+            GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          const postRestartQuery = await query(restartedWorker);
+          assert.equal(postRestartQuery.status, 503);
+          assert.deepEqual(await postRestartQuery.json(), unknownBody);
+          const postRestartMetrics = await readPrivateSignerSignatureMetrics(
+            context,
+            GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          assert.equal(postRestartMetrics.releaseRecordSignatures, 0);
+          const postRestartRetry = await submit(requestBytes, restartedWorker);
+          assert.equal(postRestartRetry.status, 503);
+          assert.deepEqual(await postRestartRetry.json(), unknownBody);
+          const newOperationRetry = await submit(
+            competingRequestBytes,
+            restartedWorker,
+          );
+          assert.equal(newOperationRetry.status, 409);
+          assert.equal(
+            (await readPrivateSignerSignatureMetrics(
+              context,
+              GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+            )).releaseRecordSignatures,
+            0,
+          );
+          assertSameGenesisInstallProgress(
+            snapshotGenesisInstallProgress(
+              await rpc(
+                reopened.stub.inspectGenesisInstallProgressForLocalTest(
+                  operationId,
+                ),
+                "confirm restart preserved the unresolved Release writer",
+              ),
+            ),
+            beforeQueries,
+          );
+
+          const freshnessRequestBytes = await makeGatewayFreshnessRequestBytes();
+          const freshnessResponse = await fetchGatewayFreshness(
+            context,
+            freshnessRequestBytes,
+            GENESIS_GATEWAY_WORKER_NAME,
+          );
+          assert.equal(freshnessResponse.status, 502);
+          assert.deepEqual(await freshnessResponse.json(), {
+            error: "invalid_freshness_response",
+          });
+          const blockedSnapshot = await reopened.coordinator
+            .readCloudflareOperatorReleaseSnapshot();
+          assert.equal(blockedSnapshot.writerPending, true);
+          const retainedUnknown = await reopened.coordinator.getReleaseOperation(
+            operationId,
+          );
+          assert.equal(
+            retainedUnknown?.status,
+            "RESULT_UNKNOWN",
+          );
+          assert.equal(retainedUnknown?.unknownStage, "RELEASE_SIGNER");
         },
       );
 
@@ -5237,6 +5539,19 @@ async function startRuntime(context) {
             context.genesisApprovalJson ?? "",
           FRESHNESS_GENESIS_ADMIN_CAPABILITY:
             context.genesisAdminCapability,
+          FRESHNESS_RELEASE_ADMIN_CAPABILITY:
+            RELEASE_ADMIN_CAPABILITY,
+          RELEASE_RECORD_SIGNER_KEY_ID:
+            context.genesisFixture?.releaseSignerKeyId ??
+              context.privateSignerFixture.releaseSignerKeyId,
+          RELEASE_RECORD_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL: Buffer.from(
+            context.genesisFixture?.releaseSignerPrivateKeyPkcs8Bytes ??
+              context.privateSignerFixture.releaseSignerPrivateKeyPkcs8Bytes,
+          ).toString("base64url"),
+          RELEASE_RECORD_SIGNER_DELEGATION_BASE64URL: Buffer.from(
+            context.genesisFixture?.releaseDelegationBytes ??
+              context.privateSignerFixture.releaseDelegationBytes,
+          ).toString("base64url"),
           TEST_GENESIS_BAD_RECORD_SHA256:
             context.genesisInvalidSignatureRecordSha256 ?? "A".repeat(43),
           TEST_GENESIS_EXPIRED_APPROVAL_JSON:
@@ -6710,6 +7025,761 @@ async function runCloudflareOperatorGenesisRuntimeTest(context) {
   );
 }
 
+async function runCloudflareOperatorReleaseUpdateRuntimeTest(context) {
+  const { coordinator } = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisNamespace,
+  );
+  const baseFixture = context.genesisFixture;
+  const before = await coordinator.readCloudflareOperatorReleaseSnapshot();
+  assert.equal(before.profileId, CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID);
+  assert.equal(before.environment, "production");
+  assert.equal(before.chainId, context.genesisFixture.releaseHead.chainId);
+  assert.equal(typeof before.localRestoreEpoch, "string");
+  assert.equal(before.head?.generation, "1");
+  assert.equal(before.currentState?.manifestEpoch, baseFixture.manifestEpoch);
+
+  const updateFixture = await makeSignedCloudflareOperatorReleaseUpdateFixture(
+    baseFixture,
+  );
+  const competingFixture =
+    await makeSignedCloudflareOperatorReleaseUpdateFixture(baseFixture, {
+      nowMs: Date.now() - 30_000,
+    });
+  assert.ok(
+    !equalBytes(updateFixture.manifestBytes, competingFixture.manifestBytes),
+    "competing update must use different exact Manifest bytes",
+  );
+  const operationId = randomUUID();
+  const requestBytes = releaseUpdateRequestBytes(operationId, updateFixture);
+  const worker = await context.currentRuntime.getWorker(
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const releaseUpdateRequest = (bytes = requestBytes, capability = RELEASE_ADMIN_CAPABILITY) =>
+    worker.fetch(
+      new Request(
+        `https://freshness-signer.internal${RELEASE_ADMIN_TEST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-fusou-release-capability": capability,
+          },
+          body: bytes,
+        },
+      ),
+    );
+  const releaseOperationQuery = () =>
+    worker.fetch(
+      new Request(
+        `https://freshness-signer.internal/__runtime_test/release/operation/${operationId}`,
+        {
+          headers: {
+            "x-fusou-release-capability": RELEASE_ADMIN_CAPABILITY,
+          },
+        },
+      ),
+    );
+
+  const absentOperation = await releaseOperationQuery();
+  assert.equal(absentOperation.status, 404);
+  const unauthorized = await releaseUpdateRequest(
+    requestBytes,
+    GENESIS_ADMIN_CAPABILITY,
+  );
+  assert.equal(unauthorized.status, 403);
+  const metricsBeforeInvalid = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const invalidFixture =
+    await makeSignedInvalidWorkerIdentityReleaseUpdateFixture(baseFixture);
+  const invalidEnvelope = JSON.parse(
+    invalidFixture.manifestBytes.toString("utf8"),
+  );
+  assert.ok(
+    equalBytes(
+      Buffer.from(
+        invalidEnvelope.manifest_authority_delegation_base64url,
+        "base64url",
+      ),
+      invalidFixture.originalManifestAuthorityDelegationBytes,
+    ),
+    "the original root-signed Manifest delegation must remain byte-identical",
+  );
+  const verifiedInvalidPointer = await verifyRuntimeConfigManifestEpochPointer({
+    raw: invalidFixture.manifestBytes,
+    trustedSigner: invalidFixture.manifestRootSigner,
+    manifestUrl: invalidFixture.manifestUrl,
+    nowMs: invalidFixture.nowMs,
+  });
+  assert.equal(verifiedInvalidPointer.envelopeSchemaVersion, 3);
+  assert.equal(
+    verifiedInvalidPointer.publicationArtifactDigests?.workerReferenceSha256,
+    digest(invalidFixture.workerReferenceRaw),
+  );
+  assert.throws(
+    () =>
+      verifyTlsnRuntimeConfigProductionEnvelope(
+        invalidFixture.manifestBytes,
+        {
+          trustedSigner: invalidFixture.manifestRootSigner,
+          policy: invalidFixture.manifestPolicy,
+          independentInputs: invalidFixture.independentInputs,
+        },
+      ),
+    /Worker reference identity does not match the signed manifest/,
+  );
+
+  const invalidOperationId = randomUUID();
+  const invalidRequestBytes = releaseUpdateRequestBytes(
+    invalidOperationId,
+    invalidFixture,
+  );
+  const manifestsBeforeInvalid = await runtimeR2ManifestReader(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const pointerBeforeInvalid =
+    await manifestsBeforeInvalid.readCurrentManifestPointer();
+  assert.ok(pointerBeforeInvalid);
+  const invalidHttpResponse = await releaseUpdateRequest(invalidRequestBytes);
+  assert.notEqual(invalidHttpResponse.status, 200);
+  assert.notEqual(invalidHttpResponse.status, 202);
+  await invalidHttpResponse.json();
+
+  await assert.rejects(
+    coordinator.beginReleaseOperation({
+      operationId: invalidOperationId,
+      expectedHead: await coordinator.readReleaseLedgerHead(),
+      manifestBytes: invalidFixture.manifestBytes,
+      publicationObjects: invalidFixture.publicationObjects,
+    }),
+    /Worker reference identity does not match the signed manifest/,
+  );
+  assert.equal(
+    await coordinator.getReleaseOperation(invalidOperationId),
+    null,
+  );
+  assert.equal(
+    await coordinator.getCloudflareOperatorBindingInstall(invalidOperationId),
+    null,
+  );
+  const afterInvalid = await coordinator.readCloudflareOperatorReleaseSnapshot();
+  assert.equal(afterInvalid.head?.recordSha256, before.head?.recordSha256);
+  assert.equal(afterInvalid.head?.pointerEtag, before.head?.pointerEtag);
+  assert.equal(
+    afterInvalid.currentState?.stateSha256,
+    before.currentState?.stateSha256,
+  );
+  assert.equal(afterInvalid.writerPending, before.writerPending);
+  const pointerAfterInvalid =
+    await manifestsBeforeInvalid.readCurrentManifestPointer();
+  assert.ok(pointerAfterInvalid);
+  assert.equal(pointerAfterInvalid.etag, pointerBeforeInvalid.etag);
+  assert.ok(equalBytes(pointerAfterInvalid.bytes, pointerBeforeInvalid.bytes));
+  const metricsAfterInvalid = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  assert.equal(
+    metricsAfterInvalid.releaseRecordSignatures,
+    metricsBeforeInvalid.releaseRecordSignatures,
+  );
+  assert.equal(
+    metricsAfterInvalid.freshnessResponseSignatures,
+    metricsBeforeInvalid.freshnessResponseSignatures,
+  );
+
+  const metricsBefore = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+
+  const concurrentResponses = await Promise.all([
+    releaseUpdateRequest(),
+    releaseUpdateRequest(),
+  ]);
+  const concurrentResults = await Promise.all(
+    concurrentResponses.map(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    })),
+  );
+  assert(
+    concurrentResults.every(({ status, body }) =>
+      status === 200 ||
+      status === 202 ||
+      (status === 503 &&
+        body.status === "RESULT_UNKNOWN" &&
+        body.unknown_stage === "RELEASE_SIGNER")
+    ),
+    `same-operation concurrent Release updates failed: ${JSON.stringify(concurrentResults)}`,
+  );
+  assert(
+    concurrentResults.some(({ status }) => status === 200 || status === 202),
+    "one same-operation request must own the admitted progress attempt",
+  );
+  const completedQuery = await releaseOperationQuery();
+  assert.equal(completedQuery.status, 200);
+  const completedResult = await completedQuery.json();
+  assert.deepEqual(completedResult, {
+    operation_id: operationId,
+    status: "INSTALLED",
+    release_status: "AVAILABLE",
+    install_status: "INSTALLED",
+    unknown_stage: null,
+  });
+
+  const head = await coordinator.readReleaseLedgerHead();
+  assert.ok(head);
+  assert.equal(head.position, "2");
+  assert.equal(head.generation, "2");
+  assert.equal(head.previousRecordSha256, baseFixture.releaseHead.recordSha256);
+  assert.equal(head.manifestEpoch, updateFixture.manifestEpoch);
+  assert.equal(head.manifestSha256, updateFixture.manifestSha256);
+  assert.equal(head.manifestRef, updateFixture.manifestRef);
+  assert.ok(equalBytes(head.manifestBytes, updateFixture.manifestBytes));
+  assert.equal(head.recordBytes.byteLength, (await coordinator.getReleaseOperation(operationId))?.recordLength);
+
+  const operation = await coordinator.getReleaseOperation(operationId);
+  assert.ok(operation);
+  assert.equal(operation.status, "AVAILABLE");
+  assert.equal(operation.releaseSigningRequired, true);
+  assert.equal(operation.releaseSigningClaimed, true);
+  assert.equal(
+    operation.requestSha256,
+    digest(canonicalJsonBytes({
+      operationId,
+      environment: "production",
+      chainId: baseFixture.releaseHead.chainId,
+      expectedHead: {
+        position: before.head.position,
+        generation: before.head.generation,
+        recordSha256: before.head.recordSha256,
+        pointerEtag: before.head.pointerEtag,
+      },
+      manifestLength: updateFixture.manifestBytes.byteLength,
+      manifestSha256: updateFixture.manifestSha256,
+      manifestEpoch: updateFixture.manifestEpoch,
+      manifestRef: updateFixture.manifestRef,
+      publicationObjects: updateFixture.publicationObjects.map(
+        ({ key, body }) => ({
+          key,
+          bodyLength: body.byteLength,
+          bodySha256: digest(body),
+        }),
+      ),
+    })),
+  );
+  assert.ok(equalBytes(operation.signedRecordBytes, head.recordBytes));
+  assert.ok(equalBytes(operation.recordBytes, head.recordBytes));
+  assert.equal(operation.recordLength, head.recordBytes.byteLength);
+  assert.equal(operation.recordSha256, head.recordSha256);
+  assert.equal(operation.expectedCurrentStateSha256, before.currentState?.stateSha256);
+  assert.equal(operation.expectedRestoreEpoch, before.localRestoreEpoch);
+
+  const install = await coordinator.getCloudflareOperatorBindingInstall(
+    operationId,
+  );
+  assert.ok(install);
+  assert.equal(install.mode, "ADVANCE");
+  assert.equal(install.status, "INSTALLED");
+  assert.equal(install.expectedCurrentStateSha256, before.currentState?.stateSha256);
+  assert.equal(install.expectedRestoreEpoch, before.localRestoreEpoch);
+  assert.equal(install.targetRecordSha256, head.recordSha256);
+  assert.equal(install.installedState?.recordSha256, head.recordSha256);
+
+  const after = await coordinator.readCloudflareOperatorReleaseSnapshot();
+  assert.equal(after.localRestoreEpoch, before.localRestoreEpoch);
+  assert.equal(after.writerPending, false);
+  assert.equal(after.currentState?.position, "2");
+  assert.equal(after.currentState?.generation, "2");
+  assert.equal(after.currentState?.recordSha256, head.recordSha256);
+  assert.equal(after.currentState?.manifestEpoch, updateFixture.manifestEpoch);
+  assert.equal(after.currentState?.manifestSha256, updateFixture.manifestSha256);
+  assert.equal(after.head?.pointerEtag, head.pointerEtag);
+
+  const manifests = await runtimeR2ManifestReader(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const pointer = await manifests.readCurrentManifestPointer();
+  assert.ok(pointer);
+  assert.equal(pointer.etag, head.pointerEtag);
+  assert.ok(equalBytes(pointer.bytes, updateFixture.manifestBytes));
+  const snapshot = await manifests.readImmutableManifestSnapshot(head.manifestRef);
+  assert.ok(snapshot);
+  assert.ok(equalBytes(snapshot.bytes, updateFixture.manifestBytes));
+  const bucket = await context.currentRuntime.getR2Bucket(
+    "RELEASE_LEDGER_R2",
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  for (const object of updateFixture.publicationObjects) {
+    const stored = await readRuntimeR2Object(bucket, object.key);
+    assert.ok(stored, `missing immutable publication object ${object.key}`);
+    assert.ok(equalBytes(stored, object.body));
+  }
+
+  const independentReader = createCloudflareOperatorReleaseStateReader({
+    coordinator,
+    manifests,
+    releaseRootSigner: baseFixture.rootSigner,
+    manifestRootSigner: baseFixture.manifestRootSigner,
+    manifestUrl: vector.manifest_url,
+  });
+  const verifiedState = await independentReader.readCurrentState();
+  assert.equal(verifiedState.state.manifestEpoch, updateFixture.manifestEpoch);
+  assert.equal(verifiedState.state.recordSha256, head.recordSha256);
+  assert.equal(verifiedState.pointerEtag, head.pointerEtag);
+
+  const freshnessRequestBytes = await makeGatewayFreshnessRequestBytes();
+  const gatewayResponse = await fetchGatewayFreshness(
+    context,
+    freshnessRequestBytes,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(gatewayResponse.status, 200);
+  const responseBytes = new Uint8Array(await gatewayResponse.arrayBuffer());
+  const freshnessOperationId = await privateSignerOperationId(
+    context,
+    freshnessRequestBytes,
+    "/__runtime_test/operation-id",
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const savedIssue = await coordinator.getCloudflareOperatorIssue({
+    operationId: freshnessOperationId,
+    requestBytes: freshnessRequestBytes,
+    chainId: baseFixture.releaseHead.chainId,
+  });
+  assert.equal(savedIssue.status, "FINALIZED");
+  assert.equal(savedIssue.responseBytes?.byteLength, responseBytes.byteLength);
+  assert.equal(savedIssue.responseSha256, digest(responseBytes));
+  assert.ok(equalBytes(savedIssue.responseBytes, responseBytes));
+  const verifiedResponse = await verifyCloudflareOperatorFreshnessResponse({
+    raw: responseBytes,
+    bootstrapSigner: baseFixture.rootSigner,
+    manifestUrl: vector.manifest_url,
+    requestBytes: freshnessRequestBytes,
+    nowMs: Date.now(),
+    expectedState: verifiedState.state,
+  });
+  assert.equal(verifiedResponse.releaseCommit.digest, head.recordSha256);
+
+  const replayedGatewayResponse = await fetchGatewayFreshness(
+    context,
+    freshnessRequestBytes,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(replayedGatewayResponse.status, 200);
+  assert.ok(
+    equalBytes(responseBytes, new Uint8Array(await replayedGatewayResponse.arrayBuffer())),
+  );
+
+  const replayedUpdate = await releaseUpdateRequest();
+  assert.equal(replayedUpdate.status, 200);
+  assert.deepEqual(await replayedUpdate.json(), completedResult);
+  const afterReplayHead = await coordinator.readReleaseLedgerHead();
+  assert.equal(afterReplayHead?.recordSha256, head.recordSha256);
+  assert.equal(
+    (await coordinator.getCloudflareOperatorBindingInstall(operationId))
+      ?.installFencingToken,
+    install.installFencingToken,
+  );
+
+  const conflictingBytes = releaseUpdateRequestBytes(
+    operationId,
+    competingFixture,
+  );
+  const conflictingReplay = await releaseUpdateRequest(conflictingBytes);
+  assert.equal(conflictingReplay.status, 409);
+  const conflictingNewId = await releaseUpdateRequest(
+    releaseUpdateRequestBytes(randomUUID(), competingFixture),
+  );
+  assert.equal(conflictingNewId.status, 409);
+  const afterConflicts = await coordinator.readCloudflareOperatorReleaseSnapshot();
+  assert.equal(afterConflicts.head?.recordSha256, head.recordSha256);
+  assert.equal(afterConflicts.currentState?.recordSha256, head.recordSha256);
+  assert.equal(afterConflicts.writerPending, false);
+
+  const metricsAfter = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  assert.equal(
+    metricsAfter.releaseRecordSignatures -
+      metricsBefore.releaseRecordSignatures,
+    1,
+  );
+  assert.equal(
+    metricsAfter.freshnessResponseSignatures -
+      metricsBefore.freshnessResponseSignatures,
+    1,
+  );
+
+  context.releaseUpdateFixture = {
+    ...updateFixture,
+    releaseHead: head,
+  };
+}
+
+async function runCloudflareOperatorReleaseInstallRecoveryRuntimeTest(
+  context,
+  interruption,
+) {
+  const previousFixture = context.releaseUpdateFixture;
+  assert.ok(previousFixture, "the preceding Release update must be installed");
+  const { stub, coordinator } = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisNamespace,
+  );
+  const before = await coordinator.readCloudflareOperatorReleaseSnapshot();
+  assert.equal(before.head?.recordSha256, previousFixture.releaseHead.recordSha256);
+  assert.equal(
+    before.currentState?.manifestEpoch,
+    previousFixture.manifestEpoch,
+  );
+
+  const updateFixture = await makeSignedCloudflareOperatorReleaseUpdateFixture(
+    previousFixture,
+  );
+  const operationId = randomUUID();
+  const requestBytes = releaseUpdateRequestBytes(operationId, updateFixture);
+  const createPrivateWorkerRequests = async () => {
+    const worker = await context.currentRuntime.getWorker(
+      GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+    );
+    return {
+      submit: () =>
+        worker.fetch(
+          new Request(
+            `https://freshness-signer.internal${RELEASE_ADMIN_TEST_PATH}`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-fusou-release-capability": RELEASE_ADMIN_CAPABILITY,
+              },
+              body: requestBytes,
+            },
+          ),
+        ),
+      query: () =>
+        worker.fetch(
+          new Request(
+            `https://freshness-signer.internal/__runtime_test/release/operation/${operationId}`,
+            {
+              headers: {
+                "x-fusou-release-capability": RELEASE_ADMIN_CAPABILITY,
+              },
+            },
+          ),
+        ),
+    };
+  };
+  const beforeMetrics = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  await rpc(
+    interruption === "BEFORE_FINALIZATION"
+      ? stub.failNextReleaseInstallBeforeFinalizationForLocalTest()
+      : stub.failNextReleaseAfterInstallFinalizationForLocalTest(),
+    `arm Release install ${interruption.toLowerCase()} fault`,
+  );
+
+  const initialRequests = await createPrivateWorkerRequests();
+  const interruptedResponse = await initialRequests.submit();
+  assert.equal(interruptedResponse.status, 503);
+  assert.deepEqual(await interruptedResponse.json(), {
+    error: "release_update_unavailable",
+  });
+  const metricsAfterInterruption = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  assert.equal(
+    metricsAfterInterruption.releaseRecordSignatures -
+      beforeMetrics.releaseRecordSignatures,
+    1,
+    "the update must persist one Release signature before install interruption",
+  );
+
+  const interruptedOperation = await rpc(
+    coordinator.getReleaseOperation(operationId),
+    "inspect interrupted Release operation",
+  );
+  assert.equal(interruptedOperation.status, "AVAILABLE");
+  const interruptedInstall = await rpc(
+    coordinator.getCloudflareOperatorBindingInstall(operationId),
+    "inspect interrupted ADVANCE install",
+  );
+  assert.ok(interruptedInstall);
+  assert.equal(interruptedInstall.mode, "ADVANCE");
+  assert.equal(
+    interruptedInstall.status,
+    interruption === "BEFORE_FINALIZATION" ? "VERIFYING" : "INSTALLED",
+  );
+  assert.equal(
+    interruptedInstall.expectedCurrentStateSha256,
+    before.currentState?.stateSha256,
+  );
+  assert.equal(interruptedInstall.expectedRestoreEpoch, before.localRestoreEpoch);
+  assert.equal(
+    interruptedInstall.targetRecordSha256,
+    interruptedOperation.recordSha256,
+  );
+  const interruptedProgress = snapshotGenesisInstallProgress(
+    await rpc(
+      stub.inspectGenesisInstallProgressForLocalTest(operationId),
+      "inspect Release install fences before result lookup",
+    ),
+  );
+  assert.equal(
+    interruptedProgress.writerPending,
+    interruption === "BEFORE_FINALIZATION",
+  );
+  assert.equal(
+    interruptedProgress.writerOperationId,
+    interruption === "BEFORE_FINALIZATION"
+      ? `cloudflare-operator-install:${operationId}`
+      : null,
+  );
+  assert.equal(
+    interruptedProgress.installFencingToken,
+    interruptedInstall.installFencingToken,
+  );
+  assert.equal(
+    interruptedProgress.releaseFencingToken,
+    interruptedInstall.releaseFencingToken,
+  );
+  assert.equal(interruptedProgress.profileLocalRestoreEpoch, before.localRestoreEpoch);
+  const expectedInstallCount = interruptedProgress.installCount;
+  const expectedAuthorizationCount =
+    interruptedProgress.bootstrapAuthorizationCount;
+  const expectedNextFence = interruptedProgress.nextFencingToken;
+  const expectedWriteFence = interruptedProgress.writeFencingToken;
+  const expectedCurrentStateJson = interruptedProgress.currentStateJson;
+
+  const queryBeforeRestart = await initialRequests.query();
+  assert.equal(
+    queryBeforeRestart.status,
+    interruption === "BEFORE_FINALIZATION" ? 202 : 200,
+  );
+  const queryBeforeRestartBody = await queryBeforeRestart.json();
+  assert.deepEqual(queryBeforeRestartBody, {
+    operation_id: operationId,
+    status: interruption === "BEFORE_FINALIZATION" ? "INSTALLING" : "INSTALLED",
+    release_status: "AVAILABLE",
+    install_status: interruptedInstall.status,
+    unknown_stage: null,
+  });
+  assertSameGenesisInstallProgress(
+    snapshotGenesisInstallProgress(
+      await rpc(
+        stub.inspectGenesisInstallProgressForLocalTest(operationId),
+        "confirm Release result lookup is read-only",
+      ),
+    ),
+    interruptedProgress,
+  );
+
+  await restartRuntime(context);
+  const restartedCoordinator = coordinatorForName(
+    context,
+    GENESIS_COORDINATOR_NAME,
+    undefined,
+    context.genesisNamespace,
+  );
+  const restartedRequests = await createPrivateWorkerRequests();
+  const queryAfterRestart = await restartedRequests.query();
+  assert.equal(
+    queryAfterRestart.status,
+    interruption === "BEFORE_FINALIZATION" ? 202 : 200,
+  );
+  assert.deepEqual(await queryAfterRestart.json(), queryBeforeRestartBody);
+  const progressAfterRestartQuery = snapshotGenesisInstallProgress(
+    await rpc(
+      restartedCoordinator.stub.inspectGenesisInstallProgressForLocalTest(
+        operationId,
+      ),
+      "confirm restarted Release result lookup is read-only",
+    ),
+  );
+  assertSameGenesisInstallProgress(progressAfterRestartQuery, interruptedProgress);
+
+  const metricsBeforeReplay = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const resumedResponse = await restartedRequests.submit();
+  assert.equal(resumedResponse.status, 200);
+  assert.deepEqual(await resumedResponse.json(), {
+    operation_id: operationId,
+    status: "INSTALLED",
+    release_status: "AVAILABLE",
+    install_status: "INSTALLED",
+    unknown_stage: null,
+  });
+  const metricsAfterReplay = await readPrivateSignerSignatureMetrics(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  assert.equal(
+    metricsAfterReplay.releaseRecordSignatures -
+      metricsBeforeReplay.releaseRecordSignatures,
+    0,
+    "same-operation recovery must reuse the persisted Release signature",
+  );
+
+  const finalInstall = await rpc(
+    restartedCoordinator.coordinator.getCloudflareOperatorBindingInstall(
+      operationId,
+    ),
+    "confirm recovered ADVANCE install result",
+  );
+  assert.equal(finalInstall?.status, "INSTALLED");
+  assert.equal(finalInstall?.installFencingToken, interruptedInstall.installFencingToken);
+  assert.equal(finalInstall?.releaseFencingToken, interruptedInstall.releaseFencingToken);
+  const finalProgress = snapshotGenesisInstallProgress(
+    await rpc(
+      restartedCoordinator.stub.inspectGenesisInstallProgressForLocalTest(
+        operationId,
+      ),
+      "inspect recovered ADVANCE install fences",
+    ),
+  );
+  assert.equal(finalProgress.installStatus, "INSTALLED");
+  assert.equal(finalProgress.installCount, expectedInstallCount);
+  assert.equal(
+    finalProgress.bootstrapAuthorizationCount,
+    expectedAuthorizationCount,
+  );
+  assert.equal(finalProgress.nextFencingToken, expectedNextFence);
+  assert.equal(finalProgress.writeFencingToken, expectedWriteFence);
+  assert.equal(finalProgress.profileLocalRestoreEpoch, before.localRestoreEpoch);
+  assert.equal(finalProgress.writerPending, false);
+  assert.equal(finalProgress.writerOperationId, null);
+  assert.equal(finalProgress.releaseHeadRecordSha256, interruptedOperation.recordSha256);
+  if (interruption === "AFTER_FINALIZATION") {
+    assert.equal(finalProgress.currentStateJson, expectedCurrentStateJson);
+  } else {
+    assert.notEqual(finalProgress.currentStateJson, expectedCurrentStateJson);
+  }
+
+  const finalHead = await rpc(
+    restartedCoordinator.coordinator.readReleaseLedgerHead(),
+    "confirm recovered Release head",
+  );
+  assert.equal(finalHead?.recordSha256, interruptedOperation.recordSha256);
+  context.releaseUpdateFixture = {
+    ...updateFixture,
+    releaseHead: finalHead,
+  };
+  await verifyGatewayFreshnessForCurrentOperatorRelease(
+    context,
+    restartedCoordinator.coordinator,
+    previousFixture,
+    updateFixture,
+    finalHead,
+  );
+}
+
+async function verifyGatewayFreshnessForCurrentOperatorRelease(
+  context,
+  coordinator,
+  previousFixture,
+  updateFixture,
+  head,
+) {
+  const manifests = await runtimeR2ManifestReader(
+    context,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const pointer = await manifests.readCurrentManifestPointer();
+  assert.ok(pointer, "the current R2 Manifest pointer must survive recovery");
+  assert.equal(pointer.etag, head.pointerEtag);
+  assert.ok(equalBytes(pointer.bytes, updateFixture.manifestBytes));
+  const snapshot = await manifests.readImmutableManifestSnapshot(head.manifestRef);
+  assert.ok(snapshot, "the immutable R2 Manifest snapshot must survive recovery");
+  assert.ok(equalBytes(snapshot.bytes, updateFixture.manifestBytes));
+  const independentReader = createCloudflareOperatorReleaseStateReader({
+    coordinator,
+    manifests,
+    releaseRootSigner: previousFixture.rootSigner,
+    manifestRootSigner: previousFixture.manifestRootSigner,
+    manifestUrl: vector.manifest_url,
+  });
+  const verifiedState = await independentReader.readCurrentState();
+  assert.equal(verifiedState.state.recordSha256, head.recordSha256);
+  assert.equal(verifiedState.state.manifestEpoch, updateFixture.manifestEpoch);
+  assert.equal(verifiedState.pointerEtag, head.pointerEtag);
+
+  const freshnessRequestBytes = await makeGatewayFreshnessRequestBytes();
+  const gatewayResponse = await fetchGatewayFreshness(
+    context,
+    freshnessRequestBytes,
+    GENESIS_GATEWAY_WORKER_NAME,
+  );
+  assert.equal(gatewayResponse.status, 200);
+  const responseBytes = new Uint8Array(await gatewayResponse.arrayBuffer());
+  const freshnessOperationId = await privateSignerOperationId(
+    context,
+    freshnessRequestBytes,
+    "/__runtime_test/operation-id",
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const savedIssue = await coordinator.getCloudflareOperatorIssue({
+    operationId: freshnessOperationId,
+    requestBytes: freshnessRequestBytes,
+    chainId: previousFixture.releaseHead.chainId,
+  });
+  assert.equal(savedIssue.status, "FINALIZED");
+  assert.equal(savedIssue.responseBytes?.byteLength, responseBytes.byteLength);
+  assert.equal(savedIssue.responseSha256, digest(responseBytes));
+  assert.ok(equalBytes(savedIssue.responseBytes, responseBytes));
+  const verifiedResponse = await verifyCloudflareOperatorFreshnessResponse({
+    raw: responseBytes,
+    bootstrapSigner: previousFixture.rootSigner,
+    manifestUrl: vector.manifest_url,
+    requestBytes: freshnessRequestBytes,
+    nowMs: Date.now(),
+    expectedState: verifiedState.state,
+  });
+  assert.equal(verifiedResponse.releaseCommit.digest, head.recordSha256);
+}
+
+function releaseUpdateRequestBytes(operationId, fixture) {
+  return canonicalJsonBytes({
+    operation_id: operationId,
+    manifest_bytes_base64url: Buffer.from(fixture.manifestBytes).toString(
+      "base64url",
+    ),
+    publication_objects: fixture.publicationObjects.map(({ key, body }) => ({
+      key,
+      body_base64url: Buffer.from(body).toString("base64url"),
+    })),
+  });
+}
+
+async function readRuntimeR2Object(bucket, key) {
+  const getCall = bucket.get(key);
+  let object = null;
+  try {
+    object = await getCall;
+    return object === null
+      ? null
+      : new Uint8Array(await object.arrayBuffer());
+  } finally {
+    disposeRuntimeRpcResult(object);
+    disposeRuntimeRpcResult(getCall);
+  }
+}
+
 function assertSameGenesisInstallProgress(actual, expected) {
   for (const field of GENESIS_INSTALL_PROGRESS_FIELDS) {
     assert.equal(actual[field], expected[field], `Genesis progress field ${field}`);
@@ -7184,6 +8254,7 @@ async function startReleaseIntent(
     manifestEpoch = "2",
     nowMs,
     releaseDelegationNotAfterMs,
+    operatorProfile = false,
   } = {},
 ) {
   const baseline = await rpc(
@@ -7191,17 +8262,43 @@ async function startReleaseIntent(
     "read Release ledger predecessor",
   );
   assert.ok(baseline);
-  const nextFixture = await makeSignedCurrentStateFixture({
-    manifestEpoch,
-    previousReleaseHead: previousFixture.releaseHead,
-    nowMs,
-    releaseDelegationNotAfterMs,
-  });
+  let nextFixture;
+  let publicationObjects = [];
+  if (operatorProfile) {
+    nextFixture = await makeSignedCloudflareOperatorReleaseUpdateFixture(
+      previousFixture,
+      { epoch: manifestEpoch, nowMs },
+    );
+    if (releaseDelegationNotAfterMs !== undefined) {
+      const releaseSignerFixture = await makeSignedCurrentStateFixture({
+        manifestEpoch,
+        previousReleaseHead: previousFixture.releaseHead,
+        nowMs,
+        releaseDelegationNotAfterMs,
+      });
+      nextFixture = {
+        ...nextFixture,
+        releaseDelegationBytes: releaseSignerFixture.releaseDelegationBytes,
+        releaseSignerKeyId: releaseSignerFixture.releaseSignerKeyId,
+        releaseSignerPrivateKeyPkcs8Bytes:
+          releaseSignerFixture.releaseSignerPrivateKeyPkcs8Bytes,
+      };
+    }
+    publicationObjects = nextFixture.publicationObjects;
+  } else {
+    nextFixture = await makeSignedCurrentStateFixture({
+      manifestEpoch,
+      previousReleaseHead: previousFixture.releaseHead,
+      nowMs,
+      releaseDelegationNotAfterMs,
+    });
+  }
   const started = await rpc(
     coordinator.beginReleaseOperation({
       operationId,
       expectedHead: baseline,
       manifestBytes: nextFixture.manifestBytes,
+      publicationObjects,
     }),
     "begin Release compare-and-append",
   );
@@ -7214,6 +8311,7 @@ async function startReleaseIntent(
     fencingToken: started.operation.fencingToken,
     previousFixture,
     releaseDelegationNotAfterMs,
+    operatorProfile,
   };
 }
 
@@ -7226,13 +8324,18 @@ async function stageReleaseIntent(coordinator, intent) {
     "stage and read back Release Manifest",
   );
   assert.equal(staged.status, "R2_STAGED");
-  const committedFixture = await makeSignedCurrentStateFixture({
-    manifestEpoch: intent.nextFixture.manifestEpoch,
-    pointerEtag: staged.operation.pointerEtag,
-    previousReleaseHead: intent.previousFixture.releaseHead,
-    nowMs: intent.nextFixture.nowMs,
-    releaseDelegationNotAfterMs: intent.releaseDelegationNotAfterMs,
-  });
+  const committedFixture = intent.operatorProfile
+    ? {
+        ...intent.nextFixture,
+        pointerEtag: staged.operation.pointerEtag,
+      }
+    : await makeSignedCurrentStateFixture({
+        manifestEpoch: intent.nextFixture.manifestEpoch,
+        pointerEtag: staged.operation.pointerEtag,
+        previousReleaseHead: intent.previousFixture.releaseHead,
+        nowMs: intent.nextFixture.nowMs,
+        releaseDelegationNotAfterMs: intent.releaseDelegationNotAfterMs,
+      });
   assert.ok(equalBytes(
     committedFixture.manifestBytes,
     intent.nextFixture.manifestBytes,
@@ -7240,7 +8343,51 @@ async function stageReleaseIntent(coordinator, intent) {
   return { ...intent, staged, committedFixture };
 }
 
-async function appendReleaseIntent(coordinator, intent) {
+async function appendReleaseIntent(coordinator, intent, options = {}) {
+  if (intent.operatorProfile) {
+    const signingFixture = intent.committedFixture;
+    const claim = await rpc(
+      coordinator.claimReleaseRecordSigning({
+        operationId: intent.operationId,
+        fencingToken: intent.fencingToken,
+        releaseDelegationBytes: signingFixture.releaseDelegationBytes,
+      }),
+      "claim the persisted operator Release Record signer operation",
+    );
+    assert.equal(claim.status, "CLAIMED");
+    const privateKey = await webcrypto.subtle.importKey(
+      "pkcs8",
+      signingFixture.releaseSignerPrivateKeyPkcs8Bytes,
+      { name: "Ed25519" },
+      false,
+      ["sign"],
+    );
+    const recordBytes = await signRuntimeConfigReleaseCommitRecord({
+      payload: claim.payload,
+      signerKeyId: signingFixture.releaseSignerKeyId,
+      privateKey,
+    });
+    const saved = await rpc(
+      coordinator.storeReleaseRecordSignature({
+        operationId: intent.operationId,
+        fencingToken: intent.fencingToken,
+        recordBytes,
+      }),
+      "persist exact operator Release signature bytes",
+    );
+    assert.equal(saved.status, "R2_STAGED");
+    await options.beforeAppend?.({ claim, intent });
+    const appended = await rpc(
+      coordinator.appendReleaseRecord({
+        operationId: intent.operationId,
+        fencingToken: intent.fencingToken,
+        recordBytes: saved.operation.signedRecordBytes,
+        releaseDelegationBytes: claim.releaseDelegationBytes,
+      }),
+      "append the saved operator Release signature",
+    );
+    return { ...intent, appended };
+  }
   const appended = await rpc(
     coordinator.appendReleaseRecord({
       operationId: intent.operationId,

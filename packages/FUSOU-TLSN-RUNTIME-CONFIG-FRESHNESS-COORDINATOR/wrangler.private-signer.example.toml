@@ -30,6 +30,8 @@ RELEASE_LEDGER_MANIFEST_KEY_ID = "replace-before-registration"
 RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI = "REPLACE_WITH_APPROVED_MANIFEST_ROOT_SPKI"
 FRESHNESS_SIGNER_KEY_ID = "replace-before-registration"
 FRESHNESS_SIGNER_DELEGATION_BASE64URL = "REPLACE_WITH_ROOT_SIGNED_FRESHNESS_DELEGATION"
+RELEASE_RECORD_SIGNER_KEY_ID = "replace-before-registration"
+RELEASE_RECORD_SIGNER_DELEGATION_BASE64URL = "REPLACE_WITH_ROOT_SIGNED_RELEASE_COMMIT_DELEGATION"
 # Exact canonical v1 approval JSON with Production target and material digests.
 # This placeholder is intentionally invalid and must not be deployed.
 FRESHNESS_GENESIS_APPROVAL_JSON = "REPLACE_WITH_EXACT_CANONICAL_GENESIS_APPROVAL_JSON"
@@ -49,3 +51,5 @@ bucket_name = "replace-after-explicit-registration"
 # Required secret, provisioned only after explicit key registration:
 # FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL
 # FRESHNESS_GENESIS_ADMIN_CAPABILITY (restricted to the private management caller)
+# FRESHNESS_RELEASE_ADMIN_CAPABILITY (restricted to the private Release manager)
+# RELEASE_RECORD_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL

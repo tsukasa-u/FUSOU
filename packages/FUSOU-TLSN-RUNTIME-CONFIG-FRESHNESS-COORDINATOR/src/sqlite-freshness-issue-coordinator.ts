@@ -18,10 +18,17 @@ import {
   runtimeConfigFreshnessWire,
   runtimeConfigManifestAudienceSha256,
   RuntimeConfigDomainError,
+  verifyRuntimeConfigDelegation,
   verifyRuntimeConfigManifestEpochPointer,
   verifyRuntimeConfigFreshnessRequest,
   verifyRuntimeConfigFreshnessResponse,
   verifyRuntimeConfigReleaseCommitRecord,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+import {
+  verifyRuntimeConfigPublicationObjects,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/production-artifacts.ts";
+import type {
+  ReleaseCommitRecordPayload,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 import {
   createCloudflareOperatorCurrentStateBinding,
@@ -63,8 +70,11 @@ import type {
   ReleaseBindingInstallOperation,
   ReleaseLedgerActionResult,
   ReleaseLedgerHead,
+  ReleaseLedgerHeadBinding,
   ReleaseLedgerOperation,
   ReleaseLedgerStatus,
+  ReleaseRecordSigningClaim,
+  RuntimeConfigR2PublicationObject,
 } from "./release-ledger.ts";
 
 const UINT64_MAX = 18_446_744_073_709_551_615n;
@@ -292,6 +302,13 @@ interface ReleaseLedgerOperationRow {
   readonly expected_generation: string | null;
   readonly expected_record_sha256: string | null;
   readonly expected_pointer_etag: string;
+  readonly expected_current_state_sha256: string | null;
+  readonly expected_restore_epoch: string | null;
+  readonly release_signing_required: number;
+  readonly release_signing_claimed: number;
+  readonly release_signing_payload_bytes: ArrayBuffer | null;
+  readonly release_signing_delegation_bytes: ArrayBuffer | null;
+  readonly signed_record_bytes: ArrayBuffer | null;
   readonly manifest_bytes: ArrayBuffer;
   readonly manifest_length: number;
   readonly manifest_sha256: string;
@@ -309,6 +326,15 @@ interface ReleaseLedgerOperationRow {
   readonly generation: string | null;
   readonly previous_record_sha256: string | null;
   readonly release_commit_id: string | null;
+}
+
+interface ReleaseLedgerOperationObjectRow {
+  readonly [column: string]: string | number | ArrayBuffer | null;
+  readonly object_index: number;
+  readonly object_key: string;
+  readonly body: ArrayBuffer;
+  readonly body_length: number;
+  readonly body_sha256: string;
 }
 
 interface ReleaseLedgerHeadRow {
@@ -502,6 +528,15 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           expected_generation TEXT,
           expected_record_sha256 TEXT,
           expected_pointer_etag TEXT NOT NULL,
+          expected_current_state_sha256 TEXT,
+          expected_restore_epoch TEXT,
+          release_signing_required INTEGER NOT NULL DEFAULT 0
+            CHECK (release_signing_required IN (0, 1)),
+          release_signing_claimed INTEGER NOT NULL DEFAULT 0
+            CHECK (release_signing_claimed IN (0, 1)),
+          release_signing_payload_bytes BLOB,
+          release_signing_delegation_bytes BLOB,
+          signed_record_bytes BLOB,
           manifest_bytes BLOB NOT NULL,
           manifest_length INTEGER NOT NULL,
           manifest_sha256 TEXT NOT NULL,
@@ -519,6 +554,16 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           generation TEXT,
           previous_record_sha256 TEXT,
           release_commit_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS release_ledger_operation_objects (
+          operation_id TEXT NOT NULL,
+          object_index INTEGER NOT NULL,
+          object_key TEXT NOT NULL,
+          body BLOB NOT NULL,
+          body_length INTEGER NOT NULL,
+          body_sha256 TEXT NOT NULL,
+          PRIMARY KEY (operation_id, object_index),
+          UNIQUE (operation_id, object_key)
         );
         CREATE TABLE IF NOT EXISTS release_ledger_entries (
           position TEXT PRIMARY KEY,
@@ -701,6 +746,51 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
            ADD COLUMN signing_claimed INTEGER NOT NULL DEFAULT 1
              CHECK (signing_claimed IN (0, 1))`,
         );
+      }
+      const releaseColumns = this.ctx.storage.sql
+        .exec<{ readonly name: string }>(
+          "PRAGMA table_info(release_ledger_operations)",
+        )
+        .toArray();
+      const releaseColumnNames = new Set(
+        releaseColumns.map((column) => column.name),
+      );
+      const releaseMigrations = [
+        [
+          "expected_current_state_sha256",
+          "ALTER TABLE release_ledger_operations ADD COLUMN expected_current_state_sha256 TEXT",
+        ],
+        [
+          "expected_restore_epoch",
+          "ALTER TABLE release_ledger_operations ADD COLUMN expected_restore_epoch TEXT",
+        ],
+        [
+          "release_signing_required",
+          `ALTER TABLE release_ledger_operations
+           ADD COLUMN release_signing_required INTEGER NOT NULL DEFAULT 0
+             CHECK (release_signing_required IN (0, 1))`,
+        ],
+        [
+          "release_signing_claimed",
+          `ALTER TABLE release_ledger_operations
+           ADD COLUMN release_signing_claimed INTEGER NOT NULL DEFAULT 0
+             CHECK (release_signing_claimed IN (0, 1))`,
+        ],
+        [
+          "release_signing_payload_bytes",
+          "ALTER TABLE release_ledger_operations ADD COLUMN release_signing_payload_bytes BLOB",
+        ],
+        [
+          "release_signing_delegation_bytes",
+          "ALTER TABLE release_ledger_operations ADD COLUMN release_signing_delegation_bytes BLOB",
+        ],
+        [
+          "signed_record_bytes",
+          "ALTER TABLE release_ledger_operations ADD COLUMN signed_record_bytes BLOB",
+        ],
+      ] as const;
+      for (const [name, sql] of releaseMigrations) {
+        if (!releaseColumnNames.has(name)) this.ctx.storage.sql.exec(sql);
       }
     });
   }
@@ -1304,6 +1394,19 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     ) {
       return { status: "CONFLICT" };
     }
+    const existingInstall = this.ctx.storage.transactionSync(() =>
+      this.findCloudflareOperatorInstall(input.operationId),
+    );
+    const verifiedManifest = input.mode === "ADVANCE" &&
+        existingInstall === null
+      ? await this.verifyOperationManifest(releaseOperation)
+      : null;
+    const manifestSource = verifiedManifest?.payload.source;
+    const workerReferenceObservedAtMs = verifiedManifest !== null &&
+        isRecord(manifestSource) &&
+        typeof manifestSource.observed_at === "string"
+      ? Date.parse(manifestSource.observed_at)
+      : null;
     const chainId = this.requireReleaseChainId();
     const requestSha256 = await sha256Base64Url(
       cloudflareOperatorInstallRequestBytes({
@@ -1324,6 +1427,18 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       }
       const profile = this.requireCloudflareOperatorProfile();
       const nowMs = this.observeCloudflareOperatorUtc(profile);
+      if (
+        verifiedManifest !== null &&
+        (workerReferenceObservedAtMs === null ||
+          !Number.isFinite(workerReferenceObservedAtMs) ||
+          workerReferenceObservedAtMs > nowMs + 30_000 ||
+          nowMs - workerReferenceObservedAtMs > 600_000)
+      ) {
+        throw new RuntimeConfigDomainError(
+          "INVALID_TIME",
+          "Worker reference is stale at ADVANCE install admission",
+        );
+      }
       const storedRelease = this.findReleaseOperation(input.releaseOperationId);
       const head = this.readReleaseLedgerHeadRow();
       if (
@@ -1462,8 +1577,8 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       releaseOperation.recordBytes,
       releaseOperation.releaseDelegationBytes,
     );
-    const verifiedManifest = await this.verifyManifestPointer(
-      releaseOperation.manifestBytes,
+    const verifiedManifest = await this.verifyOperationManifest(
+      releaseOperation,
     );
     if (
       verifiedManifest.epoch !== releaseOperation.manifestEpoch ||
@@ -1474,6 +1589,12 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         "Install Manifest bytes do not match the signed Release record",
       );
     }
+    const manifestSource = verifiedManifest.payload.source;
+    const workerReferenceObservedAtMs = attempt.mode === "ADVANCE" &&
+        isRecord(manifestSource) &&
+        typeof manifestSource.observed_at === "string"
+      ? Date.parse(manifestSource.observed_at)
+      : null;
 
     const localRestoreEpoch = this.ctx.storage.transactionSync(() =>
       this.requireCloudflareOperatorProfile().local_restore_epoch,
@@ -1547,6 +1668,20 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           this.quarantineCloudflareOperatorInstallInTransaction(
             currentAttempt,
             "Manifest expired or is not yet valid at current-state install finalization",
+          ),
+        );
+      }
+      if (
+        currentAttempt.mode === "ADVANCE" &&
+        (workerReferenceObservedAtMs === null ||
+          !Number.isFinite(workerReferenceObservedAtMs) ||
+          workerReferenceObservedAtMs > nowMs + 30_000 ||
+          nowMs - workerReferenceObservedAtMs > 600_000)
+      ) {
+        return cloudflareOperatorInstallAction(
+          this.quarantineCloudflareOperatorInstallInTransaction(
+            currentAttempt,
+            "Worker reference is stale at current-state install finalization",
           ),
         );
       }
@@ -1644,8 +1779,9 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
 
   async beginReleaseOperation(input: {
     readonly operationId: string;
-    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly expectedHead: ReleaseLedgerHeadBinding | null;
     readonly manifestBytes: Uint8Array;
+    readonly publicationObjects?: readonly RuntimeConfigR2PublicationObject[];
   }): Promise<ReleaseLedgerActionResult> {
     assertUuid(input.operationId, "Release operation ID");
     if (
@@ -1663,6 +1799,39 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     const manifestRef =
       `${runtimeConfigFreshnessWire.immutableManifestPrefix}${verifiedManifest.manifestSha256}`;
     const expectedHead = copyReleaseHead(input.expectedHead);
+    const operatorProfileSelected = this.ctx.storage.transactionSync(
+      () => this.readCloudflareOperatorProfileRow() !== null,
+    );
+    const publicationObjects = await prepareReleasePublicationObjects(
+      input.publicationObjects ?? [],
+    );
+    if (operatorProfileSelected) {
+      if (
+        verifiedManifest.envelopeSchemaVersion !== 3 ||
+        verifiedManifest.publicationArtifactDigests === null ||
+        publicationObjects.length !== 5 ||
+        expectedHead === null ||
+        !releasePublicationObjectsMatchManifest(
+          publicationObjects,
+          verifiedManifest.publicationArtifactDigests,
+        )
+      ) {
+        throw invalidInput(
+          "Cloudflare/operator Release requires a new V3 Manifest and its exact content-addressed artifacts",
+        );
+      }
+      await verifyRuntimeConfigPublicationObjects({
+        payload: verifiedManifest.payload,
+        objects: publicationObjects,
+        nowMs: runtimeUtcNow(),
+        maxReferenceAgeSeconds: 600,
+        maxClockSkewSeconds: 30,
+      });
+    } else if (publicationObjects.length !== 0) {
+      throw invalidInput(
+        "Immutable Production artifacts are only accepted for cloudflare-operator-v1 updates",
+      );
+    }
     const requestSha256 = await sha256Base64Url(
       canonicalJsonBytes({
         operationId: input.operationId,
@@ -1680,6 +1849,11 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         manifestSha256: verifiedManifest.manifestSha256,
         manifestEpoch: verifiedManifest.epoch,
         manifestRef,
+        publicationObjects: publicationObjects.map((object) => ({
+          key: object.key,
+          bodyLength: object.body.byteLength,
+          bodySha256: object.sha256,
+        })),
       }),
     );
 
@@ -1690,7 +1864,11 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           existing.request_sha256 === requestSha256 &&
           existing.environment === environment &&
           existing.chain_id === chainId &&
-          equalBytes(bytesFromArrayBuffer(existing.manifest_bytes), manifestBytes);
+          equalBytes(bytesFromArrayBuffer(existing.manifest_bytes), manifestBytes) &&
+          this.releasePublicationObjectsMatch(
+            input.operationId,
+            publicationObjects,
+          );
         return sameRequest
           ? this.releaseActionForRow(existing)
           : { status: "CONFLICT" as const, operation: releaseOperationFromRow(existing) };
@@ -1716,6 +1894,8 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       }
       const operatorProfile = this.readCloudflareOperatorProfileRow();
       let fencingToken: string;
+      let expectedCurrentStateSha256: string | null = null;
+      let expectedRestoreEpoch: string | null = null;
       if (operatorProfile !== null) {
         const profile = this.requireCloudflareOperatorProfile();
         const nowMs = this.observeCloudflareOperatorUtc(profile);
@@ -1740,6 +1920,28 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
             "Cloudflare/operator current-state binding does not match the persisted Release ledger head",
           );
         }
+        if (
+          verifiedManifest.envelopeSchemaVersion !== 3 ||
+          verifiedManifest.publicationArtifactDigests === null ||
+          publicationObjects.length !== 5
+        ) {
+          throw invalidInput(
+            "Cloudflare/operator Release requires a new V3 Manifest and its exact content-addressed artifacts",
+          );
+        }
+        if (BigInt(verifiedManifest.epoch) <= BigInt(currentHead.manifest_epoch)) {
+          return this.insertReleaseConflict({
+            operationId: input.operationId,
+            requestSha256,
+            environment,
+            chainId,
+            expectedHead,
+            manifestBytes,
+            manifestSha256: verifiedManifest.manifestSha256,
+            manifestEpoch: verifiedManifest.epoch,
+            manifestRef,
+          });
+        }
         if (profile.writer_pending === 1) {
           return this.insertReleaseConflict({
             operationId: input.operationId,
@@ -1753,6 +1955,8 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
             manifestRef,
           });
         }
+        expectedCurrentStateSha256 = currentState.stateSha256;
+        expectedRestoreEpoch = profile.local_restore_epoch;
         fencingToken = incrementCounter(profile.next_fencing_token);
       } else {
         const stateRow = this.readStateRow();
@@ -1789,10 +1993,12 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
            operation_id, request_sha256, environment, chain_id, status,
            reason, unknown_stage, resume_status, fencing_token,
            expected_position, expected_generation, expected_record_sha256,
-           expected_pointer_etag, manifest_bytes, manifest_length,
+           expected_pointer_etag, expected_current_state_sha256,
+           expected_restore_epoch, release_signing_required,
+           manifest_bytes, manifest_length,
            manifest_sha256, manifest_epoch, manifest_ref
          ) VALUES (?, ?, ?, ?, 'INTENT', NULL, NULL, NULL, ?, ?, ?, ?, ?,
-                   ?, ?, ?, ?, ?)`,
+                   ?, ?, ?, ?, ?, ?, ?, ?)`,
         input.operationId,
         requestSha256,
         environment,
@@ -1802,12 +2008,29 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         expectedHead.generation,
         expectedHead.recordSha256,
         expectedHead.pointerEtag,
+        expectedCurrentStateSha256,
+        expectedRestoreEpoch,
+        operatorProfile === null ? 0 : 1,
         arrayBufferFromBytes(manifestBytes),
         manifestBytes.byteLength,
         verifiedManifest.manifestSha256,
         verifiedManifest.epoch,
         manifestRef,
       );
+      publicationObjects.forEach((object, objectIndex) => {
+        this.sql.exec(
+          `INSERT INTO release_ledger_operation_objects (
+             operation_id, object_index, object_key, body, body_length,
+             body_sha256
+           ) VALUES (?, ?, ?, ?, ?, ?)`,
+          input.operationId,
+          objectIndex,
+          object.key,
+          arrayBufferFromBytes(object.body),
+          object.body.byteLength,
+          object.sha256,
+        );
+      });
       if (operatorProfile !== null) {
         this.sql.exec(
           `UPDATE freshness_profile
@@ -1877,6 +2100,9 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         operation: releaseOperationFromRow(
           this.requireReleaseOperation(input.operationId),
         ),
+        publicationObjects: this.readReleasePublicationObjects(
+          input.operationId,
+        ),
       } as const;
     });
     if ("result" in prepared) return prepared.result;
@@ -1892,6 +2118,9 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     };
     try {
       await this.verifyOperationManifest(operation);
+      await this.requireReleaseStore().publishImmutableObjects(
+        prepared.publicationObjects,
+      );
       readback = await this.requireReleaseStore().publishManifest(
         operation.manifestRef,
         operation.manifestBytes,
@@ -2024,6 +2253,362 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     });
   }
 
+  async claimReleaseRecordSigning(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly releaseDelegationBytes: Uint8Array;
+  }): Promise<ReleaseRecordSigningClaim> {
+    assertUuid(input.operationId, "Release operation ID");
+    const operation = await this.getReleaseOperation(input.operationId);
+    if (operation === null) {
+      throw invalidInput("Release operation does not exist");
+    }
+    if (
+      !operation.releaseSigningRequired ||
+      operation.fencingToken !== input.fencingToken
+    ) {
+      return { status: "CONFLICT", operation };
+    }
+    if (operation.releaseSigningClaimed) {
+      if (
+        operation.releaseSigningDelegationBytes === null ||
+        !equalBytes(
+          operation.releaseSigningDelegationBytes,
+          input.releaseDelegationBytes,
+        )
+      ) {
+        return { status: "CONFLICT", operation };
+      }
+      return operation.signedRecordBytes !== null
+        ? {
+            status: "SIGNED",
+            operation,
+            recordBytes: copyBytes(operation.signedRecordBytes),
+            releaseDelegationBytes: copyBytes(
+              operation.releaseSigningDelegationBytes,
+            ),
+          }
+        : { status: "UNKNOWN", operation };
+    }
+    if (
+      operation.status !== "R2_STAGED" ||
+      input.releaseDelegationBytes.byteLength === 0 ||
+      input.releaseDelegationBytes.byteLength > GENESIS_MAX_DELEGATION_BYTES
+    ) {
+      return { status: "CONFLICT", operation };
+    }
+
+    const objects = this.ctx.storage.transactionSync(() =>
+      this.readReleasePublicationObjects(input.operationId),
+    );
+    const store = this.requireReleaseStore();
+    const exactReadback = await store.verifyExactReadback({
+      manifestRef: operation.manifestRef,
+      manifestBytes: operation.manifestBytes,
+      pointerEtag: operation.pointerEtag ?? "",
+    });
+    const artifactsExact = await store.verifyImmutableObjects(objects);
+    if (
+      !artifactsExact ||
+      !equalBytes(exactReadback.pointerBytes, operation.manifestBytes) ||
+      !equalBytes(exactReadback.snapshotBytes, operation.manifestBytes) ||
+      exactReadback.pointerEtag !== operation.pointerEtag
+    ) {
+      return this.quarantineReleaseOperation(
+        input.operationId,
+        input.fencingToken,
+        "Exact staged R2 evidence changed before Release signing",
+      ).then((result) => ({
+        status: "CONFLICT" as const,
+        operation: result.operation,
+      }));
+    }
+
+    const observed = this.ctx.storage.transactionSync(() => {
+      const row = this.requireReleaseOperation(input.operationId);
+      this.requireReleaseWriter(row, input.fencingToken);
+      this.requireExpectedReleaseHead(row);
+      if (
+        row.status !== "R2_STAGED" ||
+        row.release_signing_required !== 1 ||
+        row.release_signing_claimed !== 0 ||
+        this.hasRetainedIssueBlockers()
+      ) {
+        return null;
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      const currentState = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      if (
+        currentState === null ||
+        row.expected_current_state_sha256 !== currentState.stateSha256 ||
+        row.expected_restore_epoch !== profile.local_restore_epoch
+      ) {
+        return null;
+      }
+      return {
+        operation: releaseOperationFromRow(row),
+        nowMs,
+      };
+    });
+    if (observed === null) {
+      const current = await this.getReleaseOperation(input.operationId);
+      if (current === null) {
+        throw invalidInput("Release operation disappeared during signer admission");
+      }
+      return {
+        status: current.status === "RESULT_UNKNOWN" ? "UNKNOWN" : "CONFLICT",
+        operation: current,
+      };
+    }
+
+    const verifiedManifest = await this.verifyOperationManifest(
+      observed.operation,
+    );
+    const delegation = await verifyRuntimeConfigDelegation({
+      raw: copyBytes(input.releaseDelegationBytes),
+      rootSigner: this.requireReleaseRootSigner(),
+      expectedPurpose: "release-commit-record-v1",
+      expectedEnvironment: "production",
+      expectedAudience: `${runtimeConfigFreshnessWire.releaseAudiencePrefix}production`,
+      signerNowMs: observed.nowMs,
+    });
+    if (
+      verifiedManifest.envelopeSchemaVersion !== 3 ||
+      verifiedManifest.manifestSha256 !== observed.operation.manifestSha256 ||
+      observed.nowMs < verifiedManifest.notBeforeMs ||
+      observed.nowMs >= verifiedManifest.expiresAtMs
+    ) {
+      return this.quarantineReleaseOperation(
+        input.operationId,
+        input.fencingToken,
+        "Manifest or Release delegation is not active at the signing claim",
+      ).then((result) => ({
+        status: "CONFLICT" as const,
+        operation: result.operation,
+      }));
+    }
+    const previous = observed.operation.expectedHead;
+    if (previous === null) {
+      throw corruptStorage("Operator Release signing claim has no predecessor");
+    }
+    const payload: ReleaseCommitRecordPayload = {
+      schema_version: 1,
+      scope: runtimeConfigFreshnessWire.releasePayloadScope,
+      environment: "production",
+      commit_authorization: "AUTHORIZE_JOURNAL_APPEND",
+      commit_generation: (
+        BigInt(previous.generation) + 1n
+      ).toString(10),
+      release_commit_id: input.operationId,
+      manifest_schema_version: 2,
+      manifest_epoch: observed.operation.manifestEpoch,
+      manifest_sha256: observed.operation.manifestSha256,
+      manifest_ref: observed.operation.manifestRef,
+      pointer_etag: exactReadback.pointerEtag,
+      previous_commit_generation: previous.generation,
+      previous_commit_record_sha256: previous.recordSha256,
+      authorized_at: timestampFromMilliseconds(observed.nowMs),
+      release_authority_delegation_id:
+        delegation.payload.delegation_id,
+      release_authority_delegation_sha256: delegation.digest,
+    };
+    const payloadBytes = canonicalJsonBytes(payload);
+    const delegationBytes = copyBytes(input.releaseDelegationBytes);
+
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.requireReleaseOperation(input.operationId);
+      this.requireReleaseWriter(row, input.fencingToken);
+      this.requireExpectedReleaseHead(row);
+      if (
+        row.status !== "R2_STAGED" ||
+        row.release_signing_required !== 1 ||
+        row.release_signing_claimed !== 0
+      ) {
+        return {
+          status: row.release_signing_claimed === 1
+            ? "UNKNOWN" as const
+            : "CONFLICT" as const,
+          operation: releaseOperationFromRow(row),
+        };
+      }
+      const profile = this.requireCloudflareOperatorProfile();
+      const nowMs = this.observeCloudflareOperatorUtc(profile);
+      const currentState = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      if (
+        currentState === null ||
+        row.expected_current_state_sha256 !== currentState.stateSha256 ||
+        row.expected_restore_epoch !== profile.local_restore_epoch ||
+        this.hasRetainedIssueBlockers() ||
+        nowMs < delegation.notBeforeMs ||
+        nowMs >= delegation.notAfterMs ||
+        nowMs < verifiedManifest.notBeforeMs ||
+        nowMs >= verifiedManifest.expiresAtMs
+      ) {
+        return {
+          status: "CONFLICT" as const,
+          operation: releaseOperationFromRow(row),
+        };
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'RESULT_UNKNOWN', reason = ?,
+             unknown_stage = 'RELEASE_SIGNER', resume_status = 'R2_STAGED',
+             release_signing_claimed = 1,
+             release_signing_payload_bytes = ?,
+             release_signing_delegation_bytes = ?
+         WHERE operation_id = ? AND status = 'R2_STAGED'
+           AND fencing_token = ? AND release_signing_claimed = 0`,
+        "Release signer outcome is unresolved until exact signed bytes are stored",
+        arrayBufferFromBytes(payloadBytes),
+        arrayBufferFromBytes(delegationBytes),
+        input.operationId,
+        input.fencingToken,
+      );
+      const claimed = this.requireReleaseOperation(input.operationId);
+      return {
+        status: "CLAIMED" as const,
+        operation: releaseOperationFromRow(claimed),
+        payload,
+        releaseDelegationBytes: copyBytes(delegationBytes),
+      };
+    });
+  }
+
+  async storeReleaseRecordSignature(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly recordBytes: Uint8Array;
+  }): Promise<ReleaseLedgerActionResult> {
+    assertUuid(input.operationId, "Release operation ID");
+    if (
+      !(input.recordBytes instanceof Uint8Array) ||
+      input.recordBytes.byteLength === 0 ||
+      input.recordBytes.byteLength > GENESIS_MAX_RECORD_BYTES
+    ) {
+      throw invalidInput("Release Record signature bytes are invalid");
+    }
+    const operation = await this.getReleaseOperation(input.operationId);
+    if (operation === null) {
+      throw invalidInput("Release operation does not exist");
+    }
+    const claimedPayloadBytes = operation.releaseSigningPayloadBytes;
+    const claimedDelegationBytes = operation.releaseSigningDelegationBytes;
+    if (
+      !operation.releaseSigningRequired ||
+      !operation.releaseSigningClaimed ||
+      operation.fencingToken !== input.fencingToken ||
+      claimedPayloadBytes === null ||
+      claimedDelegationBytes === null
+    ) {
+      return { status: "CONFLICT", operation };
+    }
+    if (operation.signedRecordBytes !== null) {
+      return equalBytes(operation.signedRecordBytes, input.recordBytes)
+        ? releaseActionFromOperation(operation)
+        : { status: "CONFLICT", operation };
+    }
+    if (
+      operation.status !== "RESULT_UNKNOWN" ||
+      operation.unknownStage !== "RELEASE_SIGNER" ||
+      operation.resumeStatus !== "R2_STAGED"
+    ) {
+      return releaseActionFromOperation(operation);
+    }
+
+    const claimedPayload = parseReleaseSigningPayload(claimedPayloadBytes);
+    const verifiedRecord = await verifyRuntimeConfigReleaseCommitRecord({
+      raw: copyBytes(input.recordBytes),
+      rootSigner: this.requireReleaseRootSigner(),
+      environment: operation.environment,
+      releaseDelegationRaw: claimedDelegationBytes,
+      appendedAt: claimedPayload.authorized_at,
+    });
+    if (
+      !equalBytes(
+        canonicalJsonBytes(verifiedRecord.payload),
+        claimedPayloadBytes,
+      )
+    ) {
+      throw invalidInput(
+        "Signed Release Record differs from its persistent one-time claim",
+      );
+    }
+    assertReleaseRecordMatchesOperation(
+      verifiedRecord,
+      operation,
+      input.recordBytes,
+      claimedDelegationBytes,
+      true,
+    );
+
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.requireReleaseOperation(input.operationId);
+      if (row.signed_record_bytes !== null) {
+        return equalBytes(
+          bytesFromArrayBuffer(row.signed_record_bytes),
+          input.recordBytes,
+        )
+          ? this.releaseActionForRow(row)
+          : { status: "CONFLICT" as const, operation: releaseOperationFromRow(row) };
+      }
+      if (
+        row.status !== "RESULT_UNKNOWN" ||
+        row.unknown_stage !== "RELEASE_SIGNER" ||
+        row.resume_status !== "R2_STAGED" ||
+        row.release_signing_required !== 1 ||
+        row.release_signing_claimed !== 1 ||
+        row.fencing_token !== input.fencingToken ||
+        row.release_signing_payload_bytes === null ||
+        row.release_signing_delegation_bytes === null ||
+        !equalBytes(
+          bytesFromArrayBuffer(row.release_signing_payload_bytes),
+          claimedPayloadBytes,
+        ) ||
+        !equalBytes(
+          bytesFromArrayBuffer(row.release_signing_delegation_bytes),
+          claimedDelegationBytes,
+        )
+      ) {
+        return { status: "CONFLICT" as const, operation: releaseOperationFromRow(row) };
+      }
+      this.requireReleaseWriter(row, input.fencingToken);
+      this.requireExpectedReleaseHead(row);
+      const profile = this.requireCloudflareOperatorProfile();
+      const currentState = profile.current_state_json === null
+        ? null
+        : decodeCloudflareOperatorBinding(profile.current_state_json);
+      if (
+        currentState === null ||
+        row.expected_current_state_sha256 !== currentState.stateSha256 ||
+        row.expected_restore_epoch !== profile.local_restore_epoch ||
+        this.hasRetainedIssueBlockers()
+      ) {
+        return { status: "CONFLICT" as const, operation: releaseOperationFromRow(row) };
+      }
+      this.sql.exec(
+        `UPDATE release_ledger_operations
+         SET status = 'R2_STAGED', reason = NULL,
+             unknown_stage = NULL, resume_status = NULL,
+             signed_record_bytes = ?
+         WHERE operation_id = ? AND status = 'RESULT_UNKNOWN'
+           AND unknown_stage = 'RELEASE_SIGNER'
+           AND fencing_token = ? AND release_signing_claimed = 1
+           AND signed_record_bytes IS NULL`,
+        arrayBufferFromBytes(input.recordBytes),
+        input.operationId,
+        input.fencingToken,
+      );
+      return this.releaseActionForRow(
+        this.requireReleaseOperation(input.operationId),
+      );
+    });
+  }
+
   async appendReleaseRecord(input: {
     readonly operationId: string;
     readonly fencingToken: string;
@@ -2051,6 +2636,23 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         return releaseActionFromOperation(operation);
       }
       return { status: "CONFLICT", operation };
+    }
+    if (
+      operation.releaseSigningRequired &&
+      (
+        !operation.releaseSigningClaimed ||
+        operation.signedRecordBytes === null ||
+        operation.releaseSigningDelegationBytes === null ||
+        !equalBytes(operation.signedRecordBytes, input.recordBytes) ||
+        !equalBytes(
+          operation.releaseSigningDelegationBytes,
+          input.releaseDelegationBytes,
+        )
+      )
+    ) {
+      return operation.status === "RESULT_UNKNOWN"
+        ? releaseActionFromOperation(operation)
+        : { status: "CONFLICT", operation };
     }
     if (
       operation.status !== "R2_STAGED" &&
@@ -2136,6 +2738,26 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
           : { status: "CONFLICT" as const, operation: releaseOperationFromRow(storedOperation) };
       }
       this.requireReleaseWriter(storedOperation, input.fencingToken);
+      if (
+        storedOperation.release_signing_required === 1 &&
+        (
+          storedOperation.release_signing_claimed !== 1 ||
+          storedOperation.signed_record_bytes === null ||
+          storedOperation.release_signing_delegation_bytes === null ||
+          !equalBytes(
+            bytesFromArrayBuffer(storedOperation.signed_record_bytes),
+            recordBytes,
+          ) ||
+          !equalBytes(
+            bytesFromArrayBuffer(
+              storedOperation.release_signing_delegation_bytes,
+            ),
+            releaseDelegationBytes,
+          )
+        )
+      ) {
+        return { status: "CONFLICT" as const, operation: releaseOperationFromRow(storedOperation) };
+      }
       const localAppendObservedAt = operatorProfileSelected
         ? timestampFromMilliseconds(
             this.observeCloudflareOperatorUtc(
@@ -2361,6 +2983,9 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     }
 
     const operation = prepared.operation;
+    const publicationObjects = this.ctx.storage.transactionSync(() =>
+      this.readReleasePublicationObjects(input.operationId),
+    );
     let readback: {
       readonly pointerBytes: Uint8Array;
       readonly pointerEtag: string;
@@ -2376,6 +3001,15 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         manifestBytes: operation.manifestBytes,
         pointerEtag: operation.pointerEtag!,
       });
+      if (
+        !(await this.requireReleaseStore().verifyImmutableObjects(
+          publicationObjects,
+        ))
+      ) {
+        throw new RuntimeConfigR2ReleaseIntegrityError(
+          "Release artifact readback is incomplete after ledger commit",
+        );
+      }
       await this.verifyStoredReleaseOperation(operation);
     } catch (error) {
       if (
@@ -2500,6 +3134,34 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
       )
     ) {
       return releaseActionFromOperation(operation);
+    }
+
+    const publicationObjects = this.ctx.storage.transactionSync(() =>
+      this.readReleasePublicationObjects(input.operationId),
+    );
+    let artifactsExact: boolean;
+    try {
+      artifactsExact = await this.requireReleaseStore().verifyImmutableObjects(
+        publicationObjects,
+      );
+    } catch (error) {
+      if (error instanceof RuntimeConfigR2ReleaseIntegrityError) {
+        return this.quarantineReleaseOperation(
+          input.operationId,
+          input.fencingToken,
+          "Immutable Release artifact readback conflicts with the operation",
+        );
+      }
+      return this.markReleaseOperationUnknown({
+        ...input,
+        stage: "R2_WRITE",
+      });
+    }
+    if (!artifactsExact) {
+      return this.markReleaseOperationUnknown({
+        ...input,
+        stage: "R2_WRITE",
+      });
     }
 
     let state: Awaited<ReturnType<RuntimeConfigR2ReleaseStore["readState"]>>;
@@ -4827,6 +5489,18 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         "Release operation does not bind the exact signed Manifest bytes",
       );
     }
+    if (operation.releaseSigningRequired) {
+      const publicationObjects = this.ctx.storage.transactionSync(() =>
+        this.readReleasePublicationObjects(operation.operationId),
+      );
+      await verifyRuntimeConfigPublicationObjects({
+        payload: manifest.payload,
+        objects: publicationObjects,
+        nowMs: runtimeUtcNow(),
+        maxReferenceAgeSeconds: 600,
+        maxClockSkewSeconds: 30,
+      });
+    }
     if (this.readCloudflareOperatorProfileRow() !== null) {
       this.ctx.storage.transactionSync(() => {
         const nowMs = this.observeCloudflareOperatorUtc(
@@ -5023,6 +5697,72 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         "Persisted Release operation Manifest binding is invalid",
       );
     }
+    const publicationObjects = this.ctx.storage.transactionSync(() =>
+      this.readReleasePublicationObjects(operation.operationId),
+    );
+    if (
+      operation.releaseSigningRequired
+        ? manifest.envelopeSchemaVersion !== 3 ||
+          manifest.publicationArtifactDigests === null ||
+          publicationObjects.length !== 5 ||
+          !releasePublicationObjectsMatchManifest(
+            publicationObjects,
+            manifest.publicationArtifactDigests,
+          )
+        : publicationObjects.length !== 0
+    ) {
+      throw corruptStorage(
+        "Persisted Release artifacts do not match the operation's signed Manifest",
+      );
+    }
+    for (const object of publicationObjects) {
+      if (await sha256Base64Url(object.body) !== object.sha256) {
+        throw corruptStorage(
+          "Persisted Release artifact bytes do not match their content address",
+        );
+      }
+    }
+    if (operation.releaseSigningClaimed) {
+      if (
+        !operation.releaseSigningRequired ||
+        operation.releaseSigningPayloadBytes === null ||
+        operation.releaseSigningDelegationBytes === null
+      ) {
+        throw corruptStorage("Persisted Release signer claim is incomplete");
+      }
+      const signingPayload = parseReleaseSigningPayload(
+        operation.releaseSigningPayloadBytes,
+      );
+      if (operation.signedRecordBytes !== null) {
+        const signed = await verifyRuntimeConfigReleaseCommitRecord({
+          raw: operation.signedRecordBytes,
+          rootSigner: this.requireReleaseRootSigner(),
+          environment: operation.environment,
+          releaseDelegationRaw: operation.releaseSigningDelegationBytes,
+          appendedAt: signingPayload.authorized_at,
+        });
+        if (
+          !equalBytes(
+            canonicalJsonBytes(signed.payload),
+            operation.releaseSigningPayloadBytes,
+          ) ||
+          !equalBytes(
+            operation.signedRecordBytes,
+            operation.recordBytes ?? operation.signedRecordBytes,
+          )
+        ) {
+          throw corruptStorage(
+            "Persisted Release signature differs from its one-time claim",
+          );
+        }
+      }
+    } else if (
+      operation.releaseSigningPayloadBytes !== null ||
+      operation.releaseSigningDelegationBytes !== null ||
+      operation.signedRecordBytes !== null
+    ) {
+      throw corruptStorage("Unclaimed Release operation contains signer material");
+    }
     if (
       operation.recordBytes === null ||
       operation.releaseDelegationBytes === null
@@ -5085,7 +5825,11 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
         `SELECT operation_id, request_sha256, environment, chain_id, status,
                 reason, unknown_stage, resume_status, fencing_token,
                 expected_position, expected_generation, expected_record_sha256,
-                expected_pointer_etag, manifest_bytes, manifest_length,
+                expected_pointer_etag, expected_current_state_sha256,
+                expected_restore_epoch, release_signing_required,
+                release_signing_claimed, release_signing_payload_bytes,
+                release_signing_delegation_bytes, signed_record_bytes,
+                manifest_bytes, manifest_length,
                 manifest_sha256, manifest_epoch, manifest_ref, pointer_bytes,
                 pointer_etag, snapshot_bytes, record_bytes, record_length,
                 record_sha256, record_appended_at,
@@ -5103,6 +5847,67 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     return rows[0]!;
   }
 
+  private readReleasePublicationObjects(
+    operationId: string,
+  ): readonly (RuntimeConfigR2PublicationObject & {
+    readonly sha256: string;
+  })[] {
+    const rows = this.sql
+      .exec<ReleaseLedgerOperationObjectRow>(
+        `SELECT object_index, object_key, body, body_length, body_sha256
+         FROM release_ledger_operation_objects
+         WHERE operation_id = ? ORDER BY object_index`,
+        operationId,
+      )
+      .toArray();
+    return rows.map((row, index) => {
+      if (
+        row.object_index !== index ||
+        !(row.body instanceof ArrayBuffer) ||
+        row.body.byteLength !== row.body_length ||
+        row.body_length <= 0 ||
+        row.body_length > 2_000_000 ||
+        !SHA256_BASE64URL_PATTERN.test(row.body_sha256)
+      ) {
+        throw corruptStorage(
+          "Persisted immutable Release publication object is invalid",
+        );
+      }
+      const body = copyBytes(bytesFromArrayBuffer(row.body));
+      if (
+        releaseArtifactDigestFromKey(row.object_key) !== row.body_sha256
+      ) {
+        throw corruptStorage(
+          "Persisted immutable Release publication object digest is invalid",
+        );
+      }
+      return {
+        key: row.object_key,
+        body,
+        sha256: row.body_sha256,
+      };
+    });
+  }
+
+  private releasePublicationObjectsMatch(
+    operationId: string,
+    expected: readonly {
+      readonly key: string;
+      readonly body: Uint8Array;
+      readonly sha256: string;
+    }[],
+  ): boolean {
+    const stored = this.readReleasePublicationObjects(operationId);
+    return (
+      stored.length === expected.length &&
+      stored.every((object, index) =>
+        object.key === expected[index]?.key &&
+        object.sha256 === expected[index]?.sha256 &&
+        equalBytes(object.body, expected[index]!.body)
+      )
+    );
+  }
+
   private requireReleaseOperation(
     operationId: string,
   ): ReleaseLedgerOperationRow {
@@ -5118,7 +5923,7 @@ export class SqliteFreshnessIssueCoordinatorDO extends DurableObject<Coordinator
     readonly requestSha256: string;
     readonly environment: "production";
     readonly chainId: string;
-    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly expectedHead: ReleaseLedgerHeadBinding | null;
     readonly manifestBytes: Uint8Array;
     readonly manifestSha256: string;
     readonly manifestEpoch: string;
@@ -6969,7 +7774,7 @@ function compareCounters(left: string, right: string): number {
 }
 
 type ReleaseHeadBinding = Pick<
-  ReleaseLedgerHead,
+  ReleaseLedgerHeadBinding,
   "environment" | "chainId" | "position" | "generation" | "recordSha256" | "pointerEtag"
 >;
 
@@ -7003,9 +7808,25 @@ function assertReleaseOperationRow(
     !SHA256_BASE64URL_PATTERN.test(row.manifest_sha256) ||
     typeof row.manifest_epoch !== "string" ||
     typeof row.manifest_ref !== "string" ||
-    typeof row.expected_pointer_etag !== "string"
+    typeof row.expected_pointer_etag !== "string" ||
+    (row.release_signing_required !== 0 &&
+      row.release_signing_required !== 1) ||
+    (row.release_signing_claimed !== 0 &&
+      row.release_signing_claimed !== 1)
   ) {
     throw corruptStorage("Persisted Release operation binding is invalid");
+  }
+  if (
+    (row.expected_current_state_sha256 === null) !==
+      (row.expected_restore_epoch === null) ||
+    (row.expected_current_state_sha256 !== null &&
+      (!SHA256_BASE64URL_PATTERN.test(row.expected_current_state_sha256) ||
+        row.expected_restore_epoch!.length === 0)) ||
+    (row.release_signing_required === 1 &&
+      (row.expected_current_state_sha256 === null ||
+        row.expected_restore_epoch === null))
+  ) {
+    throw corruptStorage("Persisted Release current-state admission is invalid");
   }
   parseCanonicalUnsignedDecimal(row.manifest_epoch, "Stored Manifest epoch");
   if (row.fencing_token !== null) {
@@ -7061,6 +7882,33 @@ function assertReleaseOperationRow(
   ) {
     throw corruptStorage("Persisted Release Unknown state is inconsistent");
   }
+  const signingMaterialPresent = [
+    row.release_signing_payload_bytes,
+    row.release_signing_delegation_bytes,
+  ].every((value) => value !== null);
+  const signingMaterialAbsent = [
+    row.release_signing_payload_bytes,
+    row.release_signing_delegation_bytes,
+  ].every((value) => value === null);
+  if (
+    (!signingMaterialPresent && !signingMaterialAbsent) ||
+    (row.release_signing_claimed === 0 &&
+      (!signingMaterialAbsent || row.signed_record_bytes !== null)) ||
+    (row.release_signing_claimed === 1 &&
+      (row.release_signing_required !== 1 ||
+        !signingMaterialPresent ||
+        !(row.release_signing_payload_bytes instanceof ArrayBuffer) ||
+        row.release_signing_payload_bytes.byteLength === 0 ||
+        !(row.release_signing_delegation_bytes instanceof ArrayBuffer) ||
+        row.release_signing_delegation_bytes.byteLength === 0)) ||
+    (row.signed_record_bytes !== null &&
+      (!(row.signed_record_bytes instanceof ArrayBuffer) ||
+        row.signed_record_bytes.byteLength === 0 ||
+        row.signed_record_bytes.byteLength > 262_144 ||
+        row.release_signing_claimed !== 1))
+  ) {
+    throw corruptStorage("Persisted Release signing claim is incomplete");
+  }
 
   const recordFieldsPresent = [
     row.record_bytes,
@@ -7100,6 +7948,21 @@ function assertReleaseOperationRow(
     parseCanonicalUnsignedDecimal(row.position!, "Stored Release position");
     parseCanonicalUnsignedDecimal(row.generation!, "Stored Release generation");
     assertTimestampString(row.record_appended_at!);
+    if (
+      row.release_signing_required === 1 &&
+      (row.signed_record_bytes === null ||
+        row.release_signing_delegation_bytes === null ||
+        !equalBytes(
+          bytesFromArrayBuffer(row.signed_record_bytes),
+          bytesFromArrayBuffer(row.record_bytes),
+        ) ||
+        !equalBytes(
+          bytesFromArrayBuffer(row.release_signing_delegation_bytes),
+          bytesFromArrayBuffer(row.release_delegation_bytes),
+        ))
+    ) {
+      throw corruptStorage("Appended Release Record differs from its signing claim");
+    }
   }
 
   if (
@@ -7187,6 +8050,8 @@ function releaseOperationFromRow(
     manifestEpoch: row.manifest_epoch,
     manifestRef: row.manifest_ref,
     expectedPointerEtag: row.expected_pointer_etag,
+    expectedCurrentStateSha256: row.expected_current_state_sha256,
+    expectedRestoreEpoch: row.expected_restore_epoch,
     pointerBytes:
       row.pointer_bytes === null
         ? null
@@ -7196,6 +8061,20 @@ function releaseOperationFromRow(
       row.snapshot_bytes === null
         ? null
         : copyBytes(bytesFromArrayBuffer(row.snapshot_bytes)),
+    releaseSigningRequired: row.release_signing_required === 1,
+    releaseSigningClaimed: row.release_signing_claimed === 1,
+    releaseSigningPayloadBytes:
+      row.release_signing_payload_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.release_signing_payload_bytes)),
+    releaseSigningDelegationBytes:
+      row.release_signing_delegation_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.release_signing_delegation_bytes)),
+    signedRecordBytes:
+      row.signed_record_bytes === null
+        ? null
+        : copyBytes(bytesFromArrayBuffer(row.signed_record_bytes)),
     recordBytes:
       row.record_bytes === null
         ? null
@@ -7531,6 +8410,7 @@ function assertReleaseRecordMatchesOperation(
   operation: ReleaseLedgerOperation,
   recordBytes: Uint8Array,
   releaseDelegationBytes: Uint8Array,
+  allowUnstoredSigningResult = false,
 ): void {
   if (
     operation.environment !== "production" ||
@@ -7543,36 +8423,180 @@ function assertReleaseRecordMatchesOperation(
         releaseDelegationBytes,
         operation.releaseDelegationBytes,
       )) ||
+    (operation.releaseSigningRequired &&
+      (
+        !operation.releaseSigningClaimed ||
+        operation.releaseSigningDelegationBytes === null ||
+        !equalBytes(
+          releaseDelegationBytes,
+          operation.releaseSigningDelegationBytes,
+        ) ||
+        (!allowUnstoredSigningResult &&
+          (operation.signedRecordBytes === null ||
+            !equalBytes(recordBytes, operation.signedRecordBytes)))
+      )) ||
     record.payload.manifest_epoch !== operation.manifestEpoch ||
     record.payload.manifest_sha256 !== operation.manifestSha256 ||
     record.payload.manifest_ref !== operation.manifestRef ||
     (operation.pointerEtag !== null &&
-      record.payload.pointer_etag !== operation.pointerEtag)
+      record.payload.pointer_etag !== operation.pointerEtag) ||
+    (operation.expectedHead !== null &&
+      (
+        record.payload.commit_generation !==
+          (BigInt(operation.expectedHead.generation) + 1n).toString(10) ||
+        record.payload.previous_commit_generation !==
+          operation.expectedHead.generation ||
+        record.payload.previous_commit_record_sha256 !==
+          operation.expectedHead.recordSha256
+      )) ||
+    (operation.releaseSigningRequired &&
+      record.payload.release_commit_id !== operation.operationId)
   ) {
     throw invalidInput("Release Record does not match the stored operation binding");
   }
 }
 
+async function prepareReleasePublicationObjects(
+  objects: readonly RuntimeConfigR2PublicationObject[],
+): Promise<readonly (RuntimeConfigR2PublicationObject & {
+  readonly sha256: string;
+})[]> {
+  if (!Array.isArray(objects) || objects.length > 5) {
+    throw invalidInput("Release publication object inventory is invalid");
+  }
+  const prepared = [];
+  let totalBytes = 0;
+  for (const object of objects) {
+    if (
+      object === null ||
+      typeof object !== "object" ||
+      typeof object.key !== "string" ||
+      !(object.body instanceof Uint8Array) ||
+      object.body.byteLength === 0 ||
+      object.body.byteLength > 2_000_000
+    ) {
+      throw invalidInput("Release publication object bytes are invalid");
+    }
+    const digest = await sha256Base64Url(object.body);
+    if (releaseArtifactDigestFromKey(object.key) !== digest) {
+      throw invalidInput(
+        "Release publication object key does not bind its exact bytes",
+      );
+    }
+    totalBytes += object.body.byteLength;
+    if (totalBytes > 4_000_000) {
+      throw invalidInput("Release publication objects exceed the aggregate limit");
+    }
+    prepared.push({
+      key: object.key,
+      body: copyBytes(object.body),
+      sha256: digest,
+    });
+  }
+  if (new Set(prepared.map((object) => object.key)).size !== prepared.length) {
+    throw invalidInput("Release publication object keys are not unique");
+  }
+  return prepared;
+}
+
+function releaseArtifactDigestFromKey(key: string): string | null {
+  const match =
+    /^tlsn\/runtime-config\/v2\/artifacts\/(?:worker-reference|origin-inventory|target-approval|security-registry-set|result-registry-envelope)\/([A-Za-z0-9_-]{43})$/u.exec(
+      key,
+    );
+  return match?.[1] ?? null;
+}
+
+function releasePublicationObjectsMatchManifest(
+  objects: readonly {
+    readonly key: string;
+    readonly sha256: string;
+  }[],
+  digests: NonNullable<
+    Awaited<ReturnType<typeof verifyRuntimeConfigManifestEpochPointer>>[
+      "publicationArtifactDigests"
+    ]
+  >,
+): boolean {
+  const expected = [
+    ["worker-reference", digests.workerReferenceSha256],
+    ["origin-inventory", digests.originInventorySha256],
+    ["target-approval", digests.targetApprovalArtifactSha256],
+    ["security-registry-set", digests.securityRegistrySetSha256],
+    ["result-registry-envelope", digests.resultRegistryEnvelopeSha256],
+  ] as const;
+  return (
+    objects.length === expected.length &&
+    expected.every(([kind, digest], index) => {
+      const object = objects[index];
+      return (
+        object !== undefined &&
+        object.key ===
+          `tlsn/runtime-config/v2/artifacts/${kind}/${digest}` &&
+        object.sha256 === digest
+      );
+    })
+  );
+}
+
+function parseReleaseSigningPayload(
+  bytes: Uint8Array,
+): ReleaseCommitRecordPayload {
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw corruptStorage("Persisted Release signer payload is malformed");
+  }
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !isReleaseCommitRecordPayload(value) ||
+    !equalBytes(canonicalJsonBytes(value), bytes)
+  ) {
+    throw corruptStorage("Persisted Release signer payload is not canonical");
+  }
+  return value;
+}
+
+function isReleaseCommitRecordPayload(
+  value: object,
+): value is ReleaseCommitRecordPayload {
+  const payload = value as Partial<ReleaseCommitRecordPayload>;
+  return (
+    payload.schema_version === 1 &&
+    payload.scope === runtimeConfigFreshnessWire.releasePayloadScope &&
+    payload.environment === "production" &&
+    payload.commit_authorization === "AUTHORIZE_JOURNAL_APPEND" &&
+    typeof payload.commit_generation === "string" &&
+    typeof payload.release_commit_id === "string" &&
+    payload.manifest_schema_version === 2 &&
+    typeof payload.manifest_epoch === "string" &&
+    typeof payload.manifest_sha256 === "string" &&
+    typeof payload.manifest_ref === "string" &&
+    typeof payload.pointer_etag === "string" &&
+    (payload.previous_commit_generation === null ||
+      typeof payload.previous_commit_generation === "string") &&
+    (payload.previous_commit_record_sha256 === null ||
+      typeof payload.previous_commit_record_sha256 === "string") &&
+    typeof payload.authorized_at === "string" &&
+    typeof payload.release_authority_delegation_id === "string" &&
+    typeof payload.release_authority_delegation_sha256 === "string"
+  );
+}
+
 function copyReleaseHead(
-  value: ReleaseLedgerHead | null,
-): ReleaseLedgerHead | null {
+  value: ReleaseLedgerHeadBinding | null,
+): ReleaseHeadBinding | null {
   if (value === null) return null;
-  const head: ReleaseLedgerHead = {
+  const head: ReleaseHeadBinding = {
     environment: value.environment,
     chainId: value.chainId,
     position: value.position,
     generation: value.generation,
     recordSha256: value.recordSha256,
-    recordBytes: copyBytes(value.recordBytes),
-    releaseDelegationBytes: copyBytes(value.releaseDelegationBytes),
-    previousRecordSha256: value.previousRecordSha256,
-    releaseCommitId: value.releaseCommitId,
-    localAppendObservedAt: value.localAppendObservedAt,
-    manifestEpoch: value.manifestEpoch,
-    manifestSha256: value.manifestSha256,
-    manifestRef: value.manifestRef,
     pointerEtag: value.pointerEtag,
-    manifestBytes: copyBytes(value.manifestBytes),
   };
   if (
     head.environment !== "production" ||
@@ -7580,27 +8604,12 @@ function copyReleaseHead(
     head.position.length === 0 ||
     head.generation.length === 0 ||
     !SHA256_BASE64URL_PATTERN.test(head.recordSha256) ||
-    !UUID_V4_PATTERN.test(head.releaseCommitId) ||
-    !SHA256_BASE64URL_PATTERN.test(head.manifestSha256) ||
-    head.manifestEpoch.length === 0 ||
-    head.manifestRef.length === 0 ||
-    head.pointerEtag.length === 0 ||
-    head.recordBytes.byteLength === 0 ||
-    head.releaseDelegationBytes.byteLength === 0 ||
-    head.manifestBytes.byteLength === 0
+    head.pointerEtag.length === 0
   ) {
     throw invalidInput("Expected Release head binding is invalid");
   }
   parseCanonicalUnsignedDecimal(head.position, "Expected Release position");
   parseCanonicalUnsignedDecimal(head.generation, "Expected Release generation");
-  parseCanonicalUnsignedDecimal(head.manifestEpoch, "Expected Manifest epoch");
-  if (
-    head.previousRecordSha256 !== null &&
-    !SHA256_BASE64URL_PATTERN.test(head.previousRecordSha256)
-  ) {
-    throw invalidInput("Expected Release predecessor digest is invalid");
-  }
-  assertTimestampString(head.localAppendObservedAt);
   return head;
 }
 

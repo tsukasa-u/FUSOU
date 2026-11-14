@@ -3,6 +3,9 @@ import type {
   FreshnessIssueCurrentStateBinding,
   VerifiedFreshnessReleaseState,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
+import type {
+  ReleaseCommitRecordPayload,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 
 export type ReleaseLedgerStatus =
   | "INTENT"
@@ -33,6 +36,15 @@ export interface ReleaseLedgerHead {
   readonly manifestBytes: Uint8Array;
 }
 
+export interface ReleaseLedgerHeadBinding {
+  readonly environment: "production";
+  readonly chainId: string;
+  readonly position: string;
+  readonly generation: string;
+  readonly recordSha256: string;
+  readonly pointerEtag: string;
+}
+
 export interface ReleaseLedgerOperation {
   readonly operationId: string;
   readonly requestSha256: string;
@@ -55,9 +67,16 @@ export interface ReleaseLedgerOperation {
   readonly manifestEpoch: string;
   readonly manifestRef: string;
   readonly expectedPointerEtag: string;
+  readonly expectedCurrentStateSha256: string | null;
+  readonly expectedRestoreEpoch: string | null;
   readonly pointerBytes: Uint8Array | null;
   readonly pointerEtag: string | null;
   readonly snapshotBytes: Uint8Array | null;
+  readonly releaseSigningRequired: boolean;
+  readonly releaseSigningClaimed: boolean;
+  readonly releaseSigningPayloadBytes: Uint8Array | null;
+  readonly releaseSigningDelegationBytes: Uint8Array | null;
+  readonly signedRecordBytes: Uint8Array | null;
   readonly recordBytes: Uint8Array | null;
   readonly recordLength: number | null;
   readonly recordSha256: string | null;
@@ -66,6 +85,29 @@ export interface ReleaseLedgerOperation {
   readonly position: string | null;
   readonly generation: string | null;
 }
+
+export interface RuntimeConfigR2PublicationObject {
+  readonly key: string;
+  readonly body: Uint8Array;
+}
+
+export type ReleaseRecordSigningClaim =
+  | {
+      readonly status: "CLAIMED";
+      readonly operation: ReleaseLedgerOperation;
+      readonly payload: ReleaseCommitRecordPayload;
+      readonly releaseDelegationBytes: Uint8Array;
+    }
+  | {
+      readonly status: "SIGNED";
+      readonly operation: ReleaseLedgerOperation;
+      readonly recordBytes: Uint8Array;
+      readonly releaseDelegationBytes: Uint8Array;
+    }
+  | {
+      readonly status: "UNKNOWN" | "WAITING_FOR_ISSUES" | "CONFLICT";
+      readonly operation: ReleaseLedgerOperation;
+    };
 
 export interface ReleaseBindingInstallOperation {
   readonly operationId: string;
@@ -152,8 +194,9 @@ export interface ReleaseLedgerCoordinator {
   readReleaseLedgerHead(): Promise<ReleaseLedgerHead | null>;
   beginReleaseOperation(input: {
     readonly operationId: string;
-    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly expectedHead: ReleaseLedgerHeadBinding | null;
     readonly manifestBytes: Uint8Array;
+    readonly publicationObjects?: readonly RuntimeConfigR2PublicationObject[];
   }): Promise<ReleaseLedgerActionResult>;
   stageReleaseManifest(input: {
     readonly operationId: string;
@@ -163,6 +206,16 @@ export interface ReleaseLedgerCoordinator {
     readonly operationId: string;
     readonly fencingToken: string;
     readonly stage: "R2_WRITE" | "RELEASE_SIGNER" | "R2_READBACK";
+  }): Promise<ReleaseLedgerActionResult>;
+  claimReleaseRecordSigning(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly releaseDelegationBytes: Uint8Array;
+  }): Promise<ReleaseRecordSigningClaim>;
+  storeReleaseRecordSignature(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly recordBytes: Uint8Array;
   }): Promise<ReleaseLedgerActionResult>;
   appendReleaseRecord(input: {
     readonly operationId: string;

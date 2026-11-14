@@ -56,6 +56,7 @@ const RPC_METHOD_NAMES = [
   "bootstrapReleaseLedgerForLocalTest",
   "checkLease",
   "clearReleasePointerForLocalTest",
+  "claimReleaseRecordSigning",
   "completeReleaseForLocalTest",
   "corruptCoordinatorStateForLocalTest",
   "corruptReleaseOperationBindingForLocalTest",
@@ -64,6 +65,8 @@ const RPC_METHOD_NAMES = [
   "failNextR2ReadbackForLocalTest",
   "failNextGenesisAfterInstallFinalizationForLocalTest",
   "failNextGenesisInstallBeforeFinalizationForLocalTest",
+  "failNextReleaseAfterInstallFinalizationForLocalTest",
+  "failNextReleaseInstallBeforeFinalizationForLocalTest",
   "failAfterR2ReadsForLocalTest",
   "finalizeIfCurrent",
   "finalizeCloudflareOperatorBindingInstall",
@@ -102,6 +105,7 @@ const RPC_METHOD_NAMES = [
   "setNextFenceForLocalTest",
   "setWitnessForLocalTest",
   "stageReleaseManifest",
+  "storeReleaseRecordSignature",
   "waitForDelayedPointerWriteForLocalTest",
   "writeReleaseObjectForLocalTest"
 ] as const satisfies readonly (

@@ -35,7 +35,10 @@ import type {
   ReleaseBindingInstallOperation,
   ReleaseLedgerCoordinator,
   ReleaseLedgerHead,
+  ReleaseLedgerHeadBinding,
   ReleaseLedgerOperation,
+  ReleaseRecordSigningClaim,
+  RuntimeConfigR2PublicationObject,
 } from "./release-ledger.ts";
 
 export type FreshnessIssueCoordinatorRpcStub = {
@@ -186,8 +189,9 @@ export class DurableObjectFreshnessIssueCoordinatorAdapter
 
   beginReleaseOperation(input: {
     readonly operationId: string;
-    readonly expectedHead: ReleaseLedgerHead | null;
+    readonly expectedHead: ReleaseLedgerHeadBinding | null;
     readonly manifestBytes: Uint8Array;
+    readonly publicationObjects?: readonly RuntimeConfigR2PublicationObject[];
   }): Promise<ReleaseLedgerActionResult> {
     return this.#stub.beginReleaseOperation(input);
   }
@@ -205,6 +209,22 @@ export class DurableObjectFreshnessIssueCoordinatorAdapter
     readonly stage: "R2_WRITE" | "RELEASE_SIGNER" | "R2_READBACK";
   }): Promise<ReleaseLedgerActionResult> {
     return this.#stub.markReleaseOperationUnknown(input);
+  }
+
+  claimReleaseRecordSigning(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly releaseDelegationBytes: Uint8Array;
+  }): Promise<ReleaseRecordSigningClaim> {
+    return this.#stub.claimReleaseRecordSigning(input);
+  }
+
+  storeReleaseRecordSignature(input: {
+    readonly operationId: string;
+    readonly fencingToken: string;
+    readonly recordBytes: Uint8Array;
+  }): Promise<ReleaseLedgerActionResult> {
+    return this.#stub.storeReleaseRecordSignature(input);
   }
 
   appendReleaseRecord(input: {

@@ -4,11 +4,17 @@ import {
   RuntimeConfigDomainError,
   runtimeConfigFreshnessWire,
   runtimeConfigManifestAudienceSha256,
+  signRuntimeConfigReleaseCommitRecord,
+  verifyRuntimeConfigDelegation,
   verifyRuntimeConfigFreshnessRequest,
+  verifyRuntimeConfigManifestEpochPointer,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 import type {
   RuntimeConfigRootSigner,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+import {
+  verifyRuntimeConfigPublicationObjects,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/production-artifacts.ts";
 import {
   createCloudflareOperatorReleaseStateReader,
   createWorkerReadableCloudflareOperatorFreshnessSigner,
@@ -21,10 +27,19 @@ import {
   DurableObjectFreshnessIssueCoordinatorAdapter,
 } from "./durable-object-adapter.ts";
 import {
+  CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID,
+} from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/signers.ts";
+import {
   RuntimeConfigR2ReleaseConflictError,
   RuntimeConfigR2ReleaseIntegrityError,
   RuntimeConfigR2ReleaseStore,
 } from "./r2-release-store.ts";
+import type {
+  ReleaseLedgerHeadBinding,
+  ReleaseLedgerOperation,
+  ReleaseRecordSigningClaim,
+  RuntimeConfigR2PublicationObject,
+} from "./release-ledger.ts";
 import type {
   CoordinatorEnv,
   SqliteFreshnessIssueCoordinatorDO,
@@ -38,6 +53,17 @@ const PRIVATE_SERVICE_ORIGIN = "https://freshness-signer.internal";
 const GENESIS_ADMIN_PATH = "/__private/admin/genesis";
 const GENESIS_ADMIN_MAX_BODY_BYTES = 2_000_000;
 const GENESIS_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const RELEASE_ADMIN_PATH = "/__private/admin/release";
+const RELEASE_ADMIN_MAX_BODY_BYTES = 7_340_032;
+const RELEASE_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const RELEASE_OPERATION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const RELEASE_ADMIN_FIELDS = [
+  "manifest_bytes_base64url",
+  "operation_id",
+  "publication_objects",
+] as const;
+const RELEASE_ADMIN_OBJECT_FIELDS = ["body_base64url", "key"] as const;
 const GENESIS_ADMIN_FIELDS = [
   "manifest_bytes_base64url",
   "record_bytes_base64url",
@@ -48,6 +74,9 @@ const CHAIN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const MAX_DELEGATION_BYTES = 8_192;
 const ED25519_PKCS8_BYTES = 48;
 const ED25519_SPKI_BYTES = 44;
+const RELEASE_SIGNER_KEY_CHECK_DOMAIN = new TextEncoder().encode(
+  "FUSOU-TLSN-RUNTIME-CONFIG-RELEASE-SIGNER-KEY-CHECK-V1\0",
+);
 const OPERATION_ID_DOMAIN = new TextEncoder().encode(
   "FUSOU-TLSN-CLOUDFLARE-OPERATOR-FRESHNESS-OPERATION-ID-V1\0",
 );
@@ -62,6 +91,10 @@ export interface PrivateFreshnessSignerEnv extends CoordinatorEnv {
   readonly FRESHNESS_SIGNER_KEY_ID?: string;
   readonly FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL?: string;
   readonly FRESHNESS_SIGNER_DELEGATION_BASE64URL?: string;
+  readonly FRESHNESS_RELEASE_ADMIN_CAPABILITY?: string;
+  readonly RELEASE_RECORD_SIGNER_KEY_ID?: string;
+  readonly RELEASE_RECORD_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL?: string;
+  readonly RELEASE_RECORD_SIGNER_DELEGATION_BASE64URL?: string;
 }
 
 interface PrivateFreshnessSignerDependencies {
@@ -82,6 +115,23 @@ interface PrivateFreshnessSignerConfiguration {
   readonly privateKey: CryptoKey;
 }
 
+interface PrivateReleaseUpdateConfiguration {
+  readonly manifestUrl: string;
+  readonly chainId: string;
+  readonly coordinatorName: string;
+  readonly releaseRootSigner: RuntimeConfigRootSigner;
+  readonly manifestRootSigner: RuntimeConfigRootSigner;
+  readonly releaseSignerKeyId: string;
+  readonly releaseSignerPrivateKey: CryptoKey;
+  readonly releaseDelegationBytes: Uint8Array;
+}
+
+interface ParsedReleaseUpdateRequest {
+  readonly operationId: string;
+  readonly manifestBytes: Uint8Array;
+  readonly publicationObjects: readonly RuntimeConfigR2PublicationObject[];
+}
+
 type BodyFailure = "empty" | "too-large" | "invalid";
 
 class BoundedBodyError extends Error {
@@ -97,6 +147,10 @@ class BoundedBodyError extends Error {
 const configurationByEnvironment = new WeakMap<
   object,
   Promise<PrivateFreshnessSignerConfiguration>
+>();
+const releaseUpdateConfigurationByEnvironment = new WeakMap<
+  object,
+  Promise<PrivateReleaseUpdateConfiguration>
 >();
 
 function logFailure(event: string, error?: unknown): void {
@@ -334,6 +388,144 @@ async function createConfiguration(
   };
 }
 
+async function createReleaseUpdateConfiguration(
+  env: PrivateFreshnessSignerEnv,
+): Promise<PrivateReleaseUpdateConfiguration> {
+  const manifestUrl = await configuredManifestUrl(env);
+  const chainId = requiredString(
+    env.RELEASE_LEDGER_CHAIN_ID,
+    "Release chain ID",
+    CHAIN_ID_PATTERN,
+  );
+  const coordinatorName = requiredString(
+    env.FRESHNESS_COORDINATOR_NAME,
+    "Freshness coordinator identity",
+  );
+  if (coordinatorName.length > 128) {
+    throw new Error("Freshness coordinator identity exceeds its size limit");
+  }
+  const releaseRootSigner = createRootSigner(
+    env.RELEASE_LEDGER_ROOT_KEY_ID,
+    env.RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI,
+    "Release root",
+  );
+  const manifestRootSigner = createRootSigner(
+    env.RELEASE_LEDGER_MANIFEST_KEY_ID,
+    env.RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI,
+    "Manifest root",
+  );
+  const releaseSignerKeyId = requiredString(
+    env.RELEASE_RECORD_SIGNER_KEY_ID,
+    "Release Record signer key ID",
+    CONFIG_KEY_ID_PATTERN,
+  );
+  const releaseDelegationBytes = decodeBase64Url(
+    env.RELEASE_RECORD_SIGNER_DELEGATION_BASE64URL,
+    "Release Record signer delegation",
+    MAX_DELEGATION_BYTES,
+  );
+  const privateKeyBytes = decodeBase64Url(
+    env.RELEASE_RECORD_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL,
+    "Release Record signer private key",
+    ED25519_PKCS8_BYTES,
+  );
+  if (privateKeyBytes.byteLength !== ED25519_PKCS8_BYTES) {
+    throw new Error("Release Record signer private key is not Ed25519 PKCS8");
+  }
+  await Promise.all([
+    validateEd25519PublicKey(
+      releaseRootSigner.public_key_spki,
+      "Release root public key",
+    ),
+    validateEd25519PublicKey(
+      manifestRootSigner.public_key_spki,
+      "Manifest root public key",
+    ),
+  ]);
+  const signerNowMs = Date.now();
+  const delegation = await verifyRuntimeConfigDelegation({
+    raw: releaseDelegationBytes,
+    rootSigner: releaseRootSigner,
+    expectedPurpose: "release-commit-record-v1",
+    expectedEnvironment: "production",
+    expectedAudience:
+      `${runtimeConfigFreshnessWire.releaseAudiencePrefix}production`,
+    signerNowMs,
+  });
+  if (delegation.payload.key_id !== releaseSignerKeyId) {
+    throw new Error(
+      "Release Record signer key ID does not match the root delegation",
+    );
+  }
+
+  let releaseSignerPrivateKey: CryptoKey;
+  try {
+    releaseSignerPrivateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      exactArrayBuffer(privateKeyBytes),
+      { name: "Ed25519" },
+      false,
+      ["sign"],
+    );
+  } catch {
+    throw new Error("Release Record signer private key is not Ed25519 PKCS8");
+  }
+  if (
+    releaseSignerPrivateKey.type !== "private" ||
+    releaseSignerPrivateKey.algorithm.name !== "Ed25519" ||
+    !releaseSignerPrivateKey.usages.includes("sign")
+  ) {
+    throw new Error("Release Record signer private key cannot sign Ed25519");
+  }
+  const delegatedPublicKeyBytes = decodeBase64Url(
+    delegation.payload.public_key_spki,
+    "Release Record signer public key",
+    ED25519_SPKI_BYTES,
+  );
+  if (delegatedPublicKeyBytes.byteLength !== ED25519_SPKI_BYTES) {
+    throw new Error("Release Record signer delegation has an invalid public key");
+  }
+  const delegatedPublicKey = await crypto.subtle.importKey(
+    "spki",
+    exactArrayBuffer(delegatedPublicKeyBytes),
+    { name: "Ed25519" },
+    false,
+    ["verify"],
+  );
+  const checkMessage = concatenate([
+    RELEASE_SIGNER_KEY_CHECK_DOMAIN,
+    new TextEncoder().encode(releaseSignerKeyId),
+  ]);
+  const checkSignature = await crypto.subtle.sign(
+    { name: "Ed25519" },
+    releaseSignerPrivateKey,
+    exactArrayBuffer(checkMessage),
+  );
+  if (
+    !(await crypto.subtle.verify(
+      { name: "Ed25519" },
+      delegatedPublicKey,
+      checkSignature,
+      exactArrayBuffer(checkMessage),
+    ))
+  ) {
+    throw new Error(
+      "Release Record signer private key does not match its delegated public key",
+    );
+  }
+
+  return {
+    manifestUrl,
+    chainId,
+    coordinatorName,
+    releaseRootSigner,
+    manifestRootSigner,
+    releaseSignerKeyId,
+    releaseSignerPrivateKey,
+    releaseDelegationBytes,
+  };
+}
+
 function configurationFor(
   env: PrivateFreshnessSignerEnv,
 ): Promise<PrivateFreshnessSignerConfiguration> {
@@ -345,6 +537,22 @@ function configurationFor(
   return pending.catch((error: unknown) => {
     if (configurationByEnvironment.get(key) === pending) {
       configurationByEnvironment.delete(key);
+    }
+    throw error;
+  });
+}
+
+function releaseUpdateConfigurationFor(
+  env: PrivateFreshnessSignerEnv,
+): Promise<PrivateReleaseUpdateConfiguration> {
+  const key = env as object;
+  const existing = releaseUpdateConfigurationByEnvironment.get(key);
+  if (existing !== undefined) return existing;
+  const pending = createReleaseUpdateConfiguration(env);
+  releaseUpdateConfigurationByEnvironment.set(key, pending);
+  return pending.catch((error: unknown) => {
+    if (releaseUpdateConfigurationByEnvironment.get(key) === pending) {
+      releaseUpdateConfigurationByEnvironment.delete(key);
     }
     throw error;
   });
@@ -598,6 +806,175 @@ function hasGenesisAdminCapability(
     difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
   }
   return difference === 0;
+}
+
+function hasReleaseAdminCapability(
+  request: Request,
+  env: PrivateFreshnessSignerEnv,
+): boolean {
+  const expected = env.FRESHNESS_RELEASE_ADMIN_CAPABILITY;
+  const supplied = request.headers.get("x-fusou-release-capability");
+  if (
+    typeof expected !== "string" ||
+    !RELEASE_ADMIN_CAPABILITY_PATTERN.test(expected) ||
+    supplied === null ||
+    !RELEASE_ADMIN_CAPABILITY_PATTERN.test(supplied)
+  ) {
+    return false;
+  }
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+function parseReleaseUpdateRequest(bytes: Uint8Array): ParsedReleaseUpdateRequest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new BoundedBodyError("invalid");
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed)
+  ) {
+    throw new BoundedBodyError("invalid");
+  }
+  const value = parsed as Record<string, unknown>;
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== RELEASE_ADMIN_FIELDS.length ||
+    keys.some((key, index) => key !== RELEASE_ADMIN_FIELDS[index]) ||
+    typeof value.operation_id !== "string" ||
+    !RELEASE_OPERATION_ID_PATTERN.test(value.operation_id) ||
+    !Array.isArray(value.publication_objects) ||
+    value.publication_objects.length !== 5
+  ) {
+    throw new BoundedBodyError("invalid");
+  }
+  let manifestBytes: Uint8Array;
+  try {
+    manifestBytes = decodeBase64Url(
+      typeof value.manifest_bytes_base64url === "string"
+        ? value.manifest_bytes_base64url
+        : undefined,
+      "Release Manifest",
+      1_048_576,
+    );
+  } catch {
+    throw new BoundedBodyError("invalid");
+  }
+  const publicationObjects: RuntimeConfigR2PublicationObject[] = [];
+  let totalObjectBytes = 0;
+  for (const candidate of value.publication_objects) {
+    if (
+      candidate === null ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new BoundedBodyError("invalid");
+    }
+    const object = candidate as Record<string, unknown>;
+    const objectKeys = Object.keys(object).sort();
+    if (
+      objectKeys.length !== RELEASE_ADMIN_OBJECT_FIELDS.length ||
+      objectKeys.some((key, index) => key !== RELEASE_ADMIN_OBJECT_FIELDS[index]) ||
+      typeof object.key !== "string" ||
+      object.key.length === 0 ||
+      object.key.length > 256 ||
+      typeof object.body_base64url !== "string"
+    ) {
+      throw new BoundedBodyError("invalid");
+    }
+    let body: Uint8Array;
+    try {
+      body = decodeBase64Url(
+        object.body_base64url,
+        "Release publication object",
+        2_000_000,
+      );
+    } catch {
+      throw new BoundedBodyError("invalid");
+    }
+    totalObjectBytes += body.byteLength;
+    if (totalObjectBytes > 4_000_000) {
+      throw new BoundedBodyError("too-large");
+    }
+    publicationObjects.push({ key: object.key, body });
+  }
+  return {
+    operationId: value.operation_id,
+    manifestBytes,
+    publicationObjects,
+  };
+}
+
+function releaseUpdateResponse(
+  operationId: string,
+  operation: ReleaseLedgerOperation | null,
+  install:
+    | Awaited<
+        ReturnType<
+          DurableObjectFreshnessIssueCoordinatorAdapter["getCloudflareOperatorBindingInstall"]
+        >
+      >
+    | null,
+): Response {
+  if (operation === null) {
+    return new Response(
+      JSON.stringify({
+        operation_id: operationId,
+        status: "NOT_FOUND",
+        release_status: null,
+        install_status: null,
+      }),
+      {
+        status: 404,
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/json; charset=utf-8",
+          "x-content-type-options": "nosniff",
+        },
+      },
+    );
+  }
+  const status = install?.status === "INSTALLED"
+    ? "INSTALLED"
+    : install?.status === "VERIFYING"
+    ? "INSTALLING"
+    : install?.status === "QUARANTINED" ||
+        operation.status === "QUARANTINED"
+    ? "QUARANTINED"
+    : install?.status === "CONFLICT" || operation.status === "CONFLICT"
+    ? "CONFLICT"
+    : operation.status;
+  const statusCode = status === "INSTALLED"
+    ? 200
+    : status === "QUARANTINED" || status === "CONFLICT"
+    ? 409
+    : status === "RESULT_UNKNOWN"
+    ? 503
+    : 202;
+  return new Response(
+    JSON.stringify({
+      operation_id: operation.operationId,
+      status,
+      release_status: operation.status,
+      install_status: install?.status ?? null,
+      unknown_stage: operation.unknownStage,
+    }),
+    {
+      status: statusCode,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      },
+    },
+  );
 }
 
 function parseGenesisRequest(bytes: Uint8Array): {
@@ -885,6 +1262,366 @@ async function handleGenesisManagementRequest(
   }
 }
 
+function releaseUpdateCoordinatorFor(
+  env: PrivateFreshnessSignerEnv,
+  coordinatorName: string,
+): DurableObjectFreshnessIssueCoordinatorAdapter {
+  const { coordinatorNamespace } = requiredBindings(env);
+  const stub = coordinatorNamespace.get(
+    coordinatorNamespace.idFromName(coordinatorName),
+  );
+  return new DurableObjectFreshnessIssueCoordinatorAdapter(stub);
+}
+
+async function releaseUpdateOperationResponse(
+  coordinator: DurableObjectFreshnessIssueCoordinatorAdapter,
+  operationId: string,
+): Promise<Response> {
+  const operation = await coordinator.getReleaseOperation(operationId);
+  const install = await coordinator.getCloudflareOperatorBindingInstall(
+    operationId,
+  );
+  if (operation === null && install !== null) {
+    throw new Error("Release update install exists without its operation");
+  }
+  return releaseUpdateResponse(operationId, operation, install);
+}
+
+async function verifyReleaseUpdateManifest(
+  input: ParsedReleaseUpdateRequest,
+  configuration: PrivateReleaseUpdateConfiguration,
+): Promise<void> {
+  const verified = await verifyRuntimeConfigManifestEpochPointer({
+    raw: input.manifestBytes,
+    trustedSigner: configuration.manifestRootSigner,
+    manifestUrl: configuration.manifestUrl,
+    nowMs: Date.now(),
+  });
+  if (
+    verified.envelopeSchemaVersion !== 3 ||
+    verified.publicationArtifactDigests === null
+  ) {
+    throw new RuntimeConfigDomainError(
+      "INVALID_BINDING",
+      "Operator Release updates require a root-delegated Manifest V3",
+    );
+  }
+  await verifyRuntimeConfigPublicationObjects({
+    payload: verified.payload,
+    objects: input.publicationObjects,
+    nowMs: Date.now(),
+    maxReferenceAgeSeconds: 600,
+    maxClockSkewSeconds: 30,
+  });
+}
+
+async function resumeCloudflareOperatorReleaseUpdate(
+  input: ParsedReleaseUpdateRequest,
+  configuration: PrivateReleaseUpdateConfiguration,
+  coordinator: DurableObjectFreshnessIssueCoordinatorAdapter,
+): Promise<void> {
+  let operation = await coordinator.getReleaseOperation(input.operationId);
+  if (operation === null) {
+    throw new Error("Admitted Release update operation is missing");
+  }
+  if (
+    !operation.releaseSigningRequired ||
+    operation.expectedHead === null ||
+    operation.expectedCurrentStateSha256 === null ||
+    operation.expectedRestoreEpoch === null
+  ) {
+    throw new RuntimeConfigDomainError(
+      "INVALID_BINDING",
+      "Release update is not an admitted cloudflare-operator-v1 ADVANCE",
+    );
+  }
+  const fencingToken = operation.fencingToken;
+  const expectedCurrentStateSha256 = operation.expectedCurrentStateSha256;
+  const expectedRestoreEpoch = operation.expectedRestoreEpoch;
+  if (fencingToken === null) {
+    throw new Error("Release update operation has no persisted writer fence");
+  }
+  if (
+    expectedCurrentStateSha256 === null ||
+    expectedRestoreEpoch === null
+  ) {
+    throw new Error("Release update operation has no ADVANCE install binding");
+  }
+
+  if (operation.status === "INTENT") {
+    operation = (
+      await coordinator.stageReleaseManifest({
+        operationId: operation.operationId,
+        fencingToken,
+      })
+    ).operation;
+  }
+  if (
+    operation.status === "R2_WRITE_PENDING" ||
+    (operation.status === "RESULT_UNKNOWN" &&
+      operation.unknownStage === "R2_WRITE")
+  ) {
+    operation = (
+      await coordinator.reconcileReleaseOperation({
+        operationId: operation.operationId,
+        fencingToken,
+      })
+    ).operation;
+  }
+
+  if (
+    operation.status === "R2_STAGED" ||
+    (operation.status === "RESULT_UNKNOWN" &&
+      operation.unknownStage === "RELEASE_SIGNER")
+  ) {
+    const claim: ReleaseRecordSigningClaim =
+      await coordinator.claimReleaseRecordSigning({
+        operationId: operation.operationId,
+        fencingToken,
+        releaseDelegationBytes: configuration.releaseDelegationBytes,
+      });
+    if (claim.status === "CLAIMED") {
+      const signedRecordBytes = await signRuntimeConfigReleaseCommitRecord({
+        payload: claim.payload,
+        signerKeyId: configuration.releaseSignerKeyId,
+        privateKey: configuration.releaseSignerPrivateKey,
+      });
+      operation = (
+        await coordinator.storeReleaseRecordSignature({
+          operationId: operation.operationId,
+          fencingToken,
+          recordBytes: signedRecordBytes,
+        })
+      ).operation;
+    } else {
+      operation = claim.operation;
+    }
+    if (
+      operation.status === "R2_STAGED" &&
+      operation.signedRecordBytes !== null
+    ) {
+      operation = (
+        await coordinator.appendReleaseRecord({
+          operationId: operation.operationId,
+          fencingToken,
+          recordBytes: operation.signedRecordBytes,
+          releaseDelegationBytes: configuration.releaseDelegationBytes,
+        })
+      ).operation;
+    }
+  }
+
+  if (
+    operation.status === "LEDGER_COMMITTED" ||
+    operation.status === "R2_READBACK_PENDING" ||
+    (operation.status === "RESULT_UNKNOWN" &&
+      operation.unknownStage === "R2_READBACK")
+  ) {
+    operation = (
+      operation.status === "RESULT_UNKNOWN"
+        ? await coordinator.reconcileReleaseOperation({
+            operationId: operation.operationId,
+            fencingToken,
+          })
+        : await coordinator.finalizeReleaseR2Readback({
+            operationId: operation.operationId,
+            fencingToken,
+          })
+    ).operation;
+  }
+
+  if (operation.status !== "AVAILABLE") return;
+  const install = await coordinator.beginCloudflareOperatorBindingInstall({
+    operationId: operation.operationId,
+    mode: "ADVANCE",
+    releaseOperationId: operation.operationId,
+    expectedCurrentStateSha256,
+    expectedRestoreEpoch,
+  });
+  if (install.status === "CONFLICT") {
+    throw new RuntimeConfigDomainError(
+      "INVALID_BINDING",
+      "ADVANCE install does not match the persisted predecessor binding",
+    );
+  }
+  if (install.status !== "STARTED") return;
+  await coordinator.finalizeCloudflareOperatorBindingInstall({
+    operationId: operation.operationId,
+  });
+}
+
+function releaseManagementFailure(error: unknown): Response {
+  const errorName = remoteErrorName(error);
+  const storageErrorCode = remoteCoordinatorStorageErrorCode(error);
+  if (storageErrorCode !== null) {
+    logFailure("private_signer_release_update_rejected", error);
+    if (storageErrorCode === "INVALID_INPUT") {
+      return jsonResponse(400, "invalid_release_update");
+    }
+    if (
+      storageErrorCode === "PROFILE_MISMATCH" ||
+      storageErrorCode === "RELEASE_CONFLICT" ||
+      storageErrorCode === "RELEASE_BLOCKED" ||
+      storageErrorCode === "ILLEGAL_TRANSITION"
+    ) {
+      return jsonResponse(409, "release_update_not_available");
+    }
+    return jsonResponse(503, "release_update_unavailable");
+  }
+  if (
+    error instanceof RuntimeConfigDomainError ||
+    errorName === "RuntimeConfigDomainError" ||
+    error instanceof RuntimeConfigR2ReleaseConflictError ||
+    errorName === "RuntimeConfigR2ReleaseConflictError" ||
+    error instanceof RuntimeConfigR2ReleaseIntegrityError ||
+    errorName === "RuntimeConfigR2ReleaseIntegrityError"
+  ) {
+    logFailure("private_signer_release_update_material_rejected", error);
+    return jsonResponse(409, "release_update_rejected");
+  }
+  logFailure("private_signer_release_update_failed", error);
+  return jsonResponse(503, "release_update_unavailable");
+}
+
+async function handleReleaseManagementRequest(
+  request: Request,
+  env: PrivateFreshnessSignerEnv,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const operationMatch =
+    /^\/__private\/admin\/release\/([0-9a-f-]{36})$/u.exec(url.pathname);
+  const isUpdatePath = url.pathname === RELEASE_ADMIN_PATH;
+  if (!isUpdatePath && operationMatch === null) return null;
+  if (url.origin !== PRIVATE_SERVICE_ORIGIN || url.search.length !== 0) {
+    return jsonResponse(404, "not_found");
+  }
+  const expectedMethod = isUpdatePath ? "POST" : "GET";
+  if (request.method !== expectedMethod) {
+    return new Response(null, {
+      status: 405,
+      headers: {
+        allow: expectedMethod,
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+  if (!hasReleaseAdminCapability(request, env)) {
+    await cancelRequestBody(request);
+    return jsonResponse(403, "forbidden");
+  }
+  if (!isUpdatePath) {
+    if (
+      request.body !== null ||
+      (request.headers.has("content-length") &&
+        request.headers.get("content-length") !== "0")
+    ) {
+      await cancelRequestBody(request);
+      return jsonResponse(400, "invalid_request");
+    }
+    const operationId = operationMatch?.[1];
+    if (operationId === undefined) return jsonResponse(404, "not_found");
+    try {
+      const coordinatorName = requiredString(
+        env.FRESHNESS_COORDINATOR_NAME,
+        "Freshness coordinator identity",
+      );
+      const coordinator = releaseUpdateCoordinatorFor(env, coordinatorName);
+      return await releaseUpdateOperationResponse(coordinator, operationId);
+    } catch (error) {
+      return releaseManagementFailure(error);
+    }
+  }
+  if (mediaType(request.headers.get("content-type")) !== "application/json") {
+    return jsonResponse(415, "unsupported_media_type");
+  }
+  const contentEncoding = request.headers.get("content-encoding");
+  if (
+    contentEncoding !== null &&
+    contentEncoding.toLowerCase() !== "identity"
+  ) {
+    return jsonResponse(415, "unsupported_media_type");
+  }
+  let requestBytes: Uint8Array;
+  try {
+    requestBytes = await readBoundedBody(request, RELEASE_ADMIN_MAX_BODY_BYTES);
+  } catch (error) {
+    if (!(error instanceof BoundedBodyError)) throw error;
+    return jsonResponse(
+      error.reason === "too-large" ? 413 : 400,
+      error.reason === "too-large" ? "request_too_large" : "invalid_request",
+    );
+  }
+  let input: ParsedReleaseUpdateRequest;
+  try {
+    input = parseReleaseUpdateRequest(requestBytes);
+  } catch (error) {
+    if (!(error instanceof BoundedBodyError)) throw error;
+    return jsonResponse(
+      error.reason === "too-large" ? 413 : 400,
+      error.reason === "too-large" ? "request_too_large" : "invalid_request",
+    );
+  }
+
+  try {
+    const configuration = await releaseUpdateConfigurationFor(env);
+    const coordinator = releaseUpdateCoordinatorFor(
+      env,
+      configuration.coordinatorName,
+    );
+    await verifyReleaseUpdateManifest(input, configuration);
+    const snapshot = await coordinator.readCloudflareOperatorReleaseSnapshot();
+    if (
+      snapshot.profileId !== CLOUDFLARE_OPERATOR_FRESHNESS_PROFILE_ID ||
+      snapshot.environment !== "production" ||
+      snapshot.chainId !== configuration.chainId ||
+      snapshot.currentState === null ||
+      snapshot.head === null
+    ) {
+      throw new RuntimeConfigDomainError(
+        "INVALID_BINDING",
+        "Release update target is not an initialized cloudflare-operator-v1 coordinator",
+      );
+    }
+
+    const existing = await coordinator.getReleaseOperation(input.operationId);
+    const expectedHead: ReleaseLedgerHeadBinding | null = existing === null
+      ? await coordinator.readReleaseLedgerHead()
+      : existing.expectedHead === null
+      ? null
+      : {
+          environment: existing.environment,
+          chainId: existing.chainId,
+          ...existing.expectedHead,
+        };
+    const admitted = await coordinator.beginReleaseOperation({
+      operationId: input.operationId,
+      expectedHead,
+      manifestBytes: input.manifestBytes,
+      publicationObjects: input.publicationObjects,
+    });
+    if (admitted.status === "CONFLICT") {
+      return jsonResponse(409, "release_update_not_available");
+    }
+    if (
+      admitted.operation.releaseSigningRequired &&
+      admitted.operation.expectedHead !== null
+    ) {
+      await resumeCloudflareOperatorReleaseUpdate(
+        input,
+        configuration,
+        coordinator,
+      );
+    }
+    return await releaseUpdateOperationResponse(
+      coordinator,
+      input.operationId,
+    );
+  } catch (error) {
+    return releaseManagementFailure(error);
+  }
+}
+
 async function handleFreshnessRequest(
   request: Request,
   env: PrivateFreshnessSignerEnv,
@@ -1037,6 +1774,8 @@ const privateFreshnessSigner = {
   ): Promise<Response> {
     const genesisResponse = await handleGenesisManagementRequest(request, env);
     if (genesisResponse !== null) return genesisResponse;
+    const releaseResponse = await handleReleaseManagementRequest(request, env);
+    if (releaseResponse !== null) return releaseResponse;
     return handleFreshnessRequest(request, env, context);
   },
 } satisfies ExportedHandler<PrivateFreshnessSignerEnv>;
