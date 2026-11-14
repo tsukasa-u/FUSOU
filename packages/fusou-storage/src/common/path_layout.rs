@@ -3,8 +3,44 @@ use std::path::{Path, PathBuf};
 use crate::constants::{
     MASTER_DATA_FOLDER_NAME,
     PERIOD_ROOT_FOLDER_NAME,
+    QUEST_DATA_FOLDER_NAME,
+    QUEST_TREE_JSONL_FILE_NAME,
+    REMODEL_DATA_FOLDER_NAME,
+    REMODEL_JSONL_FILE_NAME,
+    SHIP_GROWTH_DATA_FOLDER_NAME,
+    SHIP_GROWTH_JSONL_FILE_NAME,
+    SOKU_SPEED_DATA_FOLDER_NAME,
+    SOKU_SPEED_JSONL_FILE_NAME,
     TRANSACTION_DATA_FOLDER_NAME,
 };
+
+pub fn quest_tree_jsonl_relative_path() -> String {
+    format!(
+        "{}/{}/{}",
+        PERIOD_ROOT_FOLDER_NAME, QUEST_DATA_FOLDER_NAME, QUEST_TREE_JSONL_FILE_NAME
+    )
+}
+
+pub fn ship_growth_jsonl_relative_path() -> String {
+    format!(
+        "{}/{}/{}",
+        PERIOD_ROOT_FOLDER_NAME, SHIP_GROWTH_DATA_FOLDER_NAME, SHIP_GROWTH_JSONL_FILE_NAME
+    )
+}
+
+pub fn soku_speed_jsonl_relative_path() -> String {
+    format!(
+        "{}/{}/{}",
+        PERIOD_ROOT_FOLDER_NAME, SOKU_SPEED_DATA_FOLDER_NAME, SOKU_SPEED_JSONL_FILE_NAME
+    )
+}
+
+pub fn remodel_jsonl_relative_path() -> String {
+    format!(
+        "{}/{}/{}",
+        PERIOD_ROOT_FOLDER_NAME, REMODEL_DATA_FOLDER_NAME, REMODEL_JSONL_FILE_NAME
+    )
+}
 
 // String-based layout helpers (for cloud providers)
 

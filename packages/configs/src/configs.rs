@@ -926,85 +926,45 @@ impl ConfigsAppWindow {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppQuestTreeSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
-
-impl ConfigsAppQuestTreeSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.quest_tree_sender.enable.unwrap())
-    }
-
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
+macro_rules! define_sender_config {
+    ($struct_name:ident, $field:ident) => {
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct $struct_name {
+            enable: Option<bool>,
+            allow_data_to_local: Option<bool>,
+            ingest_endpoint: Option<String>,
         }
-    }
-}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppShipGrowthSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
+        impl $struct_name {
+            pub fn get_enable(&self) -> bool {
+                self.enable
+                    .unwrap_or_else(|| get_default_configs().app.$field.enable.unwrap())
+            }
 
-impl ConfigsAppShipGrowthSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.ship_growth_sender.enable.unwrap())
-    }
+            pub fn get_allow_data_to_local(&self) -> bool {
+                self.allow_data_to_local.unwrap_or_else(|| {
+                    get_default_configs()
+                        .app
+                        .$field
+                        .allow_data_to_local
+                        .unwrap()
+                })
+            }
 
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
+            pub fn get_ingest_endpoint(&self) -> Option<String> {
+                match self.ingest_endpoint {
+                    Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+                    _ => None,
+                }
+            }
         }
-    }
+    };
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppSokuSpeedSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
-
-impl ConfigsAppSokuSpeedSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.soku_speed_sender.enable.unwrap())
-    }
-
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppRemodelSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
-
-impl ConfigsAppRemodelSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.remodel_sender.enable.unwrap())
-    }
-
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
-        }
-    }
-}
+define_sender_config!(ConfigsAppQuestTreeSender, quest_tree_sender);
+define_sender_config!(ConfigsAppShipGrowthSender, ship_growth_sender);
+define_sender_config!(ConfigsAppSokuSpeedSender, soku_speed_sender);
+define_sender_config!(ConfigsAppRemodelSender, remodel_sender);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ConfigsAppMapCellLabels {
@@ -1797,6 +1757,107 @@ recv_buffer_size = 1234567
             default_cfg.proxy.network.connect_timeout
         );
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sender_local_save_defaults_and_compatibility() {
+        let default_cfg = get_default_configs();
+        assert!(!default_cfg.app.quest_tree_sender.get_allow_data_to_local());
+        assert!(!default_cfg.app.ship_growth_sender.get_allow_data_to_local());
+        assert!(!default_cfg.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(!default_cfg.app.remodel_sender.get_allow_data_to_local());
+
+        let empty_quest = ConfigsAppQuestTreeSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_quest.get_allow_data_to_local());
+
+        let empty_ship_growth = ConfigsAppShipGrowthSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_ship_growth.get_allow_data_to_local());
+
+        let empty_soku_speed = ConfigsAppSokuSpeedSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_soku_speed.get_allow_data_to_local());
+
+        let empty_remodel = ConfigsAppRemodelSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_remodel.get_allow_data_to_local());
+
+        let mut legacy_toml: toml::Value =
+            toml::from_str(include_str!("../configs.toml")).expect("default TOML should parse");
+        let app_table = legacy_toml
+            .get_mut("app")
+            .and_then(toml::Value::as_table_mut)
+            .expect("app config table should exist");
+        for sender_key in [
+            "quest_tree_sender",
+            "ship_growth_sender",
+            "soku_speed_sender",
+            "remodel_sender",
+        ] {
+            app_table
+                .get_mut(sender_key)
+                .and_then(toml::Value::as_table_mut)
+                .unwrap_or_else(|| panic!("{sender_key} table should exist"))
+                .remove("allow_data_to_local");
+        }
+
+        let parsed_legacy: Configs = legacy_toml
+            .try_into()
+            .expect("legacy config without allow_data_to_local should deserialize");
+        assert!(!parsed_legacy.app.quest_tree_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy.app.ship_growth_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy.app.remodel_sender.get_allow_data_to_local());
+
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-local-save-test-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let user_toml = r#"
+version = "0.0.1-legacy"
+
+[app.quest_tree_sender]
+allow_data_to_local = true
+
+[app.ship_growth_sender]
+enable = true
+allow_data_to_local = true
+
+[app.soku_speed_sender]
+allow_data_to_local = true
+
+[app.remodel_sender]
+enable = true
+allow_data_to_local = true
+"#;
+        std::fs::write(&path, user_toml).unwrap();
+        let merged = get_configs(path.to_str().unwrap());
+        assert!(!merged.app.quest_tree_sender.get_enable());
+        assert!(merged.app.quest_tree_sender.get_allow_data_to_local());
+        assert!(merged.app.ship_growth_sender.get_enable());
+        assert!(merged.app.ship_growth_sender.get_allow_data_to_local());
+        assert!(merged.app.soku_speed_sender.get_enable());
+        assert!(merged.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(merged.app.remodel_sender.get_enable());
+        assert!(merged.app.remodel_sender.get_allow_data_to_local());
         let _ = std::fs::remove_file(&path);
     }
 }

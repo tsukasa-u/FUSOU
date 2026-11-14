@@ -134,6 +134,35 @@ mod tests {
 
         assert_eq!(actual, PathBuf::from("fusou").join(STORAGE_SUB_DIR_NAME));
     }
+
+    #[test]
+    fn append_at_relative_appends_lines_and_rejects_traversal() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "fusou-storage-append-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = open_root_dir(&temp_root).expect("temp root should open");
+
+        append_at_relative(&dir, "fusou/quest_data/quest_tree.jsonl", b"{\"seq\":1}\n")
+            .expect("first append should succeed");
+        append_at_relative(&dir, "fusou/quest_data/quest_tree.jsonl", b"{\"seq\":2}\n")
+            .expect("second append should succeed");
+
+        let content = std::fs::read_to_string(
+            temp_root.join("fusou").join("quest_data").join("quest_tree.jsonl"),
+        )
+        .expect("appended file should be readable");
+        assert_eq!(content, "{\"seq\":1}\n{\"seq\":2}\n");
+
+        let err = append_at_relative(&dir, "../escape.jsonl", b"bad\n")
+            .expect_err("parent traversal must be rejected");
+        assert!(matches!(err, RootValidatorError::InvalidPath(_)));
+
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -152,20 +181,44 @@ pub fn open_root_dir(root: &Path) -> Result<Dir, RootValidatorError> {
     Dir::open_ambient_dir(root, cap_std::ambient_authority()).map_err(RootValidatorError::Io)
 }
 
-/// Write `data` to `relative_path` under a cap-std `Dir` handle.
-///
-/// `relative_path` is validated inside this function before any I/O,
-/// so `..` and absolute path components are rejected early.
-/// The parent directories are created if they do not exist.
-///
-/// This is a blocking operation and should be called inside
-/// `tokio::task::spawn_blocking` when invoked from an async context.
-pub fn write_at_relative(
+/// Capability-confined append handle under the resolved local storage root.
+#[derive(Clone)]
+pub struct LocalAppendTarget {
+    root: PathBuf,
+    dir: Arc<Dir>,
+}
+
+impl LocalAppendTarget {
+    pub fn open_from_config() -> Result<Self, RootValidatorError> {
+        Self::open_from_root(resolve_root_from_config())
+    }
+
+    pub fn open_from_root(root: PathBuf) -> Result<Self, RootValidatorError> {
+        let dir = Arc::new(open_root_dir(&root)?);
+        Ok(Self { root, dir })
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub async fn append_line_async(
+        &self,
+        relative_path: String,
+        mut line: Vec<u8>,
+    ) -> Result<(), RootValidatorError> {
+        if !line.ends_with(b"\n") {
+            line.push(b'\n');
+        }
+        append_at_relative_async(Arc::clone(&self.dir), relative_path, line).await
+    }
+}
+
+fn open_validated_relative(
     dir: &Dir,
     relative_path: &str,
-    data: &[u8],
-) -> Result<(), RootValidatorError> {
-    use std::io::Write;
+    options: &cap_std::fs::OpenOptions,
+) -> Result<cap_std::fs::File, RootValidatorError> {
     use std::path::Component;
 
     let rel = Path::new(relative_path);
@@ -193,16 +246,43 @@ pub fn write_at_relative(
         }
     }
 
-    // Open/create the file and write — all via openat through the Dir handle.
-    let mut file = dir
-        .open_with(
-            rel,
-            cap_std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true),
-        )
-        .map_err(RootValidatorError::Io)?;
+    // Open/create the file — all via openat through the Dir handle.
+    dir.open_with(rel, options).map_err(RootValidatorError::Io)
+}
+
+/// Write `data` to `relative_path` under a cap-std `Dir` handle.
+///
+/// `relative_path` is validated inside this function before any I/O,
+/// so `..` and absolute path components are rejected early.
+/// The parent directories are created if they do not exist.
+///
+/// This is a blocking operation and should be called inside
+/// `tokio::task::spawn_blocking` when invoked from an async context.
+pub fn write_at_relative(
+    dir: &Dir,
+    relative_path: &str,
+    data: &[u8],
+) -> Result<(), RootValidatorError> {
+    use std::io::Write;
+
+    let mut opts = cap_std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    let mut file = open_validated_relative(dir, relative_path, &opts)?;
+    file.write_all(data).map_err(RootValidatorError::Io)?;
+    Ok(())
+}
+
+/// Append `data` to `relative_path` under a cap-std `Dir` handle.
+pub fn append_at_relative(
+    dir: &Dir,
+    relative_path: &str,
+    data: &[u8],
+) -> Result<(), RootValidatorError> {
+    use std::io::Write;
+
+    let mut opts = cap_std::fs::OpenOptions::new();
+    opts.write(true).create(true).append(true);
+    let mut file = open_validated_relative(dir, relative_path, &opts)?;
     file.write_all(data).map_err(RootValidatorError::Io)?;
     Ok(())
 }
@@ -218,6 +298,17 @@ pub async fn write_at_relative_async(
     data: Vec<u8>,
 ) -> Result<(), RootValidatorError> {
     tokio::task::spawn_blocking(move || write_at_relative(&dir, &relative_path, &data))
+        .await
+        .map_err(|e| RootValidatorError::Io(std::io::Error::other(e)))?
+}
+
+/// Async wrapper for [`append_at_relative`].
+pub async fn append_at_relative_async(
+    dir: Arc<Dir>,
+    relative_path: String,
+    data: Vec<u8>,
+) -> Result<(), RootValidatorError> {
+    tokio::task::spawn_blocking(move || append_at_relative(&dir, &relative_path, &data))
         .await
         .map_err(|e| RootValidatorError::Io(std::io::Error::other(e)))?
 }

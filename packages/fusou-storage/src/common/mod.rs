@@ -11,4 +11,8 @@ pub use integration::integrate_by_table_name;
 pub use path_layout::{
     master_folder, transaction_root,
     parse_map_ids,
+    quest_tree_jsonl_relative_path,
+    remodel_jsonl_relative_path,
+    ship_growth_jsonl_relative_path,
+    soku_speed_jsonl_relative_path,
 };

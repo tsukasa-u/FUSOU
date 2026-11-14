@@ -346,6 +346,11 @@ save_file_location = ""
     # default is false
     enable = false
 
+    # Whether to save quest tree data locally as JSON Lines (.jsonl)
+    # Files are written under [app.database.local].output_directory (or the default local storage path)
+    # default is false
+    allow_data_to_local = false
+
     # Endpoint to ingest quest tree data
     # Must be set to the FUSOU-WEB quest-tree ingest API endpoint to use this feature
     ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
@@ -354,6 +359,11 @@ save_file_location = ""
     # Whether to enable ship growth data ingestion
     # default is false
     enable = false
+
+    # Whether to save ship growth (parameter progression) data locally as JSON Lines (.jsonl)
+    # Files are written under [app.database.local].output_directory (or the default local storage path)
+    # default is false
+    allow_data_to_local = false
 
     # Endpoint to ingest ship growth data
     # If empty, ship growth sender is disabled
@@ -364,6 +374,11 @@ save_file_location = ""
     # default is false
     enable = true
 
+    # Whether to save soku_speed observed data locally as JSON Lines (.jsonl)
+    # Files are written under [app.database.local].output_directory (or the default local storage path)
+    # default is false
+    allow_data_to_local = false
+
     # Endpoint to ingest soku_speed observed data
     ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
 
@@ -372,6 +387,11 @@ save_file_location = ""
     # This sends your remodel recipe observations to help build the remodel tree.
     # default is false
     enable = false
+
+    # Whether to save remodel data locally as JSON Lines (.jsonl)
+    # Files are written under [app.database.local].output_directory (or the default local storage path)
+    # default is false
+    allow_data_to_local = false
 
     # Endpoint to ingest remodel data
     # Must be set when enable=true
