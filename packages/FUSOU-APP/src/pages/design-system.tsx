@@ -717,6 +717,7 @@ export default function DesignSystemPage() {
   const [demoMaximized, setDemoMaximized] = createSignal<boolean>(false);
   const [demoVolume, setDemoVolume] = createSignal<number>(75);
   const [demoMuted, setDemoMuted] = createSignal<boolean>(false);
+  const [demoSearchQuery, setDemoSearchQuery] = createSignal<string>("赤城");
 
   onMount(() => {
     const saved = localStorage.getItem(APP_THEME_STORAGE_KEY);
@@ -1241,6 +1242,26 @@ export default function DesignSystemPage() {
                 <button type="button" class="btn btn-ghost btn-sm">
                   Ghost Action
                 </button>
+                <button
+                  type="button"
+                  aria-label="Ghost Icon Action"
+                  title="Ghost Icon Action (btn-xs btn-square)"
+                  class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    class="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                </button>
                 <button type="button" class="btn btn-error btn-outline btn-sm">
                   Destructive Action
                 </button>
@@ -1419,13 +1440,56 @@ export default function DesignSystemPage() {
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label class="block text-xs font-semibold mb-1">
-                  Search Input (input-sm)
+                  Search Input with In-Frame Clear &amp; Search (input-sm)
                 </label>
-                <input
-                  type="text"
-                  placeholder="艦名・IDで絞り込み..."
-                  class="input input-bordered input-sm w-full text-xs"
-                />
+                <div class="input input-bordered input-sm w-full flex items-center gap-1 pr-1 text-xs">
+                  <input
+                    type="text"
+                    placeholder="艦名・装備名で絞り込み..."
+                    value={demoSearchQuery()}
+                    onInput={(e) => setDemoSearchQuery(e.currentTarget.value)}
+                    class="grow min-w-0"
+                  />
+                  {demoSearchQuery().length > 0 && (
+                    <button
+                      type="button"
+                      aria-label="Clear demo search"
+                      title="Clear search"
+                      class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0 shrink-0 text-base-content/60 hover:text-base-content"
+                      onClick={() => setDemoSearchQuery("")}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 16 16"
+                        fill="currentColor"
+                        class="h-3.5 w-3.5"
+                        aria-hidden="true"
+                      >
+                        <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Run demo search"
+                    title="Search"
+                    class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0 shrink-0 text-base-content/70 hover:text-base-content"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                      class="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                        clip-rule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div>
                 <label class="block text-xs font-semibold mb-1">
@@ -1447,6 +1511,52 @@ export default function DesignSystemPage() {
                   value="invalid_api_port"
                   class="input input-bordered input-error input-sm w-full text-xs"
                 />
+              </div>
+            </div>
+
+            <div class="pt-3 border-t border-base-300/60">
+              <div class="text-xs font-semibold mb-2">
+                Specification Filter Modal Surface (
+                <code>.spec-filter-modal</code>, Rounded 4 Corners)
+              </div>
+              <div class="w-80 max-w-full rounded-box border border-base-300 bg-base-100 p-4">
+                <div class="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-base-300">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-base-content/75">
+                      Firepower
+                    </span>
+                    <span class="badge badge-secondary badge-xs">Filtered</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close specimen"
+                    class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0 text-base-content/60 hover:text-base-content"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                      class="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="text-xs text-base-content/70 py-1">
+                  タイトルバーから離し四隅の角丸を維持した統一ヘッダー・フッター構成
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-base-300 flex items-center justify-between gap-2">
+                  <button type="button" class="btn btn-outline btn-xs">
+                    Reset Filter
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary border-primary-content btn-xs"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             </div>
 

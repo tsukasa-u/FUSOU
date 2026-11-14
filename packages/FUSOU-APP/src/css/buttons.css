@@ -127,3 +127,116 @@
     var(--color-base-content) 30%
   );
 }
+
+/* Theme-adaptive .btn-ghost hover, focus, and active states for both light and dark themes */
+.btn.btn-ghost:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ) {
+  --btn-bg: transparent;
+  --btn-border: transparent;
+  color: var(--color-base-content);
+}
+
+@media (hover: hover) {
+  .btn.btn-ghost:not(
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error
+    ):not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(in oklab, var(--color-base-content) 9%, transparent);
+    --btn-border: transparent;
+    color: var(--color-base-content);
+  }
+}
+
+.btn.btn-ghost:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):focus-visible {
+  --btn-bg: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  --btn-border: transparent;
+  color: var(--color-base-content);
+}
+
+.btn.btn-ghost:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):is(
+    :active,
+    .btn-active
+  ) {
+  --btn-bg: color-mix(in oklab, var(--color-base-content) 16%, transparent);
+  --btn-border: transparent;
+  color: var(--color-base-content);
+}
+
+@media (hover: hover) {
+  .btn.btn-ghost:is(
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error
+    ):not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(in oklab, var(--btn-color) 12%, transparent);
+    --btn-border: transparent;
+  }
+}
+
+.btn.btn-ghost:is(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):focus-visible {
+  --btn-bg: color-mix(in oklab, var(--btn-color) 10%, transparent);
+  --btn-border: transparent;
+}
+
+.btn.btn-ghost:is(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ):not(:disabled, .btn-disabled, [aria-disabled="true"]):is(
+    :active,
+    .btn-active
+  ) {
+  --btn-bg: color-mix(in oklab, var(--btn-color) 20%, transparent);
+  --btn-border: transparent;
+}

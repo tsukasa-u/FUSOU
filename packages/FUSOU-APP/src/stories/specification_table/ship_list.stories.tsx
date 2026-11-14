@@ -146,3 +146,170 @@ export const AsyncHydratedUncategorizedScroll = {
     });
   },
 };
+
+export const FilterModalsTitlebarOffsetAndSearchControls = {
+  render: () => (
+    <div id="root" class="flex flex-col bg-base-100">
+      <header
+        data-tauri-drag-region
+        class="h-8 shrink-0 bg-[#27272a] text-[#f1f5f9] flex items-center px-3 text-xs"
+      >
+        FUSOU
+      </header>
+      <div class="window-content-container flex-1 min-h-0 flex flex-col">
+        <MstSlotItemsContext.Provider value={[mst_slot_itmes]}>
+          <SlotItemsContext.Provider value={[slot_items]}>
+            <ShipsContext.Provider value={[ships]}>
+              <MstShipsContext.Provider value={[mst_ships]}>
+                <MstStypesContext.Provider value={[mst_stypes]}>
+                  <ShipListComponent />
+                </MstStypesContext.Provider>
+              </MstShipsContext.Provider>
+            </ShipsContext.Provider>
+          </SlotItemsContext.Provider>
+        </MstSlotItemsContext.Provider>
+      </div>
+    </div>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const titlebar = canvasElement.querySelector(
+      "header[data-tauri-drag-region]",
+    ) as HTMLElement;
+
+    // Open Ship Name search modal
+    const shipNameTrigger = Array.from(
+      canvasElement.querySelectorAll(".specification-header th .btn"),
+    ).find((el) => el.textContent?.trim() === "Ship Name") as HTMLElement;
+    expect(shipNameTrigger).toBeDefined();
+    shipNameTrigger.click();
+
+    const searchDialog = canvasElement.querySelector(
+      "#ship_spec_modal_search_name",
+    ) as HTMLDialogElement;
+    await waitFor(() => {
+      expect(searchDialog.open).toBe(true);
+    });
+
+    const modalBox = searchDialog.querySelector(".modal-box") as HTMLElement;
+    const titlebarRect = titlebar.getBoundingClientRect();
+    const dialogRect = searchDialog.getBoundingClientRect();
+    const boxRect = modalBox.getBoundingClientRect();
+
+    // Backdrop starts at/below titlebar and modal-box keeps space below titlebar
+    expect(dialogRect.top).toBeGreaterThanOrEqual(titlebarRect.bottom - 0.5);
+    expect(boxRect.top).toBeGreaterThan(titlebarRect.bottom + 8);
+
+    // All four corners remain rounded
+    const boxStyle = window.getComputedStyle(modalBox);
+    expect(parseFloat(boxStyle.borderTopLeftRadius)).toBeGreaterThan(0);
+    expect(parseFloat(boxStyle.borderTopRightRadius)).toBeGreaterThan(0);
+    expect(parseFloat(boxStyle.borderBottomLeftRadius)).toBeGreaterThan(0);
+    expect(parseFloat(boxStyle.borderBottomRightRadius)).toBeGreaterThan(0);
+
+    // Verify in-frame search input + clear (×) button geometry
+    const inputWrapper = searchDialog.querySelector(".input") as HTMLElement;
+    const textInput = inputWrapper.querySelector("input") as HTMLInputElement;
+    const searchBtn = searchDialog.querySelector(
+      'button[aria-label="Search"]',
+    ) as HTMLButtonElement;
+
+    expect(
+      searchDialog.querySelector('button[aria-label="Clear search"]'),
+    ).toBeNull();
+
+    textInput.value = "吹雪";
+    textInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(
+        searchDialog.querySelector('button[aria-label="Clear search"]'),
+      ).not.toBeNull();
+    });
+
+    const clearBtn = searchDialog.querySelector(
+      'button[aria-label="Clear search"]',
+    ) as HTMLButtonElement;
+    const resetBtn = Array.from(searchDialog.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.trim() === "Reset Filter",
+    ) as HTMLButtonElement;
+    expect(resetBtn.disabled).toBe(false);
+
+    const wrapRect = inputWrapper.getBoundingClientRect();
+    for (const btn of [clearBtn, searchBtn]) {
+      const btnRect = btn.getBoundingClientRect();
+      expect(btnRect.top).toBeGreaterThanOrEqual(wrapRect.top + 1);
+      expect(btnRect.bottom).toBeLessThanOrEqual(wrapRect.bottom - 1);
+      expect(btnRect.right).toBeLessThanOrEqual(wrapRect.right - 1);
+    }
+
+    clearBtn.click();
+    await waitFor(() => {
+      expect(textInput.value).toBe("");
+      expect(resetBtn.disabled).toBe(true);
+    });
+
+    const doneBtn = Array.from(searchDialog.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.trim() === "Done",
+    ) as HTMLButtonElement;
+    doneBtn.click();
+    await waitFor(() => {
+      expect(searchDialog.open).toBe(false);
+    });
+
+    // Open Level range filter modal and test Reset Filter clears inputs cleanly
+    const levelTrigger = Array.from(
+      canvasElement.querySelectorAll(".specification-header th .btn"),
+    ).find((el) => el.textContent?.trim() === "Level") as HTMLElement;
+    expect(levelTrigger).toBeDefined();
+    levelTrigger.click();
+
+    const lvDialog = canvasElement.querySelector(
+      "#ship_spec_modal_Level",
+    ) as HTMLDialogElement;
+    await waitFor(() => {
+      expect(lvDialog.open).toBe(true);
+    });
+
+    const lvResetBtn = Array.from(lvDialog.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.trim() === "Reset Filter",
+    ) as HTMLButtonElement;
+    expect(lvResetBtn.disabled).toBe(true);
+
+    const minInput = lvDialog.querySelector(
+      'input[placeholder="Min"]',
+    ) as HTMLInputElement;
+    minInput.value = "50";
+    minInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(lvResetBtn.disabled).toBe(false);
+    });
+
+    lvResetBtn.click();
+    await waitFor(() => {
+      expect(minInput.value).toBe("");
+      expect(lvResetBtn.disabled).toBe(true);
+    });
+
+    // Verify dark theme .btn-ghost active/hover background is visibly distinct from dark base-100
+    const darkProbe = document.createElement("div");
+    darkProbe.setAttribute("data-theme", "dark");
+    darkProbe.className = "bg-base-100 p-2";
+    const ghostIdle = document.createElement("button");
+    ghostIdle.className = "btn btn-ghost btn-xs";
+    ghostIdle.textContent = "Idle";
+    const ghostActive = document.createElement("button");
+    ghostActive.className = "btn btn-ghost btn-xs btn-active";
+    ghostActive.textContent = "Active";
+    darkProbe.append(ghostIdle, ghostActive);
+    canvasElement.appendChild(darkProbe);
+
+    expect(window.getComputedStyle(ghostActive).backgroundColor).not.toBe(
+      window.getComputedStyle(ghostIdle).backgroundColor,
+    );
+    expect(window.getComputedStyle(ghostActive).backgroundColor).not.toBe(
+      window.getComputedStyle(darkProbe).backgroundColor,
+    );
+    darkProbe.remove();
+  },
+};
