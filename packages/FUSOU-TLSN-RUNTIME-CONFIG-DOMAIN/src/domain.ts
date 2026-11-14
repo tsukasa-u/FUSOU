@@ -376,6 +376,7 @@ export interface RuntimeConfigRootSigner {
 }
 
 export interface VerifiedRuntimeConfigManifestEpochPointer {
+  readonly payload: RuntimeConfigManifestPayload;
   readonly epoch: string;
   readonly manifestSha256: string;
   readonly issuedAtMs: number;
@@ -386,6 +387,13 @@ export interface VerifiedRuntimeConfigManifestEpochPointer {
   readonly manifestAuthorityGeneration: string | null;
   readonly manifestAuthorityDelegationSha256: string | null;
   readonly approvedConfigSha256: string | null;
+  readonly publicationArtifactDigests: {
+    readonly workerReferenceSha256: string;
+    readonly originInventorySha256: string;
+    readonly targetApprovalArtifactSha256: string;
+    readonly securityRegistrySetSha256: string;
+    readonly resultRegistryEnvelopeSha256: string;
+  } | null;
 }
 
 export interface VerifiedDelegation<P extends DelegationPurpose = DelegationPurpose> {
@@ -1376,6 +1384,41 @@ export async function verifyRuntimeConfigReleaseCommitRecord(options: {
   });
 }
 
+export async function signRuntimeConfigReleaseCommitRecord(options: {
+  readonly payload: ReleaseCommitRecordPayload;
+  readonly signerKeyId: string;
+  readonly privateKey: CryptoKey;
+}): Promise<Uint8Array> {
+  assertKeyId(options.signerKeyId, "Release signer key ID");
+  if (
+    options.privateKey.type !== "private" ||
+    options.privateKey.algorithm.name !== "Ed25519" ||
+    !options.privateKey.usages.includes("sign")
+  ) {
+    invalid("INVALID_BINDING", "Release signer key is not an Ed25519 signing key");
+  }
+  const payloadBytes = canonicalJsonBytes(options.payload);
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "Ed25519" },
+      options.privateKey,
+      toArrayBuffer(signaturePreimage(
+        RELEASE_COMMIT_DOMAIN,
+        options.signerKeyId,
+        payloadBytes,
+      )),
+    ),
+  );
+  return canonicalJsonBytes({
+    schema_version: 1,
+    scope: RELEASE_ENVELOPE_SCOPE,
+    signature_algorithm: "Ed25519",
+    signer_key_id: options.signerKeyId,
+    payload_base64url: encodeBase64Url(payloadBytes),
+    signature_base64url: encodeBase64Url(signature),
+  });
+}
+
 function assertManifestExactKeys(
   value: unknown,
   fields: readonly string[],
@@ -1788,7 +1831,11 @@ export async function verifyRuntimeConfigManifestEpochPointer(options: {
   ) {
     invalid("INVALID_BINDING", "Manifest epoch is below or conflicts with persisted high-water");
   }
+  const publicationArtifactDigests = envelopeSchemaVersion === 3
+    ? manifestPublicationArtifactDigests(payload)
+    : null;
   return Object.freeze({
+    payload: deepFreeze(payload),
     epoch: payload.epoch,
     manifestSha256,
     issuedAtMs,
@@ -1799,6 +1846,75 @@ export async function verifyRuntimeConfigManifestEpochPointer(options: {
     manifestAuthorityGeneration: authorityGeneration,
     manifestAuthorityDelegationSha256: authorityDigest,
     approvedConfigSha256,
+    publicationArtifactDigests,
+  });
+}
+
+function deepFreeze<T>(value: T): T {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !Object.isFrozen(value)
+  ) {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+function manifestPublicationArtifactDigests(
+  payload: RuntimeConfigManifestPayload,
+): NonNullable<
+  Awaited<ReturnType<typeof verifyRuntimeConfigManifestEpochPointer>>[
+    "publicationArtifactDigests"
+  ]
+> {
+  assertManifestExactKeys(
+    payload.source,
+    RUNTIME_CONFIG_MANIFEST_SOURCE_FIELDS,
+    "Manifest source",
+  );
+  assertManifestExactKeys(
+    payload.production_authority_pins,
+    RUNTIME_CONFIG_MANIFEST_AUTHORITY_PIN_FIELDS,
+    "Manifest Production authority pins",
+  );
+  assertManifestExactKeys(
+    payload.result_registry_pins,
+    RUNTIME_CONFIG_MANIFEST_RESULT_PIN_FIELDS,
+    "Manifest Result registry pins",
+  );
+  const source = payload.source;
+  const authorityPins = payload.production_authority_pins;
+  const resultPins = payload.result_registry_pins;
+  const workerReferenceSha256 = source.worker_reference_sha256;
+  const originInventorySha256 = authorityPins.origin_inventory_sha256;
+  const targetApprovalArtifactSha256 =
+    authorityPins.target_approval_artifact_sha256;
+  const securityRegistrySetSha256 =
+    authorityPins.security_registry_set_sha256;
+  const resultRegistryEnvelopeSha256 =
+    resultPins.result_registry_envelope_sha256;
+  if (
+    typeof workerReferenceSha256 !== "string" ||
+    typeof originInventorySha256 !== "string" ||
+    typeof targetApprovalArtifactSha256 !== "string" ||
+    typeof securityRegistrySetSha256 !== "string" ||
+    typeof resultRegistryEnvelopeSha256 !== "string"
+  ) {
+    invalid("INVALID_WIRE", "Manifest publication artifact digest is missing");
+  }
+  assertDigest(workerReferenceSha256, "Worker reference digest");
+  assertDigest(originInventorySha256, "Origin Inventory digest");
+  assertDigest(targetApprovalArtifactSha256, "Target Approval digest");
+  assertDigest(securityRegistrySetSha256, "security registry set digest");
+  assertDigest(resultRegistryEnvelopeSha256, "Result registry envelope digest");
+  return Object.freeze({
+    workerReferenceSha256,
+    originInventorySha256,
+    targetApprovalArtifactSha256,
+    securityRegistrySetSha256,
+    resultRegistryEnvelopeSha256,
   });
 }
 

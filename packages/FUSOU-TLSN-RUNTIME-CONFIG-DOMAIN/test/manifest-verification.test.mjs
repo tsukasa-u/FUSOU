@@ -27,6 +27,8 @@ test("Worker-compatible Manifest verification matches the existing epoch-pointer
   ]);
   assert.equal(shared.epoch, existing.epoch);
   assert.equal(shared.manifestSha256, existing.manifest_sha256);
+  assert.ok(Object.isFrozen(shared.payload));
+  assert.ok(Object.isFrozen(shared.payload.source));
 });
 
 test("Manifest verification rejects changed bytes, a mismatched root pin, and an undersized limit", async () => {
