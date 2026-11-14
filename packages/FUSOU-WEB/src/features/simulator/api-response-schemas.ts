@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export type MasterDataJsonResponse = z.infer<typeof MasterDataJsonResponseSchema>;
+export type MasterDataJsonResponse = z.infer<
+  typeof MasterDataJsonResponseSchema
+>;
 export const MasterDataJsonResponseSchema = z
   .object({
     records: z.array(z.record(z.string(), z.unknown())).optional(),
@@ -26,54 +28,6 @@ export const MasterShipListResponseSchema = z
     period_tag: z.string().optional(),
     period_revision: z.number().int().optional(),
     table_version: z.string().optional(),
-  })
-  .passthrough();
-
-const QuestRuleSchema = z
-  .object({
-    rule_id: z.string(),
-    target_quest_id: z.number().int(),
-    prereq_set_json: z.string(),
-    set_size: z.number().int(),
-    class: z.string(),
-    support: z.number().finite(),
-    confidence: z.number().finite(),
-    lift: z.number().finite(),
-    score: z.number().finite(),
-    period_tag: z.string(),
-    table_version: z.string(),
-    is_primary: z.number().int(),
-    quality_tier: z.string(),
-    updated_at_ms: z.number().finite(),
-  })
-  .passthrough();
-
-const QuestGraphEdgeSchema = z
-  .object({
-    from: z.number().int(),
-    to: z.number().int(),
-    score: z.number().finite(),
-    class: z.string(),
-  })
-  .passthrough();
-
-export const QuestGraphResponseSchema = z
-  .object({
-    ok: z.boolean(),
-    period_tag: z.string(),
-    table_version: z.string(),
-    nodes: z.array(z.number().int()),
-    edges: z.array(QuestGraphEdgeSchema),
-  })
-  .passthrough();
-
-export const QuestRulesResponseSchema = z
-  .object({
-    ok: z.boolean(),
-    target: z.number().int(),
-    period_tag: z.string(),
-    table_version: z.string(),
-    rules: z.array(QuestRuleSchema),
   })
   .passthrough();
 
