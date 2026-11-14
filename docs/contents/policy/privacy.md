@@ -2,8 +2,8 @@
 title: Privacy Policy for fusou
 description: >-
   This Privacy Policy describes how the application "fusou" collects, uses, and handles user information.
-contributors: ["tsukasa-u"]
-date: 2025-12-04
+contributors: ["tsukasa-u", "antigravity-ai"]
+date: 2026-11-15
 slug: policy/privacy
 tags: [policy, privacy]
 ---
@@ -14,17 +14,16 @@ tags: [policy, privacy]
 This Privacy Policy describes how the application "fusou" (hereinafter referred to as "the App") collects, uses, and handles user information.
 
 **2. Information Collection**
-The App collects and uses the following information:
+The App collects and handles information only according to your configuration:
 
-- **Google Account Information:** The App uses basic Google Account information (such as name, email address, and profile picture) for user authentication and identification purposes.
-- **Google Drive Data:** The App accesses the user's Google Drive to collect and store game data. The App requires permissions to view, create, edit, and delete files within Google Drive.
-  - The App accesses only the files created by the App itself or specific files designated by the user. It does not access other private files stored in the user's Google Drive.
+- **Account & Authentication Information (Optional):** When you sign in to FUSOU (via Supabase Auth, such as email/OAuth sign-in or dashboard API keys), the App handles session tokens and account identifiers needed for authentication. Anonymous data submission does not require signing in when anonymous sync is enabled.
+- **Game & Fleet Data:** When enabled in `configs.toml`, the App processes game traffic locally and may store local Avro OCF / JSONL files or upload anonymized/configured battle data, fleet snapshots, and static assets to FUSOU's cloud infrastructure (Cloudflare R2 / D1 and Supabase). Legacy Google Drive sync (`gdrive` feature) is deprecated and disabled in default builds.
 
 **3. Purpose of Use**
 The information collected is used solely for the following purposes:
 
-- To provide the App's features (such as collecting, backing up, and restoring game data).
-- To verify the user's identity.
+- To provide the App and Web features (such as local/cloud game data collection, fleet snapshot sharing, and dataset publication).
+- To verify the user's identity when signed in.
 - To respond to user inquiries.
 
 **4. Third-Party Sharing**

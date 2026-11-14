@@ -1,8 +1,8 @@
 ---
 title: FUSOU-APP ライセンス情報
 description: デスクトップアプリケーション「FUSOU-APP」本体のライセンスおよび配布バイナリに同梱・静的リンクされるオープンソースソフトウェアのライセンス・著作権表示
-contributors: ["tsukasa-u"]
-date: 2026-09-09
+contributors: ["tsukasa-u", "antigravity-ai"]
+date: 2026-11-15
 slug: license/fusou_app
 tags: [license, fusou-app, tauri, rust]
 ---
@@ -47,7 +47,7 @@ SOFTWARE.
 
 FUSOU-APP は **Tauri v2** を採用したデスクトップアプリケーションです。ユーザー環境に配布されるバイナリには以下が含まれます：
 
-1. **Rust ネイティブバックエンド**: プロキシ通信の傍受・復号、艦これAPIレスポンスのパース、ローカルSQLite/DuckDBへの保存、暗号化処理、OSネイティブ通知、自動更新機能などを担当します（計 776 クレート）。
+1. **Rust ネイティブバックエンド**: プロキシ通信の傍受・復号、艦これAPIレスポンスのパース、ローカルファイル（Avro OCF / JSONL）への保存、暗号化処理、OSネイティブ通知、自動更新機能などを担当します（計 776 クレート）。
 2. **Webview フロントエンド**: SolidJS で構築されたUIコンポーネントであり、Tauri の WebView2（Windows）上で実行されます（計 13 パッケージ）。
 
 配布されるプログラムは、すべての依存関係において **パーミッシブなライセンス（MIT, Apache-2.0, BSD, ISC, Zlib 等）** または **ファイル単位の弱コピーレフトライセンス（MPL-2.0）** を採用しており、GPL/AGPL 等の強コピーレフトライセンスの混入はありません。
