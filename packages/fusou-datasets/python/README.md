@@ -73,17 +73,22 @@ val_data = fd.load("cells", split="validation")
 
 When `cache_dir` is configured, datasets are saved in local Parquet and JSON files:
 - **Battle tables**: `{cache_dir}/{table}/{table_version}/{period_tag}/{split}/data.parquet`
+- **Master tables**: `{cache_dir}/master/{table_version}/{period_tag}/{canonical}.parquet`
 - **Synergy data**: `{cache_dir}/synergy/{period_tag}/synergy.json`
 - **Growth curves**: `{cache_dir}/growth/{table_version}/{period_tag}/bounds.parquet`
+- **Speed observations**: `{cache_dir}/soku_speed/{table_version}/{period_tag}/observations.parquet`
 
 ```python
-# Load from cache without contacting the server
+# Load from cache without contacting the server (raises DatasetNotFoundError if uncached)
 df = fd.load("cells", offline=True)
 synergy = fd.load_synergy(offline=True)
+growth = fd.load_growth_snapshot(offline=True)
 
 # Force re-download from server even if cached
 df = fd.load("cells", force_download=True)
 ```
+
+> **Note:** When specifying a concrete `period_tag` (anything other than `"latest"`) in `load_speed_observation(...)`, `table_version` must also be provided (either as a parameter or via `configure(table_version=...)`).
 
 ## Synergy Data
 

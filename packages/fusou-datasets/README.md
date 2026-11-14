@@ -12,7 +12,7 @@ Python SDK for reproducible KanColle data science, game mechanics verification, 
   - Multi-tier local caching using Apache Parquet and JSON.
   - PyArrow C Data Stream interface (`__arrow_c_stream__`) and Python Array API support.
 - **Master Data & Synergy Integration**:
-  - Schema-validated master datasets (`mst_ship`, `mst_slotitem`, etc.).
+  - Schema-validated master datasets (`mst_ships`, `mst_slot_items`, etc.).
   - Equipment synergy bonuses (`load_synergy()`) and parameter growth curves (`load_growth_snapshot()`).
 - **Fluent Query Builder**:
   - Django-style filtering (`DatasetQuery`), deterministic joins, and Jupyter HTML previews.

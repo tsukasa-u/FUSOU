@@ -51,10 +51,10 @@ def verify_list_tables():
         return False
 
 def verify_data_load():
-    print_header("3. Load Data (ship_type)")
+    print_header("3. Load Data (mst_stypes)")
     try:
-        print("Loading 'ship_type' (limit=5)...")
-        df = load("ship_type", limit=1)
+        print("Loading 'mst_stypes' (limit=5)...")
+        df = load("mst_stypes", limit=1)
         print(f"✓ Loaded DataFrame with shape: {df.shape}")
         print(df.head(2))
         return True

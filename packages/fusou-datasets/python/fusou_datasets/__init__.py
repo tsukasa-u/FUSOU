@@ -36,7 +36,7 @@ Fusou Datasets SDK v{__version__} - Quick Guide
    ds = fd.VerificationDataset("cells", split="validation")
    df = ds.filter(maparea_id=45).select("cell_id", "mapinfo_no").to_dataframe()
 
-Documentation: https://fusou.dev/guide/fusou_datasets/
+Documentation: https://fusou.dev/docs/guide/fusou_datasets/getting_started
 ================================================================================
 """
     print(guide)
@@ -50,9 +50,9 @@ def _show_banner():
             f"Fusou Datasets v{__version__}\n"
             + "=" * 80 + "\n"
             "[EN] By using this library, you agree to use data for research purposes only.\n"
-            "     Redistribution of raw data is prohibited. Visit: https://fusou.dev/terms\n"
+            "     Redistribution of raw data is prohibited. Visit: https://fusou.dev/docs/policy/terms\n"
             "[JP] このライブラリを使用することで、データは研究目的のみに使用することに同意します。\n"
-            "     生データの再配布は禁止されています。詳細: https://fusou.dev/terms\n"
+            "     生データの再配布は禁止されています。詳細: https://fusou.dev/docs/policy/terms\n"
             + "-" * 80 + "\n"
             "Get your API Key at: https://fusou.dev/dashboard/api-keys\n"
             + "=" * 80 + "\n",

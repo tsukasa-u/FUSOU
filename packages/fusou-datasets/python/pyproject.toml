@@ -43,7 +43,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/tsukasa-u/FUSOU"
-Documentation = "https://github.com/tsukasa-u/FUSOU/docs"
+Documentation = "https://fusou.dev/docs/guide/fusou_datasets/getting_started"
 Repository = "https://github.com/tsukasa-u/FUSOU"
 "Bug Tracker" = "https://github.com/tsukasa-u/FUSOU/issues"
 
