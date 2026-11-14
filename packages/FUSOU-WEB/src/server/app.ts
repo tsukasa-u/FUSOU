@@ -9,7 +9,6 @@ import authApp from "./routes/auth";
 import assetsApp from "./routes/assets";
 import fleetApp from "./routes/fleet";
 import kcApp from "./routes/kc";
-import compactApp from "./routes/compact";
 import battleDataApp from "./routes/battle_data";
 import userApp from "./routes/user";
 import sokuSpeedObserved from "./routes/soku_speed_observed";
@@ -176,7 +175,6 @@ app.route("/auth", authApp);
 app.route("/asset-sync", assetsApp); // assetsApp declares /upload, /keys, etc.
 app.route("/fleet", fleetApp); // fleetApp declares /snapshot, etc.
 app.route("/kc-period", kcApp); // kcApp declares /latest, etc.
-app.route("/compaction", compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
 app.route("/battle-data", battleDataApp); // battleDataApp declares /upload, /health
 app.route("/user", userApp); // userApp declares /member-map
 app.route("/admin", adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
@@ -188,7 +186,7 @@ app.route("/api-keys", apiKeysApp); // apiKeysApp declares /, /:id, /devices, /d
 app.route("/auth", anonymousSyncApp); // anonymousSyncApp declares legacy /anonymous-sync (deprecated and access denied)
 app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares identity, device lifecycle, and pending handoff endpoints
 app.route("/shorten", shortenerApp); // shortener app declares POST /
-app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
+app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /changes
 app.route("/remodel-data", remodelDataApp); // remodelDataApp declares /ingest
 app.route("/soku-speed-observed", sokuSpeedObserved); // Mount new route for sokuSpeedObserved
 app.route("/internal/compaction", internalCompactionApp); // internal compaction control plane APIs for Trigger.dev

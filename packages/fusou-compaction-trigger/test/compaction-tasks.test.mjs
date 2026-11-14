@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWindow } from "../dist/trigger/compaction-tasks.js";
+import {
+  buildDetailSnapshotRebuildUrl,
+  buildWindow,
+  triggerSnapshotRebuild,
+} from "../dist/trigger/compaction-tasks.js";
 
 test("buildWindow - hourly calculates correct 1-hour window", () => {
   const now = Date.parse("2026-09-17T03:45:00Z");
@@ -37,4 +41,48 @@ test("buildWindow - weekly calculates Monday-aligned 1-week window", () => {
   const sunWindow = buildWindow("weekly", sundayNight);
   assert.equal(sunWindow.end, Date.parse("2026-09-07T00:00:00Z"));
   assert.equal(sunWindow.start, Date.parse("2026-08-31T00:00:00Z"));
+});
+
+test("buildDetailSnapshotRebuildUrl normalizes /api suffix", () => {
+  assert.equal(
+    buildDetailSnapshotRebuildUrl("https://fusou.dev/api"),
+    "https://fusou.dev/api/battle-data/internal/rebuild-detail-snapshots",
+  );
+  assert.equal(
+    buildDetailSnapshotRebuildUrl("https://fusou.dev/api/"),
+    "https://fusou.dev/api/battle-data/internal/rebuild-detail-snapshots",
+  );
+  assert.equal(
+    buildDetailSnapshotRebuildUrl("https://fusou.dev"),
+    "https://fusou.dev/api/battle-data/internal/rebuild-detail-snapshots",
+  );
+});
+
+test("triggerSnapshotRebuild posts period_tag to internal HTTP endpoint", async () => {
+  const originalBase = process.env.INTERNAL_COMPACTION_BASE_URL;
+  const originalToken = process.env.INTERNAL_COMPACTION_TOKEN;
+  const originalFetch = globalThis.fetch;
+
+  const calls = [];
+  process.env.INTERNAL_COMPACTION_BASE_URL = "https://example.invalid/api";
+  process.env.INTERNAL_COMPACTION_TOKEN = "secret-token";
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  };
+
+  try {
+    await triggerSnapshotRebuild("2026-09-10");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://example.invalid/api/battle-data/internal/rebuild-detail-snapshots");
+    assert.equal(calls[0].init.method, "POST");
+    assert.equal(calls[0].init.headers.Authorization, "Bearer secret-token");
+    assert.equal(calls[0].init.body, JSON.stringify({ period_tag: "2026-09-10" }));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalBase === undefined) delete process.env.INTERNAL_COMPACTION_BASE_URL;
+    else process.env.INTERNAL_COMPACTION_BASE_URL = originalBase;
+    if (originalToken === undefined) delete process.env.INTERNAL_COMPACTION_TOKEN;
+    else process.env.INTERNAL_COMPACTION_TOKEN = originalToken;
+  }
 });

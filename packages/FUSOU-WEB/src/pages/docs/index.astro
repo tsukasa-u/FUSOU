@@ -45,12 +45,6 @@ const CATEGORY_MAP: Record<
     icon: "rocket_launch",
     description: "FUSOU の導入、概要、最初のセットアップガイド",
   },
-  formulas: {
-    label: "Formulas & Verification",
-    order: 2,
-    icon: "science",
-    description: "艦これ検証式の一次情報源、探索パイプライン、追試・倫理規定",
-  },
   guide: {
     label: "Guides & Features",
     order: 3,
@@ -71,9 +65,15 @@ const CATEGORY_MAP: Record<
   },
   policy: {
     label: "Policies & Legal",
-    order: 6,
+    order: 5,
     icon: "policy",
     description: "著作権、引用指針、コミュニティ倫理ポリシー",
+  },
+  license: {
+    label: "Licenses",
+    order: 6,
+    icon: "gavel",
+    description: "FUSOU-APP・FUSOU-WEB および依存 OSS のライセンス情報",
   },
 };
 
@@ -185,7 +185,7 @@ const showLocalDevBanner = isLocalDev();
         FUSOU Documentation
       </h1>
       <p class="mt-3 text-base sm:text-lg text-base-content/70 max-w-[70ch] leading-relaxed">
-        艦これデータ検証、シミュレーションエンジン、API、および FUSOU エコシステムの全ドキュメント一覧です。
+        FUSOU の導入手順、API・スキーマ仕様、データセット利用ガイド、および各種ポリシーのドキュメント一覧です。
       </p>
 
       {

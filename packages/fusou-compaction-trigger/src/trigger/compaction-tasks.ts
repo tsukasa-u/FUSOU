@@ -1,9 +1,5 @@
 import { schedules, task } from "@trigger.dev/sdk/v3";
 import { createHash } from "node:crypto";
-import { execSync } from "node:child_process";
-import path from "node:path";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
 import { runCompactionJob } from "../index.js";
 import { InternalCompactionClient } from "../internal-api.js";
 import type { CompactionTier } from "../types.js";
@@ -147,23 +143,43 @@ async function runWindowedBackfill(params: {
 }
 
 
-async function triggerSnapshotRebuild(periodTag: string): Promise<void> {
-  console.info(`[compactor] Automatically rebuilding snapshots for period: ${periodTag}...`);
+export function buildDetailSnapshotRebuildUrl(baseUrl: string): string {
+  const normalized = baseUrl.replace(/\/$/, "");
+  if (normalized.endsWith("/api")) {
+    return `${normalized}/battle-data/internal/rebuild-detail-snapshots`;
+  }
+  return `${normalized}/api/battle-data/internal/rebuild-detail-snapshots`;
+}
+
+export async function triggerSnapshotRebuild(periodTag: string): Promise<void> {
+  const baseUrl = process.env["INTERNAL_COMPACTION_BASE_URL"]?.trim();
+  const token = process.env["INTERNAL_COMPACTION_TOKEN"]?.trim();
+  if (!baseUrl || !token) {
+    console.warn(
+      `[compactor] Missing INTERNAL_COMPACTION_BASE_URL or INTERNAL_COMPACTION_TOKEN, skipping snapshot rebuild for ${periodTag}.`,
+    );
+    return;
+  }
+
+  const targetUrl = buildDetailSnapshotRebuildUrl(baseUrl);
+  console.info(`[compactor] Triggering remote snapshot rebuild for period ${periodTag} via ${targetUrl}...`);
   try {
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    const candidatePaths = [
-      path.resolve(currentDir, "../../../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
-      path.resolve(currentDir, "../../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
-      path.resolve(process.cwd(), "../FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
-      path.resolve(process.cwd(), "packages/FUSOU-WEB/scripts/rebuild-all-snapshots.mjs"),
-    ];
-    const scriptPath = candidatePaths.find((p) => fs.existsSync(p));
-    if (scriptPath) {
-      execSync(`node "${scriptPath}"`, { stdio: "inherit", env: { ...process.env, PERIOD_TAG: periodTag } });
-      console.info(`[compactor] Snapshot rebuild complete for period: ${periodTag}`);
-    } else {
-      console.warn(`[compactor] rebuild-all-snapshots.mjs not found in candidates, skipping snapshot rebuild.`);
+    const resp = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ period_tag: periodTag }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      console.warn(
+        `[compactor] Remote snapshot rebuild returned HTTP ${resp.status} for ${periodTag}: ${body}`,
+      );
+      return;
     }
+    console.info(`[compactor] Remote snapshot rebuild complete for period: ${periodTag}`);
   } catch (err) {
     console.warn(`[compactor] Failed to automatically rebuild snapshots for ${periodTag}:`, err);
   }
@@ -386,19 +402,6 @@ async function runBackfillCascade(params: {
         periodTag: params.periodTag,
         tableVersion: params.tableVersion,
       });
-
-      // Converge period outputs to a single file per table/period/version by
-      // compacting period outputs into period again after weekly->period backfill.
-      if (periodSourceTier !== "period") {
-        await runPeriodBackfill({
-          sourceTier: "period",
-          discoveryWindow: params.discoveryWindow,
-          tableNames: params.tableNames,
-          chunkLimit: params.chunkLimit,
-          periodTag: params.periodTag,
-          tableVersion: params.tableVersion,
-        });
-      }
       continue;
     }
 

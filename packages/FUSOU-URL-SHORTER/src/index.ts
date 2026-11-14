@@ -167,13 +167,17 @@ const shortenSchema = z.object({
           const parsed = new URL(u);
           // Block javascript: and other non-https schemes (Zod accepts javascript: as valid URL)
           if (parsed.protocol !== "https:") return false;
-          // Only allow shortening FUSOU simulator URLs
-          return parsed.pathname === "/simulator" || parsed.pathname.startsWith("/simulator/");
+          // Only allow shortening FUSOU simulator and share URLs
+          return (
+            parsed.pathname === "/simulator" ||
+            parsed.pathname.startsWith("/simulator/") ||
+            parsed.pathname === "/share/data"
+          );
         } catch {
           return false;
         }
       },
-      { message: "Only FUSOU simulator https URLs are accepted" }
+      { message: "Only FUSOU simulator and share https URLs are accepted" }
     ),
   snapshotPayload: z
     .object({

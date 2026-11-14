@@ -10,13 +10,16 @@ and offline access.
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 import sys
+import time
 import pandas as pd
 
 from ._config import _config
 from ._client import _request, _raise_api_error
 from ._loader import _download_avro
 from ._exceptions import FusouDatasetsError, DatasetNotFoundError
-from .schema import TableInput, resolve_table_name
+from .schema import TableInput
+
+MASTER_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 # Canonical master table mapping (accepts both singular and plural forms)
 _MASTER_CANONICAL = {
@@ -119,11 +122,11 @@ def load_master(
     Returns:
         pd.DataFrame: Master data records
     """
-    raw_name = resolve_table_name(table) if not isinstance(table, str) else table
-    canonical = _MASTER_CANONICAL.get(str(raw_name).lower().strip())
+    raw_name = str(getattr(table, "TABLE", table)).lower().strip()
+    canonical = _MASTER_CANONICAL.get(raw_name)
     if not canonical:
         # Check if table matches without prefix
-        with_mst = f"mst_{table.lower().strip()}"
+        with_mst = f"mst_{raw_name}"
         canonical = _MASTER_CANONICAL.get(with_mst)
     
     if not canonical:
@@ -142,7 +145,8 @@ def load_master(
     )
 
     if cache_path and cache_path.exists() and not force_download:
-        if offline or tag != "latest":
+        cache_is_fresh = cache_path.stat().st_mtime >= time.time() - MASTER_CACHE_TTL_SECONDS
+        if offline or tag != "latest" or cache_is_fresh:
             return pd.read_parquet(cache_path)
 
     if offline:
@@ -160,7 +164,7 @@ def load_master(
     resp = _request("GET", url)
     if resp.status_code == 404:
         # Try singular/plural fallback
-        alt_table = table.lower().strip()
+        alt_table = raw_name
         if alt_table != canonical:
             alt_url = f"/data/{alt_table}?period_tag={tag}&limit=1"
             if ver:

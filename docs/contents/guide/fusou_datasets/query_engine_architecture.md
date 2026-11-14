@@ -3,7 +3,7 @@ title: Query Engine Architecture (Internal)
 contributors: ["antigravity-ai"]
 description: >-
   fusou-datasets 自動結合クエリエンジンの内部構造、スキーマ生成、グラフ探索、マージ戦略に関する詳細な技術ドキュメント。
-date: 2026-01-02
+date: 2026-11-15
 slug: guide/fusou_datasets/query_engine_architecture
 tags: [guide, fusou_datasets, internal, architecture]
 ---
@@ -21,9 +21,9 @@ tags: [guide, fusou_datasets, internal, architecture]
 
 ### Schema Generation
 
-テーブル名やカラム名の定義は、Avro スキーマファイル (`kc_api_v1.json`) から自動生成されます。
+テーブル名やカラム名の定義は、生成済み Avro スキーマファイル (`schema_v*.json`, `master_schema_v*.json`) から自動生成されます。
 
-- **Source**: `packages/FUSOU-WORKFLOW/schemas/kc_api_v1.json`
+- **Source**: `packages/kc_api/generated-schemas/`
 - **Generator**: `packages/FUSOU-WORKFLOW/scripts/gen_python_constants.py`
 - **Output**: `packages/fusou-datasets/python/fusou_datasets/schema.py`
 

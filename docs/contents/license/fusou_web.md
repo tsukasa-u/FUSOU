@@ -107,12 +107,12 @@ FUSOU-WEB は **Astro**, **SolidJS**, **Cloudflare Workers** をベースに構�
 
 ---
 
-## 5. 全本番依存パッケージ一覧 (521 パッケージ)
+## 5. 全本番依存パッケージ一覧 (499 パッケージ)
 
 FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッジワーカー）に含まれるすべての依存パッケージ一覧です。
 
 <details>
-<summary><strong>全 521 パッケージの一覧を展開する (クリックして表示)</strong></summary>
+<summary><strong>全 499 パッケージの一覧を展開する (クリックして表示)</strong></summary>
 
 | パッケージ名 | バージョン | ライセンス |
 | :--- | :--- | :--- |
@@ -188,9 +188,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `@supabase/realtime-js` | `2.86.0` | MIT |
 | `@supabase/storage-js` | `2.86.0` | MIT |
 | `@supabase/supabase-js` | `2.86.0` | MIT |
-| `@swc/helpers` | `0.5.17` | Apache-2.0 |
-| `@types/command-line-args` | `5.2.3` | MIT |
-| `@types/command-line-usage` | `5.0.4` | MIT |
 | `@types/d3` | `7.4.3` | MIT |
 | `@types/d3-array` | `3.2.2` | MIT |
 | `@types/d3-axis` | `3.0.6` | MIT |
@@ -232,7 +229,7 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `@types/mdx` | `2.0.13` | MIT |
 | `@types/ms` | `2.1.0` | MIT |
 | `@types/nlcst` | `2.0.3` | MIT |
-| `@types/node` | `20.19.43, 22.20.4, 26.6.5` | MIT |
+| `@types/node` | `22.20.4, 26.6.5` | MIT |
 | `@types/phoenix` | `1.6.6` | MIT |
 | `@types/react` | `19.2.7` | MIT |
 | `@types/trusted-types` | `2.0.7` | MIT |
@@ -245,12 +242,9 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `acorn` | `8.19.0` | MIT |
 | `acorn-jsx` | `5.3.2` | MIT |
 | `am-i-vibing` | `0.4.0` | MIT |
-| `ansi-styles` | `4.3.0` | MIT |
 | `anymatch` | `3.1.3` | ISC |
-| `apache-arrow` | `20.0.0` | Apache-2.0 |
 | `argparse` | `2.0.1` | Python-2.0 |
 | `aria-query` | `5.3.2` | Apache-2.0 |
-| `array-back` | `6.2.2` | MIT |
 | `array-iterate` | `2.0.1` | MIT |
 | `astring` | `1.9.0` | MIT |
 | `astro` | `7.3.3` | MIT |
@@ -260,8 +254,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `boolbase` | `1.0.0` | ISC |
 | `buffer-from` | `1.1.2` | MIT |
 | `ccount` | `2.0.1` | MIT |
-| `chalk` | `4.1.2` | MIT |
-| `chalk-template` | `0.4.0` | MIT |
 | `character-entities` | `2.0.2` | MIT |
 | `character-entities-html4` | `2.1.0` | MIT |
 | `character-entities-legacy` | `3.0.0` | MIT |
@@ -273,11 +265,7 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `classcat` | `5.0.5` | MIT |
 | `clsx` | `2.1.1` | MIT |
 | `collapse-white-space` | `2.1.0` | MIT |
-| `color-convert` | `2.0.1` | MIT |
-| `color-name` | `1.1.4` | MIT |
 | `comma-separated-tokens` | `2.0.3` | MIT |
-| `command-line-args` | `6.0.1` | MIT |
-| `command-line-usage` | `7.0.3` | MIT |
 | `commander` | `2.20.3, 7.2.0, 11.1.0, 15.0.0` | MIT |
 | `common-ancestor-path` | `2.0.0` | BlueOak-1.0.0 |
 | `confbox` | `0.1.8` | MIT |
@@ -370,8 +358,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `fast-wrap-ansi` | `0.2.2` | MIT |
 | `fdir` | `6.5.0` | MIT |
 | `find-proc` | `0.2.0` | MIT |
-| `find-replace` | `5.0.2` | MIT |
-| `flatbuffers` | `25.9.23` | Apache-2.0 |
 | `flattie` | `1.1.1` | MIT |
 | `fontace` | `0.4.1` | MIT |
 | `fontkitten` | `1.0.3` | MIT |
@@ -379,7 +365,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `github-slugger` | `2.0.0` | ISC |
 | `h3` | `1.15.11` | MIT |
 | `hachure-fill` | `0.5.2` | MIT |
-| `has-flag` | `4.0.0` | MIT |
 | `hast-util-from-dom` | `5.0.1` | ISC |
 | `hast-util-from-html` | `2.0.3` | MIT |
 | `hast-util-from-html-isomorphic` | `2.0.0` | MIT |
@@ -413,7 +398,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `jiti` | `2.7.0` | MIT |
 | `jose` | `6.1.2` | MIT |
 | `js-yaml` | `4.3.2` | MIT |
-| `json-bignum` | `0.0.3` | MIT |
 | `jsonc-parser` | `3.3.1` | MIT |
 | `katex` | `0.19.0` | MIT |
 | `khroma` | `2.1.0` | MIT |
@@ -422,7 +406,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `lightningcss` | `1.33.0` | MPL-2.0 |
 | `lightningcss-win32-x64-msvc` | `1.33.0` | MPL-2.0 |
 | `lodash-es` | `4.18.1` | MIT |
-| `lodash.camelcase` | `4.3.0` | MIT |
 | `longest-streak` | `3.1.0` | MIT |
 | `lru-cache` | `11.5.3` | BlueOak-1.0.0 |
 | `magic-string` | `1.4.5` | MIT |
@@ -529,9 +512,7 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `property-information` | `7.2.0` | MIT |
 | `radix3` | `1.1.2` | MIT |
 | `react` | `19.2.0` | MIT |
-| `react-chartjs-2` | `5.3.1` | MIT |
 | `react-dom` | `19.2.0` | MIT |
-| `react-virtuoso` | `4.15.0` | MIT |
 | `readdirp` | `5.1.1` | MIT |
 | `recma-build-jsx` | `1.0.0` | MIT |
 | `recma-jsx` | `1.0.1` | MIT |
@@ -582,9 +563,8 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `style-to-js` | `1.1.21` | MIT |
 | `style-to-object` | `1.0.14, 2.0.2` | MIT |
 | `stylis` | `4.3.6` | MIT |
-| `supports-color` | `7.2.0, 10.2.2` | MIT |
+| `supports-color` | `10.2.2` | MIT |
 | `svgo` | `4.1.0` | MIT |
-| `table-layout` | `4.1.1` | MIT |
 | `terser` | `5.51.2` | BSD-2-Clause |
 | `tiny-inflate` | `1.0.3` | MIT |
 | `tinyclip` | `0.1.15` | MIT |
@@ -594,7 +574,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `trough` | `2.2.0` | MIT |
 | `ts-dedent` | `2.2.0` | MIT |
 | `tslib` | `2.8.1` | 0BSD |
-| `typical` | `7.3.0` | MIT |
 | `ufo` | `1.6.4` | MIT |
 | `ultrahtml` | `1.7.0` | MIT |
 | `uncrypto` | `0.1.3` | MIT |
@@ -624,7 +603,6 @@ FUSOU-WEB の本番環境（クライアント配信バンドルおよびエッ�
 | `vite` | `8.3.5` | MIT |
 | `vitefu` | `1.1.3` | MIT |
 | `web-namespaces` | `2.0.1` | MIT |
-| `wordwrapjs` | `5.1.1` | MIT |
 | `workerd` | `1.20260918.1` | Apache-2.0 |
 | `wrangler` | `4.135.0` | MIT OR Apache-2.0 |
 | `ws` | `8.22.1` | MIT |

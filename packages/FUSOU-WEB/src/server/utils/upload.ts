@@ -33,11 +33,17 @@ export interface UploadAuthContext {
 }
 
 export interface UploadConfig {
-  bucket: R2BucketBinding;
+  bucket?: R2BucketBinding;
   signingSecret: string;
   tokenPayloadSchema?: z.ZodType<Record<string, unknown>>;
-  tokenTTL?: number;
+  tokenTTL?: number | ((tokenPayload: Record<string, unknown>) => number);
   maxBodySize?: number;
+  maxPreparationBodySize?: number;
+  errorMessages?: {
+    preparationBodyTooLarge?: string;
+    missingBody?: string;
+    bodyTooLarge?: string;
+  };
   requireDatasetToken?: boolean;
   allowEmptyBody?: boolean;
   preparationValidator: (
@@ -133,9 +139,9 @@ export async function handleTwoStageUpload(
   c: AppContext,
   config: UploadConfig,
 ): Promise<Response> {
-  const { bucket, signingSecret } = config;
+  const { signingSecret } = config;
 
-  if (!bucket || !signingSecret) {
+  if (!signingSecret) {
     return c.json({ error: "Server misconfiguration" }, 500);
   }
 
@@ -184,9 +190,15 @@ async function handlePreparation(
     );
   }
 
-  const bodyResult = await readBodyWithinLimit(request, maxBodySize);
+  const bodyResult = await readBodyWithinLimit(
+    request,
+    config.maxPreparationBodySize ?? maxBodySize,
+  );
   if (bodyResult.kind === "too_large") {
-    return c.json({ error: "request_too_large" }, 413);
+    return c.json(
+      { error: config.errorMessages?.preparationBodyTooLarge ?? "request_too_large" },
+      413,
+    );
   }
   if (bodyResult.kind === "missing") {
     return c.json({ error: "Invalid JSON body" }, 400);
@@ -211,15 +223,21 @@ async function handlePreparation(
       resolveDatasetToken,
       validateDatasetTokenWithConstraints,
       resolveDatasetTokenRevocationConfig,
+      validateDatasetTokenSecret,
     } = await import("../utils");
     const env = createEnvContext(c);
+    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
+    if (!secretValidation.ok) {
+      return c.json({ error: secretValidation.error }, 500);
+    }
     const datasetToken = resolveDatasetToken(
       request.headers.get("X-Dataset-Token"),
       body?.["dataset_token"],
     );
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
-      secret: getEnv(env, "DATASET_TOKEN_SECRET"),
+      secret: datasetTokenSecret,
       revocation: resolveDatasetTokenRevocationConfig(env),
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
       // dataset_token.sub は最初にマッピングを作成した端末の user_id であり、
@@ -263,10 +281,14 @@ async function handlePreparation(
   //   - 1 MB file: 330s (5.5 min)
   //   - 10 MB file: 600s (10 min)
   //   - 100 MB file: 3600s (1 hour)
-  let effectiveTTL = tokenTTL ?? SIGNED_URL_TTL_SECONDS;
+  let effectiveTTL =
+    typeof tokenTTL === "function"
+      ? tokenTTL(tokenPayload)
+      : tokenTTL ?? SIGNED_URL_TTL_SECONDS;
 
   // If declared_size is provided in tokenPayload, calculate dynamic TTL
   if (
+    typeof tokenTTL !== "function" &&
     tokenPayload["declared_size"] &&
     typeof tokenPayload["declared_size"] === "number"
   ) {
@@ -402,10 +424,16 @@ async function handleExecution(
       }
       return c.json(processingResult.response);
     }
-    return c.json({ error: "Upload payload is missing" }, 400);
+    return c.json(
+      { error: config.errorMessages?.missingBody ?? "Upload payload is missing" },
+      400,
+    );
   }
   if (bodyResult.kind === "too_large") {
-    return c.json({ error: "request_too_large" }, 413);
+    return c.json(
+      { error: config.errorMessages?.bodyTooLarge ?? "request_too_large" },
+      413,
+    );
   }
 
   try {

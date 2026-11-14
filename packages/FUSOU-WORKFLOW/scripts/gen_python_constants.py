@@ -1,35 +1,41 @@
-
 import json
-import os
-from pathlib import Path
 import re
+from pathlib import Path
 
-# Paths
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-SCHEMA_DIR = ROOT_DIR / "packages/kc_api/generated-schemas"
-TARGET_PY = ROOT_DIR / "packages/fusou-datasets/python/fusou_datasets/schema.py"
+SCHEMA_DIR = ROOT_DIR / "packages" / "kc_api" / "generated-schemas"
+TARGET_PY = ROOT_DIR / "packages" / "fusou-datasets" / "python" / "fusou_datasets" / "schema.py"
 
-# Manual Master Data Definitions (since they aren't in kc_api_v1.json)
-MASTER_TABLES = {
-    "ship_type": ["id", "name", "sort_no", "mission_type"],
-    "ship_master": ["id", "name", "yomi", "stype", "ctype", "max_hp", "karyoku", "raisou", "taiku", "soukou"],
-    "slot_item_master": ["id", "name", "type", "soukou", "karyoku", "raisou", "baku", "taiku", "taisen", "sakuteki", "houm", "houk", "kouku", "distance", "cost"],
-    "use_item_master": ["id", "name", "description"],
-    "map_area_master": ["id", "name"],
-    "map_info_master": ["id", "maparea_id", "no", "name", "level"],
-    "mission_master": ["id", "maparea_id", "name", "details", "time", "difficulty", "use_fuel", "use_bull", "return_flag"],
+MASTER_TABLE_ALIASES = {
+    "mst_ship": "mst_ships",
+    "mst_shipgraph": "mst_ship_graphs",
+    "mst_shipgraphs": "mst_ship_graphs",
+    "mst_ship_graph": "mst_ship_graphs",
+    "mst_ship_upgrade": "mst_ship_upgrades",
+    "mst_slotitem": "mst_slot_items",
+    "mst_slotitems": "mst_slot_items",
+    "mst_slot_item": "mst_slot_items",
+    "mst_slotitem_equiptype": "mst_slotitem_equip_types",
+    "mst_slotitem_equiptypes": "mst_slotitem_equip_types",
+    "mst_slotitem_equip_type": "mst_slotitem_equip_types",
+    "mst_equip_exslot_ship": "mst_equip_exslot_ships",
+    "mst_equip_ship": "mst_equip_ships",
+    "mst_map_area": "mst_map_areas",
+    "mst_map_info": "mst_map_infos",
+    "mst_stype": "mst_stypes",
+    "mst_use_item": "mst_use_items",
 }
 
-def to_class_name(s):
-    return "".join(word.capitalize() for word in s.split("_"))
+
+def to_class_name(value: str) -> str:
+    return "".join(word.capitalize() for word in value.split("_"))
 
 
 def parse_version_key(path: Path):
-    match = re.match(r"schema_(v\d+_\d+(?:_\d+)?)\.json$", path.name)
+    match = re.match(r"(?:master_)?schema_(v\d+_\d+(?:_\d+)?)\.json$", path.name)
     if not match:
         return None
-    version_key = match.group(1)
-    version_match = re.match(r"v(\d+)_(\d+)(?:_(\d+))?$", version_key)
+    version_match = re.match(r"v(\d+)_(\d+)(?:_(\d+))?$", match.group(1))
     if not version_match:
         return None
     return (
@@ -40,93 +46,300 @@ def parse_version_key(path: Path):
     )
 
 
-def resolve_source_json() -> Path:
+def resolve_source_json(prefix: str) -> Path:
     candidates = []
-    if SCHEMA_DIR.exists():
-        for path in SCHEMA_DIR.glob("schema_v*.json"):
-            parsed = parse_version_key(path)
-            if parsed is not None:
-                candidates.append(parsed)
+    for path in SCHEMA_DIR.glob(f"{prefix}_v*.json"):
+        parsed = parse_version_key(path)
+        if parsed is not None:
+            candidates.append(parsed)
 
     if not candidates:
-        raise FileNotFoundError(
-            f"No schema_v*.json files found under {SCHEMA_DIR}"
-        )
+        raise FileNotFoundError(f"No {prefix}_v*.json files found under {SCHEMA_DIR}")
 
     candidates.sort()
     return candidates[-1][3]
 
-def generate():
-    source_json = resolve_source_json()
-    print(f"Reading {source_json}...")
-    with open(source_json, "r", encoding="utf-8") as f:
-        data = json.load(f)
+
+def read_schemas(path: Path):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    schemas = data.get("schemas")
+    if not isinstance(schemas, list) or not schemas:
+        raise ValueError(f"No schemas found in {path}")
+    return sorted(schemas, key=lambda item: item["table_name"])
+
+
+def parse_avro_type(value):
+    nullable = False
+    if isinstance(value, list):
+        nullable = "null" in value
+        value = next((item for item in value if item != "null"), "unknown")
+
+    if isinstance(value, dict):
+        avro_type = value.get("type", "unknown")
+        if avro_type == "array":
+            item_type, _, _ = parse_avro_type(value.get("items", "unknown"))
+            return f"array[{item_type}]", True, nullable
+        value = avro_type
+
+    return str(value), False, nullable
+
+
+def render_schema(ingest_schemas, master_schemas, ingest_path: Path, master_path: Path) -> str:
+    all_schemas = sorted(ingest_schemas + master_schemas, key=lambda item: item["table_name"])
+    table_names = [item["table_name"] for item in all_schemas]
+    if len(table_names) != len(set(table_names)):
+        raise ValueError("Ingest and master schemas contain duplicate table names")
+
+    class_names = [to_class_name(table_name) for table_name in table_names]
+    if len(class_names) != len(set(class_names)):
+        raise ValueError("Schema table names produce duplicate Python class names")
+
+    aliases = {
+        alias: canonical
+        for alias, canonical in sorted(MASTER_TABLE_ALIASES.items())
+        if canonical in table_names and alias not in table_names
+    }
 
     lines = [
         "# Auto-generated by scripts/gen_python_constants.py",
+        f"# Source ingest: {ingest_path.name}",
+        f"# Source master: {master_path.name}",
         "# Do not edit manually.",
         "",
+        "from typing import Dict, List, Optional, Set, Type, Union, Literal",
+        "import difflib",
+        "import pandas as pd",
+        "",
+        "# Type Literals for IDE Autocomplete & Static Type Checking",
+        "TableLiteral = Literal[",
+    ]
+    for offset in range(0, len(table_names), 4):
+        names = ", ".join(repr(name) for name in table_names[offset:offset + 4])
+        lines.append(f"    {names},")
+    lines.extend([
+        "]",
+        "",
+        'SplitLiteral = Literal["train", "validation", "test", "train+validation"]',
+        "",
         "class Column(str):",
-        "    \"\"\"String subclass that carries table metadata.\"\"\"",
-        "    def __new__(cls, value: str, table: str) -> \"Column\":",
+        '    """String subclass that carries table metadata and Avro type information."""',
+        "    def __new__(",
+        "        cls,",
+        "        value: str,",
+        "        table: str,",
+        '        avro_type: str = "unknown",',
+        "        is_array: bool = False,",
+        "        is_nullable: bool = False,",
+        '    ) -> "Column":',
         "        obj = str.__new__(cls, value)",
+        "        obj.name = value",
         "        obj.table = table",
+        "        obj.avro_type = avro_type",
+        "        obj.is_array = is_array",
+        "        obj.is_nullable = is_nullable",
         "        return obj",
         "",
+        "    @property",
+        "    def dtype(self) -> str:",
+        '        """Return the corresponding pandas/numpy dtype."""',
+        '        if self.is_array:',
+        '            return "object"',
+        '        if "int" in self.avro_type or self.avro_type == "long":',
+        '            return "Int64" if self.is_nullable else "int64"',
+        '        elif self.avro_type in ("float", "double"):',
+        '            return "float64"',
+        '        elif self.avro_type == "boolean":',
+        '            return "boolean" if self.is_nullable else "bool"',
+        '        elif self.avro_type == "string":',
+        '            return "string"',
+        '        return "object"',
+        "",
+        "    def cast(self, series: pd.Series) -> pd.Series:",
+        '        """Safely cast a pandas Series to this column\'s expected dtype."""',
+        "        if self.is_array:",
+        "            return series",
+        '        if "int" in self.avro_type or self.avro_type == "long":',
+        '            return pd.to_numeric(series, errors="coerce").astype("Int64")',
+        '        elif self.avro_type in ("float", "double"):',
+        '            return pd.to_numeric(series, errors="coerce").astype(float)',
+        '        elif self.avro_type == "boolean":',
+        '            return series.astype("boolean")',
+        '        elif self.avro_type == "string":',
+        "            return series.astype(str)",
+        "        return series",
+        "",
+        "class TableMeta:",
+        '    """Base class for all table schema definitions."""',
+        "    TABLE: str",
+        "    COLUMNS: Dict[str, Column] = {}",
+        "    COLUMN_NAMES: Set[str] = set()",
+        "",
+        "    def __init_subclass__(cls, **kwargs):",
+        "        super().__init_subclass__(**kwargs)",
+        "        cols = {}",
+        "        for value in cls.__dict__.values():",
+        "            if isinstance(value, Column):",
+        "                cols[str(value)] = value",
+        "        cls.COLUMNS = cols",
+        "        cls.COLUMN_NAMES = set(cols.keys())",
+        "",
+        "    @classmethod",
+        "    def get_column(cls, name: str) -> Optional[Column]:",
+        "        return cls.COLUMNS.get(name.lower().strip())",
+        "",
+        "    @classmethod",
+        "    def validate_dataframe(cls, df: pd.DataFrame, strict: bool = False) -> List[str]:",
+        '        """Validate DataFrame against table schema. Returns list of issues (empty = valid)."""',
+        "        issues = []",
+        "        df_cols = set(df.columns)",
+        "        for col_name, col in cls.COLUMNS.items():",
+        "            if not col.is_nullable and col_name not in df_cols:",
+        '                issues.append(f"Missing non-nullable column \'{col_name}\' ({col.avro_type})")',
+        "            elif col_name in df_cols and not col.is_nullable:",
+        "                null_count = df[col_name].isna().sum()",
+        "                if null_count > 0:",
+        '                    issues.append(f"Column \'{col_name}\' is non-nullable but contains {null_count} nulls")',
+        "        if strict:",
+        "            extra = df_cols - cls.COLUMN_NAMES",
+        "            if extra:",
+        '                issues.append(f"Unexpected extra columns: {sorted(list(extra))}")',
+        "        return issues",
+        "",
+        "    @classmethod",
+        "    def enforce_types(cls, df: pd.DataFrame) -> pd.DataFrame:",
+        '        """Enforce Avro-specified column dtypes on the DataFrame."""',
+        "        res = df.copy()",
+        "        for col_name, col in cls.COLUMNS.items():",
+        "            if col_name in res.columns:",
+        "                try:",
+        "                    res[col_name] = col.cast(res[col_name])",
+        "                except Exception:",
+        "                    pass",
+        "        return res",
+        "",
+        "TableInput = Union[TableLiteral, Type[TableMeta], str]",
+        "",
         "class Tables:",
-        "    \"\"\"",
+        '    """',
         "    Type-safe table and column constants.",
         "    Usage:",
         "        from fusou_datasets import Tables",
         "        df = fusou_datasets.load(Tables.Battle.TABLE)",
         "        print(df[Tables.Battle.TIMESTAMP])",
-        "    \"\"\"",
+        '    """',
         "",
-    ]
+        "    # =========================================================================",
+        "    # Battle / Ingest Log Data",
+        "    # =========================================================================",
+    ])
 
-    # Process Ingest Data (Battle Logs)
-    lines.append("    # --- Battle / Log Data ---")
-    
-    schemas = data.get("schemas", [])
-    # Sort for stability
-    schemas.sort(key=lambda x: x["table_name"])
-
-    for item in schemas:
+    for item in ingest_schemas:
         table_name = item["table_name"]
         class_name = to_class_name(table_name)
-        
-        # Parse inner Avro schema string
         try:
             avro_schema = json.loads(item["schema"])
-            fields = avro_schema.get("fields", [])
-        except (json.JSONDecodeError, TypeError):
-            print(f"Warning: Failed to parse schema for {table_name}")
-            fields = []
-
-        lines.append(f"    class {class_name}:")
-        lines.append(f"        TABLE = \"{table_name}\"")
+        except (json.JSONDecodeError, TypeError) as error:
+            raise ValueError(f"Failed to parse schema for {table_name}") from error
+        fields = avro_schema.get("fields", [])
+        lines.append(f"    class {class_name}(TableMeta):")
+        lines.append(f"        TABLE = {table_name!r}")
         for field in fields:
-            f_name = field["name"]
-            prop_name = f_name.upper()
-            # Use Column class
-            lines.append(f"        {prop_name} = Column(\"{f_name}\", \"{table_name}\")")
+            field_name = field["name"]
+            avro_type, is_array, is_nullable = parse_avro_type(field.get("type", "unknown"))
+            lines.append(
+                f"        {field_name.upper()} = Column("
+                f"{field_name!r}, {table_name!r}, avro_type={avro_type!r}, "
+                f"is_array={is_array!r}, is_nullable={is_nullable!r})"
+            )
         lines.append("")
 
-    # Process Master Data
-    lines.append("    # --- Master Data (Manual) ---")
-    for table_name, columns in sorted(MASTER_TABLES.items()):
+    lines.extend([
+        "    # =========================================================================",
+        "    # Master Data",
+        "    # =========================================================================",
+    ])
+
+    for item in master_schemas:
+        table_name = item["table_name"]
         class_name = to_class_name(table_name)
-        lines.append(f"    class {class_name}:")
-        lines.append(f"        TABLE = \"{table_name}\"")
-        for f_name in columns:
-            prop_name = f_name.upper()
-            lines.append(f"        {prop_name} = Column(\"{f_name}\", \"{table_name}\")")
+        try:
+            avro_schema = json.loads(item["schema"])
+        except (json.JSONDecodeError, TypeError) as error:
+            raise ValueError(f"Failed to parse schema for {table_name}") from error
+        fields = avro_schema.get("fields", [])
+        lines.append(f"    class {class_name}(TableMeta):")
+        lines.append(f"        TABLE = {table_name!r}")
+        for field in fields:
+            field_name = field["name"]
+            avro_type, is_array, is_nullable = parse_avro_type(field.get("type", "unknown"))
+            lines.append(
+                f"        {field_name.upper()} = Column("
+                f"{field_name!r}, {table_name!r}, avro_type={avro_type!r}, "
+                f"is_array={is_array!r}, is_nullable={is_nullable!r})"
+            )
         lines.append("")
 
+    lines.extend([
+        "    # =========================================================================",
+        "    # Backward-Compatible Legacy Aliases",
+        "    # =========================================================================",
+        "    ShipMaster = MstShips",
+        "    ShipType = MstStypes",
+        "    SlotItemMaster = MstSlotItems",
+        "    MapAreaMaster = MstMapAreas",
+        "    MapInfoMaster = MstMapInfos",
+        "",
+        "# Global Table Registry",
+        "ALL_TABLES: Dict[str, Type[TableMeta]] = {}",
+        "for attr_name, attr_val in Tables.__dict__.items():",
+        "    if isinstance(attr_val, type) and issubclass(attr_val, TableMeta) and hasattr(attr_val, \"TABLE\"):",
+        "        ALL_TABLES[attr_val.TABLE] = attr_val",
+        "",
+        "TABLE_ALIASES: Dict[str, str] = {",
+    ])
+    for alias, canonical in aliases.items():
+        lines.append(f"    {alias!r}: {canonical!r},")
+    lines.extend([
+        "}",
+        "",
+        "",
+        "def resolve_table_name(table: TableInput) -> str:",
+        '    """Resolve a table input to its canonical name, with aliases and typo detection."""',
+        '    table_name = str(getattr(table, "TABLE", table)).lower().strip()',
+        "    if table_name in ALL_TABLES:",
+        "        return table_name",
+        "    canonical_name = TABLE_ALIASES.get(table_name)",
+        "    if canonical_name in ALL_TABLES:",
+        "        return canonical_name",
+        "    matches = difflib.get_close_matches(table_name, list(ALL_TABLES), n=1)",
+        "    if matches:",
+        '        raise ValueError(f"Unknown table \'{table}\'. Did you mean \'{matches[0]}\'?")',
+        '    raise ValueError(f"Unknown table \'{table}\'.")',
+        "",
+        "",
+        "def validate_schema(df: pd.DataFrame, table: TableInput, strict: bool = False) -> List[str]:",
+        '    """Validate a DataFrame against table schema. Returns list of issues (empty = valid)."""',
+        "    table_name = resolve_table_name(table)",
+        "    return ALL_TABLES[table_name].validate_dataframe(df, strict=strict)",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def generate():
+    ingest_path = resolve_source_json("schema")
+    master_path = resolve_source_json("master_schema")
+    print(f"Reading {ingest_path} and {master_path}...")
+    generated_schema = render_schema(
+        read_schemas(ingest_path),
+        read_schemas(master_path),
+        ingest_path,
+        master_path,
+    )
     print(f"Writing to {TARGET_PY}...")
-    with open(TARGET_PY, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    TARGET_PY.write_text(generated_schema, encoding="utf-8")
     print("Done.")
+
 
 if __name__ == "__main__":
     generate()

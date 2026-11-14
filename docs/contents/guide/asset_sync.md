@@ -1,8 +1,8 @@
 ---
 title: Asset Sync Pipeline
 description: FUSOU の非 kcsapi アセットを Cloudflare R2 に同期するための API 構成とクライアント要件のまとめ。
-contributors: ["github-copilot"]
-date: 2025-11-24
+contributors: ["github-copilot", "antigravity-ai"]
+date: 2026-11-15
 slug: guide/asset_sync
 tags: [guide, storage]
 ---
@@ -13,8 +13,8 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 
 ## 全体像
 
-1. FUSOU-APP が Supabase 認証を完了すると、Tauri プロセスがアクセストークンを `proxy-https` クレートへ渡します。
-2. プロキシは `asset_sync` ワーカーを通じて保存ディレクトリを監視し、新規ファイルを検知すると、まず `/api/asset-sync/upload` に JSON ボディで「サイン済みアップロード」をリクエストします。
+1. FUSOU-APP が認証セッションを準備すると、Tauri プロセスが `AuthManager` を `proxy-https` 経由で `fusou-storage` の `asset_sync` ワーカーへ渡します。
+2. `asset_sync` ワーカーが保存ディレクトリを監視し、新規ファイルを検知すると、まず `/api/asset-sync/upload` に JSON ボディで「サイン済みアップロード」をリクエストします。
 3. FUSOU-WEB は Supabase トークンとファイルメタデータを検証したうえで、期限付きの署名付き URL (`token`, `expires`, `signature` クエリ) を返します。
 4. ワーカーは同じエンドポイントへ **生のバイナリストリーム (推奨 `Content-Type: application/octet-stream`)** を送信し、ボディ全体を署名付き URL に対してストリーミングします。Authorization ヘッダーは両フェーズで必須です。
 5. サーバーは署名と Supabase ユーザー ID を再検証しつつ、ストリームをそのまま Cloudflare R2 (`ASSET_SYNC_BUCKET`) に転送します。保存後はメタデータキャッシュを失効させます。
@@ -26,9 +26,9 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 - `ASSET_UPLOAD_SIGNING_SECRET` と `FLEET_SNAPSHOT_SIGNING_SECRET` に 32 文字以上のランダム文字列 (Base64 推奨) を設定します。両 API は HMAC-SHA256 で署名された短命トークンを検証し、署名が無効な場合はアップロードを拒否します。
 - `ASSET_SYNC_ALLOWED_EXTENSIONS` (カンマ区切り) で R2 に保存を許可する拡張子を定義します。未設定の場合は `png,jpg,jpeg,gif,webp,bmp,ico,json,txt,csv,zip,tar,gz,bz2,xz,bin,mp4,webm,m4v,m4a,aac,wav,flac,ogg,ogv,oga,pak,dat` のみが許可されます。追加で `ASSET_SYNC_SKIP_EXTENSIONS` を設定すると強制的に拒否したい拡張子を増やせます (デフォルトは空)。
 - `astro.config.mjs` の Cloudflare アダプターを利用しているため、`wrangler pages dev` もしくは Cloudflare 実環境で API を実行してください。`astro dev` 単体では R2 バインディングがないため 503 を返します。
-- `src/pages/api/asset-sync/upload.ts` が API エンドポイントです。POST だけでなく CORS 用の OPTIONS も用意されているため、今後ブラウザクライアントから叩く場合も追加設定なく利用できます。
+- `packages/FUSOU-WEB/src/server/routes/assets.ts`（`/api/asset-sync/*`）および `packages/FUSOU-WEB/src/server/routes/kc_period.ts`（`/api/kc-period/latest`）が Hono ルートとして実装され、`/api/[...route]` 経由で配信されます。POST だけでなく CORS 用の OPTIONS も用意されています。
 - Supabase の `kc_period_tag` テーブルから最新の期間タグを取得し、1 日間キャッシュする `/api/kc-period/latest` も Cloudflare Pages 上に配置します。レスポンスは `{ tag, fetchedAt, cacheExpiresAt, cached }` で、`cache-control: public, max-age=86400` を付与しているためクライアントが同期間問い合わせを繰り返しても Supabase 側の負荷は最小限です。
-- `/api/asset-sync/upload` は **許可リスト方式** で拡張子を検証します。Cloudflare Pages の `ASSET_SYNC_ALLOWED_EXTENSIONS` (カンマ区切り) で許可される拡張子を定義し、追加で `ASSET_SYNC_SKIP_EXTENSIONS` を設定すると禁止リストを上書きできます。クライアント側も `asset_skip_extensions` を参照し、アップロード前に同じルールを適用してください。
+- `/api/asset-sync/upload` は **許可リスト方式** で拡張子を検証します。Cloudflare Pages の `ASSET_SYNC_ALLOWED_EXTENSIONS` (カンマ区切り) で許可される拡張子を定義し、追加で `ASSET_SYNC_SKIP_EXTENSIONS` を設定すると拒否リストを追加できます。クライアント側も `asset_skip_extensions` を参照し、アップロード前に同じルールを適用してください。
 
 ## サイン済みアップロードフロー
 
@@ -43,7 +43,7 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 
 現在の実装では R2 の直接列挙や R2 上のキャッシュを用いず、Cloudflare D1 上のメタデータテーブル (`files`) を一次ソースとして一覧を返します。D1 に移行したため、一覧取得は高速で一貫性のある SQL クエリによって行われます。
 
-- エンドポイント: `src/pages/api/asset-sync/keys.ts`
+- エンドポイント: `GET /api/asset-sync/keys`（`packages/FUSOU-WEB/src/server/routes/assets.ts`）
 - 動作: `ASSET_INDEX_DB` (D1) に対して `SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?` を実行してキー一覧を返します。
 - ページネーション: `limit` と `offset` クエリパラメータで制御します（最大 `limit=1000`）。
 - キャッシュ: エンドポイントはレスポンスに `cache-control` と `ETag` を付与しますが、サーバー側の R2 キャッシュやマーカーは使用していません。
@@ -94,16 +94,16 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 
 ```toml
 [app.asset_sync]
-asset_upload_enable = true
+asset_upload_enable = false # default is false; set true to enable
 scan_interval_seconds = 30
-asset_upload_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/upload"
-fleet_snapshot_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/fleet/snapshot"
-kc_period_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/kc-period/latest"
-asset_existing_keys_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/keys"
-asset_skip_extensions = ["mp3"]
+asset_upload_endpoint = "https://fusou.dev/api/asset-sync/upload"
+fleet_snapshot_endpoint = "https://fusou.dev/api/fleet/snapshot"
+kc_period_endpoint = "https://fusou.dev/api/kc-period/latest"
+asset_existing_keys_endpoint = "https://fusou.dev/api/asset-sync/keys"
+asset_skip_extensions = ["mp3", "woff2", "js"]
 ```
 
-`asset_upload_enable` が `true` の場合に限り、Tauri 側で `asset_sync` ワーカーが起動します。
+`asset_upload_enable` が `true` の場合に限り、Tauri 側で `asset_sync` ワーカーが起動します（デフォルトは `false` です）。
 
 `asset_upload_endpoint` は FUSOU-WEB 側でホストするアップロード URL を指します。Tauri アプリは Supabase セッションを獲得しない限りアップロードを開始しません。
 
@@ -120,13 +120,12 @@ asset_skip_extensions = ["mp3"]
 
 ## クライアント側の振る舞い (FUSOU-APP)
 
-- Supabase 認証画面 (ブラウザ or ローカル auth) で取得した access/refresh token を Tauri コマンド `set_supabase_session` に送信し、`asset_sync` ワーカーへ共有します。
-- サインアウト時は `clear_supabase_session` が呼ばれ、ワーカーがアップロードを一時停止します。
-- `proxy_server_https` が `asset_sync` を起動すると、ローカル保存ディレクトリをスキャンし新規ファイルのアップロードを順次試みます。409 を受け取ったファイルは `DashSet` で記録され、重複送信を抑止します。
+- 起動時にプロキシ（`proxy-https`）が `AuthManager` とともに `fusou-storage::asset_sync` ワーカーを起動し、ローカル保存ディレクトリをスキャンして新規ファイルのアップロードを順次試みます。409 を受け取ったファイルはキャッシュに記録され、重複送信を抑止します。
+- 認証セッションが利用できない場合、ワーカーはアップロードをスキップまたはリトライキューへ待機させます。
 - 追加で `asset_existing_keys_endpoint` が設定されている場合、ワーカーは起動直後に 1 回だけリモートキーを取得し、その後は「アップロード対象ファイルを処理する直前」に限って TTL を確認し再取得します。成功したアップロードはローカルキャッシュへ即反映されるため、他クライアントへ同期要求を送らずに単方向で最新状態を維持できます。
-- キャッシュが失効または `invalidateAssetKeyCache()` により無効化された直後の再フェッチでは、クライアントごとに 0〜5 秒のランダム遅延を挟んで `asset_existing_keys_endpoint` を呼ぶようにしており、同時多発的なリクエスト集中を避けています。
-- `kc_period_endpoint` が設定されている場合、ワーカーはアップロード前に最新の `kc_period_tag` を取得し、値が変わったタイミングで `DashSet` をクリアして「再アップロードウィンドウ」を開きます。API 応答がキャッシュ済みの間は追加アクセスを行わないため、Supabase へのクエリは最大で 1 日に 1 回です。
-- `asset_skip_extensions` に含まれる拡張子 (`mp3` など音声ファイル) はクライアント側で検知するとアップロード対象から除外されます。Cloudflare Pages 側の `ASSET_SYNC_SKIP_EXTENSIONS` も設定しておくと、同じリストでサーバーが二重に検証します。
+- キャッシュが失効またはキャッシュ無効化が走った直後の再フェッチでは、同時多発的なリクエスト集中を避けるためランダム遅延を挟んで `asset_existing_keys_endpoint` を呼び出します。
+- `kc_period_endpoint` が設定されている場合、ワーカーはアップロード前に最新の `kc_period_tag` を取得し、値が変わったタイミングで処理済みキャッシュをクリアして再アップロードを許可します。API 応答がキャッシュ済みの間は追加アクセスを行わないため、サーバーへの負荷は最小限に抑えられます。
+- `asset_skip_extensions` に含まれる拡張子（デフォルト `["mp3", "woff2", "js"]`）はクライアント側で検知するとアップロード対象から除外されます。Cloudflare Pages 側の `ASSET_SYNC_SKIP_EXTENSIONS` も設定しておくと、同じリストでサーバー側でも除外されます。
 
 ## トラブルシューティング
 

@@ -5,17 +5,17 @@ use kc_api_interface::use_items::UseItem as InterfaceUseItem;
 use kc_api_interface::slot_item::SlotItem as InterfaceSlotItem;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
-pub struct FleetSnapshot{
-    #[serde(rename(serialize = "s3s"))]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct FleetSnapshot {
+    #[serde(rename = "s3s")]
     pub ships: Option<Vec<Ship>>,
-    #[serde(rename(serialize = "u7s"))]
+    #[serde(rename = "u7s")]
     pub use_items: Option<Vec<UseItem>>,
-    #[serde(rename(serialize = "s8s"))]
+    #[serde(rename = "s8s")]
     pub slot_items: Option<Vec<SlotItem>>,
-    #[serde(rename(serialize = "d8k"))]
+    #[serde(rename = "d8k")]
     pub deck_ports: Option<Vec<DeckPortSnapshot>>,
-    #[serde(rename(serialize = "c11g"))]
+    #[serde(rename = "c11g")]
     pub combined_flag: Option<i64>,
 }
 
@@ -27,67 +27,80 @@ impl FleetSnapshot {
         deck_ports: Vec<InterfaceDeckPort>,
         combined_flag: Option<i64>,
     ) -> Self {
+        let mut ships: Vec<Ship> = ships.into_iter().map(Ship::from).collect();
+        ships.sort_by_key(|ship| ship.id);
+
+        let mut use_items: Vec<UseItem> = use_items.into_iter().map(UseItem::from).collect();
+        use_items.sort_by_key(|item| item.id);
+
+        let mut slot_items: Vec<SlotItem> = slot_items.into_iter().map(SlotItem::from).collect();
+        slot_items.sort_by_key(|item| item.id);
+
+        let mut deck_ports: Vec<DeckPortSnapshot> =
+            deck_ports.into_iter().map(DeckPortSnapshot::from).collect();
+        deck_ports.sort_by_key(|deck| deck.id);
+
         FleetSnapshot {
-            ships: Some(ships.into_iter().map(Ship::from).collect()),
-            use_items: Some(use_items.into_iter().map(UseItem::from).collect()),
-            slot_items: Some(slot_items.into_iter().map(SlotItem::from).collect()),
-            deck_ports: Some(deck_ports.into_iter().map(DeckPortSnapshot::from).collect()),
+            ships: Some(ships),
+            use_items: Some(use_items),
+            slot_items: Some(slot_items),
+            deck_ports: Some(deck_ports),
             combined_flag,
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Ship {
-    #[serde(rename(serialize = "i0d"))]
+    #[serde(rename = "i0d")]
     pub id: i64,
-    // #[serde(rename(serialize = "s4o"))]
+    // #[serde(rename = "s4o")]
     // pub sortno: i64,
-    #[serde(rename(serialize = "s5d"))]
+    #[serde(rename = "s5d")]
     pub ship_id: i64,
-    #[serde(rename(serialize = "l0v"))]
+    #[serde(rename = "l0v")]
     pub lv: i64,
-    #[serde(rename(serialize = "e1p"))]
+    #[serde(rename = "e1p")]
     pub exp: i64,
-    #[serde(rename(serialize = "s2u"))]
+    #[serde(rename = "s2u")]
     pub soku: i64,
-    #[serde(rename(serialize = "l2g"))]
+    #[serde(rename = "l2g")]
     pub leng: i64,
-    #[serde(rename(serialize = "s2t"))]
+    #[serde(rename = "s2t")]
     pub slot: Vec<i64>,
-    #[serde(rename(serialize = "o4t"))]
+    #[serde(rename = "o4t")]
     pub onslot: Vec<i64>,
-    #[serde(rename(serialize = "s5x"))]
+    #[serde(rename = "s5x")]
     pub slot_ex: i64,
-    // #[serde(rename(serialize = "k4a"))]
+    // #[serde(rename = "k4a")]
     // pub kyouka: i64,
-    #[serde(rename(serialize = "s5m"))]
+    #[serde(rename = "s5m")]
     pub slotnum: i64,
-    #[serde(rename(serialize = "c2d"))]
+    #[serde(rename = "c2d")]
     pub cond: i64,
-    #[serde(rename(serialize = "k5u"))]
+    #[serde(rename = "k5u")]
     pub karyoku: i64,
-    #[serde(rename(serialize = "r4u"))]
+    #[serde(rename = "r4u")]
     pub raisou: i64,
-    #[serde(rename(serialize = "t3u"))]
+    #[serde(rename = "t3u")]
     pub taiku: i64,
-    #[serde(rename(serialize = "s4u"))]
+    #[serde(rename = "s4u")]
     pub soukou: i64,
-    #[serde(rename(serialize = "k3i"))]
+    #[serde(rename = "k3i")]
     pub kaihi: i64,
-    #[serde(rename(serialize = "t4n"))]
+    #[serde(rename = "t4n")]
     pub taisen: i64,
-    #[serde(rename(serialize = "s6i"))]
+    #[serde(rename = "s6i")]
     pub sakuteki: i64,
-    #[serde(rename(serialize = "l3y"))]
+    #[serde(rename = "l3y")]
     pub lucky: i64,
-    // #[serde(rename(serialize = "l4d"))]
+    // #[serde(rename = "l4d")]
     // pub locked: i64,
-    // #[serde(rename(serialize = "l10p"))]
+    // #[serde(rename = "l10p")]
     // pub locked_equip: i64,
-    #[serde(rename(serialize = "s8a"))]
+    #[serde(rename = "s8a")]
     pub sally_area: Option<i64>,
-    #[serde(rename(serialize = "s13s"))]
+    #[serde(rename = "s13s")]
     pub sp_effect_items: Option<Vec<SpEffectItem>>,
 }
 
@@ -98,7 +111,7 @@ impl From<InterfaceShip> for Ship {
             // sortno: ship.sortno,
             ship_id: ship.ship_id.unwrap_or(0),
             lv: ship.lv.unwrap_or(0),
-            exp: ship.exp.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            exp: ship.exp.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
             soku: ship.soku.unwrap_or(0),
             leng: ship.leng.unwrap_or(0),
             slot: ship.slot.unwrap_or_default(),
@@ -107,39 +120,41 @@ impl From<InterfaceShip> for Ship {
             // kyouka: ship.kyouka.unwrap_or(0),
             slotnum: ship.slotnum.unwrap_or(0),
             cond: ship.cond.unwrap_or(0),
-            karyoku: ship.karyoku.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            raisou: ship.raisou.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            taiku: ship.taiku.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            soukou: ship.soukou.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            kaihi: ship.kaihi.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            taisen: ship.taisen.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            sakuteki: ship.sakuteki.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
-            lucky: ship.lucky.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            karyoku: ship.karyoku.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            raisou: ship.raisou.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            taiku: ship.taiku.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            soukou: ship.soukou.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            kaihi: ship.kaihi.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            taisen: ship.taisen.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            sakuteki: ship.sakuteki.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
+            lucky: ship.lucky.as_ref().and_then(|x| x.first()).copied().unwrap_or(0),
             // locked: ship.locked,
             // locked_equip: ship.locked_equip,
             sally_area: ship.sally_area,
             sp_effect_items: ship.sp_effect_items.map(|items| {
-                items
+                let mut sp_items: Vec<SpEffectItem> = items
                     .items
                     .into_iter()
                     .map(|(_, item)| SpEffectItem::from(item))
-                    .collect()
+                    .collect();
+                sp_items.sort_by_key(|item| (item.kind, item.raig, item.souk, item.houg, item.kaih));
+                sp_items
             }),
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpEffectItem {
-    #[serde(rename(serialize = "k2d"))]
+    #[serde(rename = "k2d")]
     pub kind: i64,
-    #[serde(rename(serialize = "r2g"))]
+    #[serde(rename = "r2g")]
     pub raig: Option<i64>,
-    #[serde(rename(serialize = "s2k"))]
+    #[serde(rename = "s2k")]
     pub souk: Option<i64>,
-    #[serde(rename(serialize = "h2g"))]
+    #[serde(rename = "h2g")]
     pub houg: Option<i64>,
-    #[serde(rename(serialize = "k2h"))]
+    #[serde(rename = "k2h")]
     pub kaih: Option<i64>,
 }
 
@@ -155,11 +170,11 @@ impl From<InterfaceSpEffectItem> for SpEffectItem {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct UseItem {
-    #[serde(rename(serialize = "i0d"))]
+    #[serde(rename = "i0d")]
     pub id: i64,
-    #[serde(rename(serialize = "c3t"))]
+    #[serde(rename = "c3t")]
     pub count: i64,
 }
 
@@ -172,17 +187,17 @@ impl From<InterfaceUseItem> for UseItem {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct SlotItem {
-    #[serde(rename(serialize = "i0d"))]
+    #[serde(rename = "i0d")]
     pub id: i64,
-    #[serde(rename(serialize = "s9d"))]
+    #[serde(rename = "s9d")]
     pub slotitem_id: i64,
-    // #[serde(rename(serialize = "l4d"))]
+    // #[serde(rename = "l4d")]
     // pub locked: i64,
-    #[serde(rename(serialize = "l3l"))]
+    #[serde(rename = "l3l")]
     pub level: i64,
-    #[serde(rename(serialize = "a1v"))]
+    #[serde(rename = "a1v")]
     pub alv: Option<i64>,
 }
 
@@ -198,13 +213,13 @@ impl From<InterfaceSlotItem> for SlotItem {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct DeckPortSnapshot {
-    #[serde(rename(serialize = "i0d"))]
+    #[serde(rename = "i0d")]
     pub id: i64,
-    #[serde(rename(serialize = "n2e"))]
+    #[serde(rename = "n2e")]
     pub name: String,
-    #[serde(rename(serialize = "s3s"))]
+    #[serde(rename = "s3s")]
     pub ships: Vec<i64>,
 }
 
@@ -215,5 +230,137 @@ impl From<InterfaceDeckPort> for DeckPortSnapshot {
             name: dp.name,
             ships: dp.ship.unwrap_or_default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fleet_snapshot_roundtrips_compact_field_names() {
+        let snapshot = FleetSnapshot {
+            ships: Some(vec![Ship {
+                id: 42,
+                ship_id: 1,
+                lv: 99,
+                exp: 1_000_000,
+                soku: 10,
+                leng: 2,
+                slot: vec![101, -1],
+                onslot: vec![4, 0],
+                slot_ex: 0,
+                slotnum: 3,
+                cond: 49,
+                karyoku: 75,
+                raisou: 89,
+                taiku: 70,
+                soukou: 65,
+                kaihi: 88,
+                taisen: 60,
+                sakuteki: 45,
+                lucky: 20,
+                sally_area: Some(1),
+                sp_effect_items: Some(vec![SpEffectItem {
+                    kind: 2,
+                    raig: Some(3),
+                    souk: None,
+                    houg: Some(1),
+                    kaih: None,
+                }]),
+            }]),
+            use_items: Some(vec![UseItem { id: 68, count: 12 }]),
+            slot_items: Some(vec![SlotItem {
+                id: 101,
+                slotitem_id: 9,
+                level: 10,
+                alv: Some(7),
+            }]),
+            deck_ports: Some(vec![DeckPortSnapshot {
+                id: 1,
+                name: "First".to_string(),
+                ships: vec![42],
+            }]),
+            combined_flag: Some(0),
+        };
+
+        let json = serde_json::to_string(&snapshot).expect("serialize snapshot");
+        assert!(json.contains("\"s3s\""));
+        assert!(json.contains("\"i0d\":42"));
+
+        let decoded: FleetSnapshot = serde_json::from_str(&json).expect("deserialize snapshot");
+        assert_eq!(decoded, snapshot);
+    }
+
+    #[test]
+    fn fleet_snapshot_new_sorts_entities_deterministically() {
+        let make_ship = |id| InterfaceShip {
+            id,
+            ship_id: Some(1),
+            lv: Some(1),
+            exp: None,
+            nowhp: None,
+            maxhp: None,
+            soku: None,
+            leng: None,
+            slot: None,
+            onslot: None,
+            slot_ex: None,
+            fuel: None,
+            bull: None,
+            slotnum: None,
+            cond: None,
+            cond_state: None,
+            karyoku: None,
+            raisou: None,
+            taiku: None,
+            soukou: None,
+            kaihi: None,
+            taisen: None,
+            sakuteki: None,
+            lucky: None,
+            sally_area: None,
+            sortie_tag_id: None,
+            sp_effect_items: None,
+        };
+        let make_use_item = |id| InterfaceUseItem {
+            id,
+            count: id * 10,
+        };
+        let make_slot_item = |id| InterfaceSlotItem {
+            id,
+            slotitem_id: 1,
+            locked: 0,
+            level: 0,
+            alv: None,
+        };
+        let make_deck = |id| InterfaceDeckPort {
+            id,
+            name: format!("Deck {id}"),
+            mission: vec![],
+            ship: Some(vec![id]),
+            chart_seiku_value: None,
+            chart_tp_value: None,
+        };
+
+        let a = FleetSnapshot::new(
+            vec![make_ship(20), make_ship(5)],
+            vec![make_use_item(9), make_use_item(2)],
+            vec![make_slot_item(300), make_slot_item(100)],
+            vec![make_deck(4), make_deck(1)],
+            Some(0),
+        );
+        let b = FleetSnapshot::new(
+            vec![make_ship(5), make_ship(20)],
+            vec![make_use_item(2), make_use_item(9)],
+            vec![make_slot_item(100), make_slot_item(300)],
+            vec![make_deck(1), make_deck(4)],
+            Some(0),
+        );
+
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            serde_json::to_string(&b).unwrap()
+        );
     }
 }

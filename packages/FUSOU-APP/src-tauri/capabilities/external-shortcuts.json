@@ -4,7 +4,6 @@
   "local": false,
   "remote": {
     "urls": [
-      "http://www.dmm.com/**",
       "https://www.dmm.com/**",
       "https://*.dmm.com/**",
       "https://play.games.dmm.com/**"

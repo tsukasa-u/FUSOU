@@ -1,13 +1,40 @@
-use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fs::File, hash::RandomState, io::Write, path};
+use regex::Regex;
+use std::{
+    collections::HashSet,
+    fs::{self, File},
+    hash::RandomState,
+    io::Write,
+    path::Path,
+};
 
-use register_trait::add_field;
+fn collect_registered_structs_from_dir(dir: &Path, re: &Regex, out: &mut HashSet<String, RandomState>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_registered_structs_from_dir(&path, re, out);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+            if let Ok(content) = fs::read_to_string(&path) {
+                for cap in re.captures_iter(&content) {
+                    if let Some(name) = cap.name("name") {
+                        out.insert(name.as_str().to_string());
+                    }
+                }
+            }
+        }
+    }
+}
 
-use register_trait::REGISTER_STRUCT;
-
-#[add_field(struct_name)]
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-struct TestConfig {}
+fn collect_registered_structs() -> HashSet<String, RandomState> {
+    let re = Regex::new(r#"register_struct\([^)]*name\s*=\s*"(?P<name>[^"]+)""#)
+        .expect("valid regex for register_struct");
+    let mut registered = HashSet::new();
+    let endpoints_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("endpoints");
+    collect_registered_structs_from_dir(&endpoints_dir, &re, &mut registered);
+    registered
+}
 
 pub fn check_struct_defined(target_path: String) {
     let files = register_trait::test::get_cached_test_data_files(&target_path);
@@ -40,9 +67,7 @@ pub fn check_struct_defined(target_path: String) {
         }
     }
 
-    let cfg: TestConfig = confy::load(REGISTER_STRUCT, None).unwrap();
-
-    let cfg_hash_set: HashSet<String, RandomState> = cfg.struct_name;
+    let cfg_hash_set: HashSet<String, RandomState> = collect_registered_structs();
 
     let diff = books.difference(&cfg_hash_set);
     let diff_not_in_data = cfg_hash_set.difference(&books);

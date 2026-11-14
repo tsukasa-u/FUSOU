@@ -55,10 +55,55 @@ fn generate_app_events() {
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output_path.display()));
 }
 
+fn windows_manifest_build() {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os != "windows" || target_env != "msvc" {
+        tauri_build::build();
+        return;
+    }
+
+    // `tauri_build::build()` only links `resource.lib` (containing the ComCtl32 v6 manifest)
+    // into `bin` targets, causing `cargo test --lib` (`app_lib`) to fail with
+    // `0xc0000139 (STATUS_ENTRYPOINT_NOT_FOUND)` on `comctl32.dll::TaskDialogIndirect`.
+    // Omit the manifest from `resource.lib` and embed the exact same Common-Controls v6
+    // manifest via MSVC linker args so both `bin` and `--lib` test executables receive it
+    // without a duplicate `CVT1100` RT_MANIFEST resource error.
+    let attributes = tauri_build::Attributes::new()
+        .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+    tauri_build::try_build(attributes).expect("failed to run tauri-build");
+
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set by Cargo"));
+    let manifest_path = out_dir.join("windows_comctl32.manifest");
+    let manifest = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>
+"#;
+    fs::write(&manifest_path, manifest)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", manifest_path.display()));
+    println!("cargo::rustc-link-arg=/MANIFEST:EMBED");
+    println!(
+        "cargo::rustc-link-arg=/MANIFESTINPUT:{}",
+        manifest_path.display()
+    );
+}
+
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(check_release)");
 
     generate_app_events();
-    tauri_build::build();
+    windows_manifest_build();
     println!("cargo::rustc-env=RUST_TEST_NOCAPTURE=1");
 }

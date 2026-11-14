@@ -36,6 +36,7 @@ vi.mock("../../utils", () => ({
     valid: true,
     data: payload,
   }),
+  validateJWT: vi.fn(async () => null),
   verifySignedToken: mockVerifySignedToken,
   safeWaitUntil: vi.fn(),
 }));
@@ -119,19 +120,14 @@ describe("soku-speed ingest authentication and integrity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockValidateDatasetTokenWithConstraints.mockImplementation(
-      async ({ expectedDatasetId }: { expectedDatasetId?: string }) => {
-        if (expectedDatasetId !== DATASET_ID) {
-          return { ok: false, error: "dataset_id mismatch", status: 403 };
-        }
-        return {
-          ok: true,
-          token: {
-            dataset_id: DATASET_ID,
-            user_id: "canonical-user",
-            device_id: "33333333-3333-4333-8333-333333333333",
-          },
-        };
-      },
+      async () => ({
+        ok: true,
+        token: {
+          dataset_id: DATASET_ID,
+          user_id: "canonical-user",
+          device_id: "33333333-3333-4333-8333-333333333333",
+        },
+      }),
     );
   });
 
@@ -153,7 +149,10 @@ describe("soku-speed ingest authentication and integrity", () => {
 
     expect(response.status).toBe(200);
     expect(mockValidateDatasetTokenWithConstraints).toHaveBeenCalledWith(
-      expect.objectContaining({ expectedDatasetId: DATASET_ID }),
+      expect.objectContaining({
+        token: DATASET_TOKEN,
+        secret: "dataset-token-secret",
+      }),
     );
     await expect(response.json()).resolves.toMatchObject({
       token: "signed-upload-token",

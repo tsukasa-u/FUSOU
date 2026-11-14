@@ -8,8 +8,16 @@ use crate::bidirectional_channel;
 pub fn serve_pac_file(
     path: String,
     port: u16,
-    mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    serve_pac_file_with_handle(path, port, slave).map(|(addr, _handle)| addr)
+}
+
+pub fn serve_pac_file_with_handle(
+    path: String,
+    port: u16,
+    mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
     let configs = get_user_configs_for_proxy();
     let use_custom_pac = configs.pac.get_use_custom_pac();
     let pac_path = if use_custom_pac {
@@ -29,7 +37,7 @@ pub fn serve_pac_file(
     let addr = std_listener.local_addr()?;
     tracing::info!("Pac server addr: {}", addr);
 
-    tokio::task::spawn(async move {
+    let handle = tokio::task::spawn(async move {
         let listener = match TcpListener::from_std(std_listener) {
             Ok(l) => l,
             Err(e) => {
@@ -105,5 +113,5 @@ pub fn serve_pac_file(
         tracing::info!("Shutting down PAC server");
     });
 
-    Ok(addr)
+    Ok((addr, handle))
 }

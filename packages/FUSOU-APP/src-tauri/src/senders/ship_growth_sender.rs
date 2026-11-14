@@ -1,3 +1,4 @@
+use crate::senders::local_jsonl::LocalJsonlSink;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{
     LocalRequestSuppressionCache, PendingStore, SuppressionCacheEntryStatus,
@@ -24,7 +25,7 @@ enum ShipGrowthSendOutcome {
 }
 
 pub struct ShipGrowthSender {
-    ingest_endpoint: String,
+    ingest_endpoint: Option<String>,
     auth_manager: Arc<AuthManager<FileStorage>>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
@@ -34,6 +35,7 @@ pub struct ShipGrowthSender {
     /// Version-scoped cache for exp and caps (global level↔exp table and per-ship max params).
     /// Cleared only on table version change.
     version_cache: Arc<LocalRequestSuppressionCache>,
+    local_sink: Option<LocalJsonlSink>,
     client: reqwest::Client,
     next_seq: AtomicU64,
     next_to_send: AtomicU64,
@@ -42,13 +44,45 @@ pub struct ShipGrowthSender {
 
 impl ShipGrowthSender {
     pub fn new(
-        ingest_endpoint: String,
+        ingest_endpoint: Option<String>,
+        allow_data_to_local: bool,
         auth_manager: Arc<AuthManager<FileStorage>>,
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>,
         cache_root_dir: PathBuf,
     ) -> Self {
-        let (bounds_cache_file, version_cache_file) = cache_file_paths(cache_root_dir);
+        Self::new_with_local_root(
+            ingest_endpoint,
+            allow_data_to_local,
+            None,
+            auth_manager,
+            pending_store,
+            retry_service,
+            cache_root_dir,
+        )
+    }
+
+    fn new_with_local_root(
+        ingest_endpoint: Option<String>,
+        allow_data_to_local: bool,
+        custom_local_root: Option<PathBuf>,
+        auth_manager: Arc<AuthManager<FileStorage>>,
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>,
+        cache_root_dir: PathBuf,
+    ) -> Self {
+        let (bounds_cache_file, version_cache_file, local_cache_file) =
+            cache_file_paths(&cache_root_dir);
+        let local_sink = if allow_data_to_local {
+            Some(LocalJsonlSink::new(
+                custom_local_root,
+                local_cache_file,
+                crate::storage::common::ship_growth_jsonl_relative_path(),
+                "ship_growth",
+            ))
+        } else {
+            None
+        };
         Self {
             ingest_endpoint,
             auth_manager,
@@ -77,6 +111,7 @@ impl ShipGrowthSender {
                 }
                 cache
             },
+            local_sink,
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(60))
@@ -283,15 +318,89 @@ impl ShipGrowthSender {
         None
     }
 
-    async fn send_if_new(
+    fn build_normalized_upload_snapshot(
+        snapshot: &ShipGrowthSnapshot,
+    ) -> UploadShipGrowthSnapshot {
+        let mut upload_snapshot = UploadShipGrowthSnapshot::from(snapshot.clone());
+        // Normalize None -> 0 (semantically: max-level ship has 0 exp until next boundary).
+        for entry in &mut upload_snapshot.entries {
+            if entry.exp_to_next.is_none() {
+                entry.exp_to_next = Some(0);
+            }
+        }
+        upload_snapshot
+    }
+
+    fn local_content_hash(upload_snapshot: &UploadShipGrowthSnapshot) -> String {
+        // Hash full normalized ship growth entries deterministically so EXP/kyouka/observed-stat
+        // progression at the same level is still recorded locally while identical snapshots skip.
+        let mut serialized_entries: Vec<String> = upload_snapshot
+            .entries
+            .iter()
+            .map(|entry| serde_json::to_string(entry).unwrap_or_default())
+            .collect();
+        serialized_entries.sort_unstable();
+        let payload = serde_json::to_vec(&serialized_entries).unwrap_or_default();
+        Self::bytes_hash(&payload)
+    }
+
+    fn build_payload_value(
+        upload_snapshot: &UploadShipGrowthSnapshot,
+        payload_hash: &str,
+        timestamp_ms: i64,
+        period_tag: Option<&str>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "payload_hash": payload_hash,
+            "event_type": "snapshot",
+            "schema_version": SHIP_GROWTH_INGEST_SCHEMA_VERSION,
+            "timestamp_ms": timestamp_ms,
+            "period_tag": period_tag,
+            "table_version": kc_api::database::DATABASE_TABLE_VERSION,
+            "ships": &upload_snapshot.entries,
+        })
+    }
+
+    async fn save_locally_if_new(
+        &self,
+        upload_snapshot: &UploadShipGrowthSnapshot,
+        timestamp_ms: i64,
+    ) -> Result<ShipGrowthSendOutcome, Box<dyn std::error::Error>> {
+        let Some(sink) = &self.local_sink else {
+            return Ok(ShipGrowthSendOutcome::Suppressed);
+        };
+        let local_hash = Self::local_content_hash(upload_snapshot);
+        let period_tag = crate::auth::supabase::get_cached_period_tag().await;
+        let payload = Self::build_payload_value(
+            upload_snapshot,
+            &local_hash,
+            timestamp_ms,
+            period_tag.as_deref(),
+        );
+        let written = sink
+            .write_if_new(
+                Some(kc_api::database::DATABASE_TABLE_VERSION),
+                Self::snapshot_payload_key(),
+                &local_hash,
+                &payload,
+            )
+            .await?;
+        if written {
+            Ok(ShipGrowthSendOutcome::Sent)
+        } else {
+            Ok(ShipGrowthSendOutcome::Suppressed)
+        }
+    }
+
+    async fn send_remote_if_new(
         &self,
         snapshot: &ShipGrowthSnapshot,
+        upload_snapshot: &UploadShipGrowthSnapshot,
+        timestamp_ms: i64,
     ) -> Result<ShipGrowthSendOutcome, Box<dyn std::error::Error>> {
-        tracing::debug!(
-            entries = snapshot.entries.len(),
-            "ship_growth_sender: validating exp entries"
-        );
-        Self::validate_exp_entries(snapshot)?;
+        let Some(ingest_endpoint) = &self.ingest_endpoint else {
+            return Ok(ShipGrowthSendOutcome::Suppressed);
+        };
 
         tracing::debug!("ship_growth_sender: computing hashes");
         let payload_hash = Self::payload_hash(snapshot);
@@ -356,31 +465,16 @@ impl ShipGrowthSender {
         tracing::debug!("ship_growth_sender: dataset_id resolved, building upload request");
 
         let request_id = format!("ship-growth:{}:{}", dataset_id, Uuid::new_v4());
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-
-        let mut upload_snapshot = UploadShipGrowthSnapshot::from(snapshot.clone());
-        // The server validates exp_to_next as a non-null integer.
-        // Normalize None → 0 (semantically: max-level ship has 0 exp until next boundary).
-        for entry in &mut upload_snapshot.entries {
-            if entry.exp_to_next.is_none() {
-                entry.exp_to_next = Some(0);
-            }
+        let mut payload = Self::build_payload_value(
+            upload_snapshot,
+            &payload_hash,
+            timestamp_ms,
+            Some(&period_tag),
+        );
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("dataset_id".to_string(), serde_json::Value::String(dataset_id));
+            obj.insert("request_id".to_string(), serde_json::Value::String(request_id));
         }
-
-        let payload = serde_json::json!({
-            "dataset_id": dataset_id,
-            "request_id": request_id,
-            "payload_hash": payload_hash,
-            "event_type": "snapshot",
-            "schema_version": SHIP_GROWTH_INGEST_SCHEMA_VERSION,
-            "timestamp_ms": timestamp_ms,
-            "period_tag": period_tag,
-            "table_version": kc_api::database::DATABASE_TABLE_VERSION,
-            "ships": upload_snapshot.entries,
-        });
 
         let data = serde_json::to_vec(&payload)?;
         let content_hash = Self::bytes_hash(&data);
@@ -397,7 +491,7 @@ impl ShipGrowthSender {
         }
 
         let request = UploadRequest {
-            endpoint: &self.ingest_endpoint,
+            endpoint: ingest_endpoint,
             handshake_body,
             data,
             headers: {
@@ -407,7 +501,7 @@ impl ShipGrowthSender {
             },
             context: UploadContext::Custom(serde_json::json!({
                 "operation": "ship_growth_ingest",
-                "endpoint": self.ingest_endpoint,
+                "endpoint": ingest_endpoint,
                 "payload_hash": payload_hash,
             })),
         };
@@ -439,6 +533,53 @@ impl ShipGrowthSender {
         }
     }
 
+    async fn process_snapshot(&self, snapshot: &ShipGrowthSnapshot) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::debug!(
+            entries = snapshot.entries.len(),
+            "ship_growth_sender: validating exp entries"
+        );
+        Self::validate_exp_entries(snapshot)?;
+
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let upload_snapshot = Self::build_normalized_upload_snapshot(snapshot);
+
+        if self.local_sink.is_some() {
+            match self.save_locally_if_new(&upload_snapshot, timestamp_ms).await {
+                Ok(ShipGrowthSendOutcome::Sent) => {
+                    tracing::info!("ship_growth_sender saved snapshot to local jsonl");
+                }
+                Ok(ShipGrowthSendOutcome::Suppressed) => {
+                    tracing::debug!("ship_growth_sender local jsonl save suppressed");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to save ship growth snapshot locally");
+                }
+            }
+        }
+
+        if self.ingest_endpoint.is_some() {
+            match self
+                .send_remote_if_new(snapshot, &upload_snapshot, timestamp_ms)
+                .await
+            {
+                Ok(ShipGrowthSendOutcome::Sent) => {
+                    tracing::info!("ship_growth_sender remote upload completed (sent)");
+                }
+                Ok(ShipGrowthSendOutcome::Suppressed) => {
+                    tracing::info!("ship_growth_sender remote upload completed (suppressed)");
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn submit(self: Arc<Self>, seq: u64, snapshot: ShipGrowthSnapshot) {
         loop {
             // Subscribe BEFORE checking the condition to prevent a missed-wakeup race:
@@ -459,17 +600,9 @@ impl ShipGrowthSender {
             entries = snapshot.entries.len(),
             "ship_growth_sender event started"
         );
-        match self.send_if_new(&snapshot).await {
-            Ok(ShipGrowthSendOutcome::Sent) => {
-                tracing::info!(seq, "ship_growth_sender event completed (sent)");
-            }
-            Ok(ShipGrowthSendOutcome::Suppressed) => {
-                tracing::info!(seq, "ship_growth_sender event completed (suppressed)");
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, seq, "failed to send ship growth snapshot");
-                tracing::info!(seq, "ship_growth_sender event completed (failed)");
-            }
+        if let Err(e) = self.process_snapshot(&snapshot).await {
+            tracing::warn!(error = %e, seq, "failed to process ship growth snapshot");
+            tracing::info!(seq, "ship_growth_sender event completed (failed)");
         }
 
         self.next_to_send.fetch_add(1, Ordering::Release);
@@ -477,20 +610,26 @@ impl ShipGrowthSender {
     }
 }
 
-fn cache_file_paths(cache_root_dir: PathBuf) -> (PathBuf, PathBuf) {
+fn cache_file_paths(cache_root_dir: &std::path::Path) -> (PathBuf, PathBuf, PathBuf) {
     (
         cache_root_dir.join("ship_growth_bounds_suppression_cache.json"),
         cache_root_dir.join("ship_growth_version_suppression_cache.json"),
+        cache_root_dir.join("ship_growth_local_suppression_cache.json"),
     )
 }
 
 pub fn start(
-    ingest_endpoint: String,
+    ingest_endpoint: Option<String>,
+    allow_data_to_local: bool,
     auth_manager: Arc<AuthManager<FileStorage>>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
     cache_root_dir: PathBuf,
 ) {
+    if ingest_endpoint.is_none() && !allow_data_to_local {
+        return;
+    }
+
     if SHIP_GROWTH_SENDER.get().is_some() {
         tracing::info!("ship growth sender already started");
         return;
@@ -498,6 +637,7 @@ pub fn start(
 
     let sender = Arc::new(ShipGrowthSender::new(
         ingest_endpoint,
+        allow_data_to_local,
         auth_manager,
         pending_store,
         retry_service,
@@ -541,4 +681,161 @@ pub fn get_suppression_status() -> Option<ShipGrowthSuppressionStatus> {
         entries.extend(version_entries);
         ShipGrowthSuppressionStatus { scope, entries }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fusou_auth::manager::AuthConfig;
+    use kc_api::interface::ship_growth::ShipGrowthEntry;
+
+    fn make_test_sender(
+        temp_dir: &std::path::Path,
+        allow_data_to_local: bool,
+    ) -> Arc<ShipGrowthSender> {
+        let pending_store = Arc::new(PendingStore::new(temp_dir.join("pending")));
+        let auth_manager = Arc::new(AuthManager::new(
+            AuthConfig {
+                supabase_url: "http://127.0.0.1:9".to_string(),
+                api_key: "test-key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            Arc::new(FileStorage::new(temp_dir.join("session.json"))),
+        ));
+        let retry_service = Arc::new(UploadRetryService::new(
+            pending_store.clone(),
+            auth_manager.clone(),
+            None,
+        ));
+
+        Arc::new(ShipGrowthSender::new_with_local_root(
+            None,
+            allow_data_to_local,
+            Some(temp_dir.join("local_storage")),
+            auth_manager,
+            pending_store,
+            retry_service,
+            temp_dir.join("cache"),
+        ))
+    }
+
+    fn sample_entry(
+        lv: i64,
+        exp_current: i64,
+        exp_to_next: Option<i64>,
+        firepower_kyouka: i64,
+    ) -> ShipGrowthEntry {
+        ShipGrowthEntry {
+            master_id: 1,
+            lv,
+            exp_current,
+            exp_to_next,
+            kyouka: vec![firepower_kyouka, 0, 0, 0, 0, 0, 0],
+            sp_effect_items_json: None,
+            kaihi_observed: 30,
+            taisen_observed: 20,
+            sakuteki_observed: 10,
+            lucky_observed: 12,
+            kaihi_naked: 30,
+            taisen_naked: 20,
+            sakuteki_naked: 10,
+            lucky_naked: 12,
+            kaihi_max: 60,
+            taisen_max: 45,
+            sakuteki_max: 25,
+            slots: vec![],
+            exslot: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn local_save_records_same_level_progression_and_deduplicates_identical_snapshots() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("fusou-ship-growth-local-test-{}", Uuid::new_v4()));
+        let sender = make_test_sender(&temp_dir, true);
+
+        let snap1 = ShipGrowthSnapshot {
+            entries: vec![sample_entry(10, 4_500, Some(1_000), 0)],
+        };
+        sender.clone().submit(0, snap1.clone()).await;
+        // Identical snapshot must be suppressed locally.
+        sender.clone().submit(1, snap1).await;
+        // Same level with updated EXP must still be recorded locally.
+        let snap2 = ShipGrowthSnapshot {
+            entries: vec![sample_entry(10, 4_800, Some(700), 0)],
+        };
+        sender.clone().submit(2, snap2).await;
+        // Same level/EXP with kyouka change and None exp_to_next (normalized to 0) must save.
+        let snap3 = ShipGrowthSnapshot {
+            entries: vec![sample_entry(10, 4_800, None, 2)],
+        };
+        sender.clone().submit(3, snap3).await;
+
+        let jsonl_path = temp_dir
+            .join("local_storage")
+            .join(crate::storage::common::ship_growth_jsonl_relative_path());
+        let content =
+            std::fs::read_to_string(&jsonl_path).expect("ship_growth snapshots.jsonl should exist");
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3);
+
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(first["event_type"], "snapshot");
+        assert_eq!(first["schema_version"], SHIP_GROWTH_INGEST_SCHEMA_VERSION);
+        assert_eq!(first["ships"][0]["exp_current"], 4_500);
+
+        let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(second["ships"][0]["exp_current"], 4_800);
+        assert_eq!(second["ships"][0]["exp_to_next"], 700);
+
+        let third: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(third["ships"][0]["exp_to_next"], 0);
+        assert_eq!(third["ships"][0]["kyouka"][0], 2);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn local_save_disabled_and_invalid_exp_entries_write_nothing() {
+        let disabled_dir = std::env::temp_dir().join(format!(
+            "fusou-ship-growth-disabled-test-{}",
+            Uuid::new_v4()
+        ));
+        let disabled_sender = make_test_sender(&disabled_dir, false);
+        disabled_sender
+            .clone()
+            .submit(
+                0,
+                ShipGrowthSnapshot {
+                    entries: vec![sample_entry(10, 4_500, Some(1_000), 0)],
+                },
+            )
+            .await;
+        assert!(!disabled_dir
+            .join("local_storage")
+            .join(crate::storage::common::ship_growth_jsonl_relative_path())
+            .exists());
+        let _ = std::fs::remove_dir_all(&disabled_dir);
+
+        let invalid_dir = std::env::temp_dir().join(format!(
+            "fusou-ship-growth-invalid-test-{}",
+            Uuid::new_v4()
+        ));
+        let enabled_sender = make_test_sender(&invalid_dir, true);
+        enabled_sender
+            .clone()
+            .submit(
+                0,
+                ShipGrowthSnapshot {
+                    entries: vec![sample_entry(10, -1, Some(100), 0)],
+                },
+            )
+            .await;
+        assert!(!invalid_dir
+            .join("local_storage")
+            .join(crate::storage::common::ship_growth_jsonl_relative_path())
+            .exists());
+        let _ = std::fs::remove_dir_all(&invalid_dir);
+    }
 }

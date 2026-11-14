@@ -69,6 +69,9 @@ export function ShipsProvider(props: { children: JSX.Element }) {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsShips);
         setData(reconcile(event.payload));
       },
+      () => {
+        void safeTauriInvoke("get_ships");
+      },
     );
     const unlisten_add = safeTauriListen<Ships>(
       APP_EVENTS.AddKcsShips,
@@ -125,6 +128,9 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstShips);
         setData(reconcile(event.payload));
       },
+      () => {
+        void safeTauriInvoke("get_mst_ships");
+      },
     );
     onCleanup(unlisten);
   });
@@ -158,6 +164,9 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsSlotItems);
         setData(reconcile(event.payload));
       },
+      () => {
+        void safeTauriInvoke("get_slot_items");
+      },
     );
     onCleanup(unlisten);
   });
@@ -190,6 +199,9 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
       (event) => {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstSlotItems);
         setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_mst_slot_items");
       },
     );
     onCleanup(unlisten);
@@ -228,6 +240,9 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
         if (import.meta.env.DEV)
           console.log(APP_EVENTS.SetKcsMstEquipExslotShips);
         setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_mst_equip_exslot_ships");
       },
     );
     onCleanup(unlisten);
@@ -274,6 +289,9 @@ export function MstSlotItemEquipTypesProvider(props: {
           console.log(APP_EVENTS.SetKcsMstSlotItemEquipTypes);
         setData(reconcile(event.payload));
       },
+      () => {
+        void safeTauriInvoke("get_mst_slotitem_equip_types");
+      },
     );
     onCleanup(unlisten);
   });
@@ -313,6 +331,9 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstEquipShips);
         setData(reconcile(event.payload));
       },
+      () => {
+        void safeTauriInvoke("get_mst_equip_ships");
+      },
     );
     onCleanup(unlisten);
   });
@@ -345,6 +366,9 @@ export function MstStypesProvider(props: { children: JSX.Element }) {
       (event) => {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstStypes);
         setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_mst_stypes");
       },
     );
     onCleanup(unlisten);
@@ -525,6 +549,9 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMaterials);
         setData(reconcile(event.payload));
       },
+      () => {
+        void safeTauriInvoke("get_materials");
+      },
     );
     const unlisten_data_add = safeTauriListen<Materials>(
       APP_EVENTS.AddKcsMaterials,
@@ -620,6 +647,9 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
       (event) => {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsDeckPorts);
         setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_deck_ports");
       },
     );
     onCleanup(unlisten);
@@ -746,6 +776,9 @@ export function AirBasesPortsProvider(props: { children: JSX.Element }) {
       (event) => {
         if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsAirBasesPorts);
         setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_air_bases_ports");
       },
     );
     onCleanup(unlisten);

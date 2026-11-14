@@ -358,7 +358,13 @@ export function ShipListComponent() {
           if (!check_range("Evasion", ship.kaihi)) return false;
           if (!check_range("Anti-Submarine", ship.taisen)) return false;
           if (!check_range("Luck", ship.lucky)) return false;
-          if (!check_range("Aircraft installed", ship.slotnum)) return false;
+          if (
+            !check_range(
+              "Aircraft installed",
+              mst_ship?.maxeq?.reduce((sum, count) => sum + count, 0) ?? 0,
+            )
+          )
+            return false;
           if (!check_range("Reconnaissance", ship.sakuteki)) return false;
           if (!check_range("Range", ship.leng)) return false;
         }
@@ -732,27 +738,15 @@ export function ShipListComponent() {
 
   const cal_search_name = (search_name: string) => {
     const tmp_name: { [key: number]: boolean } = {};
-    const ships_length = Object.keys(ships.ships).length;
-    const sleep = (ms: number) =>
-      new Promise((resolve) => setTimeout(resolve, ms));
-    Object.entries(ships.ships).forEach(([ship_id, ship], index) => {
-      (async () => {
-        if (ship?.ship_id) {
-          await sleep(10);
-          const mst_ship = mst_ships.mst_ships[ship.ship_id];
-          if (mst_ship) {
-            if (mst_ship.name.indexOf(search_name) != -1) {
-              tmp_name[Number(ship_id)] = true;
-            } else {
-              tmp_name[Number(ship_id)] = false;
-            }
-            if (index == ships_length - 1) {
-              set_check_name(tmp_name);
-            }
-          }
-        }
-      })();
+    Object.entries(ships.ships).forEach(([ship_id, ship]) => {
+      const mst_ship = ship?.ship_id
+        ? mst_ships.mst_ships[ship.ship_id]
+        : undefined;
+      tmp_name[Number(ship_id)] = mst_ship
+        ? mst_ship.name.indexOf(search_name) !== -1
+        : false;
     });
+    set_check_name(tmp_name);
   };
 
   const wrap_select_properties_window = () =>

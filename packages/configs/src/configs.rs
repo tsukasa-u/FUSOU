@@ -784,7 +784,7 @@ impl ConfigsAppAssetSync {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
-    deny_auth: Option<bool>,
+    allow_auth: Option<bool>,
     auth_page_url: Option<String>,
     anonymous_sync_v2_register_endpoint: Option<String>,
     anonymous_sync_v2_challenge_endpoint: Option<String>,
@@ -793,9 +793,9 @@ pub struct ConfigsAppAuth {
 }
 
 impl ConfigsAppAuth {
-    pub fn get_deny_auth(&self) -> bool {
-        self.deny_auth
-            .unwrap_or_else(|| get_default_configs().app.auth.deny_auth.unwrap())
+    pub fn get_allow_auth(&self) -> bool {
+        self.allow_auth
+            .unwrap_or_else(|| get_default_configs().app.auth.allow_auth.unwrap())
     }
 
     pub fn get_auth_page_url(&self) -> String {
@@ -926,85 +926,45 @@ impl ConfigsAppWindow {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppQuestTreeSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
-
-impl ConfigsAppQuestTreeSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.quest_tree_sender.enable.unwrap())
-    }
-
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
+macro_rules! define_sender_config {
+    ($struct_name:ident, $field:ident) => {
+        #[derive(Debug, Serialize, Deserialize, Clone)]
+        pub struct $struct_name {
+            enable: Option<bool>,
+            allow_data_to_local: Option<bool>,
+            ingest_endpoint: Option<String>,
         }
-    }
-}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppShipGrowthSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
+        impl $struct_name {
+            pub fn get_enable(&self) -> bool {
+                self.enable
+                    .unwrap_or_else(|| get_default_configs().app.$field.enable.unwrap())
+            }
 
-impl ConfigsAppShipGrowthSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.ship_growth_sender.enable.unwrap())
-    }
+            pub fn get_allow_data_to_local(&self) -> bool {
+                self.allow_data_to_local.unwrap_or_else(|| {
+                    get_default_configs()
+                        .app
+                        .$field
+                        .allow_data_to_local
+                        .unwrap()
+                })
+            }
 
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
+            pub fn get_ingest_endpoint(&self) -> Option<String> {
+                match self.ingest_endpoint {
+                    Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+                    _ => None,
+                }
+            }
         }
-    }
+    };
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppSokuSpeedSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
-
-impl ConfigsAppSokuSpeedSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.soku_speed_sender.enable.unwrap())
-    }
-
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsAppRemodelSender {
-    enable: Option<bool>,
-    ingest_endpoint: Option<String>,
-}
-
-impl ConfigsAppRemodelSender {
-    pub fn get_enable(&self) -> bool {
-        self.enable
-            .unwrap_or_else(|| get_default_configs().app.remodel_sender.enable.unwrap())
-    }
-
-    pub fn get_ingest_endpoint(&self) -> Option<String> {
-        match self.ingest_endpoint {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
-        }
-    }
-}
+define_sender_config!(ConfigsAppQuestTreeSender, quest_tree_sender);
+define_sender_config!(ConfigsAppShipGrowthSender, ship_growth_sender);
+define_sender_config!(ConfigsAppSokuSpeedSender, soku_speed_sender);
+define_sender_config!(ConfigsAppRemodelSender, remodel_sender);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ConfigsAppMapCellLabels {
@@ -1207,23 +1167,35 @@ pub fn get_configs(config_path: &str) -> Configs {
     }
 
     // Read file and parse to Configs
-    let user_toml_file: String =
+    let mut user_toml_file: String =
         fs::read_to_string(config_path).expect_or_log("Failed to read config file");
-    let user_parse_result: Result<Configs, toml::de::Error> = toml::from_str(&user_toml_file);
-    let user_configs: Configs = match user_parse_result {
-        Ok(p) => p,
-        Err(_) => {
-            tracing::error!("Failed to parse TOML: {}", user_parse_result.err().unwrap());
-            default_configs
-        }
-    };
 
-    // Update config file to include any new fields from default template
-    if let Err(e) = update_config_file(config_path) {
+    // Preserve user values and merge in new defaults / schema updates before deserializing
+    let mut user_parse_result: Result<Configs, toml::de::Error> = toml::from_str(&user_toml_file);
+    let current_version = default_configs.version.as_deref();
+    let version_mismatch = user_parse_result
+        .as_ref()
+        .map(|cfg| current_version.is_some() && cfg.version.as_deref() != current_version)
+        .unwrap_or(true);
+
+    if version_mismatch {
+        if let Err(e) = update_config_file(config_path) {
+            tracing::warn!("Failed to update config file with new fields: {}", e);
+        } else if let Ok(updated) = fs::read_to_string(config_path) {
+            user_toml_file = updated;
+            user_parse_result = toml::from_str(&user_toml_file);
+        }
+    } else if let Err(e) = update_config_file(config_path) {
         tracing::warn!("Failed to update config file with new fields: {}", e);
     }
 
-    user_configs
+    match user_parse_result {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::error!("Failed to parse TOML after merge: {}", err);
+            default_configs
+        }
+    }
 }
 
 pub fn get_user_configs() -> Configs {
@@ -1270,44 +1242,44 @@ pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Recursively merge user values into default document
-fn merge_toml_values(default_doc: &mut toml_edit::DocumentMut, user_doc: &toml_edit::DocumentMut) {
+/// Recursively merge user values into default document while keeping schema/type safety
+fn merge_toml_item(default_item: &mut toml_edit::Item, user_item: &toml_edit::Item) {
+    use std::mem::discriminant;
     use toml_edit::Item;
 
+    match (default_item, user_item) {
+        (Item::Table(default_table), Item::Table(user_table)) => {
+            merge_table_values(default_table, user_table);
+        }
+        (Item::Value(default_value), Item::Value(user_value))
+            if discriminant(default_value) == discriminant(user_value) =>
+        {
+            *default_value = user_value.clone();
+        }
+        _ => {
+            // Type mismatch: keep default value
+        }
+    }
+}
+
+/// Recursively merge user values into default document
+fn merge_toml_values(default_doc: &mut toml_edit::DocumentMut, user_doc: &toml_edit::DocumentMut) {
     for (key, user_item) in user_doc.iter() {
+        // Keep the current default template's top-level version when upgrading configs.
+        if key == "version" {
+            continue;
+        }
         if let Some(default_item) = default_doc.get_mut(key) {
-            match (default_item, user_item) {
-                (Item::Table(default_table), Item::Table(user_table)) => {
-                    // Recursively merge tables
-                    merge_table_values(default_table, user_table);
-                }
-                (Item::Value(default_value), Item::Value(user_value)) => {
-                    // Copy user value to default
-                    *default_value = user_value.clone();
-                }
-                _ => {
-                    // Type mismatch, keep default
-                }
-            }
+            merge_toml_item(default_item, user_item);
         }
     }
 }
 
 /// Merge table values recursively
 fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_edit::Table) {
-    use toml_edit::Item;
-
     for (key, user_item) in user_table.iter() {
         if let Some(default_item) = default_table.get_mut(key) {
-            match (default_item, user_item) {
-                (Item::Table(nested_default), Item::Table(nested_user)) => {
-                    merge_table_values(nested_default, nested_user);
-                }
-                (Item::Value(default_value), Item::Value(user_value)) => {
-                    *default_value = user_value.clone();
-                }
-                _ => {}
-            }
+            merge_toml_item(default_item, user_item);
         }
     }
 }
@@ -1338,11 +1310,21 @@ mod tests {
     }
 
     #[test]
-    fn test_bundled_app_config_is_valid() {
-        let config_content = include_str!("../../FUSOU-APP/src-tauri/resources/user/configs.toml");
+    fn test_bundled_app_config_is_mapped_to_single_source() {
+        let tauri_conf = include_str!("../../FUSOU-APP/src-tauri/tauri.conf.json");
+        assert!(
+            tauri_conf.contains(r#""../../configs/configs.toml": "resources/user/configs.toml""#),
+            "tauri.conf.json must map ../../configs/configs.toml to resources/user/configs.toml"
+        );
 
-        toml::from_str::<Configs>(config_content)
-            .expect("bundled FUSOU-APP configs.toml must match Configs");
+        assert!(
+            !std::path::Path::new("../FUSOU-APP/src-tauri/resources/user/configs.toml").exists(),
+            "duplicate FUSOU-APP/src-tauri/resources/user/configs.toml should not exist"
+        );
+
+        let roaming_content = include_str!("../../FUSOU-APP/src-tauri/roaming/user/configs.toml");
+        toml::from_str::<Configs>(roaming_content)
+            .expect("dev roaming FUSOU-APP configs.toml must match Configs");
     }
 
     #[test]
@@ -1662,7 +1644,7 @@ mod tests {
 
         // Test App Auth defaults
         let empty_auth = ConfigsAppAuth {
-            deny_auth: None,
+            allow_auth: None,
             auth_page_url: None,
             anonymous_sync_v2_register_endpoint: None,
             anonymous_sync_v2_challenge_endpoint: None,
@@ -1670,10 +1652,11 @@ mod tests {
             anonymous_sync_v2_complete_endpoint: None,
         };
 
+        assert!(!default_configs.app.auth.get_allow_auth());
         assert_eq!(
-            empty_auth.get_deny_auth(),
-            default_configs.app.auth.get_deny_auth(),
-            "auth deny_auth getter should return configs.toml default"
+            empty_auth.get_allow_auth(),
+            default_configs.app.auth.get_allow_auth(),
+            "auth allow_auth getter should return configs.toml default"
         );
         assert_eq!(
             empty_auth.get_auth_page_url(),
@@ -1750,5 +1733,142 @@ mod tests {
             all_servers, expected_servers,
             "All servers should come from configs.toml"
         );
+    }
+
+    #[test]
+    fn test_get_configs_preserves_user_values_across_version_and_type_mismatch() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-merge-test-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let legacy_user_toml = r#"
+version = "0.0.1-legacy"
+
+[proxy]
+allow_save_api_responses = true
+
+[proxy.network]
+connect_timeout = "invalid-string-type"
+recv_buffer_size = 1234567
+"#;
+        std::fs::write(&path, legacy_user_toml).unwrap();
+
+        let loaded = get_configs(path.to_str().unwrap());
+        assert!(loaded.proxy.get_allow_save_api_responses());
+        assert_eq!(loaded.proxy.network.get_recv_buffer_size(), Some(1234567));
+        // Type mismatch falls back cleanly to default template without dropping valid user values
+        let default_cfg = get_default_configs();
+        assert_eq!(
+            loaded.proxy.network.connect_timeout,
+            default_cfg.proxy.network.connect_timeout
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sender_local_save_defaults_and_compatibility() {
+        let default_cfg = get_default_configs();
+        assert!(!default_cfg.app.quest_tree_sender.get_allow_data_to_local());
+        assert!(!default_cfg.app.ship_growth_sender.get_allow_data_to_local());
+        assert!(!default_cfg.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(!default_cfg.app.remodel_sender.get_allow_data_to_local());
+
+        let empty_quest = ConfigsAppQuestTreeSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_quest.get_allow_data_to_local());
+
+        let empty_ship_growth = ConfigsAppShipGrowthSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_ship_growth.get_allow_data_to_local());
+
+        let empty_soku_speed = ConfigsAppSokuSpeedSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_soku_speed.get_allow_data_to_local());
+
+        let empty_remodel = ConfigsAppRemodelSender {
+            enable: None,
+            allow_data_to_local: None,
+            ingest_endpoint: None,
+        };
+        assert!(!empty_remodel.get_allow_data_to_local());
+
+        let mut legacy_toml: toml::Value =
+            toml::from_str(include_str!("../configs.toml")).expect("default TOML should parse");
+        let app_table = legacy_toml
+            .get_mut("app")
+            .and_then(toml::Value::as_table_mut)
+            .expect("app config table should exist");
+        for sender_key in [
+            "quest_tree_sender",
+            "ship_growth_sender",
+            "soku_speed_sender",
+            "remodel_sender",
+        ] {
+            app_table
+                .get_mut(sender_key)
+                .and_then(toml::Value::as_table_mut)
+                .unwrap_or_else(|| panic!("{sender_key} table should exist"))
+                .remove("allow_data_to_local");
+        }
+
+        let parsed_legacy: Configs = legacy_toml
+            .try_into()
+            .expect("legacy config without allow_data_to_local should deserialize");
+        assert!(!parsed_legacy.app.quest_tree_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy.app.ship_growth_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy.app.remodel_sender.get_allow_data_to_local());
+
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-local-save-test-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let user_toml = r#"
+version = "0.0.1-legacy"
+
+[app.quest_tree_sender]
+allow_data_to_local = true
+
+[app.ship_growth_sender]
+enable = true
+allow_data_to_local = true
+
+[app.soku_speed_sender]
+allow_data_to_local = true
+
+[app.remodel_sender]
+enable = true
+allow_data_to_local = true
+"#;
+        std::fs::write(&path, user_toml).unwrap();
+        let merged = get_configs(path.to_str().unwrap());
+        assert!(!merged.app.quest_tree_sender.get_enable());
+        assert!(merged.app.quest_tree_sender.get_allow_data_to_local());
+        assert!(merged.app.ship_growth_sender.get_enable());
+        assert!(merged.app.ship_growth_sender.get_allow_data_to_local());
+        assert!(!merged.app.soku_speed_sender.get_enable());
+        assert!(merged.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(merged.app.remodel_sender.get_enable());
+        assert!(merged.app.remodel_sender.get_allow_data_to_local());
+        let _ = std::fs::remove_file(&path);
     }
 }

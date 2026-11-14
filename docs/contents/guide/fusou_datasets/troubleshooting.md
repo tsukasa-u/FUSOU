@@ -3,7 +3,7 @@ title: fusou-datasets Troubleshooting
 contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsライブラリのトラブルシューティングガイド。認証エラー、ネットワークエラー、データが見つからない場合の解決方法とFAQ。
-date: 2026-01-01
+date: 2026-11-15
 slug: guide/fusou_datasets/troubleshooting
 tags: [guide, fusou_datasets, python, troubleshooting]
 ---
@@ -126,7 +126,7 @@ import fusou_datasets
 
 for attempt in range(3):
     try:
-        df = fusou_datasets.load("ship_type")
+        df = fusou_datasets.load("mst_stypes")
         break
     except Exception as e:
         print(f"試行 {attempt + 1} 失敗: {e}")
@@ -146,7 +146,7 @@ for attempt in range(3):
 
 ```python
 # ファイル数を制限して読み込み
-df = fusou_datasets.load("ship_type", limit=10)
+df = fusou_datasets.load("mst_stypes", limit=10)
 ```
 
 ---
@@ -184,7 +184,7 @@ print("最新期間:", info['latest'])
 - `period_tag="all"` で全期間を試す
 
 ```python
-df = fusou_datasets.load("ship_type", period_tag="all")
+df = fusou_datasets.load("mst_stypes", period_tag="all")
 ```
 
 ---
@@ -200,7 +200,7 @@ df = fusou_datasets.load("ship_type", period_tag="all")
 df = fusou_datasets.load("")
 
 # ✓ 正しい
-df = fusou_datasets.load("ship_type")
+df = fusou_datasets.load("mst_stypes")
 ```
 
 ---
@@ -308,11 +308,11 @@ A: 定期的に更新されます。最新の期間タグは `list_period_tags()
 
 ### Q: オフラインで使えますか？
 
-A: いいえ、データはオンラインで取得されます。ダウンロードしたデータを CSV などに保存してオフラインで分析することは可能です。
+A: `configure(cache_dir="./data/cache")` 等でキャッシュ先を設定して一度データを取得すれば、`offline=True` を指定してオフラインでキャッシュから読み込めます（キャッシュ未作成時に `offline=True` を指定すると `DatasetNotFoundError` になります）。ダウンロードしたデータを CSV などに保存してオフラインで分析することも可能です。
 
 ```python
-df = fusou_datasets.load("ship_type")
-df.to_csv("ship_type_offline.csv", index=False)
+df = fusou_datasets.load("mst_stypes")
+df.to_csv("mst_stypes_offline.csv", index=False)
 ```
 
 ---

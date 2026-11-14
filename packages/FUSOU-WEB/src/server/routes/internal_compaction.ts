@@ -28,16 +28,13 @@ import {
   TableVersionRowSchema,
 } from "../schemas/internal-compaction";
 import { parseOcfHeader } from "../../features/avro/ocf-header";
-import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
+import { createEnvContext } from "../utils";
+import { verifyInternalToken } from "../utils/internal-auth";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 type CompactionTier = "hourly" | "daily" | "weekly" | "period";
-
-type InternalAuthResult =
-  | { ok: true }
-  | { ok: false; status: 401 | 403; error: string };
 
 const EXCLUDED_COMPACTION_TABLE_VERSIONS = [
   "0.0.0",
@@ -45,27 +42,6 @@ const EXCLUDED_COMPACTION_TABLE_VERSIONS = [
   "0.4",
   "0.5",
 ] as const;
-
-function verifyInternalToken(
-  c: { env: Bindings; req: { header: (name: string) => string | undefined } },
-): InternalAuthResult {
-  const env = createEnvContext(c);
-  const expected = getEnv(env, "INTERNAL_COMPACTION_TOKEN");
-  if (!expected) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Endpoint disabled (INTERNAL_COMPACTION_TOKEN not set)",
-    };
-  }
-
-  const provided = c.req.header("X-INTERNAL-TOKEN") ?? "";
-  if (!timingSafeEqual(provided, expected)) {
-    return { ok: false, status: 401, error: "Unauthorized" };
-  }
-
-  return { ok: true };
-}
 
 function isTier(value: unknown): value is CompactionTier {
   return (

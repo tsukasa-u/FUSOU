@@ -1,154 +1,56 @@
 ---
 title: Manual Snapshot Sync and Retrieval Flows
-description: Manual snapshot sync and retrieval flows for FUSOU (client → Pages → R2/Supabase and token-based viewing).
-contributors: ["github-copilot"]
-date: 2025-11-27
+description: Manual fleet snapshot sync and retrieval flows for FUSOU (FUSOU-APP Rust storage → /api/fleet/snapshot → R2, and /api/fleet/snapshot/:tag viewing).
+contributors: ["github-copilot", "antigravity-ai"]
+date: 2026-11-15
 slug: guide/manual_sync
 tags: [guide]
 ---
 
+# Manual Snapshot Sync and Retrieval Flows
+
 ## 目的
 
-ユーザー操作によりクライアント（FUSOU-APP）から Fleet スナップショットを保存し、R2 にペイロードを置き、Supabase にメタを残す。R2 の重複アップロードを避けつつ、短縮 token による閲覧を提供する。
+ユーザー操作によりクライアント（FUSOU-APP）から現在の艦隊・装備・アイテムのスナップショットを保存し、FUSOU-WEB の API 経由で Cloudflare R2 に格納して、Web シミュレーター等から参照できるようにする仕組みを説明します。
 
-## 関係コンポーネント（簡潔）
+## 関係コンポーネント
 
-- クライアント（FUSOU-APP）: スナップショットの収集・送信を行う。`performSnapshotSync` を使用。
-- Cloudflare Pages / Functions: `POST /api/fleet/snapshot`（アップロード受け口）。
-- Cloudflare R2: 圧縮ペイロードの格納先。
-- D1 / R2 List: スナップショットのインデックス管理（メタデータ）。
-- Viewer: ダッシュボード等からスナップショットを取得・閲覧。
+- クライアント（FUSOU-APP）:
+  - UI（`packages/FUSOU-APP/src/components/settings/settings.tsx`）の `perform_snapshot_sync` コマンド呼び出し、またはトレイメニューの `Sync snapshot`（`packages/FUSOU-APP/src-tauri/src/builder_setup/setup.rs`）。
+  - 実装本体: `packages/FUSOU-APP/src-tauri/src/storage/snapshot.rs`（`perform_snapshot_sync_app`）。
+- サーバー API（FUSOU-WEB）:
+  - `packages/FUSOU-WEB/src/server/routes/fleet.ts`（`POST /api/fleet/snapshot`, `GET /api/fleet/snapshots/list`, `GET /api/fleet/snapshot/:tag`）。
+- ストレージ: Cloudflare R2（`FLEET_SNAPSHOT_BUCKET`）。
 
-## 1) 手動スナップショット同期（Client → Pages API → R2 / Supabase）
+## 1) 手動スナップショット同期（FUSOU-APP → `/api/fleet/snapshot` → R2）
 
-1. スナップショット取得（クライアント側）
+1. スナップショット構築（クライアント Rust 側）
+   - `get_payload_data()` が `kc_api::interface`（`Ships`, `UseItems`, `SlotItems`, `DeckPorts`）から最新状態をメモリ上で読み込み、`id` 昇順でソートした `FleetSnapshot` JSON を生成します。
+   - `canonicalize_json()` でオブジェクトのキーを再帰的に辞書順へ正規化してからシリアライズ（`serde_json::to_vec`）します。これにより、同一の艦隊状態で一貫した SHA-256 ハッシュが得られます。
 
-   - 実装場所とエクスポート:
+2. 2 段階署名付きアップロード（`fusou_upload::Uploader`）
+   - `auth_manager` から `dataset_id`（`dataset_token` 経由）を解決し、`Uploader::build_snapshot_handshake("latest", &dataset_id)` を作成します。
+   - クライアントは `Content-Type: application/json` と `Idempotency-Key: <uuid>` を付与し、`fusou_upload::Uploader::upload` を通じて SHA-256（`content_hash`）付きハンドシェイク → 署名付き PUT/POST の 2 段階で JSON バイト列を送信します。
+   - デフォルトの送信先は `[app.asset_sync].fleet_snapshot_endpoint`（`https://fusou.dev/api/fleet/snapshot`）です。
 
-     - 現状の実装は `packages/FUSOU-APP/src/utility/snapshot.ts` にあり、モジュール内レジストリとして動作します。
-     - エクスポートされている主な関数は `registerSnapshotCollector(fn)`, `collectSnapshot(timeoutMs)` と `hasCollectors()` です。
+3. サーバー側処理（`fleet.ts`）
+   - Stage 1（準備）: トークン・`dataset_id`・`tag`・`content_hash` を検証し、署名済みアップロード URL を返します。
+   - Stage 2（実行）: 本体の SHA-256 を再計算して `content_hash` と照合し、JSON スキーマを検証します。サイズがしきい値（`SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES`）以下の場合は空データとしてスキップします。
+   - 有効なスナップショットはサーバー側で `CompressionStream("gzip")` により圧縮し、Cloudflare R2 バケット `FLEET_SNAPSHOT_BUCKET` の `fleets/{dataset_id}/{tag}/...` キー配下へ保存します。
 
-   - 動作の要点（現状）:
+## 2) スナップショット閲覧フロー（一覧・取得）
 
-     - `registerSnapshotCollector(fn)` はコンポーネントのマウント時に呼ばれ、アンマウント時に解除される想定です（各コンポーネントが自身のコレクタを登録するパターン）。
-     - `collectSnapshot(timeoutMs)` は登録済みのコレクタ関数を登録順に呼び出します。各コレクタは同期でも非同期でもかまいません。実装は各コレクタの Promise を待ち、最初に「有効」と判断される非 null のスナップショットを返します。
-     - タイムアウト: コレクタ応答待ちに上限を設けています（`main.tsx` のトレイ同期ハンドラでは 5000ms を使用しています）。タイムアウト内に有効な結果が得られなければ `null` が返り、呼び出し元は同期を中止するべきです。
+FUSOU-WEB のシミュレーター（`DataImportModal.tsx` / `FleetListPanel.tsx` 等）からは以下の API 経由で保存済みスナップショットを取得します。
 
-   - 現在登録しているコンポーネント（例、現状の正直な状況）:
+- タグ・一覧の取得: `GET /api/fleet/snapshots/list`
+- 最新スナップショットの取得: `GET /api/fleet/snapshot/:tag`
+  - サーバーは `FLEET_SNAPSHOT_BUCKET` の `fleets/{dataset_id}/{safeTag}/` 配下から最新のオブジェクトを取得し、gzip 展開・スキーマ検証のうえで `{ ok: true, tag, snapshot }` を返します。
 
-     - 現在、主要な登録実装を追加したのは `SnapshotViewer` と `FleetInspector` の 2 箇所です。つまり、アプリ内のすべての画面や UI 状態が自動的にスナップショット提供者として登録されているわけではありません。
-     - 他の画面やモジュールがスナップショットを提供していない場合、`collectSnapshot` はこれら登録済みコレクタに頼るため、取得できる情報は登録済みコンポーネントが提供する内容に依存します。
+> [!NOTE]
+> 短縮 URL リダイレクト `/s/:key`（`packages/FUSOU-WEB/src/pages/s/[key].ts`）は艦隊構成共有等の短縮リンク（`/api/shorten` / `/share/short/[key]`）向けのルートであり、`/api/fleet/snapshot/:tag` とは別の機能です。
 
-   - スナップショットの内容と一貫性（現状の課題）:
+## 使い方（ユーザー向け）
 
-     - スナップショットは「JSON シリアライズ可能なオブジェクト」であり、フリートの状態（艦隊、選択セル、表示中の詳細など）を含む想定ですが、プロジェクト内で厳密なスキーマが中央管理されているわけではありません。
-     - 現状では "正規化（deterministic canonicalization）" や不要な一時フィールドの除去が自動的に行われていないため、同一の論理的状態でもフィールド順や一時的 UI データの違いで異なるハッシュが生成される可能性があります。R2 の重複排除や content-hash に基づく判定を正しく行うには、アップロード前にクライアント側でソートや不要フィールドの削除などの正規化を行う必要があります（この正規化処理は現状自動的には適用されていません）。
-
-   - 部分スナップショットとエラー耐性:
-
-     - 「部分スナップショット」とは: コレクタが返すオブジェクトがフリート全体の完全な状態を含まず、選択中のアイテムや表示中のサブセットのみを返すケースを指します。たとえば `SnapshotViewer` は現在表示している snapshot データを返す設計であり、必ずしも全てのフリート状態（例: 未表示の艦隊データや細かい UI 状態）を含むとは限りません。
-     - 現状の扱い（率直）:
-
-       - `collectSnapshot` は登録コレクタを順に呼び出し、各コレクタが返す最初の「非 null / 非 undefined」の戻り値を有効なスナップショットとして採用します。つまり「部分的な」オブジェクトでも非 null であればそれが即座に採用されます。
-       - 採用後の内容に対する構造チェック（必須フィールドの存在確認や一貫性検証）は現在の実装に組み込まれていません。呼び出し元（例: `performSnapshotSync`）が独自に検証している箇所は限定的です。
-       - コレクタ内で例外が発生した場合、レジストリは例外を捕捉してログ化し、次のコレクタへ進む処理になっています（単一コレクタの失敗で全体が停止しないようにする処理）。ただし、複数コレクタが存在しても結果をマージする仕組みはなく、最初に返ってきたものを採用する単純な戦略です。
-
-     - 現状の欠点（実務で問題になり得る点）:
-
-       - 部分スナップショットをそのままアップロードすると、期待するフィールドが欠けた状態で R2/Supabase に保存されてしまう可能性があります。
-       - 同一の論理状態を複数のコレクタが部分的に提供している場合でも、現在はマージを行わないため情報が欠落するリスクがあります。
-       - スキーマ検証や必須フィールドチェックが無いため、サーバ側の重複判定（content-hash）前の正規化が不十分だと無駄な重複や誤検出が発生します。
-
-     - 改善案（推奨）:
-
-       - クライアント側でスナップショットの最小必須フィールドを検査するバリデータを追加する（例: `fleets` 配列が存在するか、少なくとも 1 つの艦隊が含まれるか等）。
-       - 複数コレクタの出力をマージする仕組みを導入する（キー毎に優先度をつける、または部分的な結果を統合して完全性を高める）。
-       - 正規化ルール（フィールドソート、不要な一時フィールド除去）をコレクタ呼び出し後に一元的に実行してから圧縮・ハッシュを行う。
-       - 既存の最後の成功スナップショットをキャッシュしておき、今回取得したスナップショットが不完全である場合はキャッシュを使って補完またはアップロードを中止するロジックを検討する。
-
-     - まとめ（現状）: 現在の実装は「最初に有効な戻り値を採用する」シンプルな戦略で稼働しており、部分スナップショットや構造不備に対する防御は限定的です。運用で安定させるには上記のような検証・マージ・正規化の導入が必要です。
-
-   - 設計ポリシー（重要）:
-
-     - グローバル変数やグローバル関数を使わず、モジュールスコープのレジストリでコンポーネントから snapshot を集める方針が採られています。これはテスト容易性と型安全性の向上を目的とした意図的な設計です。
-
-   - 実運用での注意点（推奨）:
-     - スナップショットを R2 の content-hash ベースで重複排除したい場合、クライアント側で圧縮後に SHA-256 を計算する前に一貫した正規化を必ず行ってください。
-     - 全コンポーネントを網羅的に登録するには、各主要な画面・状態プロバイダに `registerSnapshotCollector` を追加する作業が必要です。
-
-   （注）上の説明は現在のコードベースの実装状態を率直に記したものです。フローの強化（自動正規化、完全性検査、より多くのコンポーネント登録）は次の改善タスクとして推奨されます。
-
-2. 事前処理（クライアント）
-
-   - JSON シリアライズ後に gzip 等で圧縮し、圧縮後のバイトサイズを計測する。
-   - クライアント側で SHA-256（content-hash）を計算し、`X-Content-Hash` ヘッダに付与する。
-   - `Idempotency-Key`（UUID 等）を生成してヘッダに付与する。
-   - 必要に応じて `Authorization: Bearer <access_token>` を付与する（Supabase 認証など）。
-
-3. アップロード（Pages API へ POST）
-
-   - POST `/api/fleet/snapshot` に圧縮ペイロードを送る。推奨ヘッダ:
-     - `Idempotency-Key: <uuid>`
-     - `X-Content-Hash: sha256:<hex>`
-     - `Content-Encoding: gzip`
-     - `Authorization: Bearer <token>`（必要時）
-   - ボディは multipart/form-data または application/octet-stream（実装に合わせる）。
-
-4. サーバ側処理（Pages API）
-
-   - JWT 検証（必要時）: Bearer トークンを検証して操作権限を確認する。
-   - 重複判定（サーバ設計のいずれか）:
-     - 推奨: R2 のオブジェクトキーに `content-hash` を用いる（例: `snapshots/<user>/<sha256>.json.gz`）。PUT 前に存在確認を行い、存在する場合は PUT をスキップして既存扱いとする。
-     - 代替: Supabase の `fleets` メタテーブルで同一 hash のレコードを検索してから R2 PUT を行う。
-   - R2 へ格納: `FLEET_SNAPSHOT_BUCKET.put(key, body)`。
-   - 古いスナップショットの整理（Keep Latest N）。
-
-5. サーバ応答
-   - 成功: 201/200 と JSON（例: `{ token, r2_key, etag }`）。
-   - 重複: 200 または 409（実装による）。
-   - エラー: 4xx/5xx を返す。
-
-## 設計上の注意点（短記）
-
-- R2 key に content-hash を利用すると重複の排除が単純になる。
-- サーバ側で圧縮後サイズ上限（制限）を設け、一定以上は拒否する（413）。
-- `Idempotency-Key` はクライアント側で生成し、同一キーの再送はサーバで安全に扱う。
-
-## 2) スナップショット閲覧フロー（Token を使った GET /s/:token）
-
-1. クライアント（閲覧者）が`GET /s/:token` を要求する。
-
-2. Worker / API の処理
-
-   - R2 または D1 からスナップショット情報を取得。
-   - アクセス制御:
-     - 認証済みユーザーのみ閲覧可能（または共有リンク機能）。
-   - ETag/Cache 判定:
-     - R2 の ETag（content-hash）を参照し、`If-None-Match` と一致する場合は 304 を返す。
-   - R2 からペイロードを取得してレスポンスを返す。
-
-3. レスポンス
-   - 成功: 200 + `Content-Type: application/json` + `ETag: <etag>`。ボディに snapshot JSON。
-   - 304: If-None-Match が一致する場合（ボディ無し）。
-   - 401/403/404: アクセス不可または token 不存在。
-
-## 閲覧用 Token の性質
-
-- token は推測困難なランダム文字列にする（短すぎない）。
-- token の公開/非公開設定を Supabase 側で管理し、失効や削除が可能な仕組みにする。
-
-## 使い方（ユーザー向け、簡潔）
-
-- スナップショットを同期するには:
-
-  1.  FUSOU-APP 内で `Sync` ボタンを押す、またはトレイメニューの `Sync snapshot` を選択します。
-  2.  アプリが現在のスナップショットを収集してサーバへ送信します。処理が成功するとアプリ側に「アップロード成功」のメッセージが表示されます。
-
-- スナップショットを閲覧するには:
-
-  1.  管理画面や API 応答で得た `token` を使って、ブラウザで `https://<host>/s/<token>` を開いてください（公開設定であれば誰でも閲覧可能、非公開ならログインが必要）。
-  2.  ページは ETag を利用して効率的にデータ更新を確認します。
-
----
-
-このドキュメントはフローの詳細と基本的な使い方に絞って記載しています。運用手順・テスト手順・実行例は別ドキュメントとして用意することを推奨します。
+1. FUSOU-APP の設定画面から手動同期を実行するか、システムトレイメニューの `Sync snapshot` を選択します。
+2. `perform_snapshot_sync_app` が現在の艦隊・装備・アイテム情報を送信し、完了時にアプリ通知が表示されます（重複・空データの場合はスキップ通知になります）。
+3. 必要に応じて FUSOU-WEB の編成シミュレーター等のインポート画面からスナップショットを読み込めます。

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
-use crate::storage::root_validator;
+use crate::storage::{root_validator, submit_data};
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::retry_service::RetryHandler;
-use fusou_upload::{UploadContext, UploadRequest, Uploader};
+use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadRetryService, Uploader};
 use kc_api::database::DATABASE_TABLE_VERSION;
 
 #[cfg(feature = "gdrive")]
@@ -14,6 +14,8 @@ type RetryResult = Result<(), Box<dyn std::error::Error>>;
 
 pub struct AppUploadRetryHandler {
     auth_manager: Arc<AuthManager<FileStorage>>,
+    pending_store: Arc<PendingStore>,
+    retry_service: OnceLock<Weak<UploadRetryService>>,
 }
 
 #[derive(Clone, Copy)]
@@ -23,8 +25,19 @@ enum PayloadHashMode {
 }
 
 impl AppUploadRetryHandler {
-    pub fn new(auth_manager: Arc<AuthManager<FileStorage>>) -> Self {
-        Self { auth_manager }
+    pub fn new(
+        auth_manager: Arc<AuthManager<FileStorage>>,
+        pending_store: Arc<PendingStore>,
+    ) -> Self {
+        Self {
+            auth_manager,
+            pending_store,
+            retry_service: OnceLock::new(),
+        }
+    }
+
+    pub fn attach_retry_service(&self, retry_service: &Arc<UploadRetryService>) {
+        let _ = self.retry_service.set(Arc::downgrade(retry_service));
     }
 
     fn build_client() -> reqwest::Client {
@@ -251,6 +264,21 @@ impl AppUploadRetryHandler {
                     .await
             }
             "localfs_write" => self.handle_localfs_write_retry(context, data).await,
+            "deferred_port_table" => {
+                let retry_service = self
+                    .retry_service
+                    .get()
+                    .and_then(|weak| weak.upgrade())
+                    .ok_or("retry_service not attached for deferred_port_table")?;
+                submit_data::retry_deferred_port_table(
+                    self.pending_store.clone(),
+                    retry_service,
+                    data,
+                    &self.auth_manager,
+                )
+                .await
+                .map_err(|err| err.into())
+            }
             #[cfg(feature = "gdrive")]
             "upload" => self.handle_cloud_retry(context, data).await,
             _ => Err("unsupported operation".into()),

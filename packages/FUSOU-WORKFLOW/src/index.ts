@@ -2,7 +2,6 @@ import { handleRead as handleHybridRead } from "./reader";
 import { handleCron } from "./cron";
 import { handleBufferConsumerChunked } from "./buffer-consumer";
 import type { QueueMessage, QueueSendBatchItem } from "./types";
-import { runQuestInferenceTasks } from "./quest_tree_inference";
 import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
@@ -25,7 +24,6 @@ interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
   WORKFLOW_STATE_KV?: KVNamespace;
-  QUEST_INDEX_DB?: D1Database;
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
@@ -34,18 +32,14 @@ interface Env {
   TURSO_AUTH_TOKEN: string;
   // Cleanup job auth token
   MASTER_DATA_CLEANUP_TOKEN?: string;
-  // Bearer token required for /battle-data/upload (must be set; endpoint is disabled without it)
+  // Bearer token required for /battle-data/upload and /read (disabled without it)
   UPLOAD_INGEST_TOKEN?: string;
-  // Optional cap for task batch size. Defaults to 100.
-  QUEST_TREE_CRON_LIMIT?: string;
-  // Required explicit switch for experimental quest collection/inference.
-  QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED?: string;
 }
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 // Hybrid reader: delegate to reader.ts (buffer_logs + block_indexes)
@@ -96,36 +90,31 @@ const queueDLQ = {
   },
 };
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.trunc(parsed);
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
 }
 
-function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw new Error(`${envKey} must be explicitly set to one of: true, false, 1, 0`);
-}
-
-async function runQuestInferenceCron(env: Env): Promise<void> {
-  const enabled = parseStrictBoolean(
-    env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
-    "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED",
-  );
-  if (!enabled) {
-    console.log("[scheduled] quest inference cron skipped: experimental collection disabled");
-    return;
+function requireUploadIngestAuth(
+  request: Request,
+  env: Env,
+  endpointName: string,
+): Response | null {
+  const token = env.UPLOAD_INGEST_TOKEN;
+  if (!token) {
+    return jsonResponse(
+      { error: `${endpointName} disabled: UPLOAD_INGEST_TOKEN not configured` },
+      403,
+    );
   }
-
-  const limit = Math.min(200, parsePositiveInt(env.QUEST_TREE_CRON_LIMIT, 100));
-  if (!env.QUEST_INDEX_DB) {
-    console.warn("[scheduled] quest inference cron skipped: QUEST_INDEX_DB is not configured");
-    return;
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!timingSafeEqual(provided, token)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
   }
-  const result = await runQuestInferenceTasks(env.QUEST_INDEX_DB, { limit });
-  console.log("[scheduled] quest inference cron completed", result);
+  return null;
 }
 
 export default {
@@ -143,21 +132,8 @@ export default {
 
     if (path === "/battle-data/upload" && request.method === "POST") {
       // Require bearer token auth (fail closed if not configured)
-      const uploadToken = env.UPLOAD_INGEST_TOKEN;
-      if (!uploadToken) {
-        return new Response(
-          JSON.stringify({ error: "Upload endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
-          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
-      const authHeader = request.headers.get("Authorization") ?? "";
-      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!timingSafeEqual(provided, uploadToken)) {
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
+      const authError = requireUploadIngestAuth(request, env, "Upload endpoint");
+      if (authError) return authError;
       // Authenticated upload handler: accept base64 Avro slices and enqueue
       try {
         const rawPayload: unknown = await request.json();
@@ -250,39 +226,26 @@ export default {
     }
 
     if (path === "/admin/compact" && request.method === "POST") {
-      const adminToken = env.UPLOAD_INGEST_TOKEN;
-      if (!adminToken) {
-        return new Response(
-          JSON.stringify({ error: "Admin compact endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
-          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
-      const authHeader = request.headers.get("Authorization") ?? "";
-      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (!timingSafeEqual(provided, adminToken)) {
-        return new Response(
-          JSON.stringify({ error: "Unauthorized" }),
-          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
-      }
+      const authError = requireUploadIngestAuth(request, env, "Admin compact endpoint");
+      if (authError) return authError;
 
       try {
         console.log("[Admin] Manual compaction triggered via /admin/compact");
         await handleCron(env);
-        return new Response(
-          JSON.stringify({ status: "success", message: "Compaction completed successfully" }),
-          { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-        );
+        return jsonResponse({ status: "success", message: "Compaction completed successfully" }, 200);
       } catch (err) {
         console.error("[Admin] Manual compaction failed:", err);
-        return new Response(
-          JSON.stringify({ error: "Compaction failed", detail: err instanceof Error ? err.message : String(err) }),
-          { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        return jsonResponse(
+          { error: "Compaction failed", detail: err instanceof Error ? err.message : String(err) },
+          500,
         );
       }
     }
 
     if (path === "/read" && request.method === "GET") {
+      const readAuthError = requireUploadIngestAuth(request, env, "Read endpoint");
+      if (readAuthError) return readAuthError;
+
       return handleRead(request, env, ctx);
     }
 
@@ -348,11 +311,5 @@ export default {
         }),
       );
     }
-
-    ctx.waitUntil(
-      runQuestInferenceCron(env).catch((err) => {
-        console.error("[scheduled] Quest inference cron error:", err);
-      }),
-    );
   },
 };

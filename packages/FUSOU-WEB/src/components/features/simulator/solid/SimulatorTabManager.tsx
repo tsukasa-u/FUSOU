@@ -40,7 +40,7 @@ const SIMULATOR_TABS: readonly TabItem<SimTab>[] = [
   { id: "equip", label: "装備詳細" },
 ];
 
-export function SimulatorTabManager(props: { initialTab: string, accessToken: string | null }) {
+export function SimulatorTabManager(props: { initialTab: string }) {
   const resolveInitialTab = (tab: string | undefined): SimTab => {
     if (!ENABLE_OPTIMIZER_TAB && tab === "optimizer") return "fleet";
     if (tab === "fleet" || tab === "workspace" || tab === "ship" || tab === "equip" || (ENABLE_OPTIMIZER_TAB && tab === "optimizer")) {
@@ -141,8 +141,6 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
   });
 
   onMount(() => {
-    window.__fusouAccessToken = props.accessToken;
-
     initShipModalEvents();
     initEquipModalEvents();
 
@@ -368,8 +366,8 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
   );
 }
 
-export function mountSimulatorTabManager(root: HTMLElement, initialTab: string, accessToken: string | null) {
+export function mountSimulatorTabManager(root: HTMLElement, initialTab: string) {
   initWorkspaceAutoSave();
   root.innerHTML = "";
-  render(() => <SimulatorTabManager initialTab={initialTab} accessToken={accessToken} />, root);
+  render(() => <SimulatorTabManager initialTab={initialTab} />, root);
 }

@@ -20,6 +20,7 @@ from fusou_datasets._config import (
     DEFAULT_API_URL,
 )
 from fusou_datasets._exceptions import AuthenticationError
+import fusou_datasets as fd
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +84,10 @@ def test_get_config():
     cfg = get_config()
     assert cfg["period_tag"] == "2026-09"
     assert cfg["table_version"] == "0.6.0"
+
+
+def test_get_config_is_exported_from_package():
+    assert fd.get_config()["api_url"] == DEFAULT_API_URL
 
 
 def test_env_defaults(monkeypatch):

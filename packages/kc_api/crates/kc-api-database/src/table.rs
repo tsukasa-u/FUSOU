@@ -149,7 +149,7 @@ macro_rules! define_port_table_schema {
     (
         $(
             $(#[$meta:meta])*
-            $variant:ident => $field:ident : $ty:ty => $getter:ident => $name:literal,
+            $variant:ident => $field:ident : $ty:ty => $getter:ident => $name:literal $(=> $skip:ident)?,
         )+
     ) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -179,6 +179,33 @@ macro_rules! define_port_table_schema {
                         PortTableEnum::$variant => $name,
                     )+
                 }
+            }
+
+            pub fn get_schema_json(self) -> Option<serde_json::Value> {
+                match self {
+                    $(
+                        $(#[$meta])*
+                        PortTableEnum::$variant => {
+                            $(
+                                let _ = stringify!($skip);
+                                return None;
+                            )?
+                            #[allow(unreachable_code)]
+                            {
+                                let schema = <$ty as apache_avro::AvroSchema>::get_schema();
+                                let schema_str = serde_json::to_string(&schema).expect("Failed to serialize schema");
+                                Some(serde_json::json!({
+                                    "table_name": $name,
+                                    "schema": schema_str
+                                }))
+                            }
+                        }
+                    )+
+                }
+            }
+
+            pub fn all_schemas_json() -> Vec<serde_json::Value> {
+                Self::variants().iter().filter_map(|v| v.get_schema_json()).collect()
             }
         }
 
@@ -286,6 +313,26 @@ macro_rules! define_get_data_table_schema {
                     )+
                 }
             }
+
+            pub fn get_schema_json(self) -> serde_json::Value {
+                match self {
+                    $(
+                        $(#[$meta])*
+                        GetDataTableEnum::$variant => {
+                            let schema = <$ty as apache_avro::AvroSchema>::get_schema();
+                            let schema_str = serde_json::to_string(&schema).expect("Failed to serialize schema");
+                            serde_json::json!({
+                                "table_name": <$ty>::get_table_name(),
+                                "schema": schema_str
+                            })
+                        }
+                    )+
+                }
+            }
+
+            pub fn all_schemas_json() -> Vec<serde_json::Value> {
+                Self::variants().iter().map(|v| v.get_schema_json()).collect()
+            }
         }
 
         // Intentionally NO `Default` derive — see macro doc. Forces every call
@@ -370,9 +417,9 @@ define_port_table_schema! {
     MidnightHougeki => midnight_hougeki: MidnightHougeki => get_table_name => "midnight_hougeki",
     MidnightHougekiList => midnight_hougeki_list: MidnightHougekiList => get_table_name => "midnight_hougeki_list",
     #[cfg(schema_since = "0.5.0")]
-    NightSupportHourai => night_support_hourai: NightSupportHourai => get_table_name => "night_support_hourai",
+    NightSupportHourai => night_support_hourai: NightSupportHourai => get_table_name => "night_support_hourai" => skip_schema,
     #[cfg(schema_since = "0.5.0")]
-    NightSupportAirattack => night_support_airattack: SupportAirattack => get_night_table_name => "night_support_airattack",
+    NightSupportAirattack => night_support_airattack: SupportAirattack => get_night_table_name => "night_support_airattack" => skip_schema,
     OpeningAirAttack => opening_airattack: OpeningAirAttack => get_table_name => "opening_airattack",
     OpeningAirAttackList => opening_airattack_list: OpeningAirAttackList => get_table_name => "opening_airattack_list",
     OpeningRaigeki => opening_raigeki: OpeningRaigeki => get_table_name => "opening_raigeki",
@@ -381,10 +428,10 @@ define_port_table_schema! {
     SupportAirattack => support_airattack: SupportAirattack => get_table_name => "support_airattack",
     SupportHourai => support_hourai: SupportHourai => get_table_name => "support_hourai",
     Battle => battle: Battle => get_table_name => "battle",
-    #[cfg(schema_since = "0.5.0")]
-    BattleResult => battle_result: BattleResult => get_table_name => "battle_result",
     #[cfg(schema_since = "0.5.1")]
     DestructionBattle => destruction_battle: DestructionBattle => get_table_name => "destruction_battle",
+    #[cfg(schema_since = "0.5.0")]
+    BattleResult => battle_result: BattleResult => get_table_name => "battle_result",
 }
 
 pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {

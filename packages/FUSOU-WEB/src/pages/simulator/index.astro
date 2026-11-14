@@ -11,7 +11,7 @@ export const prerender = false;
 const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 
-let safeAccessToken: string | null = null;
+let isAuthenticated = false;
 
 const accessTokenCookie = cookies.get("sb-access-token");
 const refreshTokenCookie = cookies.get("sb-refresh-token");
@@ -23,9 +23,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       refresh_token: refreshTokenCookie.value,
       access_token: accessTokenCookie.value,
     });
-    if (session.data.session?.access_token) {
-      safeAccessToken = session.data.session.access_token;
-    }
+    isAuthenticated = Boolean(session.data.session?.access_token);
   } catch {
     // Session invalid — user is not logged in
   }
@@ -53,13 +51,8 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
         tone: "outline",
       },
       {
-        sourceSelector: "#btn-load-fleet",
-        description: "保存済み編成をR2から読み込みます。",
-        tone: "outline",
-      },
-      {
         sourceSelector: "#btn-import",
-        description: "API JSONを貼り付けて編成へ反映します。",
+        description: "保存済み編成の読込やAPI JSONの貼り付けで編成を取り込みます。",
         tone: "outline",
       },
       {
@@ -73,21 +66,21 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
         tone: "primary",
       },
       {
-        sourceSelector: "#btn-workspace-add-current",
+        sourceSelector: "#btn-workspace-save-current",
         description: "現在のPlayground編成をワークスペースに登録します。",
         tone: "ghost",
       },
       {
-        sourceSelector: "#btn-workspace-add",
+        sourceSelector: "#btn-workspace-add-url",
         description: "共有URLをワークスペース一覧へ追加します。",
         tone: "ghost",
       },
     ],
     steps: [
       "艦隊カードの艦枠をクリックすると艦選択モーダル、装備枠をクリックすると装備選択モーダルが開きます。",
-      "改修値(★)と熟練度は装備バッジ操作で変更でき、ステータス反映をその場で確認できます。",
+      "改修値(★)と熟練度は装備バッジ操作で変更できます（改修値は対応する装備シナジー条件に反映されます）。",
       "連合艦隊運用時は第1/第2艦隊の役割バッジと警告表示を確認し、編成条件エラーを解消してください。",
-      "基地航空隊は各スロットを編集すると行動半径・制空計算に反映されます。",
+      "基地航空隊は各スロットを編集すると行動半径の計算に反映されます。",
       "表示設定でUI表示を調整し、閲覧用と編集用の表示密度を切り替えます。",
       "R2読込またはAPIレスポンス貼り付けで既存データを取り込み、手入力を省略できます。",
       "画像保存で記録用画像を作成し、共有ボタンで再現可能なURLを発行します。",
@@ -148,9 +141,9 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
 
 <script
   is:inline
-  define:vars={{ accessToken: safeAccessToken, initialTab: tabQuery }}
+  define:vars={{ isAuthenticated, initialTab: tabQuery }}
 >
-  window.__fusouAccessToken = accessToken;
+  window.__fusouIsAuthenticated = isAuthenticated;
   window.__fusouInitialTab = initialTab;
 </script>
 
@@ -160,13 +153,11 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
   const root = document.getElementById("simulator-tab-manager-root");
   if (root) {
     type FusouWindow = Window & {
-      __fusouAccessToken?: string | null;
       __fusouInitialTab?: string;
     };
     const appWindow = window as FusouWindow;
-    const accessToken = appWindow.__fusouAccessToken ?? null;
     const initialTab = appWindow.__fusouInitialTab ?? "fleet";
-    mountSimulatorTabManager(root, initialTab, accessToken);
+    mountSimulatorTabManager(root, initialTab);
   }
 </script>
 

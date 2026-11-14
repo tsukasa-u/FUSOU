@@ -1,9 +1,9 @@
 ---
 title: Set up HTTPS for FUSOU
-contributors: ["tsukasa-u"]
+contributors: ["tsukasa-u", "antigravity-ai"]
 description: >-
   FUSOU-APPが艦これHTTPS化に対応するために必要なHTTPSとMITMの基礎知識、ローカル認証局の扱い、Windows・Linuxでの証明書インストール方法、バックエンドで実行される処理を包括的に解説するガイド
-date: 2025-10-15
+date: 2026-11-15
 slug: guide/set_https
 tags: [guide, https]
 ---
@@ -39,7 +39,7 @@ FUSOU-APP では、https 対応のために、以下の手順で設定を行い�
 
 [^1]: 利用者が独自にサーバー証明書を用意し、FUSOU-APP にインポートすることも可能です。この場合、FUSOU-APP の設定画面で「カスタム証明書を使用する」を有効にし、証明書ファイルを指定します。
 
-認証局情報は UFSOU の初回起動時にインストールされます。
+認証局情報は FUSOU の初回起動時にインストールされます。
 
 ### Windows での証明書インストール
 
@@ -63,7 +63,7 @@ FUSOU-APP では、https 対応のために、以下の手順で設定を行い�
 
 ### macOS での証明書インストール
 
-macOS 版 FUSOU-APP は開発中です。開発者自身が macOS ユーザーでないため、開発が遅れています。macOS 版 FUSOU-APP のリリースまでしばらくお待ちください。
+現在、macOS 版 FUSOU-APP のビルドおよび動作確認は提供されていません。Windows または Linux 環境でご利用ください。
 
 ## バックエンドで認証局をインストールするとき何を行っているのか
 
@@ -110,4 +110,4 @@ HTTPS の設定が完了したら、FUSOU-APP は https 通信を正しくプロ
 - [update-ca-certificates](https://manpages.debian.org/buster/ca-certificates/update-ca-certificates.8.en.html)
 - [add_store.bat](https://github.com/tsukasa-u/FUSOU/blob/fusou-v0.3.2/packages/FUSOU-PROXY/proxy-https/cmd/add_store.bat)
 - [add_store.sh](https://github.com/tsukasa-u/FUSOU/blob/fusou-v0.3.2/packages/FUSOU-PROXY/proxy-https/cmd/add_store.sh)
-- [check_store.sh](https://github.com/tsukasa-u/FUSOU/blob/fusou-v0.3.2/packages/FUSOU-PROXY/proxy-https/cmd/check_ca.sh)
+- [check_ca.sh](https://github.com/tsukasa-u/FUSOU/blob/fusou-v0.3.2/packages/FUSOU-PROXY/proxy-https/cmd/check_ca.sh)

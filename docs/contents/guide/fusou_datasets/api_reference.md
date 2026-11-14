@@ -3,7 +3,7 @@ title: fusou-datasets API Reference
 contributors: ["antigravity-ai"]
 description: >-
   fusou-datasets ライブラリの完全APIリファレンス。全関数、パラメータ、戻り値、3分割split、シナジー、成長データ、クエリビルダーの詳細仕様。
-date: 2026-09-20
+date: 2026-11-15
 slug: guide/fusou_datasets/api_reference
 tags: [guide, fusou_datasets, python, api, reference]
 ---
@@ -18,15 +18,15 @@ fusou-datasets Python SDK の完全 API リファレンスです。
 | ------------- | ---- |
 | `configure()` | APIキー、URL、キャッシュ、デフォルトバージョン/期間の設定 |
 | `get_config()` | 現在の設定内容を取得 |
-| `save_api_key()` | APIキーをローカル設定ファイルに永続保存 |
+| `save_api_key()` | APIキーをローカル設定ファイル（`~/.fusou-datasets/settings.json`）に永続保存 |
 | `list_tables()` | 利用可能なテーブル一覧を取得 |
 | `list_period_tags()` | 利用可能なピリオドタグ（期間）一覧を取得 |
-| `load()` | データセットを pandas DataFrame として読み込み（3分割split対応） |
+| `load()` | データセットを pandas DataFrame として読み込み（split対応） |
 | `load_synergy()` | 装備シナジーボーナスデータを取得（ローカルキャッシュ対応） |
 | `SynergyData` | シナジーボーナス・クロスシナジーの構造化表現クラス |
-| `load_growth_snapshot()` | 艦娘パラメータ成長推移（素ステータス・キャップ値）を取得 |
-| `load_speed_observation()` | 速力観測データを取得 |
-| `load_master()` | マスタデータテーブル（mst_*）を取得 |
+| `load_growth_snapshot()` | 艦娘パラメータ成長推移（素ステータス境界）を取得 |
+| `load_speed_observation()` | 速力変化観測データを取得 |
+| `load_master()` | マスタデータテーブル（`mst_*`）を取得 |
 | `VerificationDataset` | 仮説検証用のフルーエントクエリビルダー |
 | `DatasetQuery` | Django風フィルタ、Arrow C Stream 対応クエリオブジェクト |
 | `get_client_id()` | デバイス信頼認証用のクライアントIDを取得 |
@@ -87,14 +87,14 @@ fusou_datasets.get_config() -> Dict[str, Any]
 
 ```python
 fusou_datasets.load(
-    table: str,
+    table: TableInput,
     period_tag: Optional[str] = None,
     limit: int = 100,
     show_progress: bool = True,
     force_download: bool = False,
     offline: bool = False,
     scope: str = "all",
-    split: str = "train",
+    split: SplitLiteral = "train",
     table_version: Optional[str] = None
 ) -> pd.DataFrame
 ```
@@ -105,16 +105,18 @@ fusou_datasets.load(
 
 | パラメータ | 型 | デフォルト | 説明 |
 | ---------- | -- | ---------- | ---- |
-| `table` | `str` | 必須 | テーブル名（`list_tables()` で確認可能） |
+| `table` | `str` / `TableMeta` | 必須 | テーブル名（`list_tables()` で確認可能） |
 | `period_tag` | `str`, optional | `configure` 値 / `'latest'` | 期間タグ（例: `'2026-09'`, `'latest'`, `'all'`） |
-| `split` | `str` | `'train'` | データ分割種別（`'train'`, `'validation'`, `'test'`） |
+| `split` | `str` | `'train'` | データ分割種別（`'train'`, `'validation'`, `'test'`, `'train+validation'`） |
 | `table_version` | `str`, optional | `configure` 値 | スキーマバージョン（例: `'0.6.0'`） |
-| `cache_dir` | `str`, optional | `configure` 値 | キャッシュディレクトリ |
 | `offline` | `bool` | `False` | サーバー通信を行わずキャッシュからのみ読み込み |
 | `force_download` | `bool` | `False` | キャッシュが存在してもサーバーから再取得 |
 | `scope` | `str` | `'all'` | `'all'`（全体データ）または `'own'`（自身の投稿データのみ） |
 | `limit` | `int` | `100` | 読み込む最大ファイル数 |
 | `show_progress` | `bool` | `True` | プログレスバーの表示 |
+
+> [!NOTE]\
+> `load()` 関数自体は `cache_dir` 引数を持ちません。キャッシュ先ディレクトリを指定する場合は、事前に `fusou_datasets.configure(cache_dir="...")` または環境変数 `FUSOU_CACHE_DIR` を設定してください。
 
 ### 3分割 split の仕様
 
@@ -165,7 +167,53 @@ fusou_datasets.load_growth_snapshot(
 ) -> pd.DataFrame
 ```
 
-レベル別の艦娘パラメータ成長推移（素ステータス推移 `bounds` および最大値 `caps`）を取得します。
+レベル別の艦娘パラメータ成長推移（`/ship-growth/bounds`、`'latest'` または `table_version` 未指定時は `/ship-growth/summary` から自動解決）を取得します。
+
+- `offline=True` の場合、事前に `{cache_dir}/growth/{table_version}/{period_tag}/bounds.parquet` に保存されたキャッシュから読み込みます。キャッシュが存在しない場合は `DatasetNotFoundError` を送出します。
+
+---
+
+## load_speed_observation
+
+```python
+fusou_datasets.load_speed_observation(
+    period_tag: Optional[str] = None,
+    table_version: Optional[str] = None,
+    offline: bool = False,
+    force_download: bool = False
+) -> pd.DataFrame
+```
+
+艦速変化の観測データ（`/soku-speed-observed/speed-upgrade`）を取得し、`pd.DataFrame` として返します。
+
+- 具体的な `period_tag`（`'latest'` 以外）を指定する場合は、`table_version`（引数または `configure()`）の指定が必須です（未指定時は `ValueError`）。
+- `offline=True` の場合、キャッシュ（`{cache_dir}/soku_speed/{table_version}/{period_tag}/observations.parquet`）が存在しないときは `DatasetNotFoundError` を送出します。
+
+---
+
+## load_master
+
+```python
+fusou_datasets.load_master(
+    table: TableInput,
+    period_tag: Optional[str] = None,
+    table_version: Optional[str] = None,
+    offline: bool = False,
+    force_download: bool = False
+) -> pd.DataFrame
+```
+
+マスタデータテーブル（`mst_ships`, `mst_slot_items`, `mst_stypes` など。単数形エイリアスも自動正規化）を取得します。
+
+---
+
+## clear_cache
+
+```python
+fusou_datasets.clear_cache(table: Optional[str] = None) -> None
+```
+
+`configure(cache_dir=...)` で設定したローカルキャッシュを削除します。`table` を指定すると対象テーブルのキャッシュのみ、省略すると全キャッシュを削除します。
 
 ---
 

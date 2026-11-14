@@ -2,8 +2,8 @@
 title: fusou-datasets Installation
 contributors: ["antigravity-ai"]
 description: >-
-  fusou-datasetsライブラリのインストール方法。pip、conda、ソースからのインストール手順と依存関係、動作確認方法を解説。
-date: 2026-01-01
+  fusou-datasetsライブラリのインストール方法。pipおよびソースからのインストール手順と依存関係、動作確認方法を解説。
+date: 2026-11-15
 slug: guide/fusou_datasets/installation
 tags: [guide, fusou_datasets, python, installation]
 ---
@@ -14,7 +14,7 @@ tags: [guide, fusou_datasets, python, installation]
 
 | 項目   | 要件                  |
 | ------ | --------------------- |
-| Python | 3.8 以上              |
+| Python | 3.9 以上              |
 | OS     | Windows, macOS, Linux |
 | メモリ | 4GB 以上推奨          |
 
@@ -26,17 +26,14 @@ tags: [guide, fusou_datasets, python, installation]
 pip install fusou-datasets
 ```
 
-最新の開発版をインストールする場合:
+最新版へアップグレードする場合:
 
 ```bash
 pip install --upgrade fusou-datasets
 ```
 
-### conda
-
-```bash
-conda install -c conda-forge fusou-datasets
-```
+> [!NOTE]\
+> `conda` チャンネルでの配布は行っていません。Conda 環境でも `pip install fusou-datasets` を使用してください。
 
 ### ソースからインストール
 
@@ -55,12 +52,13 @@ pip install -e .
 
 fusou-datasets は以下のライブラリに依存しています。インストール時に自動的にインストールされます。
 
-| パッケージ | バージョン | 用途                |
-| ---------- | ---------- | ------------------- |
-| `pandas`   | ≥1.3.0     | データフレーム操作  |
-| `requests` | ≥2.25.0    | HTTP 通信           |
-| `fastavro` | ≥1.4.0     | Avro 形式の読み込み |
-| `tqdm`     | ≥4.60.0    | プログレスバー表示  |
+| パッケージ | バージョン     | 用途                               |
+| ---------- | -------------- | ---------------------------------- |
+| `pandas`   | ≥1.3.0,<3.0.0  | データフレーム操作                 |
+| `requests` | ≥2.25.0,<3.0.0 | HTTP 通信                          |
+| `fastavro` | ≥1.4.0,<2.0.0  | Avro 形式の読み込み                |
+| `tqdm`     | ≥4.60.0,<5.0.0 | プログレスバー表示                 |
+| `pyarrow`  | ≥10.0.0,<21.0.0 | ローカル Parquet キャッシュ / Arrow 連携 |
 
 ### オプションの依存関係
 
@@ -81,14 +79,14 @@ import fusou_datasets
 
 # バージョン確認
 print(fusou_datasets.__version__)
-# 出力例: 1.0.0
+# 出力例: 0.2.0
 ```
 
 ### CLI から確認
 
 ```bash
 fusou-datasets --version
-# 出力例: fusou-datasets 1.0.0
+# 出力例: fusou-datasets 0.2.0
 ```
 
 ### クライアント ID の確認
@@ -99,7 +97,7 @@ fusou-datasets --client-id
 ```
 
 > [!IMPORTANT]\
-> クライアント ID は初回実行時に自動生成され、`~/.fusou_loader/settings.json` に保存されます。これはデバイス認証に使用されます。
+> クライアント ID は初回実行時に自動生成され、`~/.fusou-datasets/settings.json` に保存されます。これはデバイス認証に使用されます。
 
 ## Google Colab でのセットアップ
 

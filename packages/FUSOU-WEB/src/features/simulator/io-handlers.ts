@@ -29,9 +29,6 @@ import { atom } from "nanostores";
 import { onSimulatorStateDirty } from "./state";
 import { z } from "zod";
 
-const _accessToken: string | null = window.__fusouAccessToken ?? null;
-
-
 const ShortenApiResponseSchema = z
   .object({
     ok: z.boolean(),
@@ -492,8 +489,8 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
 
   const fleetTag = params.get("fleet")?.trim();
   if (fleetTag) {
-    if (!_accessToken) {
-      console.warn("fleet param was provided but access token is unavailable");
+    if (!window.__fusouIsAuthenticated) {
+      console.warn("fleet param was provided without an authenticated session");
       return null;
     }
 
