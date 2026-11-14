@@ -136,6 +136,8 @@ Rules:
 
 - Keep action labels concise and action-oriented.
 - Keep `FUSOU-APP`'s compact button sizing without importing `FUSOU-WEB`'s global `.btn` padding/border overrides; `src/css/buttons.css` tones down neutral `.btn.btn-outline` borders (`26%` `--color-base-content` mixed with `--color-base-100`) and preserves distinct `--btn-border` contrast on `:hover`, `:focus-visible`, and `:active`, while `.btn-primary` / `.btn-secondary` buttons apply explicit `enabled:border-primary-content` / `enabled:border-secondary-content` classes under `--depth: 0`.
+- Neutral `.btn.btn-ghost` controls also apply theme-adaptive surface fills in `src/css/buttons.css` (`9%` `--color-base-content` mixed into transparent on `:hover`, `8%` on `:focus-visible`, `16%` on `:active`) so ghost actions (`Clear`, `Reload`, specification table column triggers, modal close/clear buttons) remain clearly interactive in both Light and Dark themes.
+- Inline icon buttons placed inside `.input-sm` containers (e.g., Search and Clear `×` buttons in specification search inputs) must stay strictly inside the input frame using `btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0` inside a `pr-1` flex `.input-sm` wrapper rather than negative-margin `btn-sm` buttons.
 - When an operation is in-flight, display `<span class="loading loading-spinner loading-xs" />` and disable the button.
 
 ---
@@ -647,6 +649,16 @@ Modal components follow a unified interactive pattern: a compact clickable trigg
   - **Revealed Combat Stats**: Durability (HP), Firepower, Armor, Torpedo, and Anti-Air are extracted from the master ship data and displayed accurately.
   - **Masked Unknown Stats**: Evasion, Aircraft Installed, Anti-Submarine, Speed, Reconnaissance, Range, and Luck are explicitly rendered as `"unknown"` in default table cell typography (`<td class="flex-none w-12 flex justify-end pr-4">unknown</td>`).
 
+### 4. Specification Table Filter & Sort Modals (`src/components/specification_table/set_window.tsx`, `src/css/modal.css`)
+
+- **Placement & Rounded Geometry (`.spec-filter-modal`)**:
+  - Specification header filter/sort/search dialogs use `.modal.spec-filter-modal` instead of DaisyUI's `.modal-top`, preserving `--radius-box` on all four corners (`rounded-box`) instead of flattening top radii.
+  - When `CustomTitlebar` (`#root > header[data-tauri-drag-region]`, height `2rem`) is mounted, `.modal` starts below the `32px` titlebar (`top: 2rem; height: calc(100vh - 2rem)`) and `.spec-filter-modal` adds `1.25rem` (`20px`) top padding (`3rem` when standalone without titlebar) so modal boxes never overlap the titlebar.
+- **Unified Modal Chrome (`SpecFilterModalFrame`)**:
+  - **Header**: Uppercase `text-xs font-semibold tracking-wider` title, optional `badge badge-secondary badge-xs` (`Filtered`) state pill, and a compact `btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0` close (`×`) button separated by `border-b border-base-300`.
+  - **Search Name Input (`search_name_window`)**: Controlled `div.input.input-sm.input-bordered.flex.items-center.gap-1.pr-1` containing `<input>`, a conditional inline Clear (`×`) button (`btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0`), and an inline Search button sized cleanly within the `30px` input interior.
+  - **Footer**: Separated by `border-t border-base-300`, placing `Reset Filter` / `Reset Sort` / `Show All` (`btn btn-outline btn-xs`, disabled when already at default/unfiltered) + optional `Clear All` / `Hide All` (`btn btn-ghost btn-xs`) on the left and `Done` (`btn btn-primary border-primary-content btn-xs`) on the right.
+
 ---
 
 ## 09 / Fleet & Deck Layout Architecture (`DeckComponent`)
@@ -673,10 +685,8 @@ Each deck item is structured as:
   <details open>
     <summary class="flex">
       <div class="w-20 flex-none">{fleet_name}</div>
-      <div class="w-4 flex-none -mx-4">
-        <IconChevronRightS class="h-4 w-4" />
-      </div>
-      <div class="pl-4">{deck_name}</div>
+      <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+      <div>{deck_name}</div>
       <span class="flex-auto" />
     </summary>
     <ul class="pl-0">
@@ -738,9 +748,9 @@ In production (`src/components/battles/battles.tsx`), combat operations are orga
 ### 1. Combat Header & Phase Indicators
 
 1. **Map Header**:
-   - `<summary class="flex">Battles<IconChevronRightS class="h-4 w-4" /><div>Map : {maparea_id}-{mapinfo_no}</div><span class="flex-auto" /></summary>`.
+   - `<summary class="flex">Battles<div class="divider divider-horizontal mr-0 ml-0 flex-none" /><div>Map : {maparea_id}-{mapinfo_no}</div><span class="flex-auto" /></summary>`.
 2. **Cell Route Selection**:
-   - Horizontal navigation bar: `<div class="flex flex-row pl-2 items-center"><div class="h-4 mt-px pt-px text-xs">cells</div><IconChevronRightS class="h-4 w-4 m-1" /><button class="btn btn-xs btn-square">A</button>...`.
+   - Horizontal navigation bar: `<div class="flex flex-row items-center pl-2"><div class="text-xs flex-none">cells</div><div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" /><div role="group" aria-label="Cell selection" class="inline-flex flex-wrap items-center">` with sharp-cornered square ghost cell buttons (`btn btn-ghost btn-xs btn-square rounded-none`; active cell adds `btn-active font-semibold`, idle cells keep full `--color-base-content` legibility) separated by `divider divider-horizontal mr-0 ml-0 w-px self-stretch` so hover (`9%`) and active (`16%`) theme-adaptive fills align flush with the vertical dividers without rounded corners or excessive contrast in Light theme.
 3. **Search Status**:
    - Inline indicator (`battles.tsx`): `Search : <div class="text-lime-500">Enemy in sight; Accuracy &amp; Evacuation Up</div>` (or corresponding reconnaissance status / `<EmptyValue />` fallback).
 4. **Formations & Form**:
@@ -903,7 +913,7 @@ Rendered as an inline summary of aircraft sprite trajectories and anti-air attri
 
 Organized under `ul.menu.menu-xs` by base squadron:
 
-- **Base Summary**: `<summary class="flex">{map}-{area} <IconChevronRightS /> {name} <divider /> R : {distance} <divider /> {action}</summary>`.
+- **Base Summary**: `<summary class="flex">{map}-{area} <divider /> {name} <divider /> R : {distance} <divider /> {action}</summary>`.
 - **Action Statuses**: `Standby` (待機), `Sortie` (出撃), `Defense` (防空), `Evacuation` (退避), `Rest` (休息).
 - **Squadron Plane Rows**:
   - Each plane row is `li.h-auto > a.justify-start.gap-x-0.gap-y-1.flex.flex-wrap > div.justify-start.gap-0.flex` containing:

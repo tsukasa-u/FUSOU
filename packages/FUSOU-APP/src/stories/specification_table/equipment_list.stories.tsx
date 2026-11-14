@@ -152,3 +152,77 @@ export const AsyncHydratedUncategorizedScroll = {
     });
   },
 };
+
+export const SearchModalClearAndResetControls = {
+  render: () => (
+    <div id="root" class="flex flex-col bg-base-100">
+      <header
+        data-tauri-drag-region
+        class="h-8 shrink-0 bg-[#27272a] text-[#f1f5f9] flex items-center px-3 text-xs"
+      >
+        FUSOU
+      </header>
+      <div class="window-content-container flex-1 min-h-0 flex flex-col">
+        <MstSlotItemsContext.Provider value={[mst_slot_itmes]}>
+          <SlotItemsContext.Provider value={[slot_items]}>
+            <ShipsContext.Provider value={[ships]}>
+              <MstShipsContext.Provider value={[mst_ships]}>
+                <MstSlotItemEquipTypesContext.Provider
+                  value={[mst_slot_item_equip_types]}
+                >
+                  <EquipmentListComponent />
+                </MstSlotItemEquipTypesContext.Provider>
+              </MstShipsContext.Provider>
+            </ShipsContext.Provider>
+          </SlotItemsContext.Provider>
+        </MstSlotItemsContext.Provider>
+      </div>
+    </div>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const titlebar = canvasElement.querySelector(
+      "header[data-tauri-drag-region]",
+    ) as HTMLElement;
+    const equipNameTrigger = Array.from(
+      canvasElement.querySelectorAll(".specification-header th .btn"),
+    ).find((el) => el.textContent?.trim() === "Equip Name") as HTMLElement;
+    expect(equipNameTrigger).toBeDefined();
+    equipNameTrigger.click();
+
+    const searchDialog = canvasElement.querySelector(
+      "#equipment_spec_modal_search_name",
+    ) as HTMLDialogElement;
+    await waitFor(() => {
+      expect(searchDialog.open).toBe(true);
+    });
+
+    const modalBox = searchDialog.querySelector(".modal-box") as HTMLElement;
+    expect(modalBox.getBoundingClientRect().top).toBeGreaterThan(
+      titlebar.getBoundingClientRect().bottom + 8,
+    );
+
+    const inputWrapper = searchDialog.querySelector(".input") as HTMLElement;
+    const textInput = inputWrapper.querySelector("input") as HTMLInputElement;
+    textInput.value = "12.7cm";
+    textInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(
+        searchDialog.querySelector('button[aria-label="Clear search"]'),
+      ).not.toBeNull();
+    });
+
+    const clearBtn = searchDialog.querySelector(
+      'button[aria-label="Clear search"]',
+    ) as HTMLButtonElement;
+    const wrapRect = inputWrapper.getBoundingClientRect();
+    const clearRect = clearBtn.getBoundingClientRect();
+    expect(clearRect.top).toBeGreaterThanOrEqual(wrapRect.top + 1);
+    expect(clearRect.bottom).toBeLessThanOrEqual(wrapRect.bottom - 1);
+
+    clearBtn.click();
+    await waitFor(() => {
+      expect(textInput.value).toBe("");
+    });
+  },
+};

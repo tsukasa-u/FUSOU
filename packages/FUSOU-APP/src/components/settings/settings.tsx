@@ -2,9 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { createSignal, For, Show } from "solid-js";
 import { AlertMessage } from "ui";
 import { isTauri } from "../../utility/tauri";
-import { FadeToast, showFadeToast } from "./fade_toast";
-
-const SETTINGS_TOAST_ID = "setting_toast";
+import {
+  ActionSummaryGrid,
+  COMPACT_ROW_BUTTON_SIZE_CLASS,
+  CONFIRM_BUTTON_SIZE_CLASS,
+  createDesktopRuntimeSummary,
+  formatActionTime,
+  SETTING_ROW_BUTTON_SIZE_CLASS,
+  type ActionSummary,
+} from "./action_result";
 
 type SessionHealth = {
   has_session: boolean;
@@ -114,73 +120,96 @@ export function SettingsComponent() {
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
     null,
   );
+  const [sessionHealthError, setSessionHealthError] =
+    createSignal<ActionSummary | null>(null);
+  const [syncResult, setSyncResult] = createSignal<ActionSummary | null>(null);
+  const [signOutResult, setSignOutResult] = createSignal<ActionSummary | null>(
+    null,
+  );
+  const [loadAllResult, setLoadAllResult] = createSignal<ActionSummary | null>(
+    null,
+  );
+  const [singleLoadResult, setSingleLoadResult] =
+    createSignal<ActionSummary | null>(null);
   const [checkingHealth, setCheckingHealth] = createSignal(false);
   const [signingOut, setSigningOut] = createSignal(false);
   const [confirmSignOut, setConfirmSignOut] = createSignal(false);
   const [syncingSnapshot, setSyncingSnapshot] = createSignal(false);
   const [loadingDataKey, setLoadingDataKey] = createSignal<string | null>(null);
 
-  const requireDesktopRuntime = (actionLabel: string): boolean => {
+  const requireDesktopRuntime = (
+    scope: string,
+    setResult: (summary: ActionSummary | null) => void,
+  ): boolean => {
     if (isTauri()) return true;
-    showFadeToast(
-      SETTINGS_TOAST_ID,
-      `${actionLabel} requires the FUSOU desktop runtime.`,
-      "warning",
-    );
+    setResult(createDesktopRuntimeSummary(scope));
     return false;
   };
 
   const handleManualSnapshotSync = async () => {
-    if (!requireDesktopRuntime("Snapshot sync")) return;
+    setSyncResult(null);
+    if (!requireDesktopRuntime("Snapshot sync", setSyncResult)) return;
     setSyncingSnapshot(true);
     try {
       await invoke("perform_snapshot_sync");
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Manual snapshot sync triggered.",
-        "success",
-      );
+      setSyncResult({
+        fields: [
+          { label: "Result", value: "Triggered", tone: "success" },
+          { label: "Target", value: "Snapshot", mono: true },
+          { label: "Detail", value: "Sync started" },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } catch (e) {
       console.error("manual snapshot sync failed:", e);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Failed to trigger snapshot sync.",
-        "error",
-      );
+      setSyncResult({
+        fields: [
+          { label: "Result", value: "Failed", tone: "error" },
+          { label: "Target", value: "Snapshot", mono: true },
+          { label: "Detail", value: "Trigger failed" },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } finally {
       setSyncingSnapshot(false);
     }
   };
 
   const handleCheckSessionHealth = async () => {
-    if (!requireDesktopRuntime("Session health check")) return;
+    setSessionHealthError(null);
+    if (
+      !requireDesktopRuntime("Session check", (summary) => {
+        setSessionHealth(null);
+        setSessionHealthError(summary);
+      })
+    ) {
+      return;
+    }
     setCheckingHealth(true);
     try {
       const health = await invoke<SessionHealth>(
         "check_supabase_session_health",
       );
       setSessionHealth(health);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        health.seems_valid
-          ? "Session health looks good."
-          : "Session check completed with issues.",
-        health.seems_valid ? "success" : "warning",
-      );
     } catch (e) {
       console.error("Failed to check session health:", e);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Failed to check session health.",
-        "error",
-      );
+      setSessionHealth(null);
+      setSessionHealthError({
+        fields: [
+          { label: "Result", value: "Failed", tone: "error" },
+          { label: "Target", value: "Supabase session" },
+          { label: "Detail", value: "Health check error" },
+          { label: "Checked", value: formatActionTime(), mono: true },
+        ],
+      });
     } finally {
       setCheckingHealth(false);
     }
   };
 
   const handleForceLocalSignOut = async () => {
-    if (!requireDesktopRuntime("Local sign out")) {
+    setSignOutResult(null);
+    if (!requireDesktopRuntime("Local sign out", setSignOutResult)) {
       setConfirmSignOut(false);
       return;
     }
@@ -189,60 +218,114 @@ export function SettingsComponent() {
     try {
       await invoke("force_local_sign_out");
       setSessionHealth(null);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Local session cleared. Please sign in again.",
-        "success",
-      );
+      setSessionHealthError(null);
+      setSignOutResult({
+        fields: [
+          { label: "Result", value: "Cleared", tone: "success" },
+          { label: "Scope", value: "Local tokens" },
+          { label: "Next Step", value: "Sign in again" },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } catch (e) {
       console.error("Failed to force local sign out:", e);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Failed to clear local session.",
-        "error",
-      );
+      setSignOutResult({
+        fields: [
+          { label: "Result", value: "Failed", tone: "error" },
+          { label: "Scope", value: "Local tokens" },
+          { label: "Detail", value: "Clear failed" },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } finally {
       setSigningOut(false);
     }
   };
 
   const handleLoadAllData = async () => {
-    if (!requireDesktopRuntime("Loading cached data")) return;
+    setLoadAllResult(null);
+    if (!requireDesktopRuntime("Cached data", setLoadAllResult)) return;
     setLoadingDataKey("all");
+    let loadedCount = 0;
+    let currentDataKey = "";
     try {
       for (const item of DATA_LOADER_ITEMS) {
+        currentDataKey = item.dataKey;
         await invoke(item.cmd);
+        loadedCount += 1;
       }
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Loaded all cached game datasets.",
-        "success",
-      );
+      setLoadAllResult({
+        fields: [
+          { label: "Result", value: "Loaded", tone: "success" },
+          {
+            label: "Datasets",
+            value: `${loadedCount} / ${DATA_LOADER_ITEMS.length}`,
+            mono: true,
+          },
+          { label: "Order", value: "Dependency" },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } catch (e) {
       console.error("Failed to load all data:", e);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        "Failed while loading cached datasets.",
-        "error",
-      );
+      setLoadAllResult({
+        fields: [
+          { label: "Result", value: "Failed", tone: "error" },
+          {
+            label: "Datasets",
+            value: `${loadedCount} / ${DATA_LOADER_ITEMS.length}`,
+            mono: true,
+          },
+          {
+            label: "Failed At",
+            value: currentDataKey || "unknown",
+            mono: true,
+            truncate: true,
+          },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } finally {
       setLoadingDataKey(null);
     }
   };
 
   const handleLoadSingleData = async (item: DataLoaderItem) => {
-    if (!requireDesktopRuntime(`Loading ${item.dataKey}`)) return;
+    setSingleLoadResult(null);
+    if (!requireDesktopRuntime(item.dataKey, setSingleLoadResult)) {
+      return;
+    }
     setLoadingDataKey(item.cmd);
     try {
       await invoke(item.cmd);
-      showFadeToast(SETTINGS_TOAST_ID, `Loaded ${item.dataKey}.`, "success");
+      setSingleLoadResult({
+        fields: [
+          { label: "Result", value: "Loaded", tone: "success" },
+          { label: "Dataset", value: item.dataKey, mono: true, truncate: true },
+          {
+            label: "Endpoint",
+            value: item.endpoint,
+            mono: true,
+            truncate: true,
+          },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } catch (e) {
       console.error(`Failed to invoke ${item.cmd}:`, e);
-      showFadeToast(
-        SETTINGS_TOAST_ID,
-        `Failed to load ${item.dataKey}.`,
-        "error",
-      );
+      setSingleLoadResult({
+        fields: [
+          { label: "Result", value: "Failed", tone: "error" },
+          { label: "Dataset", value: item.dataKey, mono: true, truncate: true },
+          {
+            label: "Endpoint",
+            value: item.endpoint,
+            mono: true,
+            truncate: true,
+          },
+          { label: "Updated", value: formatActionTime(), mono: true },
+        ],
+      });
     } finally {
       setLoadingDataKey(null);
     }
@@ -265,25 +348,28 @@ export function SettingsComponent() {
             Sync &amp; Application
           </h2>
           <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
-            <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div class="space-y-0.5 min-w-0">
-                <h3 class="text-sm font-semibold">Manual Snapshot Sync</h3>
-                <p class="text-xs text-base-content/65">
-                  Trigger an immediate snapshot synchronization with the
-                  configured server.
-                </p>
+            <div class="p-4 space-y-3">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="space-y-0.5 min-w-0">
+                  <h3 class="text-sm font-semibold">Manual Snapshot Sync</h3>
+                  <p class="text-xs text-base-content/65">
+                    Trigger an immediate snapshot synchronization with the
+                    configured server.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class={`btn btn-primary enabled:border-primary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
+                  disabled={syncingSnapshot()}
+                  onClick={handleManualSnapshotSync}
+                >
+                  <Show when={syncingSnapshot()}>
+                    <span class="loading loading-spinner loading-xs" />
+                  </Show>
+                  {syncingSnapshot() ? "Syncing..." : "Sync Snapshot"}
+                </button>
               </div>
-              <button
-                type="button"
-                class="btn btn-primary enabled:border-primary-content btn-sm shrink-0"
-                disabled={syncingSnapshot()}
-                onClick={handleManualSnapshotSync}
-              >
-                <Show when={syncingSnapshot()}>
-                  <span class="loading loading-spinner loading-xs" />
-                </Show>
-                {syncingSnapshot() ? "Syncing..." : "Sync Snapshot"}
-              </button>
+              <ActionSummaryGrid summary={syncResult()} />
             </div>
 
             <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -296,7 +382,7 @@ export function SettingsComponent() {
               </div>
               <button
                 type="button"
-                class="btn btn-outline btn-sm shrink-0"
+                class={`btn btn-outline ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
                 onClick={() => window.location.reload()}
               >
                 Reload UI
@@ -322,7 +408,7 @@ export function SettingsComponent() {
                 </div>
                 <button
                   type="button"
-                  class="btn btn-secondary enabled:border-secondary-content btn-sm shrink-0"
+                  class={`btn btn-secondary enabled:border-secondary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
                   onClick={handleCheckSessionHealth}
                   disabled={checkingHealth()}
                 >
@@ -383,6 +469,7 @@ export function SettingsComponent() {
                   </div>
                 )}
               </Show>
+              <ActionSummaryGrid summary={sessionHealthError()} />
             </div>
 
             <div class="p-4 space-y-3">
@@ -397,8 +484,11 @@ export function SettingsComponent() {
                 <Show when={!confirmSignOut()}>
                   <button
                     type="button"
-                    class="btn btn-error btn-outline btn-sm shrink-0"
-                    onClick={() => setConfirmSignOut(true)}
+                    class={`btn btn-error btn-outline ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
+                    onClick={() => {
+                      setSignOutResult(null);
+                      setConfirmSignOut(true);
+                    }}
                     disabled={signingOut()}
                   >
                     {signingOut() ? "Signing out..." : "Force Local Sign Out"}
@@ -415,7 +505,7 @@ export function SettingsComponent() {
                   <div class="flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      class="btn btn-sm btn-outline"
+                      class={`btn btn-outline ${CONFIRM_BUTTON_SIZE_CLASS}`}
                       onClick={() => setConfirmSignOut(false)}
                       disabled={signingOut()}
                     >
@@ -423,7 +513,7 @@ export function SettingsComponent() {
                     </button>
                     <button
                       type="button"
-                      class="btn btn-sm btn-error"
+                      class={`btn btn-error ${CONFIRM_BUTTON_SIZE_CLASS}`}
                       onClick={handleForceLocalSignOut}
                       disabled={signingOut()}
                     >
@@ -432,6 +522,7 @@ export function SettingsComponent() {
                   </div>
                 </div>
               </Show>
+              <ActionSummaryGrid summary={signOutResult()} />
             </div>
           </div>
         </section>
@@ -442,25 +533,28 @@ export function SettingsComponent() {
             Cached Game Data
           </h2>
           <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
-            <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div class="space-y-0.5 min-w-0">
-                <h3 class="text-sm font-semibold">Load All Cached Data</h3>
-                <p class="text-xs text-base-content/65">
-                  Restore locally saved KanColle master and member response data
-                  in dependency order without querying the game server.
-                </p>
+            <div class="p-4 space-y-3">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="space-y-0.5 min-w-0">
+                  <h3 class="text-sm font-semibold">Load All Cached Data</h3>
+                  <p class="text-xs text-base-content/65">
+                    Restore locally saved KanColle master and member response
+                    data in dependency order without querying the game server.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class={`btn btn-primary enabled:border-primary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
+                  disabled={loadingDataKey() !== null}
+                  onClick={handleLoadAllData}
+                >
+                  <Show when={loadingDataKey() === "all"}>
+                    <span class="loading loading-spinner loading-xs" />
+                  </Show>
+                  {loadingDataKey() === "all" ? "Loading..." : "Load All Data"}
+                </button>
               </div>
-              <button
-                type="button"
-                class="btn btn-primary enabled:border-primary-content btn-sm shrink-0"
-                disabled={loadingDataKey() !== null}
-                onClick={handleLoadAllData}
-              >
-                <Show when={loadingDataKey() === "all"}>
-                  <span class="loading loading-spinner loading-xs" />
-                </Show>
-                {loadingDataKey() === "all" ? "Loading..." : "Load All Data"}
-              </button>
+              <ActionSummaryGrid summary={loadAllResult()} />
             </div>
 
             <details class="group">
@@ -486,42 +580,43 @@ export function SettingsComponent() {
                 </svg>
               </summary>
 
-              <div class="px-4 pb-4 pt-2 grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                <For each={DATA_LOADER_ITEMS}>
-                  {(item) => (
-                    <div
-                      id={item.id}
-                      class="rounded-lg border border-base-300 bg-base-200/20 px-3 py-2.5 flex items-center justify-between gap-3"
-                    >
-                      <div class="min-w-0">
-                        <div class="text-sm font-medium leading-tight">
-                          {item.label}
-                        </div>
-                        <div class="text-[11px] font-mono text-base-content/55 truncate mt-0.5">
-                          {item.dataKey} · {item.endpoint}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-xs btn-secondary enabled:border-secondary-content shrink-0"
-                        disabled={loadingDataKey() !== null}
-                        onClick={() => handleLoadSingleData(item)}
+              <div class="px-4 pb-4 pt-2 space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  <For each={DATA_LOADER_ITEMS}>
+                    {(item) => (
+                      <div
+                        id={item.id}
+                        class="rounded-lg border border-base-300 bg-base-200/20 px-3 py-2.5 flex items-center justify-between gap-3"
                       >
-                        <Show when={loadingDataKey() === item.cmd}>
-                          <span class="loading loading-spinner loading-xs" />
-                        </Show>
-                        Load
-                      </button>
-                    </div>
-                  )}
-                </For>
+                        <div class="min-w-0">
+                          <div class="text-sm font-medium leading-tight">
+                            {item.label}
+                          </div>
+                          <div class="text-[11px] font-mono text-base-content/55 truncate mt-0.5">
+                            {item.dataKey} · {item.endpoint}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          class={`btn btn-secondary enabled:border-secondary-content ${COMPACT_ROW_BUTTON_SIZE_CLASS}`}
+                          disabled={loadingDataKey() !== null}
+                          onClick={() => handleLoadSingleData(item)}
+                        >
+                          <Show when={loadingDataKey() === item.cmd}>
+                            <span class="loading loading-spinner loading-xs" />
+                          </Show>
+                          Load
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+                <ActionSummaryGrid summary={singleLoadResult()} />
               </div>
             </details>
           </div>
         </section>
       </div>
-
-      <FadeToast toast_id={SETTINGS_TOAST_ID} />
     </div>
   );
 }

@@ -1,7 +1,42 @@
-
-.modal:not(dialog:not(.modal-open)), .modal::backdrop {
-    animation: modal-pop 0.2s ease-out;
+.modal:not(dialog:not(.modal-open)),
+.modal::backdrop {
+  animation: modal-pop 0.2s ease-out;
 }
 .modal-box-width {
-    width: calc(100vw - 3em);
+  width: calc(100vw - 3em);
+}
+
+/* Top-positioned specification filter modals: keep all four rounded corners and stay below the 32px custom titlebar. */
+.modal.spec-filter-modal {
+  place-items: start center;
+  padding: 3rem 1rem 1.5rem;
+}
+
+.modal.spec-filter-modal .modal-box {
+  --modal-tl: var(--radius-box);
+  --modal-tr: var(--radius-box);
+  --modal-bl: var(--radius-box);
+  --modal-br: var(--radius-box);
+  max-height: calc(100vh - 4.5rem);
+}
+
+.modal.spec-filter-modal:not([open], .modal-open) .modal-box {
+  translate: 0 -0.5rem;
+  scale: 0.98;
+}
+
+#root:has(> header[data-tauri-drag-region]) .modal {
+  top: 2rem;
+  height: calc(100vh - 2rem);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+#root.is-maximized:has(> header[data-tauri-drag-region]) .modal {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+#root:has(> header[data-tauri-drag-region]) .modal.spec-filter-modal {
+  padding-top: 1.25rem;
 }
