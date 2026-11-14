@@ -361,99 +361,84 @@ pub async fn run() {
                 .await;
             });
 
-            // Initialize quest tree sender if configured
+            // Initialize JSONL/ingest senders if remote or local saving is enabled
             {
+                let resolve_remote_endpoint =
+                    |sender_name: &str, remote_enabled: bool, endpoint: Option<String>| {
+                        if !remote_enabled {
+                            return None;
+                        }
+                        if endpoint.is_none() {
+                            tracing::warn!(
+                                "{sender_name} enabled but ingest_endpoint not configured"
+                            );
+                        }
+                        endpoint
+                    };
+
                 let app_configs = configs::get_user_configs_for_app();
-                if app_configs.quest_tree_sender.get_enable() {
-                    if let Some(ingest_endpoint) =
-                        app_configs.quest_tree_sender.get_ingest_endpoint()
-                    {
-                        let auth_manager_for_quest = Arc::new(auth_manager.clone());
-                        let quest_cache_root = util::get_ROAMING_DIR()
-                            .join("cache")
-                            .join("request_suppression")
-                            .join("quest_tree_sender");
-                        tracing::info!("starting quest tree sender");
-                        quest_tree_sender::start(
-                            ingest_endpoint,
-                            auth_manager_for_quest,
-                            pending_store.clone(),
-                            retry_service.clone(),
-                            quest_cache_root,
-                        );
-                    } else {
-                        tracing::warn!(
-                            "quest_tree_sender enabled but ingest_endpoint not configured"
-                        );
-                    }
-                }
+                let suppression_root = util::get_ROAMING_DIR()
+                    .join("cache")
+                    .join("request_suppression");
 
-                if app_configs.ship_growth_sender.get_enable() {
-                    if let Some(ingest_endpoint) =
-                        app_configs.ship_growth_sender.get_ingest_endpoint()
-                    {
-                        let auth_manager_for_ship_growth = Arc::new(auth_manager.clone());
-                        let ship_growth_cache_root = util::get_ROAMING_DIR()
-                            .join("cache")
-                            .join("request_suppression")
-                            .join("ship_growth_sender");
-                        tracing::info!("starting ship growth sender");
-                        ship_growth_sender::start(
-                            ingest_endpoint,
-                            auth_manager_for_ship_growth,
-                            pending_store.clone(),
-                            retry_service.clone(),
-                            ship_growth_cache_root,
-                        );
-                    } else {
-                        tracing::warn!(
-                            "ship_growth_sender enabled but ingest_endpoint not configured"
-                        );
-                    }
-                }
+                type SenderStartFn = fn(
+                    Option<String>,
+                    bool,
+                    Arc<AuthManager<FileStorage>>,
+                    Arc<PendingStore>,
+                    Arc<UploadRetryService>,
+                    std::path::PathBuf,
+                );
 
-                if app_configs.soku_speed_sender.get_enable() {
-                    if let Some(ingest_endpoint) =
-                        app_configs.soku_speed_sender.get_ingest_endpoint()
-                    {
-                        let auth_manager_for_soku_speed = Arc::new(auth_manager.clone());
-                        let soku_speed_cache_root = util::get_ROAMING_DIR()
-                            .join("cache")
-                            .join("request_suppression")
-                            .join("soku_speed_sender");
-                        tracing::info!("starting soku_speed sender");
-                        soku_speed_sender::start(
-                            ingest_endpoint,
-                            auth_manager_for_soku_speed,
-                            pending_store.clone(),
-                            retry_service.clone(),
-                            soku_speed_cache_root,
-                        );
-                    } else {
-                        tracing::warn!(
-                            "soku_speed_sender enabled but ingest_endpoint not configured"
-                        );
-                    }
-                }
+                let sender_entries: [(&str, bool, bool, Option<String>, SenderStartFn); 4] = [
+                    (
+                        "quest_tree_sender",
+                        app_configs.quest_tree_sender.get_enable(),
+                        app_configs.quest_tree_sender.get_allow_data_to_local(),
+                        app_configs.quest_tree_sender.get_ingest_endpoint(),
+                        quest_tree_sender::start,
+                    ),
+                    (
+                        "ship_growth_sender",
+                        app_configs.ship_growth_sender.get_enable(),
+                        app_configs.ship_growth_sender.get_allow_data_to_local(),
+                        app_configs.ship_growth_sender.get_ingest_endpoint(),
+                        ship_growth_sender::start,
+                    ),
+                    (
+                        "soku_speed_sender",
+                        app_configs.soku_speed_sender.get_enable(),
+                        app_configs.soku_speed_sender.get_allow_data_to_local(),
+                        app_configs.soku_speed_sender.get_ingest_endpoint(),
+                        soku_speed_sender::start,
+                    ),
+                    (
+                        "remodel_sender",
+                        app_configs.remodel_sender.get_enable(),
+                        app_configs.remodel_sender.get_allow_data_to_local(),
+                        app_configs.remodel_sender.get_ingest_endpoint(),
+                        remodel_sender::start,
+                    ),
+                ];
 
-                if app_configs.remodel_sender.get_enable() {
-                    if let Some(ingest_endpoint) = app_configs.remodel_sender.get_ingest_endpoint()
-                    {
-                        let auth_manager_for_remodel = Arc::new(auth_manager.clone());
-                        let remodel_cache_root = util::get_ROAMING_DIR()
-                            .join("cache")
-                            .join("request_suppression")
-                            .join("remodel_sender");
-                        tracing::info!("starting remodel sender");
-                        remodel_sender::start(
+                for (name, remote_enable, local_enable, endpoint, start_fn) in sender_entries {
+                    let ingest_endpoint =
+                        resolve_remote_endpoint(name, remote_enable, endpoint);
+                    if ingest_endpoint.is_some() || local_enable {
+                        tracing::info!(
+                            sender = name,
+                            remote = ingest_endpoint.is_some(),
+                            local = local_enable,
+                            "starting sender"
+                        );
+                        start_fn(
                             ingest_endpoint,
-                            auth_manager_for_remodel,
+                            local_enable,
+                            Arc::new(auth_manager.clone()),
                             pending_store.clone(),
                             retry_service.clone(),
-                            remodel_cache_root,
+                            suppression_root.join(name),
                         );
-                    } else {
-                        tracing::warn!("remodel_sender enabled but ingest_endpoint not configured");
                     }
                 }
             }

@@ -1,3 +1,4 @@
+use crate::senders::local_jsonl::LocalJsonlSink;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{
     LocalRequestSuppressionCache, PendingStore, SuppressionCacheEntryStatus,
@@ -23,11 +24,12 @@ enum RemodelPacket {
 }
 
 pub struct RemodelSender {
-    ingest_endpoint: String,
+    ingest_endpoint: Option<String>,
     auth_manager: Arc<AuthManager<FileStorage>>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
     request_cache: Arc<LocalRequestSuppressionCache>,
+    local_sink: Option<LocalJsonlSink>,
     client: reqwest::Client,
     next_seq: AtomicU64,
     next_to_send: AtomicU64,
@@ -36,13 +38,44 @@ pub struct RemodelSender {
 
 impl RemodelSender {
     pub fn new(
-        ingest_endpoint: String,
+        ingest_endpoint: Option<String>,
+        allow_data_to_local: bool,
         auth_manager: Arc<AuthManager<FileStorage>>,
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>,
         cache_root_dir: PathBuf,
     ) -> Self {
-        let cache_file = cache_file_path(cache_root_dir);
+        Self::new_with_local_root(
+            ingest_endpoint,
+            allow_data_to_local,
+            None,
+            auth_manager,
+            pending_store,
+            retry_service,
+            cache_root_dir,
+        )
+    }
+
+    fn new_with_local_root(
+        ingest_endpoint: Option<String>,
+        allow_data_to_local: bool,
+        custom_local_root: Option<PathBuf>,
+        auth_manager: Arc<AuthManager<FileStorage>>,
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>,
+        cache_root_dir: PathBuf,
+    ) -> Self {
+        let cache_file = cache_file_path(&cache_root_dir);
+        let local_sink = if allow_data_to_local {
+            Some(LocalJsonlSink::new(
+                custom_local_root,
+                local_cache_file_path(&cache_root_dir),
+                crate::storage::common::remodel_jsonl_relative_path(),
+                "remodel",
+            ))
+        } else {
+            None
+        };
         Self {
             ingest_endpoint,
             auth_manager,
@@ -62,6 +95,7 @@ impl RemodelSender {
                 }
                 cache
             },
+            local_sink,
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(60))
@@ -126,39 +160,17 @@ impl RemodelSender {
         None
     }
 
-    async fn send_if_new(&self, packet: &RemodelPacket) -> Result<(), Box<dyn std::error::Error>> {
-        let p_key = Self::payload_key(packet);
-        let p_hash = Self::payload_hash(packet);
-        let evt = Self::event_type(packet);
-
-        let Some(period_tag) = crate::auth::supabase::get_period_tag().await else {
-            tracing::warn!("remodel_sender: kc-period tag is unavailable; skipping upload to protect data integrity");
-            return Err("kc-period tag is unavailable".into());
-        };
-        // remodel data is cross-period: only invalidate on table version change
-        self.request_cache
-            .rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
-
-        if self.request_cache.should_skip(&p_key, &p_hash) {
-            return Ok(());
-        }
-
-        let Some(dataset_id) = self.resolve_dataset_id().await else {
-            return Err("dataset_id is empty".into());
-        };
-
-        let request_id = format!("remodel:{}:{}:{}", dataset_id, evt, Uuid::new_v4());
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-
-        let payload = match packet {
+    fn build_payload_value(
+        packet: &RemodelPacket,
+        p_hash: &str,
+        evt: &str,
+        timestamp_ms: i64,
+        period_tag: Option<&str>,
+    ) -> serde_json::Value {
+        match packet {
             RemodelPacket::SlotList(v) => {
                 let upload = RemodelSlotListUpload::from(v.clone());
                 serde_json::json!({
-                    "dataset_id": dataset_id,
-                    "request_id": request_id,
                     "payload_hash": p_hash,
                     "event_type": evt,
                     "schema_version": REMODEL_INGEST_SCHEMA_VERSION,
@@ -173,8 +185,6 @@ impl RemodelSender {
             RemodelPacket::Detail(d) => {
                 let upload = RemodelDetailUpload::from(d.clone());
                 serde_json::json!({
-                    "dataset_id": dataset_id,
-                    "request_id": request_id,
                     "payload_hash": p_hash,
                     "event_type": evt,
                     "schema_version": REMODEL_INGEST_SCHEMA_VERSION,
@@ -196,7 +206,78 @@ impl RemodelSender {
                     "req_useitem_num2": upload.req_useitem_num2,
                 })
             }
+        }
+    }
+
+    async fn save_locally_if_new(
+        &self,
+        packet: &RemodelPacket,
+        p_key: &str,
+        p_hash: &str,
+        evt: &str,
+        timestamp_ms: i64,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let Some(sink) = &self.local_sink else {
+            return Ok(false);
         };
+        let period_tag = crate::auth::supabase::get_cached_period_tag().await;
+        let payload = Self::build_payload_value(
+            packet,
+            p_hash,
+            evt,
+            timestamp_ms,
+            period_tag.as_deref(),
+        );
+        sink.write_if_new(
+            Some(kc_api::database::DATABASE_TABLE_VERSION),
+            p_key,
+            p_hash,
+            &payload,
+        )
+        .await
+    }
+
+    async fn send_remote_if_new(
+        &self,
+        packet: &RemodelPacket,
+        p_key: &str,
+        p_hash: &str,
+        evt: &str,
+        timestamp_ms: i64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(ingest_endpoint) = &self.ingest_endpoint else {
+            return Ok(());
+        };
+
+        let Some(period_tag) = crate::auth::supabase::get_period_tag().await else {
+            tracing::warn!("remodel_sender: kc-period tag is unavailable; skipping upload to protect data integrity");
+            return Err("kc-period tag is unavailable".into());
+        };
+        // remodel data is cross-period: only invalidate on table version change
+        self.request_cache
+            .rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
+
+        if self.request_cache.should_skip(p_key, p_hash) {
+            return Ok(());
+        }
+
+        let Some(dataset_id) = self.resolve_dataset_id().await else {
+            return Err("dataset_id is empty".into());
+        };
+
+        let request_id = format!("remodel:{}:{}:{}", dataset_id, evt, Uuid::new_v4());
+        let mut payload =
+            Self::build_payload_value(packet, p_hash, evt, timestamp_ms, Some(&period_tag));
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert(
+                "dataset_id".to_string(),
+                serde_json::Value::String(dataset_id),
+            );
+            obj.insert(
+                "request_id".to_string(),
+                serde_json::Value::String(request_id),
+            );
+        }
 
         let data = serde_json::to_vec(&payload)?;
         let content_hash = Self::bytes_hash(&data);
@@ -213,7 +294,7 @@ impl RemodelSender {
         }
 
         let request = UploadRequest {
-            endpoint: &self.ingest_endpoint,
+            endpoint: ingest_endpoint,
             handshake_body,
             data,
             headers: {
@@ -223,7 +304,7 @@ impl RemodelSender {
             },
             context: UploadContext::Custom(serde_json::json!({
                 "operation": "remodel_data_ingest",
-                "endpoint": self.ingest_endpoint,
+                "endpoint": ingest_endpoint,
                 "payload_hash": p_hash,
             })),
         };
@@ -237,13 +318,43 @@ impl RemodelSender {
         .await
         {
             Ok(_) => {
-                self.request_cache.mark_processed(&p_key, p_hash);
+                self.request_cache.mark_processed(p_key, p_hash.to_string());
                 Ok(())
             }
             Err(e) => {
                 self.retry_service.trigger_retry().await;
                 Err(std::io::Error::other(e).into())
             }
+        }
+    }
+
+    async fn process_packet(&self, packet: &RemodelPacket) {
+        let p_key = Self::payload_key(packet);
+        let p_hash = Self::payload_hash(packet);
+        let evt = Self::event_type(packet);
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+
+        if self.local_sink.is_some() {
+            match self
+                .save_locally_if_new(packet, &p_key, &p_hash, evt, timestamp_ms)
+                .await
+            {
+                Ok(true) => tracing::info!(event_type = evt, "remodel_sender saved packet to local jsonl"),
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, event_type = evt, "failed to save remodel packet locally");
+                }
+            }
+        }
+
+        if let Err(e) = self
+            .send_remote_if_new(packet, &p_key, &p_hash, evt, timestamp_ms)
+            .await
+        {
+            tracing::warn!(error = %e, "failed to send remodel data");
         }
     }
 
@@ -262,26 +373,33 @@ impl RemodelSender {
             notified.await;
         }
 
-        if let Err(e) = self.send_if_new(&packet).await {
-            tracing::warn!(error = %e, "failed to send remodel data");
-        }
+        self.process_packet(&packet).await;
 
         self.next_to_send.fetch_add(1, Ordering::Release);
         self.send_notify.notify_waiters();
     }
 }
 
-fn cache_file_path(cache_root_dir: PathBuf) -> PathBuf {
+fn cache_file_path(cache_root_dir: &std::path::Path) -> PathBuf {
     cache_root_dir.join("remodel_request_suppression_cache.json")
 }
 
+fn local_cache_file_path(cache_root_dir: &std::path::Path) -> PathBuf {
+    cache_root_dir.join("remodel_local_suppression_cache.json")
+}
+
 pub fn start(
-    ingest_endpoint: String,
+    ingest_endpoint: Option<String>,
+    allow_data_to_local: bool,
     auth_manager: Arc<AuthManager<FileStorage>>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
     cache_root_dir: PathBuf,
 ) {
+    if ingest_endpoint.is_none() && !allow_data_to_local {
+        return;
+    }
+
     if REMODEL_SENDER.get().is_some() {
         tracing::info!("remodel sender already started");
         return;
@@ -289,6 +407,7 @@ pub fn start(
 
     let sender = Arc::new(RemodelSender::new(
         ingest_endpoint,
+        allow_data_to_local,
         auth_manager,
         pending_store,
         retry_service,
@@ -331,4 +450,149 @@ pub fn get_suppression_status() -> Option<RemodelSuppressionStatus> {
         let SuppressionCacheStatus { scope, entries } = sender.request_cache.snapshot_status();
         RemodelSuppressionStatus { scope, entries }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fusou_auth::manager::AuthConfig;
+    use kc_api::interface::remodel::RemodelSlotListEntry;
+
+    fn make_test_sender(
+        temp_dir: &std::path::Path,
+        allow_data_to_local: bool,
+    ) -> Arc<RemodelSender> {
+        let pending_store = Arc::new(PendingStore::new(temp_dir.join("pending")));
+        let auth_manager = Arc::new(AuthManager::new(
+            AuthConfig {
+                supabase_url: "http://127.0.0.1:9".to_string(),
+                api_key: "test-key".to_string(),
+                refresh_path: "/auth/v1/token".to_string(),
+                refresh_margin_secs: 30,
+            },
+            Arc::new(FileStorage::new(temp_dir.join("session.json"))),
+        ));
+        let retry_service = Arc::new(UploadRetryService::new(
+            pending_store.clone(),
+            auth_manager.clone(),
+            None,
+        ));
+
+        Arc::new(RemodelSender::new_with_local_root(
+            None,
+            allow_data_to_local,
+            Some(temp_dir.join("local_storage")),
+            auth_manager,
+            pending_store,
+            retry_service,
+            temp_dir.join("cache"),
+        ))
+    }
+
+    fn sample_slotlist(weekday_jst: i64, remodel_id: i64) -> RemodelSlotList {
+        RemodelSlotList {
+            secretary_ship_master_id: 1,
+            weekday_jst,
+            entries: vec![RemodelSlotListEntry {
+                remodel_id,
+                remodel_step_id: 1,
+                remodel_level: Some(0),
+                slotitem_master_id: 2,
+                sp_type: 0,
+                req_fuel: 10,
+                req_bull: 20,
+                req_steel: 30,
+                req_bauxite: 0,
+                req_buildkit: 1,
+                req_remodelkit: 2,
+                req_slot_id: 0,
+                req_slot_num: 0,
+            }],
+        }
+    }
+
+    fn sample_detail(remodel_level: Option<i64>) -> RemodelDetail {
+        RemodelDetail {
+            slotitem_master_id: 2,
+            remodel_id: 101,
+            remodel_step_id: 1,
+            remodel_level,
+            certain_buildkit: 2,
+            certain_remodelkit: 3,
+            req_slot_id: 0,
+            req_slot_num: 0,
+            change_flag: 0,
+            req_useitem_id: None,
+            req_useitem_id2: None,
+            req_useitem_num: None,
+            req_useitem_num2: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn local_save_records_slotlist_and_detail_and_deduplicates() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("fusou-remodel-local-test-{}", Uuid::new_v4()));
+        let sender = make_test_sender(&temp_dir, true);
+
+        let slot1 = sample_slotlist(1, 101);
+        sender
+            .clone()
+            .submit(0, RemodelPacket::SlotList(slot1.clone()))
+            .await;
+        sender.clone().submit(1, RemodelPacket::SlotList(slot1)).await;
+
+        let detail1 = sample_detail(Some(0));
+        sender
+            .clone()
+            .submit(2, RemodelPacket::Detail(detail1.clone()))
+            .await;
+        sender.clone().submit(3, RemodelPacket::Detail(detail1)).await;
+        sender
+            .clone()
+            .submit(4, RemodelPacket::Detail(sample_detail(Some(6))))
+            .await;
+
+        let jsonl_path = temp_dir
+            .join("local_storage")
+            .join(crate::storage::common::remodel_jsonl_relative_path());
+        let content =
+            std::fs::read_to_string(&jsonl_path).expect("remodel.jsonl should exist");
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3);
+
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(first["event_type"], "slotlist");
+        assert_eq!(first["schema_version"], REMODEL_INGEST_SCHEMA_VERSION);
+        assert_eq!(first["secretary_ship_master_id"], 1);
+        assert_eq!(first["entries"][0]["remodel_id"], 101);
+
+        let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(second["event_type"], "detail");
+        assert_eq!(second["remodel_level"], 0);
+        assert_eq!(second["certain_remodelkit"], 3);
+
+        let third: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(third["event_type"], "detail");
+        assert_eq!(third["remodel_level"], 6);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn local_save_disabled_writes_no_files() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("fusou-remodel-disabled-test-{}", Uuid::new_v4()));
+        let sender = make_test_sender(&temp_dir, false);
+        sender
+            .clone()
+            .submit(0, RemodelPacket::SlotList(sample_slotlist(1, 101)))
+            .await;
+
+        assert!(!temp_dir
+            .join("local_storage")
+            .join(crate::storage::common::remodel_jsonl_relative_path())
+            .exists());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

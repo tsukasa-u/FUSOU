@@ -52,6 +52,11 @@ pub async fn get_period_tag() -> Option<String> {
     }
 }
 
+/// Returns the currently cached kc-period tag without performing network I/O or notifications.
+pub async fn get_cached_period_tag() -> Option<String> {
+    CACHED_PERIOD_TAG.read().await.clone()
+}
+
 /// Refreshes the cached period tag from the API.
 /// If successful, updates the cache and returns `Some(tag)`.
 /// If it fails, keeps the existing cache (if any) and returns `None`.
