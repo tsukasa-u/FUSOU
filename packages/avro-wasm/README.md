@@ -12,7 +12,7 @@ This package provides a WASM-based Apache Avro OCF (Object Container File) valid
 - ✅ Cloudflare Workers/Pages compatible
 - ✅ No dynamic code generation (CSP-safe)
 - ✅ Supports standard codecs (null, snappy, deflate)
-- ✅ Based on apache-avro 0.17.0 (Rust)
+- ✅ Based on apache-avro 0.19 (Rust)
 
 ## Why WASM?
 
@@ -95,7 +95,7 @@ avro-wasm/
 │   └── utils.rs        # Panic hooks
 ├── pkg/                # Generated WASM output
 │   ├── avro_wasm.js
-│   ├── avro_wasm_bg.wasm  (767KB)
+│   ├── avro_wasm_bg.wasm  (~608KB)
 │   └── avro_wasm.d.ts
 ├── index.ts            # TypeScript wrapper
 └── package.json
@@ -141,8 +141,22 @@ interface AvroValidationResult {
   valid: boolean;
   recordCount: number;
   errorMessage?: string;
+  tableName?: string;
+  tableVersion?: string;
 }
 ```
+
+### `validateAvroOCFSmart(data, hintTableVersion?): Promise<AvroValidationResult>`
+
+Automatically match the OCF schema against embedded canonical schemas and decode all records.
+
+### `validateAvroOCFByTable(data, tableName, version): Promise<AvroValidationResult>`
+
+Validate an Avro OCF file against a specific table's canonical schema version.
+
+### `matchClientSchema(schemaJson, hintTableVersion?): Promise<SchemaMatchInfo>`
+
+Check whether a schema JSON string matches any embedded canonical schema.
 
 ## Build Configuration
 
@@ -158,10 +172,10 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false  # Disable wasm-opt due to bulk-memory issues
+wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [dependencies]
-apache-avro = { version = "0.17.0", default-features = false, features = ["snappy"] }
+apache-avro = { version = "0.19", default-features = false, features = ["snappy"] }
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -213,7 +227,11 @@ fallthrough = true
 
 **Cause:** wasm-opt tries to optimize with bulk-memory operations that aren't enabled.
 
-**Solution:** Add `wasm-opt = false` to `[package.metadata.wasm-pack.profile.release]`.
+**Solution:** Enable `--enable-bulk-memory` (or set `wasm-opt = false`) under `[package.metadata.wasm-pack.profile.release]`:
+
+```toml
+wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+```
 
 ### Module Not Found: '@fusou/avro-wasm'
 
@@ -233,7 +251,7 @@ fallthrough = true
 
 ## Performance
 
-- **WASM Bundle Size:** 767KB (uncompressed)
+- **WASM Bundle Size:** ~608KB (622KB uncompressed)
 - **Initialization:** ~10-50ms (one-time cost)
 - **Validation Speed:** ~1-5ms per file (depends on size)
 

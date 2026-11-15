@@ -7,7 +7,13 @@ use hudsucker::{
     rustls::crypto::aws_lc_rs,
     *,
 };
-use std::{fs, io::Read, net::SocketAddr, path::Path, sync::OnceLock};
+use std::{
+    fs,
+    io::Read,
+    net::SocketAddr,
+    path::{Component, Path, PathBuf},
+    sync::OnceLock,
+};
 
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
@@ -45,6 +51,20 @@ fn normalize_content_type(content_type: &str) -> String {
         .next()
         .map(|v| v.trim().to_ascii_lowercase())
         .unwrap_or_default()
+}
+
+fn sanitize_log_path(path: &str) -> Option<PathBuf> {
+    let relative_path = path.trim_start_matches(|ch| ch == '/' || ch == '\\');
+    let mut sanitized = PathBuf::new();
+
+    for component in Path::new(relative_path).components() {
+        match component {
+            Component::Normal(part) => sanitized.push(part),
+            _ => return None,
+        }
+    }
+
+    (!sanitized.as_os_str().is_empty()).then_some(sanitized)
 }
 
 fn parse_content_encodings(content_encoding: &str) -> Vec<String> {
@@ -356,7 +376,14 @@ fn log_response(
                     }
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
-                    if let Some(parent) = Path::new(path_removed.as_str()).parent() {
+                    let Some(relative_path) = sanitize_log_path(&path_removed) else {
+                        tracing::warn!(path = %path_removed, "Refusing unsafe proxy request log path");
+                        return;
+                    };
+                    if let Some(parent) = relative_path
+                        .parent()
+                        .filter(|parent| !parent.as_os_str().is_empty())
+                    {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
                             // Phase 3: Use async directory creation (non-blocking)
@@ -367,7 +394,7 @@ fn log_response(
                         }
                     }
 
-                    let file_log_path = path_log.join(Path::new(path_removed.as_str()));
+                    let file_log_path = path_log.join(&relative_path);
                     let file_log_path_for_sync = file_log_path.clone();
 
                     if content_type.eq("application/json") || is_json_by_path {
@@ -516,7 +543,14 @@ fn log_request(
                         .expect_or_log("Failed to write file");
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
-                    if let Some(parent) = Path::new(path_removed.as_str()).parent() {
+                    let Some(relative_path) = sanitize_log_path(&path_removed) else {
+                        tracing::warn!(path = %path_removed, "Refusing unsafe proxy response log path");
+                        return;
+                    };
+                    if let Some(parent) = relative_path
+                        .parent()
+                        .filter(|parent| !parent.as_os_str().is_empty())
+                    {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
                             fs::create_dir_all(path_parent)
@@ -524,7 +558,7 @@ fn log_request(
                         }
                     }
 
-                    let file_log_path = path_log.join(Path::new(path_removed.as_str()));
+                    let file_log_path = path_log.join(&relative_path);
 
                     if !file_log_path.exists() {
                         fs::write(file_log_path, body.clone().clone())
@@ -738,6 +772,29 @@ pub fn setup_default_crypto_provider() {
 #[allow(clippy::too_many_arguments)]
 pub fn serve_proxy(
     port: u16,
+    slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    log_save_path: String,
+    asset_sync_save_path: String,
+    ca_save_path: String,
+    file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    serve_proxy_with_handle(
+        port,
+        slave,
+        tx_proxy_log,
+        log_save_path,
+        asset_sync_save_path,
+        ca_save_path,
+        file_prefix,
+        auth_manager,
+    )
+    .map(|(addr, _handle)| addr)
+}
+
+pub fn serve_proxy_with_handle(
+    port: u16,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     log_save_path: String,
@@ -745,7 +802,7 @@ pub fn serve_proxy(
     ca_save_path: String,
     file_prefix: String,
     _auth_manager: Arc<AuthManager<FileStorage>>,
-) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
     let configs = configs::get_user_configs_for_proxy();
@@ -945,9 +1002,13 @@ pub fn serve_proxy(
 
     tracing::info!("Proxy server addr: {}", addr);
 
-    tokio::task::spawn(server_proxy.start());
+    let handle = tokio::task::spawn(async move {
+        if let Err(err) = server_proxy.start().await {
+            tracing::error!("Proxy server stopped with error: {}", err);
+        }
+    });
 
-    Ok(addr)
+    Ok((addr, handle))
 }
 
 #[cfg(test)]
@@ -955,7 +1016,7 @@ mod tests {
     use super::rcgen::{CertificateParams, KeyPair};
     use super::{
         check_ca, create_ca, decode_response_body, is_kcs2_map_info_path, parse_content_encodings,
-        CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
+        sanitize_log_path, CA_CERT_NAME_CRT, CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
     };
     use std::fs;
     use std::io::Write;
@@ -993,6 +1054,17 @@ mod tests {
     fn parse_content_encoding_list() {
         let parsed = parse_content_encodings("gzip, br");
         assert_eq!(parsed, vec!["gzip".to_string(), "br".to_string()]);
+    }
+
+    #[test]
+    fn sanitizes_proxy_log_paths() {
+        assert_eq!(
+            sanitize_log_path("/assets/ship.png"),
+            Some(PathBuf::from("assets").join("ship.png"))
+        );
+        assert!(sanitize_log_path("../../outside.txt").is_none());
+        assert!(sanitize_log_path("/../../outside.txt").is_none());
+        assert!(sanitize_log_path("/").is_none());
     }
 
     #[test]

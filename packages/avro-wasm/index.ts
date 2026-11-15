@@ -2,7 +2,7 @@
  * @fusou/avro-wasm - WebAssembly Avro OCF Validator
  *
  * Provides strict schema validation using Rust's apache-avro
- * Optimized for Cloudflare Workers (481KB WASM)
+ * Optimized for Cloudflare Workers (WebAssembly)
  */
 
 // For web target, we import the init function and wasm module

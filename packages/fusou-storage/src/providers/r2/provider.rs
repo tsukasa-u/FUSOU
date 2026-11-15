@@ -202,17 +202,20 @@ impl R2StorageProvider {
         let mut headers = std::collections::HashMap::new();
         headers.insert("content-hash".to_string(), Self::compute_content_hash(data));
 
-        let context = serde_json::json!({
+        let context = UploadContext::Custom(serde_json::json!({
             "provider": "r2",
             "operation": "master_data_bulk",
             "endpoint": endpoint,
             "period_tag": period_tag,
             "table_offsets": table_offsets_json,
             "table_version": DATABASE_TABLE_VERSION,
-        });
+        }));
+        let context_json = serde_json::to_string(&context).map_err(|e| {
+            StorageError::Operation(format!("Failed to serialize pending master data context: {}", e))
+        })?;
 
         self.pending_store
-            .save_pending(endpoint, &headers, data, Some(context.to_string()))
+            .save_pending(endpoint, &headers, data, Some(context_json))
             .map(|outcome| match outcome {
                 PendingSaveOutcome::Created(meta) => {
                     tracing::warn!(
@@ -249,17 +252,21 @@ impl R2StorageProvider {
         let mut headers = std::collections::HashMap::new();
         headers.insert("content-hash".to_string(), Self::compute_content_hash(data));
 
-        let context = serde_json::json!({
+        let context = UploadContext::Custom(serde_json::json!({
             "provider": "r2",
+            "endpoint": endpoint,
             "tag": path_tag,
             "period_tag": period_tag,
             "table": table_name,
             "table_offsets": table_offsets,
             "table_version": DATABASE_TABLE_VERSION,
-        });
+        }));
+        let context_json = serde_json::to_string(&context).map_err(|e| {
+            StorageError::Operation(format!("Failed to serialize pending R2 context: {}", e))
+        })?;
 
         self.pending_store
-            .save_pending(endpoint, &headers, data, Some(context.to_string()))
+            .save_pending(endpoint, &headers, data, Some(context_json))
             .map(|outcome| match outcome {
                 PendingSaveOutcome::Created(meta) => {
                     tracing::warn!(
@@ -759,5 +766,44 @@ impl R2StorageProvider {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn r2_pending_contexts_deserialize_as_upload_context_custom() {
+        let r2_ctx = UploadContext::Custom(serde_json::json!({
+            "provider": "r2",
+            "endpoint": "https://example.test/upload",
+            "tag": "tag-1",
+            "period_tag": "2026-09-10",
+            "table": "battle",
+            "table_offsets": "{}",
+            "table_version": DATABASE_TABLE_VERSION,
+        }));
+        let serialized = serde_json::to_string(&r2_ctx).unwrap();
+        let decoded: UploadContext = serde_json::from_str(&serialized).unwrap();
+        match decoded {
+            UploadContext::Custom(val) => {
+                assert_eq!(val.get("provider").and_then(|v| v.as_str()), Some("r2"));
+                assert_eq!(val.get("tag").and_then(|v| v.as_str()), Some("tag-1"));
+            }
+            other => panic!("expected UploadContext::Custom, got {:?}", other),
+        }
+
+        let master_ctx = UploadContext::Custom(serde_json::json!({
+            "provider": "r2",
+            "operation": "master_data_bulk",
+            "endpoint": "https://example.test/master",
+            "period_tag": "2026-09-10",
+            "table_offsets": "{}",
+            "table_version": DATABASE_TABLE_VERSION,
+        }));
+        let serialized_master = serde_json::to_string(&master_ctx).unwrap();
+        let decoded_master: UploadContext = serde_json::from_str(&serialized_master).unwrap();
+        assert!(matches!(decoded_master, UploadContext::Custom(_)));
     }
 }

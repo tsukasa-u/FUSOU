@@ -25,7 +25,7 @@ use crate::{
     integration::discord,
     notify, scheduler,
     storage::integrate,
-    util::{get_RESOURCES_DIR, get_ROAMING_DIR, try_anonymous_auth},
+    util::{get_DEFAULT_CONFIG_PATH, get_ROAMING_DIR, try_anonymous_auth},
     window::{app, external},
 };
 use proxy_https::bidirectional_channel::request_shutdown;
@@ -206,8 +206,7 @@ fn setup_tray(
             .build(app)?;
 
     #[cfg(dev)]
-    let open_auth_page_menu =
-        MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page").build(app)?;
+    let _advanced_menu_dev_ready = true;
 
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
@@ -241,8 +240,6 @@ fn setup_tray(
         .item(&check_session_health)
         .item(&force_local_sign_out);
 
-    #[cfg(dev)]
-    let advanced_sub_menu = advanced_sub_menu.item(&open_auth_page_menu);
 
     let advanced_sub_menu = advanced_sub_menu
         .separator()
@@ -543,21 +540,14 @@ fn setup_tray(
                         );
                     }
                     "external-screenshot" => {
-                        match external::capture_focused_external_window_screenshot(tray.app_handle()) {
-                            Some(path) => {
-                                notify::show(
-                                    tray.app_handle(),
-                                    "External Screenshot",
-                                    &format!("Saving screenshot to:\n{}", path.display()),
-                                );
-                            }
-                            None => {
-                                notify::show(
-                                    tray.app_handle(),
-                                    "External Screenshot",
-                                    "Failed to capture screenshot. Check whether the external WebView is visible and the screenshot directory is writable.",
-                                );
-                            }
+                        if external::capture_focused_external_window_screenshot(tray.app_handle())
+                            .is_none()
+                        {
+                            notify::show(
+                                tray.app_handle(),
+                                "External Screenshot",
+                                "Failed to capture screenshot. Check whether the external WebView is visible and the screenshot directory is writable.",
+                            );
                         }
                     }
                     "sync-snapshot" => {
@@ -705,17 +695,6 @@ fn setup_tray(
                             }
                         });
                     }
-                    #[cfg(dev)]
-                    "open-auth-page" => {
-                        let app_handle = tray.app_handle().clone();
-                        tauri::async_runtime::spawn(async move {
-                            notify::show(
-                                &app_handle,
-                                "Anonymous-Only Mode",
-                                "Social auth is disabled. This app uses anonymous session only.",
-                            );
-                        });
-                    }
                     "main-open/close" => {
                         let window = tray.get_webview_window("main");
                         match window {
@@ -831,7 +810,7 @@ pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
-    let resources_config_path = get_RESOURCES_DIR().join("user").join("configs.toml");
+    let resources_config_path = get_DEFAULT_CONFIG_PATH();
     let roaming_config_path = get_ROAMING_DIR().join("user").join("configs.toml");
     tracing::info!("open configs: {:?}", roaming_config_path);
     tracing::info!("default configs: {:?}", resources_config_path);

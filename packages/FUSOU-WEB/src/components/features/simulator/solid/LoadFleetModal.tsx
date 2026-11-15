@@ -33,11 +33,10 @@ export function LoadFleetModal() {
   const [errorMsg, setErrorMsg] = createSignal("");
   const [requiresAuth, setRequiresAuth] = createSignal(false);
 
-  const getAccessToken = () => window.__fusouAccessToken ?? null;
+  const isAuthenticated = () => window.__fusouIsAuthenticated ?? false;
 
   const loadSnapshots = async () => {
-    const token = getAccessToken();
-    if (!token) {
+    if (!isAuthenticated()) {
       setRequiresAuth(true);
       return;
     }

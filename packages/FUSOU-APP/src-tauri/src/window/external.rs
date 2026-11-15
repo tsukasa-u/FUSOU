@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{LazyLock, Mutex},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing_unwrap::ResultExt;
 use webbrowser::{open_browser, Browser};
 
@@ -41,6 +41,10 @@ use webview2_com::{
 static DEFAULT_GAME_URL: &str = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/";
 
 static GAME_URL: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
+
+#[cfg(any(windows, target_os = "linux"))]
+static SCREENSHOT_CLIPBOARD: LazyLock<Mutex<Option<arboard::Clipboard>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 const FORCE_RENDER_REFRESH_SCRIPT: &str = r#"
 (() => {
@@ -596,6 +600,202 @@ pub fn force_refresh_focused_external_window(app: &AppHandle) -> bool {
     true
 }
 
+#[cfg(any(windows, target_os = "linux"))]
+fn decode_png_to_rgba(png_bytes: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder
+        .read_info()
+        .map_err(|error| format!("failed to decode screenshot for clipboard: {}", error))?;
+    let buffer_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| "screenshot is too large to copy to clipboard".to_string())?;
+    let mut buffer = vec![0; buffer_size];
+    let info = reader
+        .next_frame(&mut buffer)
+        .map_err(|error| format!("failed to decode screenshot for clipboard: {}", error))?;
+
+    if info.bit_depth != png::BitDepth::Eight || info.width == 0 || info.height == 0 {
+        return Err("screenshot has an unsupported size or color depth".to_string());
+    }
+
+    let channels = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Indexed => {
+            return Err("screenshot palette could not be expanded for clipboard".to_string());
+        }
+    };
+    let width = info.width as usize;
+    let height = info.height as usize;
+    let row_bytes = width
+        .checked_mul(channels)
+        .ok_or_else(|| "screenshot dimensions are too large".to_string())?;
+    if info.line_size < row_bytes {
+        return Err("screenshot data has an invalid row size".to_string());
+    }
+    let decoded = buffer
+        .get(..info.buffer_size())
+        .ok_or_else(|| "screenshot data is incomplete".to_string())?;
+    let rgba_capacity = width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "screenshot dimensions are too large".to_string())?;
+    let mut rgba = Vec::with_capacity(rgba_capacity);
+
+    for row_index in 0..height {
+        let row_start = row_index * info.line_size;
+        let row = &decoded[row_start..row_start + row_bytes];
+        for pixel in row.chunks_exact(channels) {
+            match info.color_type {
+                png::ColorType::Rgb => rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]),
+                png::ColorType::Rgba => rgba.extend_from_slice(pixel),
+                png::ColorType::Grayscale => {
+                    rgba.extend_from_slice(&[pixel[0], pixel[0], pixel[0], 255]);
+                }
+                png::ColorType::GrayscaleAlpha => {
+                    rgba.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
+                }
+                png::ColorType::Indexed => {
+                    return Err(
+                        "screenshot palette could not be expanded for clipboard".to_string()
+                    );
+                }
+            }
+        }
+    }
+
+    Ok((width, height, rgba))
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn copy_png_to_clipboard(png_bytes: &[u8]) -> Result<(), String> {
+    let (width, height, rgba) = decode_png_to_rgba(png_bytes)?;
+    let mut clipboard = SCREENSHOT_CLIPBOARD
+        .lock()
+        .map_err(|error| format!("failed to access screenshot clipboard: {}", error))?;
+    if clipboard.is_none() {
+        *clipboard =
+            Some(arboard::Clipboard::new().map_err(|error| {
+                format!("failed to initialize screenshot clipboard: {}", error)
+            })?);
+    }
+    let clipboard = clipboard
+        .as_mut()
+        .ok_or_else(|| "screenshot clipboard is not available".to_string())?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width,
+            height,
+            bytes: std::borrow::Cow::Owned(rgba),
+        })
+        .map_err(|error| format!("failed to copy screenshot to clipboard: {}", error))
+}
+
+#[cfg(all(test, any(windows, target_os = "linux")))]
+mod screenshot_clipboard_tests {
+    use super::*;
+
+    fn encode_png(color_type: png::ColorType, data: &[u8]) -> Vec<u8> {
+        let mut png_bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_bytes, 1, 1);
+            encoder.set_color(color_type);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("PNG header should encode");
+            writer
+                .write_image_data(data)
+                .expect("PNG pixel should encode");
+        }
+        png_bytes
+    }
+
+    #[test]
+    fn converts_rgb_pixels_to_rgba_for_clipboard() {
+        let png_bytes = encode_png(png::ColorType::Rgb, &[12, 34, 56]);
+
+        let (width, height, rgba) = decode_png_to_rgba(&png_bytes).expect("RGB PNG should decode");
+
+        assert_eq!((width, height), (1, 1));
+        assert_eq!(rgba, [12, 34, 56, 255]);
+    }
+
+    #[test]
+    fn preserves_alpha_for_rgba_clipboard_pixels() {
+        let png_bytes = encode_png(png::ColorType::Rgba, &[12, 34, 56, 78]);
+
+        let (_, _, rgba) = decode_png_to_rgba(&png_bytes).expect("RGBA PNG should decode");
+
+        assert_eq!(rgba, [12, 34, 56, 78]);
+    }
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn save_screenshot_and_copy(
+    output_path: &PathBuf,
+    png_bytes: &[u8],
+) -> (Result<(), String>, Result<(), String>) {
+    let save_result = fs::write(output_path, png_bytes).map_err(|error| {
+        format!(
+            "failed to save screenshot {}: {}",
+            output_path.display(),
+            error
+        )
+    });
+    let copy_result = copy_png_to_clipboard(png_bytes);
+    (save_result, copy_result)
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn finish_screenshot_delivery(
+    app: &AppHandle,
+    external: &tauri::WebviewWindow,
+    output_path: &PathBuf,
+    save_result: Result<(), String>,
+    copy_result: Result<(), String>,
+) {
+    if let Err(error) = &save_result {
+        tracing::warn!("{}", error);
+    } else {
+        tracing::info!("saved external screenshot: {}", output_path.display());
+    }
+    if let Err(error) = &copy_result {
+        tracing::warn!("{}", error);
+    } else {
+        tracing::info!("copied external screenshot to clipboard");
+    }
+
+    let saved = save_result.is_ok();
+    let copied = copy_result.is_ok();
+    let notification = match (saved, copied) {
+        (true, true) => format!(
+            "Screenshot saved and copied to clipboard:\n{}",
+            output_path.display()
+        ),
+        (true, false) => format!(
+            "Screenshot saved to:\n{}\nCould not copy it to the clipboard.",
+            output_path.display()
+        ),
+        (false, true) => {
+            "Screenshot copied to clipboard, but could not be saved to a file.".to_string()
+        }
+        (false, false) => "Failed to save screenshot or copy it to the clipboard.".to_string(),
+    };
+
+    finish_external_screenshot(external);
+    emit_screenshot_status(
+        app,
+        if saved || copied {
+            "finished"
+        } else {
+            "failed"
+        },
+    );
+    crate::notify::show(app, "External window", &notification);
+}
+
 #[cfg(windows)]
 fn crop_top_from_png(
     png_bytes: &[u8],
@@ -644,9 +844,87 @@ fn crop_top_from_png(
     Ok(output)
 }
 
+#[cfg(windows)]
+fn process_windows_screenshot(
+    result_json: &str,
+    titlebar_logical_height: f64,
+    logical_height: f64,
+) -> Result<Vec<u8>, (String, &'static str)> {
+    let value = serde_json::from_str::<serde_json::Value>(result_json).map_err(|error| {
+        (
+            format!("failed to parse windows screenshot response: {}", error),
+            "Failed to process screenshot data.",
+        )
+    })?;
+    let encoded = value
+        .get("data")
+        .and_then(|data| data.as_str())
+        .ok_or_else(|| {
+            (
+                "windows screenshot response does not contain base64 image data".to_string(),
+                "Failed to process screenshot data.",
+            )
+        })?;
+
+    let image_bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| {
+            (
+                format!(
+                    "failed to decode windows screenshot base64 payload: {}",
+                    error
+                ),
+                "Failed to decode screenshot data.",
+            )
+        })?;
+
+    let final_image_bytes =
+        match crop_top_from_png(&image_bytes, titlebar_logical_height, logical_height) {
+            Ok(cropped) => cropped,
+            Err(error) => {
+                tracing::warn!("failed to crop titlebar from windows screenshot: {}", error);
+                image_bytes
+            }
+        };
+
+    Ok(final_image_bytes)
+}
+
+fn emit_screenshot_status(app: &AppHandle, status: &'static str) {
+    if let Err(error) = app.emit("fusou-screenshot-status", status) {
+        tracing::warn!("failed to emit screenshot status {}: {}", status, error);
+    }
+}
+
+fn restore_external_screenshot_mode(external: &tauri::WebviewWindow) {
+    if let Err(error) = external.eval(
+        "if (typeof window.__fusouRestoreScreenshotMode === 'function') { window.__fusouRestoreScreenshotMode(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); if (document.body) { document.body.classList.remove('fusou-screenshot-mode'); } }",
+    ) {
+        tracing::warn!("failed to restore external screenshot mode: {}", error);
+    }
+}
+
+fn finish_external_screenshot(external: &tauri::WebviewWindow) {
+    if let Err(error) = external.eval(
+        "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); if (document.body) { document.body.classList.remove('fusou-screenshot-mode'); } }",
+    ) {
+        tracing::warn!("failed to finish external screenshot action: {}", error);
+    }
+}
+
 pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<PathBuf> {
+    capture_focused_external_window_screenshot_with_prepare(app, true)
+}
+
+fn capture_focused_external_window_screenshot_with_prepare(
+    app: &AppHandle,
+    prepare_screenshot: bool,
+) -> Option<PathBuf> {
+    emit_screenshot_status(app, "started");
+
     let Some(external) = get_visible_external_window(app) else {
         tracing::debug!("skip external screenshot: external window not found or not visible");
+        emit_screenshot_status(app, "failed");
         return None;
     };
 
@@ -657,6 +935,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
             output_dir.display(),
             error
         );
+        emit_screenshot_status(app, "failed");
         return None;
     }
 
@@ -675,9 +954,13 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
     );
     let output_path = output_dir.join(filename);
 
-    let _ = external.eval(
-        "if (typeof window.__fusouPrepareScreenshot === 'function') { window.__fusouPrepareScreenshot(); } else { document.documentElement.classList.add('fusou-screenshot-mode'); } void document.documentElement.offsetHeight;"
-    );
+    if prepare_screenshot {
+        if let Err(error) = external.eval(
+            "if (typeof window.__fusouPrepareScreenshot === 'function') { window.__fusouPrepareScreenshot(); } else { document.documentElement.classList.add('fusou-screenshot-mode'); } void document.documentElement.offsetHeight;",
+        ) {
+            tracing::warn!("failed to prepare external window for screenshot: {}", error);
+        }
+    }
 
     #[cfg(target_os = "linux")]
     {
@@ -696,90 +979,132 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
         let output_path_for_snapshot = output_path.clone();
         let app_handle_for_snapshot = app.clone();
         let external_cleanup = external.clone();
+        let external_cleanup_for_schedule_error = external.clone();
         let schedule_result = external.with_webview(move |webview| {
             let webview = webview.inner().clone();
             // A small delay (50ms) ensures WebKitGTK has completed CSS reflow and compositing
             // for `.fusou-screenshot-mode` (which disables window corner clip-paths) before capturing.
-            webkit2gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
-                webview.snapshot(
-                    SnapshotRegion::Visible,
-                    SnapshotOptions::NONE,
-                    None::<&gio::Cancellable>,
-                    move |snapshot_result| {
-                        let _ = external_cleanup.eval(
-                            "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
-                        );
-                        let surface = match snapshot_result {
-                            Ok(surface) => surface,
-                            Err(error) => {
-                                tracing::warn!("failed to snapshot external webview: {}", error);
-                                crate::notify::show(
-                                    &app_handle_for_snapshot,
-                                    "External window",
-                                    "Failed to snapshot external webview.",
-                                );
-                                return;
+            webkit2gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(50),
+                move || {
+                    webview.snapshot(
+                        SnapshotRegion::Visible,
+                        SnapshotOptions::NONE,
+                        None::<&gio::Cancellable>,
+                        move |snapshot_result| {
+                            restore_external_screenshot_mode(&external_cleanup);
+                            let surface = match snapshot_result {
+                                Ok(surface) => surface,
+                                Err(error) => {
+                                    tracing::warn!(
+                                        "failed to snapshot external webview: {}",
+                                        error
+                                    );
+                                    finish_external_screenshot(&external_cleanup);
+                                    emit_screenshot_status(&app_handle_for_snapshot, "failed");
+                                    crate::notify::show(
+                                        &app_handle_for_snapshot,
+                                        "External window",
+                                        "Failed to snapshot external webview.",
+                                    );
+                                    return;
+                                }
+                            };
+
+                            let image_result = (|| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+                                let target = cairo::ImageSurface::create(
+                                    cairo::Format::ARgb32,
+                                    capture_width,
+                                    cropped_height,
+                                )?;
+                                let cr = cairo::Context::new(&target)?;
+
+                                // Fill solid dark background (#0e0e11) first to eliminate any possible
+                                // transparent corner bleeding from window rounding or compositor antialiasing.
+                                cr.set_source_rgb(14.0 / 255.0, 14.0 / 255.0, 17.0 / 255.0);
+                                cr.paint()?;
+
+                                // Paint cropped webview surface (offsetting top titlebar)
+                                cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
+                                cr.paint()?;
+                                target.flush();
+
+                                let mut image_bytes = Vec::new();
+                                target.write_to_png(&mut image_bytes)?;
+                                Ok(image_bytes)
+                            })();
+
+                            match image_result {
+                                Ok(image_bytes) => {
+                                    let app_handle_for_delivery = app_handle_for_snapshot.clone();
+                                    let output_path_for_delivery = output_path_for_snapshot.clone();
+                                    let output_path_for_save = output_path_for_snapshot.clone();
+                                    let external_cleanup_for_delivery = external_cleanup.clone();
+                                    tauri::async_runtime::spawn(async move {
+                                        let delivery_result =
+                                            tauri::async_runtime::spawn_blocking(move || {
+                                                save_screenshot_and_copy(
+                                                    &output_path_for_delivery,
+                                                    &image_bytes,
+                                                )
+                                            })
+                                            .await;
+
+                                        match delivery_result {
+                                            Ok((save_result, copy_result)) => {
+                                                finish_screenshot_delivery(
+                                                    &app_handle_for_delivery,
+                                                    &external_cleanup_for_delivery,
+                                                    &output_path_for_save,
+                                                    save_result,
+                                                    copy_result,
+                                                );
+                                            }
+                                            Err(error) => {
+                                                tracing::warn!(
+                                                    "screenshot delivery task failed: {}",
+                                                    error
+                                                );
+                                                finish_external_screenshot(
+                                                    &external_cleanup_for_delivery,
+                                                );
+                                                emit_screenshot_status(
+                                                    &app_handle_for_delivery,
+                                                    "failed",
+                                                );
+                                                crate::notify::show(
+                                                    &app_handle_for_delivery,
+                                                    "External window",
+                                                    "Failed to save screenshot or copy it to the clipboard.",
+                                                );
+                                            }
+                                        }
+                                    });
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        "failed to prepare screenshot {}: {}",
+                                        output_path_for_snapshot.display(), error
+                                    );
+                                    finish_external_screenshot(&external_cleanup);
+                                    emit_screenshot_status(&app_handle_for_snapshot, "failed");
+                                    crate::notify::show(
+                                        &app_handle_for_snapshot,
+                                        "External window",
+                                        "Failed to save screenshot.",
+                                    );
+                                }
                             }
-                        };
-
-                        let save_result = (|| -> Result<(), Box<dyn std::error::Error>> {
-                            let target = cairo::ImageSurface::create(
-                                cairo::Format::ARgb32,
-                                capture_width,
-                                cropped_height,
-                            )?;
-                            let cr = cairo::Context::new(&target)?;
-
-                            // Fill solid dark background (#0e0e11) first to eliminate any possible
-                            // transparent corner bleeding from window rounding or compositor antialiasing.
-                            cr.set_source_rgb(14.0 / 255.0, 14.0 / 255.0, 17.0 / 255.0);
-                            cr.paint()?;
-
-                            // Paint cropped webview surface (offsetting top titlebar)
-                            cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
-                            cr.paint()?;
-                            target.flush();
-
-                            let mut file = fs::File::create(&output_path_for_snapshot)?;
-                            target.write_to_png(&mut file)?;
-                            Ok(())
-                        })();
-
-                        match save_result {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "saved external screenshot: {}",
-                                    output_path_for_snapshot.display()
-                                );
-                                crate::notify::show(
-                                    &app_handle_for_snapshot,
-                                    "External window",
-                                    &format!(
-                                        "Screenshot saved to:\n{}",
-                                        output_path_for_snapshot.display()
-                                    ),
-                                );
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    "failed to save screenshot {}: {}",
-                                    output_path_for_snapshot.display(),
-                                    error
-                                );
-                                crate::notify::show(
-                                    &app_handle_for_snapshot,
-                                    "External window",
-                                    "Failed to save screenshot.",
-                                );
-                            }
-                        }
-                    },
-                );
-            });
+                        },
+                    );
+                },
+            );
         });
 
         if let Err(error) = schedule_result {
             tracing::warn!("failed to schedule external screenshot: {}", error);
+            finish_external_screenshot(&external_cleanup_for_schedule_error);
+            emit_screenshot_status(app, "failed");
             None
         } else {
             Some(output_path)
@@ -798,7 +1123,11 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
         let output_path_for_callback = output_path.clone();
         let app_handle_for_callback = app.clone();
-        let external_cleanup = external.clone();
+        let app_handle_for_call_error = app.clone();
+        let external_cleanup_for_callback = external.clone();
+        let external_cleanup_for_setup = external.clone();
+        let external_cleanup_for_call = external.clone();
+        let external_cleanup_for_schedule_error = external.clone();
         let schedule_result = external.with_webview(move |platform_webview| {
             let controller = platform_webview.controller();
             let webview = unsafe {
@@ -806,6 +1135,13 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                     Ok(webview) => webview,
                     Err(error) => {
                         tracing::warn!("failed to obtain CoreWebView2 for screenshot: {}", error);
+                        finish_external_screenshot(&external_cleanup_for_setup);
+                        emit_screenshot_status(&app_handle_for_callback, "failed");
+                        crate::notify::show(
+                            &app_handle_for_callback,
+                            "External window",
+                            "Failed to capture screenshot.",
+                        );
                         return;
                     }
                 }
@@ -816,14 +1152,14 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
 
             let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
                 move |status, result_json: String| {
-                    let _ = external_cleanup.eval(
-                        "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); }"
-                    );
+                    restore_external_screenshot_mode(&external_cleanup_for_callback);
                     if let Err(error) = status {
                         tracing::warn!(
                             "windows screenshot devtools call failed with status: {}",
                             error
                         );
+                        finish_external_screenshot(&external_cleanup_for_callback);
+                        emit_screenshot_status(&app_handle_for_callback, "failed");
                         crate::notify::show(
                             &app_handle_for_callback,
                             "External window",
@@ -832,86 +1168,59 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                         return Ok(());
                     }
 
-                    let encoded = match serde_json::from_str::<serde_json::Value>(&result_json)
-                        .ok()
-                        .and_then(|value| {
-                            value
-                                .get("data")
-                                .and_then(|data| data.as_str())
-                                .map(|data| data.to_string())
-                        }) {
-                        Some(encoded) => encoded,
-                        None => {
-                            tracing::warn!(
-                                "windows screenshot response does not contain base64 image data"
-                            );
-                            crate::notify::show(
-                                &app_handle_for_callback,
-                                "External window",
-                                "Failed to process screenshot data.",
-                            );
-                            return Ok(());
-                        }
-                    };
+                    let app_handle_for_save = app_handle_for_callback.clone();
+                    let output_path_for_save = output_path_for_callback.clone();
+                    let output_path_for_processing = output_path_for_callback.clone();
+                    let external_cleanup_for_save = external_cleanup_for_callback.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let delivery_result = tauri::async_runtime::spawn_blocking(move || {
+                            let image_bytes = process_windows_screenshot(
+                                &result_json,
+                                TITLEBAR_HEIGHT,
+                                logical_height,
+                            )?;
+                            Ok::<_, (String, &'static str)>(save_screenshot_and_copy(
+                                &output_path_for_processing,
+                                &image_bytes,
+                            ))
+                        })
+                        .await;
 
-                    let image_bytes =
-                        match base64::engine::general_purpose::STANDARD.decode(encoded) {
-                            Ok(bytes) => bytes,
+                        match delivery_result {
+                            Ok(Ok((save_result, copy_result))) => {
+                                finish_screenshot_delivery(
+                                    &app_handle_for_save,
+                                    &external_cleanup_for_save,
+                                    &output_path_for_save,
+                                    save_result,
+                                    copy_result,
+                                );
+                            }
+                            Ok(Err((error, message))) => {
+                                tracing::warn!("{}", error);
+                                finish_external_screenshot(&external_cleanup_for_save);
+                                emit_screenshot_status(&app_handle_for_save, "failed");
+                                crate::notify::show(
+                                    &app_handle_for_save,
+                                    "External window",
+                                    message,
+                                );
+                            }
                             Err(error) => {
                                 tracing::warn!(
-                                    "failed to decode windows screenshot base64 payload: {}",
+                                    "windows screenshot delivery task failed: {}",
                                     error
                                 );
+                                finish_external_screenshot(&external_cleanup_for_save);
+                                emit_screenshot_status(&app_handle_for_save, "failed");
                                 crate::notify::show(
-                                    &app_handle_for_callback,
+                                    &app_handle_for_save,
                                     "External window",
-                                    "Failed to decode screenshot data.",
+                                    "Failed to process screenshot data.",
                                 );
-                                return Ok(());
                             }
-                        };
-
-                    let final_image_bytes = match crop_top_from_png(
-                        &image_bytes,
-                        TITLEBAR_HEIGHT,
-                        logical_height,
-                    ) {
-                        Ok(cropped) => cropped,
-                        Err(error) => {
-                            tracing::warn!(
-                                "failed to crop titlebar from windows screenshot: {}",
-                                error
-                            );
-                            image_bytes
                         }
-                    };
-
-                    if let Err(error) = fs::write(&output_path_for_callback, &final_image_bytes) {
-                        tracing::warn!(
-                            "failed to save windows screenshot {}: {}",
-                            output_path_for_callback.display(),
-                            error
-                        );
-                        crate::notify::show(
-                            &app_handle_for_callback,
-                            "External window",
-                            "Failed to save screenshot.",
-                        );
-                        return Ok(());
-                    }
-
-                    tracing::info!(
-                        "saved external screenshot: {}",
-                        output_path_for_callback.display()
-                    );
-                    crate::notify::show(
-                        &app_handle_for_callback,
-                        "External window",
-                        &format!(
-                            "Screenshot saved to:\n{}",
-                            output_path_for_callback.display()
-                        ),
-                    );
+                    });
 
                     Ok(())
                 },
@@ -930,11 +1239,20 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
                     "failed to schedule windows screenshot devtools call: {}",
                     error
                 );
+                finish_external_screenshot(&external_cleanup_for_call);
+                emit_screenshot_status(&app_handle_for_call_error, "failed");
+                crate::notify::show(
+                    &app_handle_for_call_error,
+                    "External window",
+                    "Failed to capture screenshot.",
+                );
             }
         });
 
         if let Err(error) = schedule_result {
             tracing::warn!("failed to schedule external screenshot: {}", error);
+            finish_external_screenshot(&external_cleanup_for_schedule_error);
+            emit_screenshot_status(app, "failed");
             None
         } else {
             Some(output_path)
@@ -946,6 +1264,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
         tracing::warn!(
             "external screenshot shortcut is currently only implemented on Linux and Windows"
         );
+        emit_screenshot_status(app, "failed");
         None
     }
 }
@@ -967,7 +1286,11 @@ pub fn handle_external_force_refresh_shortcut(app: &AppHandle) {
 }
 
 pub fn handle_external_screenshot_shortcut(app: &AppHandle) {
-    if capture_focused_external_window_screenshot(app).is_none() {
+    handle_external_screenshot_shortcut_with_prepare(app, true);
+}
+
+fn handle_external_screenshot_shortcut_with_prepare(app: &AppHandle, prepare_screenshot: bool) {
+    if capture_focused_external_window_screenshot_with_prepare(app, prepare_screenshot).is_none() {
         crate::notify::show(
             app,
             "External window",
@@ -993,7 +1316,8 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
                             let props = &node["info"]["props"];
                             if props["media.class"].as_str() == Some("Stream/Output/Audio") {
                                 let name = props["application.name"].as_str().unwrap_or("");
-                                let bin = props["application.process.binary"].as_str().unwrap_or("");
+                                let bin =
+                                    props["application.process.binary"].as_str().unwrap_or("");
                                 let name_lower = name.to_lowercase();
                                 let bin_lower = bin.to_lowercase();
                                 if name_lower == "app"
@@ -1054,7 +1378,11 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
                 .args(["set-volume", &id.to_string(), &vol_str])
                 .status();
             let _ = std::process::Command::new("wpctl")
-                .args(["set-mute", &id.to_string(), if is_muted { "1" } else { "0" }])
+                .args([
+                    "set-mute",
+                    &id.to_string(),
+                    if is_muted { "1" } else { "0" },
+                ])
                 .status();
             tracing::info!(
                 stream_id = id,
@@ -1065,7 +1393,10 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
         }
 
         // Method 2: PulseAudio fallback (pactl list sink-inputs)
-        if let Ok(output) = std::process::Command::new("pactl").args(["list", "sink-inputs"]).output() {
+        if let Ok(output) = std::process::Command::new("pactl")
+            .args(["list", "sink-inputs"])
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let mut current_sink_input: Option<u32> = None;
@@ -1084,10 +1415,18 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
                         if let Some(sink_id) = current_sink_input {
                             let percent = (vol_clamped * 100.0).round() as u32;
                             let _ = std::process::Command::new("pactl")
-                                .args(["set-sink-input-volume", &sink_id.to_string(), &format!("{}%", percent)])
+                                .args([
+                                    "set-sink-input-volume",
+                                    &sink_id.to_string(),
+                                    &format!("{}%", percent),
+                                ])
                                 .status();
                             let _ = std::process::Command::new("pactl")
-                                .args(["set-sink-input-mute", &sink_id.to_string(), if is_muted { "1" } else { "0" }])
+                                .args([
+                                    "set-sink-input-mute",
+                                    &sink_id.to_string(),
+                                    if is_muted { "1" } else { "0" },
+                                ])
                                 .status();
                             tracing::info!(
                                 sink_input = sink_id,
@@ -1187,7 +1526,7 @@ pub fn external_window_shortcut(
     match action.as_str() {
         "reload" => handle_external_reload_shortcut(app),
         "force-refresh" => handle_external_force_refresh_shortcut(app),
-        "screenshot" => handle_external_screenshot_shortcut(app),
+        "screenshot" => handle_external_screenshot_shortcut_with_prepare(app, false),
         _ => return Err(format!("unsupported external shortcut action: {action}")),
     }
 

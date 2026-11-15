@@ -2,8 +2,8 @@
 title: Terms of Service for fusou
 description: >-
   These Terms of Service set forth the terms and conditions for using the application "fusou".
-contributors: ["tsukasa-u"]
-date: 2025-12-04
+contributors: ["tsukasa-u", "antigravity-ai"]
+date: 2026-11-15
 slug: policy/terms
 tags: [policy, terms]
 ---
@@ -16,18 +16,18 @@ These Terms of Service (hereinafter referred to as "Terms") set forth the terms 
 **2. License**
 The developer grants the user a non-exclusive, non-transferable, and revocable license to use the App for personal purposes, subject to compliance with these Terms.
 
-**3. Use of Google Drive API**
-The App uses the Google Drive API to store and manage game data.
+**3. Cloud Services and Data Storage**
+Depending on your configuration, the App stores game data locally and/or communicates with FUSOU's cloud backend (Cloudflare R2 / D1 and Supabase) to upload fleet snapshots, battle datasets, or static assets. (Legacy Google Drive integration is deprecated and disabled in default builds.)
 
-- Users understand and agree that the App will access their Google Drive storage to create, edit, or delete specific files related to the App.
+- Users understand and agree that enabling cloud upload features transmits configured data to FUSOU's cloud storage and endpoints.
 - The developer is not responsible for any data loss, corruption, or unintended file modifications resulting from the use of the App.
 
 **4. Prohibited Acts**
 When using the App, users must not engage in the following acts:
 
-- Reverse engineering, decompiling, or disassembling the App.
+- Circumventing authentication, rate limits, or abuse protections of FUSOU services.
 - Using the App for illegal purposes or in a manner that violates public order and morals.
-- Acts that interfere with the servers or networks of the App or Google services.
+- Acts that interfere with the servers, storage, or networks of the App or its cloud infrastructure.
 
 **5. Disclaimer of Warranty**
 The App is provided on an "AS IS" basis, without warranties of any kind, express or implied.

@@ -492,6 +492,18 @@ impl<S: Storage> AuthManager<S> {
 
 // MultiSession管理のための拡張メソッド
 impl<S: Storage> AuthManager<S> {
+    async fn ensure_dataset_token_cache_loaded(&self, cache: &mut DatasetTokenStore) {
+        if cache.loaded {
+            return;
+        }
+        if let Ok((disk_store, _dirty)) = self.read_dataset_token_store_from_disk().await {
+            for (dataset_id, token) in disk_store.tokens {
+                cache.tokens.entry(dataset_id).or_insert(token);
+            }
+            cache.loaded = true;
+        }
+    }
+
     /// dataset_tokenを dataset_id 単位で保存する。
     pub async fn save_dataset_token(&self, token: &DatasetToken) -> Result<(), AuthError> {
         let Some(dataset_id) = token
@@ -518,6 +530,7 @@ impl<S: Storage> AuthManager<S> {
         }
 
         let mut cache = self.dataset_token_cache.lock().await;
+        self.ensure_dataset_token_cache_loaded(&mut cache).await;
         cache.tokens.insert(dataset_id, token.clone());
 
         if let Err(e) = self.persist_dataset_token_store(&cache).await {
@@ -533,6 +546,7 @@ impl<S: Storage> AuthManager<S> {
     pub async fn clear_dataset_tokens(&self) -> Result<(), AuthError> {
         let mut cache = self.dataset_token_cache.lock().await;
         cache.tokens.clear();
+        cache.loaded = true;
 
         if let Err(e) = self.persist_dataset_token_store(&cache).await {
             tracing::warn!("Failed to persist cleared dataset_token store: {}", e);
@@ -549,6 +563,7 @@ impl<S: Storage> AuthManager<S> {
     ) -> Result<(), AuthError> {
         let api_member_id = api_member_id.trim();
         let mut cache = self.dataset_token_cache.lock().await;
+        self.ensure_dataset_token_cache_loaded(&mut cache).await;
         cache.tokens.retain(|_, token| {
             token
                 .api_member_id
@@ -577,10 +592,11 @@ impl<S: Storage> AuthManager<S> {
             return Ok(Some(token.clone()));
         }
 
-        let (store, dirty) = self.read_dataset_token_store_from_disk().await?;
+        let (mut store, dirty) = self.read_dataset_token_store_from_disk().await?;
         if dirty {
             self.persist_dataset_token_store(&store).await?;
         }
+        store.loaded = true;
         *cache = store;
         Ok(cache.tokens.get(dataset_id).cloned())
     }
@@ -626,10 +642,11 @@ impl<S: Storage> AuthManager<S> {
             return Some(dataset_id);
         }
 
-        if let Ok((store, dirty)) = self.read_dataset_token_store_from_disk().await {
+        if let Ok((mut store, dirty)) = self.read_dataset_token_store_from_disk().await {
             if dirty {
                 self.persist_dataset_token_store(&store).await.ok();
             }
+            store.loaded = true;
             *cache = store;
             return find_best(&cache);
         }
@@ -1395,5 +1412,82 @@ mod tests {
         assert!(storage.load_session().await.unwrap().is_none());
 
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn save_and_member_cleanup_preserve_existing_tokens_on_disk() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "fusou-auth-token-persist-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let token_path = temp_dir.join("dataset_tokens.json");
+
+        let config = AuthConfig {
+            supabase_url: "https://example.test".to_string(),
+            api_key: "test-key".to_string(),
+            refresh_path: "/auth/v1/token".to_string(),
+            refresh_margin_secs: 30,
+        };
+        let storage = Arc::new(crate::storage::InMemoryStorage::new());
+
+        let dataset_a = "11111111-1111-4111-8111-111111111111".to_string();
+        let dataset_b = "22222222-2222-4222-8222-222222222222".to_string();
+
+        let manager_a = AuthManager::new_with_dataset_token_path(
+            config.clone(),
+            storage.clone(),
+            Some(token_path.clone()),
+        );
+        manager_a
+            .save_dataset_token(&DatasetToken {
+                token: "tok-a".to_string(),
+                expires_at: Utc::now() + Duration::hours(1),
+                dataset_id: Some(dataset_a.clone()),
+                api_member_id: Some("member-a".to_string()),
+                device_id: None,
+            })
+            .await
+            .unwrap();
+
+        // New manager instance with empty in-memory cache saving another dataset token
+        let manager_b =
+            AuthManager::new_with_dataset_token_path(config.clone(), storage.clone(), Some(token_path.clone()));
+        manager_b
+            .save_dataset_token(&DatasetToken {
+                token: "tok-b".to_string(),
+                expires_at: Utc::now() + Duration::hours(1),
+                dataset_id: Some(dataset_b.clone()),
+                api_member_id: Some("member-b".to_string()),
+                device_id: None,
+            })
+            .await
+            .unwrap();
+
+        let verifier = AuthManager::new_with_dataset_token_path(
+            config.clone(),
+            storage.clone(),
+            Some(token_path.clone()),
+        );
+        assert!(verifier
+            .load_dataset_token_for_dataset(&dataset_a)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(verifier
+            .load_dataset_token_for_dataset(&dataset_b)
+            .await
+            .unwrap()
+            .is_some());
+
+        // New manager clearing member-a must keep member-b on disk
+        let manager_c = AuthManager::new_with_dataset_token_path(config, storage, Some(token_path.clone()));
+        manager_c.clear_dataset_tokens_for_member("member-a").await.unwrap();
+
+        let (disk_store, _) = manager_c.read_dataset_token_store_from_disk().await.unwrap();
+        assert!(!disk_store.tokens.contains_key(&dataset_a));
+        assert!(disk_store.tokens.contains_key(&dataset_b));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

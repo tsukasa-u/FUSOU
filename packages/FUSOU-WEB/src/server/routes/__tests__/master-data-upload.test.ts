@@ -33,6 +33,7 @@ vi.mock("../../utils", () => ({
     context.runtime[key],
   safeWaitUntil: vi.fn(),
   timingSafeEqual: (left: string, right: string) => left === right,
+  validateDatasetTokenSecret: vi.fn(() => ({ ok: true })),
   validateDatasetTokenWithConstraints: mockValidateDatasetTokenWithConstraints,
   validateJWT: vi.fn(async () => null),
   validateTokenPayloadWithSchema: (

@@ -1,9 +1,9 @@
 ---
 title: Install FUSOU
-contributors: ["tsukasa-u"]
+contributors: ["tsukasa-u", "antigravity-ai"]
 description: >-
   FUSOU-APPをWindowsおよびLinux各ディストリビューションで導入するためのインストーラー選択指針、OSとアーキテクチャの判別方法、AppImage・deb・rpmそれぞれの具体的なインストール手順をまとめたガイド
-date: 2025-10-17
+date: 2026-11-15
 slug: start/install
 tags: [start, install]
 ---
@@ -27,7 +27,7 @@ Linux 向けには以下のパッケージ形式が提供されています:
 ## 対応環境と OS・アーキテクチャの判別
 
 - Windows: Windows 10 以降 (64bit) x86_64 / arm64 に対応 (`.msi`, `.exe`)
-- Linux: x86_64 / arm64 に対応 (`.AppImage`, `.deb`, `.rpm`)
+- Linux: x86_64 (`.AppImage`, `.deb`, `.rpm`) / arm64 (`.deb`) に対応
 
 ### Windows での確認方法
 
@@ -77,7 +77,7 @@ $ grep ^NAME= /etc/os-release
 3. 実行します。
 
    ```bash
-   $./fusou-linux-<arch>.AppImage
+   ./fusou-linux-amd64.AppImage
    ```
 
 ## Debian 系 (Ubuntu 等) `.deb` パッケージ
@@ -132,5 +132,5 @@ $ grep ^NAME= /etc/os-release
 3. SELinux が有効な環境ではコンテキストを確認します。
 
    ```bash
-   sudo restorecon -Rv /opt/fusou-app
+   sudo restorecon -Rv /usr/bin/fusou
    ```

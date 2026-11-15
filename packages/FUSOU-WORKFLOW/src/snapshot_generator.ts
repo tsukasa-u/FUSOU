@@ -321,8 +321,8 @@ export async function generateAndSaveSnapshots(
               ? JSON.stringify([uuid, record["index"], record["index_1"], record["index_2"], record["cell_index"]])
               : JSON.stringify(record);
             byKey.set(key, record);
-          sortie.tables[table] = [...byKey.values()];
         }
+        sortie.tables[table] = [...byKey.values()];
       }
       const actualTimestamp = resolveSortieTimestamp(envUuid, sortie.tables, sortie.fallbackTimestamp);
       const detailPayload = {

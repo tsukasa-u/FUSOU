@@ -11,6 +11,7 @@ set -e
 #   2. Build avro-wasm with all versions embedded
 #   3. Compute fingerprints from generated schemas
 #   4. Update configs/fingerprints.json
+#   5. Regenerate Python schema constants (fusou_datasets/schema.py)
 #
 # Usage:
 #   ./scripts/rebuild-schema-chain.sh          # full rebuild
@@ -20,6 +21,7 @@ set -e
 #   - packages/kc_api/generated-schemas/schema_v*.json
 #   - packages/avro-wasm/pkg/*
 #   - packages/configs/fingerprints.json
+#   - packages/fusou-datasets/python/fusou_datasets/schema.py
 # ============================================================================
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -133,10 +135,21 @@ echo "  ✅ Fingerprints computed"
 echo ""
 
 # ── Step 4: Update fingerprints.json ───────────────────────────
-echo "── Step 4/4: Updating configs/fingerprints.json ──"
+echo "── Step 4/5: Updating configs/fingerprints.json ──"
 FINGERPRINTS_FILE="$REPO_ROOT/packages/configs/fingerprints.json"
 echo "$FINGERPRINTS" > "$FINGERPRINTS_FILE"
 echo "  ✅ Written to $FINGERPRINTS_FILE"
+echo ""
+
+# ── Step 5: Regenerate Python schema constants ─────────────────
+echo "── Step 5/5: Regenerating fusou-datasets Python schema constants ──"
+PYTHON_BIN=$(command -v python3 || command -v python || true)
+if [ -z "$PYTHON_BIN" ]; then
+    echo "❌ Python is required to run gen_python_constants.py. Aborting."
+    exit 1
+fi
+"$PYTHON_BIN" "$REPO_ROOT/packages/FUSOU-WORKFLOW/scripts/gen_python_constants.py"
+echo "  ✅ Updated packages/fusou-datasets/python/fusou_datasets/schema.py"
 
 # Show summary
 echo ""
@@ -158,6 +171,7 @@ echo "  1. Commit updated files:"
 echo "     git add packages/kc_api/generated-schemas/"
 echo "     git add packages/avro-wasm/pkg/"
 echo "     git add packages/configs/fingerprints.json"
+echo "     git add packages/fusou-datasets/python/fusou_datasets/schema.py"
 echo "  2. Deploy FUSOU-WORKFLOW with updated WASM"
 echo "     (fingerprints are auto-loaded from bundled fingerprints.json at build time)"
 echo ""

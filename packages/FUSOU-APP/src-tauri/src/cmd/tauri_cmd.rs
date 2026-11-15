@@ -12,6 +12,9 @@ use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
 use crate::builder_setup::logger::MessageVisitor;
 use crate::events;
+use crate::interface::air_base::AirBases;
+use crate::interface::deck_port::DeckPorts;
+use crate::interface::material::Materials;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -20,6 +23,7 @@ use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::{MstUseItemMetas, MstUseItems};
 use crate::interface::quest::Quests;
+use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
 use crate::interface::use_items::{PayItems, UseItems};
 use crate::storage::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
@@ -53,6 +57,38 @@ pub async fn get_slot_items(window: tauri::Window) {
     let _ = window
         .app_handle()
         .emit_to("main", events::SET_KCS_SLOT_ITEMS, data);
+}
+
+#[tauri::command]
+pub async fn get_ships(window: tauri::Window) {
+    let data = Ships::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_SHIPS, data);
+}
+
+#[tauri::command]
+pub async fn get_materials(window: tauri::Window) {
+    let data = Materials::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_MATERIALS, data);
+}
+
+#[tauri::command]
+pub async fn get_deck_ports(window: tauri::Window) {
+    let data = DeckPorts::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_DECK_PORTS, data);
+}
+
+#[tauri::command]
+pub async fn get_air_bases_ports(window: tauri::Window) {
+    let data = AirBases::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_AIR_BASES_PORTS, data);
 }
 
 #[tauri::command]

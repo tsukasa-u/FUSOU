@@ -52,9 +52,6 @@ const CACHEABLE_PATHS = new Set([
   "/api/ship-growth/bounds",
   "/api/ship-growth/cumulative",
   "/api/ship-growth/all-periods",
-  // quest-tree read endpoints
-  "/api/quest-tree/graph",
-  "/api/quest-tree/rules",
   // remodel summary
   "/api/remodel-data/summary",
   "/api/remodel-data/effective-summary",
@@ -63,8 +60,6 @@ const CACHEABLE_PATHS = new Set([
 const IDB_PERSISTENT_PATHS = new Set([
   "/api/master-data/json",
   "/api/asset-sync/weapon-icon-frames",
-  "/api/quest-tree/graph",
-  "/api/quest-tree/rules",
   "/api/remodel-data/summary",
   "/api/remodel-data/effective-summary",
 ]);

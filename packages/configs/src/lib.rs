@@ -1,4 +1,5 @@
 mod configs;
+mod migrations;
 
 pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     configs::set_user_config(path)

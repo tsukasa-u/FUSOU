@@ -9,6 +9,21 @@ const isTopWindow = () => {
     return false;
   }
 };
+const isAllowedGameMessageOrigin = (origin) => {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "https:" || parsed.port) return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === "dmm.com" ||
+      hostname.endsWith(".dmm.com") ||
+      hostname === "kancolle-server.com" ||
+      hostname.endsWith(".kancolle-server.com")
+    );
+  } catch (_) {
+    return false;
+  }
+};
 const isTop = isTopWindow();
 
 const isLinuxPlatform =
@@ -343,6 +358,8 @@ if (!isTop) {
 
   // Message listener for cross-frame coordination in subframe
   window.addEventListener("message", (e) => {
+    if (!isAllowedGameMessageOrigin(e.origin)) return;
+
     let data = e.data;
     if (typeof data === "string") {
       if (data.includes("fusou-")) {
@@ -492,6 +509,12 @@ function requestNativeShortcut(action) {
   }
 
   invoke("external_window_shortcut", { action }).catch((error) => {
+    if (
+      action === "screenshot" &&
+      typeof window.__fusouFinishScreenshot === "function"
+    ) {
+      window.__fusouFinishScreenshot();
+    }
     console.error("Failed to handle external %s shortcut:", action, error);
   });
 }
@@ -587,6 +610,8 @@ window.__fusouSetVolume = (volume, muted, fromRust = false) => {
 };
 
 window.addEventListener("message", (e) => {
+  if (!isAllowedGameMessageOrigin(e.origin)) return;
+
   let data = e.data;
   if (typeof data === "string") {
     if (data.includes("fusou-")) {
@@ -649,6 +674,13 @@ const SCREENSHOT_SVG = `
 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
   <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
   <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+</svg>
+`;
+
+const SCREENSHOT_LOADING_SVG = `
+<svg class="fusou-screenshot-spinner" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; pointer-events:none;">
+  <circle cx="12" cy="12" r="9" stroke-opacity="0.25" />
+  <path stroke-linecap="round" d="M21 12a9 9 0 00-9-9" />
 </svg>
 `;
 
@@ -990,6 +1022,12 @@ const ensureTitlebarStyles = () => {
     .fusou-tool-btn.fusou-active {
       background: rgba(255, 255, 255, 0.15) !important;
     }
+        @keyframes fusou-screenshot-spin {
+          to { transform: rotate(360deg); }
+        }
+        .fusou-screenshot-spinner {
+          animation: fusou-screenshot-spin 0.8s linear infinite !important;
+        }
     .fusou-win-controls {
       display: flex !important;
       align-items: center !important;
@@ -1241,9 +1279,11 @@ const injectTitlebar = () => {
   const screenshotBtn = document.createElement("button");
   screenshotBtn.type = "button";
   screenshotBtn.className = "fusou-tool-btn";
+  screenshotBtn.dataset.fusouScreenshotAction = "true";
   screenshotBtn.title = "Capture Screenshot (External Window)";
   screenshotBtn.innerHTML = SCREENSHOT_SVG;
   screenshotBtn.onclick = () => {
+    if (screenshotBtn.classList.contains("fusou-active")) return;
     screenshotBtn.style.transform = "scale(0.95)";
     setTimeout(() => {
       screenshotBtn.style.transform = "";
@@ -1654,25 +1694,64 @@ const forceRenderRefresh = () => {
 
 window.__fusouForceRenderRefresh = forceRenderRefresh;
 
+let screenshotModeTimeout = 0;
+let screenshotBusyTimeout = 0;
+
+const setScreenshotButtonBusy = (busy) => {
+  const button = document.querySelector("[data-fusou-screenshot-action]");
+  if (!button) return;
+
+  button.classList.toggle("fusou-active", busy);
+  button.disabled = busy;
+  button.setAttribute("aria-busy", String(busy));
+  button.setAttribute(
+    "aria-label",
+    busy ? "Capturing screenshot" : "Capture screenshot",
+  );
+  button.innerHTML = busy ? SCREENSHOT_LOADING_SVG : SCREENSHOT_SVG;
+  button.title = busy
+    ? "Capturing screenshot..."
+    : "Capture Screenshot (External Window)";
+};
+
+window.__fusouRestoreScreenshotMode = () => {
+  if (screenshotModeTimeout) {
+    clearTimeout(screenshotModeTimeout);
+    screenshotModeTimeout = 0;
+  }
+  document.documentElement.classList.remove("fusou-screenshot-mode");
+  if (document.body) {
+    document.body.classList.remove("fusou-screenshot-mode");
+  }
+};
+
+window.__fusouFinishScreenshot = () => {
+  window.__fusouRestoreScreenshotMode();
+  if (screenshotBusyTimeout) {
+    clearTimeout(screenshotBusyTimeout);
+    screenshotBusyTimeout = 0;
+  }
+  setScreenshotButtonBusy(false);
+};
+
 window.__fusouPrepareScreenshot = () => {
   document.documentElement.classList.add("fusou-screenshot-mode");
   if (document.body) {
     document.body.classList.add("fusou-screenshot-mode");
   }
+  setScreenshotButtonBusy(true);
   void document.documentElement.offsetHeight;
-  setTimeout(() => {
-    document.documentElement.classList.remove("fusou-screenshot-mode");
-    if (document.body) {
-      document.body.classList.remove("fusou-screenshot-mode");
-    }
-  }, 1000);
-};
 
-window.__fusouFinishScreenshot = () => {
-  document.documentElement.classList.remove("fusou-screenshot-mode");
-  if (document.body) {
-    document.body.classList.remove("fusou-screenshot-mode");
-  }
+  if (screenshotModeTimeout) clearTimeout(screenshotModeTimeout);
+  screenshotModeTimeout = window.setTimeout(
+    () => window.__fusouRestoreScreenshotMode(),
+    1000,
+  );
+  if (screenshotBusyTimeout) clearTimeout(screenshotBusyTimeout);
+  screenshotBusyTimeout = window.setTimeout(
+    () => window.__fusouFinishScreenshot(),
+    30000,
+  );
 };
 
 const stopKeyEvent = (event) => {

@@ -14,3 +14,6 @@ kc-api-interface = { workspace = true, default-features = false }
 default = ["genesis"]
 genesis = ["kc-api-interface/genesis"]
 epoch_20250627 = ["kc-api-interface/epoch_20250627"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -136,7 +136,7 @@ describe("battle-data route integration", () => {
 					? { arrayBuffer: async () => Buffer.from(JSON.stringify({
 						success: true, period_tag: match[1],
 						battle: { index: 2, timestamp: 1792000000000 },
-						derived: { friendly_fleet: [{ shipId: 1 }] },
+						derived: { friendly_fleet: [] },
 					})) }
 					: null;
 			});
@@ -152,6 +152,7 @@ describe("battle-data route integration", () => {
 					BATTLE_DATA_BUCKET: bucket, DATA_LOADER_CACHE_KV: kv,
 				});
 				expect(response.status).toBe(200);
+				expect(response.headers.get("X-FUSOU-Cache")).toBe("SNAPSHOT-HIT");
 				expect(await response.json()).toMatchObject({ period_tag: period });
 			}
 			expect(values.has("v9:battle_detail:2026-10-14:same-sortie:2")).toBe(true);

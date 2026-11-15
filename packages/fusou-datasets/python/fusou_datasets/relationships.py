@@ -32,7 +32,7 @@ def define_core_relationships(graph: JoinGraph) -> None:
     graph.add(Tables.Battle.TABLE, Tables.Battle.ENV_UUID, Tables.EnvInfo.TABLE, Tables.EnvInfo.UUID)
     
     # Battle -> Cells (Map information)
-    graph.add(Tables.Battle.TABLE, Tables.Battle.CELL_ID, Tables.Cells.TABLE, Tables.Cells.BATTLES)
+    graph.add(Tables.Battle.TABLE, Tables.Battle.UUID, Tables.Cells.TABLE, Tables.Cells.BATTLES)
     
     # Cells -> MapInfoMaster
     graph.add(Tables.Cells.TABLE, Tables.Cells.MAPINFO_NO, Tables.MapInfoMaster.TABLE, Tables.MapInfoMaster.NO)

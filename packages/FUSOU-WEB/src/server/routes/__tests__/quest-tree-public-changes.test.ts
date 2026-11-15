@@ -79,4 +79,22 @@ describe("quest-tree /changes", () => {
       error: "dataset_id must be a UUID v4 public_id",
     });
   });
+
+  it("returns 404 for removed /rules and /graph endpoints", async () => {
+    const bindings = { QUEST_INDEX_DB: createDatabaseMock() } as unknown as Bindings;
+
+    const rulesRes = await questTreeApp.request(
+      "http://localhost/rules?target=101",
+      { method: "GET" },
+      bindings,
+    );
+    expect(rulesRes.status).toBe(404);
+
+    const graphRes = await questTreeApp.request(
+      "http://localhost/graph",
+      { method: "GET" },
+      bindings,
+    );
+    expect(graphRes.status).toBe(404);
+  });
 });

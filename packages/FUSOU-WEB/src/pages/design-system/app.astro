@@ -858,6 +858,26 @@ const materialList = [
               >Force Local Sign Out</button
             >
             <button type="button" class="btn btn-ghost btn-sm">Clear</button>
+            <button
+              type="button"
+              aria-label="In-frame Ghost Search"
+              title="Ghost Icon Action (btn-xs btn-square)"
+              class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                class="h-3.5 w-3.5"
+                aria-hidden="true"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                  clip-rule="evenodd"
+                ></path>
+              </svg>
+            </button>
             <button type="button" class="btn btn-xs btn-square rounded-none"
               >A</button
             >
@@ -979,6 +999,57 @@ const materialList = [
                 >
                 <option>ブルネイ泊地 (w13b.kancolle-server.com)</option>
               </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1 text-base-content/80"
+                >Specification Name Search (<code>input input-sm</code> + In-Frame Actions)</label
+              >
+              <div class="input input-sm input-bordered w-full flex items-center gap-1 pr-1">
+                <input
+                  id="spec-search-specimen"
+                  type="text"
+                  class="grow min-w-0"
+                  value="赤城"
+                  placeholder="Search Name"
+                  oninput="document.getElementById('spec-clear-specimen').classList.toggle('hidden', this.value.length === 0);"
+                />
+                <button
+                  id="spec-clear-specimen"
+                  type="button"
+                  aria-label="Clear search"
+                  class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0 shrink-0 text-base-content/60 hover:text-base-content"
+                  onclick="const input = document.getElementById('spec-search-specimen'); input.value = ''; this.classList.add('hidden'); input.focus();"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    class="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  >
+                    <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Search"
+                  class="btn btn-ghost btn-xs btn-square h-6 w-6 min-h-0 shrink-0 text-base-content/70 hover:text-base-content"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    class="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                      clip-rule="evenodd"
+                    ></path>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div>
               <label class="block text-xs font-medium mb-1 text-base-content/80"
@@ -3600,7 +3671,7 @@ const materialList = [
           10 / Fleet &amp; Deck Layout (&lt;DeckComponent /&gt;)
         </h2>
         <p class="text-sm text-base-content/60 mt-1">
-          FUSOU-APP 母港画面における11カラム構成の艦隊スロットテーブル生体仕様
+          FUSOU-APP 母港画面における11カラム構成の艦隊スロットテーブル実装仕様
           (&lt;ul class="menu menu-xs bg-base-100"&gt;)。
         </p>
       </div>
@@ -3623,17 +3694,9 @@ const materialList = [
               <details open>
                 <summary class="flex">
                   <div class="w-20 flex-none">First Fleet</div>
-                  <div class="w-4 flex-none -mx-4">
-                    <svg
-                      class="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 21 21"
-                      stroke="currentColor"
-                      ><path d="m 10 16 l 5 -5 l -5 -5" stroke-width="1.5"
-                      ></path></svg
-                    >
+                  <div class="divider divider-horizontal mr-0 ml-0 flex-none">
                   </div>
-                  <div class="pl-4">第一艦隊</div>
+                  <div>第一艦隊</div>
                   <span class="flex-auto"></span>
                 </summary>
 
@@ -5114,8 +5177,8 @@ const materialList = [
           /&gt;)
         </h2>
         <p class="text-sm text-base-content/60 mt-1">
-          索敵・交戦陣形・交戦形態・特殊煙幕・制空権状態・被ダメージ計算および戦闘結果6列対峙サマリー表
-          (&lt;table class="table table-xs"&gt;) の生体仕様。
+          索敵・交戦陣形・交戦形態・制空権状態などの戦闘サマリーおよび戦闘結果6列対峙サマリー表
+          (&lt;table class="table table-xs"&gt;) の実装仕様。
         </p>
       </div>
 
@@ -5129,40 +5192,52 @@ const materialList = [
               <details open>
                 <summary class="flex">
                   Battles
-                  <svg
-                    class="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 21 21"
-                    stroke="currentColor"
-                    ><path d="m 10 16 l 5 -5 l -5 -5" stroke-width="1.5"
-                    ></path></svg
-                  >
+                  <div class="divider divider-horizontal mr-0 ml-0 flex-none">
+                  </div>
                   <div>Map : 7-1</div>
                   <span class="flex-auto"></span>
                 </summary>
 
                 <ul class="pl-0">
                   <!-- Cell Route Buttons -->
-                  <div class="flex flex-row pl-2 items-center">
-                    <div class="h-4 mt-px pt-px text-xs">cells</div>
-                    <svg
-                      class="h-4 w-4 m-1"
-                      fill="none"
-                      viewBox="0 0 21 21"
-                      stroke="currentColor"
-                      ><path d="m 10 16 l 5 -5 l -5 -5" stroke-width="1.5"
-                      ></path></svg
+                  <div class="flex flex-row items-center pl-2">
+                    <div class="text-xs flex-none">cells</div>
+                    <div
+                      class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"
                     >
-                    <button class="btn btn-xs btn-square rounded-none">A</button
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="Cell selection"
+                      class="inline-flex flex-wrap items-center"
                     >
-                    <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    <button class="btn btn-xs btn-square rounded-none">E</button
-                    >
-                    <div class="divider divider-horizontal mr-0 ml-0"></div>
-                    <button
-                      class="btn btn-xs btn-square rounded-none btn-active"
-                      >G</button
-                    >
+                      <button
+                        type="button"
+                        aria-pressed="false"
+                        class="btn btn-ghost btn-xs btn-square rounded-none"
+                        >A</button
+                      >
+                      <div
+                        class="divider divider-horizontal mr-0 ml-0 w-px self-stretch"
+                      >
+                      </div>
+                      <button
+                        type="button"
+                        aria-pressed="false"
+                        class="btn btn-ghost btn-xs btn-square rounded-none"
+                        >E</button
+                      >
+                      <div
+                        class="divider divider-horizontal mr-0 ml-0 w-px self-stretch"
+                      >
+                      </div>
+                      <button
+                        type="button"
+                        aria-pressed="true"
+                        class="btn btn-ghost btn-xs btn-square rounded-none btn-active font-semibold"
+                        >G</button
+                      >
+                    </div>
                   </div>
 
                   <!-- Reconnaissance Search Message -->
@@ -7467,7 +7542,7 @@ const materialList = [
           12 / Base Operations: LBAS, Materials, Items &amp; Quests
         </h2>
         <p class="text-sm text-base-content/60 mt-1">
-          基地航空隊（LBAS）、資源・資材帯（Materials）、アイテム棚（Items）、任務（Quests）の実働コンポーネント生体仕様
+          基地航空隊（LBAS）、資源・資材帯（Materials）、アイテム棚（Items）、任務（Quests）の実働コンポーネント実装仕様
           (&lt;ul class="menu menu-xs bg-base-100"&gt;)。
         </p>
       </div>
@@ -7504,16 +7579,9 @@ const materialList = [
                       <details open>
                         <summary class="flex">
                           1-1
-                          <div class="w-4">
-                            <svg
-                              class="h-4 w-4"
-                              fill="none"
-                              viewBox="0 0 21 21"
-                              stroke="currentColor"
-                              ><path
-                                d="m 10 16 l 5 -5 l -5 -5"
-                                stroke-width="1.5"></path></svg
-                            >
+                          <div
+                            class="divider divider-horizontal mr-0 ml-0 flex-none"
+                          >
                           </div>
                           <div class="truncate w-32">第一基地航空隊</div>
                           <div

@@ -1,16 +1,15 @@
-# equip_synergy_detector
+# kcs-script-tools
 
-KanColle の `main.js` とマスターデータから装備シナジーを抽出し、アップロードするためのツールです。
+KanColle の `main.js` とマスターデータから装備シナジーを抽出・アップロードしたり、マップセル/ラベル情報を抽出・確認するためのスクリプト群です。
 
 ## 前提
 
-- 作業ディレクトリ: `packages/equip_synergy_detector`
+- 作業ディレクトリ: `packages/kcs-script-tools`
 - `pnpm` が使えること
 - アップロード時は以下が存在すること
   - `packages/.env.keys`
   - `packages/FUSOU-WEB/.env`
-- スキャン時は `packages/equip_synergy_detector/master_data/` に
-  `api_start2` レスポンス由来ファイルが最低1つ存在すること
+- 生成スクリプト時は `packages/FUSOU-PROXY-DATA/<period-tag>/` 配下にプロキシデータ（`kcs2/js/main.js` や `*@api_start2@getData*`）が存在すること
 
 ## 必要ツールのインストール
 
@@ -26,9 +25,9 @@ npm install -g pnpm
 ### 2. パッケージ依存のインストール
 
 `webcrack`（難読化解除）と `@dotenvx/dotenvx`（環境変数ロード）は
-`equip_synergy_detector` の `devDependencies` に含まれています。
+`kcs-script-tools` の `devDependencies` に含まれています。
 
-`packages/equip_synergy_detector` で以下を実行してください。
+`packages/kcs-script-tools` で以下を実行してください。
 
 ```bash
 pnpm install
@@ -45,7 +44,7 @@ pnpm exec dotenvx --version
 
 ### 4. `wrangler` の補足（アップロード時）
 
-`scan:upload` / `scan:upload:dry` は最終的に `FUSOU-WEB/scripts/upload-synergy.mjs`
+`upload:local` / `upload:remote`（および `generate:latest` など）は最終的に `FUSOU-WEB/scripts/upload-synergy.mjs`
 を呼び、その中で `npx wrangler` を使って R2 へアップロードします。
 
 - 通常は `npx` 経由で実行されるため、グローバルインストールは不要です。
@@ -63,11 +62,11 @@ npx wrangler --version
 
 - `packages/FUSOU-PROXY-DATA/2026-04-23/kcs2/js/main.js`
 
-`scan:upload` / `scan:upload:dry` は `--period-tag` から
-`FUSOU-PROXY-DATA/<period-tag>/kcs2/js/main.js` を自動探索して
-`packages/equip_synergy_detector/main.js` に同期します。
+`generate:latest` 系スクリプトは `--period-tag`（未指定時は最新ディレクトリ）から
+`FUSOU-PROXY-DATA/<period-tag>/kcs2/js/main.js` を自動検出し、難読化解除 (`core/deobfuscate.js`)・
+AST 抽出 (`core/extract-ast.js`)・シナジースキャン (`core/scan-ast*.js`) を一括実行します。
 
-手動で `scan` / `scan:main` を実行する場合のみ、事前コピーが必要です。
+スクリプトを手動で実行する場合のみ、事前コピーが必要です。
 
 PowerShell 例:
 
@@ -77,16 +76,10 @@ Copy-Item ..\FUSOU-PROXY-DATA\2026-04-23\kcs2\js\main.js .\main.js -Force
 
 ## master_data（api_start2）の配置
 
-`scan` は `master_data/` 配下の `*api_start2*` ファイルを読み込みます。
-`scan:upload` / `scan:upload:dry` は `--period-tag` から
-`FUSOU-PROXY-DATA/<period-tag>/kcsapi/` を探索し、
-`*@api_start2@getData*` の最新1件を `master_data/` へ自動同期します。
+`generate:latest` 等では `FUSOU-PROXY-DATA/<period-tag>/kcsapi/` の `*@api_start2@getData*` が参照され、
+必要に応じて `pnpm run extract:master` で抽出できます。
 
-`No master data found in master_data/` が出た場合は、
-`FUSOU-PROXY-DATA/<period-tag>/kcsapi/` に `*@api_start2@getData*` が
-存在するか確認してください。
-
-手動で `scan` を実行する場合向けに、以下のコピー例も使えます。
+手動で `master_data/` を準備する場合は、以下のコピー例も使えます。
 
 PowerShell 例（`getData` を優先して最新1件をコピー）:
 
@@ -99,7 +92,7 @@ $src = Get-ChildItem ..\FUSOU-PROXY-DATA\2026-04-23\kcsapi -File |
 Copy-Item $src.FullName .\master_data\ -Force
 ```
 
-Bash 例（Linux/macOS）:
+Bash 例（Linux）:
 
 ```bash
 mkdir -p master_data
@@ -110,14 +103,13 @@ cp "$(ls -t ../FUSOU-PROXY-DATA/2026-04-23/kcsapi/*@api_start2@getData* | head -
 
 `<PERIOD_TAG>` は `YYYY-MM-DD` 形式で指定します。
 
-### 1. main.js を難読化解除
+### 1. AST・シナジー生成のみ実行（アップロードなし）
 
 ```bash
-pnpm deobfuscate
+pnpm run generate:latest:noupload -- --period-tag <PERIOD_TAG>
 ```
 
-- 入力: `main.js`
-- 出力: `output/deobfuscated.js`
+（内部で `node scripts/core/deobfuscate.js` / `extract-ast.js` / `scan-ast*.js` が順に実行されます）
 
 ## 🚀 AST生成とR2アップロード (Unified Pipeline)
 
@@ -330,11 +322,11 @@ pnpm run upload:remote
 
 ## よくあるエラー
 
-- `Error: --period-tag YYYY-MM-DD is required.`
-  - `scan:upload` / `scan:upload:dry` 実行時に `-- --period-tag 2026-04-23` のように指定してください。
+- `Error: --period-tag must be YYYY-MM-DD`
+  - `generate:latest` 等へ `-- --period-tag 2026-04-23` の形式で指定してください。
 
-- `Target script not found: .../main.js`
-  - `packages/equip_synergy_detector/main.js` が未配置です。`FUSOU-PROXY-DATA` からコピーしてください。
+- `Target script not found` / `main.js` 不足
+  - `FUSOU-PROXY-DATA/<period-tag>/kcs2/js/main.js` が存在するか確認してください（個別実行時は `packages/kcs-script-tools/main.js` へコピー）。
 
 - `webcrack is not installed`
   - `pnpm install` を実行して依存関係をインストールしてください。

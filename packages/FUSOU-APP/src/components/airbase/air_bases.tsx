@@ -1,9 +1,8 @@
 import { useAirBasesPorts } from "../../utility/provider.tsx";
 
-// import "../css/divider.css";
 import type { JSX } from "solid-js";
 import { createMemo, For } from "solid-js";
-import IconChevronRightS from "../../icons/chevron_right_s.tsx";
+import "../../css/divider.css";
 
 import { ComponentEquipmentModal, IconCautionFill } from "ui";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
@@ -86,9 +85,7 @@ export function AirBasesComponent() {
                         {Number(base_id) >> 16}
                         {"-"}
                         {Number(base_id) & 0xffff}
-                        <div class="w-4">
-                          <IconChevronRightS class="h-4 w-4" />
-                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div class="truncate w-32">{base?.name}</div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div class="flex-none">R : {base?.distance}</div>

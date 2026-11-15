@@ -88,38 +88,57 @@ def _resolve_cached_file(
     Resolve cached parquet file path handling split partitioning, table_version nesting, and legacy structures.
     """
     candidate_splits = [split] if split else ["train", "validation"]
-    
-    # 1. If explicit table_version is provided
-    if table_version:
+
+    def _find_regular_in_period_dir(period_dir: Path) -> Optional[Path]:
         for s in candidate_splits:
-            p = cache_path / table / table_version / period_tag / s / "data.parquet"
+            p = period_dir / s / "data.parquet"
             if p.exists():
                 return p
-        flat = cache_path / table / table_version / period_tag / "data.parquet"
+        flat = period_dir / "data.parquet"
         if flat.exists():
             return flat
+        return None
 
-    # 2. Search in table directory for any version subdirectory (sorted newest/descending)
+    # 1. Exact regular table cache for explicit table_version + period_tag
+    if table_version:
+        exact_regular = _find_regular_in_period_dir(
+            cache_path / table / table_version / period_tag
+        )
+        if exact_regular:
+            return exact_regular
+
+        # 2a. Exact master cache for explicit table_version + period_tag
+        exact_master = (
+            cache_path / "master" / table_version / period_tag / f"{table}.parquet"
+        )
+        if exact_master.exists():
+            return exact_master
+
+    # 2b. Search in table directory for any version subdirectory (exact period_tag, sorted newest/descending)
     table_dir = cache_path / table
     if table_dir.exists():
         version_dirs = [d for d in table_dir.iterdir() if d.is_dir()]
         for v_dir in sorted(version_dirs, key=lambda x: x.name, reverse=True):
-            for s in candidate_splits:
-                p = v_dir / period_tag / s / "data.parquet"
-                if p.exists():
-                    return p
-            p_flat = v_dir / period_tag / "data.parquet"
-            if p_flat.exists():
-                return p_flat
+            found = _find_regular_in_period_dir(v_dir / period_tag)
+            if found:
+                return found
 
-    # 3. Check legacy flat path: cache_path / table / period_tag / [split] / data.parquet
-    for s in candidate_splits:
-        p = cache_path / table / period_tag / s / "data.parquet"
-        if p.exists():
-            return p
-    legacy = cache_path / table / period_tag / "data.parquet"
-    if legacy.exists():
-        return legacy
+    # 3. Check legacy flat path for exact period_tag: cache_path / table / period_tag / [split] / data.parquet
+    legacy_found = _find_regular_in_period_dir(cache_path / table / period_tag)
+    if legacy_found:
+        return legacy_found
+
+    # 4. Master fallback paths: prefer exact period_tag with "latest" version before period="latest" fallbacks
+    master_fallbacks = [("latest", period_tag)]
+    if period_tag != "latest":
+        if table_version:
+            master_fallbacks.append((table_version, "latest"))
+        master_fallbacks.append(("latest", "latest"))
+
+    for version, period in master_fallbacks:
+        master_file = cache_path / "master" / version / period / f"{table}.parquet"
+        if master_file.exists():
+            return master_file
 
     return None
 
@@ -220,7 +239,7 @@ def query(
     cache_path = Path(cache_dir)
     
     for table in sorted(list(all_required_tables)):
-        data_file = _resolve_cached_file(cache_path, table, period_tag, table_version)
+        data_file = _resolve_cached_file(cache_path, table, period_tag, table_version, split=split)
         if data_file is not None and data_file.exists():
             cached_data[table] = pd.read_parquet(data_file)
         else:
@@ -229,9 +248,9 @@ def query(
     if missing_tables:
         missing_list = "\n".join(f"  - fusou_datasets.load('{t}', period_tag='{period_tag}')" for t in sorted(missing_tables))
         raise DatasetNotFoundError(
-            f"? Missing cached data for query\n\n"
+            f"[WARN] Missing cached data for query\n\n"
             f"The following tables need to be loaded first:\n{missing_list}\n\n"
-            "?? After loading, run your query again."
+            "[INFO] After loading, run your query again."
         )
 
     # 4. Execute joins using cached data

@@ -45,12 +45,12 @@ const appVersion = __FUSOU_APP_VERSION__;
             </div>
             <div>
               <h2 class="card-title text-lg font-bold">編成シミュレータ</h2>
-              <p class="text-xs text-base-content/60">艦隊編成・制空計算</p>
+              <p class="text-xs text-base-content/60">艦隊・装備・基地航空隊編集</p>
             </div>
           </div>
 
           <p class="text-sm text-base-content/75 leading-relaxed">
-            艦隊・装備・基地航空隊を自由に編集。制空値・触接率計算や共有URL発行に対応。
+            艦隊・装備・基地航空隊を自由に編集。装備シナジーや連合艦隊条件、基地航空隊の行動半径の確認、共有URL発行・画像保存に対応。
           </p>
 
           <div class="flex flex-col gap-2 mt-auto">
@@ -123,7 +123,7 @@ const appVersion = __FUSOU_APP_VERSION__;
           </div>
 
           <p class="text-sm text-base-content/75 leading-relaxed">
-            戦闘記録・パラメータ推移・クエストツリーなど、収集したデータを可視化・分析。
+            戦闘記録やパラメータ推移など、収集したデータを可視化・分析。
           </p>
 
           <div class="flex flex-col gap-2 mt-auto">
@@ -157,28 +157,6 @@ const appVersion = __FUSOU_APP_VERSION__;
                 <span class="font-medium text-sm">パラメータ推移</span>
                 <span class="text-xs text-base-content/60"
                   >艦レベル・パラメータ成長</span
-                >
-              </div>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4 opacity-50"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                  clip-rule="evenodd"></path>
-              </svg>
-            </a>
-            <a
-              href="/quests"
-              class="fusou-btn-ghost justify-between border-transparent hover:border-base-300 py-2"
-            >
-              <div class="flex items-center gap-2">
-                <span class="font-medium text-sm">クエストツリー</span>
-                <span class="text-xs text-base-content/60"
-                  >推定クエストツリー閲覧</span
                 >
               </div>
               <svg
@@ -268,8 +246,8 @@ const appVersion = __FUSOU_APP_VERSION__;
             </li>
             <li>
               <a
-                href="/docs/guide/architecture"
-                class="link link-hover hover:text-primary">アーキテクチャ概要</a
+                href="/docs/start/quick_start"
+                class="link link-hover hover:text-primary">クイックスタート</a
               >
             </li>
             <li>
@@ -308,26 +286,20 @@ const appVersion = __FUSOU_APP_VERSION__;
           <ul class="space-y-2 text-xs text-base-content/80">
             <li>
               <a
-                href="/docs/guide/battles_view"
-                class="link link-hover hover:text-info">戦闘一覧の使い方</a
+                href="/docs/guide/set_https"
+                class="link link-hover hover:text-info">HTTPS プロキシ設定</a
               >
             </li>
             <li>
               <a
-                href="/docs/guide/ship_growth_view"
-                class="link link-hover hover:text-info">パラメータ推移ガイド</a
+                href="/docs/guide/manual_sync"
+                class="link link-hover hover:text-info">データ同期ガイド</a
               >
             </li>
             <li>
               <a
-                href="/docs/guide/quest_tree_view"
-                class="link link-hover hover:text-info">クエストツリーの見方</a
-              >
-            </li>
-            <li>
-              <a
-                href="/docs/guide/simulator"
-                class="link link-hover hover:text-info">シミュレータ操作方法</a
+                href="/docs/guide/asset_sync"
+                class="link link-hover hover:text-info">アセット同期ガイド</a
               >
             </li>
           </ul>

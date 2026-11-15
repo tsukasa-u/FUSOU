@@ -1,4 +1,4 @@
-﻿/** @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
 import { FusouModal } from "@/components/common/solid/FusouModal";
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
@@ -22,9 +22,7 @@ import { captureAndSaveImage, type CaptureImageOptions } from "@/features/simula
 
 import { ShipSelectionModal } from "./ShipSelectionModal";
 import { EquipSelectionModal } from "./EquipSelectionModal";
-import { ApiPasteModal } from "./ApiPasteModal";
 import { ShareSettingsModal } from "./ShareSettingsModal";
-import { LoadFleetModal } from "./LoadFleetModal";
 import { WorkspaceAddModal } from "./WorkspaceAddModal";
 import { DataImportModal, dataImportModalRef } from "./DataImportModal";
 export { dataImportModalRef };
@@ -36,9 +34,7 @@ export function SimulatorModals() {
       <EquipSelectionModal />
       <DisplaySettingsModal />
       <SaveImageModal />
-      <ApiPasteModal />
       <ShareSettingsModal />
-      <LoadFleetModal />
       <WorkspaceAddModal />
       <DataImportModal />
     </>

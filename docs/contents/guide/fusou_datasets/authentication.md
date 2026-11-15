@@ -3,7 +3,7 @@ title: fusou-datasets Authentication
 contributors: ["antigravity-ai", "tsukasa-u"]
 description: >-
   fusou-datasetsのAPI キー設定とDevice Trust認証の仕組みを解説。環境変数、プログラムからの設定、Google Colab での自動認証について。
-date: 2026-01-01
+date: 2026-11-15
 slug: guide/fusou_datasets/authentication
 tags: [guide, fusou_datasets, python, authentication]
 ---
@@ -101,7 +101,7 @@ sequenceDiagram
     participant API as FUSOU API
     participant Email
 
-    User->>Library: data = load("ship_type")
+    User->>Library: data = load("mst_stypes")
     Library->>API: GET /tables (with API key)
     API-->>Library: 403 DEVICE_UNVERIFIED
     Library->>API: Request verification code
@@ -139,15 +139,13 @@ Google Colab では、Google アカウントを使用した自動認証がサポ
 
 ```python
 import fusou_datasets
-
-import fusou_datasets
 from google.colab import userdata
 
 # 推奨: Secrets (鍵アイコン) に "FUSOU_API_KEY" を登録して読み込む
 fusou_datasets.configure(api_key=userdata.get('FUSOU_API_KEY'))
 
 # データを取得 - Google認証が自動で行われる
-df = fusou_datasets.load("ship_type")
+df = fusou_datasets.load("mst_stypes")
 ```
 
 ### 自動認証の条件

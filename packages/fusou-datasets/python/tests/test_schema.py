@@ -2,8 +2,10 @@
 
 import pytest
 import pandas as pd
+from typing import get_args
 import fusou_datasets as fd
-from fusou_datasets import Tables, resolve_table_name, validate_schema, TableMeta, Column
+from fusou_datasets import Tables, resolve_table_name, validate_schema, TableMeta, TableLiteral, Column
+from fusou_datasets.schema import ALL_TABLES
 
 
 def test_table_resolution():
@@ -11,6 +13,18 @@ def test_table_resolution():
     assert resolve_table_name(Tables.Cells) == "cells"
     assert resolve_table_name("cells") == "cells"
     assert resolve_table_name("CELLS") == "cells"
+    assert resolve_table_name("mst_ship") == "mst_ships"
+    assert resolve_table_name("mst_slotitem") == "mst_slot_items"
+    assert resolve_table_name("mst_stype") == "mst_stypes"
+
+
+def test_unknown_table_resolution_raises():
+    with pytest.raises(ValueError, match="Unknown table 'unknown_xyz'"):
+        resolve_table_name("unknown_xyz")
+
+
+def test_table_literal_matches_registered_tables():
+    assert set(get_args(TableLiteral)) == set(ALL_TABLES)
 
 
 def test_table_typo_suggestion():

@@ -87,7 +87,7 @@ function Start() {
         setProxyServerHealth(0);
       });
 
-    invoke<string>("check_proxy_server_health")
+    invoke<string>("check_pac_server_health")
       .then(() => {
         setPacServerHealth(1);
       })
@@ -149,12 +149,16 @@ function Start() {
 
     setIsLaunching(true);
 
+    let launchSucceeded = false;
     try {
       await invoke("launch_with_options", { options: launch_options });
+      launchSucceeded = true;
     } catch (err) {
       console.error("Failed to launch with options:", err);
     } finally {
       setIsLaunching(false);
+    }
+    if (launchSucceeded && launch_options["open_app"] !== 0) {
       window.location.href = "/app";
     }
   };

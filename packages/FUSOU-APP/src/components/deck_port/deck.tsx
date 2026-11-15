@@ -1,5 +1,3 @@
-import { IconChevronRightS } from "../../icons/chevron_right_s.tsx";
-
 import {
   useDeckPorts,
   useMstShips,
@@ -283,10 +281,8 @@ export function DeckComponent(props: DeckPortProps) {
         >
           <summary class="flex">
             <div class="w-20 flex-none">{props.fleet_name ?? "Unknown"}</div>
-            <div class="w-4 flex-none -mx-4">
-              <IconChevronRightS class="h-4 w-4" />
-            </div>
-            <div class="pl-4">{get_deck_name()}</div>
+            <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+            <div>{get_deck_name()}</div>
             <span class="flex-auto" />
           </summary>
           <ul class="pl-0">

@@ -9,6 +9,7 @@ vi.mock("../../utils", () => ({
       headerToken || (typeof bodyToken === "string" ? bodyToken : ""),
   ),
   resolveDatasetTokenRevocationConfig: vi.fn(() => ({})),
+  validateDatasetTokenSecret: vi.fn(() => ({ ok: true })),
   validateDatasetTokenWithConstraints: vi.fn(async () => ({
     ok: true,
     token: {
@@ -98,6 +99,52 @@ describe("handleTwoStageUpload dataset-token authentication", () => {
 
     expect(response.status).toBe(200);
     expect(preparationValidator).toHaveBeenCalledOnce();
+  });
+
+  it("uses a separate preparation body limit", async () => {
+    const request = new Request("https://example.test/upload", {
+      method: "POST",
+      headers: { "X-Dataset-Token": "dataset-token" },
+      body: JSON.stringify({ value: "x".repeat(32) }),
+    });
+
+    const response = await handleTwoStageUpload(createContext(request), {
+      signingSecret: "upload-secret",
+      requireDatasetToken: true,
+      maxBodySize: 128,
+      maxPreparationBodySize: 16,
+      preparationValidator: async () => ({ tokenPayload: {} }),
+      executionProcessor: async () => ({ response: { ok: true } }),
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: "request_too_large" });
+  });
+
+  it("supports a fixed token TTL when the payload declares a file size", async () => {
+    const request = new Request("https://example.test/upload", {
+      method: "POST",
+      headers: { "X-Dataset-Token": "dataset-token" },
+      body: JSON.stringify({ file_size: 1024 }),
+    });
+
+    const response = await handleTwoStageUpload(createContext(request), {
+      signingSecret: "upload-secret",
+      requireDatasetToken: true,
+      tokenTTL: () => 300,
+      preparationValidator: async () => ({
+        tokenPayload: { declared_size: 1024 },
+      }),
+      executionProcessor: async () => ({ response: { ok: true } }),
+    });
+
+    expect(response.status).toBe(200);
+    const { generateSignedToken } = await import("../../utils");
+    expect(generateSignedToken).toHaveBeenLastCalledWith(
+      { declared_size: 1024, user_id: "canonical-user" },
+      "upload-secret",
+      300,
+    );
   });
 
   it("accepts execution without a Supabase JWT for a dataset-token upload", async () => {

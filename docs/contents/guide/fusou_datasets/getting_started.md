@@ -3,7 +3,7 @@ title: fusou-datasets Getting Started
 contributors: ["antigravity-ai"]
 description: >-
   fusou-datasets ライブラリを使って艦これ研究データを取得するための初心者向けクイックスタートガイド。3ステップで始める手順、データ分割、シナジーデータの活用法を紹介。
-date: 2026-09-20
+date: 2026-11-15
 slug: guide/fusou_datasets/getting_started
 tags: [guide, fusou_datasets, python, data_analysis]
 ---
@@ -41,7 +41,8 @@ fd.configure(
 )
 ```
 
-> [!TIP]> API キーは [FUSOU Web サイト](https://fusou.dev) のダッシュボードから取得できます。
+> [!TIP]\
+> API キーは [FUSOU Web サイト](https://fusou.dev) のダッシュボードから取得できます。
 
 ### 3. データの取得と検証
 
@@ -82,4 +83,4 @@ df.head()
 
 - [API リファレンス](./api_reference) - 全関数の仕様・引数・戻り値
 - [認証とDevice Trust](./authentication) - APIキーおよび端末認証の詳細
-- [検証サンプルコード](./examples) - 砲撃戦ダメージ、夜戦キャップ、命中回避の検証ノートブック
+- [サンプルコード集](./examples) - マスタデータ取得、期間比較、pandas・matplotlib による可視化例

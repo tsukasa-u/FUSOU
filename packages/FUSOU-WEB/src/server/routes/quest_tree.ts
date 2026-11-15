@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 import type { Bindings, D1Database, D1Result } from "../types";
 import {
@@ -7,61 +7,35 @@ import {
 } from "../constants";
 import {
   createEnvContext,
-  generateSignedToken,
   getEnv,
   parseStrictBoolean,
-  resolveDatasetToken,
   timingSafeEqual,
-  validateDatasetTokenSecret,
-  validateDatasetTokenWithConstraints,
-  resolveDatasetTokenRevocationConfig,
-  validateTokenPayloadWithSchema,
-  verifySignedToken,
-  safeWaitUntil,
-  safeGetExecutionCtx,
 } from "../utils";
-import {
-  invalidateCanonicalSnapshots,
-  loadOrRefreshCanonicalSnapshot,
-} from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
-import { readBodyWithinLimit } from "../utils/upload";
+import { handleTwoStageUpload } from "../utils/upload";
 import { QuestTreeUploadTokenPayloadSchema } from "../schemas/tokens";
 import { PublicIdSchema } from "../schemas/public-id";
 import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
-  QuestIngestEventIdRowSchema,
   QuestAppearanceEventRowSchema,
-  QuestRuleRowsSchema,
-  QuestRuleUpdatedRowSchema,
   QuestSnapshotPageRowSchema,
   QuestStateEventRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
   type QuestListEntry,
-  type QuestRuleRow,
   type QuestTreeIngestBody,
 } from "../schemas/quest-tree";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 const GAP_THRESHOLD_MS = 30 * 60 * 1000;
-const RECENT_WINDOW_MS = 10 * 60 * 1000;
+const SESSION_TOUCH_INTERVAL_MS = 60 * 1000;
+const INGEST_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const INGEST_CLEANUP_BATCH_LIMIT = 200;
 const QUEST_TREE_HANDSHAKE_MAX_BYTES = MAX_QUEST_TREE_UPLOAD_BYTES + 64 * 1024;
 const QUEST_CHANGES_CACHE_CONTROL =
   "public, max-age=60, stale-while-revalidate=300";
-
-const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
-
-function parseQuestRuleRowsStrict(value: unknown): QuestRuleRow[] {
-  const parsed = QuestRuleRowsSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("Invalid quest rule rows");
-  }
-  return parsed.data;
-}
-const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const QUEST_TREE_COLLECTION_SWITCH_ENV =
   "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED";
@@ -73,84 +47,8 @@ app.options(
 
 type IngestBody = QuestTreeIngestBody;
 
-type RulesSnapshot = {
-  period_tag: string;
-  table_version: string;
-  target_quest_id: number;
-  include_low: boolean;
-  rows: QuestRuleRow[];
-  refreshed_at: number;
-  db_synced_at: number;
-};
-
-type GraphSnapshot = {
-  period_tag: string;
-  table_version: string;
-  rows: QuestRuleRow[];
-  refreshed_at: number;
-  db_synced_at: number;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isRulesSnapshot(v: unknown): v is RulesSnapshot {
-  if (!isRecord(v)) return false;
-  const s = v;
-  return (
-    typeof s["period_tag"] === "string" &&
-    typeof s["table_version"] === "string" &&
-    typeof s["target_quest_id"] === "number" &&
-    typeof s["include_low"] === "boolean" &&
-    Array.isArray(s["rows"]) &&
-    typeof s["refreshed_at"] === "number" &&
-    typeof s["db_synced_at"] === "number"
-  );
-}
-
-function isGraphSnapshot(v: unknown): v is GraphSnapshot {
-  if (!isRecord(v)) return false;
-  const s = v;
-  return (
-    typeof s["period_tag"] === "string" &&
-    typeof s["table_version"] === "string" &&
-    Array.isArray(s["rows"]) &&
-    typeof s["refreshed_at"] === "number" &&
-    typeof s["db_synced_at"] === "number"
-  );
-}
-
 function nowMs(): number {
   return Date.now();
-}
-
-async function invalidateQuestTreeCaches(
-  cache: Cache,
-  requestUrl: string,
-): Promise<void> {
-  const url = new URL(requestUrl);
-  const targets = [
-    new URL("/quest-tree/rules", url.origin).toString(),
-    new URL("/quest-tree/graph", url.origin).toString(),
-    new URL("/api/quest-tree/rules", url.origin).toString(),
-    new URL("/api/quest-tree/graph", url.origin).toString(),
-  ];
-
-  for (const target of targets) {
-    try {
-      await cache.delete(new Request(target, { method: "GET" }));
-    } catch (err) {
-      console.warn("[quest-tree] Failed to invalidate cache:", target, err);
-    }
-  }
-}
-
-function scheduleQuestTreeTask(
-  c: Context<{ Bindings: Bindings }>,
-  task: Promise<unknown>,
-): void {
-  safeWaitUntil(c, task);
 }
 
 function toInt(value: unknown): number | null {
@@ -248,7 +146,7 @@ function validateIngestBody(body: IngestBody | null):
   };
 }
 
-async function ingestQuestBody(db: D1Database, body: IngestBody) {
+export async function ingestQuestBody(db: D1Database, body: IngestBody) {
   const validated = validateIngestBody(body);
   if (!validated.ok) {
     return { status: 400, body: { error: validated.error } };
@@ -264,28 +162,24 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
     atMs,
   } = validated;
 
-  const existingResult = await db
-    .prepare(
-      `SELECT id FROM quest_ingest_events WHERE request_id = ? AND payload_hash = ? LIMIT 1`,
-    )
-    .bind(requestId, payloadHash)
-    .first<D1Result>();
-  const parsedExisting = QuestIngestEventIdRowSchema.safeParse(existingResult);
-  if (!parsedExisting.success) {
-    return {
-      status: 500,
-      body: { error: "Invalid quest ingest lookup response" },
-    };
-  }
+  const questId = toInt(body.quest_id);
+  const pageNo = toInt(body.page_no) ?? 0;
 
-  if (parsedExisting.data?.id) {
+  if (eventType === "snapshot" && pageNo !== 0) {
     return {
       status: 200,
-      body: { ok: true, idempotent: true, message: "already ingested" },
+      body: {
+        ok: true,
+        idempotent: false,
+        skipped: true,
+        collection_session_id: null,
+        task_id: null,
+        task_enqueued: false,
+      },
     };
   }
 
-  const conflictResult = await db
+  const existingResult = await db
     .prepare(
       `SELECT id, payload_hash
        FROM quest_ingest_events
@@ -294,36 +188,52 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
     )
     .bind(requestId)
     .first<D1Result>();
-  const parsedConflict = QuestIngestConflictRowSchema.safeParse(conflictResult);
-  if (!parsedConflict.success) {
+  const parsedExisting = QuestIngestConflictRowSchema.safeParse(existingResult);
+  if (!parsedExisting.success) {
     return {
       status: 500,
-      body: { error: "Invalid quest conflict lookup response" },
+      body: { error: "Invalid quest ingest lookup response" },
     };
   }
 
-  if (
-    parsedConflict.data?.id &&
-    parsedConflict.data.payload_hash !== payloadHash
-  ) {
+  if (parsedExisting.data?.id) {
+    if (parsedExisting.data.payload_hash === payloadHash) {
+      return {
+        status: 200,
+        body: { ok: true, idempotent: true, message: "already ingested" },
+      };
+    }
     return {
       status: 409,
       body: {
         error: "request_id conflict",
         message: "Same request_id already exists with different payload_hash",
         existing_request_id: requestId,
-        existing_payload_hash: parsedConflict.data.payload_hash,
+        existing_payload_hash: parsedExisting.data.payload_hash,
       },
     };
   }
 
   const session = await getOrCreateSession(db, datasetId, atMs);
 
-  const questId = toInt(body.quest_id);
-  const pageNo = toInt(body.page_no) ?? 1;
-
   try {
-    const { bootstrapNowCompleted } = await processIngestEvents(db, {
+    if (session.isNew) {
+      const retentionCutoffMs = nowMs() - INGEST_RETENTION_MS;
+      await db
+        .prepare(
+          `DELETE FROM quest_ingest_events
+           WHERE id IN (
+             SELECT id
+             FROM quest_ingest_events
+             WHERE created_at < ?
+             LIMIT ?
+           )`,
+        )
+        .bind(retentionCutoffMs, INGEST_CLEANUP_BATCH_LIMIT)
+        .run();
+    }
+
+    await processIngestEvents(db, {
       datasetId,
       requestId,
       payloadHash,
@@ -338,20 +248,14 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
       quests: (body.quests as QuestListEntry[] | undefined) ?? [],
     });
 
-    const shouldEnqueueTask =
-      session.bootstrapCompleted || bootstrapNowCompleted;
-    const taskId = shouldEnqueueTask
-      ? await enqueueTask(db, datasetId, session.sessionId, atMs)
-      : null;
-
     return {
       status: 200,
       body: {
         ok: true,
         idempotent: false,
         collection_session_id: session.sessionId,
-        task_id: taskId,
-        task_enqueued: shouldEnqueueTask,
+        task_id: null,
+        task_enqueued: false,
       },
     };
   } catch (err) {
@@ -367,11 +271,11 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
 
 async function upsertQuestMasterEntries(
   db: D1Database,
-  periodTag: string,
-  tableVersion: string,
   quests: QuestListEntry[],
 ) {
-  // Compute SHA-256 hashes in parallel, then batch-insert to avoid N sequential D1 round-trips.
+  if (quests.length === 0) return;
+
+  // Compute SHA-256 hashes in parallel and skip DB writes for unchanged quests.
   type QuestCandidate = {
     questId: number;
     title: string;
@@ -420,48 +324,79 @@ async function upsertQuestMasterEntries(
     }),
   );
 
-  const stmts = candidates
-    .filter((c): c is QuestCandidate => c !== null)
-    .map((c) =>
-      db
-        .prepare(
-          `INSERT INTO quest_master_entries (
-             quest_id,
-             period_tag,
-             table_version,
-             title,
-             detail,
-             quest_type,
-             category,
-             label_type,
-             master_hash,
-             created_at,
-             updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(quest_id, period_tag, table_version) DO UPDATE SET
-             title = excluded.title,
-             detail = excluded.detail,
-             quest_type = excluded.quest_type,
-             category = excluded.category,
-             label_type = excluded.label_type,
-             master_hash = excluded.master_hash,
-             updated_at = excluded.updated_at
-           WHERE quest_master_entries.master_hash <> excluded.master_hash`,
-        )
-        .bind(
-          c.questId,
-          periodTag,
-          tableVersion,
-          c.title,
-          c.detail,
-          c.questType,
-          c.category,
-          c.labelType,
-          c.masterHash,
-          nowMs(),
-          nowMs(),
-        ),
-    );
+  const uniqueByQuestId = new Map<number, QuestCandidate>();
+  for (const c of candidates) {
+    if (c) uniqueByQuestId.set(c.questId, c);
+  }
+  const uniqueCandidates = [...uniqueByQuestId.values()];
+  if (uniqueCandidates.length === 0) return;
+
+  const existingHashByQuestId = new Map<number, string>();
+  const QUERY_CHUNK = 90;
+  for (let i = 0; i < uniqueCandidates.length; i += QUERY_CHUNK) {
+    const chunkIds = uniqueCandidates
+      .slice(i, i + QUERY_CHUNK)
+      .map((c) => c.questId);
+    const placeholders = chunkIds.map(() => "?").join(", ");
+    const existingRows = await db
+      .prepare(
+        `SELECT quest_id, master_hash
+         FROM quest_master_entries
+         WHERE quest_id IN (${placeholders})`,
+      )
+      .bind(...chunkIds)
+      .all<{ quest_id: unknown; master_hash: unknown }>();
+    for (const row of existingRows.results ?? []) {
+      const qid = toInt(row.quest_id);
+      const hash = typeof row.master_hash === "string" ? row.master_hash : "";
+      if (qid != null && hash) {
+        existingHashByQuestId.set(qid, hash);
+      }
+    }
+  }
+
+  const changedCandidates = uniqueCandidates.filter(
+    (c) => existingHashByQuestId.get(c.questId) !== c.masterHash,
+  );
+  if (changedCandidates.length === 0) return;
+
+  const timestamp = nowMs();
+  const stmts = changedCandidates.map((c) =>
+    db
+      .prepare(
+        `INSERT INTO quest_master_entries (
+           quest_id,
+           title,
+           detail,
+           quest_type,
+           category,
+           label_type,
+           master_hash,
+           created_at,
+           updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(quest_id) DO UPDATE SET
+           title = excluded.title,
+           detail = excluded.detail,
+           quest_type = excluded.quest_type,
+           category = excluded.category,
+           label_type = excluded.label_type,
+           master_hash = excluded.master_hash,
+           updated_at = excluded.updated_at
+         WHERE quest_master_entries.master_hash <> excluded.master_hash`,
+      )
+      .bind(
+        c.questId,
+        c.title,
+        c.detail,
+        c.questType,
+        c.category,
+        c.labelType,
+        c.masterHash,
+        timestamp,
+        timestamp,
+      ),
+  );
 
   const BATCH_SIZE = 100;
   for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
@@ -499,14 +434,16 @@ export async function getOrCreateSession(
     latestEndedAt != null &&
     atMs - latestEndedAt <= GAP_THRESHOLD_MS
   ) {
-    await db
-      .prepare(
-        `UPDATE quest_collection_sessions
-         SET ended_at_ms = ?
-         WHERE collection_session_id = ?`,
-      )
-      .bind(atMs, latestSessionId)
-      .run();
+    if (atMs - latestEndedAt >= SESSION_TOUCH_INTERVAL_MS) {
+      await db
+        .prepare(
+          `UPDATE quest_collection_sessions
+           SET ended_at_ms = ?
+           WHERE collection_session_id = ?`,
+        )
+        .bind(atMs, latestSessionId)
+        .run();
+    }
 
     return {
       sessionId: latestSessionId,
@@ -576,20 +513,18 @@ export async function getOrCreateSession(
   };
 }
 
-async function markBootstrapCompleted(
+function prepareMarkBootstrapCompleted(
   db: D1Database,
   sessionId: string,
   atMs: number,
-): Promise<boolean> {
-  const result = await db
+) {
+  return db
     .prepare(
       `UPDATE quest_collection_sessions
        SET bootstrap_completed_at_ms = ?, ended_at_ms = ?
        WHERE collection_session_id = ? AND bootstrap_completed_at_ms IS NULL`,
     )
-    .bind(atMs, atMs, sessionId)
-    .run();
-  return Number(result.meta?.changes ?? 1) > 0;
+    .bind(atMs, atMs, sessionId);
 }
 
 function toVisibleQuestIds(quests: QuestListEntry[]): number[] {
@@ -611,61 +546,23 @@ function setDiff(next: number[], prev: number[]): number[] {
   return diff;
 }
 
-
-async function enqueueTask(
-  db: D1Database,
-  datasetId: string,
-  sessionId: string,
-  atMs: number,
-): Promise<string> {
-  const taskId = makeId("qtask");
-  await db
-    .prepare(
-      `INSERT INTO quest_inference_tasks (
-         task_id,
-         dataset_id,
-         collection_session_id,
-         from_ts,
-         to_ts,
-         status,
-         retry_count,
-         created_at,
-         updated_at
-       ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
-    )
-    .bind(
-      taskId,
-      datasetId,
-      sessionId,
-      Math.max(0, atMs - RECENT_WINDOW_MS),
-      atMs + 1,
-      atMs,
-      atMs,
-    )
-    .run();
-  return taskId;
-}
-
-async function processIngestEvents(
+function buildQuestIngestEventStatement(
   db: D1Database,
   params: {
-    datasetId: string;
     requestId: string;
     payloadHash: string;
-    eventType: string;
-    periodTag: string;
-    tableVersion: string;
-    atMs: number;
+    datasetId: string;
     sessionId: string;
-    isBootstrapCompleted: boolean;
+    eventType: string;
     questId?: number | null;
     pageNo?: number;
-    quests?: QuestListEntry[];
+    atMs: number;
+    periodTag: string;
+    tableVersion: string;
   },
-): Promise<{ bootstrapNowCompleted: boolean }> {
-  let bootstrapNowCompleted = false;
-
-  await db
+  createdAtMs: number,
+) {
+  return db
     .prepare(
       `INSERT INTO quest_ingest_events (
          request_id,
@@ -689,31 +586,56 @@ async function processIngestEvents(
       params.sessionId,
       params.eventType,
       params.questId ?? null,
-      params.pageNo ?? 1,
+      params.pageNo ?? 0,
       params.atMs,
       params.periodTag,
       params.tableVersion,
-      nowMs(),
-    )
-    .run();
+      createdAtMs,
+    );
+}
+
+async function processIngestEvents(
+  db: D1Database,
+  params: {
+    datasetId: string;
+    requestId: string;
+    payloadHash: string;
+    eventType: string;
+    periodTag: string;
+    tableVersion: string;
+    atMs: number;
+    sessionId: string;
+    isBootstrapCompleted: boolean;
+    questId?: number | null;
+    pageNo?: number;
+    quests?: QuestListEntry[];
+  },
+): Promise<{ bootstrapNowCompleted: boolean; appearedCount: number }> {
+  let bootstrapNowCompleted = false;
+  let appearedCount = 0;
 
   if (params.eventType === "snapshot") {
+    const pageNo = params.pageNo ?? 0;
+    const eventNow = nowMs();
+
+    if (pageNo !== 0) {
+      await buildQuestIngestEventStatement(db, params, eventNow).run();
+      return { bootstrapNowCompleted: false, appearedCount: 0 };
+    }
+
     const quests = Array.isArray(params.quests) ? params.quests : [];
-    await upsertQuestMasterEntries(
-      db,
-      params.periodTag,
-      params.tableVersion,
-      quests,
-    );
+    await upsertQuestMasterEntries(db, quests);
     const visibleQuestIds = toVisibleQuestIds(quests);
+    const visibleQuestIdsJson = JSON.stringify(visibleQuestIds);
 
     const previousSnapshotsResult = await db
       .prepare(
         `SELECT page_no, visible_quest_ids_json
-       FROM questlist_snapshots
-       WHERE dataset_id = ?
-         AND collection_session_id = ?
-       ORDER BY captured_at_ms DESC`,
+         FROM questlist_snapshots
+         WHERE dataset_id = ?
+           AND collection_session_id = ?
+           AND page_no = 0
+         LIMIT 1`,
       )
       .bind(params.datasetId, params.sessionId)
       .all();
@@ -723,173 +645,160 @@ async function processIngestEvents(
     if (!parsedPreviousSnapshots.success) {
       throw new Error("Invalid quest snapshot page rows");
     }
-    const previousSnapshots = parsedPreviousSnapshots.data;
+    const previousGlobal = parsedPreviousSnapshots.data.find(
+      (snap) => toInt(snap.page_no) === 0,
+    );
+    const shouldUpsertSnapshot =
+      !previousGlobal ||
+      previousGlobal.visible_quest_ids_json !== visibleQuestIdsJson;
 
-    const latestByPage = new Map<number, number[]>();
-    for (const snap of previousSnapshots) {
-      const page = toInt(snap.page_no);
-      if (page == null || latestByPage.has(page)) continue;
-      latestByPage.set(
-        page,
-        parseJsonArray(snap.visible_quest_ids_json, toInt),
+    const batchStatements = [
+      buildQuestIngestEventStatement(db, params, eventNow),
+    ];
+
+    if (shouldUpsertSnapshot) {
+      batchStatements.push(
+        db
+          .prepare(
+            `INSERT INTO questlist_snapshots (
+               dataset_id,
+               collection_session_id,
+               page_no,
+               visible_quest_ids_json,
+               captured_at_ms,
+               created_at
+             ) VALUES (?, ?, 0, ?, ?, ?)
+             ON CONFLICT(dataset_id, page_no) DO UPDATE SET
+               collection_session_id = excluded.collection_session_id,
+               visible_quest_ids_json = excluded.visible_quest_ids_json,
+               captured_at_ms = excluded.captured_at_ms,
+               created_at = excluded.created_at
+             WHERE questlist_snapshots.collection_session_id <> excluded.collection_session_id
+                OR questlist_snapshots.visible_quest_ids_json <> excluded.visible_quest_ids_json`,
+          )
+          .bind(
+            params.datasetId,
+            params.sessionId,
+            visibleQuestIdsJson,
+            params.atMs,
+            eventNow,
+          ),
       );
     }
 
-    const previousGlobalVisible = new Set<number>();
-    for (const ids of latestByPage.values()) {
-      for (const id of ids) {
-        previousGlobalVisible.add(id);
-      }
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO questlist_snapshots (
-           dataset_id,
-           collection_session_id,
-           page_no,
-           snapshot_hash,
-           snapshot_json,
-           visible_quest_ids_json,
-           captured_at_ms,
-           period_tag,
-           table_version,
-           created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        params.datasetId,
-        params.sessionId,
-        params.pageNo ?? 1,
-        params.payloadHash,
-        JSON.stringify(quests),
-        JSON.stringify(visibleQuestIds),
-        params.atMs,
-        params.periodTag,
-        params.tableVersion,
-        nowMs(),
-      )
-      .run();
-
+    let bootstrapStmtIndex = -1;
+    let appearanceStartIndex = -1;
     if (!params.isBootstrapCompleted) {
-      bootstrapNowCompleted = await markBootstrapCompleted(
-        db,
-        params.sessionId,
-        params.atMs,
+      bootstrapStmtIndex = batchStatements.length;
+      batchStatements.push(
+        prepareMarkBootstrapCompleted(db, params.sessionId, params.atMs),
       );
-    } else {
-      const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
+    } else if (previousGlobal) {
+      const appeared = setDiff(
+        visibleQuestIds,
+        parseJsonArray(previousGlobal.visible_quest_ids_json, toInt),
+      );
       if (appeared.length > 0) {
-        const appearanceMs = nowMs();
-        const appearStmts = appeared.map((targetQuestId) =>
-          db
-            .prepare(
-              `INSERT OR IGNORE INTO quest_appearance_events (
-                 dataset_id,
-                 collection_session_id,
-                 target_quest_id,
-                 appeared_at_ms,
-                 source_event_type,
-                 source_event_id,
-                 period_tag,
-                 table_version,
-                 is_bootstrap_unknown,
-                 created_at
-               ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`,
-            )
-            .bind(
-              params.datasetId,
-              params.sessionId,
-              targetQuestId,
-              params.atMs,
-              params.eventType,
-              params.periodTag,
-              params.tableVersion,
-              appearanceMs,
-            ),
-        );
-        // D1 batch limit: 100 statements per call
-        for (let i = 0; i < appearStmts.length; i += 100) {
-          await db.batch(appearStmts.slice(i, i + 100));
+        appearanceStartIndex = batchStatements.length;
+        for (const targetQuestId of appeared) {
+          batchStatements.push(
+            db
+              .prepare(
+                `INSERT OR IGNORE INTO quest_appearance_events (
+                   dataset_id,
+                   collection_session_id,
+                   target_quest_id,
+                   appeared_at_ms,
+                   source_event_type,
+                   source_event_id,
+                   period_tag,
+                   table_version,
+                   is_bootstrap_unknown,
+                   created_at
+                 ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`,
+              )
+              .bind(
+                params.datasetId,
+                params.sessionId,
+                targetQuestId,
+                params.atMs,
+                params.eventType,
+                params.periodTag,
+                params.tableVersion,
+                eventNow,
+              ),
+          );
         }
       }
     }
-  } else if (params.questId != null && params.questId > 0) {
-    const stateAfter =
-      params.eventType === "start"
-        ? "active"
-        : params.eventType === "stop"
-          ? "visible_inactive"
-          : "claimed";
 
+    // D1 batch limit: 100 statements per call.
+    const batchResults: Array<{ meta?: { changes?: unknown } }> = [];
+    for (let i = 0; i < batchStatements.length; i += 100) {
+      const chunkResults = await db.batch(batchStatements.slice(i, i + 100));
+      batchResults.push(
+        ...(chunkResults as Array<{ meta?: { changes?: unknown } }>),
+      );
+    }
+
+    if (bootstrapStmtIndex >= 0) {
+      bootstrapNowCompleted =
+        Number(batchResults[bootstrapStmtIndex]?.meta?.changes ?? 1) > 0;
+    }
+    if (appearanceStartIndex >= 0) {
+      for (let i = appearanceStartIndex; i < batchResults.length; i += 1) {
+        appearedCount += Number(batchResults[i]?.meta?.changes ?? 0);
+      }
+    }
+  } else {
     const stateEventMs = nowMs();
-    // Batch both writes atomically: if the Worker is killed between them the
-    // quest_state_events row and quest_state_latest row would diverge.
-    await db.batch([
-      db
-        .prepare(
-          `INSERT INTO quest_state_events (
-             dataset_id,
-             collection_session_id,
-             quest_id,
-             event_type,
-             state_after,
-             timestamp_ms,
-             period_tag,
-             table_version,
-             payload_hash,
-             created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          params.datasetId,
-          params.sessionId,
-          params.questId,
-          params.eventType,
-          stateAfter,
-          params.atMs,
-          params.periodTag,
-          params.tableVersion,
-          params.payloadHash,
-          stateEventMs,
-        ),
-      db
-        .prepare(
-          `INSERT INTO quest_state_latest (
-             dataset_id,
-             quest_id,
-             collection_session_id,
-             state,
-             updated_at_ms,
-             last_event_type,
-             period_tag,
-             table_version,
-             is_claimed
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(dataset_id, quest_id) DO UPDATE SET
-             collection_session_id = excluded.collection_session_id,
-             state = excluded.state,
-             updated_at_ms = excluded.updated_at_ms,
-             last_event_type = excluded.last_event_type,
-             period_tag = excluded.period_tag,
-             table_version = excluded.table_version,
-             is_claimed = excluded.is_claimed`,
-        )
-        .bind(
-          params.datasetId,
-          params.questId,
-          params.sessionId,
-          stateAfter,
-          params.atMs,
-          params.eventType,
-          params.periodTag,
-          params.tableVersion,
-          params.eventType === "complete" ? 1 : 0,
-        ),
-    ]);
+    const batchStatements = [
+      buildQuestIngestEventStatement(db, params, stateEventMs),
+    ];
+
+    if (params.questId != null && params.questId > 0) {
+      const stateAfter =
+        params.eventType === "start"
+          ? "active"
+          : params.eventType === "stop"
+            ? "visible_inactive"
+            : "claimed";
+
+      batchStatements.push(
+        db
+          .prepare(
+            `INSERT INTO quest_state_events (
+               dataset_id,
+               collection_session_id,
+               quest_id,
+               event_type,
+               state_after,
+               timestamp_ms,
+               period_tag,
+               table_version,
+               payload_hash,
+               created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            params.datasetId,
+            params.sessionId,
+            params.questId,
+            params.eventType,
+            stateAfter,
+            params.atMs,
+            params.periodTag,
+            params.tableVersion,
+            params.payloadHash,
+            stateEventMs,
+          ),
+      );
+    }
+
+    await db.batch(batchStatements);
   }
 
-  return { bootstrapNowCompleted };
+  return { bootstrapNowCompleted, appearedCount };
 }
 
 app.post("/ingest", async (c) => {
@@ -920,569 +829,147 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "QUEST_TREE_SIGNING_SECRET is required" }, 500);
   }
 
-  const uploadToken = c.req.header("X-Upload-Token");
-
-  if (!uploadToken) {
-    const handshakeRead = await readBodyWithinLimit(
-      c.req.raw,
-      QUEST_TREE_HANDSHAKE_MAX_BYTES,
-    );
-    if (handshakeRead.kind === "too_large") {
-      return c.json({ error: "Request body exceeds maximum size" }, 413);
-    }
-    let rawHandshakeBody: unknown = null;
-    if (handshakeRead.kind === "ok") {
-      try {
-        rawHandshakeBody = JSON.parse(
-          new TextDecoder().decode(handshakeRead.data),
-        );
-      } catch {
-        rawHandshakeBody = null;
+  return handleTwoStageUpload(c, {
+    signingSecret,
+    requireDatasetToken: true,
+    tokenTTL: () => 300,
+    maxBodySize: MAX_QUEST_TREE_UPLOAD_BYTES,
+    maxPreparationBodySize: QUEST_TREE_HANDSHAKE_MAX_BYTES,
+    errorMessages: {
+      preparationBodyTooLarge: "Request body exceeds maximum size",
+      bodyTooLarge: "request_too_large",
+    },
+    preparationValidator: async (rawBody, _user, authContext) => {
+      const handshakeParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
+      if (!handshakeParsed.success) {
+        return c.json({ error: "Invalid JSON body" }, 400);
       }
-    }
-    const handshakeParsed = QuestTreeIngestBodySchema.safeParse(
-      rawHandshakeBody,
-    );
-    if (!handshakeParsed.success) {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-    const handshakeBody = {
-      ...handshakeParsed.data,
-      quests: handshakeParsed.data.quests ?? [],
-    };
+      const handshakeBody = {
+        ...handshakeParsed.data,
+        quests: handshakeParsed.data.quests ?? [],
+      };
 
-    const validated = validateIngestBody(handshakeBody);
-    if (!validated.ok) return c.json({ error: validated.error }, 400);
-    const periodTagValidation = await validateCachedPeriodTag(
-      c,
-      validated.periodTag,
-      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
-    );
-    if (!periodTagValidation.ok) {
-      return c.json(
-        { error: periodTagValidation.error },
-        periodTagValidation.status,
-      );
-    }
-
-    // Require dataset_token possession and bind the request to its dataset_id.
-    const datasetToken = resolveDatasetToken(
-      c.req.header("X-Dataset-Token"),
-      handshakeBody.dataset_token,
-    );
-    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-    // Validate secret length upfront
-    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
-    if (!secretValidation.ok) {
-      return c.json({ error: secretValidation.error }, 500);
-    }
-    const tokenValidation = await validateDatasetTokenWithConstraints({
-      token: datasetToken,
-      secret: datasetTokenSecret,
-      expectedDatasetId: validated.datasetId,
-      revocation: resolveDatasetTokenRevocationConfig(env),
-      // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (public_id) の照合で担保する。
-    });
-    if (!tokenValidation.ok) {
-      return c.json(
-        { error: tokenValidation.error },
-        tokenValidation.status ?? 401,
-      );
-    }
-    // dataset_token.sub を actingUserId として使う（全端末で一貫した帰属者）
-    const actingUserId = tokenValidation.token!.user_id;
-
-    const contentHash = handshakeBody.content_hash ?? "";
-    if (!contentHash) {
-      return c.json({ error: "content_hash is required" }, 400);
-    }
-
-    const declaredSize = handshakeBody.file_size ?? 0;
-    if (declaredSize <= 0) {
-      return c.json({ error: "file_size must be > 0" }, 400);
-    }
-    if (declaredSize > MAX_QUEST_TREE_UPLOAD_BYTES) {
-      return c.json(
-        {
-          error: `file_size exceeds maximum of ${MAX_QUEST_TREE_UPLOAD_BYTES} bytes`,
-        },
-        400,
-      );
-    }
-
-    const token = await generateSignedToken(
-      {
-        user_id: actingUserId,
-        content_hash: contentHash,
-        declared_size: declaredSize,
-        dataset_id: validated.datasetId,
-        request_id: validated.requestId,
-        event_type: validated.eventType,
-      },
-      signingSecret,
-      300,
-    );
-
-    const uploadUrl = new URL(c.req.url);
-    // stripApiPrefix() in [...route].ts removes /api/ before Hono sees the URL;
-    // restore it so Stage-2 clients post to the API endpoint.
-    if (!uploadUrl.pathname.startsWith("/api/")) {
-      uploadUrl.pathname =
-        "/api" +
-        (uploadUrl.pathname.startsWith("/")
-          ? uploadUrl.pathname
-          : `/${uploadUrl.pathname}`);
-    }
-    return c.json({
-      uploadUrl: uploadUrl.toString(),
-      token,
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    });
-  }
-
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload)
-    return c.json({ error: "Invalid or expired upload token" }, 401);
-
-  const payloadValidation = validateTokenPayloadWithSchema(
-    tokenPayload,
-    QuestTreeUploadTokenPayloadSchema,
-  );
-  if (!payloadValidation.valid) {
-    return c.json(
-      { error: payloadValidation.error ?? "Invalid upload token payload" },
-      400,
-    );
-  }
-  const validatedPayload = payloadValidation.data;
-  // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
-  // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
-
-  const bodyResult = await readBodyWithinLimit(
-    c.req.raw,
-    MAX_QUEST_TREE_UPLOAD_BYTES,
-  );
-  if (bodyResult.kind === "missing") {
-    return c.json({ error: "Upload payload is missing" }, 400);
-  }
-  if (bodyResult.kind === "too_large") {
-    return c.json({ error: "request_too_large" }, 413);
-  }
-  const uploaded = bodyResult.data;
-
-  const declaredSize = validatedPayload.declared_size;
-  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
-    return c.json(
-      {
-        error: "Data size mismatch",
-        expected: declaredSize,
-        actual: uploaded.byteLength,
-      },
-      400,
-    );
-  }
-
-  const actualHash = await sha256Hex(uploaded);
-  const expectedHash = validatedPayload.content_hash.toLowerCase();
-  if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
-    return c.json(
-      {
-        error: "Content hash mismatch - data may be corrupted",
-      },
-      400,
-    );
-  }
-
-  const rawBody = (() => {
-    try {
-      const parsed: unknown = JSON.parse(new TextDecoder().decode(uploaded));
-      return parsed;
-    } catch {
-      return null;
-    }
-  })();
-  if (rawBody === null) {
-    return c.json({ error: "Invalid JSON upload payload" }, 400);
-  }
-  const bodyParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
-  if (!bodyParsed.success) {
-    return c.json({ error: "Invalid JSON upload payload" }, 400);
-  }
-  const body = {
-    ...bodyParsed.data,
-    quests: bodyParsed.data.quests ?? [],
-  };
-  const verified = validateIngestBody(body);
-  if (!verified.ok) return c.json({ error: verified.error }, 400);
-  const periodTagValidation = await validateCachedPeriodTag(
-    c,
-    verified.periodTag,
-    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
-  );
-  if (!periodTagValidation.ok) {
-    return c.json(
-      { error: periodTagValidation.error },
-      periodTagValidation.status,
-    );
-  }
-
-  if (
-    verified.datasetId !== validatedPayload.dataset_id ||
-    verified.requestId !== validatedPayload.request_id ||
-    verified.eventType !== validatedPayload.event_type
-  ) {
-    return c.json(
-      { error: "Upload payload does not match upload token claims" },
-      400,
-    );
-  }
-
-  const result = await ingestQuestBody(db, body);
-
-  // Best-effort cache invalidation after successful ingest
-  if (result.status === 200) {
-    const periodTag = (body.period_tag ?? "").trim();
-    const tableVersion = (body.table_version ?? "").trim();
-    if (periodTag && tableVersion) {
-      scheduleQuestTreeTask(
+      const validated = validateIngestBody(handshakeBody);
+      if (!validated.ok) return c.json({ error: validated.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
         c,
-        (async () => {
-          await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-            `qtree:graph:${periodTag}:${tableVersion}`,
-          ]);
-          try {
-            await app.request(
-              `/graph?period_tag=${periodTag}&table_version=${tableVersion}`,
-              {},
-              c.env,
-              safeGetExecutionCtx(c),
-            );
-          } catch (err) {
-            console.warn("[quest-tree] Failed to pre-warm caches:", err);
-          }
-        })()
+        validated.periodTag,
+        { cacheKV: c.env.DATA_LOADER_CACHE_KV },
       );
-    }
-
-    const cache = (globalThis as { caches?: { default?: Cache } }).caches
-      ?.default;
-    if (cache) {
-      scheduleQuestTreeTask(c, invalidateQuestTreeCaches(cache, c.req.url));
-    }
-  }
-
-  return c.json(result.body, result.status as 200 | 400 | 409 | 500);
-});
-
-app.get("/rules", async (c) => {
-  const db = c.env.QUEST_INDEX_DB;
-  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
-
-  const targetRaw = c.req.query("target");
-  const target = toInt(targetRaw);
-  const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
-  const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
-  const includeLow = c.req.query("include_low") === "1";
-
-  if (target == null || target <= 0) {
-    return c.json({ error: "target query is required" }, 400);
-  }
-
-  const kv = c.env.DATA_LOADER_CACHE_KV;
-  const cacheKey = `qtree:rules:${periodTag}:${tableVersion}:${target}:${includeLow ? 1 : 0}`;
-
-  const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
-    kv,
-    cacheKey,
-    ttlMs: KV_SNAPSHOT_TTL_MS,
-    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
-    probeWhenFresh: true,
-    isValidSnapshot: isRulesSnapshot,
-    refreshFromDelta: async (cached) => {
-      const changedRowsResult = await db
-        .prepare(
-          `SELECT updated_at_ms
-           FROM quest_rule_edges
-           WHERE target_quest_id = ?
-             AND period_tag = ?
-             AND table_version = ?
-             AND updated_at_ms > ?
-           ORDER BY updated_at_ms DESC`,
-        )
-        .bind(target, periodTag, tableVersion, cached.db_synced_at)
-        .all();
-      const parsedChangedRows = z
-        .array(z.object({ updated_at_ms: z.number().finite() }).passthrough())
-        .safeParse(changedRowsResult.results ?? []);
-      if (!parsedChangedRows.success) {
-        throw new Error("Invalid quest rule change rows");
-      }
-      const changedRows = parsedChangedRows.data;
-
-      if (changedRows.length === 0) {
-        return {
-          changed: false,
-          snapshot: {
-            ...cached,
-            refreshed_at: Date.now(),
-          },
-        };
-      }
-
-      // Re-load the full current view for this target when anything changed.
-      // This avoids stale rows when a rule's quality_tier transitions to/from low.
-      const rows = parseQuestRuleRowsStrict(
-        (
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE target_quest_id = ?
-                 AND period_tag = ?
-                 AND table_version = ?
-                 AND (? = 1 OR quality_tier != 'low')
-               ORDER BY is_primary DESC, score DESC`,
-            )
-            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-            .all()
-        ).results ?? [],
-      );
-
-      const maxUpdatedAt = changedRows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
-
-      return {
-        changed: true,
-        snapshot: {
-          ...cached,
-          rows,
-          refreshed_at: Date.now(),
-          db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
-        },
-      };
-    },
-    loadFull: async () => {
-      const rows = parseQuestRuleRowsStrict(
-        (
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE target_quest_id = ?
-                 AND period_tag = ?
-                 AND table_version = ?
-                 AND (? = 1 OR quality_tier != 'low')
-               ORDER BY is_primary DESC, score DESC`,
-            )
-            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-            .all()
-        ).results ?? [],
-      );
-
-      const maxUpdatedAt = rows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
-
-      return {
-        period_tag: periodTag,
-        table_version: tableVersion,
-        target_quest_id: target,
-        include_low: includeLow,
-        rows,
-        refreshed_at: Date.now(),
-        db_synced_at: maxUpdatedAt,
-      };
-    },
-  });
-
-  const response = c.json({
-    ok: true,
-    target,
-    period_tag: periodTag,
-    table_version: tableVersion,
-    rules: snapshot.rows,
-  });
-  response.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, stale-while-revalidate=86400",
-  );
-  response.headers.set("X-FUSOU-Cache", cacheStatus);
-  return response;
-});
-
-app.get("/graph", async (c) => {
-  const db = c.env.QUEST_INDEX_DB;
-  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
-
-  const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
-  const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
-
-  const kv = c.env.DATA_LOADER_CACHE_KV;
-  const cacheKey = `qtree:graph:${periodTag}:${tableVersion}`;
-
-  const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
-    kv,
-    cacheKey,
-    ttlMs: KV_SNAPSHOT_TTL_MS,
-    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
-    probeWhenFresh: true,
-    isValidSnapshot: isGraphSnapshot,
-    refreshFromDelta: async (cached) => {
-      const changedTargetsResult = await db
-        .prepare(
-          `SELECT DISTINCT target_quest_id, updated_at_ms
-           FROM quest_rule_edges
-           WHERE period_tag = ?
-             AND table_version = ?
-             AND updated_at_ms > ?`,
-        )
-        .bind(periodTag, tableVersion, cached.db_synced_at)
-        .all();
-      const parsedChangedTargets = z
-        .array(QuestRuleUpdatedRowSchema)
-        .safeParse(changedTargetsResult.results ?? []);
-      if (!parsedChangedTargets.success) {
-        throw new Error("Invalid quest rule target change rows");
-      }
-      const changedTargets = parsedChangedTargets.data;
-
-      if (changedTargets.length === 0) {
-        return {
-          changed: false,
-          snapshot: {
-            ...cached,
-            refreshed_at: Date.now(),
-          },
-        };
-      }
-
-      const rowsByRuleId = new Map(
-        cached.rows.map((row) => [row.rule_id, row]),
-      );
-      const targetSet = new Set<number>();
-      for (const row of changedTargets) {
-        const target = toInt(row.target_quest_id);
-        if (target != null) targetSet.add(target);
-      }
-
-      for (const target of targetSet) {
-        for (const [ruleId, row] of rowsByRuleId.entries()) {
-          if (row.target_quest_id === target) rowsByRuleId.delete(ruleId);
-        }
-
-        const currentPrimaryRows = parseQuestRuleRowsStrict(
-          (
-            await db
-              .prepare(
-                `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-                 FROM quest_rule_edges
-                 WHERE period_tag = ?
-                   AND table_version = ?
-                   AND target_quest_id = ?
-                   AND is_primary = 1
-                 ORDER BY score DESC`,
-              )
-              .bind(periodTag, tableVersion, target)
-              .all()
-          ).results ?? [],
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
         );
-
-        for (const row of currentPrimaryRows) {
-          rowsByRuleId.set(row.rule_id, row);
-        }
       }
 
-      const maxUpdatedAt = changedTargets.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
+      if (authContext.datasetToken?.dataset_id !== validated.datasetId) {
+        return c.json({ error: "dataset_id mismatch" }, 403);
+      }
+
+      const contentHash = handshakeBody.content_hash ?? "";
+      if (!contentHash) {
+        return c.json({ error: "content_hash is required" }, 400);
+      }
+
+      const declaredSize = handshakeBody.file_size ?? 0;
+      if (declaredSize <= 0) {
+        return c.json({ error: "file_size must be > 0" }, 400);
+      }
+      if (declaredSize > MAX_QUEST_TREE_UPLOAD_BYTES) {
+        return c.json(
+          {
+            error: `file_size exceeds maximum of ${MAX_QUEST_TREE_UPLOAD_BYTES} bytes`,
+          },
+          400,
+        );
+      }
 
       return {
-        changed: true,
-        snapshot: {
-          ...cached,
-          rows: Array.from(rowsByRuleId.values()).sort(
-            (a, b) => b.score - a.score,
-          ),
-          refreshed_at: Date.now(),
-          db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
+        tokenPayload: {
+          content_hash: contentHash,
+          declared_size: declaredSize,
+          dataset_id: validated.datasetId,
+          request_id: validated.requestId,
+          event_type: validated.eventType,
         },
       };
     },
-    loadFull: async () => {
-      const rows = parseQuestRuleRowsStrict(
-        (
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE period_tag = ?
-                 AND table_version = ?
-                 AND is_primary = 1
-               ORDER BY score DESC`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? [],
-      );
+    executionProcessor: async (tokenPayload, uploaded) => {
+      const payloadValidation =
+        QuestTreeUploadTokenPayloadSchema.safeParse(tokenPayload);
+      if (!payloadValidation.success) {
+        return c.json(
+          { error: payloadValidation.error.message ?? "Invalid upload token payload" },
+          400,
+        );
+      }
+      const validatedPayload = payloadValidation.data;
 
-      const maxUpdatedAt = rows.reduce(
-        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
-        0,
-      );
+      const declaredSize = validatedPayload.declared_size;
+      if (uploaded.byteLength !== declaredSize) {
+        return c.json(
+          {
+            error: "Data size mismatch",
+            expected: declaredSize,
+            actual: uploaded.byteLength,
+          },
+          400,
+        );
+      }
 
-      return {
-        period_tag: periodTag,
-        table_version: tableVersion,
-        rows,
-        refreshed_at: Date.now(),
-        db_synced_at: maxUpdatedAt,
+      const actualHash = await sha256Hex(uploaded);
+      const expectedHash = validatedPayload.content_hash.toLowerCase();
+      if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
+        return c.json(
+          { error: "Content hash mismatch - data may be corrupted" },
+          400,
+        );
+      }
+
+      let rawBody: unknown;
+      try {
+        rawBody = JSON.parse(new TextDecoder().decode(uploaded));
+      } catch {
+        return c.json({ error: "Invalid JSON upload payload" }, 400);
+      }
+      const bodyParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
+      if (!bodyParsed.success) {
+        return c.json({ error: "Invalid JSON upload payload" }, 400);
+      }
+      const body = {
+        ...bodyParsed.data,
+        quests: bodyParsed.data.quests ?? [],
       };
+      const verified = validateIngestBody(body);
+      if (!verified.ok) return c.json({ error: verified.error }, 400);
+      const periodTagValidation = await validateCachedPeriodTag(
+        c,
+        verified.periodTag,
+        { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+      );
+      if (!periodTagValidation.ok) {
+        return c.json(
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
+        );
+      }
+
+      if (
+        verified.datasetId !== validatedPayload.dataset_id ||
+        verified.requestId !== validatedPayload.request_id ||
+        verified.eventType !== validatedPayload.event_type
+      ) {
+        return c.json(
+          { error: "Upload payload does not match upload token claims" },
+          400,
+        );
+      }
+
+      const result = await ingestQuestBody(db, body);
+      return c.json(result.body, result.status as 200 | 400 | 409 | 500);
     },
   });
-
-  const nodes = new Set<number>();
-  const graphEdges: Array<{
-    from: number;
-    to: number;
-    score: number;
-    class: string;
-  }> = [];
-
-  for (const row of snapshot.rows) {
-    const target = toInt(row.target_quest_id);
-    if (target == null) continue;
-    const prereqs = parseJsonArray(row.prereq_set_json, toInt);
-
-    nodes.add(target);
-    for (const from of prereqs) {
-      nodes.add(from);
-      graphEdges.push({
-        from,
-        to: target,
-        score: Number(row.score ?? 0),
-        class: row.class,
-      });
-    }
-  }
-
-  const response = c.json({
-    ok: true,
-    period_tag: periodTag,
-    table_version: tableVersion,
-    nodes: [...nodes].sort((a, b) => a - b),
-    edges: graphEdges,
-  });
-  response.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, stale-while-revalidate=86400",
-  );
-  response.headers.set("X-FUSOU-Cache", cacheStatus);
-  return response;
 });
 
 app.get("/changes", async (c) => {

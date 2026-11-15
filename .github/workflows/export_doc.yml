@@ -38,7 +38,6 @@ jobs:
           sudo apt install -y graphviz
       - name: Setup dotenvx
         run: |
-          sudo apt install -y curl
           curl -sfS https://dotenvx.sh | sh
           DOTENV_PRIVATE_KEY=${{ secrets.DOTENV_PRIVATE_KEY }}
       - name: Run sccache-cache
@@ -51,7 +50,7 @@ jobs:
       - name: export dependencies svg
         run: |
           chmod +x ./tests/export_svg.sh
-          sudo ./tests/export_svg.sh
+          ./tests/export_svg.sh
         working-directory: ./packages/kc_api
       - name: Clean docs folder
         run: cargo clean --doc

@@ -25,6 +25,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
         EmitData::Add(data) => match data {
             Add::Materials(data) => {
+                data.add_or();
                 let _ = handle.emit_to("main", events::ADD_KCS_MATERIALS, data);
             }
             Add::Ships(data) => {
@@ -65,6 +66,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 });
             }
             Set::Materials(data) => {
+                data.restore();
                 let _ = handle.emit_to("main", events::SET_KCS_MATERIALS, data);
             }
             Set::UseItems(data) => {
@@ -295,7 +297,7 @@ pub fn serve_reponse_parser(
     handle: &tauri::AppHandle,
     slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
-) {
+) -> tokio::task::JoinHandle<()> {
     let handle_clone = handle.clone();
-    tokio::task::spawn(async move { parser_server(&handle_clone, slave, proxy_log_slave).await });
+    tokio::task::spawn(async move { parser_server(&handle_clone, slave, proxy_log_slave).await })
 }
