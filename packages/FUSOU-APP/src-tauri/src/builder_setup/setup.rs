@@ -540,21 +540,14 @@ fn setup_tray(
                         );
                     }
                     "external-screenshot" => {
-                        match external::capture_focused_external_window_screenshot(tray.app_handle()) {
-                            Some(path) => {
-                                notify::show(
-                                    tray.app_handle(),
-                                    "External Screenshot",
-                                    &format!("Saving screenshot to:\n{}", path.display()),
-                                );
-                            }
-                            None => {
-                                notify::show(
-                                    tray.app_handle(),
-                                    "External Screenshot",
-                                    "Failed to capture screenshot. Check whether the external WebView is visible and the screenshot directory is writable.",
-                                );
-                            }
+                        if external::capture_focused_external_window_screenshot(tray.app_handle())
+                            .is_none()
+                        {
+                            notify::show(
+                                tray.app_handle(),
+                                "External Screenshot",
+                                "Failed to capture screenshot. Check whether the external WebView is visible and the screenshot directory is writable.",
+                            );
                         }
                     }
                     "sync-snapshot" => {

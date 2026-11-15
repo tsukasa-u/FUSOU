@@ -99,7 +99,7 @@ Rules:
 - Hover state: `background: rgba(255, 255, 255, 0.1)`, text `#ffffff`.
 - Active state (`.fusou-active`): `background: rgba(255, 255, 255, 0.15)`.
 - Tools included:
-  - **Screenshot**: `invoke("trigger_external_screenshot")`
+  - **Screenshot**: `invoke("trigger_external_screenshot")`; the titlebar shows a spinner while capturing, then saves the PNG and copies the image to the system clipboard.
   - **Reload**: Click: reload external game webview / Shift+Click: reload app UI.
   - **Volume Popover**: Displays live volume % (`0%` - `100%`) with mute icon.
   - **Theme Toggle**: Single-click `.fusou-tool-btn` (`ThemeControllerComponent`) in the titlebar toggling Light (`light`) and Dark (`dark`) themes across all windows/tabs (replacing the former `Settings` and `Start` dropdown selectors).
