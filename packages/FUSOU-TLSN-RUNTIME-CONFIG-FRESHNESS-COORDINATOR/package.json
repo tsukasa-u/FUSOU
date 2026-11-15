@@ -8,9 +8,9 @@
     "test:runtime": "node --experimental-strip-types scripts/runtime.test.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261104.1",
+    "@cloudflare/workers-types": "5.20261113.1",
     "esbuild": "0.28.2",
-    "miniflare": "5.20261104.0-beta",
+    "miniflare": "5.20261113.0-beta",
     "typescript": "5.9.3"
   }
 }

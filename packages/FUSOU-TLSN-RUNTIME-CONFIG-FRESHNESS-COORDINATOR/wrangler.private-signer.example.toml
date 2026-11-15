@@ -5,6 +5,7 @@
 name = "fusou-tlsn-runtime-config-freshness-signer"
 main = "src/private-signer-worker.ts"
 compatibility_date = "2026-11-13"
+compatibility_flags = ["enable_request_signal"]
 workers_dev = false
 preview_urls = false
 

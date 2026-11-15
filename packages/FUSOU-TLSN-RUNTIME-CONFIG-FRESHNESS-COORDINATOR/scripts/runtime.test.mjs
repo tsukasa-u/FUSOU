@@ -1,4 +1,11 @@
 import assert from "node:assert/strict";
+import {
+  assertMiniflareWorkerCompatibility,
+  assertWorkerCompatibilitySettingsMatch,
+  parseWorkerCompatibilitySettings,
+  readWorkerCompatibilitySettings,
+  verifyWorkerCompatibilitySettingsGuards,
+} from "../../../scripts/worker-compatibility-settings.mjs";
 import { randomUUID, webcrypto } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
@@ -97,9 +104,6 @@ const PRIVATE_SIGNER_COORDINATOR_NAME = "private-signer-gateway-integration";
 const PRIVATE_SIGNER_WRONG_CHAIN_COORDINATOR_NAME =
   "private-signer-gateway-wrong-chain";
 const PRIVATE_SIGNER_WRONG_CHAIN_ID = "test-release-chain-mismatch-v1";
-const GATEWAY_COMPATIBILITY_DATE = "2026-11-06";
-const GATEWAY_COMPATIBILITY_FLAGS = ["enable_request_signal"];
-const PRIVATE_SIGNER_COMPATIBILITY_DATE = "2026-11-08";
 const GENESIS_COORDINATOR_NAME = "private-signer-genesis-runtime-test";
 const GENESIS_R2_BUCKET_NAME = "fusou-genesis-release-ledger-runtime-test";
 const GENESIS_ADMIN_CAPABILITY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -111,6 +115,14 @@ const GENESIS_RECOVERY_RPC_PATH =
 const PRIVATE_SIGNER_EXAMPLE_CONFIG = resolve(
   PACKAGE_ROOT,
   "wrangler.private-signer.example.toml",
+);
+const GATEWAY_CONFIG = resolve(
+  PACKAGE_ROOT,
+  "../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/wrangler.toml",
+);
+const GATEWAY_EXAMPLE_CONFIG = resolve(
+  PACKAGE_ROOT,
+  "../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/wrangler.private-signer.example.toml",
 );
 const LOCAL_CONFIG = resolve(
   PACKAGE_ROOT,
@@ -164,11 +176,12 @@ function registerRuntimeTests() {
     expiredGenesisFixture: undefined,
     expiredGenesisApprovalJson: undefined,
     expiredGenesisRequestBytes: undefined,
-    genesisCompatibility: undefined,
+    coordinatorCompatibility: undefined,
+    privateSignerCompatibility: undefined,
+    gatewayCompatibility: undefined,
     fixture: undefined,
     signedReleaseFixture: undefined,
     privateSignerFixture: undefined,
-    compatibilityDate: undefined,
     interruptions: new Set(),
     cleanupPromise: undefined,
   };
@@ -192,26 +205,38 @@ function registerRuntimeTests() {
     { concurrency: false },
     () => {
       before(async () => {
+        verifyWorkerCompatibilitySettingsGuards();
+        context.coordinatorCompatibility = readLocalRuntimeConfig();
+        context.privateSignerCompatibility = readPrivateSignerExampleConfig();
+        assertWorkerCompatibilitySettingsMatch(
+          context.coordinatorCompatibility,
+          context.privateSignerCompatibility,
+          "Coordinator local runtime and private Signer example",
+        );
+        context.gatewayCompatibility = readWorkerCompatibilitySettings(
+          GATEWAY_CONFIG,
+          "Production Gateway config",
+        );
+        const gatewayExampleCompatibility = readWorkerCompatibilitySettings(
+          GATEWAY_EXAMPLE_CONFIG,
+          "Gateway service-binding example",
+        );
+        assertWorkerCompatibilitySettingsMatch(
+          context.gatewayCompatibility,
+          gatewayExampleCompatibility,
+          "Gateway production config and service-binding example",
+        );
+        console.log(
+          `Worker compatibility: Coordinator/DO date ${context.coordinatorCompatibility.date}, flags ${JSON.stringify(context.coordinatorCompatibility.flags)}; ` +
+            `private Signer date ${context.privateSignerCompatibility.date}, flags ${JSON.stringify(context.privateSignerCompatibility.flags)}; ` +
+            `Gateway date ${context.gatewayCompatibility.date}, flags ${JSON.stringify(context.gatewayCompatibility.flags)}.`,
+        );
         context.fixture = await makeVerifiedCurrentState();
         context.signedReleaseFixture = await makeSignedCurrentStateFixture();
         context.privateSignerFixture = await makeSignedCurrentStateFixture({
           nowMs: Date.now(),
         });
         context.genesisAdminCapability = GENESIS_ADMIN_CAPABILITY;
-        const privateSignerExample = readPrivateSignerExampleConfig();
-        context.genesisCompatibility = privateSignerExample;
-        if (
-          privateSignerExample.compatibilityDate !==
-          PRIVATE_SIGNER_COMPATIBILITY_DATE
-        ) {
-          context.genesisCompatibility = {
-            ...privateSignerExample,
-            compatibilityDate: PRIVATE_SIGNER_COMPATIBILITY_DATE,
-          };
-          console.log(
-            `Genesis compatibility parity: NOT_CHECKED; example date ${privateSignerExample.compatibilityDate} differs from the supported runtime date used by this test suite, ${PRIVATE_SIGNER_COMPATIBILITY_DATE}. Behavioral tests use the example flags ${JSON.stringify(privateSignerExample.compatibilityFlags)}.`,
-          );
-        }
         const expiredDelegationNowMs = Date.now() - 86_340_000;
         context.expiredFreshnessDelegationFixture =
           await makeSignedCurrentStateFixture({
@@ -226,7 +251,6 @@ function registerRuntimeTests() {
           context.expiredFreshnessDelegationFixture.freshnessKeyId,
           context.privateSignerFixture.freshnessKeyId,
         );
-        context.compatibilityDate = readLocalRuntimeConfig();
         await buildWorker(context);
         await startRuntime(context);
         await prepareGenesisFixture(context);
@@ -5383,8 +5407,12 @@ async function buildWorker(context) {
 }
 
 async function startRuntime(context) {
-  const compatibilityDate = context.compatibilityDate;
-  assert.ok(compatibilityDate);
+  const coordinatorCompatibility = context.coordinatorCompatibility;
+  const privateSignerCompatibility = context.privateSignerCompatibility;
+  const gatewayCompatibility = context.gatewayCompatibility;
+  assert.ok(coordinatorCompatibility);
+  assert.ok(privateSignerCompatibility);
+  assert.ok(gatewayCompatibility);
   const options = convertV4MiniflareOptions({
     rootPath: context.root,
     host: "127.0.0.1",
@@ -5399,8 +5427,8 @@ async function startRuntime(context) {
         name: WORKER_NAME,
         scriptPath: context.workerBundle,
         modules: true,
-        compatibilityDate,
-        compatibilityFlags: [],
+        compatibilityDate: coordinatorCompatibility.date,
+        compatibilityFlags: [...coordinatorCompatibility.flags],
         unsafeEphemeralDurableObjects: false,
         durableObjects: {
           [BINDING_NAME]: {
@@ -5415,8 +5443,8 @@ async function startRuntime(context) {
         name: RELEASE_WORKER_NAME,
         scriptPath: context.workerBundle,
         modules: true,
-        compatibilityDate,
-        compatibilityFlags: [],
+        compatibilityDate: coordinatorCompatibility.date,
+        compatibilityFlags: [...coordinatorCompatibility.flags],
         bindings: {
           RELEASE_LEDGER_CHAIN_ID: "test-release-chain-v1",
           FRESHNESS_MANIFEST_URL: vector.manifest_url,
@@ -5446,8 +5474,8 @@ async function startRuntime(context) {
         name: PRIVATE_SIGNER_WORKER_NAME,
         scriptPath: context.privateSignerBundle,
         modules: true,
-        compatibilityDate: PRIVATE_SIGNER_COMPATIBILITY_DATE,
-        compatibilityFlags: [],
+        compatibilityDate: privateSignerCompatibility.date,
+        compatibilityFlags: [...privateSignerCompatibility.flags],
         bindings: {
           TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
           FRESHNESS_COORDINATOR_NAME: PRIVATE_SIGNER_COORDINATOR_NAME,
@@ -5503,8 +5531,8 @@ async function startRuntime(context) {
         name: GENESIS_PRIVATE_SIGNER_WORKER_NAME,
         scriptPath: context.privateSignerBundle,
         modules: true,
-        compatibilityDate: context.genesisCompatibility.compatibilityDate,
-        compatibilityFlags: context.genesisCompatibility.compatibilityFlags,
+        compatibilityDate: privateSignerCompatibility.date,
+        compatibilityFlags: [...privateSignerCompatibility.flags],
         bindings: {
           TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
           FRESHNESS_COORDINATOR_NAME: GENESIS_COORDINATOR_NAME,
@@ -5622,8 +5650,8 @@ async function startRuntime(context) {
         name: GATEWAY_WORKER_NAME,
         scriptPath: context.gatewayBundle,
         modules: true,
-        compatibilityDate: GATEWAY_COMPATIBILITY_DATE,
-        compatibilityFlags: GATEWAY_COMPATIBILITY_FLAGS,
+        compatibilityDate: gatewayCompatibility.date,
+        compatibilityFlags: [...gatewayCompatibility.flags],
         bindings: {
           TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
         },
@@ -5635,8 +5663,8 @@ async function startRuntime(context) {
         name: GENESIS_GATEWAY_WORKER_NAME,
         scriptPath: context.gatewayBundle,
         modules: true,
-        compatibilityDate: GATEWAY_COMPATIBILITY_DATE,
-        compatibilityFlags: GATEWAY_COMPATIBILITY_FLAGS,
+        compatibilityDate: gatewayCompatibility.date,
+        compatibilityFlags: [...gatewayCompatibility.flags],
         bindings: {
           TLSN_RUNTIME_CONFIG_MANIFEST_URL: vector.manifest_url,
         },
@@ -5650,8 +5678,11 @@ async function startRuntime(context) {
     (worker) => worker.config.name === WORKER_NAME,
   )?.config;
   assert.ok(configuredWorker, "Miniflare did not configure the local DO Worker");
-  assert.equal(configuredWorker.compatibilityDate, compatibilityDate);
-  assert.deepEqual(configuredWorker.compatibilityFlags, []);
+  assertMiniflareWorkerCompatibility(
+    configuredWorker,
+    coordinatorCompatibility,
+    WORKER_NAME,
+  );
   const configuredReleaseWorker = options.workers.find(
     (worker) => worker.config.name === RELEASE_WORKER_NAME,
   )?.config;
@@ -5659,8 +5690,11 @@ async function startRuntime(context) {
     configuredReleaseWorker,
     "Miniflare did not configure the local Release ledger Worker",
   );
-  assert.equal(configuredReleaseWorker.compatibilityDate, compatibilityDate);
-  assert.deepEqual(configuredReleaseWorker.compatibilityFlags, []);
+  assertMiniflareWorkerCompatibility(
+    configuredReleaseWorker,
+    coordinatorCompatibility,
+    RELEASE_WORKER_NAME,
+  );
   const configuredPrivateSignerWorker = options.workers.find(
     (worker) => worker.config.name === PRIVATE_SIGNER_WORKER_NAME,
   )?.config;
@@ -5668,11 +5702,11 @@ async function startRuntime(context) {
     configuredPrivateSignerWorker,
     "Miniflare did not configure the private Signer Worker",
   );
-  assert.equal(
-    configuredPrivateSignerWorker.compatibilityDate,
-    PRIVATE_SIGNER_COMPATIBILITY_DATE,
+  assertMiniflareWorkerCompatibility(
+    configuredPrivateSignerWorker,
+    privateSignerCompatibility,
+    PRIVATE_SIGNER_WORKER_NAME,
   );
-  assert.deepEqual(configuredPrivateSignerWorker.compatibilityFlags, []);
   const configuredGenesisPrivateSignerWorker = options.workers.find(
     (worker) => worker.config.name === GENESIS_PRIVATE_SIGNER_WORKER_NAME,
   )?.config;
@@ -5680,13 +5714,10 @@ async function startRuntime(context) {
     configuredGenesisPrivateSignerWorker,
     "Miniflare did not configure the private genesis Signer Worker",
   );
-  assert.equal(
-    configuredGenesisPrivateSignerWorker.compatibilityDate,
-    context.genesisCompatibility.compatibilityDate,
-  );
-  assert.deepEqual(
-    configuredGenesisPrivateSignerWorker.compatibilityFlags,
-    context.genesisCompatibility.compatibilityFlags,
+  assertMiniflareWorkerCompatibility(
+    configuredGenesisPrivateSignerWorker,
+    privateSignerCompatibility,
+    GENESIS_PRIVATE_SIGNER_WORKER_NAME,
   );
   const configuredGatewayWorker = options.workers.find(
     (worker) => worker.config.name === GATEWAY_WORKER_NAME,
@@ -5695,13 +5726,10 @@ async function startRuntime(context) {
     configuredGatewayWorker,
     "Miniflare did not configure the Gateway Worker",
   );
-  assert.equal(
-    configuredGatewayWorker.compatibilityDate,
-    GATEWAY_COMPATIBILITY_DATE,
-  );
-  assert.deepEqual(
-    configuredGatewayWorker.compatibilityFlags,
-    GATEWAY_COMPATIBILITY_FLAGS,
+  assertMiniflareWorkerCompatibility(
+    configuredGatewayWorker,
+    gatewayCompatibility,
+    GATEWAY_WORKER_NAME,
   );
   const configuredGenesisGatewayWorker = options.workers.find(
     (worker) => worker.config.name === GENESIS_GATEWAY_WORKER_NAME,
@@ -5710,13 +5738,10 @@ async function startRuntime(context) {
     configuredGenesisGatewayWorker,
     "Miniflare did not configure the genesis Gateway Worker",
   );
-  assert.equal(
-    configuredGenesisGatewayWorker.compatibilityDate,
-    GATEWAY_COMPATIBILITY_DATE,
-  );
-  assert.deepEqual(
-    configuredGenesisGatewayWorker.compatibilityFlags,
-    GATEWAY_COMPATIBILITY_FLAGS,
+  assertMiniflareWorkerCompatibility(
+    configuredGenesisGatewayWorker,
+    gatewayCompatibility,
+    GENESIS_GATEWAY_WORKER_NAME,
   );
 
   const runtime = new Miniflare(options);
@@ -8678,10 +8703,10 @@ async function assertFinalizedBytes(
 
 function readLocalRuntimeConfig() {
   const source = readFileSync(LOCAL_CONFIG, "utf8");
-  const compatibilityDate = source.match(
-    /^compatibility_date\s*=\s*"([^"]+)"\s*$/m,
-  )?.[1];
-  assert.ok(compatibilityDate, "local-only Wrangler config needs compatibility_date");
+  const compatibility = parseWorkerCompatibilitySettings(
+    source,
+    "local-only Coordinator Wrangler config",
+  );
   assert.match(source, /^main\s*=\s*"tests\/runtime\/worker\.ts"\s*$/m);
   assert.match(
     source,
@@ -8707,37 +8732,28 @@ function readLocalRuntimeConfig() {
   const workerdVersion = JSON.parse(
     readFileSync(resolve(workerdDirectory, "package.json"), "utf8"),
   ).version;
-  console.log(
-    `Runtime pins: Miniflare ${miniflareVersion}; workerd ${workerdVersion}; compatibility_date ${compatibilityDate}; flags []`,
+  const esbuildDirectory = realpathSync(
+    resolve(PACKAGE_ROOT, "node_modules/esbuild"),
   );
-  return compatibilityDate;
+  const esbuildVersion = JSON.parse(
+    readFileSync(resolve(esbuildDirectory, "package.json"), "utf8"),
+  ).version;
+  console.log(
+    `Runtime pins: Node ${process.version}; Miniflare ${miniflareVersion}; ` +
+      `workerd ${workerdVersion}; esbuild ${esbuildVersion}`,
+  );
+  return compatibility;
 }
 
 function readPrivateSignerExampleConfig() {
   const source = readFileSync(PRIVATE_SIGNER_EXAMPLE_CONFIG, "utf8");
-  const compatibilityDate = source.match(
-    /^compatibility_date\s*=\s*"([^"]+)"\s*$/m,
-  )?.[1];
-  assert.ok(
-    compatibilityDate,
-    "private Signer example config needs compatibility_date",
+  const compatibility = parseWorkerCompatibilitySettings(
+    source,
+    "private Signer example config",
   );
-  const flagsValue = source.match(
-    /^compatibility_flags\s*=\s*\[([^\]]*)\]\s*$/m,
-  )?.[1];
-  const compatibilityFlags = flagsValue === undefined
-    ? []
-    : [...flagsValue.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
-  if (flagsValue !== undefined) {
-    assert.equal(
-      flagsValue.replace(/"[^"]+"/gu, "").replace(/[\s,]/gu, ""),
-      "",
-      "private Signer example config has unsupported compatibility_flags syntax",
-    );
-  }
   assert.match(source, /^workers_dev\s*=\s*false\s*$/m);
   assert.match(source, /^preview_urls\s*=\s*false\s*$/m);
-  return { compatibilityDate, compatibilityFlags };
+  return compatibility;
 }
 
 function deferred() {

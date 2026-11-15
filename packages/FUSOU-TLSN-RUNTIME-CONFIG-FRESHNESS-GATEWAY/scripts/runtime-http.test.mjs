@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import {
+  assertMiniflareWorkerCompatibility,
+  assertWorkerCompatibilitySettingsMatch,
+  readWorkerCompatibilitySettings,
+  verifyWorkerCompatibilitySettingsGuards,
+} from "../../../scripts/worker-compatibility-settings.mjs";
 import { createHash, randomBytes } from "node:crypto";
 import {
   mkdtempSync,
@@ -23,10 +29,6 @@ import {
 import { FRESHNESS_GATEWAY_DEADLINE_MS } from "../src/index.ts";
 
 const TEST_SCOPE = "fusou_freshness_gateway_runtime_test";
-const TEST_COMPATIBILITY = Object.freeze({
-  date: "2026-11-06",
-  flags: Object.freeze(["enable_request_signal"]),
-});
 const MANIFEST_URL =
   "https://gateway.fusou.test/tlsn/runtime-config/v2/manifest.json";
 const HOSTNAME = "gateway.fusou.test";
@@ -46,6 +48,14 @@ const ESBUILD_DIRECTORY = realpathSync(
   resolve(PACKAGE_ROOT, "node_modules/esbuild"),
 );
 const GATEWAY_CONFIG_SOURCE = resolve(PACKAGE_ROOT, "wrangler.toml");
+const GATEWAY_EXAMPLE_CONFIG_SOURCE = resolve(
+  PACKAGE_ROOT,
+  "wrangler.private-signer.example.toml",
+);
+const PRIVATE_SIGNER_CONFIG_SOURCE = resolve(
+  PACKAGE_ROOT,
+  "../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/wrangler.private-signer.example.toml",
+);
 const GATEWAY_WORKER_SOURCE = resolve(
   PACKAGE_ROOT,
   "tests/runtime/gateway-worker.mjs",
@@ -87,36 +97,31 @@ function readInstalledVersion(packageDirectory) {
   ).version;
 }
 
-function readProductionCompatibilitySettings() {
-  const source = readFileSync(GATEWAY_CONFIG_SOURCE, "utf8");
-  const date = source.match(/^compatibility_date\s*=\s*"([^"]+)"\s*$/m)?.[1];
-  const flagsSource = source.match(
-    /^compatibility_flags\s*=\s*\[([^\]]*)\]\s*$/m,
-  )?.[1];
-  assert.ok(date, "Production Gateway config must define compatibility_date");
-  assert.ok(
-    flagsSource !== undefined,
-    "Production Gateway config must define compatibility_flags",
-  );
-  const flags = [...flagsSource.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-  assert.equal(
-    flagsSource.replace(/"[^"]+"/g, "").replace(/[,\s]/g, ""),
-    "",
-    "Production Gateway config has unsupported compatibility_flags syntax",
-  );
-  return { date, flags };
-}
-
 function verifyRuntimeConfigParity() {
+  verifyWorkerCompatibilitySettingsGuards();
   assert.equal(
     PROBE_WINDOW_MS,
     FRESHNESS_GATEWAY_DEADLINE_MS + 500,
     "signal probe window must outlast the Gateway deadline by 500 ms",
   );
-  assert.deepEqual(readProductionCompatibilitySettings(), {
-    date: TEST_COMPATIBILITY.date,
-    flags: [...TEST_COMPATIBILITY.flags],
-  });
+  const gateway = readWorkerCompatibilitySettings(
+    GATEWAY_CONFIG_SOURCE,
+    "Production Gateway config",
+  );
+  const gatewayExample = readWorkerCompatibilitySettings(
+    GATEWAY_EXAMPLE_CONFIG_SOURCE,
+    "Gateway service-binding example",
+  );
+  const privateSigner = readWorkerCompatibilitySettings(
+    PRIVATE_SIGNER_CONFIG_SOURCE,
+    "private Signer example",
+  );
+  assertWorkerCompatibilitySettingsMatch(
+    gateway,
+    gatewayExample,
+    "Gateway production config and service-binding example",
+  );
+  return { gateway, privateSigner };
 }
 
 function withTimeout(promise, timeoutMs, description) {
@@ -672,7 +677,7 @@ async function runProbeDisconnectCase(scenario, url, action) {
   return finished.outcome;
 }
 
-async function buildRuntimeWorkers() {
+async function buildRuntimeWorkers(compatibility) {
   const gatewayBundle = resolve(temporaryDirectory, "gateway-worker.mjs");
   const signerBundle = resolve(temporaryDirectory, "signer-worker.mjs");
   const probeBundle = resolve(temporaryDirectory, "signal-probe-worker.mjs");
@@ -718,8 +723,8 @@ async function buildRuntimeWorkers() {
         name: GATEWAY_WORKER_NAME,
         scriptPath: gatewayBundle,
         modules: true,
-        compatibilityDate: TEST_COMPATIBILITY.date,
-        compatibilityFlags: [...TEST_COMPATIBILITY.flags],
+        compatibilityDate: compatibility.gateway.date,
+        compatibilityFlags: [...compatibility.gateway.flags],
         bindings: {
           TLSN_RUNTIME_CONFIG_MANIFEST_URL: MANIFEST_URL,
         },
@@ -731,15 +736,15 @@ async function buildRuntimeWorkers() {
         name: SIGNER_WORKER_NAME,
         scriptPath: signerBundle,
         modules: true,
-        compatibilityDate: TEST_COMPATIBILITY.date,
-        compatibilityFlags: [...TEST_COMPATIBILITY.flags],
+        compatibilityDate: compatibility.privateSigner.date,
+        compatibilityFlags: [...compatibility.privateSigner.flags],
       },
       {
         name: SIGNAL_PROBE_WORKER_NAME,
         scriptPath: probeBundle,
         modules: true,
-        compatibilityDate: TEST_COMPATIBILITY.date,
-        compatibilityFlags: [...TEST_COMPATIBILITY.flags],
+        compatibilityDate: compatibility.gateway.date,
+        compatibilityFlags: [...compatibility.gateway.flags],
         routes: [`${PROBE_HOSTNAME}/*`],
         unsafeDirectSockets: [{ host: "127.0.0.1", port: 0 }],
       },
@@ -759,10 +764,14 @@ async function buildRuntimeWorkers() {
       (worker) => worker.config.name === workerName,
     )?.config;
     assert.ok(workerConfig, `Miniflare did not configure ${workerName}`);
-    assert.equal(workerConfig.compatibilityDate, TEST_COMPATIBILITY.date);
-    assert.deepEqual(
-      workerConfig.compatibilityFlags,
-      [...TEST_COMPATIBILITY.flags],
+    const expectedCompatibility =
+      workerName === SIGNER_WORKER_NAME
+        ? compatibility.privateSigner
+        : compatibility.gateway;
+    assertMiniflareWorkerCompatibility(
+      workerConfig,
+      expectedCompatibility,
+      workerName,
     );
   }
   miniflare = new Miniflare(miniflareOptions);
@@ -1493,7 +1502,7 @@ if (process.env[RUNTIME_TEST_CHILD_ENV] === "1") {
 }
 
 async function main() {
-  verifyRuntimeConfigParity();
+  const compatibility = verifyRuntimeConfigParity();
   verifyProbeOutcomeDecisionCases();
   const miniflareDirectory = realpathSync(
     resolve(PACKAGE_ROOT, "node_modules/miniflare"),
@@ -1509,6 +1518,11 @@ async function main() {
       `workerd ${versions.workerd}, esbuild ${versions.esbuild}`,
   );
   console.log(
+    `Worker compatibility: Gateway date ${compatibility.gateway.date}, flags ${JSON.stringify(compatibility.gateway.flags)}; ` +
+      `private Signer fixture date ${compatibility.privateSigner.date}, flags ${JSON.stringify(compatibility.privateSigner.flags)}; ` +
+      "request-signal probe uses Gateway settings.",
+  );
+  console.log(
     "Local-only HTTPS listener: 127.0.0.1; reserved .test hostname is sent as Host/SNI without DNS lookup.",
   );
 
@@ -1517,7 +1531,7 @@ async function main() {
     resolve(temporaryRoot, "fusou-freshness-runtime-"),
   );
   try {
-    await buildRuntimeWorkers();
+    await buildRuntimeWorkers(compatibility);
     await waitForReady();
     const runtimeInstance = miniflare;
     const entryDestroyOutcome = await runCase(
