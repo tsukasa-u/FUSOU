@@ -993,7 +993,8 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
                             let props = &node["info"]["props"];
                             if props["media.class"].as_str() == Some("Stream/Output/Audio") {
                                 let name = props["application.name"].as_str().unwrap_or("");
-                                let bin = props["application.process.binary"].as_str().unwrap_or("");
+                                let bin =
+                                    props["application.process.binary"].as_str().unwrap_or("");
                                 let name_lower = name.to_lowercase();
                                 let bin_lower = bin.to_lowercase();
                                 if name_lower == "app"
@@ -1054,7 +1055,11 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
                 .args(["set-volume", &id.to_string(), &vol_str])
                 .status();
             let _ = std::process::Command::new("wpctl")
-                .args(["set-mute", &id.to_string(), if is_muted { "1" } else { "0" }])
+                .args([
+                    "set-mute",
+                    &id.to_string(),
+                    if is_muted { "1" } else { "0" },
+                ])
                 .status();
             tracing::info!(
                 stream_id = id,
@@ -1065,7 +1070,10 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
         }
 
         // Method 2: PulseAudio fallback (pactl list sink-inputs)
-        if let Ok(output) = std::process::Command::new("pactl").args(["list", "sink-inputs"]).output() {
+        if let Ok(output) = std::process::Command::new("pactl")
+            .args(["list", "sink-inputs"])
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let mut current_sink_input: Option<u32> = None;
@@ -1084,10 +1092,18 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
                         if let Some(sink_id) = current_sink_input {
                             let percent = (vol_clamped * 100.0).round() as u32;
                             let _ = std::process::Command::new("pactl")
-                                .args(["set-sink-input-volume", &sink_id.to_string(), &format!("{}%", percent)])
+                                .args([
+                                    "set-sink-input-volume",
+                                    &sink_id.to_string(),
+                                    &format!("{}%", percent),
+                                ])
                                 .status();
                             let _ = std::process::Command::new("pactl")
-                                .args(["set-sink-input-mute", &sink_id.to_string(), if is_muted { "1" } else { "0" }])
+                                .args([
+                                    "set-sink-input-mute",
+                                    &sink_id.to_string(),
+                                    if is_muted { "1" } else { "0" },
+                                ])
                                 .status();
                             tracing::info!(
                                 sink_input = sink_id,
