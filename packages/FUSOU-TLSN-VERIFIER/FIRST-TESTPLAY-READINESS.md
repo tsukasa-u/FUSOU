@@ -1,5 +1,120 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Worker compatibility guard parser hardening — 2026-11-15
+
+**SOURCE_IMPLEMENTED:** The compatibility guard previously extracted matching
+lines with regular expressions. It could accept impossible calendar dates,
+malformed arrays, and an indented duplicate assignment. The shared
+[guard](../../scripts/worker-compatibility-settings.mjs) now parses the whole
+TOML document with `smol-toml@1.8.0` and reads only the document's root
+`compatibility_date` and `compatibility_flags`; TOML parser errors propagate
+instead of being skipped. The parser is now a direct root devDependency; this
+version was already present transitively in the lockfile. The guard requires
+a quoted `YYYY-MM-DD` real calendar date and a root array of non-empty strings
+without surrounding whitespace or duplicates. Empty arrays remain valid.
+TOML comments, multiline arrays, and trailing commas follow parser behavior.
+No compatibility date, flag, or runtime pin changed in this hardening.
+
+The positive and negative guard cases run before the Miniflare tests in the
+[Coordinator suite](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/runtime.test.mjs)
+and [Gateway suite](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/scripts/runtime-http.test.mjs);
+the existing [candidate workflow](../../.github/workflows/tlsn-testplay-candidate.yml)
+executes both runtime scripts. Tests cover the three reported reproductions,
+valid and invalid calendar dates including leap years, missing/type-invalid
+fields, repeated flags, root versus environment-table fields, TOML comments
+and trailing commas, and date/flag mismatches.
+
+**LOCAL_TEST_VERIFIED:** Guard cases and all four Gateway/Signer/Coordinator
+configuration reads/parity passed. Coordinator typecheck and runtime suite
+passed (**72/72**, 0 skipped); Gateway typecheck and HTTP runtime suite passed.
+Both used Miniflare `5.20261113.0-beta`, workerd `1.20261113.1`, and the
+existing `2026-11-13` / `enable_request_signal` settings. Gateway exact-byte,
+deadline, and reset assertions passed; the previously noted Signer-body
+cleanup boundary remains **OBSERVED**, not resolved by this guard change.
+No RPC-stub disposal or unhandled-promise warning appeared, and runtime
+temporary directories were removed.
+
+The guard validates TOML syntax and the two consumed root settings; it does
+not replace Wrangler's full configuration-schema validation. `smol-toml` has
+documented edge cases for some invalid TOML-native date values; the consumed
+compatibility date must be a quoted string and is independently calendar
+validated here.
+
+**HOSTED_CI_VERIFIED:** **NOT_CHECKED** after this change. Hosted run
+[#122](https://github.com/tsukasa-u/FUSOU/actions/runs/43587188696) remains
+the pre-change baseline at `73f6800c8dfa78bee84349445e7a346317770697`; no
+Actions run was started.
+**PRODUCTION_VERIFIED:** **NOT_VERIFIED**. Production acceptance and Stage
+A/B/C remain **BLOCKED**.
+
+## Workers compatibility parity — 2026-11-15
+
+**SOURCE_IMPLEMENTED:** The former `2026-11-13` examples were tested with
+older Worker settings (`2026-11-08` for the Coordinator and `2026-11-06` for
+the Gateway), while Miniflare/workerd were pinned to the November 4 build.
+Kept the intended November 13 date and upgraded the two runtime harnesses to
+Miniflare `5.20261113.0-beta` / workerd `1.20261113.1`. The Coordinator's
+`@cloudflare/workers-types` is `5.20261113.1`; Node in local runs is
+`v22.21.1`, esbuild is `0.28.2`, and candidate CI uses Node `22.16.0`.
+
+| Worker/configuration | compatibility date | flags | Local runtime coverage |
+|---|---|---|---|
+| Gateway `wrangler.toml` and Gateway service-binding example | `2026-11-13` | `enable_request_signal` | Miniflare 5.20261113.0-beta / workerd 1.20261113.1 |
+| Private Signer example and test-only Coordinator DO wrapper config | `2026-11-13` | `enable_request_signal` | Same pinned runtime; settings are read independently and compared |
+| Test-only request-signal probe | Gateway settings | Gateway flags | Same pinned runtime |
+| TLSN Verification Worker `wrangler.toml` | `2026-09-07` | omitted in that config | No corresponding Miniflare runtime suite; not changed or claimed verified |
+
+The harnesses now read the actual Wrangler compatibility fields, require
+exactly one valid date and flags array, and pass each Worker its own parsed
+settings. Missing/malformed fields or date/flag mismatches fail before runtime
+startup; positive, missing-field, malformed-field, and mismatch guard cases
+are exercised. No configuration placeholders or secrets are passed to test
+Workers.
+
+The first Gateway parity run exposed that the separate Signer Worker also
+needs `enable_request_signal`: with its previous empty flags, the Gateway's
+deadline and disconnect while awaiting Signer headers did not reach the
+Signer-side `Request.signal`. The private Signer example and local Coordinator
+config now explicitly enable the flag. Cloudflare documents that cancellation
+can continue through Service Bindings and that incoming `Request.signal`
+requires this flag before the November 17 default change
+([Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/),
+[Request.signal change](https://developers.cloudflare.com/changelog/post/2026-11-02-request-signal-default/)).
+The Gateway retains its distinct 7-second deadline and flag contract.
+
+The chosen path was to update the pinned local runtime rather than lower the
+Production examples' date. Cloudflare's November 17 default transition is
+after the selected November 13 date, so the explicit request-signal flag
+remains intentional. The root Wrangler CLI remains locked at `4.135.0`; its
+bundled Miniflare/workerd (`5.20260918.0-alpha` / `1.20260918.1`) is not used
+by these runtime harnesses. No Wrangler dev/dry-run or deploy was performed;
+that separate local preview path is **NOT_CHECKED**.
+
+**LOCAL_TEST_VERIFIED:** Domain typecheck and unit tests passed (**33/33**);
+Coordinator typecheck and runtime suite passed (**72/72**, 0 skipped); Gateway
+typecheck and HTTP runtime suite passed with the November 13 settings,
+including exact response bytes, the Gateway-owned deadline, and reset while
+awaiting Signer headers. The runtime logs identify the per-Worker settings
+and actual Node/Miniflare/workerd versions. The existing Signer-body
+disconnect case still reports unconfirmed cancellation/cleanup and retains
+admission; that outcome remains **OBSERVED**, not verified cleanup. Related
+Node Manifest/Production artifact contract tests passed (**81/81**). The
+separate `tlsn-runtime-config-freshness-test.mjs` was not run because it
+starts APP Cargo, which is outside this verification scope. No RPC-stub
+disposal or unhandled-promise warning appeared; test temporary runtime
+directories were removed.
+
+Hosted run [#122](https://github.com/tsukasa-u/FUSOU/actions/runs/43587188696)
+is the pre-change baseline for branch `tlsn-first-testplay-candidate`,
+HEAD `73f6800c8dfa78bee84349445e7a346317770697`; all three jobs succeeded.
+It did not verify this compatibility change. Post-change Hosted CI is
+**NOT_CHECKED**. No real Cloudflare deployment, resource/key registration,
+Production materials, Game Server/Notary communication, or Production
+acceptance was performed. Stage A/B/C and Production acceptance remain
+**BLOCKED**. The compatibility statements in the historical entries below
+describe their original test conditions and are superseded for current local
+runtime parity by this section.
+
 ## Production artifact semantic verification — local hardening
 
 **SOURCE_IMPLEMENTED:** Independent review reproduced that valid Manifest and
