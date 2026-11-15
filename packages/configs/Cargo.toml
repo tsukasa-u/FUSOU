@@ -12,6 +12,7 @@ gdrive = []
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.9.5"
 toml_edit = "0.22"
+semver = "1"
 once_cell = "1.21.3"
 tracing = "0.1.41"
 tracing-unwrap = "1.0.1"

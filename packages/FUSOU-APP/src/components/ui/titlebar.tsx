@@ -10,6 +10,8 @@ type Props = {
   onMaximizeChange?: (maximized: boolean) => void;
 };
 
+type ScreenshotStatus = "started" | "finished" | "failed";
+
 export function CustomTitlebar(props: Props) {
   const appWindow = isTauri() ? getCurrentWindow() : null;
 
@@ -24,6 +26,7 @@ export function CustomTitlebar(props: Props) {
 
   let volumeDropdownRef: HTMLDivElement | undefined;
   let volumeDebounceTimer: number | null = null;
+  let unlistenScreenshotStatus: UnlistenFn | undefined;
 
   // Sync volume with external webview & persist
   const updateVolume = (newVol: number, newMuted: boolean) => {
@@ -64,8 +67,7 @@ export function CustomTitlebar(props: Props) {
         await invoke("trigger_external_screenshot");
       } catch (err) {
         console.warn("Screenshot error:", err);
-      } finally {
-        setTimeout(() => setIsCapturing(false), 500);
+        setIsCapturing(false);
       }
     } else {
       setTimeout(() => setIsCapturing(false), 500);
@@ -129,6 +131,18 @@ export function CustomTitlebar(props: Props) {
   };
 
   onMount(() => {
+    if (isTauri()) {
+      listen<ScreenshotStatus>("fusou-screenshot-status", (event) => {
+        setIsCapturing(event.payload === "started");
+      })
+        .then((fn) => {
+          unlistenScreenshotStatus = fn;
+        })
+        .catch((err) => {
+          console.warn("Failed to listen for screenshot status:", err);
+        });
+    }
+
     // Restore saved volume
     const savedVol = localStorage.getItem("fusou-external-volume");
     const savedMuted = localStorage.getItem("fusou-external-muted");
@@ -168,6 +182,7 @@ export function CustomTitlebar(props: Props) {
 
     document.addEventListener("mousedown", handleDocumentClick);
     onCleanup(() => {
+      if (unlistenScreenshotStatus) unlistenScreenshotStatus();
       if (unlisten) unlisten();
       document.removeEventListener("mousedown", handleDocumentClick);
     });
@@ -233,30 +248,60 @@ export function CustomTitlebar(props: Props) {
         <button
           type="button"
           onClick={handleScreenshot}
+          disabled={isCapturing()}
+          aria-busy={isCapturing()}
+          aria-label={
+            isCapturing() ? "Capturing screenshot" : "Capture screenshot"
+          }
           class={`fusou-tool-btn ${
             isCapturing() ? "fusou-active scale-95" : ""
           }`}
-          title="Capture Screenshot (External Window)"
+          title={
+            isCapturing()
+              ? "Capturing screenshot..."
+              : "Capture Screenshot (External Window)"
+          }
         >
-          <svg
-            class="w-3.5 h-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
+          <Show
+            when={isCapturing()}
+            fallback={
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            }
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-            />
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
+            <svg
+              class="w-3.5 h-3.5 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="9" stroke-opacity="0.25" />
+              <path stroke-linecap="round" d="M21 12a9 9 0 00-9-9" />
+            </svg>
+          </Show>
         </button>
+        <Show when={isCapturing()}>
+          <span class="text-[10px] opacity-80" aria-live="polite">
+            Capturing...
+          </span>
+        </Show>
 
         {/* Reload Button */}
         <button
