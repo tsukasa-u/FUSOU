@@ -1,6 +1,7 @@
 extern crate serde;
 extern crate toml;
 
+use crate::migrations::{self, ConfigVersion};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -1146,7 +1147,7 @@ pub fn get_configs(config_path: &str) -> Result<Configs, Box<dyn std::error::Err
     let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
     let default_configs = toml::from_str::<Configs>(DEFAULT_TOML_FILE)?;
     let current_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
-    let default_version = read_config_version(&default_doc)?;
+    let default_version = migrations::read_config_version(&default_doc)?;
     if default_version != ConfigVersion::Crate(current_version.clone()) {
         return Err(Box::new(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -1165,12 +1166,12 @@ pub fn get_configs(config_path: &str) -> Result<Configs, Box<dyn std::error::Err
         None => default_doc.clone(),
     };
     let source_version = if original_config.is_some() {
-        read_config_version(&user_doc)?
+        migrations::read_config_version(&user_doc)?
     } else {
         ConfigVersion::Crate(current_version.clone())
     };
 
-    let changes = migrate_config(&mut user_doc, &source_version, &current_version)?;
+    let changes = migrations::migrate_config(&mut user_doc, &source_version, &current_version)?;
     merge_toml_values(&mut default_doc, &user_doc);
 
     let updated_config = default_doc.to_string();
@@ -1209,123 +1210,6 @@ pub fn get_user_configs() -> Configs {
     // embedded defaults without touching the filesystem.
     tracing::warn!("User configs not initialized; using embedded defaults (no file written)");
     get_default_configs().clone()
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum ConfigVersion {
-    LegacyV0,
-    Crate(semver::Version),
-}
-
-impl ConfigVersion {
-    fn label(&self) -> String {
-        match self {
-            Self::LegacyV0 => "v0".to_string(),
-            Self::Crate(version) => version.to_string(),
-        }
-    }
-}
-
-fn read_config_version(
-    document: &toml_edit::DocumentMut,
-) -> Result<ConfigVersion, Box<dyn std::error::Error>> {
-    let Some(version) = document.get("version") else {
-        return Ok(ConfigVersion::LegacyV0);
-    };
-    let version = version
-        .as_value()
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Config schema version must be a string",
-            )
-        })?;
-    match version {
-        "v0" => Ok(ConfigVersion::LegacyV0),
-        _ => Ok(ConfigVersion::Crate(semver::Version::parse(version)?)),
-    }
-}
-
-fn migrate_config(
-    document: &mut toml_edit::DocumentMut,
-    source_version: &ConfigVersion,
-    current_version: &semver::Version,
-) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
-    match source_version {
-        ConfigVersion::Crate(version) if version == current_version => Ok(Vec::new()),
-        ConfigVersion::Crate(version) if version > current_version => {
-            Err(Box::new(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "Config version {version} is newer than configs crate version {current_version}"
-                ),
-            )))
-        }
-        ConfigVersion::Crate(version) => Err(Box::new(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("No config migration registered from {version} to {current_version}"),
-        ))),
-        ConfigVersion::LegacyV0 => {
-            let mut changes = Vec::new();
-            migrate_v0_to_current(document, &mut changes)?;
-            Ok(changes)
-        }
-    }
-}
-
-fn migrate_v0_to_current(
-    document: &mut toml_edit::DocumentMut,
-    changes: &mut Vec<&'static str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(auth) = document
-        .get_mut("app")
-        .and_then(|item| item.as_table_mut())
-        .and_then(|app| app.get_mut("auth"))
-        .and_then(|item| item.as_table_mut())
-    {
-        if let Some(deny_auth) = auth.remove("deny_auth") {
-            if auth.contains_key("allow_auth") {
-                changes.push("app.auth.allow_auth retained; removed app.auth.deny_auth");
-            } else {
-                let deny_auth = deny_auth
-                    .as_value()
-                    .and_then(|value| value.as_bool())
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "app.auth.deny_auth must be a boolean",
-                        )
-                    })?;
-                auth.insert("allow_auth", toml_edit::value(!deny_auth));
-                changes.push("app.auth.deny_auth -> app.auth.allow_auth (inverted)");
-            }
-        }
-    }
-
-    if let Some(asset_sync) = document
-        .get_mut("app")
-        .and_then(|item| item.as_table_mut())
-        .and_then(|app| app.get_mut("asset_sync"))
-        .and_then(|item| item.as_table_mut())
-    {
-        if asset_sync.remove("enable").is_some() {
-            changes.push("removed obsolete app.asset_sync.enable");
-        }
-    }
-
-    if let Some(kc_window) = document
-        .get_mut("app")
-        .and_then(|item| item.as_table_mut())
-        .and_then(|app| app.get_mut("kc_window"))
-        .and_then(|item| item.as_table_mut())
-    {
-        if kc_window.remove("window_title_bar_height").is_some() {
-            changes.push("removed obsolete app.kc_window.window_title_bar_height");
-        }
-    }
-
-    Ok(())
 }
 
 /// Recursively merge user values into default document while keeping schema/type safety
