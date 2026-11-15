@@ -60,7 +60,7 @@ export function UpdaterView(props: UpdaterProps) {
     const preview = props.preview;
     if (!preview) return;
     setCurrentVersion(
-      preview.currentVersion !== undefined ? preview.currentVersion : "0.6.1",
+      preview.currentVersion !== undefined ? preview.currentVersion : "0.7.0",
     );
     setChecking(preview.checking ?? false);
     setHasChecked(preview.hasChecked ?? true);

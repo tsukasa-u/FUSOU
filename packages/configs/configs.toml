@@ -1,6 +1,9 @@
 # This file is used to configure the FUSOU-PROXY and FUSOU-APP
 # By default, the application's features are kept to a minimum. To use restricted features, please change the configuration values.
 
+# Must match the configs crate version. Configurations without this field are treated as v0.
+version = "0.5.0"
+
 [proxy]
 # Whether to save KanColle API requests
 allow_save_api_requests = false

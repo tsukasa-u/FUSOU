@@ -2,13 +2,11 @@ extern crate serde;
 extern crate toml;
 
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::PathBuf;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use once_cell::sync::OnceCell;
-
-use tracing_unwrap::ResultExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyCertificates {
@@ -1132,7 +1130,7 @@ fn get_default_configs() -> &'static Configs {
 }
 
 pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let config = get_configs(path);
+    let config = get_configs(path)?;
     if USER_CONFIGS.set(config).is_err() {
         // Configs may be initialized multiple times in dev/hot-reload runs; keep the first one.
         tracing::warn!("User configs already set; reusing existing instance");
@@ -1140,62 +1138,65 @@ pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn get_configs(config_path: &str) -> Configs {
+pub fn get_configs(config_path: &str) -> Result<Configs, Box<dyn std::error::Error>> {
+    use toml_edit::DocumentMut;
+
     tracing::info!("Loading configs from: {}", config_path);
     const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
-    let default_parse_result: Result<Configs, toml::de::Error> = toml::from_str(DEFAULT_TOML_FILE);
-    if default_parse_result.is_err() {
-        let error_message = format!(
-            "Failed to parse default TOML: {}",
-            default_parse_result.err().unwrap()
-        );
-        tracing::error!("{error_message}");
-        panic!("{error_message}");
+    let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
+    let default_configs = toml::from_str::<Configs>(DEFAULT_TOML_FILE)?;
+    let current_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
+    let default_version = read_config_version(&default_doc)?;
+    if default_version != ConfigVersion::Crate(current_version.clone()) {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Default config version must match configs crate version {current_version}"),
+        )));
     }
-    let default_configs: Configs = default_parse_result.unwrap();
     DEFAULT_USER_CONFIGS.get_or_init(|| default_configs.clone());
 
-    // Write TOML to file
-    if fs::metadata(config_path).is_err() {
-        tracing::warn!(
-            "Config file not found, creating default at: {}",
-            config_path
+    let original_config = match fs::read_to_string(config_path) {
+        Ok(contents) => Some(contents),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(Box::new(error)),
+    };
+    let mut user_doc = match &original_config {
+        Some(contents) => contents.parse::<DocumentMut>()?,
+        None => default_doc.clone(),
+    };
+    let source_version = if original_config.is_some() {
+        read_config_version(&user_doc)?
+    } else {
+        ConfigVersion::Crate(current_version.clone())
+    };
+
+    let changes = migrate_config(&mut user_doc, &source_version, &current_version)?;
+    merge_toml_values(&mut default_doc, &user_doc);
+
+    let updated_config = default_doc.to_string();
+    let configs = toml::from_str::<Configs>(&updated_config)?;
+    if original_config.as_deref() != Some(updated_config.as_str()) {
+        if original_config.is_some() {
+            let backup_path = Path::new(config_path)
+                .with_extension(format!("toml.{}.bak", source_version.label()));
+            if !backup_path.exists() {
+                fs::copy(config_path, backup_path)?;
+            }
+        }
+        fs::write(config_path, &updated_config)?;
+    }
+
+    if source_version != ConfigVersion::Crate(current_version.clone()) {
+        tracing::info!(
+            "Migrated config schema from {} to {current_version}",
+            source_version.label()
         );
-        let mut file = File::create(config_path).expect_or_log("Failed to create config file");
-        write!(file, "{DEFAULT_TOML_FILE}").expect_or_log("Failed to write default config");
-        file.flush().expect_or_log("Failed to flush config file");
+    }
+    for change in changes {
+        tracing::info!("Migrated config setting: {change}");
     }
 
-    // Read file and parse to Configs
-    let mut user_toml_file: String =
-        fs::read_to_string(config_path).expect_or_log("Failed to read config file");
-
-    // Preserve user values and merge in new defaults / schema updates before deserializing
-    let mut user_parse_result: Result<Configs, toml::de::Error> = toml::from_str(&user_toml_file);
-    let current_version = default_configs.version.as_deref();
-    let version_mismatch = user_parse_result
-        .as_ref()
-        .map(|cfg| current_version.is_some() && cfg.version.as_deref() != current_version)
-        .unwrap_or(true);
-
-    if version_mismatch {
-        if let Err(e) = update_config_file(config_path) {
-            tracing::warn!("Failed to update config file with new fields: {}", e);
-        } else if let Ok(updated) = fs::read_to_string(config_path) {
-            user_toml_file = updated;
-            user_parse_result = toml::from_str(&user_toml_file);
-        }
-    } else if let Err(e) = update_config_file(config_path) {
-        tracing::warn!("Failed to update config file with new fields: {}", e);
-    }
-
-    match user_parse_result {
-        Ok(p) => p,
-        Err(err) => {
-            tracing::error!("Failed to parse TOML after merge: {}", err);
-            default_configs
-        }
-    }
+    Ok(configs)
 }
 
 pub fn get_user_configs() -> Configs {
@@ -1210,34 +1211,119 @@ pub fn get_user_configs() -> Configs {
     get_default_configs().clone()
 }
 
-/// Merge and update user config file with default template, preserving comments
-pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use toml_edit::DocumentMut;
+#[derive(Debug, PartialEq, Eq)]
+enum ConfigVersion {
+    LegacyV0,
+    Crate(semver::Version),
+}
 
-    const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
+impl ConfigVersion {
+    fn label(&self) -> String {
+        match self {
+            Self::LegacyV0 => "v0".to_string(),
+            Self::Crate(version) => version.to_string(),
+        }
+    }
+}
 
-    // Parse default TOML with comments preserved
-    let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
+fn read_config_version(
+    document: &toml_edit::DocumentMut,
+) -> Result<ConfigVersion, Box<dyn std::error::Error>> {
+    let Some(version) = document.get("version") else {
+        return Ok(ConfigVersion::LegacyV0);
+    };
+    let version = version
+        .as_value()
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Config schema version must be a string",
+            )
+        })?;
+    match version {
+        "v0" => Ok(ConfigVersion::LegacyV0),
+        _ => Ok(ConfigVersion::Crate(semver::Version::parse(version)?)),
+    }
+}
 
-    // Read existing user config if it exists
-    let user_toml_content = fs::read_to_string(config_path).unwrap_or_default();
+fn migrate_config(
+    document: &mut toml_edit::DocumentMut,
+    source_version: &ConfigVersion,
+    current_version: &semver::Version,
+) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
+    match source_version {
+        ConfigVersion::Crate(version) if version == current_version => Ok(Vec::new()),
+        ConfigVersion::Crate(version) if version > current_version => {
+            Err(Box::new(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Config version {version} is newer than configs crate version {current_version}"
+                ),
+            )))
+        }
+        ConfigVersion::Crate(version) => Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("No config migration registered from {version} to {current_version}"),
+        ))),
+        ConfigVersion::LegacyV0 => {
+            let mut changes = Vec::new();
+            migrate_v0_to_current(document, &mut changes)?;
+            Ok(changes)
+        }
+    }
+}
 
-    if user_toml_content.is_empty() {
-        // No existing file, just write default
-        fs::write(config_path, DEFAULT_TOML_FILE)?;
-        tracing::info!("Created new config file with defaults at: {}", config_path);
-        return Ok(());
+fn migrate_v0_to_current(
+    document: &mut toml_edit::DocumentMut,
+    changes: &mut Vec<&'static str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(auth) = document
+        .get_mut("app")
+        .and_then(|item| item.as_table_mut())
+        .and_then(|app| app.get_mut("auth"))
+        .and_then(|item| item.as_table_mut())
+    {
+        if let Some(deny_auth) = auth.remove("deny_auth") {
+            if auth.contains_key("allow_auth") {
+                changes.push("app.auth.allow_auth retained; removed app.auth.deny_auth");
+            } else {
+                let deny_auth = deny_auth
+                    .as_value()
+                    .and_then(|value| value.as_bool())
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "app.auth.deny_auth must be a boolean",
+                        )
+                    })?;
+                auth.insert("allow_auth", toml_edit::value(!deny_auth));
+                changes.push("app.auth.deny_auth -> app.auth.allow_auth (inverted)");
+            }
+        }
     }
 
-    // Parse existing user config
-    let user_doc = user_toml_content.parse::<DocumentMut>()?;
+    if let Some(asset_sync) = document
+        .get_mut("app")
+        .and_then(|item| item.as_table_mut())
+        .and_then(|app| app.get_mut("asset_sync"))
+        .and_then(|item| item.as_table_mut())
+    {
+        if asset_sync.remove("enable").is_some() {
+            changes.push("removed obsolete app.asset_sync.enable");
+        }
+    }
 
-    // Merge: copy user values into default doc structure
-    merge_toml_values(&mut default_doc, &user_doc);
-
-    // Write merged config back
-    fs::write(config_path, default_doc.to_string())?;
-    tracing::info!("Updated config file at: {}", config_path);
+    if let Some(kc_window) = document
+        .get_mut("app")
+        .and_then(|item| item.as_table_mut())
+        .and_then(|app| app.get_mut("kc_window"))
+        .and_then(|item| item.as_table_mut())
+    {
+        if kc_window.remove("window_title_bar_height").is_some() {
+            changes.push("removed obsolete app.kc_window.window_title_bar_height");
+        }
+    }
 
     Ok(())
 }
@@ -1288,6 +1374,14 @@ fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_ed
 mod tests {
     use super::*;
 
+    fn remove_test_config_files(path: &Path) {
+        let _ = fs::remove_file(path);
+        for version in 0..=1 {
+            let backup_path = path.with_extension(format!("toml.v{version}.bak"));
+            let _ = fs::remove_file(backup_path);
+        }
+    }
+
     #[test]
     fn test_config_toml_is_valid() {
         // Test that config.toml can be successfully parsed into Configs structure
@@ -1307,6 +1401,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_config_version_matches_configs_crate_version() {
+        let config: Configs =
+            toml::from_str(include_str!("../configs.toml")).expect("default TOML should parse");
+        assert_eq!(config.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
     }
 
     #[test]
@@ -1736,7 +1837,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_configs_preserves_user_values_across_version_and_type_mismatch() {
+    fn test_get_configs_treats_missing_version_as_v0_and_preserves_values() {
         let mut path = std::env::temp_dir();
         path.push(format!(
             "fusou-configs-merge-test-{}.toml",
@@ -1747,8 +1848,6 @@ mod tests {
         ));
 
         let legacy_user_toml = r#"
-version = "0.0.1-legacy"
-
 [proxy]
 allow_save_api_responses = true
 
@@ -1758,7 +1857,7 @@ recv_buffer_size = 1234567
 "#;
         std::fs::write(&path, legacy_user_toml).unwrap();
 
-        let loaded = get_configs(path.to_str().unwrap());
+        let loaded = get_configs(path.to_str().unwrap()).unwrap();
         assert!(loaded.proxy.get_allow_save_api_responses());
         assert_eq!(loaded.proxy.network.get_recv_buffer_size(), Some(1234567));
         // Type mismatch falls back cleanly to default template without dropping valid user values
@@ -1767,8 +1866,134 @@ recv_buffer_size = 1234567
             loaded.proxy.network.connect_timeout,
             default_cfg.proxy.network.connect_timeout
         );
+        assert_eq!(loaded.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
 
-        let _ = std::fs::remove_file(&path);
+        remove_test_config_files(&path);
+    }
+
+    #[test]
+    fn test_v0_migration_converts_legacy_keys_and_keeps_existing_values() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-v0-migration-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"
+[app.auth]
+deny_auth = true
+
+[app.asset_sync]
+enable = true
+asset_upload_enable = true
+
+[app.soku_speed_sender]
+enable = true
+
+[app.kc_window]
+window_title_bar_height = 68
+"#,
+        )
+        .unwrap();
+
+        let loaded = get_configs(path.to_str().unwrap()).unwrap();
+        assert!(!loaded.app.auth.get_allow_auth());
+        assert!(loaded.app.soku_speed_sender.get_enable());
+        assert!(!loaded.app.soku_speed_sender.get_allow_data_to_local());
+
+        let migrated: toml::Value = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            migrated["version"].as_str(),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(migrated["app"]["auth"]["allow_auth"].as_bool(), Some(false));
+        assert!(migrated["app"]["auth"].get("deny_auth").is_none());
+        assert!(migrated["app"]["asset_sync"].get("enable").is_none());
+        assert_eq!(
+            migrated["app"]["asset_sync"]["asset_upload_enable"].as_bool(),
+            Some(true)
+        );
+        assert!(migrated["app"]["kc_window"]
+            .get("window_title_bar_height")
+            .is_none());
+
+        remove_test_config_files(&path);
+    }
+
+    #[test]
+    fn test_v0_migration_prefers_an_already_renamed_auth_setting() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-v0-auth-precedence-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"
+[app.auth]
+deny_auth = true
+allow_auth = true
+"#,
+        )
+        .unwrap();
+
+        let loaded = get_configs(path.to_str().unwrap()).unwrap();
+        assert!(loaded.app.auth.get_allow_auth());
+        let migrated: toml::Value = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(migrated["app"]["auth"]["allow_auth"].as_bool(), Some(true));
+        assert!(migrated["app"]["auth"].get("deny_auth").is_none());
+
+        remove_test_config_files(&path);
+    }
+
+    #[test]
+    fn test_v1_is_not_treated_as_legacy_or_overwritten() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-unknown-v1-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let legacy_config = r#"
+version = "v1"
+
+[app.auth]
+allow_auth = true
+"#;
+        std::fs::write(&path, legacy_config).unwrap();
+
+        assert!(get_configs(path.to_str().unwrap()).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), legacy_config);
+
+        remove_test_config_files(&path);
+    }
+
+    #[test]
+    fn test_unsupported_config_version_is_not_overwritten() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-future-version-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let future_config = "version = \"0.6.0\"\n\n[app.auth]\nallow_auth = true\n";
+        std::fs::write(&path, future_config).unwrap();
+
+        assert!(get_configs(path.to_str().unwrap()).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), future_config);
+
+        remove_test_config_files(&path);
     }
 
     #[test]
@@ -1829,9 +2054,18 @@ recv_buffer_size = 1234567
         let parsed_legacy: Configs = legacy_toml
             .try_into()
             .expect("legacy config without allow_data_to_local should deserialize");
-        assert!(!parsed_legacy.app.quest_tree_sender.get_allow_data_to_local());
-        assert!(!parsed_legacy.app.ship_growth_sender.get_allow_data_to_local());
-        assert!(!parsed_legacy.app.soku_speed_sender.get_allow_data_to_local());
+        assert!(!parsed_legacy
+            .app
+            .quest_tree_sender
+            .get_allow_data_to_local());
+        assert!(!parsed_legacy
+            .app
+            .ship_growth_sender
+            .get_allow_data_to_local());
+        assert!(!parsed_legacy
+            .app
+            .soku_speed_sender
+            .get_allow_data_to_local());
         assert!(!parsed_legacy.app.remodel_sender.get_allow_data_to_local());
 
         let mut path = std::env::temp_dir();
@@ -1843,8 +2077,6 @@ recv_buffer_size = 1234567
                 .as_nanos()
         ));
         let user_toml = r#"
-version = "0.0.1-legacy"
-
 [app.quest_tree_sender]
 allow_data_to_local = true
 
@@ -1860,7 +2092,7 @@ enable = true
 allow_data_to_local = true
 "#;
         std::fs::write(&path, user_toml).unwrap();
-        let merged = get_configs(path.to_str().unwrap());
+        let merged = get_configs(path.to_str().unwrap()).unwrap();
         assert!(!merged.app.quest_tree_sender.get_enable());
         assert!(merged.app.quest_tree_sender.get_allow_data_to_local());
         assert!(merged.app.ship_growth_sender.get_enable());
@@ -1869,6 +2101,6 @@ allow_data_to_local = true
         assert!(merged.app.soku_speed_sender.get_allow_data_to_local());
         assert!(merged.app.remodel_sender.get_enable());
         assert!(merged.app.remodel_sender.get_allow_data_to_local());
-        let _ = std::fs::remove_file(&path);
+        remove_test_config_files(&path);
     }
 }

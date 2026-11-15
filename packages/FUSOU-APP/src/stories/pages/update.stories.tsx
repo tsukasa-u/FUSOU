@@ -40,7 +40,7 @@ const PRESETS: Record<PresetKey, { label: string; state: UpdatePreviewState }> =
       label: "Checking",
       state: {
         isDesktop: true,
-        currentVersion: "0.6.1",
+        currentVersion: "0.7.0",
         checking: true,
         hasChecked: false,
       },
@@ -49,7 +49,7 @@ const PRESETS: Record<PresetKey, { label: string; state: UpdatePreviewState }> =
       label: "Up to Date",
       state: {
         isDesktop: true,
-        currentVersion: "0.6.1",
+        currentVersion: "0.7.0",
         checking: false,
         hasChecked: true,
         updateAvailable: false,
@@ -59,7 +59,7 @@ const PRESETS: Record<PresetKey, { label: string; state: UpdatePreviewState }> =
       label: "Update Available",
       state: {
         isDesktop: true,
-        currentVersion: "0.6.1",
+        currentVersion: "0.7.0",
         checking: false,
         hasChecked: true,
         updateAvailable: true,
@@ -70,7 +70,7 @@ const PRESETS: Record<PresetKey, { label: string; state: UpdatePreviewState }> =
       label: "Downloading (64%)",
       state: {
         isDesktop: true,
-        currentVersion: "0.6.1",
+        currentVersion: "0.7.0",
         checking: false,
         hasChecked: true,
         updateAvailable: true,
@@ -84,7 +84,7 @@ const PRESETS: Record<PresetKey, { label: string; state: UpdatePreviewState }> =
       label: "Installed",
       state: {
         isDesktop: true,
-        currentVersion: "0.6.1",
+        currentVersion: "0.7.0",
         checking: false,
         hasChecked: true,
         updateAvailable: true,
@@ -96,7 +96,7 @@ const PRESETS: Record<PresetKey, { label: string; state: UpdatePreviewState }> =
       label: "Check Error",
       state: {
         isDesktop: true,
-        currentVersion: "0.6.1",
+        currentVersion: "0.7.0",
         checking: false,
         hasChecked: true,
         updateAvailable: false,

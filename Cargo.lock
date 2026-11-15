@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "cairo-rs",
@@ -1090,6 +1090,7 @@ name = "configs"
 version = "0.5.0"
 dependencies = [
  "once_cell",
+ "semver",
  "serde",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit 0.22.27",
