@@ -80,6 +80,86 @@ NOT_VERIFIED**; no real Notary, Game Server, Worker deployment, key enrollment,
 or Production evidence was exercised. Stage A/B/C and Production acceptance
 remain **BLOCKED**.
 
+## Separate-process loopback Notary interop — 2026-11-18
+
+**HOSTED_BASELINE_OBSERVED:** Run [#125](https://github.com/tsukasa-u/FUSOU/actions/runs/44078508976) passed all three jobs on baseline commit `d4728204435e8da2ad44353b19555c2ca4426e80`. This is pre-change baseline evidence only; it does not verify the implementation below. The earlier #124 failure record above is retained.
+
+Repository inspection found no independently runnable external Notary source,
+entrypoint, or deployment configuration. The new
+`fusou-local-test-notary` binary is a repository-local integration adapter; it
+uses the existing persistent `LocalTestNotary` state machine and the pinned
+TLSN alpha.15 SDK dependency (`0.1.0-alpha.15`,
+revision `47aee45b53e06648c1b2ad3689b367b8c923fdec`). It is not evidence that an
+external Notary implements this protocol.
+
+**SOURCE_IMPLEMENTED:** The local adapter accepts only loopback TCP connections
+and uses a bounded, versioned admission/query frame. The Proxy sends the
+Session Authority grant before opening the origin connection. The Notary
+verifies the grant signature against its configured key ID/public-key pin,
+purpose, claims, and validity window, generates the operation and live
+connection identity, and durably admits the grant. It signs an acknowledgement
+binding a fresh nonce, grant digest, Notary ID, and environment; the Proxy
+checks the pinned Notary key and expected scope before proceeding. The same
+TCP stream then carries the alpha.15 MPC/TLSN session. Its verifier output and
+non-clone live lease are the only inputs accepted for the attestation
+extension check. The Notary persists the signing claim before signing, creates
+the acceptance itself, signs it together with that connection's TLS
+commitments in the Attestation, persists the exact serialized Attestation, and
+returns those exact bytes. A finalized-result query reads the saved bytes and
+does not sign again. An unfinished admission or signing claim becomes
+`Unknown` on restart and cannot be re-admitted.
+
+The loopback harness uses an ephemeral test CA and server key, an isolated
+temporary store, and a distinct Notary child process. The child is stopped and
+waited before temporary state is removed; it has parent-death cleanup and
+handles interrupt/termination signals. Fault injection is a test-only startup
+option, not a request endpoint. Game Server HTTP bytes are not augmented with
+grant, acceptance, correlation, or FUSOU headers/query/cookies.
+
+Grant v1 has no signed audience, Notary, or environment field. This adapter
+therefore fixes one synthetic Notary/environment and a dedicated authority
+key ID/pin. A real integration must register and enforce a distinct authority
+key/pin per authorized Notary/environment tuple, or revise the grant
+contract if that cannot be guaranteed. This local configuration cannot prove
+that a key is not reused in another environment. No claim is made that an
+external Notary has registered the key, implements this wire protocol, or
+enforces an operational policy merely because a policy ID matches.
+
+**LOCAL_TEST_VERIFIED:** Rust 1.98.1 ran the separate-process suite with
+`--features local-test-notary-fault-injection --test local_notary_interop`:
+6 passed, 0 failed, 0 ignored. Complete and Sparse each completed a real
+alpha.15 TLSN exchange with the child Notary and loopback HTTPS origin; the
+independent verifier checked the signed Presentation, Web PKI chain, Notary
+key, Session Authority grant, and Notary acceptance. The origin's received
+HTTP bytes matched the serialized request exactly, with one request per
+successful capture and no FUSOU correlation header. Wrong authority pin,
+invalid signature, expiry, wrong Notary signature pin, foreign live-grant
+reuse, client-supplied acceptance, and same-grant concurrent admission were
+rejected; no unauthorized/retried HTTP request was observed. Restart tests
+confirmed `Admitted` and `Signing` interruption become `Unknown`, and a
+finalized grant returns identical saved Attestation bytes after restart.
+Missing and corrupt initialized stores prevented server startup. Rejected
+proof processing preserved the already received game response and did not
+cause an ordinary fallback or resend; after restart, a later client request
+was accepted only with a fresh Session grant as a distinct capture.
+
+The candidate workflow keeps its existing 20 exact-name synthetic TLSN,
+handler, and persistent-store invocations and adds a separate six-test
+loopback Notary integration step. The step checks the complete discovered
+test list and invokes each name exactly with Rust 1.98.1 and offline locked
+dependencies. The workflow was edited but not run.
+
+**HOSTED_CI_VERIFIED: NOT_CHECKED** after these changes; no Actions run was
+started. **PRODUCTION_VERIFIED: NOT_VERIFIED**; no external Notary, real Game
+Server, Worker, Production database, deployment, key registration, or
+Production Result/receipt flow was exercised. Real integration still needs
+the external Notary source/revision and wire-protocol owner, public Session
+Authority key ID and SPKI pin for the authorized tuple, Notary ID/environment,
+Notary TCP endpoint and signing-key public pin, target identity policy, and
+approved runtime store/network configuration. No private key should be
+provided through this readiness record. Stage A/B/C and Production acceptance
+remain **BLOCKED**.
+
 ## Headerless Session binding — initial implementation verification
 
 The verification snapshot below predates the persistent Notary and ingress

@@ -507,3 +507,42 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
           RUSTUP_TOOLCHAIN: "1.98.1"
           RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Run separate-process loopback Notary integration
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=packages/FUSOU-PROXY/proxy-https/Cargo.toml
+          features=local-test-notary-fault-injection
+          listing="$(
+            cargo +1.98.1 test --locked --offline --features "$features" \
+              --manifest-path "$manifest" --test local_notary_interop -- --list
+          )"
+          required_tests=(
+            concurrent_same_grant_admission_has_one_origin_send_and_one_final_result
+            foreign_live_grant_and_client_acceptance_are_rejected_after_one_origin_send
+            interrupted_admission_and_signing_claim_restart_as_unknown_without_retry
+            missing_and_corrupt_existing_store_do_not_start_as_empty_notary
+            separate_notary_completes_complete_and_sparse_roundtrips_and_replays_exact_results
+            wrong_authority_signature_expiry_and_notary_pin_never_send_origin_http
+          )
+          discovered="$(awk '/: test$/ { count++ } END { print count + 0 }' <<< "$listing")"
+          if [[ "$discovered" -ne "${#required_tests[@]}" ]]; then
+            echo "Expected ${#required_tests[@]} Notary interop tests, discovered $discovered" >&2
+            exit 1
+          fi
+          for test_name in "${required_tests[@]}"; do
+            if ! grep -Fxq "$test_name: test" <<< "$listing"; then
+              echo "Required Notary interop test was not discovered: $test_name" >&2
+              exit 1
+            fi
+            cargo +1.98.1 test --locked --offline --features "$features" \
+              --manifest-path "$manifest" --test local_notary_interop "$test_name" \
+              -- --exact --test-threads=1
+          done
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
