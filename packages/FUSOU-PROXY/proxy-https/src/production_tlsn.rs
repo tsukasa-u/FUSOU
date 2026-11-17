@@ -15,6 +15,7 @@ use std::{
     fs::{self, OpenOptions},
     future::Future,
     io::{self, Write},
+    net::SocketAddr,
     path::{Path, PathBuf},
     pin::Pin,
     sync::{
@@ -34,6 +35,8 @@ pub enum OriginConfigurationError {
     InvalidServerIdentity,
     TargetIdentityMismatch,
     InvalidPort,
+    InvalidLoopbackConnectAddress,
+    InvalidTrustedRoot,
     NativeTrustStoreUnavailable,
     EmptyIdentityPolicy,
     DuplicateServerIdentity,
@@ -48,6 +51,10 @@ impl std::fmt::Display for OriginConfigurationError {
             Self::InvalidServerIdentity => "origin server identity is invalid",
             Self::TargetIdentityMismatch => "origin hostname must match its server identity",
             Self::InvalidPort => "origin port must be non-zero",
+            Self::InvalidLoopbackConnectAddress => {
+                "local test origin address must be loopback"
+            }
+            Self::InvalidTrustedRoot => "configured TLS trust anchor is empty or too large",
             Self::NativeTrustStoreUnavailable => {
                 "platform TLS trust store is unavailable or invalid"
             }
@@ -67,6 +74,7 @@ pub struct OriginTarget {
     hostname: String,
     port: u16,
     server_identity: String,
+    loopback_connect_address: Option<SocketAddr>,
 }
 
 impl OriginTarget {
@@ -91,7 +99,24 @@ impl OriginTarget {
             hostname,
             port,
             server_identity,
+            loopback_connect_address: None,
         })
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    pub fn with_local_test_connect_address(
+        mut self,
+        address: SocketAddr,
+    ) -> Result<Self, OriginConfigurationError> {
+        if !address.ip().is_loopback() {
+            return Err(OriginConfigurationError::InvalidLoopbackConnectAddress);
+        }
+        self.loopback_connect_address = Some(address);
+        Ok(self)
+    }
+
+    pub(crate) fn loopback_connect_address(&self) -> Option<SocketAddr> {
+        self.loopback_connect_address
     }
 
     pub fn hostname(&self) -> &str {
@@ -131,6 +156,18 @@ impl OriginTlsConfig {
         }
         Ok(Self {
             trusted_root_certificates,
+        })
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
+    pub fn for_local_test(
+        root_certificate_der: Vec<u8>,
+    ) -> Result<Self, OriginConfigurationError> {
+        if root_certificate_der.is_empty() || root_certificate_der.len() > 1024 * 1024 {
+            return Err(OriginConfigurationError::InvalidTrustedRoot);
+        }
+        Ok(Self {
+            trusted_root_certificates: vec![root_certificate_der],
         })
     }
 
@@ -778,7 +815,10 @@ impl PresentationHandoff {
         Ok(())
     }
 
-    fn take_for(&self, request_sha256: &[u8; 32]) -> Result<TlsnPresentation, PresentationError> {
+    pub fn take_for(
+        &self,
+        request_sha256: &[u8; 32],
+    ) -> Result<TlsnPresentation, PresentationError> {
         let mut pending = self
             .pending
             .lock()

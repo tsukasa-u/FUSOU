@@ -24,7 +24,7 @@ use base64::{
 use chrono::{DateTime, Utc};
 use fusou_auth::{AuthManager, DeviceKey, FileStorage};
 use fusou_tlsn_verifier::{
-    parse_binding_value,
+    parse_binding_value, plan_require_info_response_sparse_ranges,
     prover_transport::{
         parse_http_response_for_forwarding, ProverOwnedTlsTransport, ResponseFraming,
     },
@@ -47,6 +47,7 @@ use std::{
 use tlsn::{
     attestation::{
         request::{Request as AttestationRequest, RequestConfig},
+        signing::{KeyAlgId, VerifyingKey},
         Attestation, CryptoProvider, Extension,
     },
     config::{
@@ -360,8 +361,14 @@ fn max_sent_data_for_request(request: &[u8]) -> Result<usize, TlsnTransportError
 
 pub struct RealAlpha15OriginTransportFactory {
     notary_endpoint: String,
+    notary_verifying_key: VerifyingKey,
+    notary_id: String,
+    environment: String,
     handoff: Arc<PresentationHandoff>,
     attestation_limit: NotaryAttestationLimit,
+    sparse: bool,
+    test_attestation_grant_override: Option<Vec<u8>>,
+    test_extra_attestation_extensions: Vec<Extension>,
 }
 
 pub struct RemoteSessionBindingProvider {
@@ -1782,17 +1789,86 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
 impl RealAlpha15OriginTransportFactory {
     pub fn new(
         notary_endpoint: String,
+        notary_verifying_key: VerifyingKey,
+        notary_id: String,
+        environment: String,
         handoff: Arc<PresentationHandoff>,
         attestation_limit: NotaryAttestationLimit,
     ) -> Result<Self, TlsnTransportError> {
-        if notary_endpoint.trim().is_empty() {
+        Self::new_with_disclosure_mode(
+            notary_endpoint,
+            notary_verifying_key,
+            notary_id,
+            environment,
+            handoff,
+            attestation_limit,
+            false,
+        )
+    }
+
+    pub fn new_sparse(
+        notary_endpoint: String,
+        notary_verifying_key: VerifyingKey,
+        notary_id: String,
+        environment: String,
+        handoff: Arc<PresentationHandoff>,
+        attestation_limit: NotaryAttestationLimit,
+    ) -> Result<Self, TlsnTransportError> {
+        Self::new_with_disclosure_mode(
+            notary_endpoint,
+            notary_verifying_key,
+            notary_id,
+            environment,
+            handoff,
+            attestation_limit,
+            true,
+        )
+    }
+
+    fn new_with_disclosure_mode(
+        notary_endpoint: String,
+        notary_verifying_key: VerifyingKey,
+        notary_id: String,
+        environment: String,
+        handoff: Arc<PresentationHandoff>,
+        attestation_limit: NotaryAttestationLimit,
+        sparse: bool,
+    ) -> Result<Self, TlsnTransportError> {
+        let valid_scope = |scope: &str| {
+            !scope.is_empty()
+                && scope.len() <= 128
+                && scope.bytes().all(|byte| byte.is_ascii_graphic())
+        };
+        if notary_endpoint.trim().is_empty()
+            || notary_verifying_key.alg != KeyAlgId::K256
+            || !matches!(notary_verifying_key.data.len(), 33 | 65)
+            || !valid_scope(&notary_id)
+            || !valid_scope(&environment)
+        {
             return Err(TlsnTransportError::Unavailable);
         }
         Ok(Self {
             notary_endpoint,
+            notary_verifying_key,
+            notary_id,
+            environment,
             handoff,
             attestation_limit,
+            sparse,
+            test_attestation_grant_override: None,
+            test_extra_attestation_extensions: Vec::new(),
         })
+    }
+
+    #[cfg(feature = "local-test-notary-fault-injection")]
+    pub fn with_test_attestation_extensions(
+        mut self,
+        grant_override: Option<Vec<u8>>,
+        extra_extensions: Vec<Extension>,
+    ) -> Self {
+        self.test_attestation_grant_override = grant_override;
+        self.test_extra_attestation_extensions = extra_extensions;
+        self
     }
 }
 
@@ -1812,16 +1888,28 @@ impl Alpha15OriginTransportFactory for RealAlpha15OriginTransportFactory {
         lifecycle: ExchangeLifecycle,
     ) -> crate::experimental_tlsn::TlsnTransportFuture {
         let notary_endpoint = self.notary_endpoint.clone();
+        let notary_verifying_key = self.notary_verifying_key.clone();
+        let notary_id = self.notary_id.clone();
+        let environment = self.environment.clone();
         let handoff = Arc::clone(&self.handoff);
         let attestation_limit = self.attestation_limit;
+        let sparse = self.sparse;
+        let test_attestation_grant_override = self.test_attestation_grant_override.clone();
+        let test_extra_attestation_extensions = self.test_extra_attestation_extensions.clone();
         Box::pin(async move {
             lifecycle
                 .run(run_real_exchange(
                     config,
                     request,
                     notary_endpoint,
+                    notary_verifying_key,
+                    notary_id,
+                    environment,
                     handoff,
                     attestation_limit,
+                    sparse,
+                    test_attestation_grant_override,
+                    test_extra_attestation_extensions,
                     lifecycle.clone(),
                 ))
                 .await
@@ -1837,8 +1925,14 @@ async fn run_real_exchange(
     config: OriginTransportConfig,
     request: SerializedOriginRequest,
     notary_endpoint: String,
+    notary_verifying_key: VerifyingKey,
+    notary_id: String,
+    environment: String,
     handoff: Arc<PresentationHandoff>,
     attestation_limit: NotaryAttestationLimit,
+    sparse: bool,
+    test_attestation_grant_override: Option<Vec<u8>>,
+    test_extra_attestation_extensions: Vec<Extension>,
     lifecycle: ExchangeLifecycle,
 ) -> Result<TlsnOriginCapture, TlsnTransportError> {
     let exchange_started = std::time::Instant::now();
@@ -1854,16 +1948,33 @@ async fn run_real_exchange(
     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
     let max_sent_data = max_sent_data_for_request(request.bytes())?;
 
-    let origin_connect_started = std::time::Instant::now();
-    let origin_socket = TcpStream::connect((config.target().hostname(), config.target().port()))
-        .await
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let origin_connect_elapsed = origin_connect_started.elapsed();
     let notary_connect_started = std::time::Instant::now();
-    let notary_socket = TcpStream::connect(&notary_endpoint)
+    let mut notary_socket = TcpStream::connect(&notary_endpoint)
         .await
-        .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+        .map_err(|_| TlsnTransportError::NotaryConnectionFailed)?;
     let notary_connect_elapsed = notary_connect_started.elapsed();
+    crate::notary_wire::client_admit(
+        &mut notary_socket,
+        session_context_grant.bytes(),
+        &notary_verifying_key,
+        &notary_id,
+        &environment,
+    )
+    .await
+    .map_err(|error| match error {
+        crate::notary_wire::NotaryWireError::InvalidSignature => {
+            TlsnTransportError::NotaryPinMismatch
+        }
+        _ => TlsnTransportError::NotaryAdmissionFailed,
+    })?;
+
+    let origin_connect_started = std::time::Instant::now();
+    let origin_socket = match config.target().loopback_connect_address() {
+        Some(address) => TcpStream::connect(address).await,
+        None => TcpStream::connect((config.target().hostname(), config.target().port())).await,
+    }
+    .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let origin_connect_elapsed = origin_connect_started.elapsed();
 
     let worker_lifecycle = lifecycle.clone();
     let session = Session::new_with_worker_spawn(notary_socket.compat(), move |work| {
@@ -1951,6 +2062,15 @@ async fn run_real_exchange(
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
     let response_read_elapsed = response_read_started.elapsed();
     let response = parse_http_response(raw_response)?;
+    let sparse_ranges = if sparse {
+        plan_require_info_response_sparse_ranges(
+            &response.raw_response_bytes,
+            &ParserLimits::default(),
+        )
+        .map_err(|_| TlsnTransportError::ResponseReadFailed)?
+    } else {
+        Vec::new()
+    };
     tracing::info!(
         server_identity = config.target().server_identity(),
         request_bytes = request.bytes().len(),
@@ -1993,12 +2113,24 @@ async fn run_real_exchange(
             .map_err(|_| ProofContinuationError::ProverFinalization)?
             .map_err(|_| ProofContinuationError::ProverFinalization)?;
         let transcript_commit = {
-            let transcript = HttpTranscript::parse(prover.transcript())
-                .map_err(|_| ProofContinuationError::TranscriptCommit)?;
             let mut commit_builder = TranscriptCommitConfig::builder(prover.transcript());
-            DefaultHttpCommitter::default()
-                .commit_transcript(&mut commit_builder, &transcript)
-                .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+            if sparse {
+                let sent_len = prover.transcript().sent().len();
+                commit_builder
+                    .commit_sent(0..sent_len)
+                    .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+                for range in &sparse_ranges {
+                    commit_builder
+                        .commit_recv(range.clone())
+                        .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+                }
+            } else {
+                let transcript = HttpTranscript::parse(prover.transcript())
+                    .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+                DefaultHttpCommitter::default()
+                    .commit_transcript(&mut commit_builder, &transcript)
+                    .map_err(|_| ProofContinuationError::TranscriptCommit)?;
+            }
             commit_builder
                 .build()
                 .map_err(|_| ProofContinuationError::TranscriptCommit)?
@@ -2008,8 +2140,14 @@ async fn run_real_exchange(
         request_config_builder.transcript_commit(transcript_commit.clone());
         request_config_builder.extension(Extension {
             id: SESSION_CONTEXT_GRANT_EXTENSION_ID.to_vec(),
-            value: session_context_grant.bytes().to_vec(),
+            value: test_attestation_grant_override
+                .as_deref()
+                .unwrap_or_else(|| session_context_grant.bytes())
+                .to_vec(),
         });
+        for extension in test_extra_attestation_extensions {
+            request_config_builder.extension(extension);
+        }
         let request_config = request_config_builder
             .build()
             .map_err(|_| ProofContinuationError::AttestationRequest)?;
@@ -2022,9 +2160,17 @@ async fn run_real_exchange(
         prove_builder
             .reveal_sent(0..sent_len)
             .map_err(|_| ProofContinuationError::Prove)?;
-        prove_builder
-            .reveal_recv(0..received_len)
-            .map_err(|_| ProofContinuationError::Prove)?;
+        if sparse {
+            for range in &sparse_ranges {
+                prove_builder
+                    .reveal_recv(range.clone())
+                    .map_err(|_| ProofContinuationError::Prove)?;
+            }
+        } else {
+            prove_builder
+                .reveal_recv(0..received_len)
+                .map_err(|_| ProofContinuationError::Prove)?;
+        }
         let prove_config = prove_builder
             .build()
             .map_err(|_| ProofContinuationError::Prove)?;
@@ -2092,6 +2238,9 @@ async fn run_real_exchange(
             read_notary_attestation(&mut notary_socket, attestation_limit).await?;
         let attestation: Attestation =
             bincode::deserialize(&attestation_bytes).map_err(|_| ProofContinuationError::Notary)?;
+        if attestation.body.verifying_key() != &notary_verifying_key {
+            return Err(ProofContinuationError::AttestationValidation);
+        }
         attestation_request
             .validate(&attestation, &CryptoProvider::default())
             .map_err(|_| ProofContinuationError::AttestationValidation)?;
@@ -2103,8 +2252,12 @@ async fn run_real_exchange(
             "TLSN Notary attestation exchange and validation completed"
         );
         let presentation_started = std::time::Instant::now();
-        let presentation = build_presentation(&attestation, &secrets)
-            .map_err(|_| ProofContinuationError::Presentation)?;
+        let presentation = build_presentation(
+            &attestation,
+            &secrets,
+            sparse.then_some(sparse_ranges.as_slice()),
+        )
+        .map_err(|_| ProofContinuationError::Presentation)?;
         let presentation_bytes =
             bincode::serialize(&presentation).map_err(|_| ProofContinuationError::Presentation)?;
         let presentation_bytes_len = presentation_bytes.len();
@@ -2177,14 +2330,23 @@ fn proof_stop(reason: ExchangeStop) -> ProofContinuationError {
 fn build_presentation(
     attestation: &Attestation,
     secrets: &tlsn::attestation::Secrets,
+    sparse_ranges: Option<&[std::ops::Range<usize>]>,
 ) -> Result<tlsn::attestation::presentation::Presentation, TlsnTransportError> {
     let mut builder = secrets.transcript_proof_builder();
     builder
         .reveal_sent(0..secrets.transcript().sent().len())
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
-    builder
-        .reveal_recv(0..secrets.transcript().received().len())
-        .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+    if let Some(ranges) = sparse_ranges {
+        for range in ranges {
+            builder
+                .reveal_recv(range.clone())
+                .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+        }
+    } else {
+        builder
+            .reveal_recv(0..secrets.transcript().received().len())
+            .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+    }
     let transcript_proof = builder
         .build()
         .map_err(|_| TlsnTransportError::ResponseReadFailed)?;

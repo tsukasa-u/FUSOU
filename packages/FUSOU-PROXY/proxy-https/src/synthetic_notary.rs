@@ -12,16 +12,25 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
-use tlsn::attestation::Extension;
+use tlsn::{
+    attestation::{
+        request::Request as AttestationRequest, Attestation, AttestationConfig, CryptoProvider,
+        Extension, InvalidExtension,
+    },
+    connection::{CertBinding, ConnectionInfo, TranscriptLength},
+    transcript::{ContentType, TlsTranscript, TranscriptCommitment},
+};
 use uuid::Uuid;
 
 const STORE_SCHEMA_VERSION: u32 = 1;
 const MAX_SAVED_RESULT_BYTES: usize = 8 * 1024 * 1024;
 pub const LOCAL_TEST_NOTARY_ID: &str = "synthetic-notary-v1";
 pub const LOCAL_TEST_ENVIRONMENT: &str = "local-test";
+pub const LOCAL_TEST_SESSION_AUTHORITY_KEY_ID: &str = "synthetic-local-test-notary-v1";
 static PROCESS_INSTANCE_ID: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,6 +405,130 @@ impl LiveNotarySessionContext {
         }
         Ok(())
     }
+}
+
+pub(crate) fn sign_and_persist_attestation(
+    request: AttestationRequest,
+    tls_transcript: &TlsTranscript,
+    transcript_commitments: Vec<TranscriptCommitment>,
+    live_notary_session: LiveNotarySessionContext,
+    notary_signing_key: &[u8],
+    after_claim: impl FnOnce(),
+) -> Result<(Attestation, Vec<u8>), String> {
+    let mut provider = CryptoProvider::default();
+    provider
+        .signer
+        .set_secp256k1(notary_signing_key)
+        .map_err(|error| format!("configure Notary signer: {error}"))?;
+
+    let accepted_context = Arc::new(Mutex::new(None));
+    let live_session_slot = Arc::new(Mutex::new(Some(live_notary_session)));
+    let validator_session_slot = Arc::clone(&live_session_slot);
+    let accepted_context_slot = Arc::clone(&accepted_context);
+    let mut config_builder = AttestationConfig::builder();
+    config_builder
+        .supported_signature_algs(provider.signer.supported_algs().collect::<Vec<_>>())
+        .extension_validator(move |extensions| {
+            let now_ms = notary_now_ms()
+                .map_err(|_| InvalidExtension::new("Notary clock is before the epoch"))?;
+            let live_session = validator_session_slot
+                .lock()
+                .map_err(|_| InvalidExtension::new("Notary session state is poisoned"))?
+                .take()
+                .ok_or_else(|| InvalidExtension::new("Notary session was already consumed"))?;
+            let acceptance = live_session
+                .validate_request_extensions(extensions, now_ms)
+                .map_err(|error| InvalidExtension::new(error))?;
+            let mut session_slot = validator_session_slot
+                .lock()
+                .map_err(|_| InvalidExtension::new("Notary session state is poisoned"))?;
+            if session_slot.replace(live_session).is_some() {
+                return Err(InvalidExtension::new(
+                    "Notary session context was unexpectedly replaced",
+                ));
+            }
+            let mut acceptance_slot = accepted_context_slot
+                .lock()
+                .map_err(|_| InvalidExtension::new("Notary acceptance state is poisoned"))?;
+            if acceptance_slot.replace(acceptance).is_some() {
+                return Err(InvalidExtension::new(
+                    "Notary context was validated more than once",
+                ));
+            }
+            Ok(())
+        });
+    let config = config_builder
+        .build()
+        .map_err(|error| format!("build Notary attestation policy: {error}"))?;
+    let request_for_validation = request.clone();
+    let mut attestation_builder = Attestation::builder(&config)
+        .accept_request(request)
+        .map_err(|error| format!("reject Notary attestation request: {error}"))?;
+
+    after_claim();
+
+    let live_notary_session = live_session_slot
+        .lock()
+        .map_err(|_| "Notary session state is poisoned".to_owned())?
+        .take()
+        .ok_or_else(|| "Notary session was already consumed".to_owned())?;
+    let acceptance = accepted_context
+        .lock()
+        .map_err(|_| "Notary acceptance state is poisoned".to_owned())?
+        .take()
+        .ok_or_else(|| "Notary grant was not durably claimed".to_owned())?;
+    attestation_builder.extension(acceptance.extension());
+
+    let CertBinding::V1_2(binding) = tls_transcript.certificate_binding() else {
+        return Err("unsupported TLS certificate binding version".to_owned());
+    };
+    let sent = application_data_length(tls_transcript, true)?;
+    let received = application_data_length(tls_transcript, false)?;
+    attestation_builder
+        .connection_info(ConnectionInfo {
+            time: tls_transcript.time(),
+            version: tls_transcript.version(),
+            transcript_length: TranscriptLength { sent, received },
+        })
+        .server_ephemeral_key(binding.server_ephemeral_key.clone())
+        .transcript_commitments(transcript_commitments);
+    let attestation = attestation_builder
+        .build(&provider)
+        .map_err(|error| format!("sign Notary attestation: {error}"))?;
+    request_for_validation
+        .validate(&attestation, &CryptoProvider::default())
+        .map_err(|error| format!("validate signed Notary attestation: {error}"))?;
+    let exact_result = bincode::serialize(&attestation)
+        .map_err(|error| format!("serialize signed Notary attestation: {error}"))?;
+    live_notary_session.finalize_exact_result(&exact_result)?;
+    Ok((attestation, exact_result))
+}
+
+fn application_data_length(tls_transcript: &TlsTranscript, sent: bool) -> Result<u32, String> {
+    let records = if sent {
+        tls_transcript.sent()
+    } else {
+        tls_transcript.recv()
+    };
+    records
+        .iter()
+        .filter(|record| record.typ == ContentType::ApplicationData)
+        .map(|record| record.ciphertext.len())
+        .try_fold(0_u32, |total, length| {
+            let length = u32::try_from(length)
+                .map_err(|_| "TLS transcript length exceeds Notary limit".to_owned())?;
+            total
+                .checked_add(length)
+                .ok_or_else(|| "TLS transcript length exceeds Notary limit".to_owned())
+        })
+}
+
+fn notary_now_ms() -> Result<u64, String> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("Notary clock is before the epoch: {error}"))?
+        .as_millis();
+    u64::try_from(millis).map_err(|error| format!("Notary clock is out of range: {error}"))
 }
 
 impl LiveNotarySessionLease {

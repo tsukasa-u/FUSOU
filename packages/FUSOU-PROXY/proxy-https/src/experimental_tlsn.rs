@@ -720,6 +720,9 @@ pub enum TlsnTransportError {
     RuntimeConfigChanged,
     AlreadySent,
     RequestTooLarge,
+    NotaryConnectionFailed,
+    NotaryAdmissionFailed,
+    NotaryPinMismatch,
     OriginConnectionFailed,
     AmbiguousOriginSend,
     SystemTrustStoreUnavailable,
@@ -838,6 +841,13 @@ impl std::fmt::Display for TlsnTransportError {
             Self::RuntimeConfigChanged => "TLSN Runtime Config changed before origin transport",
             Self::AlreadySent => "TLSN origin transport rejected a duplicate send",
             Self::RequestTooLarge => "TLSN origin request exceeds the configured capacity",
+            Self::NotaryConnectionFailed => "TLSN Notary connection failed before origin transport",
+            Self::NotaryAdmissionFailed => {
+                "TLSN Notary Session grant admission failed before origin transport"
+            }
+            Self::NotaryPinMismatch => {
+                "TLSN Notary admission signature did not match the pinned key"
+            }
             Self::OriginConnectionFailed => "TLSN origin connection failed",
             Self::AmbiguousOriginSend => {
                 "TLSN origin write failed; Game Server receipt is UNKNOWN; no upstream retry"

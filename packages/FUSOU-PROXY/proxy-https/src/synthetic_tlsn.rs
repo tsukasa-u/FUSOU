@@ -4,7 +4,7 @@ use crate::experimental_tlsn::{
     TlsnOriginCapture, TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport,
     TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
-use crate::synthetic_notary::LocalTestNotary;
+use crate::synthetic_notary::{LocalTestNotary, LOCAL_TEST_SESSION_AUTHORITY_KEY_ID};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use fusou_tlsn_verifier::{
     parse_binding_value, plan_require_info_response_sparse_ranges,
@@ -32,14 +32,14 @@ use std::{
 use tlsn::{
     attestation::{
         request::{Request as AttestationRequest, RequestConfig},
-        Attestation, AttestationConfig, CryptoProvider, Extension, InvalidExtension,
+        CryptoProvider, Extension,
     },
     config::{
         prover::ProverConfig, tls::TlsClientConfig, tls_commit::proxy::ProxyTlsConfig,
         verifier::VerifierConfig,
     },
-    connection::{CertBinding, ConnectionInfo, DnsName, ServerName, TranscriptLength},
-    transcript::{ContentType, TlsTranscript, TranscriptCommitConfig},
+    connection::{DnsName, ServerName},
+    transcript::TranscriptCommitConfig,
     verifier::VerifierCommitStart,
     webpki::{CertificateDer, RootCertStore},
     Session,
@@ -53,7 +53,7 @@ use tokio_rustls::{
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub const SYNTHETIC_SERVER_IDENTITY: &str = "game.example.test";
-pub(crate) const SYNTHETIC_SESSION_AUTHORITY_KEY_ID: &str = "synthetic-local-test-notary-v1";
+pub(crate) const SYNTHETIC_SESSION_AUTHORITY_KEY_ID: &str = LOCAL_TEST_SESSION_AUTHORITY_KEY_ID;
 pub(crate) const SYNTHETIC_DEVICE_ID: &str = "22222222-2222-4222-8222-222222222222";
 static SYNTHETIC_GRANT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -62,7 +62,7 @@ fn synthetic_session_authority_keypair() -> Ed25519KeyPair {
         .expect("synthetic Session Authority seed must be valid")
 }
 
-pub(crate) fn synthetic_session_authority_public_key_spki() -> Vec<u8> {
+pub fn synthetic_session_authority_public_key_spki() -> Vec<u8> {
     let key_pair = synthetic_session_authority_keypair();
     let mut spki = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00".to_vec();
     spki.extend_from_slice(key_pair.public_key().as_ref());
@@ -72,6 +72,12 @@ pub(crate) fn synthetic_session_authority_public_key_spki() -> Vec<u8> {
 pub fn synthetic_attestation_binding(
     value: String,
 ) -> Result<AttestationBinding, crate::experimental_tlsn::BindingError> {
+    synthetic_attestation_binding_with_grant(value).map(|(binding, _)| binding)
+}
+
+pub fn synthetic_attestation_binding_with_grant(
+    value: String,
+) -> Result<(AttestationBinding, Vec<u8>), crate::experimental_tlsn::BindingError> {
     let parsed = parse_binding_value(&value)
         .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
     let device_id_sha256 = device_id_commitment(SYNTHETIC_DEVICE_ID)
@@ -110,7 +116,10 @@ pub fn synthetic_attestation_binding(
             SYNTHETIC_SESSION_AUTHORITY_KEY_ID,
         )
         .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
-    AttestationBinding::with_session_context_grant(value, Bytes::from(grant.encoded().to_vec()))
+    let encoded = grant.encoded().to_vec();
+    let binding =
+        AttestationBinding::with_session_context_grant(value, Bytes::from(encoded.clone()))?;
+    Ok((binding, encoded))
 }
 
 pub fn synthetic_require_info_request() -> Request<Bytes> {
@@ -132,6 +141,30 @@ pub fn synthetic_serialized_require_info_request(
 ) -> Result<SerializedOriginRequest, SerializationError> {
     let (parts, body) = synthetic_require_info_request().into_parts();
     Http1OriginRequestSerializer.serialize(&parts, body, binding)
+}
+
+#[cfg(feature = "local-test-notary-fault-injection")]
+pub fn synthetic_test_request_with_grant(
+    server_identity: &str,
+    binding_value: String,
+    encoded_grant: Vec<u8>,
+) -> Result<SerializedOriginRequest, String> {
+    let binding =
+        AttestationBinding::with_session_context_grant(binding_value, Bytes::from(encoded_grant))
+            .map_err(|error| error.to_string())?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("https://{server_identity}{REQUIRE_INFO_TARGET}"))
+        .version(Version::HTTP_11)
+        .header("Host", server_identity)
+        .header("Content-Length", "0")
+        .header("Connection", "close")
+        .body(Bytes::new())
+        .map_err(|error| format!("construct local test origin request: {error}"))?;
+    let (parts, body) = request.into_parts();
+    Http1OriginRequestSerializer
+        .serialize(&parts, body, &binding)
+        .map_err(|error| format!("serialize local test origin request: {error}"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -695,100 +728,17 @@ async fn run_synthetic_exchange(
             return Err(ProofContinuationError::ProverFinalization);
         }
         let attestation_started = Instant::now();
-        let mut notary_provider = CryptoProvider::default();
-        notary_provider
-            .signer
-            .set_secp256k1(&[1_u8; 32])
-            .map_err(|_| ProofContinuationError::Notary)?;
-        let accepted_context = Arc::new(Mutex::new(None));
-        let live_session_slot = Arc::new(Mutex::new(Some(live_notary_session)));
-        let validator_session_slot = Arc::clone(&live_session_slot);
-        let accepted_context_slot = Arc::clone(&accepted_context);
-        let session_authority_public_key = synthetic_session_authority_public_key_spki();
-        let mut attestation_config_builder = AttestationConfig::builder();
-        attestation_config_builder
-            .supported_signature_algs(notary_provider.signer.supported_algs().collect::<Vec<_>>())
-            .extension_validator(move |extensions| {
-                let now_ms = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|_| InvalidExtension::new("Notary clock is before the epoch"))?
-                    .as_millis() as u64;
-                if session_authority_public_key != synthetic_session_authority_public_key_spki() {
-                    return Err(InvalidExtension::new(
-                        "local Notary authority pin changed during the live operation",
-                    ));
-                }
-                let live_session = validator_session_slot
-                    .lock()
-                    .map_err(|_| InvalidExtension::new("Notary session state is poisoned"))?
-                    .take()
-                    .ok_or_else(|| InvalidExtension::new("Notary session was already consumed"))?;
-                let acceptance = live_session
-                    .validate_request_extensions(extensions, now_ms)
-                    .map_err(|error| InvalidExtension::new(error.to_string()))?;
-                let mut live_session_slot = validator_session_slot
-                    .lock()
-                    .map_err(|_| InvalidExtension::new("Notary session state is poisoned"))?;
-                if live_session_slot.replace(live_session).is_some() {
-                    return Err(InvalidExtension::new(
-                        "Notary session context was unexpectedly replaced",
-                    ));
-                }
-                let mut slot = accepted_context_slot
-                    .lock()
-                    .map_err(|_| InvalidExtension::new("Notary acceptance state is poisoned"))?;
-                if slot.replace(acceptance).is_some() {
-                    return Err(InvalidExtension::new(
-                        "Notary context was validated more than once",
-                    ));
-                }
-                Ok(())
-            });
-        let attestation_config = attestation_config_builder
-            .build()
-            .map_err(|_| ProofContinuationError::Notary)?;
-        let attestation_request_for_validation = attestation_request.clone();
-        let mut attestation_builder = Attestation::builder(&attestation_config)
-            .accept_request(attestation_request)
-            .map_err(|_| ProofContinuationError::AttestationRequest)?;
-        let live_notary_session = live_session_slot
-            .lock()
-            .map_err(|_| ProofContinuationError::Notary)?
-            .take()
-            .ok_or(ProofContinuationError::Notary)?;
-        let acceptance = accepted_context
-            .lock()
-            .map_err(|_| ProofContinuationError::Notary)?
-            .take()
-            .ok_or(ProofContinuationError::Notary)?;
-        attestation_builder.extension(acceptance.extension());
-        let CertBinding::V1_2(binding) = verifier_tls_transcript.certificate_binding() else {
-            return Err(ProofContinuationError::AttestationRequest);
-        };
-        let sent = application_data_length(&verifier_tls_transcript, true)
-            .map_err(|_| ProofContinuationError::AttestationRequest)?;
-        let received = application_data_length(&verifier_tls_transcript, false)
-            .map_err(|_| ProofContinuationError::AttestationRequest)?;
-        attestation_builder
-            .connection_info(ConnectionInfo {
-                time: verifier_tls_transcript.time(),
-                version: verifier_tls_transcript.version(),
-                transcript_length: TranscriptLength { sent, received },
-            })
-            .server_ephemeral_key(binding.server_ephemeral_key.clone())
-            .transcript_commitments(verifier_output.transcript_commitments);
-        let attestation = attestation_builder
-            .build(&notary_provider)
-            .map_err(|_| ProofContinuationError::Notary)?;
-        attestation_request_for_validation
-            .validate(&attestation, &CryptoProvider::default())
-            .map_err(|_| ProofContinuationError::AttestationValidation)?;
-        let exact_notary_result =
-            bincode::serialize(&attestation).map_err(|_| ProofContinuationError::Notary)?;
-        live_notary_session
-            .finalize_exact_result(&exact_notary_result)
+        let (attestation, exact_notary_result) =
+            crate::synthetic_notary::sign_and_persist_attestation(
+                attestation_request,
+                &verifier_tls_transcript,
+                verifier_output.transcript_commitments,
+                live_notary_session,
+                &[1_u8; 32],
+                || {},
+            )
             .map_err(|error| {
-                tracing::error!(%error, "failed to persist exact signed local Notary result");
+                tracing::error!(%error, "local Notary attestation signing failed");
                 ProofContinuationError::Notary
             })?;
         update_timing(&proof_timing, |timing| {
@@ -908,28 +858,6 @@ async fn run_synthetic_exchange(
         Ok(())
     }));
     Ok(TlsnOriginCapture { exchange, proof })
-}
-
-fn application_data_length(
-    transcript: &TlsTranscript,
-    sent: bool,
-) -> Result<u32, TlsnTransportError> {
-    let records = if sent {
-        transcript.sent()
-    } else {
-        transcript.recv()
-    };
-    records
-        .iter()
-        .filter(|record| record.typ == ContentType::ApplicationData)
-        .map(|record| record.ciphertext.len())
-        .try_fold(0_u32, |total, length| {
-            let length =
-                u32::try_from(length).map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-            total
-                .checked_add(length)
-                .ok_or(TlsnTransportError::OriginConnectionFailed)
-        })
 }
 
 fn server_credentials() -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), TlsnTransportError> {
