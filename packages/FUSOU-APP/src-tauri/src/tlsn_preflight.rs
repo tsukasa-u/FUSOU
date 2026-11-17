@@ -2105,18 +2105,38 @@ mod tests {
         assert_eq!(canonical_sha256(&first), canonical_sha256(&reordered));
 
         let contract = app_configuration_fingerprint_contract();
+        let compile_time_sha256 = "compile";
+        let runtime_sha256 = "runtime";
         let baseline = combined_configuration_sha256(
             contract.schema_version,
             &contract.scope,
-            "compile",
-            "runtime",
+            compile_time_sha256,
+            runtime_sha256,
         );
+        let different_schema_version = contract
+            .schema_version
+            .checked_add(1)
+            .or_else(|| contract.schema_version.checked_sub(1))
+            .expect("fingerprint schema version must have an alternative u8 value");
+        assert_ne!(different_schema_version, contract.schema_version);
         assert_ne!(
-            combined_configuration_sha256(3, &contract.scope, "compile", "runtime"),
+            combined_configuration_sha256(
+                different_schema_version,
+                &contract.scope,
+                compile_time_sha256,
+                runtime_sha256,
+            ),
             baseline
         );
+        let different_scope = format!("{}-alternate", contract.scope);
+        assert_ne!(different_scope, contract.scope);
         assert_ne!(
-            combined_configuration_sha256(2, "another-scope", "compile", "runtime"),
+            combined_configuration_sha256(
+                contract.schema_version,
+                &different_scope,
+                compile_time_sha256,
+                runtime_sha256,
+            ),
             baseline
         );
     }
