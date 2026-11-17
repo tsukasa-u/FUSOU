@@ -1,5 +1,15 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Worker Result profile contract fixture follow-up — 2026-11-17
+
+**HOSTED_CI_OBSERVED (pre-fix):** Run [#124](https://github.com/tsukasa-u/FUSOU/actions/runs/44072846697), for commit `29c3b1f7716e0e7906cc9109eeab833d5a3ec4f5`, failed at `node-contract-tests` step 25 with 72/74 tests passing. The Complete and Sparse Result success fixtures used historical profile IDs while the current contract requires the v3 Notary-session-binding IDs. Subsequent job steps 26–31 were skipped, including the candidate readiness contract suite.
+
+**SOURCE_IMPLEMENTED:** `scripts/release-worker-integration.test.mjs` now imports the current Complete/Sparse profile constants for its success fixtures and rejects each historical profile ID. Complete Result remains version 2 and Sparse Result version 3. Existing exact-Presentation, Production digest, mutation, and canonical-identity assertions remain intact; production profile validation was not changed.
+
+**LOCAL_TEST_VERIFIED:** The two targeted Result tests passed (2/2), the full integration file passed (24/24), and the exact step 25 Node test list passed (74/74, 0 skipped); Worker typecheck passed using current-source WASM bindings generated in temporary output with verified provenance. Local Node was v22.21.1 (workflow: v22.16.0); pnpm was v10.14.0. Existing ignored WASM artifacts were restored unchanged.
+
+**HOSTED_CI_VERIFIED: NOT_CHECKED** after this fix. Run #124 remains the pre-fix failure record; Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Headerless ingress and local Notary durability follow-up — 2026-11-18
 
 **SOURCE_IMPLEMENTED:** The Hudsucker APP proxy now rejects any
