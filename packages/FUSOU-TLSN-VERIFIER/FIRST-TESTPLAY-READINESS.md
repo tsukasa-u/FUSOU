@@ -1,5 +1,133 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Headerless ingress and local Notary durability follow-up — 2026-11-18
+
+**SOURCE_IMPLEMENTED:** The Hudsucker APP proxy now rejects any
+case-insensitive `X-Attestation-Binding` occurrence, including duplicates,
+before route selection, body reads, capture admission, binding issuance, or
+ordinary-proxy fallback. The optional Rama ingress applies the same guard
+before authority routing or upstream service calls. Both return `400`; the
+serializer's existing rejection remains defense in depth. Ordinary game
+headers and body bytes are not stripped or rewritten. Confirmed pre-send
+`NotSent` fallback still forwards once; an ambiguous post-send failure returns
+an error response rather than an ordinary-proxy request.
+
+The feature-gated synthetic Notary now separates explicit `initialize_new`
+from `open_existing`. Initialization creates a new lock and installs the
+initial state without overwriting an existing file; ordinary open, status, and
+update require the existing lock and state. A missing initialized state is an
+error, never an empty ledger or `Unused` result. Corrupt, unreadable, truncated,
+and unsupported-schema stores also fail closed. File locking, atomic state
+replacement, file sync, and parent-directory sync are retained. An absent
+grant in a successfully initialized store is `Unused`; admission,
+pre-signature claim, exact-result finalization, restart/interruption `Unknown`,
+and quarantined `Rejected` states remain distinct. The Notary generates the
+operation and live-connection identifiers itself. A non-clonable operation
+lease is moved into and returned by the TLSN verifier task that owns the
+protocol instance; extension validation uses that lease with the task's output,
+requires the exact admitted grant, and durably claims it before attestation
+signing. The validated, signed TLSN Attestation is saved as exact bytes; result
+lookup returns those bytes and never signs again. Restart turns unfinished
+admission/signing states into `Unknown`, while a finalized result remains
+readable.
+
+The existing grant v1 signature has no explicit audience, Notary, or
+environment fields. The local adapter pins one dedicated synthetic Session
+Authority key ID/public key and has fixed local Notary/environment scope. A
+real integration must enforce a distinct authority key and pin for each
+authorized Notary/environment tuple, or version the grant to sign those scope
+fields; no production scope registration is claimed here.
+
+**LOCAL_TEST_VERIFIED:** Thirteen candidate persistent-store test cases pass,
+covering explicit non-overwriting initialization, missing-file rejection for
+`Admitted`, `Signing`, `Unknown`, and `Finalized`, corrupt/unreadable/
+unsupported-schema rejection, concurrent single admission,
+cross-connection and Session/device substitution, invalid authority pin,
+client acceptance injection, actual child-process restart recovery, and
+exact-result byte readback after restart.
+Hudsucker handler tests pass for
+mixed-case/duplicate rejection before body polling, raw loopback origin
+receipt count and bytes on both unavailable-capture and confirmed-`NotSent`
+fallbacks, and no ordinary request after an ambiguous failure. The optional
+Rama guard test also passes with `rama-experimental`. The real alpha.15 SDK
+synthetic integration passes in both Complete and Sparse modes; the concrete
+Hudsucker handler path still verifies the actual TLSN Presentation and
+test-signed Result.
+
+The candidate workflow fetches locked dependencies with `cargo fetch
+--locked` (which does not accept feature flags); `synthetic-tlsn` remains on
+the feature-aware test/list commands, which run offline. It lists the required
+test names before invoking each with exact matching, so a filter typo cannot
+pass with zero tests. The 20 required invocations cover Complete and Sparse
+transport paths, handler regressions, and persistent Notary tests.
+Locally, the corrected Rust 1.98.1 fetch completed with a fresh temporary
+`CARGO_HOME` and network access enabled; all 20 exact invocations then passed
+offline using that populated cache. This does not establish a Hosted runner's
+first-fetch result.
+**HOSTED_CI_VERIFIED: NOT_CHECKED** after these changes; Actions were not
+started. **PRODUCTION_VERIFIED:
+NOT_VERIFIED**; no real Notary, Game Server, Worker deployment, key enrollment,
+or Production evidence was exercised. Stage A/B/C and Production acceptance
+remain **BLOCKED**.
+
+## Headerless Session binding — initial implementation verification
+
+The verification snapshot below predates the persistent Notary and ingress
+follow-up above. Its in-memory-ledger description and test counts are
+historical, not the current implementation state.
+
+**SOURCE_IMPLEMENTED:** The current complete and sparse profiles are
+`fusou-require-info-v3-notary-session-binding` and
+`fusou-require-info-v3-sparse-notary-session-binding`. The origin serializer
+does not inject `X-Attestation-Binding`; it rejects a client-supplied instance
+and carries FUSOU context separately as typed metadata. The Session Authority
+grant is signed under `FUSOU-TLSN-SESSION-CONTEXT-GRANT-V1\0` and binds the
+purpose, canonical Session ID, binding, device commitment, challenge, signer
+key ID, and issue/expiry times. It is carried as
+`fusou.session-context.grant.v1`. The verified Presentation must contain
+exactly that grant and `fusou.notary.session-context.accepted.v1`; the latter
+binds the grant digest, fixed policy ID, and validation time. Rust's shared
+verifier checks the exact extension set and signature, and the offline Evidence
+Bundle verifier matches the grant against the signed Session receipt and
+Result. The v3 profile IDs and per-identity canonical profile digest derivation
+are recorded in the tracked
+[Worker profile contract](../FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs).
+
+**LOCAL_TEST_VERIFIED:** Rust verifier library tests passed (**154/154**),
+including complete and sparse 19-role Bundle finalization with independent
+semantic-report verification, including malformed and unknown-version
+Session-context encoding rejection. The proxy library suite passed
+(**188 passed, 1 ignored**); its headerless handler path verifies the
+Notary-signed Presentation, Session grant, and test-signed Result, and confirms
+the ordinary pre-send fallback adds no tracking header. The local synthetic
+TLSN/Notary path passed in complete and sparse modes; exact origin bytes match
+the authenticated transcript, signed Session context is recovered, Results
+verify, and duplicate sends are rejected. Sparse capture passed separately
+(**1/1**). The ignored proxy test is the APP/Worker roundtrip and remains
+**NOT_CHECKED**. Worker Session/evidence contract tests passed (**55/55**).
+TypeScript typecheck passed against temporary WASM
+bindings generated from the current verifier source; a local WASM build also
+confirmed all four extension-aware exports load. This temporary build used
+`wasm-pack 0.13.1`, not the workflow-pinned `0.15.1`. The checked-in
+commit-bound WASM artifacts and provenance were left unchanged. A direct
+typecheck against those unchanged bindings still fails because they lack the
+four new exports; the candidate workflow regenerates them before typecheck, and
+the release provenance guard was not bypassed.
+
+The candidate workflow already rebuilds the Worker WASM from the exact clean
+commit, verifies its provenance, typechecks the Worker, and runs the shared
+Session/evidence contract tests. No workflow change or Actions run was needed.
+Post-change Hosted CI is **NOT_CHECKED**.
+
+The synthetic Notary's one-use ledger is in-memory and local. No real Notary,
+Game Server, Worker deployment, key enrollment, or non-synthetic Production
+Presentation was tested. A real Notary must independently validate the
+pinned Session Authority grant, all bound claims and validity, consume it
+once, and sign the acceptance in the same attestation as the live TLS
+transcript commitments. There is no legacy header-injection fallback. APP
+process/image authority and browser input correctness remain out of scope.
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Worker compatibility guard parser hardening — 2026-11-15
 
 **SOURCE_IMPLEMENTED:** The compatibility guard previously extracted matching

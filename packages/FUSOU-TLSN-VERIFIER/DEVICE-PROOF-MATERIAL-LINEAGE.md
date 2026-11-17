@@ -35,6 +35,86 @@ Relevant sources:
   [challenge/signature helpers](../FUSOU-WEB/src/server/utils/pepper.ts).
 * [Bundle verifier](src/evidence_bundle.rs), [finalizer](src/evidence_bundle/finalization.rs),
   [existing authenticity contract](../../docs/architecture/tlsn-data-authenticity-contract.md).
+* [Session grant and extension verification](src/session_context.rs),
+  [Worker signing helpers](../FUSOU-TLSN-VERIFICATION-WORKER/src/attestation_receipts.ts),
+  [Worker Presentation admission](../FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts),
+  [current Worker profile definition](../FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs).
+
+## Current headerless Session binding — local implementation
+
+The current complete and sparse profiles are
+`fusou-require-info-v3-notary-session-binding` and
+`fusou-require-info-v3-sparse-notary-session-binding`. They do not use
+`X-Attestation-Binding` as an origin correlation channel. The serializer
+preserves ordinary game-request fields, rejects a client-supplied reserved
+binding header, and carries FUSOU context separately as typed metadata. The
+current v3 parsers require the headerless request form; legacy header parsing
+is not an origin-send fallback.
+
+The Session Authority signs a bounded binary grant under
+`FUSOU-TLSN-SESSION-CONTEXT-GRANT-V1\0`. Its exact fields are version, signer
+key ID, fixed purpose, canonical Session UUID, binding value, SHA-256 device
+commitment, device challenge, issue time, and expiry time. It contains no user
+identifier, authentication token, cookie, or Game Server credential. The grant
+is sent as TLSN request extension `fusou.session-context.grant.v1`. The Notary
+must validate that grant against the pinned Session Authority and its current
+validity window, consume it once, then include
+`fusou.notary.session-context.accepted.v1` in the same signed Presentation.
+The acceptance binds the grant digest, fixed policy ID, and validation time.
+Both extensions are mandatory and exact; missing, duplicate, unknown, malformed
+or mismatched extensions fail closed. The Presentation signature authenticates
+the extensions together with the live TLS transcript commitments.
+
+The v1 grant does not contain explicit audience, target-Notary, or environment
+fields. The local synthetic adapter pins a dedicated test Session Authority
+key ID/public key and a fixed Notary/environment scope. A real integration
+must provision and enforce a distinct authority key/pin for every authorized
+Notary/environment tuple, or introduce a grant version that signs those
+fields. Matching a policy ID string alone is not sufficient.
+
+The Worker and offline verifier use the pinned Session Authority identity and
+the same Rust verification core. They verify the Notary signature, require
+exactly the two v1 extensions, and compare the grant's Session, binding,
+device commitment, challenge and time fields with the signed Session receipt
+and Result. Sparse results continue to omit full digests for undisclosed
+transcript bytes.
+
+**LOCAL_TEST_VERIFIED:** Local synthetic Notary/TLS tests verify exact
+headerless origin bytes, exact authenticated transcript bytes, one-send
+behavior, Notary acceptance signing and Complete/Sparse Result signing. The
+feature-gated local Notary uses a process-locked durable file store with
+atomic state updates: `Unused`, `Admitted`, `Signing`, `Finalized`,
+`Unknown`, and `Rejected` are distinct. It generates operation/connection
+identifiers, carries the context from the verifier task that owns the live
+TLSN protocol instance through a non-clonable operation lease, persists the
+claim before signing, stores exact signed Attestation bytes, and returns those
+bytes on lookup without re-signing. Unfinished records become `Unknown` after
+restart; finalized bytes remain available. Creation is explicit:
+`initialize_new` uses exclusive creation, while `open_existing` never creates
+a state file or lock. Missing, unreadable, corrupt, truncated, and unsupported
+schema state fails closed rather than becoming an empty ledger. Thirteen local
+Notary test cases cover non-overwriting initialization, missing-file injection
+in every persisted state, corruption rejection, concurrent use,
+cross-connection/Session/device substitution, pinned-key rejection, actual
+child-process restart recovery, and exact-result byte readback after restart.
+The APP Hudsucker handler's mixed-case/duplicate rejection and raw
+loopback fallback tests pass; the optional Rama guard test passes when its
+feature is enabled.
+The independent offline Evidence Bundle finalizer also verifies synthetic
+complete and sparse 19-role Bundles with Session-context grants and
+revalidates the generated semantic report. These fixtures and the local
+synthetic Notary do not establish a real Notary's extension-validation policy,
+scope-key provisioning, or any Production service behavior.
+
+**UNVERIFIED:** Before a real Notary can be used, its deployed version and
+policy must prove that it validates the Session Authority signature, pinned
+key ID, purpose, Session/device/challenge claims, exact encoding, grant expiry,
+single use, and binding to the same live MPC/TLS connection before signing the
+acceptance extension. No arbitrary-extension signing or automatic legacy
+header fallback is acceptable. No real Game Server, Notary, Worker, deployment
+or key enrollment was exercised. APP process/image authority and browser input
+correctness remain out of scope; Stage A/B/C and Production acceptance remain
+**BLOCKED**.
 
 ## Current capture-scoped send policy (user-confirmed 2026-11-06)
 

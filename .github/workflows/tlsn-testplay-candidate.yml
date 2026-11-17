@@ -255,6 +255,7 @@ jobs:
           pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run test:runtime
           node --experimental-strip-types --test \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-freshness-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/session-context-grant-contract-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-result-contract.test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-contract.test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs \
@@ -433,6 +434,74 @@ jobs:
           cargo +1.98.1 test --locked --offline --lib --features alpha15-tlsn
           --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml
           health
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Run required synthetic TLSN, handler, and persistent Notary tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=packages/FUSOU-PROXY/proxy-https/Cargo.toml
+          listing="$(
+            cargo +1.98.1 test --locked --offline --lib --features synthetic-tlsn \
+              --manifest-path "$manifest" -- --list
+          )"
+          run_exact_test() {
+            local test_name="$1"
+            local proof_mode="${2:-complete}"
+            if ! grep -Fxq "$test_name: test" <<< "$listing"; then
+              echo "Required Proxy test was not discovered: $test_name" >&2
+              exit 1
+            fi
+            FUSOU_SYNTHETIC_PROOF_MODE="$proof_mode" \
+              cargo +1.98.1 test --locked --offline --lib --features synthetic-tlsn \
+                --manifest-path "$manifest" "$test_name" -- --exact
+          }
+
+          run_exact_test \
+            synthetic_tlsn::tests::synthetic_transport_uses_alpha15_and_preserves_wire_bytes
+          run_exact_test \
+            synthetic_tlsn::tests::synthetic_transport_uses_alpha15_and_preserves_wire_bytes \
+            sparse
+          run_exact_test \
+            proxy_server_https::tests::reserved_binding_header_is_rejected_before_body_read_or_fallback
+          run_exact_test \
+            proxy_server_https::tests::headerless_capture_unavailable_fallback_reaches_loopback_origin_once
+          run_exact_test \
+            proxy_server_https::tests::confirmed_not_sent_capture_fallback_reaches_loopback_origin_once
+          run_exact_test \
+            proxy_server_https::tests::ambiguous_capture_failure_never_returns_an_ordinary_proxy_request
+          run_exact_test \
+            proxy_server_https::tests::actual_handler_runs_concrete_alpha15_transport_and_returns_origin_response
+          run_exact_test \
+            synthetic_notary::tests::durable_notary_claims_once_and_returns_the_exact_saved_result
+          run_exact_test \
+            synthetic_notary::tests::process_restart_preserves_durable_notary_states_and_exact_result_bytes
+          run_exact_test \
+            synthetic_notary::tests::missing_store_file_fails_closed_for_all_persisted_states
+          run_exact_test \
+            synthetic_notary::tests::explicit_store_initialization_rejects_existing_store_without_overwriting
+          run_exact_test \
+            synthetic_notary::tests::corrupt_unreadable_and_unsupported_stores_fail_closed
+          run_exact_test \
+            synthetic_notary::tests::concurrent_grant_admission_has_exactly_one_winner
+          run_exact_test \
+            synthetic_notary::tests::restart_preserves_unknown_and_never_reopens_a_signature_claim
+          run_exact_test \
+            synthetic_notary::tests::mismatched_or_client_supplied_acceptance_extensions_are_quarantined
+          run_exact_test \
+            synthetic_notary::tests::another_session_or_device_grant_cannot_be_substituted_on_a_live_connection
+          run_exact_test \
+            synthetic_notary::tests::another_live_notary_connection_cannot_accept_the_first_connections_grant
+          run_exact_test \
+            synthetic_notary::tests::wrong_session_authority_pin_is_rejected_at_admission
+          run_exact_test \
+            synthetic_notary::tests::restart_after_admission_marks_operation_unknown_without_signature
+          run_exact_test \
+            synthetic_notary::tests::result_query_requires_the_pinned_authority_signature
         env:
           CARGO_NET_OFFLINE: "true"
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
