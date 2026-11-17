@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { assertPreparedResultContract } from "../src/production-result-contract.mjs";
+import {
+  COMPLETE_PROFILE_ID,
+  SPARSE_PROFILE_ID,
+} from "../src/origin-trust-contract.mjs";
 
 const serverIdentity = "game.example.test";
 const profileSha256 = "p".repeat(43);
@@ -17,7 +21,7 @@ function result(profile = "complete", overrides = {}) {
   const sparse = profile === "sparse";
   return {
     version: sparse ? 3 : 2,
-    profile_id: sparse ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1",
+    profile_id: sparse ? SPARSE_PROFILE_ID : COMPLETE_PROFILE_ID,
     profile_sha256: profileSha256,
     server_identity: serverIdentity,
     ...(sparse ? { disclosure_mode: "sparse" } : {}),

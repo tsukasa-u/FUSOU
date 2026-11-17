@@ -74,6 +74,48 @@ The following requirements are fixed for this work:
   no origin request was sent. An unknown post-start outcome never falls back.
   Existing per-request admission, preparation, concurrency, binding, signature,
   and replay controls remain in force.
+- FUSOU does not add Session or proof-correlation data to a Game Server request.
+  The current v3 disclosure profiles carry a Session Authority-signed grant
+  through the TLSN attestation request and require the matching Notary-signed
+  acceptance extension in the verified Presentation. The grant binds the
+  canonical Session ID, binding value, device commitment, challenge, purpose,
+  key ID, and validity window. The acceptance binds the exact grant digest,
+  fixed policy ID, and validation time. Both extensions are authenticated with
+  the transcript by the Presentation signature; the independent verifier
+  validates the grant against the pinned Session Authority and independently
+  verified Session receipt. This does not prove account ownership beyond the
+  existing Session/device authority, APP process integrity, or browser input
+  correctness.
+- The APP proxy ingress rejects any client-supplied
+  `X-Attestation-Binding` occurrence, case-insensitively and including
+  duplicates, before route selection, body reads, capture admission, binding
+  issuance, or ordinary-proxy fallback. The Hudsucker path and optional Rama
+  path return `400` without forwarding. The serializer independently rejects
+  the reserved header and never inserts it. The v3 request parser requires the
+  headerless form. Other ordinary game-request fields are preserved. This
+  guard is at the APP proxy ingress; internal Worker/Notary service calls do
+  not use it as their control-header policy. Legacy header-bound parsing, if
+  used for offline historical evidence, is not a fallback for new origin
+  sends.
+
+The local synthetic Notary uses a process-locked, file-backed store with
+atomic durable transitions for `Admitted`, `Signing`, `Finalized`, `Unknown`,
+and `Rejected`; absence means `Unused`. It creates operation and live
+connection identifiers server-side, carries the grant context from the
+verifier task that owns the corresponding TLSN protocol instance, persists the
+signature claim before building the signed Attestation, and stores the exact
+signed Attestation bytes for readback. Restart moves unfinished records to
+`Unknown`; readback does not sign again. This adapter is test-only and does not
+establish a production Notary deployment or storage guarantee. Grant v1 does
+not sign audience/Notary/environment fields; a real service must scope and pin
+a distinct Session Authority key per authorized Notary/environment tuple, or
+adopt a versioned grant that signs those fields.
+- The local synthetic Notary validates grant signature, authority pin, purpose,
+  device/session fields and validity, consumes each grant once, and signs the
+  acceptance into a test Presentation. This proves only local SDK integration.
+  A real Notary must implement the same validation and one-use policy before
+  signing; its support and deployed policy remain `UNVERIFIED`. No real Notary
+  or Game Server was contacted, and Production acceptance remains `BLOCKED`.
 
 ## Source-observed implementation
 
@@ -81,10 +123,10 @@ The following requirements are fixed for this work:
 |---|---|---|
 | Route selection | `ExperimentalRequireInfoRoute` checks the exact `POST /kcsapi/api_get_member/require_info` on each request and selects capture only when a prepared forwarder binding is ready. Hudsucker and Rama both use per-request capture admission; clones share the slot, not a consumed listener-wide selection. Each admitted capture is one-send and independent of later requests. | Local capture lifecycle does not identify or deduplicate semantically equivalent game operations across captures, and does not claim Game Server exactly-once processing. That guarantee is not required by the current policy. |
 | Rama body handling | A request is selected only with one bounded `Content-Length` no greater than the 128 KiB TLSN sent-data ceiling. The selected body uses `Body::limited` under a 30-second timeout. Unready/busy/unsupported requests go to ordinary proxying before collection; selected-body collection failure fails closed. | These selected-route controls are not process-wide memory limits. Ordinary fallback is not a successful TLSN capture. |
-| Serialized request | The HTTP/1.1 serializer accounts for the request line, each header and CRLF, generated `Content-Length` where needed, the binding header, the header terminator, and body. Length additions use `checked_add`; the complete serialized length is capped before `Vec::with_capacity`. | The 128 KiB ceiling is for the complete serialized sent request, not a 128 KiB permitted body. A body can be accepted by the collector and later rejected because headers and framing use part of that budget. |
-| TLS transport | The Production origin transport uses the configured DNS identity, system trust roots, and a single-use send path. A local journal send intent is synced before origin I/O; an outcome classified `NotSent` may use ordinary proxying, but an ambiguous outcome terminates that capture and never retries or falls back. A later client request can use a fresh capture and binding. | Source wiring does not establish a live Game Server or Notary operation. A transport failure after a write begins can leave the remote outcome unknown; the local journal records the capture's outcome, not a cross-capture semantic-operation receipt. |
+| Serialized request | Hudsucker and optional Rama ingress reject the reserved header before every fallback/forwarding branch; the HTTP/1.1 serializer also rejects it, preserves ordinary request fields and framing, and does not insert FUSOU context. The current v3 parser requires a headerless request. Length additions use `checked_add`; the complete serialized length is capped before `Vec::with_capacity`. | The 128 KiB ceiling is for the complete serialized sent request, not a 128 KiB permitted body. A body can be accepted by the collector and later rejected because ordinary headers and framing use part of that budget. |
+| TLS transport | The origin transport uses the configured DNS identity, system trust roots, and a single-use send path. Session context remains typed metadata and is sent only in the TLSN attestation request, not in the Game Server HTTP bytes. A local journal send intent is synced before origin I/O; an outcome classified `NotSent` may use ordinary proxying, but an ambiguous outcome terminates that capture and never retries or falls back. A later client request can use a fresh capture and binding. | Source wiring does not establish a live Game Server or real Notary extension policy. A transport failure after a write begins can leave the remote outcome unknown; the local journal records the capture's outcome, not a cross-capture semantic-operation receipt. |
 | Transcript and response | The transport records exact serialized request and raw response bytes. The verifier boundary compares their hashes to the exchange values. The origin response is returned before the deferred proof pipeline completes. | The browser-visible response is not an attestation or Result receipt. Proof failure after response return cannot undo the response already delivered. |
-| Presentation verification | `RealAlpha15DedicatedVerifier` verifies the actual Presentation against the trusted Notary key and compares its observed server identity and transcript hashes with the expected values and captured exchange. It checks the binding session and nonce. | External Notary availability, deployed verifier behavior, and real Presentation evidence are not established by this source review. |
+| Presentation verification | `RealAlpha15DedicatedVerifier` verifies the actual Presentation against the trusted Notary key and compares its observed server identity and transcript hashes with the expected values and captured exchange. The current v3 profiles require exactly one Session Authority grant extension and one Notary acceptance extension, verify them against the pinned Session Authority, and compare the grant with the capture's Session/binding context. Offline verification additionally matches the grant claims to the independently verified Session receipt and Result. | The synthetic Notary policy and local Presentation verification are not evidence that a real Notary validates or consumes grants. External Notary availability, deployed verifier behavior, and real Presentation evidence are not established by this source review. |
 | Generic Result validators and signing bytes | Complete Result v2 and Sparse Result v3 include both inventory/approval digest slots in canonical JSON and signing bytes. Both generic validators reject a half-present pair but permit both digests to be absent. | Generic validation alone does not require Production provenance. This is distinct from the local Production Evidence Bundle checks below and from Worker-side generation/signing. |
 | Local Production Evidence Bundle verifier | `evidence_bundle.rs::verify_bundle` calls `verify_production_target_approval` for Complete and Sparse Results. It rejects missing/incomplete digest pairs, compares both digests with SHA-256 of the externally supplied raw Inventory/Approval bytes, validates the Approval-to-Inventory relationship and membership in both trust sets, and checks that the Result's server identity matches the external identity used for those checks. | `OBSERVED` in local source; execution in this work is `NOT_CHECKED`. This does not establish deployed Worker generation/signing or real Production evidence. |
 | Result and archive handoff | The local boundary separates signing and delivery. The Worker response is verified by the APP-side verifier; the local filesystem delivery path is not an immutable Production archive. | Durable, immutable Production storage, readback, retention, and independent archive verification are not established. |

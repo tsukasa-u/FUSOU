@@ -2,8 +2,8 @@
 
 use crate::{
     parse_http_chunk_size, parse_http_content_length, parse_require_info_request,
-    validate_server_identity, ParsedBinding, ParserLimits, VerifierError, MAX_HTTP_HEADER_BYTES,
-    MAX_RESPONSE_TRANSCRIPT_BYTES,
+    validate_require_info_request_headerless, validate_server_identity, ParsedBinding,
+    ParserLimits, VerifierError, MAX_HTTP_HEADER_BYTES, MAX_RESPONSE_TRANSCRIPT_BYTES,
 };
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use thiserror::Error;
@@ -90,6 +90,41 @@ impl ProverOwnedTlsTransport {
             return Err(ProverTransportError::RequestAlreadySent);
         }
         validate_actual_require_info_request(request, server_identity, expected_binding)?;
+        let connection = self
+            .connection
+            .as_mut()
+            .ok_or(ProverTransportError::ConnectionClosed)?;
+
+        self.request_sent = true;
+        let write_started = std::time::Instant::now();
+        connection.write_all(request).await?;
+        connection.flush().await?;
+        Ok(write_started.elapsed())
+    }
+
+    pub async fn send_headerless_require_info(
+        &mut self,
+        request: &[u8],
+        server_identity: &str,
+    ) -> Result<()> {
+        self.send_headerless_require_info_with_timing(request, server_identity)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn send_headerless_require_info_with_timing(
+        &mut self,
+        request: &[u8],
+        server_identity: &str,
+    ) -> Result<std::time::Duration> {
+        if self.request_sent {
+            return Err(ProverTransportError::RequestAlreadySent);
+        }
+        validate_require_info_request_headerless(
+            request,
+            server_identity,
+            &ParserLimits::default(),
+        )?;
         let connection = self
             .connection
             .as_mut()
@@ -404,13 +439,16 @@ pub(crate) mod tests {
     use super::*;
     use crate::experimental::{ExperimentalRequireInfoEvidence, ExperimentalRequireInfoProbe};
     use crate::parse_binding_value;
+    use crate::session_context::{
+        NotarySessionContextLedger, SessionContextGrant, SESSION_CONTEXT_GRANT_EXTENSION_ID,
+    };
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use futures::io::AsyncRead as FuturesAsyncRead;
     use rcgen::{
         BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair,
         KeyUsagePurpose,
     };
-    use std::{future::IntoFuture, sync::Arc};
+    use std::{future::IntoFuture, sync::{Arc, Mutex}};
     use std::{
         io,
         pin::Pin,
@@ -420,7 +458,7 @@ pub(crate) mod tests {
         attestation::{
             presentation::Presentation,
             request::{Request as AttestationRequest, RequestConfig},
-            Attestation, AttestationConfig, CryptoProvider,
+            Attestation, AttestationConfig, CryptoProvider, Extension, InvalidExtension,
         },
         config::{
             prove::ProveConfig, prover::ProverConfig, tls::TlsClientConfig,
@@ -614,15 +652,17 @@ pub(crate) mod tests {
     pub(crate) async fn build_synthetic_presentation(
         server_identity: &str,
         sparse_disclosure: bool,
+        session_context_grant: Vec<u8>,
+        session_authority_public_key_spki: Vec<u8>,
+        session_authority_key_id: String,
     ) -> SyntheticPresentation {
-        let binding = binding_value();
-        let probe = ExperimentalRequireInfoProbe::from_actual_request(
-            server_identity,
-            &parse_binding_value(&binding).unwrap(),
-            actual_request_for(server_identity, &binding),
+        let grant = SessionContextGrant::parse(&session_context_grant).unwrap();
+        let grant_binding_value = grant.binding_value().to_owned();
+        let expected_request = format!(
+            "POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: {server_identity}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         )
-        .unwrap();
-        let expected_request = probe.request().to_vec();
+        .into_bytes();
+        let prover_expected_request = expected_request.clone();
         let (root_certificate, server_certificate, private_key) =
             server_credentials_for(server_identity);
         let root_store = RootCertStore {
@@ -662,6 +702,7 @@ pub(crate) mod tests {
         let prover_root_store = root_store.clone();
         let prover_server_identity = server_identity.to_owned();
         let attestation_server_identity = server_identity.to_owned();
+        let prover_session_context_grant = session_context_grant.clone();
         let prover_task = tokio::spawn(async move {
             let prover = prover.commit(proxy_config).await.unwrap();
             let (connection, prover) = prover
@@ -676,7 +717,24 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             let prover_task = tokio::spawn(prover.into_future());
-            let evidence = probe.run(connection).await.unwrap();
+            let mut transport = ProverOwnedTlsTransport::new(connection);
+            transport
+                .send_headerless_require_info(&prover_expected_request, &prover_server_identity)
+                .await
+                .unwrap();
+            let response = transport.read_response_to_end().await.unwrap();
+            transport.close().await.unwrap();
+            let parsed_response = crate::parse_require_info_response(
+                &response,
+                &crate::ParserLimits::default(),
+            )
+            .unwrap();
+            let evidence = ExperimentalRequireInfoEvidence {
+                request: prover_expected_request,
+                response,
+                binding: parse_binding_value(&grant_binding_value).unwrap(),
+                verified_member_id: parsed_response.verified_member_id,
+            };
             let mut prover = prover_task.await.unwrap().unwrap();
             let sent_len = prover.transcript().sent().len();
             let received_len = prover.transcript().received().len();
@@ -717,7 +775,12 @@ pub(crate) mod tests {
                 transcript_commitments,
                 transcript_secrets,
             } = prover_output;
-            let request_config = RequestConfig::builder().build().unwrap();
+            let mut request_config_builder = RequestConfig::builder();
+            request_config_builder.extension(Extension {
+                id: SESSION_CONTEXT_GRANT_EXTENSION_ID.to_vec(),
+                value: prover_session_context_grant,
+            });
+            let request_config = request_config_builder.build().unwrap();
             let mut request_builder = AttestationRequest::builder(&request_config);
             request_builder
                 .server_name(ServerName::Dns(
@@ -770,9 +833,35 @@ pub(crate) mod tests {
         let mut provider = CryptoProvider::default();
         provider.cert = ServerCertVerifier::new(&root_store).unwrap();
         provider.signer.set_secp256k1(&[1_u8; 32]).unwrap();
+        let validation_time_ms = grant.issued_at_ms()
+            + (grant.expires_at_ms() - grant.issued_at_ms()) / 2;
+        let accepted_context = Arc::new(Mutex::new(None));
+        let validator_context = Arc::clone(&accepted_context);
+        let validator_ledger = NotarySessionContextLedger::default();
+        let validator_public_key = session_authority_public_key_spki;
+        let validator_key_id = session_authority_key_id;
         let mut attestation_config = AttestationConfig::builder();
         attestation_config
-            .supported_signature_algs(Vec::from_iter(provider.signer.supported_algs()));
+            .supported_signature_algs(Vec::from_iter(provider.signer.supported_algs()))
+            .extension_validator(move |extensions| {
+                let acceptance = validator_ledger
+                    .validate_request_extensions(
+                        extensions,
+                        &validator_public_key,
+                        &validator_key_id,
+                        validation_time_ms,
+                    )
+                    .map_err(|error| InvalidExtension::new(error.to_string()))?;
+                let mut accepted = validator_context
+                    .lock()
+                    .map_err(|_| InvalidExtension::new("Notary context state is poisoned"))?;
+                if accepted.replace(acceptance).is_some() {
+                    return Err(InvalidExtension::new(
+                        "Notary context was validated more than once",
+                    ));
+                }
+                Ok(())
+            });
         let attestation_config = attestation_config.build().unwrap();
         let CertBinding::V1_2(cert_binding) = tls_transcript.certificate_binding() else {
             panic!("unsupported certificate binding version");
@@ -794,6 +883,10 @@ pub(crate) mod tests {
         let mut attestation_builder = Attestation::builder(&attestation_config)
             .accept_request(attestation_request.clone())
             .unwrap();
+        let acceptance = accepted_context.lock().unwrap().take().unwrap();
+        attestation_builder.extension(NotarySessionContextLedger::acceptance_extension(
+            &acceptance,
+        ));
         attestation_builder
             .connection_info(ConnectionInfo {
                 time: tls_transcript.time(),

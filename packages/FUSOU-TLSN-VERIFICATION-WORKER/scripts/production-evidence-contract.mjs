@@ -43,7 +43,7 @@ export const AUTHORITY_COMPROMISE_DEFINITIONS = Object.freeze([
     authority: "session-authority",
     private_key: "TLSN_SESSION_AUTHORITY_SIGNING_PRIVATE_KEY_PKCS8",
     public_key_registry: "tlsn-session-authority-key-registry",
-    issued_artifact: "attestation-session-issued receipt",
+    issued_artifact: "attestation-session-issued receipt and Session Context grant",
     verification_authority: "tlsn-session-authority-key-registry",
     compromise_scope: "forge session receipts and their session/binding claims; cannot forge Binding Authority consume receipts, device identity, TLSN Presentation, or Result signatures",
   },
@@ -59,7 +59,7 @@ export const AUTHORITY_COMPROMISE_DEFINITIONS = Object.freeze([
     authority: "tlsn-notary",
     private_key: "TLSNotary notary signing key",
     public_key_registry: "TLSN Notary registry",
-    issued_artifact: "TLSN Presentation notary authentication",
+    issued_artifact: "TLSN Presentation notary authentication and Session Context acceptance extension",
     verification_authority: "alpha15 Presentation verifier and trusted Notary registry",
     compromise_scope: "forge or authenticate Presentations under the compromised Notary identity; cannot forge FUSOU-WEB identity, device possession, Session Authority receipts, Binding Authority receipts, or Result signatures",
   },
@@ -139,16 +139,16 @@ export const PRODUCTION_EVIDENCE_SEMANTIC_PREDICATE_DEFINITIONS = {
   require_info_http_profile: {
     required_artifacts: ["presentation"],
     required_fields: ["profile_id", "profile_sha256", "http_profile", "request_transcript_sha256", "response_transcript_sha256"],
-    verification_method: "strict parser over alpha15 authenticated request and response transcript bytes",
-    authority_identity: "fusou-require-info-v1",
+    verification_method: "strict parser over alpha15 authenticated request and response bytes; Session context is verified from Notary-signed extensions, not transcript bytes",
+    authority_identity: "fusou-require-info-v3-notary-session-binding",
     derived_fields: ["server_identity", "request_transcript_sha256", "response_transcript_sha256"],
   },
   presentation_binding_to_session: {
-    required_artifacts: ["presentation", "session", "result"],
-    required_fields: ["session_id", "binding_value", "request_transcript_sha256"],
-    verification_method: "authenticated request X-Attestation-Binding equals the current Session Authority binding and encoded session identity",
+    required_artifacts: ["presentation", "session", "session_authority_registry", "result"],
+    required_fields: ["session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id", "notary_context_validated_at_ms"],
+    verification_method: "Notary-signed Presentation extensions authenticate the Session Authority grant and TLS transcript commitments; grant claims match the independently verified Session receipt and Result",
     authority_identity: "offline-production-evidence-verifier",
-    derived_fields: ["attestation_session_id", "binding_value", "request_transcript_sha256"],
+    derived_fields: ["attestation_session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id", "notary_context_validated_at_ms"],
   },
   authenticated_member_id: {
     required_artifacts: ["presentation"],
@@ -211,16 +211,16 @@ export const PRODUCTION_EVIDENCE_SPARSE_SEMANTIC_PREDICATE_DEFINITIONS = {
   require_info_http_profile: {
     required_artifacts: ["presentation"],
     required_fields: ["profile_id", "profile_sha256", "disclosure_mode", "http_profile", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
-    verification_method: "strict sparse parser over authenticated HTTP headers and JSON ranges; hidden ranges fail closed",
-    authority_identity: "fusou-require-info-v2-sparse",
+    verification_method: "strict sparse parser over authenticated HTTP and JSON ranges; Session context is verified from Notary-signed extensions, not transcript bytes",
+    authority_identity: "fusou-require-info-v3-sparse-notary-session-binding",
     derived_fields: ["server_identity", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"],
   },
   presentation_binding_to_session: {
-    required_artifacts: ["presentation", "session", "result"],
-    required_fields: ["session_id", "binding_value", "revealed_request_ranges"],
-    verification_method: "authenticated sparse request headers bind X-Attestation-Binding to the current Session Authority binding",
+    required_artifacts: ["presentation", "session", "session_authority_registry", "result"],
+    required_fields: ["session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id", "notary_context_validated_at_ms"],
+    verification_method: "Notary-signed Presentation extensions authenticate the Session Authority grant and TLS transcript commitments; grant claims match the independently verified Session receipt and Result",
     authority_identity: "offline-production-evidence-verifier",
-    derived_fields: ["attestation_session_id", "binding_value", "revealed_request_ranges"],
+    derived_fields: ["attestation_session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id", "notary_context_validated_at_ms"],
   },
   authenticated_member_id: {
     required_artifacts: ["presentation"],
@@ -500,7 +500,7 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
   { id: "device-authenticates", source: "device", target: "device-authentication", binding_fields: ["device_id", "device_auth_nonce"], evidence_artifact: "device_authentication", verification_predicate: "device_authentication_signature", authority: "fusou-web-device-authentication" },
   { id: "device-authentication-issues-session", source: "device-authentication", target: "session", binding_fields: ["device_id", "device_auth_nonce", "session_id"], evidence_artifact: "session", verification_predicate: "session_binding_receipt", authority: "fusou-tlsn-session-authority" },
   { id: "session-issues-binding", source: "session", target: "binding", binding_fields: ["session_id", "binding_value", "binding_nonce"], evidence_artifact: "session", verification_predicate: "session_binding_receipt", authority: "fusou-tlsn-session-authority" },
-  { id: "session-binding-authenticates-presentation", source: "session", target: "presentation", binding_fields: ["session_id", "binding_value", "request_transcript_sha256"], evidence_artifact: "presentation", verification_predicate: "presentation_binding_to_session", authority: "offline-production-evidence-verifier" },
+  { id: "session-binding-authenticates-presentation", source: "session", target: "presentation", binding_fields: ["session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id"], evidence_artifact: "presentation", verification_predicate: "presentation_binding_to_session", authority: "offline-production-evidence-verifier" },
   { id: "binding-consumes-presentation", source: "binding", target: "presentation", binding_fields: ["session_id", "binding_value", "presentation_id"], evidence_artifact: "consume_receipt", verification_predicate: "consume_receipt", authority: "fusou-tlsn-binding-authority" },
   { id: "presentation-is-authenticated-by-notary", source: "presentation", target: "tlsn-notary", binding_fields: ["notary_key_id", "notary_key_sha256"], evidence_artifact: "presentation", verification_predicate: "notary_identity", authority: "tlsn-alpha15-presentation-notary-key" },
   { id: "presentation-derives-member-id", source: "presentation", target: "member-id", binding_fields: ["verified_member_id", "response_transcript_sha256"], evidence_artifact: "semantic_verification", verification_predicate: "authenticated_member_id", authority: "fusou-require-info-v1-response-parser" },
@@ -515,7 +515,7 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze([
 export const PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS = Object.freeze(
   PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS.map((edge) => {
     if (edge.id === "session-binding-authenticates-presentation") {
-      return Object.freeze({ ...edge, binding_fields: ["session_id", "binding_value", "revealed_request_ranges"] });
+      return Object.freeze({ ...edge });
     }
     if (edge.id === "presentation-derives-member-id") {
       return Object.freeze({ ...edge, binding_fields: ["verified_member_id", "revealed_response_ranges"], authority: "fusou-require-info-v2-sparse-response-parser" });
@@ -535,7 +535,8 @@ export const PRODUCTION_EVIDENCE_TRUST_GRAPH_PREDICATES = [
 ];
 
 function trustGraphEdgeDefinitions(graph) {
-  return graph?.edges?.some((edge) => edge?.binding_fields?.includes("revealed_request_ranges"))
+  return graph?.edges?.some((edge) => edge?.id === "member-id-is-in-result"
+    && edge?.binding_fields?.includes("revealed_response_ranges"))
     ? PRODUCTION_EVIDENCE_SPARSE_TRUST_GRAPH_EDGE_DEFINITIONS
     : PRODUCTION_EVIDENCE_TRUST_GRAPH_EDGE_DEFINITIONS;
 }

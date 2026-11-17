@@ -769,9 +769,21 @@ mod tests {
     const FIXTURE_DEVICE_ID: &str = "22222222-2222-4222-8222-222222222222";
     const FIXTURE_TIME: &str = "2026-10-01T12:00:00.000Z";
     const FIXTURE_SESSION_EXPIRY: &str = "2026-10-01T13:00:00.000Z";
+    const FIXTURE_SESSION_AUTHORITY_KEY_ID: &str = "fixture-session-authority";
+    const FIXTURE_SESSION_ISSUED_AT_MS: u64 = 1_790_856_000_000;
+    const FIXTURE_SESSION_EXPIRES_AT_MS: u64 = 1_790_859_600_000;
 
     fn signing_key(seed: u8) -> ring::signature::Ed25519KeyPair {
         ring::signature::Ed25519KeyPair::from_seed_unchecked(&[seed; 32]).unwrap()
+    }
+
+    fn fixture_binding_value(session_id: &uuid::Uuid) -> String {
+        let mut bytes = crate::BINDING_PREFIX.to_vec();
+        bytes.extend_from_slice(&16_u16.to_be_bytes());
+        bytes.extend_from_slice(session_id.as_bytes());
+        bytes.extend_from_slice(&32_u16.to_be_bytes());
+        bytes.extend_from_slice(&[0x42_u8; 32]);
+        URL_SAFE_NO_PAD.encode(bytes)
     }
 
     fn public_key_spki(key: &ring::signature::Ed25519KeyPair) -> String {
@@ -959,10 +971,34 @@ mod tests {
                 "remote-attestation-signer",
             ),
         ];
+        let session_extension_profile = result.profile_id() == crate::SESSION_EXTENSION_PROFILE_ID
+            || result.profile_id() == crate::SPARSE_SESSION_EXTENSION_PROFILE_ID;
+        if session_extension_profile {
+            for edge in &mut edge_specs {
+                if edge.0 == "session-binding-authenticates-presentation" {
+                    *edge = (
+                        edge.0,
+                        edge.1,
+                        edge.2,
+                        &[
+                            "session_id",
+                            "binding_value",
+                            "session_context_grant_sha256",
+                            "notary_context_policy_id",
+                        ],
+                        edge.4,
+                        edge.5,
+                        edge.6,
+                    );
+                }
+            }
+        }
         if result.is_sparse() {
             for edge in &mut edge_specs {
                 match edge.0 {
-                    "session-binding-authenticates-presentation" => {
+                    "session-binding-authenticates-presentation"
+                        if !session_extension_profile =>
+                    {
                         *edge = (
                             edge.0,
                             edge.1,
@@ -1211,11 +1247,6 @@ mod tests {
         }
 
         async fn new_with_disclosure(sparse_disclosure: bool) -> Self {
-            let generated = crate::prover_transport::tests::build_synthetic_presentation(
-                FIXTURE_SERVER_IDENTITY,
-                sparse_disclosure,
-            )
-            .await;
             let root_key = signing_key(11);
             let result_key = signing_key(12);
             let session_key = signing_key(13);
@@ -1224,9 +1255,37 @@ mod tests {
             let root_public_key_spki = public_key_spki(&root_key);
             let result_public_key_spki = public_key_spki(&result_key);
             let session_public_key_spki = public_key_spki(&session_key);
+            let session_authority_public_key_spki = URL_SAFE_NO_PAD
+                .decode(&session_public_key_spki)
+                .unwrap();
             let binding_public_key_spki = public_key_spki(&binding_key);
             let device_public_key = device_key.public_key().as_ref().to_vec();
             let device_public_key_base64 = URL_SAFE_NO_PAD.encode(&device_public_key);
+            let session_id =
+                uuid::Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap();
+            let binding_value = fixture_binding_value(&session_id);
+            let device_challenge = [9_u8; 32];
+            let mut session_context_grant =
+                crate::session_context::SessionContextGrant::signing_bytes_for(
+                    FIXTURE_SESSION_AUTHORITY_KEY_ID,
+                    &session_id.to_string(),
+                    &binding_value,
+                    crate::session_context::device_id_commitment(FIXTURE_DEVICE_ID).unwrap(),
+                    device_challenge,
+                    FIXTURE_SESSION_ISSUED_AT_MS,
+                    FIXTURE_SESSION_EXPIRES_AT_MS,
+                )
+                .unwrap();
+            let session_context_grant_signature = session_key.sign(&session_context_grant);
+            session_context_grant.extend_from_slice(session_context_grant_signature.as_ref());
+            let generated = crate::prover_transport::tests::build_synthetic_presentation(
+                FIXTURE_SERVER_IDENTITY,
+                sparse_disclosure,
+                session_context_grant,
+                session_authority_public_key_spki.clone(),
+                FIXTURE_SESSION_AUTHORITY_KEY_ID.to_owned(),
+            )
+            .await;
 
             let inventory = json!({
                 "schema_version": 1,
@@ -1258,24 +1317,33 @@ mod tests {
                     &generated.notary_key,
                 )
                 .unwrap();
-            let profile = crate::tlsn_alpha15::RequireInfoDisclosureProfile::from_server_identity(
-                FIXTURE_SERVER_IDENTITY,
-            )
-            .unwrap();
+            let profile = crate::tlsn_alpha15::
+                SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
+                    FIXTURE_SERVER_IDENTITY,
+                    FIXTURE_SESSION_AUTHORITY_KEY_ID,
+                    &session_authority_public_key_spki,
+                )
+                .unwrap();
             let require_info = if sparse_disclosure {
-                let sparse_profile =
-                    crate::tlsn_alpha15::SparseRequireInfoDisclosureProfile::from_server_identity(
-                        FIXTURE_SERVER_IDENTITY,
-                    )
-                    .unwrap();
                 authenticated
-                    .verify_require_info_sparse(&sparse_profile, &crate::ParserLimits::default())
+                    .verify_require_info_sparse_with_session_extension(
+                        &profile,
+                        &crate::ParserLimits::default(),
+                    )
                     .unwrap()
             } else {
                 authenticated
-                    .verify_require_info(&profile, &crate::ParserLimits::default())
+                    .verify_require_info_with_session_extension(
+                        &profile,
+                        &crate::ParserLimits::default(),
+                    )
                     .unwrap()
             };
+            let device_challenge = *require_info
+                .session_context()
+                .unwrap()
+                .grant
+                .device_challenge();
             let mut result = if sparse_disclosure {
                 assert!(
                     require_info.response_transcript_sha256.is_none(),
@@ -1293,7 +1361,7 @@ mod tests {
                         Some(approval_sha256),
                         FIXTURE_USER_ID.to_owned(),
                         FIXTURE_DEVICE_ID.to_owned(),
-                        [9_u8; 32],
+                        device_challenge,
                         [0_u8; 64],
                     )
                     .unwrap(),
@@ -1307,7 +1375,7 @@ mod tests {
                             "fixture-notary".to_owned(),
                             FIXTURE_USER_ID.to_owned(),
                             FIXTURE_DEVICE_ID.to_owned(),
-                            [9_u8; 32],
+                            device_challenge,
                             crate::sha256(&generated.presentation),
                             Some(inventory_sha256),
                             Some(approval_sha256),

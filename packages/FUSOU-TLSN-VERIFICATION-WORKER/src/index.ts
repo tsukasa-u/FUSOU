@@ -15,6 +15,7 @@ import {
   type VerificationResultLookupInput,
 } from "./binding_authority.js";
 import {
+  attestationSessionContextGrantSigningBytes,
   attestationConsumeReceiptSigningBytes,
   attestationSessionReceiptSigningBytes,
 } from "./attestation_receipts.js";
@@ -58,10 +59,10 @@ import initVerifier, {
   derive_verifier_result_signing_bytes,
   derive_sparse_verifier_result_signing_bytes,
   inspect_alpha15_server_identity,
-  verify_synthetic_require_info_presentation_with_root,
-  verify_synthetic_sparse_require_info_presentation_with_root,
-  verify_require_info_presentation,
-  verify_sparse_require_info_presentation,
+  verify_synthetic_require_info_session_extension_presentation_with_root,
+  verify_synthetic_sparse_require_info_session_extension_presentation_with_root,
+  verify_require_info_session_extension_presentation,
+  verify_sparse_require_info_session_extension_presentation,
 } from "./wasm/fusou_tlsn_verifier.js";
 import originInventoryRaw from "../../configs/tlsn-origin-inventory.json.txt";
 import targetApprovalRaw from "../../configs/tlsn-target-approval.json.txt";
@@ -73,6 +74,8 @@ import {
   canonicalJson,
   parseOriginInventory,
   resolveApprovedProductionIdentity,
+  COMPLETE_PROFILE_ID,
+  SPARSE_PROFILE_ID,
   PROFILE_CONTRACT_SPEC,
   productionSecurityRegistrySetPayload,
   securityRegistrySetPayload,
@@ -1797,13 +1800,13 @@ async function canonicalProfileSha256(
   const contract = profile === "sparse"
     ? {
         disclosure_mode: "sparse",
-        id: "fusou-require-info-v2-sparse",
+        id: SPARSE_PROFILE_ID,
         server_identity: serverIdentity,
         target: "/kcsapi/api_get_member/require_info",
         version: 2,
       }
     : {
-        id: "fusou-require-info-v1",
+        id: COMPLETE_PROFILE_ID,
         server_identity: serverIdentity,
         target: "/kcsapi/api_get_member/require_info",
       };
@@ -1860,9 +1863,13 @@ async function verifyPresentationToPreparedResult(
   const targetApprovalArtifactSha256Bytes = config.productionInventoryMode
     ? decodeBase64Url(config.targetApprovalArtifactSha256 ?? "", 32)
     : new Uint8Array();
+  const sessionAuthorityPublicKeySpkiBytes = decodeBase64Url(
+    config.sessionAuthorityPublicKeySpki,
+    44,
+  );
   const preparedJson = profile === "sparse"
     ? config.trustRootCertificateDerBytes && !config.productionInventoryMode
-      ? verify_synthetic_sparse_require_info_presentation_with_root(
+      ? verify_synthetic_sparse_require_info_session_extension_presentation_with_root(
           presentationBytes,
           serverIdentity,
           profileSha256Bytes,
@@ -1873,10 +1880,12 @@ async function verifyPresentationToPreparedResult(
           deviceChallengeBytes,
           originInventorySha256Bytes,
           targetApprovalArtifactSha256Bytes,
+          config.sessionAuthorityKeyId,
+          sessionAuthorityPublicKeySpkiBytes,
           config.trustRootCertificateDerBytes,
           config.notaryKeyBytes,
         )
-      : verify_sparse_require_info_presentation(
+      : verify_sparse_require_info_session_extension_presentation(
           presentationBytes,
           serverIdentity,
           profileSha256Bytes,
@@ -1887,10 +1896,12 @@ async function verifyPresentationToPreparedResult(
           deviceChallengeBytes,
           originInventorySha256Bytes,
           targetApprovalArtifactSha256Bytes,
+          config.sessionAuthorityKeyId,
+          sessionAuthorityPublicKeySpkiBytes,
           config.notaryKeyBytes,
         )
     : config.trustRootCertificateDerBytes && !config.productionInventoryMode
-      ? verify_synthetic_require_info_presentation_with_root(
+      ? verify_synthetic_require_info_session_extension_presentation_with_root(
           presentationBytes,
           serverIdentity,
           profileSha256Bytes,
@@ -1901,10 +1912,12 @@ async function verifyPresentationToPreparedResult(
           deviceChallengeBytes,
           originInventorySha256Bytes,
           targetApprovalArtifactSha256Bytes,
+          config.sessionAuthorityKeyId,
+          sessionAuthorityPublicKeySpkiBytes,
           config.trustRootCertificateDerBytes,
           config.notaryKeyBytes,
         )
-      : verify_require_info_presentation(
+      : verify_require_info_session_extension_presentation(
           presentationBytes,
           serverIdentity,
           profileSha256Bytes,
@@ -1915,6 +1928,8 @@ async function verifyPresentationToPreparedResult(
           deviceChallengeBytes,
           originInventorySha256Bytes,
           targetApprovalArtifactSha256Bytes,
+          config.sessionAuthorityKeyId,
+          sessionAuthorityPublicKeySpkiBytes,
           config.notaryKeyBytes,
         );
   const prepared = preparedResultSchema.parse(JSON.parse(preparedJson) as unknown);
@@ -1956,7 +1971,10 @@ function hasPrefix(bytes: Uint8Array, prefix: string): boolean {
 }
 
 async function signSessionAuthorityReceipt(config: VerifierConfig, signingBytes: Uint8Array): Promise<Uint8Array> {
-  if (!hasPrefix(signingBytes, "FUSOU-ATTESTATION-SESSION-V1\0")) {
+  if (
+    !hasPrefix(signingBytes, "FUSOU-ATTESTATION-SESSION-V1\0") &&
+    !hasPrefix(signingBytes, "FUSOU-TLSN-SESSION-CONTEXT-GRANT-V1\0")
+  ) {
     throw new Error("Session Authority received a non-session receipt payload");
   }
   return signSigningBytes(signingBytes, config.sessionAuthoritySigningPrivateKeyBytes);
@@ -2029,6 +2047,48 @@ async function signSessionReceipt(
     expires_at: record.expires_at,
     signature: encodeBase64Url(signature),
   };
+}
+
+async function signSessionContextGrant(
+  config: VerifierConfig,
+  record: {
+    session_id: string;
+    device_id: string;
+    tlsn_device_challenge: string;
+    binding_value: string;
+    created_at: string;
+    expires_at: string;
+  },
+): Promise<string> {
+  const issuedAtMs = Date.parse(record.created_at);
+  const expiresAtMs = Date.parse(record.expires_at);
+  const deviceChallenge = decodeBase64Url(record.tlsn_device_challenge, 32);
+  if (
+    !Number.isSafeInteger(issuedAtMs) ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    deviceChallenge.length !== 32
+  ) {
+    throw new Error("Session Authority context grant source is invalid");
+  }
+  const commitmentInput = new Uint8Array([
+    ...new TextEncoder().encode("FUSOU-SESSION-DEVICE-COMMITMENT-V1\0"),
+    ...new TextEncoder().encode(record.device_id),
+  ]);
+  const deviceIdSha256 = new Uint8Array(await crypto.subtle.digest("SHA-256", commitmentInput));
+  const signingBytes = attestationSessionContextGrantSigningBytes({
+    signerKeyId: config.sessionAuthorityKeyId,
+    sessionId: record.session_id,
+    bindingValue: record.binding_value,
+    deviceIdSha256,
+    deviceChallenge,
+    issuedAtMs,
+    expiresAtMs,
+  });
+  const signature = await signSessionAuthorityReceipt(config, signingBytes);
+  const encoded = new Uint8Array(signingBytes.length + signature.length);
+  encoded.set(signingBytes);
+  encoded.set(signature, signingBytes.length);
+  return encodeBase64Url(encoded);
 }
 
 async function signConsumeReceipt(
@@ -3362,7 +3422,7 @@ async function completeVerification(
       benchmarkDuration(c.env, callback.job_id, "direct_wasm_verification", performance.now() - (wasmVerificationStartedAt ?? performance.now()));
     }
     const preparedUnsignedResult = JSON.parse(prepared.unsigned_result) as Record<string, unknown>;
-    const expectedProfileId = sparseProfile ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
+    const expectedProfileId = sparseProfile ? SPARSE_PROFILE_ID : COMPLETE_PROFILE_ID;
     const expectedVersion = sparseProfile ? 3 : 2;
     const expectedProfileSha256 = verification.profileSha256;
     if (
@@ -3958,6 +4018,7 @@ app.post("/attestation/session", async (c) => {
       : performance.now() - sessionBindingStartedAt;
     const sessionReceiptStartedAt = sessionBenchmarkEnabled ? performance.now() : undefined;
     const sessionReceipt = await signSessionReceipt(config, record);
+    const sessionContextGrant = await signSessionContextGrant(config, record);
     const sessionReceiptMilliseconds = sessionReceiptStartedAt === undefined
       ? undefined
       : performance.now() - sessionReceiptStartedAt;
@@ -3974,6 +4035,7 @@ app.post("/attestation/session", async (c) => {
       device_challenge: record.tlsn_device_challenge,
       expires_at: record.expires_at,
       session_receipt: sessionReceipt,
+      session_context_grant: sessionContextGrant,
     }, 201);
   } catch {
     return c.json({ error: "authority_unavailable" }, 503);

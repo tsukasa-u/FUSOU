@@ -29,9 +29,9 @@ the retained execution-receipt prerequisite or remote full-Bundle delivery.
 See the [current readiness record](FIRST-TESTPLAY-READINESS.md) and
 [complete data lineage](DEVICE-PROOF-MATERIAL-LINEAGE.md).
 The APP can be modified by its user, so its Bootstrap pin, Manifest verdict,
-and report are not Worker trust roots. The Worker independently uses its own
-Notary, Origin, Approval and Result Registry configuration when verifying a
-Presentation and signing a Result.
+and report are not Worker trust roots. The Worker independently uses its own Notary, Session Authority, Origin,
+Approval and Result Registry configuration when verifying a Presentation and
+signing a Result.
 
 Runtime Config Manifest authentication is explicitly versioned: v2 remains
 the offline-root-signed format, while the local v3 path requires an
@@ -45,10 +45,14 @@ register Production keys or enable continuous Production issuance. See the
 [Runtime Config Freshness and Manifest delegation contract](docs/runtime-config-freshness-contract-revision-proposal.md)
 and [current readiness record](FIRST-TESTPLAY-READINESS.md).
 
-The native library now target-gates the WASM bridge to `wasm32`; native APP,
-Bundle and CLI checks do not load that protected bridge. WASM build/provenance
-was not performed. The active local mux patch has been removed in APP/Proxy;
-the exact pinned upstream mux is configured through existing public setters.
+The native library target-gates the WASM bridge to `wasm32`; native APP, Bundle
+and CLI checks do not load that bridge. For the uncommitted Session-extension
+changes, `wasm-pack 0.13.1` generated bindings in a temporary directory to
+verify the new exports and Worker typecheck. The checked-in release WASM and
+provenance remain unchanged; the candidate workflow regenerates them from the
+exact source commit and verifies clean-source provenance. The active local mux
+patch has been removed in APP/Proxy; the exact pinned upstream mux is
+configured through existing public setters.
 
 It currently provides:
 
@@ -56,7 +60,9 @@ It currently provides:
 - non-overlapping transcript range validation and SHA-256 checking;
 - strict HTTP/1.1 request/response framing, chunked decoding, and single-member gzip decoding;
 - lossless `api_member_id` extraction from the fixed `svdata=` JSON path;
-- strict binding-header parsing;
+- strict headerless parsing for the current v3 profiles and Notary-signed
+  Session-context extension verification; the legacy binding-header parser
+  is not a fallback for new origin sends;
 - canonical Verifier Result JSON and `VerifierResultSignBytes` construction;
 - a pinned alpha.15 `Presentation` decoder and `Presentation::verify` call;
 - strict rejection of malformed and trailing Presentation bytes;

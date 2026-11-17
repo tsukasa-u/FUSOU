@@ -97,7 +97,10 @@ for (const mode of ["complete", "sparse"]) {
     assert.equal(nodes.get("production-proxy").identity.cryptographic_status, "UNVERIFIED");
     assert.equal(nodes.get("remote-attestation").identity.status, "UNVERIFIED");
     const edge = graph.edges.find(({ id }) => id === "session-binding-authenticates-presentation");
-    assert.equal(edge.binding_fields.includes("revealed_request_ranges"), mode === "sparse");
+    assert.ok(edge.binding_fields.includes("session_context_grant_sha256"));
+    assert.ok(edge.binding_fields.includes("notary_context_policy_id"));
+    assert.ok(!edge.binding_fields.includes("request_transcript_sha256"));
+    assert.ok(!edge.binding_fields.includes("revealed_request_ranges"));
   });
 
   test(`${mode}: graph rejects a Session and Result with different bindings`, () => {

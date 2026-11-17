@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 pub const SPARSE_RESULT_VERSION: u16 = 3;
 pub const SPARSE_PROFILE_ID: &str = "fusou-require-info-v2-sparse";
+pub const SESSION_EXTENSION_SPARSE_PROFILE_ID: &str = crate::SPARSE_SESSION_EXTENSION_PROFILE_ID;
 pub const SPARSE_DISCLOSURE_MODE: &str = "sparse";
 pub const SPARSE_SIGNING_DOMAIN: &[u8] = b"FUSOU-VERIFIER-SPARSE-RESULT-V2\0";
 
@@ -75,7 +76,7 @@ impl SparseVerifierResult {
         }
         let result = Self {
             version: SPARSE_RESULT_VERSION,
-            profile_id: SPARSE_PROFILE_ID.to_owned(),
+            profile_id: evidence.profile_id.clone(),
             disclosure_mode: SPARSE_DISCLOSURE_MODE.to_owned(),
             profile_sha256,
             issuer: ISSUER.to_owned(),
@@ -111,7 +112,9 @@ impl SparseVerifierResult {
                 "unsupported sparse Result version",
             ));
         }
-        if self.profile_id != SPARSE_PROFILE_ID {
+        if self.profile_id != SPARSE_PROFILE_ID
+            && self.profile_id != SESSION_EXTENSION_SPARSE_PROFILE_ID
+        {
             return Err(VerifierError::InvalidResult("unexpected sparse profile ID"));
         }
         if self.disclosure_mode != SPARSE_DISCLOSURE_MODE {
@@ -422,6 +425,7 @@ mod tests {
 
     fn evidence() -> AuthenticatedRequireInfo {
         AuthenticatedRequireInfo {
+            profile_id: SPARSE_PROFILE_ID.to_owned(),
             verified_member_id: "16189463".to_owned(),
             binding: ParsedBinding {
                 session_id: Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000").unwrap(),
@@ -440,6 +444,7 @@ mod tests {
                     URL_SAFE_NO_PAD.encode(bytes)
                 },
             },
+            session_context: None,
             server_identity: "game.example.test".to_owned(),
             attestation_id: [0x11; MAX_ATTESTATION_ID_BYTES],
             request_transcript_sha256: None,

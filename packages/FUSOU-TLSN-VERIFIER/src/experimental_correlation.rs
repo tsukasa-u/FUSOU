@@ -296,8 +296,10 @@ mod tests {
 
     fn authenticated_evidence(binding: ParsedBinding) -> AuthenticatedRequireInfo {
         AuthenticatedRequireInfo {
+            profile_id: crate::PROFILE_ID.to_owned(),
             verified_member_id: "16189463".to_owned(),
             binding,
+            session_context: None,
             server_identity: "game.example.test".to_owned(),
             attestation_id: [0x11; MAX_ATTESTATION_ID_BYTES],
             request_transcript_sha256: Some([0x21; 32]),

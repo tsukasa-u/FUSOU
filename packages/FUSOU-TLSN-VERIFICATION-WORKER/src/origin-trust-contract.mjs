@@ -1,6 +1,6 @@
 export const PROFILE_CONTRACT_SCHEMA_VERSION = 1;
-export const COMPLETE_PROFILE_ID = "fusou-require-info-v1";
-export const SPARSE_PROFILE_ID = "fusou-require-info-v2-sparse";
+export const COMPLETE_PROFILE_ID = "fusou-require-info-v3-notary-session-binding";
+export const SPARSE_PROFILE_ID = "fusou-require-info-v3-sparse-notary-session-binding";
 export const REQUIRE_INFO_TARGET = "/kcsapi/api_get_member/require_info";
 export const FIXTURE_SERVER_IDENTITY = "game.example.test";
 export const COMPLETE_DISCLOSURE_MODE = "full";

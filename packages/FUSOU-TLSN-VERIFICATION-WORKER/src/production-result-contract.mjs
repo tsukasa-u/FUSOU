@@ -1,4 +1,11 @@
-import { assertCanonicalServerIdentity, parseOriginInventory, parseTargetApproval, sha256Base64Url } from "./origin-trust-contract.mjs";
+import {
+  assertCanonicalServerIdentity,
+  COMPLETE_PROFILE_ID,
+  parseOriginInventory,
+  parseTargetApproval,
+  sha256Base64Url,
+  SPARSE_PROFILE_ID,
+} from "./origin-trust-contract.mjs";
 
 const digest = /^[A-Za-z0-9_-]{43}$/;
 export async function resolvePinnedProductionTargets({ inventoryRaw, approvalRaw, inventoryPin, approvalPin }) {
@@ -22,7 +29,7 @@ export async function assertPreparedResultContract(result, {
   if (production) assertCanonicalServerIdentity(serverIdentity);
   const sparse = profile === "sparse";
   if (!result || result.version !== (sparse ? 3 : 2) ||
-      result.profile_id !== (sparse ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1") ||
+      result.profile_id !== (sparse ? SPARSE_PROFILE_ID : COMPLETE_PROFILE_ID) ||
       result.profile_sha256 !== profileSha256 || result.server_identity !== serverIdentity ||
       (sparse ? result.disclosure_mode !== "sparse" ||
         Object.hasOwn(result, "request_transcript_sha256") || Object.hasOwn(result, "response_transcript_sha256") :

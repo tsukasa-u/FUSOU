@@ -2,7 +2,10 @@ use crate::{
     AuthenticatedByteSource, MAX_ATTESTATION_ID_BYTES, PROFILE_ID, ParsedBinding, ParserLimits,
     REQUIRE_INFO_TARGET, RevealedRange, VerifierError, parse_require_info_request_source,
     parse_require_info_request_sparse_source, parse_require_info_response_source,
-    parse_require_info_response_sparse_source, sha256, validate_server_identity,
+    parse_require_info_response_sparse_source, session_context::{
+        SessionContextError, VerifiedSessionContext, verify_authenticated_presentation_extensions,
+    }, sha256, validate_require_info_request_headerless_source,
+    validate_require_info_request_headerless_sparse_source, validate_server_identity,
     verify_transcript_digest,
 };
 use std::{io::Cursor, ops::Range};
@@ -14,6 +17,8 @@ pub const SELECTED_COMMIT: &str = "47aee45b53e06648c1b2ad3689b367b8c923fdec";
 pub const PRESENTATION_VERIFY_ENTRY_POINT: &str =
     "presentation.verify(&CryptoProvider::default())?.attestation.header.id.0";
 pub const UPSTREAM_PRESENTATION_TYPE: &str = "tlsn_attestation::Presentation";
+pub const SESSION_EXTENSION_PROFILE_ID: &str = crate::SESSION_EXTENSION_PROFILE_ID;
+pub const SPARSE_SESSION_EXTENSION_PROFILE_ID: &str = crate::SPARSE_SESSION_EXTENSION_PROFILE_ID;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum Alpha15AdapterError {
@@ -35,6 +40,8 @@ pub enum Alpha15AdapterError {
     TrustAnchor(String),
     #[error("authenticated transcript is not covered by the FUSOU disclosure profile: {0}")]
     DisclosureProfileViolation(&'static str),
+    #[error("Session Authority/Notary session context is invalid: {0}")]
+    SessionContext(String),
     #[error(transparent)]
     Parser(#[from] VerifierError),
 }
@@ -121,6 +128,45 @@ impl SparseRequireInfoDisclosureProfile {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionExtensionRequireInfoDisclosureProfile {
+    server_identity: String,
+    session_authority_key_id: String,
+    session_authority_public_key_spki: Vec<u8>,
+}
+
+impl SessionExtensionRequireInfoDisclosureProfile {
+    pub fn from_server_identity_and_session_authority(
+        server_identity: &str,
+        session_authority_key_id: &str,
+        session_authority_public_key_spki: &[u8],
+    ) -> Result<Self> {
+        validate_server_identity(server_identity)?;
+        if session_authority_key_id.is_empty()
+            || session_authority_key_id.len() > 64
+            || !session_authority_key_id.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+            })
+            || session_authority_public_key_spki.len() != 44
+            || session_authority_public_key_spki[..12]
+                != *b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00"
+        {
+            return Err(Alpha15AdapterError::SessionContext(
+                "Session Authority pin is invalid".to_owned(),
+            ));
+        }
+        Ok(Self {
+            server_identity: server_identity.to_owned(),
+            session_authority_key_id: session_authority_key_id.to_owned(),
+            session_authority_public_key_spki: session_authority_public_key_spki.to_vec(),
+        })
+    }
+
+    pub fn server_identity(&self) -> &str {
+        &self.server_identity
+    }
+}
+
 #[derive(Debug, Clone)]
 enum AuthenticatedTranscriptStorage {
     Owned {
@@ -143,6 +189,7 @@ pub struct AuthenticatedTranscript {
     attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
     notary_key_sha256: [u8; 32],
     transcript: AuthenticatedTranscriptStorage,
+    extensions: Vec<tlsn_attestation::Extension>,
     sent_digest: Option<[u8; 32]>,
     sent_ranges: Vec<Range<usize>>,
     received_digest: Option<[u8; 32]>,
@@ -164,8 +211,10 @@ pub struct AuthenticatedTranscript {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticatedRequireInfo {
+    pub(crate) profile_id: String,
     pub(crate) verified_member_id: String,
     pub(crate) binding: ParsedBinding,
+    pub(crate) session_context: Option<VerifiedSessionContext>,
     pub(crate) server_identity: String,
     pub(crate) attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
     pub(crate) request_transcript_sha256: Option<[u8; 32]>,
@@ -177,12 +226,20 @@ pub struct AuthenticatedRequireInfo {
 }
 
 impl AuthenticatedRequireInfo {
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+
     pub fn verified_member_id(&self) -> &str {
         &self.verified_member_id
     }
 
     pub fn binding(&self) -> &ParsedBinding {
         &self.binding
+    }
+
+    pub fn session_context(&self) -> Option<&VerifiedSessionContext> {
+        self.session_context.as_ref()
     }
 
     pub fn server_identity(&self) -> &str {
@@ -246,7 +303,7 @@ impl AuthenticatedRequireInfo {
         )?;
         let result = crate::VerifierResult {
             version: 2,
-            profile_id: PROFILE_ID.to_owned(),
+            profile_id: self.profile_id,
             profile_sha256,
             issuer: crate::ISSUER.to_owned(),
             proof_purpose: crate::PROOF_PURPOSE.to_owned(),
@@ -354,6 +411,7 @@ impl AuthenticatedTranscript {
                 sent: sent_transcript,
                 received: received_transcript,
             },
+            extensions: Vec::new(),
             sent_digest: Some(sent_digest),
             sent_ranges,
             received_digest: Some(received_digest),
@@ -366,6 +424,22 @@ impl AuthenticatedTranscript {
         attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
         notary_key_sha256: [u8; 32],
         transcript: tlsn_core::transcript::PartialTranscript,
+    ) -> Result<Self> {
+        Self::from_verified_alpha15_partial_with_extensions(
+            server_identity,
+            attestation_id,
+            notary_key_sha256,
+            transcript,
+            Vec::new(),
+        )
+    }
+
+    fn from_verified_alpha15_partial_with_extensions(
+        server_identity: String,
+        attestation_id: [u8; MAX_ATTESTATION_ID_BYTES],
+        notary_key_sha256: [u8; 32],
+        transcript: tlsn_core::transcript::PartialTranscript,
+        extensions: Vec<tlsn_attestation::Extension>,
     ) -> Result<Self> {
         if attestation_id.len() != MAX_ATTESTATION_ID_BYTES {
             return Err(Alpha15AdapterError::InvalidVerifiedOutput(
@@ -408,6 +482,7 @@ impl AuthenticatedTranscript {
                 received_len,
                 received,
             },
+            extensions,
             sent_digest,
             sent_ranges,
             received_digest,
@@ -514,8 +589,10 @@ impl AuthenticatedTranscript {
         let response = parse_require_info_response_source(&response_source, limits)
             .map_err(Alpha15AdapterError::Parser)?;
         Ok(AuthenticatedRequireInfo {
+            profile_id: PROFILE_ID.to_owned(),
             verified_member_id: response.verified_member_id,
             binding: request.binding,
+            session_context: None,
             server_identity: self.server_identity.clone(),
             attestation_id: self.attestation_id,
             request_transcript_sha256: self.sent_digest,
@@ -546,8 +623,85 @@ impl AuthenticatedTranscript {
         let response = parse_require_info_response_sparse_source(&response_source, limits)
             .map_err(Alpha15AdapterError::Parser)?;
         Ok(AuthenticatedRequireInfo {
+                profile_id: SparseRequireInfoDisclosureProfile::ID.to_owned(),
+                verified_member_id: response.verified_member_id,
+                binding: request.binding,
+                session_context: None,
+                server_identity: self.server_identity.clone(),
+            attestation_id: self.attestation_id,
+            request_transcript_sha256: self.sent_digest,
+            response_transcript_sha256: self.received_digest,
+            request_transcript_size: request_source.len() as u64,
+            response_transcript_size: response_source.len() as u64,
+            revealed_request_ranges: self.revealed_ranges(true),
+            revealed_response_ranges: self.revealed_ranges(false),
+        })
+    }
+
+    pub fn verify_require_info_with_session_extension(
+        &self,
+        profile: &SessionExtensionRequireInfoDisclosureProfile,
+        limits: &ParserLimits,
+    ) -> Result<AuthenticatedRequireInfo> {
+        self.verify_require_info_session_extension(profile, limits, false)
+    }
+
+    pub fn verify_require_info_sparse_with_session_extension(
+        &self,
+        profile: &SessionExtensionRequireInfoDisclosureProfile,
+        limits: &ParserLimits,
+    ) -> Result<AuthenticatedRequireInfo> {
+        self.verify_require_info_session_extension(profile, limits, true)
+    }
+
+    fn verify_require_info_session_extension(
+        &self,
+        profile: &SessionExtensionRequireInfoDisclosureProfile,
+        limits: &ParserLimits,
+        sparse: bool,
+    ) -> Result<AuthenticatedRequireInfo> {
+        if self.server_identity != profile.server_identity {
+            return Err(Alpha15AdapterError::ServerIdentityNotAllowlisted);
+        }
+        let session_context = verify_authenticated_presentation_extensions(
+            &self.extensions,
+            &profile.session_authority_public_key_spki,
+            &profile.session_authority_key_id,
+        )
+        .map_err(session_context_error)?;
+        let request_source = self.source(true)?;
+        if sparse {
+            validate_require_info_request_headerless_sparse_source(
+                &request_source,
+                &self.server_identity,
+                limits,
+            )
+        } else {
+            validate_require_info_request_headerless_source(
+                &request_source,
+                &self.server_identity,
+                limits,
+            )
+        }
+        .map_err(Alpha15AdapterError::Parser)?;
+        let binding = crate::parse_binding_value(session_context.grant.binding_value())
+            .map_err(Alpha15AdapterError::Parser)?;
+        let response_source = self.source(false)?;
+        let response = if sparse {
+            crate::parse_require_info_response_sparse_source(&response_source, limits)
+        } else {
+            parse_require_info_response_source(&response_source, limits)
+        }
+        .map_err(Alpha15AdapterError::Parser)?;
+        Ok(AuthenticatedRequireInfo {
+            profile_id: if sparse {
+                SPARSE_SESSION_EXTENSION_PROFILE_ID.to_owned()
+            } else {
+                SESSION_EXTENSION_PROFILE_ID.to_owned()
+            },
             verified_member_id: response.verified_member_id,
-            binding: request.binding,
+            binding,
+            session_context: Some(session_context),
             server_identity: self.server_identity.clone(),
             attestation_id: self.attestation_id,
             request_transcript_sha256: self.sent_digest,
@@ -558,6 +712,10 @@ impl AuthenticatedTranscript {
             revealed_response_ranges: self.revealed_ranges(false),
         })
     }
+}
+
+fn session_context_error(error: SessionContextError) -> Alpha15AdapterError {
+    Alpha15AdapterError::SessionContext(error.to_string())
 }
 
 fn complete_transcript_digest(source: &AuthenticatedByteSource<'_>) -> Result<Option<[u8; 32]>> {
@@ -738,11 +896,12 @@ pub(crate) fn verify_alpha15_presentation_with_provider_and_notary_key(
         .transcript
         .ok_or(Alpha15AdapterError::MissingTranscript)?;
     let attestation_id = output.attestation.header.id.0;
-    AuthenticatedTranscript::from_verified_alpha15_partial(
+    AuthenticatedTranscript::from_verified_alpha15_partial_with_extensions(
         server_identity,
         attestation_id,
         notary_key_sha256,
         transcript,
+        output.extensions,
     )
 }
 

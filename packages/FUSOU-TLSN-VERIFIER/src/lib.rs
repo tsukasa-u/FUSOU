@@ -7,6 +7,7 @@ pub mod experimental;
 pub mod experimental_correlation;
 pub mod prover_transport;
 pub mod sparse_result;
+pub mod session_context;
 pub mod tlsn_alpha15;
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod wasm;
@@ -20,6 +21,10 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub const PROFILE_ID: &str = "fusou-require-info-v1";
+pub const SESSION_EXTENSION_PROFILE_ID: &str =
+    "fusou-require-info-v3-notary-session-binding";
+pub const SPARSE_SESSION_EXTENSION_PROFILE_ID: &str =
+    "fusou-require-info-v3-sparse-notary-session-binding";
 pub const ISSUER: &str = "fusou-tlsn-verifier";
 pub const PROOF_PURPOSE: &str = "GAME_ACCOUNT_IDENTITY_V1";
 pub const BINDING_HEADER: &str = "X-Attestation-Binding";
@@ -848,6 +853,36 @@ pub fn parse_require_info_request(
     Ok(ParsedRequireInfoRequest { binding })
 }
 
+pub fn validate_require_info_request_headerless(
+    raw: &[u8],
+    expected_server_identity: &str,
+    limits: &ParserLimits,
+) -> Result<()> {
+    validate_server_identity(expected_server_identity)?;
+    if raw.len() > limits.request_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("request transcript bytes"));
+    }
+    let start_line = format!("POST {REQUIRE_INFO_TARGET} HTTP/1.1");
+    let (headers, body_start) = parse_message_head(raw, start_line.as_bytes(), limits)?;
+    let hosts = header_values(&headers, b"host");
+    if hosts.len() != 1 || hosts[0].value != expected_server_identity.as_bytes() {
+        return Err(VerifierError::InvalidHttp("Host does not match allowlist"));
+    }
+    if headers.iter().any(|header| {
+        header.name == BINDING_HEADER.to_ascii_lowercase().as_bytes()
+    }) {
+        return Err(VerifierError::InvalidHttp(
+            "reserved FUSOU session-control header is forbidden",
+        ));
+    }
+    parse_framed_body(
+        &headers,
+        &raw[body_start..],
+        limits.request_transcript_bytes,
+    )?;
+    Ok(())
+}
+
 pub fn parse_require_info_response(raw: &[u8], limits: &ParserLimits) -> Result<ParsedRequireInfo> {
     if raw.len() > limits.response_transcript_bytes {
         return Err(VerifierError::LimitExceeded("response transcript bytes"));
@@ -877,6 +912,18 @@ pub fn parse_require_info_request_source(
     }
     let raw = source.read(0..source.len())?;
     parse_require_info_request(&raw, expected_server_identity, limits)
+}
+
+pub fn validate_require_info_request_headerless_source(
+    source: &AuthenticatedByteSource<'_>,
+    expected_server_identity: &str,
+    limits: &ParserLimits,
+) -> Result<()> {
+    if source.len() > limits.request_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("request transcript bytes"));
+    }
+    let raw = source.read(0..source.len())?;
+    validate_require_info_request_headerless(&raw, expected_server_identity, limits)
 }
 
 pub fn parse_require_info_response_source(
@@ -1004,6 +1051,42 @@ pub fn parse_require_info_request_sparse_source(
         ));
     }
     Ok(ParsedRequireInfoRequest { binding })
+}
+
+pub fn validate_require_info_request_headerless_sparse_source(
+    source: &AuthenticatedByteSource<'_>,
+    expected_server_identity: &str,
+    limits: &ParserLimits,
+) -> Result<()> {
+    if source.len() > limits.request_transcript_bytes {
+        return Err(VerifierError::LimitExceeded("request transcript bytes"));
+    }
+    let start_line = format!("POST {REQUIRE_INFO_TARGET} HTTP/1.1");
+    let (headers, body_start) =
+        parse_sparse_message_head(source, start_line.as_bytes(), limits)?;
+    let hosts = header_values(&headers, b"host");
+    if hosts.len() != 1 || hosts[0].value != expected_server_identity.as_bytes() {
+        return Err(VerifierError::InvalidHttp("Host does not match allowlist"));
+    }
+    if headers.iter().any(|header| {
+        header.name == BINDING_HEADER.to_ascii_lowercase().as_bytes()
+    }) {
+        return Err(VerifierError::InvalidHttp(
+            "reserved FUSOU session-control header is forbidden",
+        ));
+    }
+    let body = sparse_body_range(
+        &headers,
+        body_start,
+        source.len(),
+        limits.request_transcript_bytes,
+    )?;
+    if !body.is_empty() {
+        return Err(VerifierError::SparseProfileUnsupported(
+            "require_info request bodies are not part of the sparse semantic contract",
+        ));
+    }
+    Ok(())
 }
 
 pub fn parse_require_info_response_sparse_source(
@@ -2431,7 +2514,9 @@ impl VerifierResult {
         if self.version != 2 {
             return Err(VerifierError::InvalidResult("unsupported version"));
         }
-        if self.profile_id != PROFILE_ID {
+        if self.profile_id != PROFILE_ID
+            && self.profile_id != SESSION_EXTENSION_PROFILE_ID
+        {
             return Err(VerifierError::InvalidResult("unexpected profile ID"));
         }
         if self.issuer != ISSUER {

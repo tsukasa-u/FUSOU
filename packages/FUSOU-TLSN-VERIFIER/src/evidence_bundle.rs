@@ -1,7 +1,8 @@
 use crate::sparse_result::SparseVerifierResult;
 use crate::tlsn_alpha15::{
     verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor,
-    RequireInfoDisclosureProfile, SparseRequireInfoDisclosureProfile,
+    RequireInfoDisclosureProfile, SessionExtensionRequireInfoDisclosureProfile,
+    SparseRequireInfoDisclosureProfile,
 };
 use crate::{parse_verifier_result, sha256, VerifierResult};
 use authenticity_core::ServerIdentity;
@@ -105,6 +106,7 @@ trait EvidenceResultView {
     fn signing_bytes(&self) -> Result<Vec<u8>>;
     fn signature(&self) -> &[u8; 64];
     fn profile_sha256(&self) -> &[u8; 32];
+    fn profile_id(&self) -> &str;
     fn canonical_user_id(&self) -> &str;
     fn canonical_device_id(&self) -> &str;
     fn device_challenge(&self) -> &[u8; 32];
@@ -151,6 +153,9 @@ impl EvidenceResultView for VerifierResult {
     }
     fn profile_sha256(&self) -> &[u8; 32] {
         &self.profile_sha256
+    }
+    fn profile_id(&self) -> &str {
+        &self.profile_id
     }
     fn canonical_user_id(&self) -> &str {
         &self.canonical_user_id
@@ -241,6 +246,9 @@ impl EvidenceResultView for SparseVerifierResult {
     }
     fn profile_sha256(&self) -> &[u8; 32] {
         &self.profile_sha256
+    }
+    fn profile_id(&self) -> &str {
+        &self.profile_id
     }
     fn canonical_user_id(&self) -> &str {
         &self.canonical_user_id
@@ -443,6 +451,7 @@ struct VerifiedBundleCore {
     report: Value,
     derived_result: ParsedVerifierResult,
     notary_key: Vec<u8>,
+    session_context: Option<crate::session_context::VerifiedSessionContext>,
 }
 
 fn verify_bundle_core(
@@ -588,7 +597,56 @@ fn verify_bundle_core(
     .map_err(|error| {
         BundleVerificationError::new("tlsn_presentation", Some("presentation"), error.to_string())
     })?;
-    let authenticated = if result_view.is_sparse() {
+    let session_extension_profile = result_view.profile_id()
+        == crate::SESSION_EXTENSION_PROFILE_ID
+        || result_view.profile_id() == crate::SPARSE_SESSION_EXTENSION_PROFILE_ID;
+    let authenticated = if session_extension_profile {
+        let session_authority_public_key_spki = decode_fixed_base64::<44>(
+            &options.session_authority_public_key_spki,
+            "Session Authority public key SPKI",
+            "session_authority",
+        )?;
+        let profile =
+            SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
+                &options.server_identity,
+                &options.session_authority_key_id,
+                &session_authority_public_key_spki,
+            )
+            .map_err(|error| {
+                BundleVerificationError::new(
+                    "tlsn_presentation",
+                    Some("presentation"),
+                    error.to_string(),
+                )
+            })?;
+        if result_view.is_sparse() {
+            transcript
+                .verify_require_info_sparse_with_session_extension(
+                    &profile,
+                    &crate::ParserLimits::default(),
+                )
+                .map_err(|error| {
+                    BundleVerificationError::new(
+                        "require_info_profile",
+                        Some("presentation"),
+                        error.to_string(),
+                    )
+                })?
+        } else {
+            transcript
+                .verify_require_info_with_session_extension(
+                    &profile,
+                    &crate::ParserLimits::default(),
+                )
+                .map_err(|error| {
+                    BundleVerificationError::new(
+                        "require_info_profile",
+                        Some("presentation"),
+                        error.to_string(),
+                    )
+                })?
+        }
+    } else if result_view.is_sparse() {
         let profile =
             SparseRequireInfoDisclosureProfile::from_server_identity(&options.server_identity)
                 .map_err(|error| {
@@ -654,6 +712,7 @@ fn verify_bundle_core(
             "signed Result verifier profile identity does not match external configuration",
         ));
     }
+    let authenticated_session_context = authenticated.session_context().cloned();
     let derived_result = if result_view.is_sparse() {
         ParsedVerifierResult::Sparse(
             SparseVerifierResult::from_authenticated(
@@ -713,6 +772,7 @@ fn verify_bundle_core(
         &session_authority_registry,
         &options.session_authority_key_id,
         &options.session_authority_public_key_spki,
+        authenticated_session_context.as_ref(),
         &binding_authority_registry,
         &options.binding_authority_key_id,
         &options.binding_authority_public_key_spki,
@@ -785,10 +845,19 @@ fn verify_bundle_core(
     } else {
         report["derived"]["disclosure_mode"] = Value::String("sparse".to_owned());
     }
+    if let Some(session_context) = &authenticated_session_context {
+        report["derived"]["session_context_grant_sha256"] =
+            Value::String(URL_SAFE_NO_PAD.encode(session_context.grant.digest()));
+        report["derived"]["notary_context_policy_id"] =
+            Value::String(session_context.acceptance.policy_id().to_owned());
+        report["derived"]["notary_context_validated_at_ms"] =
+            Value::String(session_context.acceptance.validated_at_ms().to_string());
+    }
     Ok(VerifiedBundleCore {
         report,
         derived_result,
         notary_key,
+        session_context: authenticated_session_context,
     })
 }
 
@@ -970,7 +1039,7 @@ fn current_rfc3339_timestamp() -> Result<String> {
     Ok(timestamp)
 }
 
-fn semantic_predicate_definitions(sparse: bool) -> Value {
+fn semantic_predicate_definitions(sparse: bool, session_extension: bool) -> Value {
     let mut definitions = serde_json::json!({
         "presentation_cryptography": {
             "required_artifacts": ["presentation"],
@@ -1078,6 +1147,38 @@ fn semantic_predicate_definitions(sparse: bool) -> Value {
             "verification_method": "independent sparse Presentation-derived Result fields equal the Worker Result payload",
             "authority_identity": "offline-production-evidence-verifier",
             "derived_fields": ["verified_member_id", "tlsn_attestation_id", "server_identity", "presentation_sha256", "revealed_request_ranges", "revealed_response_ranges"],
+        });
+    }
+    if session_extension {
+        definitions["require_info_http_profile"] = serde_json::json!({
+            "required_artifacts": ["presentation"],
+            "required_fields": if sparse {
+                vec!["profile_id", "profile_sha256", "disclosure_mode", "http_profile", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"]
+            } else {
+                vec!["profile_id", "profile_sha256", "http_profile", "request_transcript_sha256", "response_transcript_sha256"]
+            },
+            "verification_method": if sparse {
+                "strict sparse parser over authenticated HTTP and JSON ranges; Session context is verified from Notary-signed extensions, not transcript bytes"
+            } else {
+                "strict parser over alpha15 authenticated request and response bytes; Session context is verified from Notary-signed extensions, not transcript bytes"
+            },
+            "authority_identity": if sparse {
+                crate::SPARSE_SESSION_EXTENSION_PROFILE_ID
+            } else {
+                crate::SESSION_EXTENSION_PROFILE_ID
+            },
+            "derived_fields": if sparse {
+                vec!["server_identity", "request_transcript_size", "response_transcript_size", "revealed_request_ranges", "revealed_response_ranges"]
+            } else {
+                vec!["server_identity", "request_transcript_sha256", "response_transcript_sha256"]
+            },
+        });
+        definitions["presentation_binding_to_session"] = serde_json::json!({
+            "required_artifacts": ["presentation", "session", "session_authority_registry", "result"],
+            "required_fields": ["session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id", "notary_context_validated_at_ms"],
+            "verification_method": "Notary-signed Presentation extensions authenticate the Session Authority grant and TLS transcript commitments; grant claims match the independently verified Session receipt and Result",
+            "authority_identity": "offline-production-evidence-verifier",
+            "derived_fields": ["attestation_session_id", "binding_value", "session_context_grant_sha256", "notary_context_policy_id", "notary_context_validated_at_ms"],
         });
     }
     definitions
@@ -1202,6 +1303,7 @@ fn verified_semantic_predicates(
             "result_key_registry_sha256": derived_value("result_key_registry_sha256")?,
         },
     });
+    let has_session_extension_context = verified.session_context.is_some();
     if let Some((request_digest, response_digest)) = transcript_hash_observations {
         observations["presentation_cryptography"]["request_transcript_sha256"] =
             request_digest.clone();
@@ -1211,8 +1313,10 @@ fn verified_semantic_predicates(
             request_digest.clone();
         observations["require_info_http_profile"]["response_transcript_sha256"] =
             response_digest.clone();
-        observations["presentation_binding_to_session"]["request_transcript_sha256"] =
-            request_digest.clone();
+        if !has_session_extension_context {
+            observations["presentation_binding_to_session"]["request_transcript_sha256"] =
+                request_digest.clone();
+        }
         observations["authenticated_member_id"]["response_transcript_sha256"] =
             response_digest.clone();
         observations["result_presentation_binding"]["request_transcript_sha256"] = request_digest;
@@ -1234,8 +1338,10 @@ fn verified_semantic_predicates(
             request_ranges.clone();
         observations["require_info_http_profile"]["revealed_response_ranges"] =
             response_ranges.clone();
-        observations["presentation_binding_to_session"]["revealed_request_ranges"] =
-            request_ranges.clone();
+        if !has_session_extension_context {
+            observations["presentation_binding_to_session"]["revealed_request_ranges"] =
+                request_ranges.clone();
+        }
         observations["authenticated_member_id"]["revealed_response_ranges"] =
             response_ranges.clone();
         observations["result_presentation_binding"]["revealed_request_ranges"] =
@@ -1244,7 +1350,19 @@ fn verified_semantic_predicates(
             response_ranges.clone();
     }
 
-    let mut predicates = semantic_predicate_definitions(result.is_sparse());
+    if let Some(session_context) = &verified.session_context {
+        observations["presentation_binding_to_session"]["session_context_grant_sha256"] =
+            Value::String(URL_SAFE_NO_PAD.encode(session_context.grant.digest()));
+        observations["presentation_binding_to_session"]["notary_context_policy_id"] =
+            Value::String(session_context.acceptance.policy_id().to_owned());
+        observations["presentation_binding_to_session"]["notary_context_validated_at_ms"] =
+            Value::String(session_context.acceptance.validated_at_ms().to_string());
+    }
+
+    let mut predicates = semantic_predicate_definitions(
+        result.is_sparse(),
+        has_session_extension_context,
+    );
     let definitions = predicates.as_object_mut().ok_or_else(|| {
         BundleVerificationError::new(
             "semantic_verification",
@@ -1271,7 +1389,7 @@ fn verified_semantic_predicates(
         predicate.insert(
             "evidence_artifacts".to_owned(),
             Value::Array(
-                semantic_predicate_artifacts(name)
+                semantic_predicate_artifacts(name, has_session_extension_context)
                     .iter()
                     .map(|role| Value::String((*role).to_owned()))
                     .collect(),
@@ -1283,19 +1401,32 @@ fn verified_semantic_predicates(
         );
         predicate.insert(
             "detail".to_owned(),
-            Value::String(semantic_predicate_detail(name, result.is_sparse()).to_owned()),
+            Value::String(
+                semantic_predicate_detail(
+                    name,
+                    result.is_sparse(),
+                    has_session_extension_context,
+                )
+                .to_owned(),
+            ),
         );
         predicate.insert("observed".to_owned(), observed);
     }
     Ok(predicates)
 }
 
-fn semantic_predicate_artifacts(name: &str) -> &'static [&'static str] {
+fn semantic_predicate_artifacts(name: &str, session_extension: bool) -> &'static [&'static str] {
     match name {
         "presentation_cryptography" => &["presentation", "trust_root", "notary_registry"],
         "notary_identity" => &["presentation", "health", "notary_registry"],
         "server_identity" => &["presentation", "health"],
         "require_info_http_profile" => &["presentation"],
+        "presentation_binding_to_session" if session_extension => &[
+            "presentation",
+            "session",
+            "session_authority_registry",
+            "result",
+        ],
         "presentation_binding_to_session" => &["presentation", "session", "result"],
         "authenticated_member_id" => &["presentation"],
         "result_presentation_binding" => &["presentation", "result"],
@@ -1308,7 +1439,11 @@ fn semantic_predicate_artifacts(name: &str) -> &'static [&'static str] {
     }
 }
 
-fn semantic_predicate_detail(name: &str, sparse: bool) -> &'static str {
+fn semantic_predicate_detail(
+    name: &str,
+    sparse: bool,
+    session_extension: bool,
+) -> &'static str {
     match name {
         "presentation_cryptography" => {
             "TLSN Presentation cryptography and certificate-chain verification succeeded."
@@ -1324,6 +1459,9 @@ fn semantic_predicate_detail(name: &str, sparse: bool) -> &'static str {
         }
         "require_info_http_profile" => {
             "The authenticated request and response transcript satisfied the require_info profile."
+        }
+        "presentation_binding_to_session" if session_extension => {
+            "The Notary-signed Session context matched the independently verified Session Authority receipt and Result."
         }
         "presentation_binding_to_session" if sparse => {
             "Authenticated sparse request ranges matched the signed Session binding."
@@ -3344,6 +3482,7 @@ fn verify_authority_artifacts(
     session_authority_registry: &Value,
     session_authority_key_id: &str,
     session_authority_public_key_spki: &str,
+    session_context: Option<&crate::session_context::VerifiedSessionContext>,
     binding_authority_registry: &Value,
     binding_authority_key_id: &str,
     binding_authority_public_key_spki: &str,
@@ -3541,6 +3680,78 @@ fn verify_authority_artifacts(
         session_authority_key_id,
         session_authority_public_key_spki,
     )?;
+    if let Some(session_context) = session_context {
+        let grant = &session_context.grant;
+        let session_created_at_ms = u64::try_from(parse_timestamp(object_string(
+            session_receipt,
+            "created_at",
+            "session_receipt",
+            "session",
+        )?)
+        .map_err(|message| {
+            BundleVerificationError::new("session_receipt", Some("session"), message)
+        })?)
+        .map_err(|_| {
+            BundleVerificationError::new(
+                "session_receipt",
+                Some("session"),
+                "Session Authority issue time is outside the supported range",
+            )
+        })?;
+        let session_expires_at_ms = u64::try_from(parse_timestamp(object_string(
+            session_receipt,
+            "expires_at",
+            "session_receipt",
+            "session",
+        )?)
+        .map_err(|message| {
+            BundleVerificationError::new("session_receipt", Some("session"), message)
+        })?)
+        .map_err(|_| {
+            BundleVerificationError::new(
+                "session_receipt",
+                Some("session"),
+                "Session Authority expiration is outside the supported range",
+            )
+        })?;
+        let expected_device_commitment =
+            crate::session_context::device_id_commitment(device_id).map_err(|error| {
+                BundleVerificationError::new(
+                    "session_context",
+                    Some("presentation"),
+                    error.to_string(),
+                )
+            })?;
+        let expected_device_challenge = decode_fixed_base64::<32>(
+            device_challenge,
+            "Session device challenge",
+            "session_context",
+        )?;
+        if grant.signer_key_id() != session_authority_key_id
+            || grant.session_id() != session_id
+            || grant.binding_value() != binding
+            || grant.device_id_sha256() != &expected_device_commitment
+            || grant.device_challenge() != &expected_device_challenge
+            || grant.issued_at_ms() != session_created_at_ms
+            || grant.expires_at_ms() != session_expires_at_ms
+            || session_context.acceptance.policy_id()
+                != crate::session_context::NOTARY_SESSION_CONTEXT_POLICY_ID
+        {
+            return Err(BundleVerificationError::new(
+                "session_context",
+                Some("presentation"),
+                "Notary-attested Session context does not match the signed Session Authority receipt",
+            ));
+        }
+    } else if result.profile_id() == crate::SESSION_EXTENSION_PROFILE_ID
+        || result.profile_id() == crate::SPARSE_SESSION_EXTENSION_PROFILE_ID
+    {
+        return Err(BundleVerificationError::new(
+            "session_context",
+            Some("presentation"),
+            "session extension profile is missing its verified Session context",
+        ));
+    }
     let possession = parse_json(
         artifact_bytes(bundle, "possession_proof")?,
         "possession_proof",
@@ -4877,10 +5088,32 @@ fn verify_trust_graph(
             "remote-attestation-signer",
         ),
     ];
+    let session_extension_profile = result.profile_id() == crate::SESSION_EXTENSION_PROFILE_ID
+        || result.profile_id() == crate::SPARSE_SESSION_EXTENSION_PROFILE_ID;
+    if session_extension_profile {
+        for edge in &mut expected_edges {
+            if edge.0 == "session-binding-authenticates-presentation" {
+                *edge = (
+                    edge.0,
+                    edge.1,
+                    edge.2,
+                    &[
+                        "session_id",
+                        "binding_value",
+                        "session_context_grant_sha256",
+                        "notary_context_policy_id",
+                    ],
+                    edge.4,
+                    edge.5,
+                    edge.6,
+                );
+            }
+        }
+    }
     if result.is_sparse() {
         for edge in &mut expected_edges {
             match edge.0 {
-                "session-binding-authenticates-presentation" => {
+                "session-binding-authenticates-presentation" if !session_extension_profile => {
                     *edge = (
                         edge.0,
                         edge.1,

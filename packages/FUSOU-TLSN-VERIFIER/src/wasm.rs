@@ -235,6 +235,133 @@ fn verify_sparse_require_info_presentation_inner(
     ))
 }
 
+fn verify_require_info_session_extension_presentation_inner(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+    canonical_user_id: &str,
+    canonical_device_id: &str,
+    device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
+    session_authority_key_id: &str,
+    session_authority_public_key_spki: &[u8],
+    trusted_notary_key: &[u8],
+    trust_anchor_der: Option<&[u8]>,
+    sparse: bool,
+) -> Result<String, JsValue> {
+    let profile_sha256: [u8; 32] = profile_sha256
+        .try_into()
+        .map_err(|_| JsValue::from_str("profile_sha256 must be exactly 32 bytes"))?;
+    let device_challenge: [u8; 32] = device_challenge
+        .try_into()
+        .map_err(|_| JsValue::from_str("device_challenge must be exactly 32 bytes"))?;
+    let origin_inventory_sha256 =
+        optional_production_digest(origin_inventory_sha256, "origin_inventory_sha256")?;
+    let target_approval_artifact_sha256 = optional_production_digest(
+        target_approval_artifact_sha256,
+        "target_approval_artifact_sha256",
+    )?;
+    if trusted_notary_key.is_empty() {
+        return Err(JsValue::from_str("trusted Notary key must not be empty"));
+    }
+    let profile =
+        crate::tlsn_alpha15::SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
+            expected_server_identity,
+            session_authority_key_id,
+            session_authority_public_key_spki,
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let provider = create_crypto_provider(trust_anchor_der)?;
+    let transcript = verify_alpha15_presentation_with_provider_and_notary_key(
+        presentation_bytes,
+        &provider,
+        Some(trusted_notary_key),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let authenticated = if sparse {
+        transcript.verify_require_info_sparse_with_session_extension(
+            &profile,
+            &ParserLimits::default(),
+        )
+    } else {
+        transcript.verify_require_info_with_session_extension(&profile, &ParserLimits::default())
+    }
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let session_context = authenticated
+        .session_context()
+        .ok_or_else(|| JsValue::from_str("verified Notary session context is missing"))?;
+    let device_commitment =
+        crate::session_context::device_id_commitment(canonical_device_id)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    if session_context.grant.device_id_sha256() != &device_commitment
+        || session_context.grant.device_challenge() != &device_challenge
+    {
+        return Err(JsValue::from_str(
+            "Notary session context does not match the authorized device challenge",
+        ));
+    }
+    let unsigned_result_json;
+    let signing_bytes;
+    if sparse {
+        let result = SparseVerifierResult::from_authenticated(
+            &authenticated,
+            profile_sha256,
+            verifier_key_id.to_owned(),
+            notary_key_id.to_owned(),
+            *transcript.notary_key_sha256(),
+            presentation_sha256(presentation_bytes),
+            origin_inventory_sha256,
+            target_approval_artifact_sha256,
+            canonical_user_id.to_owned(),
+            canonical_device_id.to_owned(),
+            device_challenge,
+            [0_u8; 64],
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        unsigned_result_json = serde_json::to_string(
+            &result
+                .canonical_json()
+                .map_err(|error| JsValue::from_str(&error.to_string()))?,
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        signing_bytes = result
+            .signing_bytes()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    } else {
+        let result = authenticated
+            .into_verifier_result(
+                profile_sha256,
+                verifier_key_id.to_owned(),
+                notary_key_id.to_owned(),
+                canonical_user_id.to_owned(),
+                canonical_device_id.to_owned(),
+                device_challenge,
+                presentation_sha256(presentation_bytes),
+                origin_inventory_sha256,
+                target_approval_artifact_sha256,
+                [0_u8; 64],
+            )
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        unsigned_result_json = serde_json::to_string(
+            &result
+                .canonical_json()
+                .map_err(|error| JsValue::from_str(&error.to_string()))?,
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        signing_bytes = result
+            .signing_bytes()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    }
+    Ok(format!(
+        "{{\"unsigned_result\":{},\"signing_bytes\":\"{}\"}}",
+        unsigned_result_json,
+        URL_SAFE_NO_PAD.encode(signing_bytes),
+    ))
+}
+
 #[wasm_bindgen]
 pub fn inspect_alpha15_presentation(
     presentation_bytes: &[u8],
@@ -393,6 +520,148 @@ pub fn verify_synthetic_sparse_require_info_presentation_with_root(
         target_approval_artifact_sha256,
         Some(trust_anchor_der),
         trusted_notary_key,
+    )
+}
+
+#[wasm_bindgen]
+pub fn verify_require_info_session_extension_presentation(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+    canonical_user_id: &str,
+    canonical_device_id: &str,
+    device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
+    session_authority_key_id: &str,
+    session_authority_public_key_spki: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    verify_require_info_session_extension_presentation_inner(
+        presentation_bytes,
+        expected_server_identity,
+        profile_sha256,
+        verifier_key_id,
+        notary_key_id,
+        canonical_user_id,
+        canonical_device_id,
+        device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
+        session_authority_key_id,
+        session_authority_public_key_spki,
+        trusted_notary_key,
+        None,
+        false,
+    )
+}
+
+#[wasm_bindgen]
+pub fn verify_synthetic_require_info_session_extension_presentation_with_root(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+    canonical_user_id: &str,
+    canonical_device_id: &str,
+    device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
+    session_authority_key_id: &str,
+    session_authority_public_key_spki: &[u8],
+    trust_anchor_der: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    verify_require_info_session_extension_presentation_inner(
+        presentation_bytes,
+        expected_server_identity,
+        profile_sha256,
+        verifier_key_id,
+        notary_key_id,
+        canonical_user_id,
+        canonical_device_id,
+        device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
+        session_authority_key_id,
+        session_authority_public_key_spki,
+        trusted_notary_key,
+        Some(trust_anchor_der),
+        false,
+    )
+}
+
+#[wasm_bindgen]
+pub fn verify_sparse_require_info_session_extension_presentation(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+    canonical_user_id: &str,
+    canonical_device_id: &str,
+    device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
+    session_authority_key_id: &str,
+    session_authority_public_key_spki: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    verify_require_info_session_extension_presentation_inner(
+        presentation_bytes,
+        expected_server_identity,
+        profile_sha256,
+        verifier_key_id,
+        notary_key_id,
+        canonical_user_id,
+        canonical_device_id,
+        device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
+        session_authority_key_id,
+        session_authority_public_key_spki,
+        trusted_notary_key,
+        None,
+        true,
+    )
+}
+
+#[wasm_bindgen]
+pub fn verify_synthetic_sparse_require_info_session_extension_presentation_with_root(
+    presentation_bytes: &[u8],
+    expected_server_identity: &str,
+    profile_sha256: &[u8],
+    verifier_key_id: &str,
+    notary_key_id: &str,
+    canonical_user_id: &str,
+    canonical_device_id: &str,
+    device_challenge: &[u8],
+    origin_inventory_sha256: &[u8],
+    target_approval_artifact_sha256: &[u8],
+    session_authority_key_id: &str,
+    session_authority_public_key_spki: &[u8],
+    trust_anchor_der: &[u8],
+    trusted_notary_key: &[u8],
+) -> Result<String, JsValue> {
+    verify_require_info_session_extension_presentation_inner(
+        presentation_bytes,
+        expected_server_identity,
+        profile_sha256,
+        verifier_key_id,
+        notary_key_id,
+        canonical_user_id,
+        canonical_device_id,
+        device_challenge,
+        origin_inventory_sha256,
+        target_approval_artifact_sha256,
+        session_authority_key_id,
+        session_authority_public_key_spki,
+        trusted_notary_key,
+        Some(trust_anchor_der),
+        true,
     )
 }
 
