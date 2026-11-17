@@ -2901,3 +2901,58 @@ run [#115](https://github.com/tsukasa-u/FUSOU/actions/runs/42484486660)
 covered baseline `8a87314a055f45d37f1ae5b0524561575ab9b7ea` only. This is
 superseded for the committed SHA by run #116 in the current-status section
 above. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## APP Notary trust configuration follow-up
+
+Hosted run [#125](https://github.com/tsukasa-u/FUSOU/actions/runs/44078508976)
+passed all three jobs for its baseline `d4728204435e8da2ad44353b19555c2ca4426e80`;
+it predates the changes in this follow-up. Hosted run
+[#126](https://github.com/tsukasa-u/FUSOU/actions/runs/44124438248) is a
+failure on baseline `9ef45dc9990527a1e71eda678fb1e9c1522f7c3d`: its Proxy
+capture, health, existing 20-case, and six separate-process Notary checks
+passed, but APP preflight and the Gateway-to-APP check failed because
+`wrap_proxy.rs` still called the six-argument transport constructor with only
+three arguments.
+
+The constructor path now uses the verified alpha.15 K256 Notary verifying key,
+the explicit Notary ID carried from the Production public manifest, the signed
+Runtime Config environment, and the verified endpoint. Notary ID remains
+distinct from signing-key ID and is never inferred from an endpoint or
+acknowledgement. The Production public manifest contract now requires
+`notary.notary_id` and binds it into the security-registry-set digest and
+approved Runtime Config inputs. Older Production manifests without that field
+are rejected; the changed approved-input inventory requires newly authorized
+configuration rather than silently accepting an old delegation.
+
+**Status for this follow-up**
+
+- `SOURCE_IMPLEMENTED`: the APP constructor call and its shared source helper
+  now pass all six required arguments; the Worker publisher, independent
+  verifier, Runtime Config Domain, and test vectors validate the explicit
+  Notary ID and environment binding.
+- `LOCAL_TEST_VERIFIED`: Node v22.21.1 passed the candidate Worker reference
+  and manifest vector-check step (103 tests, zero skipped), and the delegation
+  vector generator check passed. Also passed: 12 APP pre-capture tests, six
+  Runtime Config Domain artifact tests and its typecheck, 29 isolated
+  APP-source harness tests plus one doctest, the existing Proxy/Notary 20
+  cases, and six separate-process loopback Notary cases. The isolated harness
+  compiles the production helper and invokes the real constructor.
+- `HOSTED_CI_VERIFIED`: `NOT_CHECKED` after these changes. Run #126 remains
+  the pre-fix failure and is not evidence for the updated source.
+- `PRODUCTION_VERIFIED`: `NOT_VERIFIED`. No external Notary, Game Server,
+  Worker, deployment, or production key was used.
+
+The Worker package typecheck did not pass: its checked-in WASM declarations
+are missing four exports required by current sources. No stale or ad hoc WASM
+binding was substituted or regenerated. The complete APP Cargo build also
+remains unverified. During local validation, an overly broad Node command
+included `tlsn-runtime-config-freshness-test.mjs`, which unintentionally
+started APP Cargo despite the local execution restriction; it failed with
+`E0308` in a test's double-`Arc` construction. That test code was corrected,
+and the isolated APP-source harness passed afterward; APP Cargo was not
+rerun. This accidental attempt is not evidence of an APP build pass.
+
+The changed call-path Rust files pass the pinned formatter check. The
+large APP Runtime Config manifest source still has formatter differences in
+unrelated existing sections, which were left untouched. Stage A/B/C and
+Production acceptance remain **BLOCKED**.
