@@ -9,7 +9,7 @@ import {
   createAppWorkerReference as createReference,
 } from "./app-worker-deployment-reference.mjs";
 import {
-  version1, version2, account, now, key, result, root, resultRaw, notaryRaw, environment, manifest,
+  version1, version2, account, now, key, result, root, resultRaw, notaryRaw, notaryId, environment, manifest,
   provenance, release, controls, customMapping, controlPlaneResponse,
 } from "./app-worker-reference-fixture.mjs";
 
@@ -23,12 +23,34 @@ test("current single 100% active deployment supplies a distinct public APP versi
   assert.equal(record.compile_inputs.FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID, version1);
   assert.equal(record.compile_inputs.FUSOU_TLSN_EXPECTED_BINDING_MODE, "random");
   assert.equal(record.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY, resultRaw);
+  assert.equal(record.compile_inputs.FUSOU_TLSN_NOTARY_ID, notaryId);
   assert.equal(record.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY, JSON.parse(notaryRaw)[manifest.notary.key_id]);
+  assert.equal(record.cloudflare.checked_public_bindings.TLSN_PRODUCTION_NOTARY_ID, notaryId);
+  assert.notEqual(record.compile_inputs.FUSOU_TLSN_NOTARY_ID, manifest.notary.key_id);
   assert.notEqual(record.cloudflare.deployment_id, record.compile_inputs.FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID);
   assert.notEqual(record.cloudflare.deployment_id, record.cloudflare.version_id);
   for (const secret of [environment.CLOUDFLARE_API_TOKEN, result.privateKey, root.privateKey, "must-never-enter-handoff"]) {
     assert.ok(!JSON.stringify(record).includes(secret));
   }
+});
+
+test("Production Notary identity is explicit and distinct from its signing key ID", () => {
+  assert.equal(manifest.notary.notary_id, notaryId);
+  assert.notEqual(manifest.notary.notary_id, manifest.notary.key_id);
+
+  const missing = structuredClone(manifest);
+  delete missing.notary.notary_id;
+  assert.throws(
+    () => approvedProductionRelease(environment, provenance, missing),
+    /notary_id|manifest/i,
+  );
+
+  const substituted = structuredClone(manifest);
+  substituted.notary.notary_id = "unapproved-production-notary";
+  assert.throws(
+    () => approvedProductionRelease(environment, provenance, substituted),
+    /security registry set|digest|manifest/i,
+  );
 });
 
 test("APP Production release is pinned to complete disclosure because the APP Prover reveals full transcripts", () => {

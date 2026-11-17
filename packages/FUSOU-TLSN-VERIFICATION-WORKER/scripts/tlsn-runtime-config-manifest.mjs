@@ -4,7 +4,10 @@ import { ENTRY_INPUT_CONTRACT, assertBuildReference } from "./app-build-handoff.
 import { canonicalJson } from "./production-trust-contract.mjs";
 import { assertResultSigningIdentity } from "./production-trust-contract.mjs";
 import { verifyTlsnRuntimeConfigIndependentInputs } from "./tlsn-runtime-config-independent-verification.mjs";
-import { assertAlpha15NotaryVerifyingKey } from "../src/origin-trust-contract.mjs";
+import {
+  assertAlpha15NotaryVerifyingKey,
+  assertNotaryId,
+} from "../src/origin-trust-contract.mjs";
 
 export const TLSN_RUNTIME_CONFIG_MANIFEST_SCHEMA_VERSION = 2;
 export const TLSN_RUNTIME_CONFIG_MANIFEST_SCOPE = "fusou-tlsn-runtime-config-manifest-v2";
@@ -335,6 +338,7 @@ function assertManifestPayload(payload, validationTime = new Date()) {
     throw new Error("manifest compile inputs disagree with the observed Worker reference");
   }
   assertNotaryEndpoint(inputs.FUSOU_TLSN_NOTARY_ENDPOINT);
+  assertNotaryId(inputs.FUSOU_TLSN_NOTARY_ID);
   assertAlpha15NotaryVerifyingKey(
     inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY,
     "manifest Notary verifying key",

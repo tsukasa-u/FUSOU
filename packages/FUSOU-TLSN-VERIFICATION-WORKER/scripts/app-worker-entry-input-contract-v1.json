@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "scope": "fusou-tlsn-app-worker-entry-compile-inputs",
+  "schema_version": 2,
+  "scope": "fusou-tlsn-app-worker-entry-compile-inputs-v2",
   "canonicalization": "FUSOU_CANONICAL_JSON_V1",
   "digest_encoding": "SHA256_BASE64URL_NO_PAD",
   "compile_inputs": [
@@ -10,6 +10,7 @@
     "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
     "FUSOU_TLSN_EXPECTED_WORKER_NAME",
     "FUSOU_TLSN_NOTARY_ENDPOINT",
+    "FUSOU_TLSN_NOTARY_ID",
     "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
     "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
     "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
@@ -22,7 +23,7 @@
   ],
   "test_vector": {
     "uniform_input_value": "public-test-value",
-    "entry_input_sha256": "_0KHF_YcD35cRC8zFZ_tGhkAkWEg5aNXMCd8vWfAa-0"
+    "entry_input_sha256": "grWEKesSfYYmHrUB0DHDRVn-mEVLDkfvNlpOH_o-9t0"
   },
   "exclusions": [
     "runtime TOML and candidate capture fields",

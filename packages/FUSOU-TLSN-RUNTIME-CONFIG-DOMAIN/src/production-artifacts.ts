@@ -33,6 +33,7 @@ const COMPILE_INPUT_FIELDS = [
   "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
   "FUSOU_TLSN_EXPECTED_WORKER_NAME",
   "FUSOU_TLSN_NOTARY_ENDPOINT",
+  "FUSOU_TLSN_NOTARY_ID",
   "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
   "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
   "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
@@ -55,6 +56,7 @@ const TARGET_APPROVAL_FIELDS = [
   "approved_at",
 ] as const;
 const SECURITY_REGISTRY_SET_FIELDS = [
+  "notary_id",
   "notary_key_id",
   "notary_registry",
   "origin_inventory_sha256",
@@ -579,6 +581,7 @@ function verifyWorkerReference(
     cloudflare.deployment_id !== cloudflareDeploymentId ||
     cloudflare.version_id !== activeVersionId ||
     cloudflare.percentage !== 100 ||
+    bindings.TLSN_ENVIRONMENT !== payload.environment ||
     releaseContext.deployment_role !== "production" ||
     releaseContext.git_commit_sha !== workerGitCommitSha ||
     canonicalJsonText(referenceCompileInputs) !==
@@ -594,6 +597,8 @@ function verifyWorkerReference(
       compileInputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID ||
     bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY !==
       compileInputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY ||
+    bindings.TLSN_PRODUCTION_NOTARY_ID !==
+      compileInputs.FUSOU_TLSN_NOTARY_ID ||
     bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE !==
       resultRegistryEnvelopeText ||
     bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID !==
@@ -731,12 +736,18 @@ function verifyAuthorityArtifacts(options: {
     securityRegistrySet.notary_key_id,
     "Production security registry set Notary key ID",
   );
+  const notaryId = requireString(
+    securityRegistrySet.notary_id,
+    "Production security registry set Notary ID",
+  );
   const notaryRegistry = requireRecord(
     securityRegistrySet.notary_registry,
     "Production security registry set Notary registry",
   );
   const notaryCompileKey = compileInputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY;
   if (
+    !isCanonicalNotaryId(notaryId) ||
+    notaryId !== compileInputs.FUSOU_TLSN_NOTARY_ID ||
     !KEY_ID_PATTERN.test(notaryKeyId) ||
     securityRegistrySet.origin_inventory_sha256 !== inventoryDigest ||
     securityRegistrySet.target_approval_artifact_sha256 !== approvalDigest ||
@@ -754,12 +765,17 @@ function verifyAuthorityArtifacts(options: {
         "Production security registry set Notary registry contains an invalid entry",
       );
     }
+
     assertAlpha15NotaryVerifyingKey(verifyingKey);
   }
   assertDigest(
     securityRegistrySet.profile_policy_sha256,
     "Production profile policy digest",
   );
+}
+
+function isCanonicalNotaryId(value: string): boolean {
+  return /^[\x21-\x7e]{1,128}$/u.test(value);
 }
 
 async function verifyResultRegistry(options: {

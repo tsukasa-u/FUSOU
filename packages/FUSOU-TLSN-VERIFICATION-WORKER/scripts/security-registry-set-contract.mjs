@@ -10,7 +10,7 @@ import { loadOriginInventoryContract } from "./origin-inventory-contract.mjs";
 import { assertTargetApprovalResolved } from "./target-approval-contract.mjs";
 
 export const SECURITY_REGISTRY_SET_CONTRACT = {
-  schema_version: 2,
+  schema_version: 3,
   source_of_truth: "scripts/security-registry-set-contract.mjs",
   roles: {
     canary: {
@@ -24,13 +24,14 @@ export const SECURITY_REGISTRY_SET_CONTRACT = {
       profile_hash_semantics: "supplied canonical profile hashes bound to this Canary deployment target",
     },
     production: {
-      schema_version: 3,
+      schema_version: 4,
       canonicalization: "canonicalJson",
       encoding: "UTF-8",
       whitespace: "none",
       hash_algorithm: "SHA-256",
       digest_encoding: "base64url without padding",
-      fields: ["notary_key_id", "notary_registry", "origin_inventory_sha256", "target_approval_artifact_sha256", "profile_policy_sha256"],
+      fields: ["notary_id", "notary_key_id", "notary_registry", "origin_inventory_sha256", "target_approval_artifact_sha256", "profile_policy_sha256"],
+      notary_id_semantics: "explicit Notary protocol identity, distinct from the Notary signing key ID",
       origin_inventory_semantics: "byte-level SHA-256 of the shipped 20-host HTTPS Origin inventory",
       profile_policy_semantics: "SHA-256 of the canonical complete/sparse profile policy; per-host profile hashes are derived at verification time",
     },
@@ -59,7 +60,7 @@ export function securityRegistrySetHash(inputs) {
   };
 }
 
-export function productionSecurityRegistrySetHash({ notaryKeyId, notaryRegistryRaw, targetApprovalArtifactSha256 } = {}) {
+export function productionSecurityRegistrySetHash({ notaryId, notaryKeyId, notaryRegistryRaw, targetApprovalArtifactSha256 } = {}) {
   const canonicalNotaryRegistryRaw = canonicalNotaryRegistryJson(
     notaryRegistryRaw,
     "Production security registry set Notary registry",
@@ -70,6 +71,7 @@ export function productionSecurityRegistrySetHash({ notaryKeyId, notaryRegistryR
     .update(canonicalJson(PROFILE_CONTRACT_SPEC), "utf8")
     .digest("base64url");
   const payload = productionSecurityRegistrySetPayload({
+    notaryId,
     notaryKeyId,
     notaryRegistryRaw: canonicalNotaryRegistryRaw,
     originInventorySha256: originInventory.sha256,

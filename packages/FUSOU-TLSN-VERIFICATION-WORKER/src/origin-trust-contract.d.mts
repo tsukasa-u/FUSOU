@@ -10,6 +10,7 @@ export const PROFILE_CONTRACT_SPEC: Record<string, unknown>;
 
 export function canonicalJson(value: unknown): string;
 export function assertAlpha15NotaryVerifyingKey(value: string, label?: string): void;
+export function assertNotaryId(value: string): string;
 export function assertCandidateServerIdentity(serverIdentity: string): string;
 export function parseOriginInventory(raw: string): {
   schema_version: 1;
@@ -49,12 +50,14 @@ export function securityRegistrySetPayload(input: {
   sparse_profile_sha256: string;
 };
 export function productionSecurityRegistrySetPayload(input: {
+  notaryId: string;
   notaryKeyId: string;
   notaryRegistryRaw: string;
   originInventorySha256: string;
   targetApprovalArtifactSha256: string;
   profilePolicySha256: string;
 }): {
+  notary_id: string;
   notary_key_id: string;
   notary_registry: Record<string, string>;
   origin_inventory_sha256: string;
@@ -62,6 +65,7 @@ export function productionSecurityRegistrySetPayload(input: {
   profile_policy_sha256: string;
 };
 export function productionSecurityRegistrySetCanonical(input: {
+  notaryId: string;
   notaryKeyId: string;
   notaryRegistryRaw: string;
   originInventorySha256: string;

@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use kc_api::interface;
 use tauri::{Emitter, Manager};
 // use crate::notify; // access via module path since we declare below
-mod json_parser;
 pub mod app_public_configuration;
+mod json_parser;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
 use tauri::AppHandle;
@@ -23,17 +23,19 @@ mod scheduler;
 mod senders;
 mod sequence;
 mod storage;
-mod util;
-mod window;
-mod wrap_proxy;
-pub mod tlsn_preflight;
 pub mod tlsn_build_handoff;
-pub mod tlsn_runtime_config_manifest;
+#[cfg(feature = "tlsn-production")]
+mod tlsn_notary_transport;
+pub mod tlsn_preflight;
 #[cfg(feature = "tlsn-production")]
 mod tlsn_runtime;
+pub mod tlsn_runtime_config_manifest;
 #[cfg(feature = "tlsn-production")]
 pub(crate) mod tlsn_runtime_config_runtime;
 mod tlsn_worker_identity;
+mod util;
+mod window;
+mod wrap_proxy;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
 use fusou_upload::PendingStore;

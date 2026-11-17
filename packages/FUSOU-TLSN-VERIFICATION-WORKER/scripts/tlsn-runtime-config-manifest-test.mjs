@@ -15,6 +15,7 @@ import {
   tlsnRuntimeConfigApprovedConfigurationSha256,
   tlsnRuntimeConfigDelegatedSigningBytes,
   tlsnRuntimeConfigSigningBytes,
+  verifyTlsnRuntimeConfigManifestDelegation,
   verifyTlsnRuntimeConfigEnvelope,
   verifyTlsnRuntimeConfigEpochPointer,
   verifyTlsnRuntimeConfigProductionEnvelope,
@@ -37,6 +38,7 @@ import {
   controlPlaneResponse,
   environment,
   manifest,
+  notaryId,
   now,
   provenance,
   release,
@@ -138,6 +140,7 @@ function currentIndependentInputs(workerReferenceRaw = referenceRaw()) {
   );
   const securityRegistrySetRaw = Buffer.from(
     productionSecurityRegistrySetHash({
+      notaryId,
       notaryKeyId: release.publicBindings.TLSN_CANDIDATE_NOTARY_KEY_ID,
       notaryRegistryRaw: release.publicBindings.TLSN_PRODUCTION_NOTARY_REGISTRY,
       targetApprovalArtifactSha256: createHash("sha256")
@@ -657,7 +660,8 @@ test("the complete Production compile-input set is required and unknown fields a
     {
       ...prepared.payload,
       compile_inputs: Object.fromEntries(
-        Object.entries(prepared.payload.compile_inputs).filter(([name]) => name !== "FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID"),
+        Object.entries(prepared.payload.compile_inputs).filter(([name]) =>
+          !["FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID", "FUSOU_TLSN_NOTARY_ID"].includes(name)),
       ),
     },
     {
@@ -690,6 +694,7 @@ test("Notary key and Production authority pin boundaries fail closed", () => {
       payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = bytes.toString("base64url");
     }, /alpha\.15 K256/],
     ["malformed Notary base64url", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = "A"; }, /canonical base64url/],
+    ["invalid Notary ID", (payload) => { payload.compile_inputs.FUSOU_TLSN_NOTARY_ID = "notary id"; }, /Notary ID/],
     ["out-of-field Notary point", (payload) => {
       const bytes = Buffer.from(payload.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY, "base64url");
       bytes.fill(0xff, 9);
@@ -945,6 +950,30 @@ test("publication objects use signed content-addressed keys and publish the muta
     assert.equal(artifact.key.endsWith(`/${digest}`), true);
     assert.equal(artifact.cache_control, "public, max-age=31536000, immutable");
   }
+});
+
+test("the approved Manifest delegation binds the explicit Notary ID", () => {
+  const prepared = preparedOptions();
+  const authority = manifestDelegation(prepared);
+  const verification = {
+    raw: authority.raw,
+    trustedSigner,
+    manifestUrl,
+    nowMs: Date.parse(prepared.payload.issued_at) + 1000,
+    maxClockSkewSeconds: 30,
+    payload: prepared.payload,
+  };
+  assert.doesNotThrow(() => verifyTlsnRuntimeConfigManifestDelegation(verification));
+
+  const changedPayload = structuredClone(prepared.payload);
+  changedPayload.compile_inputs.FUSOU_TLSN_NOTARY_ID = "unapproved-production-notary";
+  assert.throws(
+    () => verifyTlsnRuntimeConfigManifestDelegation({
+      ...verification,
+      payload: changedPayload,
+    }),
+    /outside the root-approved configuration/,
+  );
 });
 
 test("test-only Manifest publishing validates the root delegation before child signing", async () => {

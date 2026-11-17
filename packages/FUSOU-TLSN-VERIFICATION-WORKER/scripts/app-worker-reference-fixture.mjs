@@ -13,6 +13,7 @@ export const version2 = "5b064508-1cdb-453c-826b-bdea36a8b1e5";
 export const deploymentId = "6b064508-1cdb-453c-826b-bdea36a8b1e5";
 export const account = "a".repeat(32);
 export const now = new Date().toISOString();
+export const notaryId = "production-notary-primary";
 const hash = (raw) => createHash("sha256").update(raw).digest("base64url");
 export function key() {
   const pair = generateKeyPairSync("ed25519");
@@ -36,9 +37,14 @@ const envelopeRaw = JSON.stringify(createSignedResultRegistryEnvelope({
   rootKeyId: "result-root-test", rootPublicKeySpki: root.publicKey, rootPrivateKeyPkcs8: root.privateKey,
 }));
 export const notaryRaw = JSON.stringify({ "notary-production-test": "ASEAAAAAAAAAAxuExVZ7EmRAmV0-1aq6BWXXHhg0YEgZ_5wX9enV3QeP" });
-const trustSet = productionSecurityRegistrySetHash({ notaryKeyId: "notary-production-test", notaryRegistryRaw: notaryRaw }).sha256;
+const trustSet = productionSecurityRegistrySetHash({
+  notaryId,
+  notaryKeyId: "notary-production-test",
+  notaryRegistryRaw: notaryRaw,
+}).sha256;
 export const manifest = buildProductionPublicManifest({
-  notaryEndpoint: "notary.example.com:7047", notaryKeyId: "notary-production-test", notaryRegistryRaw: notaryRaw,
+  notaryEndpoint: "notary.example.com:7047", notaryId,
+  notaryKeyId: "notary-production-test", notaryRegistryRaw: notaryRaw,
   sessionAuthorityEndpoint: "https://production-worker.example.com/attestation/session",
   sessionAuthorityKeyId: "session-production-test", sessionAuthorityPublicKeySpki: session.publicKey,
   sessionAuthorityKeyRegistryRaw: registry("tlsn-session-authority-key-registry", "session-production-test", session.publicKey),

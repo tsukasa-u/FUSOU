@@ -201,6 +201,7 @@ export type Bindings = {
   TLSN_CANARY_BINDING_AUTHORITY_KEY_REGISTRY?: string;
   TLSN_CANARY_WORKER_NAME?: string;
   TLSN_PRODUCTION_DEPLOYMENT_ID?: string;
+  TLSN_PRODUCTION_NOTARY_ID?: string;
   TLSN_PRODUCTION_RESULT_SIGNING_PRIVATE_KEY_PKCS8?: string;
   TLSN_PRODUCTION_RESULT_PUBLIC_KEY_SPKI?: string;
   TLSN_PRODUCTION_RESULT_SIGNER_KEY_ID?: string;
@@ -1294,7 +1295,8 @@ async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
 }> {
   const notaryKeyId = env.TLSN_CANDIDATE_NOTARY_KEY_ID;
   const notaryRegistryRaw = env.TLSN_PRODUCTION_NOTARY_REGISTRY;
-  if (!notaryKeyId || !notaryRegistryRaw || !isSha256Base64Url(env.TLSN_SECURITY_REGISTRY_SET_SHA256)) {
+  const notaryId = env.TLSN_PRODUCTION_NOTARY_ID;
+  if (!notaryId || !notaryKeyId || !notaryRegistryRaw || !isSha256Base64Url(env.TLSN_SECURITY_REGISTRY_SET_SHA256)) {
     throw new Error("Production Origin trust identity is not configured");
   }
   const notaryRegistry = notaryRegistrySchema.parse(JSON.parse(notaryRegistryRaw));
@@ -1309,6 +1311,7 @@ async function productionRuntimeTrustIdentity(env: Bindings): Promise<{
     new TextEncoder().encode(canonicalJson(PROFILE_CONTRACT_SPEC)),
   );
   const trustPayload = productionSecurityRegistrySetPayload({
+    notaryId,
     notaryKeyId,
     notaryRegistryRaw: canonicalJson(notaryRegistry),
     originInventorySha256,

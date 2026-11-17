@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "scope": "fusou-tlsn-app-public-configuration",
+  "schema_version": 3,
+  "scope": "fusou-tlsn-app-public-configuration-v3",
   "canonicalization": "FUSOU-CANONICAL-JSON-V1",
   "digest_encoding": "sha256-base64url-no-padding",
   "projection_fields": {
@@ -12,6 +12,8 @@
       "worker_health_endpoint",
       "verification_endpoint",
       "notary_endpoint",
+      "notary_id",
+      "notary_environment",
       "notary_verifying_key",
       "session_authority_endpoint",
       "session_authority_key_id",
@@ -63,6 +65,8 @@
       "result_signer_key_id": "result-signer-contract",
       "result_signing_key_registry": "{\"schema_version\":1}",
       "worker_health_endpoint": "https://worker.example.test/health",
+      "notary_id": "production-notary-contract",
+      "notary_environment": "production",
       "session_authority_endpoint": "https://authority.example.test/attestation/session",
       "session_authority_key_id": "authority-key-contract",
       "session_authority_public_key": "YXV0aG9yaXR5LWtleQ",
@@ -74,8 +78,8 @@
       "experiment_enabled": false,
       "response_mode": "async"
     },
-    "compile_time_sha256": "6JWMplH2lREpA4o4vfePW6yKy0iEt18dBH58H0YsSb4",
-    "runtime_sha256": "_sA_Z-KG8_kyZUJ6wZhSNDIlcFjdzdPCkEOiB6ua6Jc",
-    "combined_sha256": "q9QCizvRPkj2FDla6089Sd44fpRNDg2Tc6JZFlGOJtw"
+    "compile_time_sha256": "Ir22ft83rjxbgghawwwcrKd22fjhwj-4KKycpWknrrE",
+    "runtime_sha256": "ccpxqBvZ7po9voCj8bjsTuT_XBdkFpFa_cFmN_SqEPg",
+    "combined_sha256": "Lt8h8drgzu7BkkX1TL-NcixwYhrMCxGeCJHXtdAWqYg"
   }
 }

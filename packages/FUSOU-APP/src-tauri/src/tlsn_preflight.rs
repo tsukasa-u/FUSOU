@@ -16,8 +16,8 @@ use std::{
 use url::Url;
 
 use crate::tlsn_runtime_config_manifest::{
-    parse_epoch, validate_digest, RuntimeConfigBootstrap, RuntimeConfigBootstrapBuildReport,
-    RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
+    parse_epoch, validate_digest, validate_notary_id, RuntimeConfigBootstrap,
+    RuntimeConfigBootstrapBuildReport, RuntimeConfigWorkerInput, VerifiedRuntimeConfigManifest,
 };
 
 #[cfg(feature = "tlsn-production")]
@@ -71,6 +71,8 @@ pub struct TlsnPreflightConfig {
     pub runtime_config_manifest_sha256: Option<String>,
     pub runtime_config_manifest_epoch: Option<String>,
     pub notary_endpoint: Option<String>,
+    pub notary_id: Option<String>,
+    pub notary_environment: Option<String>,
     pub session_authority_endpoint: Option<String>,
     pub session_authority_key_id: Option<String>,
     pub session_authority_public_key: Option<String>,
@@ -105,6 +107,8 @@ impl TlsnPreflightConfig {
             runtime_config_manifest_sha256: None,
             runtime_config_manifest_epoch: None,
             notary_endpoint: None,
+            notary_id: None,
+            notary_environment: None,
             session_authority_endpoint: None,
             session_authority_key_id: None,
             session_authority_public_key: None,
@@ -141,6 +145,8 @@ impl TlsnPreflightConfig {
             runtime_config_manifest_sha256: Some(verified.manifest_sha256().to_owned()),
             runtime_config_manifest_epoch: Some(verified.epoch().to_owned()),
             notary_endpoint: input(RuntimeConfigWorkerInput::NotaryEndpoint),
+            notary_id: input(RuntimeConfigWorkerInput::NotaryId),
+            notary_environment: Some(verified.payload().environment.clone()),
             session_authority_endpoint: input(RuntimeConfigWorkerInput::SessionAuthorityEndpoint),
             session_authority_key_id: input(RuntimeConfigWorkerInput::SessionAuthorityKeyId),
             session_authority_public_key: input(
@@ -713,6 +719,11 @@ fn run_preflight_inner(config: &TlsnPreflightConfig, config_path: &Path) -> Tlsn
         config.result_signing_key_registry.as_deref(),
     );
     check_notary_verifying_key(&mut checks, config.notary_verifying_key.as_deref());
+    check_notary_admission_scope(
+        &mut checks,
+        config.notary_id.as_deref(),
+        config.notary_environment.as_deref(),
+    );
     check_platform_trust_store(&mut checks);
 
     checks.push(check_origin_inventory(config, bootstrap_required));
@@ -840,6 +851,11 @@ fn compile_time_public_configuration_projection(
             (
                 "notary_endpoint".to_owned(),
                 serde_json::json!(config.notary_endpoint),
+            ),
+            ("notary_id".to_owned(), serde_json::json!(config.notary_id)),
+            (
+                "notary_environment".to_owned(),
+                serde_json::json!(config.notary_environment),
             ),
             (
                 "notary_verifying_key".to_owned(),
@@ -1374,30 +1390,37 @@ fn check_notary_verifying_key(checks: &mut Vec<PreflightCheck>, value: Option<&s
     }
 }
 
+fn check_notary_admission_scope(
+    checks: &mut Vec<PreflightCheck>,
+    notary_id: Option<&str>,
+    environment: Option<&str>,
+) {
+    let result = match (notary_id, environment) {
+        (Some(notary_id), Some("production")) => validate_notary_id(notary_id)
+            .map_err(|error| error.to_string())
+            .map(|()| format!("signed Notary ID is present; length={}", notary_id.len())),
+        (Some(_), Some(_)) => Err("Notary environment must be production".to_owned()),
+        _ => Err("signed Notary ID or Notary environment is missing".to_owned()),
+    };
+    match result {
+        Ok(detail) => push_check(
+            checks,
+            "tlsn_notary_admission_scope",
+            PreflightStatus::Pass,
+            detail,
+        ),
+        Err(detail) => push_check(
+            checks,
+            "tlsn_notary_admission_scope",
+            PreflightStatus::Error,
+            detail,
+        ),
+    }
+}
+
 #[cfg(feature = "tlsn-production")]
 pub(crate) fn validate_notary_key_bytes(bytes: &[u8]) -> Result<(), &'static str> {
-    const KEY_DATA_LENGTH: usize = 33;
-    const SERIALIZED_KEY_LENGTH: usize = 1 + std::mem::size_of::<u64>() + KEY_DATA_LENGTH;
-    let serialized_data_length = (KEY_DATA_LENGTH as u64).to_le_bytes();
-    if bytes.len() != SERIALIZED_KEY_LENGTH
-        || bytes.first().copied() != Some(tlsn_attestation::signing::KeyAlgId::K256.as_u8())
-        || bytes.get(1..9) != Some(serialized_data_length.as_slice())
-    {
-        return Err("Notary key is not the canonical alpha.15 K256 key encoding");
-    }
-    let key: tlsn_attestation::signing::VerifyingKey =
-        bincode::deserialize(bytes).map_err(|_| "decoded key is not an alpha.15 VerifyingKey")?;
-    if key.alg != tlsn_attestation::signing::KeyAlgId::K256 {
-        return Err("Notary key algorithm is not alpha.15 K256");
-    }
-    let canonical =
-        bincode::serialize(&key).map_err(|_| "alpha.15 VerifyingKey serialization failed")?;
-    if canonical != bytes {
-        return Err("decoded key is not canonical alpha.15 VerifyingKey serialization");
-    }
-    k256::ecdsa::VerifyingKey::from_sec1_bytes(&key.data)
-        .map_err(|_| "Notary key is not a valid compressed secp256k1 public point")?;
-    Ok(())
+    crate::tlsn_notary_transport::validate_notary_key_bytes(bytes)
 }
 
 #[cfg(not(feature = "tlsn-production"))]
@@ -1624,6 +1647,8 @@ mod tests {
                 disclosure_mode: "complete".to_owned(),
                 response_mode: "async".to_owned(),
                 notary_endpoint: Some("notary.example.test:7047".to_owned()),
+                notary_id: Some("production-notary-test".to_owned()),
+                notary_environment: Some("production".to_owned()),
                 session_authority_endpoint: Some(
                     "https://authority.example.test/attestation/session".to_owned(),
                 ),
@@ -1899,7 +1924,7 @@ mod tests {
     fn public_configuration_fingerprints_bind_compile_and_runtime_values_without_emitting_them() {
         let fixture = fixture();
         let baseline = public_configuration_fingerprints(&fixture.config);
-        assert_eq!(baseline.schema_version, 2);
+        assert_eq!(baseline.schema_version, 3);
         assert_eq!(
             baseline.scope,
             app_configuration_fingerprint_contract().scope
@@ -1909,7 +1934,7 @@ mod tests {
             Some("5b064508-1cdb-453c-826b-bdea36a8b1e5".to_owned());
         assert_eq!(public_configuration_fingerprints(&pin_rotation), baseline);
 
-        let compile_mutations: [(&str, fn(&mut TlsnPreflightConfig)); 14] = [
+        let compile_mutations: [(&str, fn(&mut TlsnPreflightConfig)); 16] = [
             ("expected_deployment_id", |config| {
                 config.expected_deployment_id = Some("changed".to_owned())
             }),
@@ -1931,6 +1956,12 @@ mod tests {
             }),
             ("notary_endpoint", |config| {
                 config.notary_endpoint = Some("other.example.test:7047".to_owned())
+            }),
+            ("notary_id", |config| {
+                config.notary_id = Some("other-production-notary".to_owned())
+            }),
+            ("notary_environment", |config| {
+                config.notary_environment = Some("canary".to_owned())
             }),
             ("notary_verifying_key", |config| {
                 config.notary_verifying_key = Some("changed".to_owned())
@@ -2093,8 +2124,8 @@ mod tests {
     #[test]
     fn fingerprint_contract_matches_the_shared_cross_language_test_vector() {
         let contract = app_configuration_fingerprint_contract();
-        assert_eq!(contract.schema_version, 2);
-        assert_eq!(contract.scope, "fusou-tlsn-app-public-configuration");
+        assert_eq!(contract.schema_version, 3);
+        assert_eq!(contract.scope, "fusou-tlsn-app-public-configuration-v3");
         assert_eq!(contract.canonicalization, "FUSOU-CANONICAL-JSON-V1");
         assert_eq!(contract.digest_encoding, "sha256-base64url-no-padding");
         let vector = &contract.test_vector;
@@ -2154,6 +2185,28 @@ mod tests {
             &run_preflight(&fixture.config, &fixture.config_path),
             "tlsn_notary_endpoint",
         );
+    }
+
+    #[test]
+    fn missing_or_invalid_notary_admission_scope_fails() {
+        let cases: [(&str, Option<&str>, Option<&str>); 4] = [
+            ("missing Notary ID", None, Some("production")),
+            ("invalid Notary ID", Some("notary id"), Some("production")),
+            ("missing environment", Some("production-notary"), None),
+            (
+                "wrong environment",
+                Some("production-notary"),
+                Some("canary"),
+            ),
+        ];
+        for (label, notary_id, environment) in cases {
+            let mut fixture = fixture();
+            fixture.config.notary_id = notary_id.map(str::to_owned);
+            fixture.config.notary_environment = environment.map(str::to_owned);
+            let report = run_preflight(&fixture.config, &fixture.config_path);
+            assert_error(&report, "tlsn_notary_admission_scope");
+            assert!(!report.ready, "{label}");
+        }
     }
 
     #[test]

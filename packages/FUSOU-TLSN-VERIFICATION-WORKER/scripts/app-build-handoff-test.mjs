@@ -71,6 +71,13 @@ for (const [label, mutate] of [
   ["a Notary ID outside the registry", (r) => {
     r.cloudflare.checked_public_bindings.TLSN_CANDIDATE_NOTARY_KEY_ID = "missing-notary";
   }],
+  ["a Notary ID that disagrees with the approved Production manifest", (r) => {
+    r.compile_inputs.FUSOU_TLSN_NOTARY_ID = "unapproved-production-notary";
+  }],
+  ["a Notary ID binding that disagrees with the approved Production manifest", (r) => {
+    r.cloudflare.checked_public_bindings.TLSN_PRODUCTION_NOTARY_ID =
+      "unapproved-production-notary";
+  }],
   ["an unrelated compile-time Notary key", (r) => {
     r.compile_inputs.FUSOU_TLSN_NOTARY_VERIFYING_KEY = "unrelated-notary-key";
   }],

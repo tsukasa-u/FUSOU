@@ -558,6 +558,28 @@ fn make_transport(
     grant_override: Option<Vec<u8>>,
     extra_extensions: Vec<Extension>,
 ) -> (ProductionAlpha15OriginTransport, Arc<PresentationHandoff>) {
+    make_transport_with_scope(
+        config,
+        endpoint,
+        verifying_key,
+        mode,
+        NOTARY_ID,
+        ENVIRONMENT,
+        grant_override,
+        extra_extensions,
+    )
+}
+
+fn make_transport_with_scope(
+    config: OriginTransportConfig,
+    endpoint: &str,
+    verifying_key: VerifyingKey,
+    mode: DisclosureMode,
+    expected_notary_id: &str,
+    expected_environment: &str,
+    grant_override: Option<Vec<u8>>,
+    extra_extensions: Vec<Extension>,
+) -> (ProductionAlpha15OriginTransport, Arc<PresentationHandoff>) {
     let handoff = PresentationHandoff::new();
     let limit = NotaryAttestationLimit::from_bytes(Some("8388608"))
         .expect("set bounded Notary result size");
@@ -565,16 +587,16 @@ fn make_transport(
         DisclosureMode::Complete => RealAlpha15OriginTransportFactory::new(
             endpoint.to_owned(),
             verifying_key,
-            NOTARY_ID.to_owned(),
-            ENVIRONMENT.to_owned(),
+            expected_notary_id.to_owned(),
+            expected_environment.to_owned(),
             Arc::clone(&handoff),
             limit,
         ),
         DisclosureMode::Sparse => RealAlpha15OriginTransportFactory::new_sparse(
             endpoint.to_owned(),
             verifying_key,
-            NOTARY_ID.to_owned(),
-            ENVIRONMENT.to_owned(),
+            expected_notary_id.to_owned(),
+            expected_environment.to_owned(),
             Arc::clone(&handoff),
             limit,
         ),
@@ -603,11 +625,38 @@ async fn run_once(
     grant_override: Option<Vec<u8>>,
     extra_extensions: Vec<Extension>,
 ) -> Result<RunOutcome, String> {
-    let (transport, handoff) = make_transport(
+    run_once_with_scope(
+        config,
+        endpoint,
+        request,
+        verifying_key,
+        mode,
+        NOTARY_ID,
+        ENVIRONMENT,
+        grant_override,
+        extra_extensions,
+    )
+    .await
+}
+
+async fn run_once_with_scope(
+    config: OriginTransportConfig,
+    endpoint: &str,
+    request: SerializedOriginRequest,
+    verifying_key: VerifyingKey,
+    mode: DisclosureMode,
+    expected_notary_id: &str,
+    expected_environment: &str,
+    grant_override: Option<Vec<u8>>,
+    extra_extensions: Vec<Extension>,
+) -> Result<RunOutcome, String> {
+    let (transport, handoff) = make_transport_with_scope(
         config,
         endpoint,
         verifying_key,
         mode,
+        expected_notary_id,
+        expected_environment,
         grant_override,
         extra_extensions,
     );
@@ -873,7 +922,7 @@ async fn wrong_authority_signature_expiry_and_notary_pin_never_send_origin_http(
     let wrong_notary_pin = notary_wire::verifying_key_from_private_key(&[2_u8; 32])
         .expect("derive deliberately wrong local Notary pin");
     let rejected = run_once(
-        config,
+        config.clone(),
         &notary.endpoint,
         request_for(&valid_grant),
         wrong_notary_pin,
@@ -886,6 +935,28 @@ async fn wrong_authority_signature_expiry_and_notary_pin_never_send_origin_http(
         rejected.is_err(),
         "incorrect Notary signature pin is rejected before origin send"
     );
+    for (expected_notary_id, expected_environment, nonce) in [
+        ("unexpected-notary", ENVIRONMENT, 0x45),
+        (NOTARY_ID, "unexpected-environment", 0x46),
+    ] {
+        let grant = fresh_grant(DEVICE_ID, nonce);
+        let rejected = run_once_with_scope(
+            config.clone(),
+            &notary.endpoint,
+            request_for(&grant),
+            notary_verifying_key(),
+            DisclosureMode::Complete,
+            expected_notary_id,
+            expected_environment,
+            None,
+            Vec::new(),
+        )
+        .await;
+        assert!(
+            rejected.is_err(),
+            "wrong Notary ID or environment acknowledgement is rejected before origin send"
+        );
+    }
     origin.assert_request_count(0).await;
     assert_eq!(origin.request_count(), 0);
     let stopped = notary.stop().expect("stop Notary after rejection cases");

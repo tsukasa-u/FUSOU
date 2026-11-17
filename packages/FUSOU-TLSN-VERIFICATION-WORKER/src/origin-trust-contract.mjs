@@ -323,12 +323,14 @@ export function resolveApprovedProductionIdentity(observedIdentity, inventory, a
 }
 
 export function productionSecurityRegistrySetPayload({
+  notaryId,
   notaryKeyId,
   notaryRegistryRaw,
   originInventorySha256,
   targetApprovalArtifactSha256,
   profilePolicySha256,
 } = {}) {
+  assertNotaryId(notaryId);
   if (typeof notaryKeyId !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(notaryKeyId)) {
     throw new Error("notary_key_id must be a valid key ID");
   }
@@ -359,12 +361,25 @@ export function productionSecurityRegistrySetPayload({
     throw new Error("notary_key_id must be present in the Production security registry set Notary registry");
   }
   return {
+    notary_id: notaryId,
     notary_key_id: notaryKeyId,
     notary_registry: JSON.parse(canonicalJson(registry)),
     origin_inventory_sha256: originInventorySha256,
     target_approval_artifact_sha256: targetApprovalArtifactSha256,
     profile_policy_sha256: profilePolicySha256,
   };
+}
+
+export function assertNotaryId(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 128 ||
+    !/^[\x21-\x7e]+$/.test(value)
+  ) {
+    throw new Error("Notary ID must contain 1 through 128 printable ASCII characters");
+  }
+  return value;
 }
 
 export function productionSecurityRegistrySetCanonical(inputs) {

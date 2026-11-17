@@ -3,6 +3,7 @@ import { TextDecoder } from "node:util";
 import { assertResultSigningIdentity, canonicalJson } from "./production-trust-contract.mjs";
 import {
   assertAlpha15NotaryVerifyingKey,
+  assertNotaryId,
   parseOriginInventory,
   parseTargetApproval,
 } from "../src/origin-trust-contract.mjs";
@@ -66,7 +67,12 @@ function parseJsonBytes(bytes, label) {
   return { text, value };
 }
 
-function verifyWorkerReference(payload, raw, expectedDigest, resultRegistryEnvelopeRaw) {
+function verifyWorkerReference(
+  payload,
+  raw,
+  expectedDigest,
+  resultRegistryEnvelopeRaw,
+) {
   const actualDigest = sha256Base64Url(raw);
   if (actualDigest !== expectedDigest || payload.source.worker_reference_sha256 !== expectedDigest) {
     throw new Error("Worker reference bytes do not match the signed manifest digest");
@@ -89,6 +95,7 @@ function verifyWorkerReference(payload, raw, expectedDigest, resultRegistryEnvel
     cloudflare.deployment_id !== source.cloudflare_deployment_id ||
     cloudflare.version_id !== source.active_version_id ||
     cloudflare.percentage !== 100 ||
+    bindings?.TLSN_ENVIRONMENT !== payload.environment ||
     !reference.release_context ||
     reference.release_context.deployment_role !== "production" ||
     reference.release_context.git_commit_sha !== source.worker_git_commit_sha ||
@@ -104,6 +111,8 @@ function verifyWorkerReference(payload, raw, expectedDigest, resultRegistryEnvel
       payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNER_KEY_ID ||
     bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY !==
       payload.compile_inputs.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY ||
+    bindings.TLSN_PRODUCTION_NOTARY_ID !==
+      payload.compile_inputs.FUSOU_TLSN_NOTARY_ID ||
     bindings.TLSN_PRODUCTION_RESULT_SIGNING_KEY_REGISTRY_ENVELOPE !==
       new TextDecoder("utf-8", { fatal: true }).decode(resultRegistryEnvelopeRaw) ||
     bindings.TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_KEY_ID !==
@@ -113,10 +122,17 @@ function verifyWorkerReference(payload, raw, expectedDigest, resultRegistryEnvel
   ) {
     throw new Error("Worker reference identity does not match the signed manifest");
   }
-  return actualDigest;
+  return { digest: actualDigest, reference };
 }
 
-function verifyAuthorityArtifacts(payload, rawInventory, rawApproval, rawSecurityRegistrySet, expectedPins) {
+function verifyAuthorityArtifacts(
+  payload,
+  rawInventory,
+  rawApproval,
+  rawSecurityRegistrySet,
+  expectedPins,
+  workerReference,
+) {
   const inventoryDigest = sha256Base64Url(rawInventory);
   const approvalDigest = sha256Base64Url(rawApproval);
   const securitySetDigest = sha256Base64Url(rawSecurityRegistrySet);
@@ -137,6 +153,7 @@ function verifyAuthorityArtifacts(payload, rawInventory, rawApproval, rawSecurit
 
   const securitySet = JSON.parse(securitySetText);
   assertExactKeys(securitySet, [
+    "notary_id",
     "notary_key_id",
     "notary_registry",
     "origin_inventory_sha256",
@@ -145,6 +162,7 @@ function verifyAuthorityArtifacts(payload, rawInventory, rawApproval, rawSecurit
   ], "Production security registry set");
   if (
     canonicalJson(securitySet) !== securitySetText ||
+    securitySet.notary_id !== payload.compile_inputs.FUSOU_TLSN_NOTARY_ID ||
     securitySet.origin_inventory_sha256 !== inventoryDigest ||
     securitySet.target_approval_artifact_sha256 !== approvalDigest ||
     typeof securitySet.notary_key_id !== "string" ||
@@ -159,8 +177,18 @@ function verifyAuthorityArtifacts(payload, rawInventory, rawApproval, rawSecurit
     throw new Error("Production security registry set does not bind the verified authority artifacts");
   }
   const notaryEntries = Object.entries(securitySet.notary_registry);
+  assertNotaryId(securitySet.notary_id);
   if (notaryEntries.length === 0) {
     throw new Error("Production security registry set Notary registry is empty");
+  }
+  const bindings = workerReference.cloudflare?.checked_public_bindings;
+  if (
+    bindings?.TLSN_CANDIDATE_NOTARY_KEY_ID !== securitySet.notary_key_id ||
+    typeof bindings?.TLSN_PRODUCTION_NOTARY_REGISTRY !== "string" ||
+    canonicalJson(JSON.parse(bindings.TLSN_PRODUCTION_NOTARY_REGISTRY)) !==
+      canonicalJson(securitySet.notary_registry)
+  ) {
+    throw new Error("Worker reference Notary registry identity does not match the Production security registry set");
   }
   for (const [keyId, verifyingKey] of notaryEntries) {
     if (!KEY_ID_PATTERN.test(keyId) || typeof verifyingKey !== "string") {
@@ -261,7 +289,7 @@ export function verifyTlsnRuntimeConfigIndependentInputs(payload, inputs, valida
     "Result signer registry envelope",
   );
 
-  const workerReferenceDigest = verifyWorkerReference(
+  const workerReference = verifyWorkerReference(
     payload,
     workerReferenceRaw,
     payload.source.worker_reference_sha256,
@@ -273,6 +301,7 @@ export function verifyTlsnRuntimeConfigIndependentInputs(payload, inputs, valida
     targetApprovalRaw,
     securityRegistrySetRaw,
     payload.production_authority_pins,
+    workerReference.reference,
   );
   const registryBinding = verifyResultRegistry(
     payload,
@@ -282,7 +311,7 @@ export function verifyTlsnRuntimeConfigIndependentInputs(payload, inputs, valida
 
   return Object.freeze({
     state: "MATCHED_SIGNED_MANIFEST_PINS",
-    worker_reference_sha256: workerReferenceDigest,
+    worker_reference_sha256: workerReference.digest,
     ...authorityDigests,
     ...registryBinding,
   });

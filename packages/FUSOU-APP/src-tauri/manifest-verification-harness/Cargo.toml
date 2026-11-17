@@ -15,10 +15,13 @@ freshness-gateway-integration-test = []
 [dependencies]
 authenticity-core = { path = "../../../authenticity/authenticity-core" }
 base64 = "0.22"
+bincode = "1.3"
 chrono = { version = "0.4.31", features = ["serde"] }
 flate2 = "1.1.5"
 futures = "0.3.34"
 fusou-auth = { path = "../../../fusou-auth" }
+k256 = { version = "0.13", features = ["ecdsa"] }
+proxy-https = { path = "../../../FUSOU-PROXY/proxy-https", default-features = false, features = ["alpha15-tlsn", "kc-api-epoch-20250627"] }
 reqwest = { version = "0.12.5", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -26,3 +29,9 @@ sha2 = "0.10"
 tokio = { version = "1.38.0", features = ["full"] }
 url = "2.5"
 uuid = { version = "1.16.0", features = ["v4"] }
+tlsn-attestation = { git = "https://github.com/tlsnotary/tlsn.git", rev = "47aee45b53e06648c1b2ad3689b367b8c923fdec", version = "0.1.0-alpha.15" }
+
+[patch."https://github.com/tlsnotary/tlsn.git"]
+tlsn = { path = "../../../tlsn-alpha15-sparse/crates/tlsn" }
+tlsn-attestation = { path = "../../../tlsn-alpha15-sparse/crates/attestation" }
+tlsn-core = { path = "../../../tlsn-alpha15-sparse/crates/core" }

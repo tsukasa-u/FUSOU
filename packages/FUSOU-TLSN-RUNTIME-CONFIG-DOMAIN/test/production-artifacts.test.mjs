@@ -256,6 +256,12 @@ test("publication objects reject missing, duplicate, and swapped artifact roles"
 });
 
 test("Origin Inventory, Target Approval, and security registry semantics are checked after hashes match", async () => {
+  const missingNotaryPayload = payloadFromVector();
+  const missingNotaryInputs = inputsFromVector();
+  delete missingNotaryPayload.compile_inputs.FUSOU_TLSN_NOTARY_ID;
+  await assert.rejects(verifyCore(missingNotaryPayload, missingNotaryInputs));
+  assert.throws(() => verifyNode(missingNotaryPayload, missingNotaryInputs));
+
   const inventoryPayload = payloadFromVector();
   const inventoryInputs = inputsFromVector();
   const inventory = JSON.parse(
@@ -305,11 +311,65 @@ test("Origin Inventory, Target Approval, and security registry semantics are che
   const invalidRegistry = JSON.parse(
     registryInputs.security_registry_set_raw.toString("utf8"),
   );
-  invalidRegistry.notary_key_id = "unpublished-notary-key";
+  invalidRegistry.notary_id = "unapproved-production-notary";
   setSecurityRegistryRaw(registryInputs, invalidRegistry);
   updateArtifactDigests(registryPayload, registryInputs);
   await assert.rejects(verifyCore(registryPayload, registryInputs));
   assert.throws(() => verifyNode(registryPayload, registryInputs));
+
+  const invalidRegistryKeyPayload = payloadFromVector();
+  const invalidRegistryKeyInputs = inputsFromVector();
+  const invalidRegistryKey = JSON.parse(
+    invalidRegistryKeyInputs.security_registry_set_raw.toString("utf8"),
+  );
+  invalidRegistryKey.notary_key_id = "unpublished-notary-key";
+  setSecurityRegistryRaw(invalidRegistryKeyInputs, invalidRegistryKey);
+  updateArtifactDigests(invalidRegistryKeyPayload, invalidRegistryKeyInputs);
+  await assert.rejects(verifyCore(invalidRegistryKeyPayload, invalidRegistryKeyInputs));
+  assert.throws(() => verifyNode(invalidRegistryKeyPayload, invalidRegistryKeyInputs));
+
+  const invalidNotaryIdPayload = payloadFromVector();
+  const invalidNotaryIdInputs = inputsFromVector();
+  const invalidNotaryIdRegistry = JSON.parse(
+    invalidNotaryIdInputs.security_registry_set_raw.toString("utf8"),
+  );
+  invalidNotaryIdRegistry.notary_id = "notary id";
+  setSecurityRegistryRaw(invalidNotaryIdInputs, invalidNotaryIdRegistry);
+  updateArtifactDigests(invalidNotaryIdPayload, invalidNotaryIdInputs);
+  await assert.rejects(verifyCore(invalidNotaryIdPayload, invalidNotaryIdInputs));
+  assert.throws(() => verifyNode(invalidNotaryIdPayload, invalidNotaryIdInputs));
+
+  const mismatchedNotaryBindingPayload = payloadFromVector();
+  const mismatchedNotaryBindingInputs = inputsFromVector();
+  const mismatchedNotaryBindingReference = JSON.parse(
+    mismatchedNotaryBindingInputs.worker_reference_raw.toString("utf8"),
+  );
+  mismatchedNotaryBindingReference.cloudflare.checked_public_bindings.TLSN_PRODUCTION_NOTARY_ID =
+    "another-production-notary";
+  setJsonInput(
+    mismatchedNotaryBindingInputs,
+    "worker_reference_raw",
+    mismatchedNotaryBindingReference,
+  );
+  updateArtifactDigests(mismatchedNotaryBindingPayload, mismatchedNotaryBindingInputs);
+  await assert.rejects(verifyCore(mismatchedNotaryBindingPayload, mismatchedNotaryBindingInputs));
+  assert.throws(() => verifyNode(mismatchedNotaryBindingPayload, mismatchedNotaryBindingInputs));
+
+  const mismatchedEnvironmentPayload = payloadFromVector();
+  const mismatchedEnvironmentInputs = inputsFromVector();
+  const mismatchedEnvironmentReference = JSON.parse(
+    mismatchedEnvironmentInputs.worker_reference_raw.toString("utf8"),
+  );
+  mismatchedEnvironmentReference.cloudflare.checked_public_bindings.TLSN_ENVIRONMENT =
+    "canary";
+  setJsonInput(
+    mismatchedEnvironmentInputs,
+    "worker_reference_raw",
+    mismatchedEnvironmentReference,
+  );
+  updateArtifactDigests(mismatchedEnvironmentPayload, mismatchedEnvironmentInputs);
+  await assert.rejects(verifyCore(mismatchedEnvironmentPayload, mismatchedEnvironmentInputs));
+  assert.throws(() => verifyNode(mismatchedEnvironmentPayload, mismatchedEnvironmentInputs));
 });
 
 test("Result registry envelope signature is verified after exact bytes and Worker binding are updated", async () => {

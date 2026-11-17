@@ -96,6 +96,8 @@ function inputs(disclosureMode = "complete", responseMode = "async") {
     worker_health_endpoint: pins.FUSOU_TLSN_RUNTIME_ATTESTATION_ENDPOINT,
     verification_endpoint: pins.FUSOU_TLSN_VERIFICATION_ENDPOINT,
     notary_endpoint: pins.FUSOU_TLSN_NOTARY_ENDPOINT,
+    notary_id: pins.FUSOU_TLSN_NOTARY_ID,
+    notary_environment: workerReference.cloudflare.checked_public_bindings.TLSN_ENVIRONMENT,
     notary_verifying_key: pins.FUSOU_TLSN_NOTARY_VERIFYING_KEY,
     session_authority_endpoint: pins.FUSOU_TLSN_SESSION_AUTHORITY_ENDPOINT,
     session_authority_key_id: pins.FUSOU_TLSN_SESSION_AUTHORITY_KEY_ID,
@@ -105,8 +107,8 @@ function inputs(disclosureMode = "complete", responseMode = "async") {
     result_signing_key_registry: pins.FUSOU_TLSN_RESULT_SIGNING_KEY_REGISTRY,
   };
   const fingerprints = {
-    schema_version: 2,
-    scope: "fusou-tlsn-app-public-configuration",
+    schema_version: 3,
+    scope: "fusou-tlsn-app-public-configuration-v3",
     compile_time_sha256: appConfigurationProjectionSha256("compile_time", compileTimeProjection),
     runtime_sha256: appConfigurationProjectionSha256("runtime", {
       experiment_enabled: true,

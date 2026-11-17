@@ -1,17 +1,12 @@
 #![allow(dead_code)]
 
-extern crate self as proxy_https;
-
 pub mod tlsn_preflight {
     use crate::tlsn_runtime_config_manifest::VerifiedRuntimeConfigManifest;
 
     pub struct TlsnPreflightReport;
 
     pub(crate) fn validate_notary_key_bytes(bytes: &[u8]) -> Result<(), &'static str> {
-        if bytes.is_empty() {
-            return Err("Notary verifying key is empty");
-        }
-        Ok(())
+        crate::tlsn_notary_transport::validate_notary_key_bytes(bytes)
     }
 
     pub fn run_verified_runtime_preflight(
@@ -19,32 +14,6 @@ pub mod tlsn_preflight {
         _proxy_target: &str,
     ) -> TlsnPreflightReport {
         TlsnPreflightReport
-    }
-}
-
-pub mod production_tlsn {
-    pub struct ServerIdentityPolicy {
-        identities: Vec<String>,
-    }
-
-    impl ServerIdentityPolicy {
-        pub fn from_approved_targets(
-            targets: Vec<(String, u16)>,
-        ) -> Result<Self, &'static str> {
-            if targets.is_empty() {
-                return Err("approved target list is empty");
-            }
-            Ok(Self {
-                identities: targets
-                    .into_iter()
-                    .map(|(identity, _)| identity)
-                    .collect(),
-            })
-        }
-
-        pub fn identities(&self) -> &[String] {
-            &self.identities
-        }
     }
 }
 
@@ -113,3 +82,6 @@ pub(crate) mod tlsn_runtime_config_runtime {
 
 #[path = "../../src/tlsn_runtime_config_manifest.rs"]
 pub mod tlsn_runtime_config_manifest;
+
+#[path = "../../src/tlsn_notary_transport.rs"]
+pub mod tlsn_notary_transport;

@@ -45,13 +45,14 @@ const ORIGIN_INVENTORY_SOURCE: &str =
     "packages/configs/configs.toml:[app.connect_kc_server.server_list]";
 const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_SAFE_POLICY_SECONDS: u64 = MAX_SAFE_JS_INTEGER / 1_000;
-const COMPILE_INPUT_NAMES: [&str; 15] = [
+const COMPILE_INPUT_NAMES: [&str; 16] = [
     "FUSOU_TLSN_EXPECTED_ACTIVE_VERSION_ID",
     "FUSOU_TLSN_EXPECTED_BINDING_MODE",
     "FUSOU_TLSN_EXPECTED_DEPLOYMENT_ID",
     "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
     "FUSOU_TLSN_EXPECTED_WORKER_NAME",
     "FUSOU_TLSN_NOTARY_ENDPOINT",
+    "FUSOU_TLSN_NOTARY_ID",
     "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
     "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
     "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
@@ -411,6 +412,7 @@ pub enum RuntimeConfigWorkerInput {
     ExpectedGitCommitSha,
     ExpectedWorkerName,
     NotaryEndpoint,
+    NotaryId,
     NotaryVerifyingKey,
     ResultPublicKeySpki,
     ResultSignerKeyId,
@@ -431,6 +433,7 @@ impl RuntimeConfigWorkerInput {
             Self::ExpectedGitCommitSha => "FUSOU_TLSN_EXPECTED_GIT_COMMIT_SHA",
             Self::ExpectedWorkerName => "FUSOU_TLSN_EXPECTED_WORKER_NAME",
             Self::NotaryEndpoint => "FUSOU_TLSN_NOTARY_ENDPOINT",
+            Self::NotaryId => "FUSOU_TLSN_NOTARY_ID",
             Self::NotaryVerifyingKey => "FUSOU_TLSN_NOTARY_VERIFYING_KEY",
             Self::ResultPublicKeySpki => "FUSOU_TLSN_RESULT_PUBLIC_KEY_SPKI",
             Self::ResultSignerKeyId => "FUSOU_TLSN_RESULT_SIGNER_KEY_ID",
@@ -1291,7 +1294,12 @@ fn verify_independent_runtime_config_inputs(
             "Worker reference bytes do not match the signed manifest digest",
         ));
     }
-    validate_worker_reference_binding(payload, worker_reference_raw, result_registry_envelope_raw)?;
+    validate_worker_reference_binding(
+        payload,
+        worker_reference_raw,
+        result_registry_envelope_raw,
+        security_registry_set_raw,
+    )?;
 
     let origin_inventory_sha256 = sha256_base64url(origin_inventory_raw);
     let target_approval_artifact_sha256 = sha256_base64url(target_approval_raw);
@@ -1366,6 +1374,7 @@ fn validate_worker_reference_binding(
     payload: &RuntimeConfigManifestPayload,
     raw_reference: &[u8],
     result_registry_envelope_raw: &[u8],
+    raw_security_registry_set: &[u8],
 ) -> Result<(), RuntimeConfigManifestError> {
     let reference: Value = serde_json::from_slice(raw_reference)
         .map_err(|_| RuntimeConfigManifestError::Invalid("Worker reference JSON is invalid"))?;
@@ -1381,6 +1390,10 @@ fn validate_worker_reference_binding(
                 "Worker reference public bindings are missing",
             ))?;
     let result_pins = &payload.result_registry_pins;
+    let security_registry_set: Value =
+        serde_json::from_slice(raw_security_registry_set).map_err(|_| {
+            RuntimeConfigManifestError::Invalid("security registry set JSON is invalid")
+        })?;
     let result_registry_envelope =
         std::str::from_utf8(result_registry_envelope_raw).map_err(|_| {
             RuntimeConfigManifestError::Invalid("Result registry envelope is not UTF-8")
@@ -1455,6 +1468,28 @@ fn validate_worker_reference_binding(
             .get("TLSN_PRODUCTION_RESULT_REGISTRY_ROOT_PUBLIC_KEY_SPKI")
             .and_then(Value::as_str)
             != Some(result_pins.result_registry_root_public_key_spki.as_str())
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_NOTARY_ID")
+            .and_then(Value::as_str)
+            != payload
+                .compile_inputs
+                .get("FUSOU_TLSN_NOTARY_ID")
+                .map(String::as_str)
+        || checked_public_bindings
+            .get("TLSN_CANDIDATE_NOTARY_KEY_ID")
+            .and_then(Value::as_str)
+            != security_registry_set
+                .get("notary_key_id")
+                .and_then(Value::as_str)
+        || checked_public_bindings
+            .get("TLSN_PRODUCTION_NOTARY_REGISTRY")
+            .and_then(Value::as_str)
+            .and_then(|registry| serde_json::from_str::<Value>(registry).ok())
+            .as_ref()
+            .and_then(|registry| canonical_json_bytes(registry).ok())
+            != security_registry_set
+                .get("notary_registry")
+                .and_then(|registry| canonical_json_bytes(registry).ok())
     {
         return Err(RuntimeConfigManifestError::Invalid(
             "Worker reference identity does not match the signed manifest",
@@ -1551,6 +1586,7 @@ fn validate_authority_artifacts(
         ));
     }
     let expected_fields = BTreeSet::from([
+        "notary_id",
         "notary_key_id",
         "notary_registry",
         "origin_inventory_sha256",
@@ -1566,6 +1602,11 @@ fn validate_authority_artifacts(
         .map(String::as_str)
         .collect();
     if fields != expected_fields
+        || security_set.get("notary_id").and_then(Value::as_str)
+            != payload
+                .compile_inputs
+                .get("FUSOU_TLSN_NOTARY_ID")
+                .map(String::as_str)
         || security_set
             .get("origin_inventory_sha256")
             .and_then(Value::as_str)
@@ -1579,6 +1620,14 @@ fn validate_authority_artifacts(
             "security registry set does not bind the verified authority artifacts",
         ));
     }
+    validate_notary_id(
+        security_set
+            .get("notary_id")
+            .and_then(Value::as_str)
+            .ok_or(RuntimeConfigManifestError::Invalid(
+                "security registry set Notary ID is missing",
+            ))?,
+    )?;
     let notary_key_id = security_set
         .get("notary_key_id")
         .and_then(Value::as_str)
@@ -1897,6 +1946,11 @@ fn validate_payload(
     validate_notary_endpoint(
         inputs
             .get("FUSOU_TLSN_NOTARY_ENDPOINT")
+            .expect("complete input inventory checked"),
+    )?;
+    validate_notary_id(
+        inputs
+            .get("FUSOU_TLSN_NOTARY_ID")
             .expect("complete input inventory checked"),
     )?;
     let notary_key_bytes = decode_canonical_base64url(
@@ -2268,6 +2322,15 @@ pub(crate) fn validate_digest(value: &str) -> Result<(), RuntimeConfigManifestEr
     if bytes.len() != 32 {
         return Err(RuntimeConfigManifestError::Invalid(
             "SHA-256 digest must be 32 bytes",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_notary_id(value: &str) -> Result<(), RuntimeConfigManifestError> {
+    if value.is_empty() || value.len() > 128 || !value.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err(RuntimeConfigManifestError::Invalid(
+            "Notary ID must contain 1 through 128 printable ASCII characters",
         ));
     }
     Ok(())
@@ -3701,6 +3764,73 @@ mod tests {
                 .result_registry_pins
                 .result_registry_root_key_id
         );
+    }
+
+    #[cfg(feature = "tlsn-production")]
+    #[test]
+    fn production_notary_factory_uses_verified_inputs_without_network_io() {
+        let (fixture, raw_inputs, policy) = load_independent_verification_vector();
+        let verified = verify_runtime_config_manifest(
+            fixture.manifest_envelope_utf8.as_bytes(),
+            &fixture.trusted_signer,
+            &policy,
+            Some(&raw_inputs.verification_inputs()),
+        )
+        .unwrap();
+        assert_eq!(
+            verified.worker_input(RuntimeConfigWorkerInput::NotaryId),
+            "production-notary-primary"
+        );
+        assert_eq!(verified.payload().environment, "production");
+
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let endpoint = listener.local_addr().unwrap().to_string();
+        let mut verified_with_loopback_endpoint = verified.clone();
+        verified_with_loopback_endpoint
+            .payload
+            .compile_inputs
+            .insert("FUSOU_TLSN_NOTARY_ENDPOINT".to_owned(), endpoint);
+        let factory = crate::tlsn_notary_transport::build_production_factory(
+            &verified_with_loopback_endpoint,
+            proxy_https::production_tlsn::PresentationHandoff::new(),
+            proxy_https::exchange_lifecycle::NotaryAttestationLimit::from_bytes(Some("4096"))
+                .unwrap(),
+        )
+        .unwrap();
+        drop(factory);
+        listener.set_nonblocking(true).unwrap();
+        assert!(matches!(
+            listener.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+
+        for (input, value) in [
+            (RuntimeConfigWorkerInput::NotaryVerifyingKey, "invalid-key"),
+            (RuntimeConfigWorkerInput::NotaryId, "notary id"),
+        ] {
+            let mut invalid = verified.clone();
+            invalid
+                .payload
+                .compile_inputs
+                .insert(input.key().to_owned(), value.to_owned());
+            assert!(crate::tlsn_notary_transport::build_production_factory(
+                &invalid,
+                proxy_https::production_tlsn::PresentationHandoff::new(),
+                proxy_https::exchange_lifecycle::NotaryAttestationLimit::from_bytes(Some("4096"))
+                    .unwrap(),
+            )
+            .is_err());
+        }
+
+        let mut wrong_environment = verified;
+        wrong_environment.payload.environment = "canary".to_owned();
+        assert!(crate::tlsn_notary_transport::build_production_factory(
+            &wrong_environment,
+            proxy_https::production_tlsn::PresentationHandoff::new(),
+            proxy_https::exchange_lifecycle::NotaryAttestationLimit::from_bytes(Some("4096"))
+                .unwrap(),
+        )
+        .is_err());
     }
 
     #[cfg(feature = "tlsn-production")]

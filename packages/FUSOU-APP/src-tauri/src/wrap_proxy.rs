@@ -25,9 +25,8 @@ use proxy_https::{
         WorkerHealthObservation, MAX_WORKER_HEALTH_RESPONSE_BYTES,
     },
     real_tlsn::{
-        FilesystemResultDelivery, RealAlpha15OriginTransportFactory, RemoteSessionBindingProvider,
-        RemoteWorkerResultSigner, RemoteWorkerResultStore, RemoteWorkerVerificationBackend,
-        ResultSignatureVerifier,
+        FilesystemResultDelivery, RemoteSessionBindingProvider, RemoteWorkerResultSigner,
+        RemoteWorkerResultStore, RemoteWorkerVerificationBackend, ResultSignatureVerifier,
     },
 };
 #[cfg(feature = "tlsn-production")]
@@ -279,7 +278,6 @@ fn build_production_tlsn_dependencies(
         })?;
     let server_identity = selected_target.server_identity().to_owned();
     let input = |name| runtime_config.worker_input(name).to_owned();
-    let notary_endpoint = input(RuntimeConfigWorkerInput::NotaryEndpoint);
     let session_endpoint = input(RuntimeConfigWorkerInput::SessionAuthorityEndpoint);
     let verification_endpoint = input(RuntimeConfigWorkerInput::VerificationEndpoint);
     let session_authority_key_id = input(RuntimeConfigWorkerInput::SessionAuthorityKeyId);
@@ -340,8 +338,8 @@ fn build_production_tlsn_dependencies(
             inner: remote_binding_provider,
         });
     let real_transport_factory = std::sync::Arc::new(
-        RealAlpha15OriginTransportFactory::new(
-            notary_endpoint,
+        crate::tlsn_notary_transport::build_production_factory(
+            runtime_config,
             std::sync::Arc::clone(&handoff),
             attestation_limit,
         )
