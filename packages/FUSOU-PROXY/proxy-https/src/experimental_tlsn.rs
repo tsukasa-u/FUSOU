@@ -78,6 +78,7 @@ pub trait ExperimentalRequireInfoForwarder: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttestationBinding {
     value: String,
+    session_context_grant: Option<SessionContextGrantExtension>,
 }
 
 impl AttestationBinding {
@@ -85,11 +86,39 @@ impl AttestationBinding {
         if value.is_empty() || !value.is_ascii() || value.contains('\r') || value.contains('\n') {
             return Err(BindingError::InvalidBinding);
         }
-        Ok(Self { value })
+        Ok(Self {
+            value,
+            session_context_grant: None,
+        })
+    }
+
+    pub(crate) fn with_session_context_grant(
+        value: String,
+        encoded_grant: Bytes,
+    ) -> Result<Self, BindingError> {
+        let mut binding = Self::new(value)?;
+        if encoded_grant.is_empty() || encoded_grant.len() > 2048 {
+            return Err(BindingError::InvalidBinding);
+        }
+        binding.session_context_grant = Some(SessionContextGrantExtension(encoded_grant));
+        Ok(binding)
     }
 
     pub fn value(&self) -> &str {
         &self.value
+    }
+
+    pub(crate) fn session_context_grant(&self) -> Option<&SessionContextGrantExtension> {
+        self.session_context_grant.as_ref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionContextGrantExtension(Bytes);
+
+impl SessionContextGrantExtension {
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -384,6 +413,7 @@ impl AttestationBindingProvider for SingleUseBindingProvider {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerializedOriginRequest {
     bytes: Bytes,
+    session_context_grant: Option<SessionContextGrantExtension>,
 }
 
 impl SerializedOriginRequest {
@@ -391,11 +421,31 @@ impl SerializedOriginRequest {
         if bytes.is_empty() {
             return Err(SerializationError::EmptyRequest);
         }
-        Ok(Self { bytes })
+        Ok(Self {
+            bytes,
+            session_context_grant: None,
+        })
+    }
+
+    pub(crate) fn with_session_context_grant(
+        bytes: Bytes,
+        session_context_grant: Option<SessionContextGrantExtension>,
+    ) -> Result<Self, SerializationError> {
+        if bytes.is_empty() {
+            return Err(SerializationError::EmptyRequest);
+        }
+        Ok(Self {
+            bytes,
+            session_context_grant,
+        })
     }
 
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    pub(crate) fn session_context_grant(&self) -> Option<&SessionContextGrantExtension> {
+        self.session_context_grant.as_ref()
     }
 }
 
@@ -463,7 +513,6 @@ fn serialized_request_len(
     target: &str,
     body_len: usize,
     generated_content_length: Option<&str>,
-    binding: &AttestationBinding,
 ) -> Result<usize, SerializationError> {
     let mut length = 0;
     add_serialized_len(&mut length, parts.method.as_str().len())?;
@@ -481,11 +530,6 @@ fn serialized_request_len(
             content_length.len(),
         )?;
     }
-    add_serialized_header_len(
-        &mut length,
-        BINDING_HEADER_NAME.as_str().len(),
-        binding.value.len(),
-    )?;
     add_serialized_len(&mut length, 2)?;
     add_serialized_len(&mut length, body_len)?;
     Ok(length)
@@ -576,7 +620,6 @@ impl OriginRequestSerializer for Http1OriginRequestSerializer {
             target,
             body.len(),
             generated_content_length.as_deref(),
-            binding,
         )?;
         let mut output = Vec::with_capacity(serialized_len);
         output.extend_from_slice(parts.method.as_str().as_bytes());
@@ -594,12 +637,14 @@ impl OriginRequestSerializer for Http1OriginRequestSerializer {
                 content_length.as_bytes(),
             )?;
         }
-        append_header_value(&mut output, &BINDING_HEADER_NAME, binding.value.as_bytes())?;
         output.extend_from_slice(b"\r\n");
         output.extend_from_slice(&body);
 
-        SerializedOriginRequest::new(Bytes::from(output))
-            .map_err(|_| SerializationError::EmptyRequest)
+        SerializedOriginRequest::with_session_context_grant(
+            Bytes::from(output),
+            binding.session_context_grant().cloned(),
+        )
+        .map_err(|_| SerializationError::EmptyRequest)
     }
 }
 
@@ -2403,7 +2448,7 @@ mod tests {
             ),
             transcript: UnverifiedTlsnTranscript {
                 request_sha256: sha256(
-                    b"POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nHost: game.example.test\r\nContent-Length: 3\r\nX-Attestation-Binding: opaque-binding-value\r\n\r\nabc",
+                    b"POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nHost: game.example.test\r\nContent-Length: 3\r\n\r\nabc",
                 ),
                 response_sha256: sha256(&raw_response),
             },
@@ -2609,7 +2654,7 @@ mod tests {
     }
 
     #[test]
-    fn serializer_injects_one_binding_and_preserves_body_and_target() {
+    fn serializer_preserves_request_without_injecting_binding_metadata() {
         let serialized = Http1OriginRequestSerializer
             .serialize(
                 &request(None).into_parts().0,
@@ -2618,10 +2663,10 @@ mod tests {
             )
             .unwrap();
         let text = String::from_utf8(serialized.bytes().to_vec()).unwrap();
-        assert_eq!(
-            text.matches(&BINDING_HEADER.to_ascii_lowercase()).count(),
-            1
-        );
+        assert!(!text
+            .to_ascii_lowercase()
+            .contains(&BINDING_HEADER.to_ascii_lowercase()));
+        assert!(!text.contains("opaque-binding-value"));
         assert!(text.starts_with("POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\n"));
         assert!(text.ends_with("\r\n\r\nabc"));
     }
@@ -2763,7 +2808,7 @@ mod tests {
                 .windows(BINDING_HEADER.len())
                 .filter(|window| *window == BINDING_HEADER.to_ascii_lowercase().as_bytes())
                 .count(),
-            1
+            0
         );
     }
 
@@ -3168,17 +3213,17 @@ mod tests {
         assert_eq!(result_calls.load(Ordering::SeqCst), 1);
         let sent = request_bytes.lock().unwrap();
         assert_eq!(sent.len(), 2);
-        assert_ne!(sent[0], sent[1]);
+        assert_eq!(sent[0], sent[1]);
         for bytes in sent.iter() {
             assert!(bytes.starts_with(b"POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\n"));
             assert!(bytes.ends_with(b"\r\n\r\nabc"));
+            assert!(!bytes
+                .windows(BINDING_HEADER.len())
+                .any(|window| window.eq_ignore_ascii_case(BINDING_HEADER.as_bytes())));
+            assert!(!bytes
+                .windows(b"capture-binding".len())
+                .any(|window| window == b"capture-binding"));
         }
-        assert!(sent[0]
-            .windows(b"capture-binding-a".len())
-            .any(|window| { window == b"capture-binding-a" }));
-        assert!(sent[1]
-            .windows(b"capture-binding-b".len())
-            .any(|window| { window == b"capture-binding-b" }));
     }
 
     #[tokio::test]

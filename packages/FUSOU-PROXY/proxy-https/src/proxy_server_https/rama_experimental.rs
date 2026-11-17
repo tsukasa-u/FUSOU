@@ -1,7 +1,8 @@
 use super::downstream_tls::DownstreamTlsConfigProvider;
 use super::{
-    experimental_tlsn_failure_response, ExperimentalRequireInfoDecision,
-    ExperimentalRequireInfoRoute, ExperimentalTlsnDependencies, RawCaptureHook,
+    experimental_tlsn_failure_response, reserved_binding_header_response,
+    ExperimentalRequireInfoDecision, ExperimentalRequireInfoRoute, ExperimentalTlsnDependencies,
+    RawCaptureHook,
 };
 use crate::{
     capture::ExactWireMetadata, capture_io::CaptureIo, experimental_tlsn::MAX_TLSN_SENT_DATA_BYTES,
@@ -1228,6 +1229,32 @@ where
         self.capture_hook
             .request_started_for(connection_id, metadata_from_request(&request));
 
+        if request
+            .headers()
+            .get_all(crate::experimental_tlsn::BINDING_HEADER)
+            .iter()
+            .next()
+            .is_some()
+        {
+            self.capture_hook.mark_invalid(connection_id);
+            tracing::warn!(
+                connection_id,
+                "rejected client-supplied reserved TLSN binding header before request forwarding"
+            );
+            let response =
+                to_rama_response(reserved_binding_header_response()).map_err(|error| {
+                    tracing::error!(
+                        %error,
+                        connection_id,
+                        "failed to adapt reserved TLSN binding header rejection"
+                    );
+                    BoxError::from_static_str("reserved TLSN header response conversion failed")
+                })?;
+            self.capture_hook
+                .response_started_for(connection_id, metadata_from_response(&response));
+            return Ok(response);
+        }
+
         if !request_is_for_authority(&request, &self.authority) {
             self.capture_hook.mark_invalid(connection_id);
             return Ok(empty_response(StatusCode::MISDIRECTED_REQUEST));
@@ -2211,6 +2238,59 @@ mod tests {
             forwarded_requests[0].body,
             Bytes::from_static(b"actual body")
         );
+    }
+
+    #[tokio::test]
+    async fn rama_reserved_binding_header_is_rejected_before_body_read_or_upstream_fallback() {
+        for duplicate in [false, true] {
+            let upstream_calls = Arc::new(AtomicUsize::new(0));
+            let upstream_calls_by_service = Arc::clone(&upstream_calls);
+            let upstream = service_fn(move |_request: Request<Body>| {
+                upstream_calls_by_service.fetch_add(1, Ordering::SeqCst);
+                async { Ok::<_, Infallible>(empty_response(StatusCode::BAD_GATEWAY)) }
+            });
+            let service = CaptureService {
+                inner: Arc::new(upstream),
+                authority: "localhost:443".to_owned(),
+                connection_id: 910,
+                capture_hook: RawCaptureHook::new(unique_temp_dir()),
+                experimental_require_info_route: ExperimentalRequireInfoRoute::new(true, None),
+                websocket_tasks: Arc::new(AsyncMutex::new(JoinSet::new())),
+            };
+            let body_polled = Arc::new(AtomicUsize::new(0));
+            let body_polled_by_stream = Arc::clone(&body_polled);
+            let body = Body::from_stream(rama::futures::stream::once(async move {
+                body_polled_by_stream.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, io::Error>(Bytes::from_static(b"must not be read"))
+            }));
+            let reserved_name = rama::http::HeaderName::from_bytes(b"x-aTtEsTaTiOn-BiNdInG")
+                .expect("valid mixed-case reserved header name");
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/kcsapi/api_get_member/require_info")
+                .header("Host", "localhost")
+                .header("Content-Length", "16")
+                .body(body)
+                .expect("reserved header request");
+            request.headers_mut().append(
+                reserved_name.clone(),
+                rama::http::HeaderValue::from_static("client-value"),
+            );
+            if duplicate {
+                request.headers_mut().append(
+                    reserved_name,
+                    rama::http::HeaderValue::from_static("second-value"),
+                );
+            }
+
+            let response = service
+                .serve(request)
+                .await
+                .expect("reserved header rejection response");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(body_polled.load(Ordering::SeqCst), 0);
+            assert_eq!(upstream_calls.load(Ordering::SeqCst), 0);
+        }
     }
 
     #[tokio::test]

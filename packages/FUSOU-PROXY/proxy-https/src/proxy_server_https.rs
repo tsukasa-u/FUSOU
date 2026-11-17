@@ -223,6 +223,14 @@ fn experimental_tlsn_failure_response(message: &'static str) -> http::Response<h
         .expect("failed to build Experimental TLSN failure response")
 }
 
+fn reserved_binding_header_response() -> http::Response<hyper::body::Bytes> {
+    let mut response = experimental_tlsn_failure_response(
+        "Client-supplied X-Attestation-Binding is reserved; request was not forwarded",
+    );
+    *response.status_mut() = http::StatusCode::BAD_REQUEST;
+    response
+}
+
 fn reject_uncollected_request(
     mut response: http::Response<hyper::body::Bytes>,
     version: http::Version,
@@ -1344,6 +1352,20 @@ impl HttpHandler for LogHandler {
         self.request_uri = req.uri().clone();
 
         let (part, body) = req.into_parts();
+        if part
+            .headers
+            .get_all(crate::experimental_tlsn::BINDING_HEADER)
+            .iter()
+            .next()
+            .is_some()
+        {
+            tracing::warn!(
+                connection_id = ctx.connection_id,
+                "rejected client-supplied reserved TLSN binding header before request forwarding"
+            );
+            return reject_uncollected_request(reserved_binding_header_response(), part.version);
+        }
+
         let mut route_decision = self.experimental_require_info_route.decide(
             part.method.as_str(),
             part.uri
@@ -2030,10 +2052,15 @@ mod tests {
         HttpHandler,
     };
     use hyper::body::Bytes;
+    #[cfg(feature = "synthetic-tlsn")]
+    use ring::signature::KeyPair as _;
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
 
     #[test]
     fn tlsn_capture_eligibility_accepts_http_leading_zero_content_length() {
@@ -2062,6 +2089,7 @@ mod tests {
     }
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[cfg(feature = "synthetic-tlsn")]
     use crate::synthetic_tlsn::SyntheticAlpha15OriginTransport;
@@ -2535,7 +2563,7 @@ mod tests {
                 .expect("integration targets lock")
                 .push(context.target().to_owned());
             let value = self.value.clone();
-            Box::pin(async move { AttestationBinding::new(value) })
+            Box::pin(async move { crate::synthetic_tlsn::synthetic_attestation_binding(value) })
         }
     }
 
@@ -2543,6 +2571,7 @@ mod tests {
     struct IntegrationVerifier {
         calls: Arc<std::sync::atomic::AtomicUsize>,
         exchange: Arc<Mutex<Option<TlsnOriginExchange>>>,
+        transport: Arc<SyntheticAlpha15OriginTransport>,
     }
 
     #[cfg(feature = "synthetic-tlsn")]
@@ -2556,25 +2585,129 @@ mod tests {
         ) -> VerificationFuture {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             *self.exchange.lock().expect("integration exchange lock") = Some(exchange.clone());
-            let request_sha256 = sha256(request.bytes());
-            let response_sha256 = sha256(&exchange.response.raw_response_bytes);
             let binding_identifier = sha256(binding.value().as_bytes());
+            let transport = Arc::clone(&self.transport);
             Box::pin(async move {
-                if exchange.transcript.request_sha256 != request_sha256
-                    || exchange.transcript.response_sha256 != response_sha256
+                let wire = transport
+                    .wire_evidence()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let presentation = wire
+                    .presentation
+                    .as_deref()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let root_certificate = wire
+                    .root_certificate
+                    .as_deref()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let notary_key = wire
+                    .notary_verifying_key
+                    .as_deref()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let transcript =
+                    fusou_tlsn_verifier::tlsn_alpha15::verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
+                        presentation,
+                        root_certificate,
+                        notary_key,
+                    )
+                    .map_err(|_| VerificationError::InvalidTranscript)?;
+                let session_authority_public_key =
+                    crate::synthetic_tlsn::synthetic_session_authority_public_key_spki();
+                let profile =
+                    fusou_tlsn_verifier::tlsn_alpha15::SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
+                        crate::synthetic_tlsn::SYNTHETIC_SERVER_IDENTITY,
+                        crate::synthetic_tlsn::SYNTHETIC_SESSION_AUTHORITY_KEY_ID,
+                        &session_authority_public_key,
+                    )
+                    .map_err(|_| VerificationError::InvalidTranscript)?;
+                let authenticated = transcript
+                    .verify_require_info_with_session_extension(
+                        &profile,
+                        &fusou_tlsn_verifier::ParserLimits::default(),
+                    )
+                    .map_err(|_| VerificationError::InvalidTranscript)?;
+                let session_context = authenticated
+                    .session_context()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let expected_device_commitment =
+                    fusou_tlsn_verifier::session_context::device_id_commitment(
+                        crate::synthetic_tlsn::SYNTHETIC_DEVICE_ID,
+                    )
+                    .map_err(|_| VerificationError::InvalidTranscript)?;
+                if session_context.grant.binding_value() != binding.value()
+                    || session_context.grant.device_id_sha256() != &expected_device_commitment
                 {
                     return Err(VerificationError::InvalidTranscript);
                 }
+                let request_sha256 = *authenticated
+                    .request_transcript_sha256()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let response_sha256 = *authenticated
+                    .response_transcript_sha256()
+                    .ok_or(VerificationError::InvalidTranscript)?;
+                let expected_response_sha256 = sha256(&exchange.response.raw_response_bytes);
+                if request_sha256 != sha256(request.bytes())
+                    || response_sha256 != expected_response_sha256
+                    || exchange.transcript.request_sha256 != request_sha256
+                    || exchange.transcript.response_sha256 != response_sha256
+                    || authenticated.server_identity()
+                        != crate::synthetic_tlsn::SYNTHETIC_SERVER_IDENTITY
+                {
+                    return Err(VerificationError::InvalidTranscript);
+                }
+                let member_id = authenticated.verified_member_id().to_owned();
+                let device_challenge = *session_context.grant.device_challenge();
+                let mut result = authenticated
+                    .into_verifier_result(
+                        [0x55; 32],
+                        "synthetic-verifier-v1".to_owned(),
+                        "synthetic-notary-v1".to_owned(),
+                        "11111111-1111-4111-8111-111111111111".to_owned(),
+                        crate::synthetic_tlsn::SYNTHETIC_DEVICE_ID.to_owned(),
+                        device_challenge,
+                        sha256(presentation),
+                        None,
+                        None,
+                        [0; 64],
+                    )
+                    .map_err(|_| VerificationError::InvalidTranscript)?;
+                let result_signing_key =
+                    ring::signature::Ed25519KeyPair::from_seed_unchecked(&[0x61; 32])
+                        .map_err(|_| VerificationError::InvalidTranscript)?;
+                let result_signature = result_signing_key.sign(
+                    &result
+                        .signing_bytes()
+                        .map_err(|_| VerificationError::InvalidTranscript)?,
+                );
+                result.signature.copy_from_slice(result_signature.as_ref());
+                let parsed_result = fusou_tlsn_verifier::parse_verifier_result(
+                    result
+                        .canonical_json()
+                        .map_err(|_| VerificationError::InvalidTranscript)?
+                        .as_bytes(),
+                    &fusou_tlsn_verifier::ParserLimits::default(),
+                )
+                .map_err(|_| VerificationError::InvalidTranscript)?;
+                ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::ED25519,
+                    result_signing_key.public_key().as_ref(),
+                )
+                .verify(
+                    &parsed_result
+                        .signing_bytes()
+                        .map_err(|_| VerificationError::InvalidTranscript)?,
+                    &parsed_result.signature,
+                )
+                .map_err(|_| VerificationError::InvalidTranscript)?;
                 Ok(VerificationOutcome::Verified(
                     VerifiedTlsnEvidence::from_verifier(
                         request_sha256,
                         response_sha256,
-                        VerifiedMemberId::from_verifier("16189463".to_owned())?,
+                        VerifiedMemberId::from_verifier(member_id)?,
                     )
                     .with_metadata(TlsnEvidenceMetadata::new(
                         connection_id,
                         binding_identifier,
-                        Some("game.example.test".to_owned()),
+                        Some(crate::synthetic_tlsn::SYNTHETIC_SERVER_IDENTITY.to_owned()),
                         request_sha256,
                         response_sha256,
                         None,
@@ -2600,7 +2733,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "synthetic-tlsn")]
     fn actual_require_info_request() -> Request<hudsucker::Body> {
         Request::builder()
             .method("POST")
@@ -2625,6 +2757,227 @@ mod tests {
             allow_save_main_js_local: false,
             experimental_require_info_route: route,
         }
+    }
+
+    struct NotSentFallbackForwarder {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl crate::experimental_tlsn::ExperimentalRequireInfoForwarder for NotSentFallbackForwarder {
+        fn forward(
+            &self,
+            _connection_id: u64,
+            _request: http::Request<Bytes>,
+        ) -> crate::experimental_tlsn::ExperimentalForwardFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    async fn send_to_loopback_mock_origin(request: Request<hudsucker::Body>) -> (Vec<u8>, usize) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback mock origin");
+        let address = listener.local_addr().expect("mock origin address");
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let accepted_by_server = Arc::clone(&accepted);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept mock origin request");
+            accepted_by_server.fetch_add(1, Ordering::SeqCst);
+            let mut raw = Vec::new();
+            let mut expected_len = None;
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let count = socket
+                    .read(&mut buffer)
+                    .await
+                    .expect("read mock origin request");
+                assert_ne!(count, 0, "client closed before completing the request");
+                raw.extend_from_slice(&buffer[..count]);
+                if expected_len.is_none() {
+                    if let Some(header_end) =
+                        raw.windows(4).position(|window| window == b"\r\n\r\n")
+                    {
+                        let header_end = header_end + 4;
+                        let headers = String::from_utf8_lossy(&raw[..header_end]);
+                        let content_length = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().expect("valid length"))
+                            })
+                            .unwrap_or(0);
+                        expected_len = Some(header_end + content_length);
+                    }
+                }
+                if expected_len.is_some_and(|expected| raw.len() >= expected) {
+                    break;
+                }
+            }
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .expect("write mock origin response");
+            raw
+        });
+
+        let socket = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("connect to loopback mock origin");
+        let io = hudsucker::hyper_util::rt::TokioIo::new(socket);
+        let (mut sender, connection) = hudsucker::hyper::client::conn::http1::handshake(io)
+            .await
+            .expect("create loopback HTTP/1 client");
+        let connection_task = tokio::spawn(async move {
+            connection.await.expect("loopback HTTP/1 connection failed");
+        });
+        let response = sender
+            .send_request(request)
+            .await
+            .expect("send ordinary proxy fallback to mock origin");
+        assert_eq!(response.status(), http::StatusCode::OK);
+        assert_eq!(
+            response
+                .into_body()
+                .collect()
+                .await
+                .expect("collect mock origin response")
+                .to_bytes(),
+            Bytes::from_static(b"ok")
+        );
+        drop(sender);
+        connection_task
+            .await
+            .expect("HTTP/1 connection task panicked");
+        let raw = server.await.expect("mock origin task panicked");
+        (raw, accepted.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test]
+    async fn reserved_binding_header_is_rejected_before_body_read_or_fallback() {
+        for (enabled, duplicate) in [(false, false), (true, true), (true, false)] {
+            let forwarder = Arc::new(RecordingForwarder::new());
+            let forwarded_requests = Arc::clone(&forwarder.requests);
+            let mut handler =
+                test_handler(ExperimentalRequireInfoRoute::new(enabled, Some(forwarder)));
+            let body_polled = Arc::new(AtomicBool::new(false));
+            let body_polled_by_stream = Arc::clone(&body_polled);
+            let body = hudsucker::Body::from_stream(hudsucker::futures::stream::once(async move {
+                body_polled_by_stream.store(true, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Bytes::from_static(b"must not be read"))
+            }));
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("https://game.example.test/kcsapi/api_get_member/require_info")
+                .header("Host", "game.example.test")
+                .body(body)
+                .expect("reserved header request");
+            let reserved_name = http::HeaderName::from_bytes(b"x-aTtEsTaTiOn-BiNdInG")
+                .expect("valid mixed-case reserved header name");
+            request.headers_mut().append(
+                reserved_name.clone(),
+                http::HeaderValue::from_static("client-value"),
+            );
+            if duplicate {
+                request.headers_mut().append(
+                    reserved_name,
+                    http::HeaderValue::from_static("second-value"),
+                );
+            }
+
+            let response = handler
+                .handle_request(
+                    &HttpContext::new("127.0.0.1:40009".parse().unwrap(), 991),
+                    request,
+                )
+                .await;
+            let hudsucker::RequestOrResponse::Response(response) = response else {
+                panic!("reserved binding header reached ordinary proxy fallback");
+            };
+            assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
+            assert!(!body_polled.load(Ordering::SeqCst));
+            assert!(forwarded_requests
+                .lock()
+                .expect("recording forwarder lock")
+                .is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn headerless_capture_unavailable_fallback_reaches_loopback_origin_once() {
+        let mut handler = test_handler(ExperimentalRequireInfoRoute::new(true, None));
+        let request = actual_require_info_request();
+        let hudsucker::RequestOrResponse::Request(request) = handler
+            .handle_request(
+                &HttpContext::new("127.0.0.1:40009".parse().unwrap(), 992),
+                request,
+            )
+            .await
+        else {
+            panic!("capture-unavailable request did not use ordinary proxy fallback");
+        };
+        let (raw, accepted) = send_to_loopback_mock_origin(request).await;
+        let raw_text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+        assert_eq!(accepted, 1);
+        assert!(raw_text.starts_with(
+            "post https://game.example.test/kcsapi/api_get_member/require_info http/1.1\r\n"
+        ));
+        assert!(raw_text.contains("\r\nhost: game.example.test\r\n"));
+        assert!(raw_text.contains("\r\ncontent-length: 11\r\n"));
+        assert!(raw.ends_with(b"\r\n\r\nactual body"));
+        assert!(!raw_text.contains("x-attestation-binding"));
+        assert!(!raw_text.contains("cookie:"));
+    }
+
+    #[tokio::test]
+    async fn confirmed_not_sent_capture_fallback_reaches_loopback_origin_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let forwarder = Arc::new(NotSentFallbackForwarder {
+            calls: Arc::clone(&calls),
+        });
+        let mut handler = test_handler(ExperimentalRequireInfoRoute::new(true, Some(forwarder)));
+        let request = actual_require_info_request();
+        let hudsucker::RequestOrResponse::Request(request) = handler
+            .handle_request(
+                &HttpContext::new("127.0.0.1:40009".parse().unwrap(), 993),
+                request,
+            )
+            .await
+        else {
+            panic!("NotSent capture did not use ordinary proxy fallback");
+        };
+        let (raw, accepted) = send_to_loopback_mock_origin(request).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(accepted, 1);
+        assert!(raw.ends_with(b"\r\n\r\nactual body"));
+        assert!(!String::from_utf8_lossy(&raw)
+            .to_ascii_lowercase()
+            .contains("x-attestation-binding"));
+    }
+
+    #[tokio::test]
+    async fn ambiguous_capture_failure_never_returns_an_ordinary_proxy_request() {
+        let forwarder = Arc::new(RecordingForwarder::failing());
+        let forwarded_requests = Arc::clone(&forwarder.requests);
+        let mut handler = test_handler(ExperimentalRequireInfoRoute::new(true, Some(forwarder)));
+        let response = handler
+            .handle_request(
+                &HttpContext::new("127.0.0.1:40009".parse().unwrap(), 994),
+                actual_require_info_request(),
+            )
+            .await;
+        let hudsucker::RequestOrResponse::Response(response) = response else {
+            panic!("ambiguous post-send TLSN failure attempted ordinary fallback");
+        };
+        assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            forwarded_requests
+                .lock()
+                .expect("recording forwarder lock")
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -2965,6 +3318,7 @@ mod tests {
             Arc::new(IntegrationVerifier {
                 calls: Arc::clone(&verifier_calls),
                 exchange: Arc::clone(&exchange),
+                transport: Arc::clone(&transport),
             }),
             Arc::new(IntegrationResultBoundary {
                 calls: Arc::clone(&result_calls),
@@ -2994,9 +3348,23 @@ mod tests {
         let second = handler
             .handle_request(&context, actual_require_info_request())
             .await;
-        let hudsucker::RequestOrResponse::Response(second) = second else {
-            panic!("repeated require_info request reached Production");
+        let hudsucker::RequestOrResponse::Request(second) = second else {
+            panic!("unavailable pre-send TLSN capture did not preserve the ordinary request");
         };
+        let (second_parts, second_body) = second.into_parts();
+        assert_eq!(second_parts.method, http::Method::POST);
+        assert_eq!(
+            second_parts
+                .uri
+                .path_and_query()
+                .map(|value| value.as_str()),
+            Some("/kcsapi/api_get_member/require_info")
+        );
+        assert!(!second_parts.headers.contains_key("x-attestation-binding"));
+        assert_eq!(
+            second_body.collect().await.unwrap().to_bytes(),
+            Bytes::from_static(b"actual body")
+        );
 
         let expected_parts = HttpRequest::builder()
             .method("POST")
@@ -3012,7 +3380,8 @@ mod tests {
             .serialize(
                 &expected_parts,
                 Bytes::from_static(b"actual body"),
-                &AttestationBinding::new(binding_value).expect("integration binding"),
+                &crate::synthetic_tlsn::synthetic_attestation_binding(binding_value.clone())
+                    .expect("integration binding"),
             )
             .expect("serialized actual request");
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
@@ -3056,7 +3425,6 @@ mod tests {
 
         assert_eq!(first_status, http::StatusCode::OK);
         assert!(first_body.starts_with(b"svdata={\"api_result\":1"));
-        assert_eq!(second.status(), http::StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             binding_calls.load(Ordering::SeqCst),
             1,
@@ -3120,8 +3488,11 @@ mod tests {
             String::from_utf8_lossy(&wire.origin_request)
                 .matches("x-attestation-binding:")
                 .count(),
-            1
+            0
         );
+        let origin_request = String::from_utf8_lossy(&wire.origin_request).to_ascii_lowercase();
+        assert!(!origin_request.contains("cookie:"));
+        assert!(!origin_request.contains("fusou"));
     }
 
     #[tokio::test]

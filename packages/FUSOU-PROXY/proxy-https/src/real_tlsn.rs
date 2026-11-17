@@ -24,9 +24,12 @@ use base64::{
 use chrono::{DateTime, Utc};
 use fusou_auth::{AuthManager, DeviceKey, FileStorage};
 use fusou_tlsn_verifier::{
-    parse_binding_value, parse_require_info_request,
+    parse_binding_value,
     prover_transport::{
         parse_http_response_for_forwarding, ProverOwnedTlsTransport, ResponseFraming,
+    },
+    session_context::{
+        device_id_commitment, SessionContextGrant, SESSION_CONTEXT_GRANT_EXTENSION_ID,
     },
     ParserLimits, REQUIRE_INFO_TARGET,
 };
@@ -44,7 +47,7 @@ use std::{
 use tlsn::{
     attestation::{
         request::{Request as AttestationRequest, RequestConfig},
-        Attestation, CryptoProvider,
+        Attestation, CryptoProvider, Extension,
     },
     config::{
         prove::ProveConfig, prover::ProverConfig, tls::TlsClientConfig,
@@ -1380,6 +1383,7 @@ struct SessionAuthorityResponse {
     device_challenge: String,
     expires_at: String,
     session_receipt: SessionReceipt,
+    session_context_grant: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1521,6 +1525,38 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 &session_authority_public_key,
                 &session_authority_key_id,
             )?;
+            let grant_bytes = URL_SAFE_NO_PAD
+                .decode(&authority.session_context_grant)
+                .map_err(|_| BindingError::InvalidBinding)?;
+            if URL_SAFE_NO_PAD.encode(&grant_bytes) != authority.session_context_grant {
+                return Err(BindingError::InvalidBinding);
+            }
+            let grant = SessionContextGrant::parse(&grant_bytes)
+                .map_err(|_| BindingError::InvalidBinding)?;
+            grant
+                .verify(&session_authority_public_key, &session_authority_key_id)
+                .map_err(|_| BindingError::InvalidBinding)?;
+            let issued_at_ms = DateTime::parse_from_rfc3339(&authority.session_receipt.created_at)
+                .map_err(|_| BindingError::InvalidBinding)?
+                .timestamp_millis();
+            let expires_at_ms = DateTime::parse_from_rfc3339(&authority.session_receipt.expires_at)
+                .map_err(|_| BindingError::InvalidBinding)?
+                .timestamp_millis();
+            let device_challenge_bytes = URL_SAFE_NO_PAD
+                .decode(&authority.device_challenge)
+                .map_err(|_| BindingError::InvalidBinding)?;
+            if grant.session_id() != authority.session_id
+                || grant.binding_value() != authority.binding
+                || grant.device_id_sha256()
+                    != &device_id_commitment(&device_id)
+                        .map_err(|_| BindingError::InvalidBinding)?
+                || grant.device_challenge() != device_challenge_bytes.as_slice()
+                || grant.issued_at_ms() != issued_at_ms as u64
+                || grant.expires_at_ms() != expires_at_ms as u64
+                || grant.expires_at_ms() <= Utc::now().timestamp_millis() as u64
+            {
+                return Err(BindingError::InvalidBinding);
+            }
             let mut state_guard = state.lock().map_err(|_| BindingError::NoBindingAuthority)?;
             if state_guard.is_some() {
                 return Err(BindingError::AlreadyIssued);
@@ -1537,7 +1573,11 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
                 device_auth_nonce: nonce,
                 device_auth_signature,
             });
-            AttestationBinding::new(authority.binding).map_err(|_| BindingError::InvalidBinding)
+            AttestationBinding::with_session_context_grant(
+                authority.binding,
+                Bytes::from(grant_bytes),
+            )
+            .map_err(|_| BindingError::InvalidBinding)
         })
     }
 
@@ -1637,19 +1677,30 @@ fn receipt_signing_bytes(receipt: &SessionReceipt) -> Result<Vec<u8>, BindingErr
 pub struct RealAlpha15DedicatedVerifier {
     server_identity: String,
     notary_verifying_key: Vec<u8>,
+    session_authority_public_key_spki: Vec<u8>,
+    session_authority_key_id: String,
 }
 
 impl RealAlpha15DedicatedVerifier {
     pub fn new(
         server_identity: String,
         notary_verifying_key: Vec<u8>,
+        session_authority_public_key_spki: Vec<u8>,
+        session_authority_key_id: String,
     ) -> Result<Self, TlsnTransportError> {
-        if server_identity.trim().is_empty() || notary_verifying_key.is_empty() {
+        if server_identity.trim().is_empty()
+            || notary_verifying_key.is_empty()
+            || session_authority_public_key_spki.len() != ED25519_SPKI_PREFIX.len() + 32
+            || !session_authority_public_key_spki.starts_with(ED25519_SPKI_PREFIX)
+            || !is_valid_key_id(&session_authority_key_id)
+        {
             return Err(TlsnTransportError::Unavailable);
         }
         Ok(Self {
             server_identity,
             notary_verifying_key,
+            session_authority_public_key_spki,
+            session_authority_key_id,
         })
     }
 }
@@ -1661,6 +1712,8 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
     ) -> crate::experimental_tlsn::VerificationFuture {
         let server_identity = self.server_identity.clone();
         let notary_verifying_key = self.notary_verifying_key.clone();
+        let session_authority_public_key_spki = self.session_authority_public_key_spki.clone();
+        let session_authority_key_id = self.session_authority_key_id.clone();
         Box::pin(async move {
             let (context, request, binding, exchange, presentation) = input.into_parts();
             if context.server_identity() != server_identity {
@@ -1679,13 +1732,26 @@ impl crate::production_tlsn::TlsnVerificationBackend for RealAlpha15DedicatedVer
             {
                 return Err(crate::experimental_tlsn::VerificationError::InvalidTranscript);
             }
-            let profile = fusou_tlsn_verifier::tlsn_alpha15::RequireInfoDisclosureProfile::from_server_identity(
+            let profile = fusou_tlsn_verifier::tlsn_alpha15::SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
                 &server_identity,
+                &session_authority_key_id,
+                &session_authority_public_key_spki,
             )
             .map_err(|_| crate::experimental_tlsn::VerificationError::ServerIdentityMismatch)?;
             let verified = transcript
-                .verify_require_info(&profile, &ParserLimits::default())
+                .verify_require_info_with_session_extension(&profile, &ParserLimits::default())
                 .map_err(|_| crate::experimental_tlsn::VerificationError::PresentationInvalid)?;
+            let verified_session_context = verified
+                .session_context()
+                .ok_or(crate::experimental_tlsn::VerificationError::BindingMismatch)?;
+            let supplied_grant = binding
+                .session_context_grant()
+                .ok_or(crate::experimental_tlsn::VerificationError::BindingMismatch)?;
+            if verified_session_context.grant.encoded() != supplied_grant.bytes()
+                || verified_session_context.grant.binding_value() != binding.value()
+            {
+                return Err(crate::experimental_tlsn::VerificationError::BindingMismatch);
+            }
             let expected_binding = fusou_tlsn_verifier::parse_binding_value(binding.value())
                 .map_err(|_| crate::experimental_tlsn::VerificationError::BindingMismatch)?;
             if verified.binding().session_id != expected_binding.session_id
@@ -1776,7 +1842,11 @@ async fn run_real_exchange(
     lifecycle: ExchangeLifecycle,
 ) -> Result<TlsnOriginCapture, TlsnTransportError> {
     let exchange_started = std::time::Instant::now();
-    let parsed_request = parse_require_info_request(
+    let session_context_grant = request
+        .session_context_grant()
+        .cloned()
+        .ok_or(TlsnTransportError::RuntimeConfigUnavailable)?;
+    fusou_tlsn_verifier::validate_require_info_request_headerless(
         request.bytes(),
         config.target().server_identity(),
         &ParserLimits::default(),
@@ -1868,10 +1938,9 @@ async fn run_real_exchange(
     let prover_task = spawn_exchange_task(prover.into_future(), &lifecycle);
     let mut transport = ProverOwnedTlsTransport::new(connection);
     let request_write_elapsed = transport
-        .send_actual_require_info_with_timing(
+        .send_headerless_require_info_with_timing(
             request.bytes(),
             config.target().server_identity(),
-            &parsed_request.binding,
         )
         .await
         .map_err(|_| TlsnTransportError::AmbiguousOriginSend)?;
@@ -1937,6 +2006,10 @@ async fn run_real_exchange(
 
         let mut request_config_builder = RequestConfig::builder();
         request_config_builder.transcript_commit(transcript_commit.clone());
+        request_config_builder.extension(Extension {
+            id: SESSION_CONTEXT_GRANT_EXTENSION_ID.to_vec(),
+            value: session_context_grant.bytes().to_vec(),
+        });
         let request_config = request_config_builder
             .build()
             .map_err(|_| ProofContinuationError::AttestationRequest)?;
@@ -3317,6 +3390,26 @@ mod tests {
         let key_pair = Ed25519KeyPair::from_seed_unchecked(&[3_u8; 32]).unwrap();
         receipt.signature =
             URL_SAFE_NO_PAD.encode(key_pair.sign(&receipt_signing_bytes(&receipt).unwrap()));
+        let issued_at_ms = DateTime::parse_from_rfc3339(&receipt.created_at)
+            .unwrap()
+            .timestamp_millis() as u64;
+        let expires_at_ms = DateTime::parse_from_rfc3339(&receipt.expires_at)
+            .unwrap()
+            .timestamp_millis() as u64;
+        let device_challenge_bytes = [9_u8; 32];
+        let grant_signing_bytes = SessionContextGrant::signing_bytes_for(
+            &receipt.signer_key_id,
+            &receipt.session_id,
+            &receipt.binding_value,
+            device_id_commitment(&receipt.device_id).unwrap(),
+            device_challenge_bytes,
+            issued_at_ms,
+            expires_at_ms,
+        )
+        .unwrap();
+        let mut grant_bytes = grant_signing_bytes;
+        let grant_signature = key_pair.sign(&grant_bytes);
+        grant_bytes.extend_from_slice(grant_signature.as_ref());
         let authority = SessionAuthorityResponse {
             session_id: session_id.to_owned(),
             challenge: receipt.nonce.clone(),
@@ -3340,6 +3433,7 @@ mod tests {
                 expires_at: receipt.expires_at.clone(),
                 signature: receipt.signature.clone(),
             },
+            session_context_grant: URL_SAFE_NO_PAD.encode(grant_bytes),
         };
         let mut public_key_spki = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00".to_vec();
         public_key_spki.extend_from_slice(key_pair.public_key().as_ref());
@@ -3855,7 +3949,8 @@ mod tests {
             let response = forwarder
                 .forward(1, synthetic_require_info_request())
                 .await
-                .expect("forward synthetic request");
+                .expect("forward synthetic request")
+                .expect("synthetic capture returns an origin response");
             assert_eq!(response.status(), StatusCode::OK);
             let response_body = response.into_body();
             assert!(String::from_utf8_lossy(&response_body).contains("16189463"));

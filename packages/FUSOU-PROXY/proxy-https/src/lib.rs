@@ -14,8 +14,10 @@ pub mod experimental_tlsn;
 pub mod pac_server;
 pub mod production_tlsn;
 pub mod proxy_server_https;
-mod request_ingress;
 #[cfg(feature = "alpha15-tlsn")]
 pub mod real_tlsn;
+mod request_ingress;
+#[cfg(feature = "synthetic-tlsn")]
+pub mod synthetic_notary;
 #[cfg(feature = "synthetic-tlsn")]
 pub mod synthetic_tlsn;

@@ -3,9 +3,9 @@ use fusou_tlsn_verifier::{
     plan_require_info_response_sparse_range_report, ParserLimits, SparseResponseRangeKind,
     BINDING_PREFIX,
 };
-use proxy_https::experimental_tlsn::{AttestationBinding, TlsnOriginTransport};
+use proxy_https::experimental_tlsn::TlsnOriginTransport;
 use proxy_https::synthetic_tlsn::{
-    synthetic_serialized_require_info_request, SyntheticAlpha15Memory,
+    synthetic_attestation_binding, synthetic_serialized_require_info_request, SyntheticAlpha15Memory,
     SyntheticAlpha15OriginTransport, SyntheticAlpha15Timing,
 };
 use std::time::Instant;
@@ -95,7 +95,7 @@ fn sparse_response_range_report(response: &[u8]) -> Vec<serde_json::Value> {
 async fn main() {
     let started = Instant::now();
     let transport = SyntheticAlpha15OriginTransport::new().unwrap();
-    let binding = AttestationBinding::new(binding_value()).unwrap();
+    let binding = synthetic_attestation_binding(binding_value()).unwrap();
     let capture = transport
         .send_once(synthetic_serialized_require_info_request(&binding).unwrap())
         .await

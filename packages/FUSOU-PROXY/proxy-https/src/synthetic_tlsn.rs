@@ -4,29 +4,35 @@ use crate::experimental_tlsn::{
     TlsnOriginCapture, TlsnOriginExchange, TlsnOriginResponse, TlsnOriginTransport,
     TlsnTransportError, TlsnTransportFuture, UnverifiedTlsnTranscript,
 };
+use crate::synthetic_notary::LocalTestNotary;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use fusou_tlsn_verifier::{
-    parse_require_info_request, plan_require_info_response_sparse_ranges,
-    prover_transport::ProverOwnedTlsTransport, ParserLimits,
+    parse_binding_value, plan_require_info_response_sparse_ranges,
+    prover_transport::ProverOwnedTlsTransport,
+    session_context::{
+        device_id_commitment, SessionContextGrant, SESSION_CONTEXT_GRANT_EXTENSION_ID,
+    },
+    ParserLimits, REQUIRE_INFO_TARGET,
 };
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Version};
 use hyper::body::Bytes;
 use rcgen::{
     BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
 };
+use ring::signature::{Ed25519KeyPair, KeyPair as RingKeyPair};
 use std::{
     future::IntoFuture,
     ops::Range,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tlsn::{
     attestation::{
         request::{Request as AttestationRequest, RequestConfig},
-        Attestation, AttestationConfig, CryptoProvider,
+        Attestation, AttestationConfig, CryptoProvider, Extension, InvalidExtension,
     },
     config::{
         prover::ProverConfig, tls::TlsClientConfig, tls_commit::proxy::ProxyTlsConfig,
@@ -47,12 +53,71 @@ use tokio_rustls::{
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub const SYNTHETIC_SERVER_IDENTITY: &str = "game.example.test";
+pub(crate) const SYNTHETIC_SESSION_AUTHORITY_KEY_ID: &str = "synthetic-local-test-notary-v1";
+pub(crate) const SYNTHETIC_DEVICE_ID: &str = "22222222-2222-4222-8222-222222222222";
+static SYNTHETIC_GRANT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn synthetic_session_authority_keypair() -> Ed25519KeyPair {
+    Ed25519KeyPair::from_seed_unchecked(&[42_u8; 32])
+        .expect("synthetic Session Authority seed must be valid")
+}
+
+pub(crate) fn synthetic_session_authority_public_key_spki() -> Vec<u8> {
+    let key_pair = synthetic_session_authority_keypair();
+    let mut spki = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00".to_vec();
+    spki.extend_from_slice(key_pair.public_key().as_ref());
+    spki
+}
+
+pub fn synthetic_attestation_binding(
+    value: String,
+) -> Result<AttestationBinding, crate::experimental_tlsn::BindingError> {
+    let parsed = parse_binding_value(&value)
+        .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
+    let device_id_sha256 = device_id_commitment(SYNTHETIC_DEVICE_ID)
+        .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
+    let mut challenge = [0x33; 32];
+    challenge[24..].copy_from_slice(
+        &SYNTHETIC_GRANT_SEQUENCE
+            .fetch_add(1, Ordering::Relaxed)
+            .to_be_bytes(),
+    );
+    let issued_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?
+        .as_millis() as u64;
+    let expires_at_ms = issued_at_ms
+        .checked_add(10 * 60 * 1000)
+        .ok_or(crate::experimental_tlsn::BindingError::InvalidBinding)?;
+    let signing_bytes = SessionContextGrant::signing_bytes_for(
+        SYNTHETIC_SESSION_AUTHORITY_KEY_ID,
+        &parsed.session_id.to_string(),
+        &value,
+        device_id_sha256,
+        challenge,
+        issued_at_ms,
+        expires_at_ms,
+    )
+    .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
+    let signature = synthetic_session_authority_keypair().sign(&signing_bytes);
+    let mut encoded_grant = signing_bytes;
+    encoded_grant.extend_from_slice(signature.as_ref());
+    let grant = SessionContextGrant::parse(&encoded_grant)
+        .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
+    grant
+        .verify(
+            &synthetic_session_authority_public_key_spki(),
+            SYNTHETIC_SESSION_AUTHORITY_KEY_ID,
+        )
+        .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
+    AttestationBinding::with_session_context_grant(value, Bytes::from(grant.encoded().to_vec()))
+}
 
 pub fn synthetic_require_info_request() -> Request<Bytes> {
     Request::builder()
         .method(Method::POST)
         .uri(format!(
-            "https://{SYNTHETIC_SERVER_IDENTITY}/kcsapi/api_get_member/require_info"
+            "https://{SYNTHETIC_SERVER_IDENTITY}{REQUIRE_INFO_TARGET}"
         ))
         .version(Version::HTTP_11)
         .header("Host", SYNTHETIC_SERVER_IDENTITY)
@@ -83,6 +148,7 @@ pub struct SyntheticAlpha15WireEvidence {
     pub disclosed_response_largest_range_bytes: usize,
     pub presentation: Option<Vec<u8>>,
     pub sparse_presentation: Option<Vec<u8>>,
+    pub notary_signed_result: Option<Vec<u8>>,
     pub root_certificate: Option<Vec<u8>>,
     pub notary_verifying_key: Option<Vec<u8>>,
     pub presentation_available: bool,
@@ -184,6 +250,8 @@ pub struct SyntheticAlpha15OriginTransport {
     root_certificate: Arc<Vec<u8>>,
     server_certificate: Arc<Vec<u8>>,
     private_key: Arc<Vec<u8>>,
+    notary: Arc<LocalTestNotary>,
+    notary_store_dir: Arc<TemporaryNotaryStoreDir>,
     last_request: Mutex<Option<Vec<u8>>>,
     last_evidence: Arc<Mutex<Option<SyntheticAlpha15WireEvidence>>>,
     last_timing: Arc<Mutex<Option<SyntheticAlpha15Timing>>>,
@@ -192,11 +260,27 @@ pub struct SyntheticAlpha15OriginTransport {
 impl SyntheticAlpha15OriginTransport {
     pub fn new() -> Result<Self, TlsnTransportError> {
         let (root_certificate, server_certificate, private_key) = server_credentials()?;
+        let notary_store_dir = Arc::new(TemporaryNotaryStoreDir(
+            std::env::temp_dir().join(format!("fusou_synthetic_notary_{}", uuid::Uuid::new_v4())),
+        ));
+        let notary = LocalTestNotary::initialize_new(
+            notary_store_dir.0.join("state.json"),
+            synthetic_session_authority_public_key_spki(),
+            SYNTHETIC_SESSION_AUTHORITY_KEY_ID,
+            crate::synthetic_notary::LOCAL_TEST_NOTARY_ID,
+            crate::synthetic_notary::LOCAL_TEST_ENVIRONMENT,
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to initialize persistent local test Notary");
+            TlsnTransportError::RuntimeConfigUnavailable
+        })?;
         Ok(Self {
             sent: AtomicBool::new(false),
             root_certificate: Arc::new(root_certificate),
             server_certificate: Arc::new(server_certificate),
             private_key: Arc::new(private_key),
+            notary,
+            notary_store_dir,
             last_request: Mutex::new(None),
             last_evidence: Arc::new(Mutex::new(None)),
             last_timing: Arc::new(Mutex::new(None)),
@@ -220,6 +304,10 @@ impl SyntheticAlpha15OriginTransport {
     pub fn timing(&self) -> Option<SyntheticAlpha15Timing> {
         self.last_timing.lock().ok().and_then(|timing| *timing)
     }
+
+    pub fn notary(&self) -> Arc<LocalTestNotary> {
+        Arc::clone(&self.notary)
+    }
 }
 
 impl TlsnOriginTransport for SyntheticAlpha15OriginTransport {
@@ -235,15 +323,18 @@ impl TlsnOriginTransport for SyntheticAlpha15OriginTransport {
         let root_certificate = Arc::clone(&self.root_certificate);
         let server_certificate = Arc::clone(&self.server_certificate);
         let private_key = Arc::clone(&self.private_key);
+        let notary = Arc::clone(&self.notary);
+        let notary_store_dir = Arc::clone(&self.notary_store_dir);
         let last_evidence = Arc::clone(&self.last_evidence);
         let last_timing = Arc::clone(&self.last_timing);
         Box::pin(async move {
             run_synthetic_exchange(
-                SerializedOriginRequest::new(Bytes::from(request_bytes))
-                    .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
+                request,
                 root_certificate,
                 server_certificate,
                 private_key,
+                notary,
+                notary_store_dir,
                 last_evidence,
                 last_timing,
             )
@@ -252,11 +343,29 @@ impl TlsnOriginTransport for SyntheticAlpha15OriginTransport {
     }
 }
 
+struct TemporaryNotaryStoreDir(std::path::PathBuf);
+
+impl Drop for TemporaryNotaryStoreDir {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.0) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!(
+                    path = %self.0.display(),
+                    %error,
+                    "failed to remove temporary local Notary store"
+                );
+            }
+        }
+    }
+}
+
 async fn run_synthetic_exchange(
     request: SerializedOriginRequest,
     root_certificate: Arc<Vec<u8>>,
     server_certificate: Arc<Vec<u8>>,
     private_key: Arc<Vec<u8>>,
+    notary: Arc<LocalTestNotary>,
+    notary_store_dir: Arc<TemporaryNotaryStoreDir>,
     last_evidence: Arc<Mutex<Option<SyntheticAlpha15WireEvidence>>>,
     last_timing: Arc<Mutex<Option<SyntheticAlpha15Timing>>>,
 ) -> Result<TlsnOriginCapture, TlsnTransportError> {
@@ -272,13 +381,16 @@ async fn run_synthetic_exchange(
     let root_store = RootCertStore {
         roots: vec![CertificateDer(root_certificate.as_ref().clone())],
     };
-    let parsed_request = parse_require_info_request(
+    let session_context_grant = request
+        .session_context_grant()
+        .cloned()
+        .ok_or(TlsnTransportError::RuntimeConfigUnavailable)?;
+    fusou_tlsn_verifier::validate_require_info_request_headerless(
         request.bytes(),
         SYNTHETIC_SERVER_IDENTITY,
         &ParserLimits::default(),
     )
     .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-    let expected_binding = parsed_request.binding;
 
     let (prover_socket, verifier_socket) = tokio::io::duplex(2 << 23);
     let mut prover_session = Session::new(prover_socket.compat());
@@ -298,6 +410,16 @@ async fn run_synthetic_exchange(
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
         )
         .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+    let admission_time_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| TlsnTransportError::RuntimeConfigUnavailable)?
+        .as_millis() as u64;
+    let live_notary_session = notary
+        .admit_grant(session_context_grant.bytes(), admission_time_ms)
+        .map_err(|error| {
+            tracing::error!(%error, "local Notary rejected Session context admission");
+            TlsnTransportError::RuntimeConfigUnavailable
+        })?;
     let (prover_driver, prover_handle) = prover_session.split();
     let (verifier_driver, verifier_handle) = verifier_session.split();
     tokio::spawn(prover_driver);
@@ -346,11 +468,7 @@ async fn run_synthetic_exchange(
         let prover_task = tokio::spawn(prover.into_future());
         let mut transport = ProverOwnedTlsTransport::new(connection);
         transport
-            .send_actual_require_info(
-                request_for_prover.bytes(),
-                SYNTHETIC_SERVER_IDENTITY,
-                &expected_binding,
-            )
+            .send_headerless_require_info(request_for_prover.bytes(), SYNTHETIC_SERVER_IDENTITY)
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
         let raw_response = transport
@@ -402,6 +520,10 @@ async fn run_synthetic_exchange(
         });
         let mut request_config_builder = RequestConfig::builder();
         request_config_builder.transcript_commit(transcript_commit.clone());
+        request_config_builder.extension(Extension {
+            id: SESSION_CONTEXT_GRANT_EXTENSION_ID.to_vec(),
+            value: session_context_grant.bytes().to_vec(),
+        });
         let request_config = request_config_builder
             .build()
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
@@ -480,6 +602,7 @@ async fn run_synthetic_exchange(
         ))
     });
 
+    let verifier_live_notary_session = live_notary_session;
     let verifier_task = tokio::spawn(async move {
         let verifier = verifier
             .commit()
@@ -514,7 +637,13 @@ async fn run_synthetic_exchange(
             .close()
             .await
             .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
-        Ok((sent, received, output, tls_transcript))
+        Ok((
+            sent,
+            received,
+            output,
+            tls_transcript,
+            verifier_live_notary_session,
+        ))
     });
 
     let exchange = exchange_rx
@@ -541,6 +670,7 @@ async fn run_synthetic_exchange(
             authenticated_response,
             verifier_output,
             verifier_tls_transcript,
+            live_notary_session,
         ) = verifier_result
             .map_err(|_| ProofContinuationError::Notary)?
             .map_err(|_| ProofContinuationError::Notary)?;
@@ -570,9 +700,50 @@ async fn run_synthetic_exchange(
             .signer
             .set_secp256k1(&[1_u8; 32])
             .map_err(|_| ProofContinuationError::Notary)?;
+        let accepted_context = Arc::new(Mutex::new(None));
+        let live_session_slot = Arc::new(Mutex::new(Some(live_notary_session)));
+        let validator_session_slot = Arc::clone(&live_session_slot);
+        let accepted_context_slot = Arc::clone(&accepted_context);
+        let session_authority_public_key = synthetic_session_authority_public_key_spki();
         let mut attestation_config_builder = AttestationConfig::builder();
         attestation_config_builder
-            .supported_signature_algs(notary_provider.signer.supported_algs().collect::<Vec<_>>());
+            .supported_signature_algs(notary_provider.signer.supported_algs().collect::<Vec<_>>())
+            .extension_validator(move |extensions| {
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| InvalidExtension::new("Notary clock is before the epoch"))?
+                    .as_millis() as u64;
+                if session_authority_public_key != synthetic_session_authority_public_key_spki() {
+                    return Err(InvalidExtension::new(
+                        "local Notary authority pin changed during the live operation",
+                    ));
+                }
+                let live_session = validator_session_slot
+                    .lock()
+                    .map_err(|_| InvalidExtension::new("Notary session state is poisoned"))?
+                    .take()
+                    .ok_or_else(|| InvalidExtension::new("Notary session was already consumed"))?;
+                let acceptance = live_session
+                    .validate_request_extensions(extensions, now_ms)
+                    .map_err(|error| InvalidExtension::new(error.to_string()))?;
+                let mut live_session_slot = validator_session_slot
+                    .lock()
+                    .map_err(|_| InvalidExtension::new("Notary session state is poisoned"))?;
+                if live_session_slot.replace(live_session).is_some() {
+                    return Err(InvalidExtension::new(
+                        "Notary session context was unexpectedly replaced",
+                    ));
+                }
+                let mut slot = accepted_context_slot
+                    .lock()
+                    .map_err(|_| InvalidExtension::new("Notary acceptance state is poisoned"))?;
+                if slot.replace(acceptance).is_some() {
+                    return Err(InvalidExtension::new(
+                        "Notary context was validated more than once",
+                    ));
+                }
+                Ok(())
+            });
         let attestation_config = attestation_config_builder
             .build()
             .map_err(|_| ProofContinuationError::Notary)?;
@@ -580,6 +751,17 @@ async fn run_synthetic_exchange(
         let mut attestation_builder = Attestation::builder(&attestation_config)
             .accept_request(attestation_request)
             .map_err(|_| ProofContinuationError::AttestationRequest)?;
+        let live_notary_session = live_session_slot
+            .lock()
+            .map_err(|_| ProofContinuationError::Notary)?
+            .take()
+            .ok_or(ProofContinuationError::Notary)?;
+        let acceptance = accepted_context
+            .lock()
+            .map_err(|_| ProofContinuationError::Notary)?
+            .take()
+            .ok_or(ProofContinuationError::Notary)?;
+        attestation_builder.extension(acceptance.extension());
         let CertBinding::V1_2(binding) = verifier_tls_transcript.certificate_binding() else {
             return Err(ProofContinuationError::AttestationRequest);
         };
@@ -601,6 +783,14 @@ async fn run_synthetic_exchange(
         attestation_request_for_validation
             .validate(&attestation, &CryptoProvider::default())
             .map_err(|_| ProofContinuationError::AttestationValidation)?;
+        let exact_notary_result =
+            bincode::serialize(&attestation).map_err(|_| ProofContinuationError::Notary)?;
+        live_notary_session
+            .finalize_exact_result(&exact_notary_result)
+            .map_err(|error| {
+                tracing::error!(%error, "failed to persist exact signed local Notary result");
+                ProofContinuationError::Notary
+            })?;
         update_timing(&proof_timing, |timing| {
             timing.attestation_latency = Some(attestation_started.elapsed());
             timing.memory_after_attestation = Some(SyntheticAlpha15Memory::current());
@@ -703,11 +893,13 @@ async fn run_synthetic_exchange(
                     .unwrap_or(0),
                 presentation,
                 sparse_presentation: Some(sparse_presentation),
+                notary_signed_result: Some(exact_notary_result),
                 root_certificate: Some((*root_certificate).clone()),
                 notary_verifying_key: Some(notary_verifying_key),
                 presentation_available: !sparse_proof,
             });
         }
+        drop(notary_store_dir);
         if let Ok(mut timing) = last_timing.lock() {
             if let Some(timing) = timing.as_mut() {
                 timing.proof_generation_latency = Some(proof_started.elapsed());
@@ -976,7 +1168,7 @@ fn parse_origin_response(raw_response: Vec<u8>) -> Result<TlsnOriginResponse, Tl
 mod tests {
     use super::*;
     use crate::experimental_tlsn::ProofContinuationState;
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use fusou_tlsn_verifier::BINDING_PREFIX;
     use uuid::Uuid;
 
@@ -993,7 +1185,7 @@ mod tests {
 
     fn request() -> SerializedOriginRequest {
         synthetic_serialized_require_info_request(
-            &AttestationBinding::new(binding_value()).unwrap(),
+            &synthetic_attestation_binding(binding_value()).unwrap(),
         )
         .unwrap()
     }
@@ -1003,6 +1195,11 @@ mod tests {
         let transport = SyntheticAlpha15OriginTransport::new().unwrap();
         let request = request();
         let expected_request = request.bytes().to_vec();
+        let expected_session_context_grant = request
+            .session_context_grant()
+            .expect("Session grant extension")
+            .bytes()
+            .to_vec();
         let capture = transport.send_once(request).await.unwrap();
         assert_eq!(
             capture.proof.state().unwrap(),
@@ -1026,11 +1223,35 @@ mod tests {
             sha256(&exchange.response.raw_response_bytes)
         );
         let evidence = transport.wire_evidence().expect("wire evidence");
+        let notary_signed_result = evidence
+            .notary_signed_result
+            .as_ref()
+            .expect("exact signed Notary result");
+        assert_eq!(
+            transport
+                .notary()
+                .status(&expected_session_context_grant)
+                .expect("persistent Notary grant status"),
+            crate::synthetic_notary::NotaryGrantStatus::Finalized
+        );
+        assert_eq!(
+            transport
+                .notary()
+                .exact_result(&expected_session_context_grant)
+                .expect("saved exact Notary result"),
+            Some(notary_signed_result.clone())
+        );
         let sparse_mode =
             std::env::var("FUSOU_SYNTHETIC_PROOF_MODE").is_ok_and(|mode| mode == "sparse");
         assert_eq!(evidence.origin_request, expected_request);
         assert_eq!(evidence.authenticated_request, evidence.origin_request);
         assert_eq!(evidence.authenticated_response, evidence.origin_response);
+        let origin_request_text =
+            String::from_utf8_lossy(&evidence.origin_request).to_ascii_lowercase();
+        assert!(!origin_request_text.contains("x-attestation-binding:"));
+        assert!(!origin_request_text.contains("cookie:"));
+        assert!(!origin_request_text.contains("fusou"));
+        assert!(!origin_request_text.contains('?'));
         assert_eq!(
             evidence.committed_request_bytes,
             evidence.origin_request.len()
@@ -1076,39 +1297,155 @@ mod tests {
             .unwrap();
         assert!(sparse_transcript.request_transcript_sha256().is_some());
         assert_eq!(sparse_transcript.response_transcript_sha256(), None);
-        let profile =
+        let legacy_complete_profile =
             fusou_tlsn_verifier::tlsn_alpha15::RequireInfoDisclosureProfile::from_server_identity(
                 SYNTHETIC_SERVER_IDENTITY,
             )
             .unwrap();
         assert_eq!(
-            sparse_transcript.verify_require_info(&profile, &ParserLimits::default()),
+            sparse_transcript
+                .verify_require_info(&legacy_complete_profile, &ParserLimits::default()),
             Err(
                 fusou_tlsn_verifier::tlsn_alpha15::Alpha15AdapterError::Parser(
-                    fusou_tlsn_verifier::VerifierError::InvalidRange(
-                        "authenticated read crosses an undisclosed range"
+                    fusou_tlsn_verifier::VerifierError::InvalidHttp(
+                        "binding header cardinality is invalid"
                     )
                 )
             )
         );
-        let sparse_profile =
-            fusou_tlsn_verifier::tlsn_alpha15::SparseRequireInfoDisclosureProfile::from_server_identity(
+        let session_authority_public_key = synthetic_session_authority_public_key_spki();
+        let profile =
+            fusou_tlsn_verifier::tlsn_alpha15::SessionExtensionRequireInfoDisclosureProfile::from_server_identity_and_session_authority(
                 SYNTHETIC_SERVER_IDENTITY,
+                SYNTHETIC_SESSION_AUTHORITY_KEY_ID,
+                &session_authority_public_key,
             )
             .unwrap();
-        let sparse_result = sparse_transcript
-            .verify_require_info_sparse(&sparse_profile, &ParserLimits::default())
+        let sparse_authenticated = sparse_transcript
+            .verify_require_info_sparse_with_session_extension(&profile, &ParserLimits::default())
             .unwrap();
-        assert_eq!(sparse_result.verified_member_id(), "16189463");
-        assert!(sparse_result.response_transcript_sha256().is_none());
+        assert_eq!(sparse_authenticated.verified_member_id(), "16189463");
+        assert!(sparse_authenticated.response_transcript_sha256().is_none());
+        let session_context = sparse_authenticated
+            .session_context()
+            .expect("Notary-authenticated Session context");
+        assert_eq!(
+            session_context.grant,
+            fusou_tlsn_verifier::session_context::SessionContextGrant::parse(
+                &expected_session_context_grant
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            session_context.acceptance.policy_id(),
+            fusou_tlsn_verifier::session_context::NOTARY_SESSION_CONTEXT_POLICY_ID
+        );
         assert!(
-            sparse_result
+            session_context.acceptance.validated_at_ms() >= session_context.grant.issued_at_ms()
+        );
+        assert!(
+            session_context.acceptance.validated_at_ms() < session_context.grant.expires_at_ms()
+        );
+        assert!(
+            sparse_authenticated
                 .revealed_response_ranges()
                 .iter()
                 .map(|range| range.length)
                 .sum::<u64>()
-                < sparse_result.response_transcript_size()
+                < sparse_authenticated.response_transcript_size()
         );
+        let sparse_presentation_sha256 =
+            fusou_tlsn_verifier::sparse_result::presentation_sha256(sparse_presentation);
+        let mut sparse_result =
+            fusou_tlsn_verifier::sparse_result::SparseVerifierResult::from_authenticated(
+                &sparse_authenticated,
+                [0x55; 32],
+                "synthetic-verifier-v1".to_owned(),
+                "synthetic-notary-v1".to_owned(),
+                *sparse_transcript.notary_key_sha256(),
+                sparse_presentation_sha256,
+                None,
+                None,
+                "11111111-1111-4111-8111-111111111111".to_owned(),
+                SYNTHETIC_DEVICE_ID.to_owned(),
+                *session_context.grant.device_challenge(),
+                [0; 64],
+            )
+            .unwrap();
+        let result_key_pair = Ed25519KeyPair::from_seed_unchecked(&[0x61; 32]).unwrap();
+        let result_signature = result_key_pair.sign(&sparse_result.signing_bytes().unwrap());
+        sparse_result
+            .signature
+            .copy_from_slice(result_signature.as_ref());
+        let parsed_sparse_result =
+            fusou_tlsn_verifier::sparse_result::parse_sparse_verifier_result(
+                sparse_result.canonical_json().unwrap().as_bytes(),
+                &ParserLimits::default(),
+            )
+            .unwrap();
+        ring::signature::UnparsedPublicKey::new(
+            &ring::signature::ED25519,
+            result_key_pair.public_key().as_ref(),
+        )
+        .verify(
+            &parsed_sparse_result.signing_bytes().unwrap(),
+            &parsed_sparse_result.signature,
+        )
+        .unwrap();
+
+        if !sparse_mode {
+            let complete_presentation = evidence
+                .presentation
+                .as_ref()
+                .expect("Complete Presentation");
+            let complete_transcript =
+                fusou_tlsn_verifier::tlsn_alpha15::verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor(
+                    complete_presentation,
+                    root_certificate,
+                    notary_verifying_key,
+                )
+                .unwrap();
+            let complete_authenticated = complete_transcript
+                .verify_require_info_with_session_extension(&profile, &ParserLimits::default())
+                .unwrap();
+            let complete_device_challenge = *complete_authenticated
+                .session_context()
+                .expect("Notary-authenticated Session context")
+                .grant
+                .device_challenge();
+            let mut complete_result = complete_authenticated
+                .into_verifier_result(
+                    [0x55; 32],
+                    "synthetic-verifier-v1".to_owned(),
+                    "synthetic-notary-v1".to_owned(),
+                    "11111111-1111-4111-8111-111111111111".to_owned(),
+                    SYNTHETIC_DEVICE_ID.to_owned(),
+                    complete_device_challenge,
+                    sha256(complete_presentation),
+                    None,
+                    None,
+                    [0; 64],
+                )
+                .unwrap();
+            let result_signature = result_key_pair.sign(&complete_result.signing_bytes().unwrap());
+            complete_result
+                .signature
+                .copy_from_slice(result_signature.as_ref());
+            let parsed_result = fusou_tlsn_verifier::parse_verifier_result(
+                complete_result.canonical_json().unwrap().as_bytes(),
+                &ParserLimits::default(),
+            )
+            .unwrap();
+            ring::signature::UnparsedPublicKey::new(
+                &ring::signature::ED25519,
+                result_key_pair.public_key().as_ref(),
+            )
+            .verify(
+                &parsed_result.signing_bytes().unwrap(),
+                &parsed_result.signature,
+            )
+            .unwrap();
+        }
         assert!(evidence
             .root_certificate
             .as_ref()
@@ -1127,9 +1464,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn synthetic_transport_does_not_fallback_to_header_binding_without_grant() {
+        let transport = SyntheticAlpha15OriginTransport::new().unwrap();
+        let request = SerializedOriginRequest::new(Bytes::from_static(
+            b"POST /kcsapi/api_get_member/require_info HTTP/1.1\r\nHost: game.example.test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ))
+        .unwrap();
+        assert!(matches!(
+            transport.send_once(request).await,
+            Err(TlsnTransportError::RuntimeConfigUnavailable)
+        ));
+        assert!(transport.wire_evidence().is_none());
+        assert!(transport.timing().is_none());
+    }
+
+    #[tokio::test]
     async fn synthetic_transport_rejects_noncanonical_target_before_starting_tasks() {
         let transport = SyntheticAlpha15OriginTransport::new().unwrap();
-        let request = String::from_utf8(request().bytes().to_vec())
+        let valid_request = request();
+        let session_context_grant = valid_request.session_context_grant().cloned();
+        let request = String::from_utf8(valid_request.bytes().to_vec())
             .unwrap()
             .replacen(
                 "/kcsapi/api_get_member/require_info HTTP/1.1",
@@ -1138,7 +1492,13 @@ mod tests {
             );
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            transport.send_once(SerializedOriginRequest::new(Bytes::from(request)).unwrap()),
+            transport.send_once(
+                SerializedOriginRequest::with_session_context_grant(
+                    Bytes::from(request),
+                    session_context_grant,
+                )
+                .unwrap(),
+            ),
         )
         .await
         .expect("invalid target should fail without hanging");
