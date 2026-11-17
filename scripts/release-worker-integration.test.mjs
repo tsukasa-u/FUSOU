@@ -11,6 +11,7 @@ import { parseReleaseRecord } from "./release-build-proof.mjs";
 import { buildWorkerWasm } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/build-wasm.mjs";
 import { assertPreparedResultContract, resolvePinnedProductionTargets } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/production-result-contract.mjs";
 import { archiveCustomMetadata, createR2ArchiveReadbackBackend } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/archive-readback.mjs";
+import { COMPLETE_PROFILE_ID, SPARSE_PROFILE_ID } from "../packages/FUSOU-TLSN-VERIFICATION-WORKER/src/origin-trust-contract.mjs";
 
 const root = new URL("../", import.meta.url), sourceSha = "a".repeat(40);
 const read = (path) => readFile(new URL(path, root));
@@ -64,14 +65,20 @@ test("actual runtime statically retains APP endpoints, separate signing domains 
 for (const profile of ["complete", "sparse"]) {
   test(`${profile} current Result requires exact raw Presentation and both Production target digests`, async () => {
     const presentationBytes = Buffer.from('{"synthetic":"presentation"}');
+    const sparse = profile === "sparse";
     const options = { profile, presentationBytes, serverIdentity: "game.example.test", profileSha256: "p".repeat(43),
       production: true, inventorySha256: "i".repeat(43), approvalSha256: "a".repeat(43) };
-    const result = { version: profile === "complete" ? 2 : 3,
-      profile_id: profile === "complete" ? "fusou-require-info-v1" : "fusou-require-info-v2-sparse",
+    const result = { version: sparse ? 3 : 2,
+      profile_id: sparse ? SPARSE_PROFILE_ID : COMPLETE_PROFILE_ID,
       profile_sha256: options.profileSha256, server_identity: options.serverIdentity,
       presentation_sha256: sha256(presentationBytes), origin_inventory_sha256: options.inventorySha256,
-      target_approval_artifact_sha256: options.approvalSha256, ...(profile === "sparse" ? { disclosure_mode: "sparse" } : {}) };
+      target_approval_artifact_sha256: options.approvalSha256, ...(sparse ? { disclosure_mode: "sparse" } : {}) };
     await assertPreparedResultContract(result, options);
+    const previousProfileId = sparse ? "fusou-require-info-v2-sparse" : "fusou-require-info-v1";
+    await assert.rejects(
+      assertPreparedResultContract({ ...result, profile_id: previousProfileId }, options),
+      /current Complete v2\/Sparse v3 Result profile is required/,
+    );
     for (const mutation of [
       { ...result, version: result.version - 1 }, { ...result, server_identity: "candidate.example.test" },
       { ...result, presentation_sha256: sha256(Buffer.from("other")) },
