@@ -2956,3 +2956,37 @@ The changed call-path Rust files pass the pinned formatter check. The
 large APP Runtime Config manifest source still has formatter differences in
 unrelated existing sections, which were left untouched. Stage A/B/C and
 Production acceptance remain **BLOCKED**.
+
+## #127 APP fingerprint preflight follow-up
+
+Hosted run [#127](https://github.com/tsukasa-u/FUSOU/actions/runs/44172007326)
+used baseline `1a8ae0c4b8613df34761f58c9ee16b7803078e1a`. The earlier APP
+constructor E0061 was no longer reported. The run nevertheless failed because
+`canonical_fingerprint_encoding_is_order_independent_and_domain_separated`
+had 22 passes, one failure, and one ignored test in preflight; the subsequent
+health step was skipped. The failure compared the current schema version with
+the same hard-coded version used by the baseline, so both canonical inputs
+produced the reported digest
+`rSc3uy_G1QxCaYKElagk6_nQ-1DTedv9o9e0wKODw_8`.
+
+The test now derives a distinct representable schema value from the shared
+contract version, handling `u8` overflow, while holding scope and both input
+digests constant. Its separate scope case holds the current schema and both
+digests constant and derives a different scope. Key-order equality and both
+domain-separation assertions remain. Production hashing, shared schema/scope,
+canonicalization, vectors, and Notary configuration contracts are unchanged.
+
+**Verification after this change**
+
+- `SOURCE_IMPLEMENTED`: only the preflight test assertions and this readiness
+  record changed.
+- `LOCAL_INDEPENDENT_CALCULATION_VERIFIED`: a standalone Python calculation
+  reproduced the Hosted baseline digest, matched the shared combined vector,
+  confirmed equal hashes for reordered JSON keys, and confirmed distinct
+  results when only schema or only scope changed.
+- `LOCAL_RUST_TEST`: `NOT_RUN`. The existing isolated APP harness replaces
+  `tlsn_preflight` with a stub and does not compile this test; its passing
+  results are not counted here. APP Cargo is prohibited for this verification.
+- `HOSTED_CI_VERIFIED`: `NOT_CHECKED` after this fix.
+- `PRODUCTION_VERIFIED`: `NOT_VERIFIED`. Stage A/B/C and Production
+  acceptance remain **BLOCKED**.
