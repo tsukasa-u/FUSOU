@@ -87,40 +87,42 @@ const tocHeadings = headings.filter((heading) => heading.depth >= 2);
 </style>
 
 <script is:inline>
-  const links = Array.from(document.querySelectorAll("[data-toc-link]"));
-  if (links.length > 0) {
-    const bySlug = new Map();
-    links.forEach((link) => {
-      const slug = link.getAttribute("data-toc-link");
-      if (slug) bySlug.set(slug, link);
-    });
+  (() => {
+    const links = Array.from(document.querySelectorAll("[data-toc-link]"));
+    if (links.length > 0) {
+      const bySlug = new Map();
+      links.forEach((link) => {
+        const slug = link.getAttribute("data-toc-link");
+        if (slug) bySlug.set(slug, link);
+      });
 
-    const setActive = (slug) => {
-      links.forEach((link) => link.classList.remove("is-active"));
-      const active = slug ? bySlug.get(slug) : null;
-      if (active) active.classList.add("is-active");
-    };
+      const setActive = (slug) => {
+        links.forEach((link) => link.classList.remove("is-active"));
+        const active = slug ? bySlug.get(slug) : null;
+        if (active) active.classList.add("is-active");
+      };
 
-    const sections = Array.from(bySlug.keys())
-      .map((slug) => document.getElementById(slug))
-      .filter(Boolean);
+      const sections = Array.from(bySlug.keys())
+        .map((slug) => document.getElementById(slug))
+        .filter(Boolean);
 
-    if (sections.length > 0 && "IntersectionObserver" in window) {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          const visible = entries
-            .filter((entry) => entry.isIntersecting)
-            .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-          if (visible.length > 0) {
-            setActive(visible[0].target.id);
-          }
-        },
-        { rootMargin: "-96px 0px -68% 0px", threshold: [0, 1] },
-      );
-      sections.forEach((el) => observer.observe(el));
+      if (sections.length > 0 && "IntersectionObserver" in window) {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            const visible = entries
+              .filter((entry) => entry.isIntersecting)
+              .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+            if (visible.length > 0) {
+              setActive(visible[0].target.id);
+            }
+          },
+          { rootMargin: "-96px 0px -68% 0px", threshold: [0, 1] },
+        );
+        sections.forEach((el) => observer.observe(el));
+      }
+
+      const hash = window.location.hash.replace(/^#/, "");
+      if (hash) setActive(hash);
     }
-
-    const hash = window.location.hash.replace(/^#/, "");
-    if (hash) setActive(hash);
-  }
+  })();
 </script>

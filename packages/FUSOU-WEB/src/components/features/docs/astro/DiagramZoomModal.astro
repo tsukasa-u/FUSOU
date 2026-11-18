@@ -1,9 +1,21 @@
 ---
 // DiagramZoomModal.astro
 // DaisyUI modal based full-screen Diagram Zoom & Pan Viewer
+interface Props {
+  inlinePreview?: boolean;
+}
+
+const { inlinePreview = false } = Astro.props;
 ---
 
-<dialog id="diagram-modal" class="modal z-[99999]">
+<dialog
+  id="diagram-modal"
+  class="modal z-[99999]"
+  open={inlinePreview ? true : undefined}
+  role={inlinePreview ? "none" : undefined}
+  data-storybook-modal-contents={inlinePreview ? "true" : undefined}
+  data-inline-preview={inlinePreview ? "true" : undefined}
+>
   <div class="modal-box w-11/12 max-w-[96vw] h-[92vh] max-h-[92vh] p-0 flex flex-col overflow-hidden bg-base-100 text-base-content shadow-2xl rounded-2xl border border-base-content/15">
     <!-- Modal Toolbar Header -->
     <header class="flex items-center justify-between px-4 py-2.5 bg-base-100 border-b border-base-content/10 shadow-sm z-10 shrink-0">
@@ -93,6 +105,16 @@
     const btn100 = document.getElementById('diagram-zoom-100');
 
     if (!modal || !viewport || !content) return;
+    if (modal.dataset.inlinePreview === 'true') {
+      modal.showModal = () => {};
+      modal.close = () => {};
+      modal.addEventListener('click', (e) => {
+        if (e.target instanceof Element && e.target.closest('form[method="dialog"]')) {
+          e.preventDefault();
+        }
+      }, true);
+      modal.addEventListener('cancel', (e) => e.preventDefault());
+    }
 
     function updateTransform() {
       content.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`;
@@ -177,11 +199,13 @@
       canvasCard.appendChild(clone);
       content.appendChild(canvasCard);
 
-      // 4. Reveal DaisyUI native dialog modal
-      if (typeof modal.showModal === 'function') {
-        modal.showModal();
-      } else {
-        modal.setAttribute('open', '');
+      // 4. Reveal the native dialog outside of inline Storybook previews
+      if (modal.dataset.inlinePreview !== 'true') {
+        if (typeof modal.showModal === 'function') {
+          modal.showModal();
+        } else {
+          modal.setAttribute('open', '');
+        }
       }
 
       // 5. Fit initially
@@ -198,7 +222,7 @@
     });
 
     window.addEventListener('keydown', (e) => {
-      if (modal.open) {
+      if (modal.open || modal.dataset.inlinePreview === 'true') {
         if (e.key === '+' || e.key === '=') zoomBy(1.25);
         if (e.key === '-' || e.key === '_') zoomBy(0.8);
         if (e.key === '0') fitToViewport();
@@ -303,7 +327,6 @@
       targets.forEach((el) => {
         const container = el.closest('pre.mermaid, div.mermaid') || el;
         if (container.dataset.zoomViewerAttached) return;
-        container.dataset.zoomViewerAttached = 'true';
 
         container.style.cursor = 'zoom-in';
         container.title = 'クリックして拡大・自由にドラッグ移動 (DaisyUI Zoom Modal)';
@@ -315,6 +338,7 @@
             openModal(svg);
           }
         });
+        container.dataset.zoomViewerAttached = 'true';
       });
     }
 

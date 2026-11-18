@@ -1,0 +1,39 @@
+html.storybook-page-canvas .navbar {
+  display: none !important;
+}
+
+dialog[data-storybook-modal-contents] {
+  display: block !important;
+  position: static !important;
+  inset: auto !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: none !important;
+}
+
+dialog[data-storybook-modal-contents] .modal-backdrop {
+  display: none !important;
+}
+
+dialog[data-inline-preview="true"] #diagram-canvas-card {
+  background-color: #fff !important;
+  color: #0f172a !important;
+}
+
+dialog[data-inline-preview="true"] > .modal-box {
+  height: min(92vh, calc(100vh - 8rem)) !important;
+  max-height: min(92vh, calc(100vh - 8rem)) !important;
+}

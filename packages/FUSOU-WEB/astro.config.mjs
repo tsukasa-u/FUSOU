@@ -29,67 +29,27 @@ import { unified } from "@astrojs/markdown-remark";
 import sitemap from "@astrojs/sitemap";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 import rehypeMermaid from "rehype-mermaid";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-
-function compareSemver(a, b) {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-/**
- * Resolve latest released FUSOU version at compile/build time (never per request).
- * Prefers `fusou-v*` git release tags, falling back to `FUSOU-APP/package.json`.
- */
-function resolveLatestFusouVersion() {
-  const tagVersions = [];
-  try {
-    const rawTags = execFileSync(
-      "git",
-      ["tag", "-l", "fusou-v*", "--sort=-v:refname"],
-      { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] },
-    );
-    for (const line of rawTags.split(/\r?\n/)) {
-      const m = /^fusou-v(\d+\.\d+\.\d+)$/.exec(line.trim());
-      if (m?.[1]) tagVersions.push(m[1]);
-    }
-  } catch {
-    // Fallback below on shallow clones without git tags
-  }
-
-  if (tagVersions.length > 0) {
-    tagVersions.sort((a, b) => compareSemver(b, a));
-    return `v${tagVersions[0]}`;
-  }
-
-  try {
-    const appPkgPath = fileURLToPath(
-      new URL("../FUSOU-APP/package.json", import.meta.url),
-    );
-    const appPkg = JSON.parse(readFileSync(appPkgPath, "utf8"));
-    if (
-      typeof appPkg.version === "string" &&
-      /^\d+\.\d+\.\d+$/.test(appPkg.version)
-    ) {
-      return `v${appPkg.version}`;
-    }
-  } catch {
-    // Fallback below if unavailable
-  }
-
-  return "v0.6.1";
-}
+import { resolveLatestFusouVersion } from "./scripts/resolve-latest-fusou-version.mjs";
 
 const latestFusouVersion = resolveLatestFusouVersion();
+const isStorybookProcess = /[\\/]storybook(?:[\\/]|$)/.test(process.argv[1] ?? "");
+const storybookCloudflareMockPlugin = isStorybookProcess
+  ? {
+      name: "storybook-cloudflare-workers-mock",
+      enforce: "pre",
+      resolveId(source) {
+        if (source === "cloudflare:workers") {
+          return fileURLToPath(
+            new URL("./.storybook/mocks/cloudflare-workers.ts", import.meta.url),
+          );
+        }
+      },
+    }
+  : null;
 
 // Vite 8 forwards `@astrojs/react` include/exclude filters to `oxc.jsxRefreshInclude`.
 // Excluding non-JS assets prevents CSS/asset files under `**/react/**` from being
@@ -242,6 +202,7 @@ export default defineConfig({
     },
     // @ts-ignore
     plugins: [
+      ...(storybookCloudflareMockPlugin ? [storybookCloudflareMockPlugin] : []),
       tailwindcss(),
       /*
       nodePolyfills({

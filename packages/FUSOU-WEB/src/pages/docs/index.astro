@@ -4,7 +4,7 @@ import DocsLayout from "@/layouts/DocsLayout.astro";
 import { compareSegments } from "@/utils/page_sorter";
 import { isLocalDev } from "@/utils/localDocs";
 
-const rawPostsGlobResult = import.meta.glob("@docs/**/*.md", {
+const rawPostsGlobResult = import.meta.glob("../../../../../docs/contents/**/*.md", {
   eager: true,
 });
 const rawPosts = Object.values(
@@ -305,44 +305,46 @@ const showLocalDevBanner = isLocalDev();
 </DocsLayout>
 
 <script is:inline>
-  const searchInput = document.getElementById("docs-index-search");
-  const searchStatus = document.getElementById("search-status");
-  const cards = Array.from(document.querySelectorAll("[data-doc-card]"));
-  const sections = Array.from(document.querySelectorAll(".doc-category-section"));
-  const emptyState = document.getElementById("docs-search-none");
+  (() => {
+    const searchInput = document.getElementById("docs-index-search");
+    const searchStatus = document.getElementById("search-status");
+    const cards = Array.from(document.querySelectorAll("[data-doc-card]"));
+    const sections = Array.from(document.querySelectorAll(".doc-category-section"));
+    const emptyState = document.getElementById("docs-search-none");
 
-  const filterDocs = () => {
-    const q = (searchInput?.value || "").trim().toLowerCase();
-    let totalVisible = 0;
+    const filterDocs = () => {
+      const q = (searchInput?.value || "").trim().toLowerCase();
+      let totalVisible = 0;
 
-    cards.forEach((card) => {
-      const title = card.getAttribute("data-title") || "";
-      const desc = card.getAttribute("data-desc") || "";
-      const tags = card.getAttribute("data-tags") || "";
-      const match = !q || title.includes(q) || desc.includes(q) || tags.includes(q);
-      card.classList.toggle("hidden", !match);
-      if (match) totalVisible += 1;
-    });
+      cards.forEach((card) => {
+        const title = card.getAttribute("data-title") || "";
+        const desc = card.getAttribute("data-desc") || "";
+        const tags = card.getAttribute("data-tags") || "";
+        const match = !q || title.includes(q) || desc.includes(q) || tags.includes(q);
+        card.classList.toggle("hidden", !match);
+        if (match) totalVisible += 1;
+      });
 
-    // Toggle category sections if they have no visible cards
-    sections.forEach((sec) => {
-      const visibleCards = sec.querySelectorAll("[data-doc-card]:not(.hidden)");
-      sec.classList.toggle("hidden", visibleCards.length === 0);
-    });
+      // Toggle category sections if they have no visible cards
+      sections.forEach((sec) => {
+        const visibleCards = sec.querySelectorAll("[data-doc-card]:not(.hidden)");
+        sec.classList.toggle("hidden", visibleCards.length === 0);
+      });
 
-    if (emptyState) {
-      emptyState.classList.toggle("hidden", totalVisible > 0);
-    }
-
-    if (searchStatus) {
-      if (q) {
-        searchStatus.textContent = `Found ${totalVisible} document${totalVisible === 1 ? "" : "s"} matching "${q}"`;
-        searchStatus.classList.remove("hidden");
-      } else {
-        searchStatus.classList.add("hidden");
+      if (emptyState) {
+        emptyState.classList.toggle("hidden", totalVisible > 0);
       }
-    }
-  };
 
-  searchInput?.addEventListener("input", filterDocs);
+      if (searchStatus) {
+        if (q) {
+          searchStatus.textContent = `Found ${totalVisible} document${totalVisible === 1 ? "" : "s"} matching "${q}"`;
+          searchStatus.classList.remove("hidden");
+        } else {
+          searchStatus.classList.add("hidden");
+        }
+      }
+    };
+
+    searchInput?.addEventListener("input", filterDocs);
+  })();
 </script>

@@ -1,0 +1,115 @@
+---
+import DiagramZoomModal from "../../../../../components/features/docs/astro/DiagramZoomModal.astro";
+---
+
+<section class="min-h-screen bg-base-200 p-6">
+  <div class="mx-auto max-w-5xl space-y-3">
+    <h1 class="text-xl font-bold">FUSOU fleet snapshot sync</h1>
+    <p class="text-sm text-base-content/70">
+      ダイアログは開かず、ズームビューアの中身をインラインで表示しています。
+    </p>
+    <div
+      class="mermaid hidden"
+      data-storybook-zoom-diagram
+      title="クリックして拡大・自由にドラッグ移動"
+    >
+      <svg
+        id="storybook-fleet-snapshot-flow"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 1120 640"
+        role="img"
+        aria-labelledby="storybook-fleet-snapshot-title"
+        class="mx-auto max-w-full"
+      >
+        <title id="storybook-fleet-snapshot-title">艦隊スナップショット同期フロー</title>
+        <defs>
+          <marker
+            id="storybook-flow-arrow"
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="5"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="#64748b"></path>
+          </marker>
+        </defs>
+        <text
+          x="560"
+          y="46"
+          text-anchor="middle"
+          font-size="24"
+          font-weight="700"
+          fill="#0f172a"
+        >
+          艦隊スナップショット同期
+        </text>
+        <rect x="60" y="100" width="270" height="130" rx="16" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"></rect>
+        <text x="195" y="148" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">FUSOU-APP</text>
+        <text x="195" y="184" text-anchor="middle" font-size="16" fill="#334155">艦隊データを収集・正規化</text>
+        <rect x="425" y="100" width="300" height="130" rx="16" fill="#ede9fe" stroke="#8b5cf6" stroke-width="2"></rect>
+        <text x="575" y="145" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">Snapshot API</text>
+        <text x="575" y="178" text-anchor="middle" font-size="16" fill="#334155">POST /api/fleet/snapshot</text>
+        <text x="575" y="204" text-anchor="middle" font-size="14" fill="#475569">Idempotency-Key を付与</text>
+        <path d="M330 165 H410" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#storybook-flow-arrow)"></path>
+        <text x="370" y="150" text-anchor="middle" font-size="13" fill="#475569">送信</text>
+        <path d="M575 230 V300 H190 V360" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#storybook-flow-arrow)"></path>
+        <path d="M575 300 H460 V360" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#storybook-flow-arrow)"></path>
+        <path d="M575 300 H730 V360" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#storybook-flow-arrow)"></path>
+        <path d="M575 300 H970 V360" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#storybook-flow-arrow)"></path>
+        <rect x="60" y="380" width="260" height="150" rx="16" fill="#dcfce7" stroke="#22c55e" stroke-width="2"></rect>
+        <text x="190" y="426" text-anchor="middle" font-size="18" font-weight="700" fill="#14532d">200 OK</text>
+        <text x="190" y="462" text-anchor="middle" font-size="15" fill="#334155">スナップショット保存</text>
+        <text x="190" y="490" text-anchor="middle" font-size="15" fill="#334155">成功を通知</text>
+        <rect x="340" y="380" width="240" height="150" rx="16" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"></rect>
+        <text x="460" y="426" text-anchor="middle" font-size="18" font-weight="700" fill="#78350f">409 Skipped</text>
+        <text x="460" y="462" text-anchor="middle" font-size="15" fill="#334155">重複送信を検知</text>
+        <text x="460" y="490" text-anchor="middle" font-size="15" fill="#334155">再保存せず完了</text>
+        <rect x="600" y="380" width="260" height="150" rx="16" fill="#fee2e2" stroke="#ef4444" stroke-width="2"></rect>
+        <text x="730" y="426" text-anchor="middle" font-size="18" font-weight="700" fill="#7f1d1d">認証エラー</text>
+        <text x="730" y="462" text-anchor="middle" font-size="15" fill="#334155">ユーザーへ通知</text>
+        <text x="730" y="490" text-anchor="middle" font-size="15" fill="#334155">再試行キューへ追加</text>
+        <rect x="880" y="380" width="200" height="150" rx="16" fill="#f1f5f9" stroke="#64748b" stroke-width="2"></rect>
+        <text x="980" y="426" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">その他の失敗</text>
+        <text x="980" y="462" text-anchor="middle" font-size="15" fill="#334155">ログを記録</text>
+        <text x="980" y="490" text-anchor="middle" font-size="15" fill="#334155">ユーザーへ通知</text>
+      </svg>
+    </div>
+    <DiagramZoomModal inlinePreview />
+  </div>
+</section>
+
+<script is:inline>
+  (() => {
+    let observer;
+    const timeoutId = window.setTimeout(() => {
+      observer?.disconnect();
+      if (!openWhenReady()) {
+        throw new Error("DiagramZoomModal did not attach its diagram click handler.");
+      }
+    }, 5000);
+
+    const openWhenReady = () => {
+      const diagram = document.querySelector("[data-storybook-zoom-diagram]");
+      if (diagram?.dataset.zoomViewerAttached !== "true") return false;
+
+      observer?.disconnect();
+      window.clearTimeout(timeoutId);
+      document
+        .querySelector("#diagram-modal")
+        ?.setAttribute("data-storybook-modal-contents", "true");
+      diagram.click();
+      return true;
+    };
+
+    if (!openWhenReady()) {
+      observer = new MutationObserver(openWhenReady);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+      });
+    }
+  })();
+</script>

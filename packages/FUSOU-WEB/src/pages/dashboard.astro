@@ -4,51 +4,62 @@ import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astr
 import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
 import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import type { AuthResponse } from "@supabase/supabase-js";
+import type { AuthResponse, User } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
 
-const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
-const supabase = createSupabaseServerClient(cookies, runtimeEnv);
-
-const accessToken = cookies.get("sb-access-token");
-const refreshToken = cookies.get("sb-refresh-token");
+const isStorybook = Astro.props["storybook"] === true;
+let accountUser: Pick<User, "app_metadata" | "user_metadata" | "email"> | null =
+  isStorybook
+    ? {
+        app_metadata: { provider: "google" },
+        user_metadata: { name: "Storybook User" },
+        email: "storybook@example.invalid",
+      }
+    : null;
 
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
 }
 
-let currentSession: AuthResponse | null = null;
-if (!refreshToken || !accessToken) {
-  return Astro.redirect("/auth/signin");
-}
+if (!isStorybook) {
+  const cookies = Astro.cookies;
+  const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
+  const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+  const accessToken = cookies.get("sb-access-token");
+  const refreshToken = cookies.get("sb-refresh-token");
 
-try {
-  const session = await supabase.auth.setSession({
-    refresh_token: refreshToken.value,
-    access_token: accessToken.value,
-  });
-  if (session.error) {
+  if (!refreshToken || !accessToken) {
+    return Astro.redirect("/auth/signin");
+  }
+
+  let currentSession: AuthResponse | null = null;
+  try {
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshToken.value,
+      access_token: accessToken.value,
+    });
+    if (session.error) {
+      cookies.delete("sb-access-token", { path: "/" });
+      cookies.delete("sb-refresh-token", { path: "/" });
+      cookies.delete("sb-provider-token", { path: "/" });
+      cookies.delete("sb-provider-refresh-token", { path: "/" });
+      return Astro.redirect("/auth/signin");
+    }
+    currentSession = session;
+  } catch (_error) {
     cookies.delete("sb-access-token", { path: "/" });
     cookies.delete("sb-refresh-token", { path: "/" });
     cookies.delete("sb-provider-token", { path: "/" });
     cookies.delete("sb-provider-refresh-token", { path: "/" });
     return Astro.redirect("/auth/signin");
   }
-  currentSession = session;
-} catch (_error) {
-  cookies.delete("sb-access-token", { path: "/" });
-  cookies.delete("sb-refresh-token", { path: "/" });
-  cookies.delete("sb-provider-token", { path: "/" });
-  cookies.delete("sb-provider-refresh-token", { path: "/" });
-  return Astro.redirect("/auth/signin");
+
+  accountUser = currentSession.data.user;
 }
 
-const accountUser = currentSession.data.user;
 if (!accountUser) {
   return Astro.redirect("/auth/signin");
 }
-
 ---
 
 <Layout title="dashboard">

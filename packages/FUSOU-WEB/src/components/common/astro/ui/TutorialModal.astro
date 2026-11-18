@@ -16,7 +16,10 @@ export type TutorialGuide = {
   openOnFirstVisit?: boolean;
 };
 
-const { guide } = Astro.props as { guide: TutorialGuide };
+const { guide, inlinePreview = false } = Astro.props as {
+  guide: TutorialGuide;
+  inlinePreview?: boolean;
+};
 const buttonLabel = guide.buttonLabel ?? "操作説明";
 const storageKey = `fusou:tutorial:seen:${guide.id}`;
 
@@ -50,7 +53,8 @@ const isAutoOpenDisabled =
   tutorialAutoParam === "0" ||
   tutorialAutoParam === "false";
 
-const shouldAutoOpen = !isAutoOpenDisabled && guide.openOnFirstVisit !== false;
+const shouldAutoOpen =
+  !inlinePreview && !isAutoOpenDisabled && guide.openOnFirstVisit !== false;
 ---
 
 {
@@ -61,11 +65,18 @@ const shouldAutoOpen = !isAutoOpenDisabled && guide.openOnFirstVisit !== false;
         type="button"
         class="fusou-btn-primary fusou-btn-sm fixed bottom-4 right-4 z-1200 shadow-lg"
         aria-label="操作説明を開く"
+        hidden={inlinePreview}
       >
         {buttonLabel}
       </button>
 
-      <dialog id="tutorial-modal" class="modal z-1300">
+      <dialog
+        id="tutorial-modal"
+        class="modal z-1300"
+        open={inlinePreview ? true : undefined}
+        role={inlinePreview ? "none" : undefined}
+        data-storybook-modal-contents={inlinePreview ? "true" : undefined}
+      >
         <div class="modal-box max-w-2xl rounded-xl max-h-11/12">
           <h3 class="font-bold text-lg">{guide.title}</h3>
           <p class="text-sm text-base-content/70 mt-1">{guide.summary}</p>
@@ -137,7 +148,7 @@ const shouldAutoOpen = !isAutoOpenDisabled && guide.openOnFirstVisit !== false;
   )
 }
 
-<script is:inline define:vars={{ guide, storageKey, shouldAutoOpen, isTutorialHidden }}>
+<script is:inline define:vars={{ guide, storageKey, shouldAutoOpen, isTutorialHidden, inlinePreview }}>
   (() => {
     // クライアント側（SPA遷移・事前レンダリング等）でもクエリパラメータを判定
     const params = new URLSearchParams(window.location.search);
@@ -175,6 +186,10 @@ const shouldAutoOpen = !isAutoOpenDisabled && guide.openOnFirstVisit !== false;
     if (!(modal instanceof HTMLDialogElement)) return;
     if (!(openBtn instanceof HTMLButtonElement)) return;
     if (!(closeBtn instanceof HTMLButtonElement)) return;
+    if (inlinePreview) {
+      modal.showModal = () => {};
+      modal.close = () => {};
+    }
 
     const clientAutoOpenDisabled =
       !shouldAutoOpen ||

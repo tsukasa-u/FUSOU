@@ -2,8 +2,10 @@
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import { isLocalDev, getAllLocalDocs } from "@/utils/localDocs";
 
+const isStorybook = Astro.props["storybook"] === true;
+
 // クラウド環境（本番）ではアクセス不可 (404)
-if (!isLocalDev()) {
+if (!isLocalDev() && !isStorybook) {
   return Astro.redirect("/404");
 }
 
@@ -172,44 +174,46 @@ const totalCategoriesCount = groupedCategories.length;
 </DocsLayout>
 
 <script is:inline>
-  const searchInput = document.getElementById("local-docs-search");
-  const searchStatus = document.getElementById("local-search-status");
-  const cards = Array.from(document.querySelectorAll("[data-doc-card]"));
-  const sections = Array.from(document.querySelectorAll(".local-category-section"));
-  const emptyState = document.getElementById("local-search-none");
+  (() => {
+    const searchInput = document.getElementById("local-docs-search");
+    const searchStatus = document.getElementById("local-search-status");
+    const cards = Array.from(document.querySelectorAll("[data-doc-card]"));
+    const sections = Array.from(document.querySelectorAll(".local-category-section"));
+    const emptyState = document.getElementById("local-search-none");
 
-  const filterDocs = () => {
-    const q = (searchInput?.value || "").trim().toLowerCase();
-    let totalVisible = 0;
+    const filterDocs = () => {
+      const q = (searchInput?.value || "").trim().toLowerCase();
+      let totalVisible = 0;
 
-    cards.forEach((card) => {
-      const title = card.getAttribute("data-title") || "";
-      const desc = card.getAttribute("data-desc") || "";
-      const tags = card.getAttribute("data-tags") || "";
-      const match = !q || title.includes(q) || desc.includes(q) || tags.includes(q);
-      card.classList.toggle("hidden", !match);
-      if (match) totalVisible += 1;
-    });
+      cards.forEach((card) => {
+        const title = card.getAttribute("data-title") || "";
+        const desc = card.getAttribute("data-desc") || "";
+        const tags = card.getAttribute("data-tags") || "";
+        const match = !q || title.includes(q) || desc.includes(q) || tags.includes(q);
+        card.classList.toggle("hidden", !match);
+        if (match) totalVisible += 1;
+      });
 
-    // Toggle category sections if they have no visible cards
-    sections.forEach((sec) => {
-      const visibleCards = sec.querySelectorAll("[data-doc-card]:not(.hidden)");
-      sec.classList.toggle("hidden", visibleCards.length === 0);
-    });
+      // Toggle category sections if they have no visible cards
+      sections.forEach((sec) => {
+        const visibleCards = sec.querySelectorAll("[data-doc-card]:not(.hidden)");
+        sec.classList.toggle("hidden", visibleCards.length === 0);
+      });
 
-    if (emptyState) {
-      emptyState.classList.toggle("hidden", totalVisible > 0);
-    }
-
-    if (searchStatus) {
-      if (q) {
-        searchStatus.textContent = `Found ${totalVisible} document${totalVisible === 1 ? "" : "s"} matching "${q}"`;
-        searchStatus.classList.remove("hidden");
-      } else {
-        searchStatus.classList.add("hidden");
+      if (emptyState) {
+        emptyState.classList.toggle("hidden", totalVisible > 0);
       }
-    }
-  };
 
-  searchInput?.addEventListener("input", filterDocs);
+      if (searchStatus) {
+        if (q) {
+          searchStatus.textContent = `Found ${totalVisible} document${totalVisible === 1 ? "" : "s"} matching "${q}"`;
+          searchStatus.classList.remove("hidden");
+        } else {
+          searchStatus.classList.add("hidden");
+        }
+      }
+    };
+
+    searchInput?.addEventListener("input", filterDocs);
+  })();
 </script>
