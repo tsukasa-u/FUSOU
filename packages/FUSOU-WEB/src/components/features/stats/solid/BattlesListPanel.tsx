@@ -265,7 +265,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                         ) : "-"}
                       </td>
                       <td>
-                        <button class="fusou-btn-xs-ghost" onClick={(e) => {
+                        <button class="fusou-btn-xs-secondary" onClick={(e) => {
                           e.stopPropagation();
                           moveToDetail(b);
                         }}>詳細</button>

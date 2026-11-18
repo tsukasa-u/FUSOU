@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUSOU Button Design Proposals — Independent Gallery</title>
+  <style>
+    /* =========================================================
+       FUSOU Base Tokens (Mirrored from FUSOU-WEB / FUSOU-APP)
+       ========================================================= */
+    :root {
+      --font-sans: "Inter", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, -apple-system, sans-serif;
+      --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+      /* Light Theme Defaults */
+      --bg-page: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-surface-2: #f1f5f9;
+      --bg-surface-3: #e2e8f0;
+      --text-main: #18181b;
+      --text-muted: #64748b;
+      --text-subtle: #94a3b8;
+      --border-subtle: rgba(15, 23, 42, 0.09);
+      --border-strong: rgba(15, 23, 42, 0.18);
+
+      /* FUSOU Brand Colors (oklch approximations + fallbacks) */
+      --fusou-primary: oklch(87% 0.15 154.449);
+      --fusou-primary-deep: oklch(68% 0.15 156);
+      --fusou-primary-content: oklch(24% 0.06 243);
+      --fusou-secondary: oklch(89% 0.196 126.665);
+      --fusou-accent: oklch(86% 0.127 207.078);
+      --fusou-danger: oklch(62% 0.22 25);
+      --fusou-danger-content: #ffffff;
+      --fusou-warning: oklch(75% 0.18 65);
+      --fusou-info: oklch(68% 0.169 237.323);
+    }
+
+    html[data-theme="dark"] {
+      --bg-page: #131315;
+      --bg-surface: #1b1b1e;
+      --bg-surface-2: #242429;
+      --bg-surface-3: #2e2e35;
+      --text-main: #f4f4f6;
+      --text-muted: #a1a1aa;
+      --text-subtle: #71717a;
+      --border-subtle: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background-color: var(--bg-page);
+      color: var(--text-main);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* =========================================================
+       Layout & Header
+       ========================================================= */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .topbar-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--fusou-primary);
+      color: var(--fusou-primary-content);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .brand-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .topbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .nav-pills {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .nav-pill {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 5px 10px;
+      border-radius: 6px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .nav-pill:hover {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--bg-surface-2);
+      border-color: var(--border-strong);
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    .hero-note {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 24px;
+      align-items: center;
+    }
+
+    @media (max-width: 860px) {
+      .hero-note {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .hero-note h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-note p {
+      margin: 0;
+      font-size: 13.5px;
+      color: var(--text-muted);
+    }
+
+    .diagnosis-list {
+      margin: 12px 0 0;
+      padding-left: 18px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .diagnosis-list code {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+
+    .before-box {
+      background: var(--bg-page);
+      border: 1px dashed var(--border-strong);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .before-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-subtle);
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    /* Current FUSOU reproduction */
+    .current-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .curr-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .curr-primary {
+      background: var(--fusou-primary);
+      color: var(--fusou-primary-content);
+      border: 1px solid color-mix(in oklch, var(--fusou-primary-content) 45%, transparent);
+    }
+
+    .curr-secondary {
+      background: transparent;
+      color: var(--text-main);
+      border: 1px solid color-mix(in oklch, var(--text-main) 25%, transparent);
+    }
+
+    .curr-ghost {
+      background: transparent;
+      color: var(--text-main);
+      border: 1px solid color-mix(in oklch, var(--text-main) 14%, transparent);
+    }
+
+    .curr-danger {
+      background: var(--fusou-danger);
+      color: #fff;
+      border: 1px solid var(--fusou-danger);
+    }
+
+    /* =========================================================
+       Section Card
+       ========================================================= */
+    .proposal-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .proposal-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .proposal-title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .proposal-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--fusou-primary-deep);
+    }
+
+    html[data-theme="dark"] .proposal-tag {
+      color: var(--fusou-primary);
+    }
+
+    .proposal-header h2 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .proposal-desc {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text-muted);
+      max-width: 720px;
+    }
+
+    .fit-badges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .fit-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--bg-surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .proposal-body {
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .demo-row-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .demo-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .demo-surface {
+      background: var(--bg-page);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    svg.icon {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    svg.icon-sm {
+      width: 13px;
+      height: 13px;
+    }
+
+    /* Shared reset for all proposal buttons */
+    .p-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 550;
+      line-height: 1;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+      text-decoration: none;
+      outline: none;
+      border: 1px solid transparent;
+      transition: all 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .p-btn:focus-visible {
+      outline: 2px solid var(--fusou-primary);
+      outline-offset: 2px;
+    }
+
+    .p-btn:disabled,
+    .p-btn[aria-disabled="true"] {
+      opacity: 0.42;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Size helpers */
+    .sz-xs { height: 26px; padding: 0 9px; font-size: 11.5px; border-radius: 6px; gap: 5px; }
+    .sz-sm { height: 32px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; gap: 6px; }
+    .sz-md { height: 36px; padding: 0 15px; font-size: 13px; border-radius: 9px; }
+    .sz-lg { height: 42px; padding: 0 20px; font-size: 14px; border-radius: 10px; }
+    .sz-icon { width: 32px; height: 32px; padding: 0; border-radius: 8px; }
+    .sz-icon-xs { width: 26px; height: 26px; padding: 0; border-radius: 6px; }
+
+    /* =========================================================
+       PATTERN A: Crisp Modern SaaS (Linear / Vercel / Raycast)
+       ========================================================= */
+    .pa-primary {
+      background: var(--fusou-primary);
+      color: #0e241b;
+      font-weight: 600;
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45);
+    }
+    .pa-primary:hover {
+      filter: brightness(1.04);
+      transform: translateY(-0.5px);
+      box-shadow:
+        0 4px 12px color-mix(in oklch, var(--fusou-primary) 32%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    }
+    .pa-primary:active {
+      transform: translateY(0.5px) scale(0.985);
+      filter: brightness(0.97);
+    }
+
+    .pa-secondary {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+    .pa-secondary:hover {
+      background: var(--bg-surface-3);
+      border-color: var(--border-strong);
+    }
+    .pa-secondary:active {
+      transform: scale(0.985);
+    }
+
+    .pa-outline {
+      background: transparent;
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+    }
+    .pa-outline:hover {
+      background: color-mix(in srgb, var(--text-main) 5%, transparent);
+      border-color: var(--border-strong);
+    }
+    .pa-outline:active {
+      transform: scale(0.985);
+    }
+
+    .pa-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border-color: transparent;
+    }
+    .pa-ghost:hover {
+      background: color-mix(in srgb, var(--text-main) 7%, transparent);
+      color: var(--text-main);
+    }
+    .pa-ghost:active {
+      transform: scale(0.985);
+    }
+
+    .pa-danger {
+      background: color-mix(in srgb, #ef4444 14%, transparent);
+      color: #f87171;
+      border-color: color-mix(in srgb, #ef4444 28%, transparent);
+    }
+    html[data-theme="light"] .pa-danger {
+      color: #dc2626;
+      background: color-mix(in srgb, #ef4444 10%, transparent);
+    }
+    .pa-danger:hover {
+      background: #ef4444;
+      color: #ffffff;
+      border-color: #ef4444;
+    }
+
+    /* =========================================================
+       PATTERN B: Soft Tinted / Desktop App Pill (macOS / Tauri)
+       ========================================================= */
+    .pb-pill { border-radius: 999px !important; }
+
+    .pb-primary {
+      background: linear-gradient(180deg, color-mix(in oklch, var(--fusou-primary) 95%, white), var(--fusou-primary));
+      color: #0d2219;
+      font-weight: 600;
+      box-shadow: 0 2px 8px color-mix(in oklch, var(--fusou-primary) 28%, transparent);
+    }
+    .pb-primary:hover {
+      box-shadow: 0 4px 14px color-mix(in oklch, var(--fusou-primary) 40%, transparent);
+      transform: translateY(-1px);
+    }
+    .pb-primary:active { transform: scale(0.975); }
+
+    .pb-tinted {
+      background: color-mix(in oklch, var(--fusou-primary) 16%, transparent);
+      color: var(--fusou-primary-deep);
+      font-weight: 600;
+    }
+    html[data-theme="dark"] .pb-tinted {
+      color: var(--fusou-primary);
+    }
+    .pb-tinted:hover {
+      background: color-mix(in oklch, var(--fusou-primary) 24%, transparent);
+    }
+    .pb-tinted:active { transform: scale(0.975); }
+
+    .pb-soft {
+      background: color-mix(in srgb, var(--text-main) 7%, transparent);
+      color: var(--text-main);
+    }
+    .pb-soft:hover {
+      background: color-mix(in srgb, var(--text-main) 12%, transparent);
+    }
+
+    .pb-ghost {
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .pb-ghost:hover {
+      background: color-mix(in srgb, var(--text-main) 7%, transparent);
+      color: var(--text-main);
+    }
+
+    .pb-segmented {
+      display: inline-flex;
+      padding: 3px;
+      border-radius: 999px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border-subtle);
+      gap: 2px;
+    }
+    .pb-seg-item {
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .pb-seg-item.active {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+    }
+
+    /* =========================================================
+       PATTERN C: Tactical Naval HUD (KanColle / FUSOU Identity)
+       ========================================================= */
+    .pc-btn {
+      border-radius: 4px !important;
+      letter-spacing: 0.02em;
+    }
+
+    .pc-primary {
+      background: var(--fusou-primary);
+      color: #0b1f17;
+      font-weight: 700;
+      border-color: color-mix(in oklch, var(--fusou-primary) 75%, white);
+      box-shadow: 0 0 0 1px color-mix(in oklch, var(--fusou-primary) 25%, transparent);
+    }
+    .pc-primary:hover {
+      box-shadow: 0 0 14px color-mix(in oklch, var(--fusou-primary) 40%, transparent);
+      filter: brightness(1.05);
+    }
+    .pc-primary:active { transform: translateY(1px); }
+
+    .pc-hud {
+      background: color-mix(in oklch, var(--fusou-primary) 8%, var(--bg-surface));
+      color: var(--fusou-primary-deep);
+      border: 1px solid color-mix(in oklch, var(--fusou-primary) 40%, transparent);
+      position: relative;
+    }
+    html[data-theme="dark"] .pc-hud {
+      color: var(--fusou-primary);
+    }
+    .pc-hud:hover {
+      background: color-mix(in oklch, var(--fusou-primary) 16%, var(--bg-surface));
+      border-color: var(--fusou-primary);
+    }
+
+    .pc-neutral {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    .pc-neutral:hover {
+      border-color: var(--text-muted);
+      background: var(--bg-surface-3);
+    }
+
+    .pc-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    /* =========================================================
+       PATTERN D: Tactile 3D Bevel (Stripe / Supabase / Radix)
+       ========================================================= */
+    .pd-primary {
+      background: linear-gradient(180deg, oklch(89% 0.145 154.449), oklch(82% 0.155 154.449));
+      color: #0d241b;
+      font-weight: 600;
+      border: 1px solid oklch(68% 0.14 154.449);
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    }
+    .pd-primary:hover {
+      background: linear-gradient(180deg, oklch(91% 0.145 154.449), oklch(84% 0.155 154.449));
+    }
+    .pd-primary:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+
+    .pd-secondary {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.08),
+        0 2px 0 -1px var(--border-subtle),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    .pd-secondary:hover {
+      background: var(--bg-surface-2);
+    }
+    .pd-secondary:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+    }
+
+    .pd-danger {
+      background: linear-gradient(180deg, #f87171, #ef4444);
+      color: #ffffff;
+      font-weight: 600;
+      border: 1px solid #dc2626;
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    }
+    .pd-danger:hover { filter: brightness(1.04); }
+    .pd-danger:active { transform: translateY(1px); }
+
+    /* =========================================================
+       PATTERN E: High-Contrast Minimalist (Shadcn Monochrome + Mint Accent)
+       ========================================================= */
+    .pe-solid {
+      background: var(--text-main);
+      color: var(--bg-page);
+      font-weight: 600;
+    }
+    .pe-solid:hover {
+      opacity: 0.88;
+    }
+    .pe-solid:active { transform: scale(0.98); }
+
+    .pe-mint-accent {
+      background: var(--fusou-primary);
+      color: #0b2018;
+      font-weight: 600;
+    }
+    .pe-mint-accent:hover {
+      filter: brightness(0.95);
+    }
+
+    .pe-subtle {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+    .pe-subtle:hover {
+      background: var(--bg-surface-3);
+    }
+
+    .pe-outline {
+      background: transparent;
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+    }
+    .pe-outline:hover {
+      background: var(--bg-surface-2);
+      border-color: var(--border-strong);
+    }
+
+    .pe-link {
+      background: transparent;
+      color: var(--text-muted);
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+    .pe-link:hover {
+      color: var(--text-main);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    /* =========================================================
+       PATTERN F: Hero & CTA Gradient Glow (FUSOU-WEB Landing)
+       ========================================================= */
+    .pf-hero-cta {
+      background: linear-gradient(135deg, oklch(88% 0.15 154) 0%, oklch(82% 0.14 178) 100%);
+      color: #07221a;
+      font-weight: 700;
+      box-shadow:
+        0 6px 20px -4px color-mix(in oklch, var(--fusou-primary) 45%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    }
+    .pf-hero-cta:hover {
+      transform: translateY(-1.5px);
+      box-shadow:
+        0 10px 26px -4px color-mix(in oklch, var(--fusou-primary) 60%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+    .pf-hero-cta:active { transform: translateY(0); }
+
+    .pf-glass {
+      background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+      backdrop-filter: blur(8px);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+    }
+    .pf-glass:hover {
+      background: var(--bg-surface-2);
+      border-color: color-mix(in oklch, var(--fusou-primary) 50%, var(--border-strong));
+    }
+
+    /* =========================================================
+       PATTERN G: Compact Toolbar & Data-Dense Controls
+       ========================================================= */
+    .pg-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: var(--bg-surface-2);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .pg-divider {
+      width: 1px;
+      height: 18px;
+      background: var(--border-subtle);
+      margin: 0 2px;
+    }
+
+    .pg-tool-btn {
+      height: 28px;
+      padding: 0 9px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: transparent;
+      border: 1px solid transparent;
+    }
+    .pg-tool-btn:hover {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+    }
+    .pg-tool-btn.is-active {
+      background: color-mix(in oklch, var(--fusou-primary) 16%, var(--bg-surface));
+      color: var(--fusou-primary-deep);
+      border-color: color-mix(in oklch, var(--fusou-primary) 35%, transparent);
+    }
+    html[data-theme="dark"] .pg-tool-btn.is-active {
+      color: var(--fusou-primary);
+    }
+
+    .pg-split {
+      display: inline-flex;
+      border-radius: 7px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+    }
+    .pg-split button {
+      border: none;
+      border-radius: 0;
+      height: 28px;
+      background: transparent;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 550;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+    }
+    .pg-split button:hover {
+      background: var(--bg-surface-2);
+    }
+    .pg-split button + button {
+      border-left: 1px solid var(--border-subtle);
+      padding: 0 7px;
+    }
+
+    .pg-chip {
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 550;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.14s ease;
+    }
+    .pg-chip:hover {
+      border-color: var(--border-strong);
+      color: var(--text-main);
+    }
+    .pg-chip.selected {
+      background: color-mix(in oklch, var(--fusou-primary) 18%, transparent);
+      border-color: color-mix(in oklch, var(--fusou-primary) 50%, transparent);
+      color: var(--fusou-primary-deep);
+    }
+    html[data-theme="dark"] .pg-chip.selected {
+      color: var(--fusou-primary);
+    }
+
+    /* =========================================================
+       PATTERN H: Real Context Mockups (Interactive)
+       ========================================================= */
+    .mockup-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .mockup-box {
+      background: var(--bg-page);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .mockup-title {
+      font-size: 13px;
+      font-weight: 650;
+      margin: 0 0 4px;
+    }
+
+    .mockup-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .mockup-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    /* Spinner animation */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spin {
+      animation: spin 0.8s linear infinite;
+    }
+
+    .toast-feedback {
+      font-size: 12px;
+      color: var(--fusou-primary-deep);
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    html[data-theme="dark"] .toast-feedback {
+      color: var(--fusou-primary);
+    }
+    .toast-feedback.show {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-badge">F</div>
+        <div>
+          <div class="brand-title">FUSOU Button Redesign Gallery</div>
+          <div class="brand-sub">FUSOU-APP / FUSOU-WEB 独立デザイン検証カタログ</div>
+        </div>
+      </div>
+
+      <div class="topbar-controls">
+        <nav class="nav-pills">
+          <a class="nav-pill" href="#pattern-a">A. Crisp SaaS</a>
+          <a class="nav-pill" href="#pattern-b">B. Soft Pill</a>
+          <a class="nav-pill" href="#pattern-c">C. Tactical HUD</a>
+          <a class="nav-pill" href="#pattern-d">D. Tactile 3D</a>
+          <a class="nav-pill" href="#pattern-e">E. Monochrome</a>
+          <a class="nav-pill" href="#pattern-f">F. Hero Glow</a>
+          <a class="nav-pill" href="#pattern-g">G. Toolbar</a>
+          <a class="nav-pill" href="#pattern-h">H. 実画面モック</a>
+        </nav>
+
+        <button type="button" class="theme-toggle" id="themeToggle">
+          <span id="themeIcon">☀️</span>
+          <span id="themeLabel">Light に切替</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Diagnosis / Before -->
+    <section class="hero-note">
+      <div>
+        <h1>なぜ今の FUSOU のボタンが不格好に見えるのか（現状分析）</h1>
+        <p>
+          現行の <code>app.css</code> / <code>buttons.css</code> の定義を確認すると、主に以下の4点が「野暮ったさ・硬さ」の原因になっています。
+        </p>
+        <ul class="diagnosis-list">
+          <li><strong>Primary の濃い枠線：</strong> 明るいミント色 (<code>--color-primary</code>) に暗い枠線 (<code>border-primary-content/45</code>) を引いており、四角い箱感が強い。</li>
+          <li><strong>Ghost に常時枠線がある：</strong> <code>.btn-ghost</code> に <code>border-base-300</code> が付いているため、Outline ボタンと区別がつかず画面が線だらけになる。</li>
+          <li><strong><code>--depth: 0</code> による平坦さ：</strong> 内側のハイライトや微細な立体感・押下時の沈み込みがなく、ベタ塗りの矩形に見える。</li>
+          <li><strong>アイコンと文字のバランス：</strong> <code>btn-sm</code> / <code>btn-xs</code> と余白・角丸・フォントウェイトの階層が曖昧。</li>
+        </ul>
+      </div>
+
+      <div class="before-box">
+        <span class="before-label">Current (現状の再現)</span>
+        <div class="current-row">
+          <button type="button" class="curr-btn curr-primary">出撃記録を開始</button>
+          <button type="button" class="curr-btn curr-secondary">編成を共有</button>
+          <button type="button" class="curr-btn curr-ghost">詳細</button>
+          <button type="button" class="curr-btn curr-danger">削除</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern A -->
+    <section class="proposal-card" id="pattern-a">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern A — 最有力候補</span>
+          <h2>Crisp Modern SaaS（Linear / Vercel / Raycast 風）</h2>
+          <p class="proposal-desc">
+            不格好な濃い枠線を廃止し、上辺の微細なインセットハイライトと極薄の境界線で構成。Ghost はホバー時のみ背景を出し、画面全体のノイズを劇的に減らします。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">FUSOU-WEB 全体</span>
+          <span class="fit-badge">FUSOU-APP 全体</span>
+          <span class="fit-badge">汎用性 ◎</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div>
+            <div class="demo-row-label">Variants (Medium 36px)</div>
+            <div class="demo-row">
+              <button type="button" class="p-btn sz-md pa-primary">
+                <svg class="icon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                出撃記録を開始
+              </button>
+              <button type="button" class="p-btn sz-md pa-secondary">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                編成を共有
+              </button>
+              <button type="button" class="p-btn sz-md pa-outline">エクスポート</button>
+              <button type="button" class="p-btn sz-md pa-ghost">キャンセル</button>
+              <button type="button" class="p-btn sz-md pa-danger">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                データを削除
+              </button>
+              <button type="button" class="p-btn sz-md pa-primary" disabled>無効状態</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="demo-row-label">Size Scale (XS / SM / MD / LG / Icon)</div>
+            <div class="demo-row">
+              <button type="button" class="p-btn sz-xs pa-primary">XS 26px</button>
+              <button type="button" class="p-btn sz-sm pa-primary">SM 32px</button>
+              <button type="button" class="p-btn sz-md pa-primary">MD 36px</button>
+              <button type="button" class="p-btn sz-lg pa-primary">LG 42px</button>
+              <button type="button" class="p-btn sz-icon pa-secondary" title="設定">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
+              <button type="button" class="p-btn sz-icon pa-ghost" title="更新">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern B -->
+    <section class="proposal-card" id="pattern-b">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern B — デスクトップ・アプリ向け</span>
+          <h2>Soft Tinted &amp; Pill（macOS / Apple / モダンデスクトップ風）</h2>
+          <p class="proposal-desc">
+            枠線をほぼ使わず、半透明のカラーティント（16%透過ミント）とピル形状（<code>border-radius: 999px</code>）で柔らかい親しみやすさを演出。セグメントコントロールとの相性が抜群です。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">FUSOU-APP</span>
+          <span class="fit-badge">ナビゲーション</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div class="demo-row">
+            <button type="button" class="p-btn sz-md pb-pill pb-primary">艦隊を同期する</button>
+            <button type="button" class="p-btn sz-md pb-pill pb-tinted">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              艦娘を追加
+            </button>
+            <button type="button" class="p-btn sz-md pb-pill pb-soft">プリセット読込</button>
+            <button type="button" class="p-btn sz-md pb-pill pb-ghost">閉じる</button>
+
+            <div class="pb-segmented" role="group" aria-label="表示切替">
+              <button type="button" class="pb-seg-item active">第一艦隊</button>
+              <button type="button" class="pb-seg-item">第二艦隊</button>
+              <button type="button" class="pb-seg-item">基地航空隊</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern C -->
+    <section class="proposal-card" id="pattern-c">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern C — 艦これ / 戦術ツールらしさ</span>
+          <h2>Tactical Naval HUD（精密計器・戦術コンソール風）</h2>
+          <p class="proposal-desc">
+            角丸をタイト（<code>4px</code>）に抑え、ステータスドットやモノスペースフォントを組み合わせた「司令部コンソール」テイスト。シミュレーターや戦闘ログ画面に統一感が出ます。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">シミュレーター</span>
+          <span class="fit-badge">API Schema</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div class="demo-row">
+            <button type="button" class="p-btn sz-md pc-btn pc-primary">
+              <span class="pc-dot"></span>
+              SIMULATE SORTIE
+            </button>
+            <button type="button" class="p-btn sz-md pc-btn pc-hud">
+              <svg class="icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              制空値計算 (348)
+            </button>
+            <button type="button" class="p-btn sz-md pc-btn pc-neutral">JSON_EXPORT</button>
+            <button type="button" class="p-btn sz-sm pc-btn pc-hud">海域: 5-5</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern D -->
+    <section class="proposal-card" id="pattern-d">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern D — 押し心地重視</span>
+          <h2>Tactile 3D Bevel（Stripe / Supabase / Radix 風）</h2>
+          <p class="proposal-desc">
+            現行の「ミント色 + 枠線」の方向性を活かしつつ、枠線を同系色の濃いミントに変更し、上端ハイライトと押し込みアニメーション（<code>translateY(1px)</code>）で「押せるボタン」に洗練させます。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">現行テーマからの移行が最も自然</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div class="demo-row">
+            <button type="button" class="p-btn sz-md pd-primary">設定を保存</button>
+            <button type="button" class="p-btn sz-md pd-secondary">アップデート確認</button>
+            <button type="button" class="p-btn sz-md pd-danger">キャッシュ初期化</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern E -->
+    <section class="proposal-card" id="pattern-e">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern E — 視覚疲労の軽減</span>
+          <h2>High-Contrast Minimalist（Shadcn モノクロ + ミントアクセント）</h2>
+          <p class="proposal-desc">
+            画面内のボタンがすべて明るいミント色だと主張が強すぎる場合、通常アクションを落ち着いたモノクロ（白/黒反転）にし、ミント色は「ここぞという1箇所」だけに限定します。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">ドキュメント</span>
+          <span class="fit-badge">フォーム画面</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div class="demo-row">
+            <button type="button" class="p-btn sz-md pe-solid">変更を適用</button>
+            <button type="button" class="p-btn sz-md pe-mint-accent">FUSOU を起動</button>
+            <button type="button" class="p-btn sz-md pe-subtle">下書き保存</button>
+            <button type="button" class="p-btn sz-md pe-outline">戻る</button>
+            <button type="button" class="p-btn sz-md pe-link">詳細ドキュメント →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern F -->
+    <section class="proposal-card" id="pattern-f">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern F — ランディング / Hero CTA</span>
+          <h2>Soft Gradient &amp; Ambient Glow（FUSOU-WEB トップ向け）</h2>
+          <p class="proposal-desc">
+            ミントからティールへの微細なグラデーションと、ホバー時の柔らかな発光シャドウ。トップページの「ダウンロード」「シミュレーターを開く」など主役ボタン向けです。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">Hero.astro</span>
+          <span class="fit-badge">LP / CTA</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div class="demo-row">
+            <button type="button" class="p-btn sz-lg pf-hero-cta">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              FUSOU-APP をダウンロード
+            </button>
+            <button type="button" class="p-btn sz-lg pf-glass">
+              Web シミュレーターを試す
+              <svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern G -->
+    <section class="proposal-card" id="pattern-g">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern G — 密な一覧・テーブル・タイトルバー向け</span>
+          <h2>Compact Toolbar &amp; Filter Chips（<code>fusou-btn-xs</code> / <code>fusou-tool-btn</code> 改良）</h2>
+          <p class="proposal-desc">
+            艦娘一覧・装備一覧・タイトルバーなど狭い領域で使うボタン。常時枠線をなくしてアクティブ時・ホバー時だけ面を出すことで、ツールバーがすっきりします。
+          </p>
+        </div>
+        <div class="fit-badges">
+          <span class="fit-badge">Ship / Equipment Table</span>
+          <span class="fit-badge">Titlebar</span>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="demo-surface">
+          <div class="pg-toolbar">
+            <button type="button" class="p-btn pg-tool-btn is-active" onclick="this.classList.toggle('is-active')">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              フィルタ
+            </button>
+            <button type="button" class="p-btn pg-tool-btn">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              検索
+            </button>
+            <span class="pg-divider"></span>
+            <div class="pg-split">
+              <button type="button">編成保存</button>
+              <button type="button" aria-label="メニュー">▾</button>
+            </div>
+            <span class="pg-divider"></span>
+            <button type="button" class="pg-chip selected" onclick="this.classList.toggle('selected')">戦艦</button>
+            <button type="button" class="pg-chip" onclick="this.classList.toggle('selected')">正規空母</button>
+            <button type="button" class="pg-chip selected" onclick="this.classList.toggle('selected')">駆逐艦</button>
+            <button type="button" class="pg-chip" onclick="this.classList.toggle('selected')">Lv.99+</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pattern H -->
+    <section class="proposal-card" id="pattern-h">
+      <div class="proposal-header">
+        <div class="proposal-title-wrap">
+          <span class="proposal-tag">Pattern H — 実画面シミュレーション</span>
+          <h2>実際の FUSOU コンポーネントでの見え方（クリックで動作確認可）</h2>
+          <p class="proposal-desc">
+            Pattern A + G をベースにした実利用シーンのモックです。ローディング状態やコピー成功フィードバックも含めて挙動を確認できます。
+          </p>
+        </div>
+      </div>
+      <div class="proposal-body">
+        <div class="mockup-grid">
+          <!-- Mockup 1: Share & Sync -->
+          <div class="mockup-box">
+            <div>
+              <h3 class="mockup-title">編成データ共有 &amp; 同期</h3>
+              <p class="mockup-sub">ShareUrlButton / MemberIdSyncButton の置き換えイメージ</p>
+            </div>
+            <div class="demo-row">
+              <button type="button" class="p-btn sz-sm pa-primary" id="syncBtn">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                <span>提督IDを同期</span>
+              </button>
+              <button type="button" class="p-btn sz-sm pa-secondary" id="copyBtn">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>共有URLをコピー</span>
+              </button>
+              <span class="toast-feedback" id="copyToast">✓ コピーしました</span>
+            </div>
+          </div>
+
+          <!-- Mockup 2: Modal Footer -->
+          <div class="mockup-box">
+            <div>
+              <h3 class="mockup-title">危険操作の確認ダイアログ</h3>
+              <p class="mockup-sub">キャンセルは枠線なしの Ghost、削除はホバーで赤く強調</p>
+            </div>
+            <div class="mockup-footer">
+              <button type="button" class="p-btn sz-sm pa-ghost">キャンセル</button>
+              <button type="button" class="p-btn sz-sm pa-danger">ログを完全に削除</button>
+            </div>
+          </div>
+
+          <!-- Mockup 3: Update Banner -->
+          <div class="mockup-box">
+            <div>
+              <h3 class="mockup-title">FUSOU-APP アップデート通知</h3>
+              <p class="mockup-sub">Soft Tinted + Crisp Primary の組み合わせ</p>
+            </div>
+            <div class="mockup-footer">
+              <button type="button" class="p-btn sz-sm pb-ghost">あとで</button>
+              <button type="button" class="p-btn sz-sm pb-tinted">リリースノート</button>
+              <button type="button" class="p-btn sz-sm pa-primary">今すぐ更新</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Theme toggle
+    const html = document.documentElement;
+    const toggleBtn = document.getElementById("themeToggle");
+    const themeIcon = document.getElementById("themeIcon");
+    const themeLabel = document.getElementById("themeLabel");
+
+    toggleBtn.addEventListener("click", () => {
+      const isDark = html.getAttribute("data-theme") === "dark";
+      html.setAttribute("data-theme", isDark ? "light" : "dark");
+      themeIcon.textContent = isDark ? "🌙" : "☀️";
+      themeLabel.textContent = isDark ? "Dark に切替" : "Light に切替";
+    });
+
+    // Segmented control interactive toggle
+    document.querySelectorAll(".pb-segmented").forEach((group) => {
+      group.querySelectorAll(".pb-seg-item").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          group.querySelectorAll(".pb-seg-item").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+        });
+      });
+    });
+
+    // Mockup interactive buttons
+    const syncBtn = document.getElementById("syncBtn");
+    syncBtn.addEventListener("click", () => {
+      if (syncBtn.disabled) return;
+      const original = syncBtn.innerHTML;
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = `<svg class="icon spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>同期中...</span>`;
+      setTimeout(() => {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = original;
+      }, 1200);
+    });
+
+    const copyBtn = document.getElementById("copyBtn");
+    const copyToast = document.getElementById("copyToast");
+    copyBtn.addEventListener("click", () => {
+      copyToast.classList.add("show");
+      setTimeout(() => copyToast.classList.remove("show"), 1500);
+    });
+  </script>
+</body>
+</html>

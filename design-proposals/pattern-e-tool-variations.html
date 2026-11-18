@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUSOU Pattern E — Tool-First Button Variations</title>
+  <style>
+    :root {
+      --font-sans: "Inter", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, -apple-system, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+      /* Light */
+      --bg-page: #f8f9fa;
+      --bg-surface: #ffffff;
+      --bg-surface-2: #f1f3f5;
+      --bg-surface-3: #e5e7eb;
+      --text-main: #111827;
+      --text-muted: #525866;
+      --text-subtle: #8b92a1;
+      --border-subtle: rgba(17, 24, 39, 0.10);
+      --border-strong: rgba(17, 24, 39, 0.22);
+
+      --fusou-mint: oklch(85% 0.145 154.449);
+      --fusou-mint-hover: oklch(80% 0.145 154.449);
+      --fusou-mint-text: #0b2218;
+      --fusou-mint-muted-text: #0f6b43;
+      --danger: #dc2626;
+      --danger-soft-bg: rgba(220, 38, 38, 0.08);
+      --danger-soft-border: rgba(220, 38, 38, 0.25);
+    }
+
+    html[data-theme="dark"] {
+      --bg-page: #121214;
+      --bg-surface: #19191c;
+      --bg-surface-2: #222226;
+      --bg-surface-3: #2c2c32;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-subtle: #6b7280;
+      --border-subtle: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.20);
+
+      --fusou-mint: oklch(85% 0.14 154.449);
+      --fusou-mint-hover: oklch(89% 0.14 154.449);
+      --fusou-mint-text: #0a1f16;
+      --fusou-mint-muted-text: oklch(85% 0.14 154.449);
+      --danger: #ef4444;
+      --danger-soft-bg: rgba(239, 68, 68, 0.12);
+      --danger-soft-border: rgba(239, 68, 68, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--bg-page);
+      color: var(--text-main);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .topbar-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .title-block {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .title-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      background: var(--fusou-mint);
+    }
+    .title-text {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .title-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .theme-btn {
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .theme-btn:hover {
+      background: var(--bg-surface-2);
+      border-color: var(--border-strong);
+    }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 24px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card-head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .card-tag {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 2px;
+    }
+    .card-head h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .card-desc {
+      margin: 4px 0 0;
+      font-size: 12.5px;
+      color: var(--text-muted);
+    }
+    .card-body {
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .surface {
+      background: var(--bg-page);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .row-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-subtle);
+      margin-bottom: 6px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    svg.icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Base button reset (No glow, crisp tool feel) */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-family: inherit;
+      font-weight: 550;
+      line-height: 1;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+      border: 1px solid transparent;
+      transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.08s ease;
+    }
+    .btn:focus-visible {
+      outline: 2px solid var(--fusou-mint);
+      outline-offset: 2px;
+    }
+    .btn:active:not(:disabled) {
+      transform: translateY(0.5px);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* =========================================================
+       E1: Pure Monochrome + Mint Reserve (Shadcn Classic)
+       ========================================================= */
+    .e1-sm { height: 30px; padding: 0 11px; font-size: 12.5px; border-radius: 6px; }
+    .e1-md { height: 34px; padding: 0 14px; font-size: 13px; border-radius: 7px; }
+
+    .e1-primary {
+      background: var(--text-main);
+      color: var(--bg-page);
+      font-weight: 600;
+    }
+    .e1-primary:hover:not(:disabled) { opacity: 0.88; }
+
+    .e1-mint {
+      background: var(--fusou-mint);
+      color: var(--fusou-mint-text);
+      font-weight: 600;
+    }
+    .e1-mint:hover:not(:disabled) { background: var(--fusou-mint-hover); }
+
+    .e1-secondary {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+    .e1-secondary:hover:not(:disabled) { background: var(--bg-surface-3); }
+
+    .e1-outline {
+      background: transparent;
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+    }
+    .e1-outline:hover:not(:disabled) {
+      background: var(--bg-surface-2);
+      border-color: var(--border-strong);
+    }
+
+    .e1-ghost {
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .e1-ghost:hover:not(:disabled) {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+
+    .e1-danger {
+      background: var(--danger-soft-bg);
+      color: var(--danger);
+      border-color: var(--danger-soft-border);
+    }
+    .e1-danger:hover:not(:disabled) {
+      background: var(--danger);
+      color: #ffffff;
+      border-color: var(--danger);
+    }
+
+    /* =========================================================
+       E2: Crisp Hairline + Micro-Crispness (GitHub Primer / Linear)
+       ========================================================= */
+    .e2-md { height: 34px; padding: 0 13px; font-size: 13px; border-radius: 6px; }
+
+    .e2-primary {
+      background: var(--text-main);
+      color: var(--bg-page);
+      font-weight: 600;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.14);
+    }
+    .e2-primary:hover:not(:disabled) { opacity: 0.9; }
+
+    .e2-mint {
+      background: var(--fusou-mint);
+      color: var(--fusou-mint-text);
+      font-weight: 600;
+      border-color: rgba(0, 0, 0, 0.12);
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+    }
+    .e2-mint:hover:not(:disabled) { background: var(--fusou-mint-hover); }
+
+    .e2-secondary {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+    }
+    .e2-secondary:hover:not(:disabled) {
+      background: var(--bg-surface-2);
+      border-color: var(--border-strong);
+    }
+
+    .e2-ghost {
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .e2-ghost:hover:not(:disabled) {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+
+    /* =========================================================
+       E3: Compact Utility / Dense Tool (IDE / Data Table)
+       ========================================================= */
+    .e3-xs { height: 26px; padding: 0 9px; font-size: 12px; border-radius: 5px; }
+    .e3-icon { width: 26px; height: 26px; padding: 0; border-radius: 5px; }
+
+    .e3-toggle {
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .e3-toggle:hover {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+    .e3-toggle.is-on {
+      background: var(--bg-surface-3);
+      color: var(--text-main);
+      border-color: var(--border-strong);
+    }
+    .e3-toggle.is-on-mint {
+      background: color-mix(in oklch, var(--fusou-mint) 16%, transparent);
+      color: var(--fusou-mint-muted-text);
+      border-color: color-mix(in oklch, var(--fusou-mint) 38%, transparent);
+    }
+
+    .e3-group {
+      display: inline-flex;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--bg-surface);
+    }
+    .e3-group .btn {
+      border: none;
+      border-radius: 0;
+      height: 26px;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--text-muted);
+      background: transparent;
+    }
+    .e3-group .btn + .btn {
+      border-left: 1px solid var(--border-subtle);
+    }
+    .e3-group .btn:hover {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+    }
+    .e3-group .btn.active {
+      background: var(--bg-surface-2);
+      color: var(--text-main);
+      font-weight: 650;
+    }
+
+    /* =========================================================
+       Role Table & Real FUSOU Tool Mockups
+       ========================================================= */
+    .role-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    .role-table th,
+    .role-table td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: middle;
+    }
+    .role-table th {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .role-table tr:last-child td { border-bottom: none; }
+    .role-table code {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--bg-surface-2);
+    }
+
+    .mockup-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    .mockup {
+      background: var(--bg-page);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .mockup-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .mockup-title {
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .mockup-meta {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+    .toolbar-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+    }
+    .divider-v {
+      width: 1px;
+      height: 16px;
+      background: var(--border-subtle);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="title-block">
+        <span class="title-dot"></span>
+        <div>
+          <div class="title-text">FUSOU Pattern E — ツール特化・発光なしバリエーション</div>
+          <div class="title-sub">役割の明快さと視認性を優先した実用デザイン比較</div>
+        </div>
+      </div>
+      <button type="button" class="theme-btn" id="themeToggle">Light に切替</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- E1 -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-tag">Variation E1 — Shadcn Classic</div>
+          <h2>モノクロ基調 ＋ ミントは「最重要1アクション」のみ</h2>
+          <p class="card-desc">影・発光を一切使わず、塗りと境界線だけで役割を明確化。長時間の閲覧・作業でも目が疲れません。</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="surface">
+          <div>
+            <div class="row-label">標準サイズ (34px / radius 7px)</div>
+            <div class="row">
+              <button type="button" class="btn e1-md e1-mint">出撃記録を開始</button>
+              <button type="button" class="btn e1-md e1-primary">変更を保存</button>
+              <button type="button" class="btn e1-md e1-secondary">プリセット読込</button>
+              <button type="button" class="btn e1-md e1-outline">CSV エクスポート</button>
+              <button type="button" class="btn e1-md e1-ghost">キャンセル</button>
+              <button type="button" class="btn e1-md e1-danger">削除</button>
+              <button type="button" class="btn e1-md e1-primary" disabled>無効</button>
+            </div>
+          </div>
+          <div>
+            <div class="row-label">コンパクトサイズ (30px / radius 6px)</div>
+            <div class="row">
+              <button type="button" class="btn e1-sm e1-mint">同期</button>
+              <button type="button" class="btn e1-sm e1-primary">適用</button>
+              <button type="button" class="btn e1-sm e1-secondary">複製</button>
+              <button type="button" class="btn e1-sm e1-outline">詳細</button>
+              <button type="button" class="btn e1-sm e1-ghost">閉じる</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- E2 -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-tag">Variation E2 — Crisp Hairline（おすすめ）</div>
+          <h2>微細エッジ ＋ 白背景/黒背景に馴染むツール標準</h2>
+          <p class="card-desc">E1 にごくわずかな 1px の境界線と底面エッジ（発光なし）を加え、「押せるボタン」としての視認性を一段高めたバランス型です。</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="surface">
+          <div class="row">
+            <button type="button" class="btn e2-md e2-mint">
+              <svg class="icon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              シミュレーション実行
+            </button>
+            <button type="button" class="btn e2-md e2-primary">設定を保存</button>
+            <button type="button" class="btn e2-md e2-secondary">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+              編成を共有
+            </button>
+            <button type="button" class="btn e2-md e2-ghost">リセット</button>
+            <button type="button" class="btn e2-md e1-danger">データを消去</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- E3 -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-tag">Variation E3 — Dense Tool / Table Controls</div>
+          <h2>高密度ツール・一覧テーブル向け（26px / 切替・ボタングループ）</h2>
+          <p class="card-desc">艦娘一覧・装備一覧・ツールバー用。通常時は静かで、選択中（Active）やホバー時だけ面が立ち上がります。</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="surface">
+          <div class="row">
+            <button type="button" class="btn e3-xs e3-toggle is-on-mint" onclick="this.classList.toggle('is-on-mint')">
+              <svg class="icon" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              フィルタ ON
+            </button>
+            <button type="button" class="btn e3-xs e3-toggle is-on" onclick="this.classList.toggle('is-on')">
+              Lv順
+            </button>
+            <button type="button" class="btn e3-xs e3-toggle" onclick="this.classList.toggle('is-on')">
+              改装済みのみ
+            </button>
+
+            <div class="e3-group" role="group">
+              <button type="button" class="btn active">第一</button>
+              <button type="button" class="btn">第二</button>
+              <button type="button" class="btn">第三</button>
+              <button type="button" class="btn">第四</button>
+            </div>
+
+            <button type="button" class="btn e3-icon e3-toggle" title="検索">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+            <button type="button" class="btn e3-icon e3-toggle" title="設定">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Role Guideline Table -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-tag">Role Mapping</div>
+          <h2>ボタンの役割と使い分けルール（見やすさの基準）</h2>
+        </div>
+      </div>
+      <div class="card-body">
+        <table class="role-table">
+          <thead>
+            <tr>
+              <th>役割</th>
+              <th>見た目</th>
+              <th>使う場面</th>
+              <th>現行からの改善点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Key CTA</strong> (<code>mint</code>)</td>
+              <td><button type="button" class="btn e1-sm e1-mint">出撃開始</button></td>
+              <td>1画面に1〜2個までの最重要アクション</td>
+              <td>濃い暗色ボーダーを廃止し、文字コントラストを明快に</td>
+            </tr>
+            <tr>
+              <td><strong>Primary</strong> (<code>solid</code>)</td>
+              <td><button type="button" class="btn e1-sm e1-primary">保存</button></td>
+              <td>モーダル確定・フォーム送信などの標準主操作</td>
+              <td>ミントを乱発せずモノクロ反転で視線誘導を整理</td>
+            </tr>
+            <tr>
+              <td><strong>Secondary</strong> (<code>surface</code>)</td>
+              <td><button type="button" class="btn e2-md e2-secondary" style="height:30px;font-size:12.5px;">共有</button></td>
+              <td>主操作に並ぶ補助アクション（共有・複製など）</td>
+              <td>薄い背景＋極薄ボーダーでクリック可能領域を明確化</td>
+            </tr>
+            <tr>
+              <td><strong>Outline</strong> (<code>outline</code>)</td>
+              <td><button type="button" class="btn e1-sm e1-outline">エクスポート</button></td>
+              <td>中立的なツール操作・状態切替の待機状態</td>
+              <td>主張を抑え、主操作を邪魔しない</td>
+            </tr>
+            <tr>
+              <td><strong>Ghost</strong> (<code>ghost</code>)</td>
+              <td><button type="button" class="btn e1-sm e1-ghost">キャンセル</button></td>
+              <td>キャンセル・戻る・ツールバーのアイコンボタン</td>
+              <td>常時ボーダーを撤廃し、ホバー時のみ面を表示</td>
+            </tr>
+            <tr>
+              <td><strong>Danger</strong> (<code>danger</code>)</td>
+              <td><button type="button" class="btn e1-sm e1-danger">削除</button></td>
+              <td>削除・初期化など取り消せない操作</td>
+              <td>通常時は控えめな赤ティント、ホバーで警告色に反転</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Real Mockups -->
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-tag">Context Preview</div>
+          <h2>実際の FUSOU 画面での配置イメージ</h2>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="mockup-grid">
+          <div class="mockup">
+            <div class="mockup-head">
+              <div>
+                <div class="mockup-title">艦隊シミュレーター ツールバー</div>
+                <div class="mockup-meta">主操作・補助操作・破壊的操作の視認性</div>
+              </div>
+            </div>
+            <div class="toolbar-bar">
+              <div class="e3-group">
+                <button type="button" class="btn active">第一</button>
+                <button type="button" class="btn">第二</button>
+                <button type="button" class="btn">支援</button>
+              </div>
+              <div class="row">
+                <button type="button" class="btn e1-sm e1-ghost">クリア</button>
+                <button type="button" class="btn e1-sm e1-outline">JSON</button>
+                <button type="button" class="btn e1-sm e1-mint">計算実行</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mockup">
+            <div class="mockup-head">
+              <div>
+                <div class="mockup-title">設定・アカウント連携カード</div>
+                <div class="mockup-meta">安全な操作と危険操作の明確な分離</div>
+              </div>
+            </div>
+            <div class="toolbar-bar">
+              <button type="button" class="btn e1-sm e1-danger">連携解除</button>
+              <div class="row">
+                <button type="button" class="btn e1-sm e1-ghost">キャンセル</button>
+                <button type="button" class="btn e1-sm e1-primary">変更を保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const html = document.documentElement;
+    const btn = document.getElementById("themeToggle");
+    btn.addEventListener("click", () => {
+      const isDark = html.getAttribute("data-theme") === "dark";
+      html.setAttribute("data-theme", isDark ? "light" : "dark");
+      btn.textContent = isDark ? "Dark に切替" : "Light に切替";
+    });
+
+    document.querySelectorAll(".e3-group").forEach((group) => {
+      group.querySelectorAll(".btn").forEach((b) => {
+        b.addEventListener("click", () => {
+          group.querySelectorAll(".btn").forEach((x) => x.classList.remove("active"));
+          b.classList.add("active");
+        });
+      });
+    });
+  </script>
+</body>
+</html>

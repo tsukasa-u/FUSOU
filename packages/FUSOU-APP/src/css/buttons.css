@@ -1,3 +1,79 @@
+/* E2 Crisp Hairline base for tool-first button clarity */
+.btn {
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.08s ease;
+}
+
+.btn:not(:disabled, .btn-disabled, [aria-disabled="true"]):active {
+  transform: translateY(0.5px);
+}
+
+.btn:not(
+    .btn-link,
+    .btn-ghost,
+    .btn-outline,
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ) {
+  --btn-border: color-mix(in oklab, var(--color-base-content) 18%, transparent);
+}
+
+@media (hover: hover) {
+  .btn:not(
+      .btn-link,
+      .btn-ghost,
+      .btn-outline,
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error,
+      :disabled,
+      .btn-disabled,
+      [aria-disabled="true"]
+    ):hover {
+    --btn-border: color-mix(in oklab, var(--color-base-content) 28%, transparent);
+  }
+}
+
+.btn.btn-primary:not(.btn-outline, .btn-ghost, .btn-link) {
+  --btn-border: color-mix(in oklab, var(--color-primary) 78%, #000);
+}
+
+.btn.btn-secondary:not(.btn-outline, .btn-ghost, .btn-link) {
+  --btn-border: color-mix(in oklab, var(--color-secondary) 78%, #000);
+}
+
+.btn.btn-error:not(.btn-outline, .btn-ghost, .btn-link) {
+  --btn-border: color-mix(in oklab, var(--color-error) 78%, #000);
+}
+
+@media (hover: hover) {
+  .btn.btn-primary:not(.btn-outline, .btn-ghost, .btn-link, :disabled, .btn-disabled):hover {
+    --btn-border: color-mix(in oklab, var(--color-primary) 72%, #000);
+  }
+  .btn.btn-secondary:not(.btn-outline, .btn-ghost, .btn-link, :disabled, .btn-disabled):hover {
+    --btn-border: color-mix(in oklab, var(--color-secondary) 72%, #000);
+  }
+  .btn.btn-error:not(.btn-outline, .btn-ghost, .btn-link, :disabled, .btn-disabled):hover {
+    --btn-border: color-mix(in oklab, var(--color-error) 72%, #000);
+  }
+}
+
 /* Refined .btn-outline border contrast & hover/active border preservation under --depth: 0 */
 
 .btn.btn-outline:not(
