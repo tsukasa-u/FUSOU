@@ -1,5 +1,66 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Hosted baseline #128 and current operational preflight — 2026-11-18
+
+**HOSTED_CI_VERIFIED (baseline only):** [Run #128](https://github.com/tsukasa-u/FUSOU/actions/runs/44178936943)
+passed all three candidate jobs for `434aab9a19be57503e101d11ec205cd841cc5190`
+on `tlsn-first-testplay-candidate`. The workflow and job records/logs establish:
+
+| Hosted job | Successful baseline scope |
+|---|---|
+| [APP preflight](https://github.com/tsukasa-u/FUSOU/actions/runs/44178936943/job/134377737433) | 23 passed, 1 ignored, 0 failed; #127's fingerprint test passed. The subsequent health/Runtime Config selection ran and passed all 47 tests. |
+| [Proxy capture](https://github.com/tsukasa-u/FUSOU/actions/runs/44178936943/job/134377737970) | 20 required Proxy/Notary cases and 6 separate-process loopback Notary cases passed; the separate Proxy health selection also passed 4 tests. |
+| [Node contracts](https://github.com/tsukasa-u/FUSOU/actions/runs/44178936943/job/134377738408) | Current-source WASM generation and provenance checks preceded the Worker typecheck. The contract group including Gateway-to-APP passed 112/112 (zero skipped); APP handoff/Worker reference passed 103/103. |
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** The
+[operator runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md)
+now describes the Complete APP path, the first-capture gates and the
+11 candidate-connected + 1 offline semantic + 1 replay + 6 external roles.
+The [offline checker](../FUSOU-TLSN-VERIFICATION-WORKER/scripts/notary-operational-preflight.mjs)
+uses existing signed Runtime Config and independent artifact verification to
+compare public Notary/Session Authority settings with an independently pinned
+scope registration and a separately acquired operator configuration. The
+checker makes no network requests and detects key reuse within the supplied
+registration. It cannot establish off-register key custody or live peer
+behavior. Node v22.21.1 passed the 46 explicit offline/loopback cases; Rust
+1.98.1 `--locked --offline` on the standalone Verifier passed the two exact
+missing-role and synthetic Complete 19-role finalization cases. Neither run
+included the full APP or any live deployment; real replay remains `NOT_CHECKED`.
+
+**Notary operator model: SELECTED; release and deployment: UNAPPROVED.**
+The FUSOU developer operates a single-host, single-instance Notary. The
+[release runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/notary-release-runbook.md)
+specifies a signed, immutable `notary/vX.Y.Z` source tag, separate artifact
+digest approval and manual placement/handover record. The separate
+`fusou-notary` release build has no fault-injection CLI and uses the same
+wire-v1 admission, grant-v1 lease and exact Attestation persistence as the
+loopback server. `init` is separate from `serve`; `serve` locks and reopens
+only the existing, configuration-bound ledger. Run its `export-public`
+through the offline checker before any placement. The accepted grant/wire
+formats, headerless send rules, current v3 profiles, Complete Result v2 /
+Sparse Result v3, exact bytes and receipt gate were not changed.
+
+**LOCAL_TEST_VERIFIED (operational release path):** The normally built
+artifact passed a separate-process loopback Complete capture using the real
+Proxy transport that APP constructs, with independent Presentation
+verification and exactly one origin HTTP request matching the authenticated
+transcript. The actual public export passed the signed synthetic configuration
+checker. An external process stop after admission and restart of the **same
+binary** preserved `Unknown`, refused both grants on re-admission, and returned
+unchanged finalized Attestation bytes. This is not a cross-version upgrade,
+APP executable test, real release tag, or deployment validation.
+Normal release build and SHA-256 readback passed; Rust 1.98.1 `--locked
+--offline` passed the operational case (1), the existing Proxy/Notary
+selections (20) and the existing separate-process selections (6). The two
+explicit Node Notary/Runtime Config files passed 36/36. No selected case
+failed or was skipped in these local verification runs.
+
+**HOSTED_CI_VERIFIED: NOT_CHECKED** for these changes. Real settings, external
+Notary/WEB/Worker operations, Production execution authority, approved
+gameplay and full-Bundle delivery/retention remain unverified. Stage A/B/C
+and Production acceptance remain **BLOCKED**. Earlier sections below are
+historical snapshots at their stated baselines.
+
 ## Worker Result profile contract fixture follow-up — 2026-11-17
 
 **HOSTED_CI_OBSERVED (pre-fix):** Run [#124](https://github.com/tsukasa-u/FUSOU/actions/runs/44072846697), for commit `29c3b1f7716e0e7906cc9109eeab833d5a3ec4f5`, failed at `node-contract-tests` step 25 with 72/74 tests passing. The Complete and Sparse Result success fixtures used historical profile IDs while the current contract requires the v3 Notary-session-binding IDs. Subsequent job steps 26–31 were skipped, including the candidate readiness contract suite.
