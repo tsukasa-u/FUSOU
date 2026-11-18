@@ -10,7 +10,7 @@ use tokio::{
 };
 
 const MAGIC: &[u8; 8] = b"FUSOU-N1";
-const VERSION: u16 = 1;
+pub const VERSION: u16 = 1;
 const ADMIT: u8 = 1;
 const QUERY_FINALIZED: u8 = 2;
 const ADMISSION_ACK: u8 = 0x81;

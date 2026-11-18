@@ -1,43 +1,53 @@
+#[cfg(feature = "local-test-notary")]
+use crate::synthetic_notary::{LOCAL_TEST_ENVIRONMENT, LOCAL_TEST_NOTARY_ID};
 use crate::{
     notary_wire::{self, NotaryRequestKind, MAX_FINALIZED_RESULT_BYTES},
-    synthetic_notary::{
-        sign_and_persist_attestation, LocalTestNotary, LOCAL_TEST_ENVIRONMENT, LOCAL_TEST_NOTARY_ID,
-    },
+    synthetic_notary::{sign_and_persist_attestation, DurableNotary},
 };
+#[cfg(feature = "local-test-notary")]
 use authenticity_core::is_valid_key_id;
 use futures::io::AsyncReadExt as FuturesAsyncReadExt;
 use futures::io::AsyncWriteExt as FuturesAsyncWriteExt;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "local-test-notary"))]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+#[cfg(feature = "local-test-notary")]
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     net::SocketAddr,
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
 };
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+#[cfg(feature = "local-test-notary")]
+use tlsn::webpki::CertificateDer;
 use tlsn::{
-    attestation::request::Request as AttestationRequest,
-    config::verifier::VerifierConfig,
-    verifier::VerifierCommitStart,
-    webpki::{CertificateDer, RootCertStore},
-    Session,
+    attestation::request::Request as AttestationRequest, config::verifier::VerifierConfig,
+    verifier::VerifierCommitStart, webpki::RootCertStore, Session,
 };
 use tokio::{
     io::AsyncWriteExt as TokioAsyncWriteExt,
     net::{TcpListener, TcpStream},
     sync::Semaphore,
+    task::JoinSet,
 };
 use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::task::AbortOnDropHandle;
 
+#[cfg(feature = "local-test-notary")]
 const MAX_AUTHORITY_KEY_BYTES: usize = 96;
+#[cfg(feature = "local-test-notary")]
 const MAX_NOTARY_SIGNING_KEY_BYTES: usize = 32;
+#[cfg(feature = "local-test-notary")]
 const MAX_ROOT_CERTIFICATE_BYTES: usize = 1024 * 1024;
 const MAX_ATTESTATION_REQUEST_BYTES: usize = MAX_FINALIZED_RESULT_BYTES;
 const CONNECTION_LIMIT: usize = 32;
 #[cfg(feature = "local-test-notary-fault-injection")]
 const FAULT_EXIT_CODE: i32 = 86;
 
+#[cfg(feature = "local-test-notary")]
 #[derive(Debug)]
 pub struct LocalTestNotaryServerConfig {
     pub listen: SocketAddr,
@@ -59,6 +69,15 @@ pub enum LocalTestNotaryFault {
     ExitAfterSigningClaim,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) enum ServerFault {
+    #[default]
+    None,
+    #[cfg(feature = "local-test-notary-fault-injection")]
+    Test(LocalTestNotaryFault),
+}
+
+#[cfg(feature = "local-test-notary")]
 pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Result<(), String> {
     if !config.listen.ip().is_loopback() {
         return Err("local test Notary must bind to a loopback address".to_owned());
@@ -66,7 +85,6 @@ pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Resul
     if !is_valid_key_id(&config.session_authority_key_id) {
         return Err("invalid Session Authority key ID".to_owned());
     }
-    let config_fault = fault_from_config(&config);
     let authority_key = read_bounded_file(
         &config.session_authority_public_key_path,
         MAX_AUTHORITY_KEY_BYTES,
@@ -83,8 +101,6 @@ pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Resul
     if notary_signing_key.len() != MAX_NOTARY_SIGNING_KEY_BYTES {
         return Err("invalid Notary signing key length".to_owned());
     }
-    let notary_signer = tlsn::attestation::signing::Secp256k1Signer::new(&notary_signing_key)
-        .map_err(|_| "invalid local Notary signing key".to_owned())?;
     let root_certificate =
         read_bounded_file(&config.root_certificate_path, MAX_ROOT_CERTIFICATE_BYTES)?;
     if root_certificate.is_empty() {
@@ -95,7 +111,9 @@ pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Resul
     };
     tlsn::webpki::ServerCertVerifier::new(&root_store)
         .map_err(|_| "invalid local Notary trust anchor".to_owned())?;
-    let notary = LocalTestNotary::open_existing(
+    notary_wire::verifying_key_from_private_key(&notary_signing_key)
+        .map_err(|_| "invalid local Notary signing key".to_owned())?;
+    let notary = DurableNotary::open_existing(
         config.store_path,
         authority_key,
         config.session_authority_key_id,
@@ -114,22 +132,50 @@ pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Resul
     if let Some(path) = &config.ready_file {
         write_ready_file(path, address)?;
     }
+    serve(
+        listener,
+        notary,
+        root_store,
+        notary_signing_key,
+        LOCAL_TEST_NOTARY_ID.to_owned(),
+        LOCAL_TEST_ENVIRONMENT.to_owned(),
+        true,
+        #[cfg(feature = "local-test-notary-fault-injection")]
+        ServerFault::Test(config.fault),
+        #[cfg(not(feature = "local-test-notary-fault-injection"))]
+        ServerFault::None,
+    )
+    .await
+}
 
-    let root_store = std::sync::Arc::new(root_store);
-    let notary = std::sync::Arc::clone(&notary);
-    let signing_key = std::sync::Arc::new(notary_signing_key);
-    let signer = std::sync::Arc::new(notary_signer);
-    let permits = std::sync::Arc::new(Semaphore::new(CONNECTION_LIMIT));
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn serve(
+    listener: TcpListener,
+    notary: Arc<DurableNotary>,
+    root_store: RootCertStore,
+    signing_key: Vec<u8>,
+    notary_id: String,
+    environment: String,
+    loopback_only: bool,
+    fault: ServerFault,
+) -> Result<(), String> {
+    let signer = tlsn::attestation::signing::Secp256k1Signer::new(&signing_key)
+        .map_err(|_| "invalid Notary signing key".to_owned())?;
+    let root_store = Arc::new(root_store);
+    let signing_key = Arc::new(signing_key);
+    let signer = Arc::new(signer);
+    let scope = Arc::new((notary_id, environment));
+    let permits = Arc::new(Semaphore::new(CONNECTION_LIMIT));
+    let mut connections = JoinSet::new();
     #[cfg(unix)]
-    let mut terminate =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .map_err(|error| format!("register local Notary termination signal: {error}"))?;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|error| format!("register Notary termination signal: {error}"))?;
     loop {
         #[cfg(unix)]
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
             signal = tokio::signal::ctrl_c() => {
-                signal.map_err(|error| format!("receive local Notary interrupt signal: {error}"))?;
+                signal.map_err(|error| format!("receive Notary interrupt signal: {error}"))?;
                 break;
             }
             _ = terminate.recv() => break,
@@ -138,13 +184,18 @@ pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Resul
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
             signal = tokio::signal::ctrl_c() => {
-                signal.map_err(|error| format!("receive local Notary interrupt signal: {error}"))?;
+                signal.map_err(|error| format!("receive Notary interrupt signal: {error}"))?;
                 break;
             }
         };
         let (socket, peer) =
-            accepted.map_err(|error| format!("accept local Notary connection: {error}"))?;
-        if !peer.ip().is_loopback() {
+            accepted.map_err(|error| format!("accept Notary connection: {error}"))?;
+        while let Some(done) = connections.try_join_next() {
+            if done.is_err() {
+                tracing::warn!("Notary connection task failed");
+            }
+        }
+        if loopback_only && !peer.ip().is_loopback() {
             drop(socket);
             continue;
         }
@@ -156,41 +207,41 @@ pub async fn run_local_test_notary(config: LocalTestNotaryServerConfig) -> Resul
         let root_store = std::sync::Arc::clone(&root_store);
         let signing_key = std::sync::Arc::clone(&signing_key);
         let signer = std::sync::Arc::clone(&signer);
-        tokio::spawn(async move {
+        let scope = Arc::clone(&scope);
+        connections.spawn(async move {
             let _permit = permit;
-            if let Err(error) = handle_connection(
-                socket,
-                notary,
-                root_store,
-                signing_key,
-                signer,
-                config_fault,
+            let result = tokio::time::timeout(
+                Duration::from_secs(180),
+                handle_connection(
+                    socket,
+                    notary,
+                    root_store,
+                    signing_key,
+                    signer,
+                    scope,
+                    fault,
+                ),
             )
-            .await
-            {
-                tracing::warn!(%error, "local test Notary connection failed");
+            .await;
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => tracing::warn!("Notary connection rejected or failed"),
+                Err(_) => tracing::warn!("Notary connection timed out"),
             }
         });
     }
+    connections.shutdown().await;
     Ok(())
 }
 
-#[cfg(feature = "local-test-notary-fault-injection")]
-fn fault_from_config(config: &LocalTestNotaryServerConfig) -> LocalTestNotaryFault {
-    config.fault
-}
-
-#[cfg(not(feature = "local-test-notary-fault-injection"))]
-fn fault_from_config(_config: &LocalTestNotaryServerConfig) {}
-
 async fn handle_connection(
     mut socket: TcpStream,
-    notary: std::sync::Arc<LocalTestNotary>,
+    notary: Arc<DurableNotary>,
     root_store: std::sync::Arc<RootCertStore>,
     signing_key: std::sync::Arc<Vec<u8>>,
     signer: std::sync::Arc<tlsn::attestation::signing::Secp256k1Signer>,
-    #[cfg(feature = "local-test-notary-fault-injection")] fault: LocalTestNotaryFault,
-    #[cfg(not(feature = "local-test-notary-fault-injection"))] _fault: (),
+    scope: Arc<(String, String)>,
+    fault: ServerFault,
 ) -> Result<(), String> {
     let request = notary_wire::read_request(&mut socket)
         .await
@@ -225,19 +276,18 @@ async fn handle_connection(
                 &request.nonce,
                 &request.grant,
                 &signer,
-                LOCAL_TEST_NOTARY_ID,
-                LOCAL_TEST_ENVIRONMENT,
+                &scope.0,
+                &scope.1,
             )
             .await
             .map_err(|error| format!("send signed Notary admission: {error}"))?;
             #[cfg(feature = "local-test-notary-fault-injection")]
-            if fault == LocalTestNotaryFault::ExitAfterAdmission {
+            if matches!(
+                fault,
+                ServerFault::Test(LocalTestNotaryFault::ExitAfterAdmission)
+            ) {
                 std::process::exit(FAULT_EXIT_CODE);
             }
-            #[cfg(feature = "local-test-notary-fault-injection")]
-            let fault = fault;
-            #[cfg(not(feature = "local-test-notary-fault-injection"))]
-            let fault = _fault;
             run_tlsn_attestation(socket, live_session, root_store, signing_key, fault).await
         }
     }
@@ -248,12 +298,11 @@ async fn run_tlsn_attestation(
     live_session: crate::synthetic_notary::LiveNotarySessionContext,
     root_store: std::sync::Arc<RootCertStore>,
     signing_key: std::sync::Arc<Vec<u8>>,
-    #[cfg(feature = "local-test-notary-fault-injection")] fault: LocalTestNotaryFault,
-    #[cfg(not(feature = "local-test-notary-fault-injection"))] _fault: (),
+    _fault: ServerFault,
 ) -> Result<(), String> {
     let session = Session::new(socket.compat());
     let (driver, mut handle) = session.split();
-    let driver_task = tokio::spawn(driver);
+    let driver_task = AbortOnDropHandle::new(tokio::spawn(driver));
     let verifier_result = async {
         let verifier = handle
             .new_verifier(
@@ -306,7 +355,10 @@ async fn run_tlsn_attestation(
         .map_err(|error| format!("decode TLSN AttestationRequest: {error}"))?;
     #[cfg(feature = "local-test-notary-fault-injection")]
     let after_claim = move || {
-        if fault == LocalTestNotaryFault::ExitAfterSigningClaim {
+        if matches!(
+            _fault,
+            ServerFault::Test(LocalTestNotaryFault::ExitAfterSigningClaim)
+        ) {
             std::process::exit(FAULT_EXIT_CODE);
         }
     };
@@ -350,6 +402,7 @@ async fn read_attestation_request(
     Ok(bytes)
 }
 
+#[cfg(feature = "local-test-notary")]
 fn read_bounded_file(path: &PathBuf, limit: usize) -> Result<Vec<u8>, String> {
     let file = File::open(path)
         .map_err(|error| format!("open local Notary configuration file: {error}"))?;
@@ -369,6 +422,7 @@ fn read_bounded_file(path: &PathBuf, limit: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+#[cfg(feature = "local-test-notary")]
 fn read_private_file(path: &PathBuf, limit: usize) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("inspect local Notary private-key file: {error}"))?;
@@ -379,6 +433,7 @@ fn read_private_file(path: &PathBuf, limit: usize) -> Result<Vec<u8>, String> {
     read_bounded_file(path, limit)
 }
 
+#[cfg(feature = "local-test-notary")]
 fn write_ready_file(path: &PathBuf, address: SocketAddr) -> Result<(), String> {
     let mut options = OpenOptions::new();
     options.create_new(true).write(true);

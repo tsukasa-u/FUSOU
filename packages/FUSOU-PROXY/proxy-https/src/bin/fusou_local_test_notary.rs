@@ -1,8 +1,6 @@
-use proxy_https::local_test_notary_server::{
-    run_local_test_notary, LocalTestNotaryServerConfig,
-};
 #[cfg(feature = "local-test-notary-fault-injection")]
-use proxy_https::local_test_notary_server::LocalTestNotaryFault;
+use proxy_https::notary_server::LocalTestNotaryFault;
+use proxy_https::notary_server::{run_local_test_notary, LocalTestNotaryServerConfig};
 use std::{net::SocketAddr, path::PathBuf, process::ExitCode};
 
 struct Arguments {
@@ -62,12 +60,10 @@ fn parse_arguments() -> Result<Arguments, String> {
     Ok(Arguments {
         listen: listen.ok_or_else(|| "missing --listen".to_owned())?,
         store: store.ok_or_else(|| "missing --store".to_owned())?,
-        authority_key: authority_key
-            .ok_or_else(|| "missing --authority-public-key".to_owned())?,
+        authority_key: authority_key.ok_or_else(|| "missing --authority-public-key".to_owned())?,
         authority_key_id: authority_key_id
             .ok_or_else(|| "missing --authority-key-id".to_owned())?,
-        notary_key: notary_key
-            .ok_or_else(|| "missing --notary-signing-key".to_owned())?,
+        notary_key: notary_key.ok_or_else(|| "missing --notary-signing-key".to_owned())?,
         root_certificate: root_certificate
             .ok_or_else(|| "missing --root-certificate".to_owned())?,
         ready_file,

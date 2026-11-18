@@ -76,6 +76,7 @@ alpha15-tlsn = [
 ]
 tlsn-origin-probe = ["dep:rustls", "dep:tokio-rustls", "dep:x509-parser"]
 synthetic-tlsn = ["alpha15-tlsn", "rcgen"]
+operational-notary = ["alpha15-tlsn"]
 local-test-notary = ["synthetic-tlsn"]
 local-test-notary-fault-injection = ["local-test-notary"]
 rama-experimental = [
@@ -106,6 +107,11 @@ required-features = ["tlsn-origin-probe"]
 name = "fusou-local-test-notary"
 path = "src/bin/fusou_local_test_notary.rs"
 required-features = ["local-test-notary"]
+
+[[bin]]
+name = "fusou-notary"
+path = "src/bin/fusou_notary.rs"
+required-features = ["operational-notary"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }

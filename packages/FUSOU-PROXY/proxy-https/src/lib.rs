@@ -11,17 +11,19 @@ pub mod grpc_channel;
 pub mod edit_pac;
 pub mod exchange_lifecycle;
 pub mod experimental_tlsn;
+#[cfg(any(feature = "local-test-notary", feature = "operational-notary"))]
+pub mod notary_server;
 #[cfg(feature = "alpha15-tlsn")]
 pub mod notary_wire;
+#[cfg(all(unix, feature = "operational-notary"))]
+pub mod operational_notary;
 pub mod pac_server;
 pub mod production_tlsn;
 pub mod proxy_server_https;
 #[cfg(feature = "alpha15-tlsn")]
 pub mod real_tlsn;
 mod request_ingress;
-#[cfg(feature = "synthetic-tlsn")]
+#[cfg(any(feature = "synthetic-tlsn", feature = "operational-notary"))]
 pub mod synthetic_notary;
-#[cfg(feature = "local-test-notary")]
-pub mod local_test_notary_server;
 #[cfg(feature = "synthetic-tlsn")]
 pub mod synthetic_tlsn;

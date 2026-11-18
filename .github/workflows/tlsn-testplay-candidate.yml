@@ -310,6 +310,7 @@ jobs:
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-worker-endpoint-mapping-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/runtime-config-bootstrap-trust-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-manifest-test.mjs \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/notary-operational-preflight.test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-r2-store-test.mjs \
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/tlsn-runtime-config-publisher-readiness-test.mjs
 
@@ -361,6 +362,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -541,6 +546,35 @@ jobs:
               --manifest-path "$manifest" --test local_notary_interop "$test_name" \
               -- --exact --test-threads=1
           done
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Build and verify the normal Notary release candidate
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=packages/FUSOU-PROXY/proxy-https/Cargo.toml
+          binary="$RUNNER_TEMP/fusou-notary-release-target/release/fusou-notary"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/fusou-notary-release-target" \
+            cargo +1.98.1 build --release --locked --offline \
+              --manifest-path "$manifest" --features operational-notary --bin fusou-notary
+          sha256sum "$binary" > "$RUNNER_TEMP/fusou-notary.sha256"
+          export FUSOU_OPERATIONAL_NOTARY_BIN="$binary"
+          features=local-test-notary-fault-injection,operational-notary
+          test_name=operational::normal_binary_complete_and_restarts_using_the_same_ledger
+          listing="$(
+            cargo +1.98.1 test --locked --offline --features "$features" \
+              --manifest-path "$manifest" --test local_notary_interop -- --list
+          )"
+          grep -Fxq "$test_name: test" <<< "$listing"
+          cargo +1.98.1 test --locked --offline --features "$features" \
+            --manifest-path "$manifest" --test local_notary_interop "$test_name" \
+            -- --exact --test-threads=1
+          sha256sum --check "$RUNNER_TEMP/fusou-notary.sha256"
         env:
           CARGO_NET_OFFLINE: "true"
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target

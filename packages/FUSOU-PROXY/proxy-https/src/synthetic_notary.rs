@@ -4,7 +4,7 @@ use fusou_tlsn_verifier::session_context::{
 };
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::{
     collections::BTreeMap,
     fs::{self, File, OpenOptions},
@@ -28,8 +28,11 @@ use uuid::Uuid;
 
 const STORE_SCHEMA_VERSION: u32 = 1;
 const MAX_SAVED_RESULT_BYTES: usize = 8 * 1024 * 1024;
+#[cfg(feature = "synthetic-tlsn")]
 pub const LOCAL_TEST_NOTARY_ID: &str = "synthetic-notary-v1";
+#[cfg(feature = "synthetic-tlsn")]
 pub const LOCAL_TEST_ENVIRONMENT: &str = "local-test";
+#[cfg(feature = "synthetic-tlsn")]
 pub const LOCAL_TEST_SESSION_AUTHORITY_KEY_ID: &str = "synthetic-local-test-notary-v1";
 static PROCESS_INSTANCE_ID: OnceLock<String> = OnceLock::new();
 
@@ -46,6 +49,8 @@ pub enum NotaryGrantStatus {
 #[derive(Debug, Serialize, Deserialize)]
 struct StoreFile {
     schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    operational_config_sha256: Option<String>,
     process_instance_id: String,
     grants: BTreeMap<String, GrantRecord>,
 }
@@ -73,9 +78,11 @@ enum GrantState {
 struct DurableGrantStore {
     path: PathBuf,
     process_instance_id: String,
+    operational_config_sha256: Option<String>,
+    _instance_lock: Option<File>,
 }
 
-pub struct LocalTestNotary {
+pub struct DurableNotary {
     store: DurableGrantStore,
     session_authority_public_key_spki: Vec<u8>,
     session_authority_key_id: String,
@@ -83,13 +90,16 @@ pub struct LocalTestNotary {
     environment: String,
 }
 
+#[cfg(feature = "synthetic-tlsn")]
+pub type LocalTestNotary = DurableNotary;
+
 pub struct LiveNotarySessionContext {
     lease: LiveNotarySessionLease,
     grant: SessionContextGrant,
 }
 
 struct LiveNotarySessionLease {
-    notary: Arc<LocalTestNotary>,
+    notary: Arc<DurableNotary>,
     grant_digest: String,
     operation_id: String,
     live_connection_id: String,
@@ -97,7 +107,8 @@ struct LiveNotarySessionLease {
     terminal: AtomicBool,
 }
 
-impl LocalTestNotary {
+impl DurableNotary {
+    #[cfg(feature = "synthetic-tlsn")]
     pub fn initialize_new(
         path: impl Into<PathBuf>,
         session_authority_public_key_spki: Vec<u8>,
@@ -107,7 +118,7 @@ impl LocalTestNotary {
     ) -> Result<Arc<Self>, String> {
         let (session_authority_key_id, notary_id, environment) =
             Self::validated_scope(session_authority_key_id, notary_id, environment)?;
-        let store = DurableGrantStore::initialize_new(path.into())?;
+        let store = DurableGrantStore::for_path(path.into()).initialize_new()?;
         Ok(Self::with_store(
             store,
             session_authority_public_key_spki,
@@ -117,6 +128,7 @@ impl LocalTestNotary {
         ))
     }
 
+    #[cfg(feature = "synthetic-tlsn")]
     pub fn open_existing(
         path: impl Into<PathBuf>,
         session_authority_public_key_spki: Vec<u8>,
@@ -126,7 +138,7 @@ impl LocalTestNotary {
     ) -> Result<Arc<Self>, String> {
         let (session_authority_key_id, notary_id, environment) =
             Self::validated_scope(session_authority_key_id, notary_id, environment)?;
-        let store = DurableGrantStore::open_existing(path.into())?;
+        let store = DurableGrantStore::for_path(path.into()).open_existing()?;
         Ok(Self::with_store(
             store,
             session_authority_public_key_spki,
@@ -136,6 +148,75 @@ impl LocalTestNotary {
         ))
     }
 
+    #[cfg(all(unix, feature = "operational-notary"))]
+    pub(crate) fn operational(
+        directory: &std::path::Path,
+        config_sha256: String,
+        authority_key: Vec<u8>,
+        authority_key_id: String,
+        notary_id: String,
+        environment: String,
+        initialize: bool,
+    ) -> Result<Arc<Self>, String> {
+        let metadata = fs::symlink_metadata(directory)
+            .map_err(|_| "operational ledger directory must already exist".to_owned())?;
+        if !metadata.is_dir()
+            || metadata.permissions().mode() & 0o077 != 0
+            || metadata.uid() != unsafe { libc::geteuid() }
+        {
+            return Err(
+                "operational ledger directory must be private and owned by the service user"
+                    .to_owned(),
+            );
+        }
+        if initialize
+            && fs::read_dir(directory)
+                .map_err(|_| "cannot inspect operational ledger directory".to_owned())?
+                .next()
+                .is_some()
+        {
+            return Err("operational ledger initialization requires an empty directory".to_owned());
+        }
+        let path = directory.join("ledger.json");
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        if initialize {
+            options.create_new(true).mode(0o600);
+        }
+        let instance_lock = options
+            .open(directory.join("instance.lock"))
+            .map_err(|_| "cannot open operational Notary instance lock".to_owned())?;
+        validate_private_file(&instance_lock, "operational Notary instance lock")?;
+        instance_lock.try_lock().map_err(|_| {
+            "operational Notary ledger already in use or cannot be locked".to_owned()
+        })?;
+        if initialize {
+            instance_lock
+                .sync_all()
+                .map_err(|_| "cannot sync instance lock".to_owned())?;
+            sync_parent_directory(directory)?;
+        }
+        let mut store = DurableGrantStore::for_path(path);
+        store._instance_lock = Some(instance_lock);
+        store.operational_config_sha256 = Some(config_sha256);
+        let store = if initialize {
+            store.initialize_new()?
+        } else {
+            store.open_existing()?
+        };
+        Ok(Self::with_store(
+            store,
+            authority_key,
+            authority_key_id,
+            notary_id,
+            environment,
+        ))
+    }
+
+    #[cfg(feature = "synthetic-tlsn")]
     fn validated_scope(
         session_authority_key_id: impl Into<String>,
         notary_id: impl Into<String>,
@@ -565,13 +646,14 @@ impl Drop for LiveNotarySessionLease {
 }
 
 impl DurableGrantStore {
-    fn initialize_new(path: PathBuf) -> Result<Self, String> {
-        let parent = path
+    fn initialize_new(self) -> Result<Self, String> {
+        let parent = self
+            .path
             .parent()
             .ok_or_else(|| "Notary store path must have a parent directory".to_owned())?
             .to_path_buf();
         ensure_private_directory(&parent)?;
-        let store = Self::for_path(path);
+        let store = self;
         let lock_path = store.lock_path();
         if store
             .path
@@ -603,8 +685,8 @@ impl DurableGrantStore {
         Ok(store)
     }
 
-    fn open_existing(path: PathBuf) -> Result<Self, String> {
-        let store = Self::for_path(path);
+    fn open_existing(self) -> Result<Self, String> {
+        let store = self;
         store.update(|database| {
             if database.process_instance_id != store.process_instance_id {
                 for record in database.grants.values_mut() {
@@ -625,6 +707,8 @@ impl DurableGrantStore {
             process_instance_id: PROCESS_INSTANCE_ID
                 .get_or_init(|| Uuid::new_v4().to_string())
                 .clone(),
+            operational_config_sha256: None,
+            _instance_lock: None,
         }
     }
 
@@ -633,11 +717,19 @@ impl DurableGrantStore {
     }
 
     fn lock(&self) -> Result<File, String> {
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
+        let mut options = OpenOptions::new();
+        options.read(true).write(true);
+        #[cfg(unix)]
+        if self._instance_lock.is_some() {
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let lock = options
             .open(self.lock_path())
             .map_err(|error| format!("open Notary store lock: {error}"))?;
+        #[cfg(unix)]
+        if self._instance_lock.is_some() {
+            validate_private_file(&lock, "operational ledger lock")?;
+        }
         lock.lock()
             .map_err(|error| format!("lock Notary store: {error}"))?;
         Ok(lock)
@@ -661,10 +753,19 @@ impl DurableGrantStore {
     }
 
     fn load(&self) -> Result<StoreFile, String> {
-        let mut file = File::open(&self.path)
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        if self._instance_lock.is_some() {
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let mut file = options
+            .open(&self.path)
             .map_err(|error| format!("open existing Notary store: {error}"))?;
         #[cfg(unix)]
-        {
+        if self._instance_lock.is_some() {
+            validate_private_file(&file, "operational ledger state")?;
+        } else {
             let metadata = file
                 .metadata()
                 .map_err(|error| format!("inspect Notary store permissions: {error}"))?;
@@ -683,12 +784,16 @@ impl DurableGrantStore {
         if database.schema_version != STORE_SCHEMA_VERSION {
             return Err("unsupported Notary store schema version".to_owned());
         }
+        if database.operational_config_sha256 != self.operational_config_sha256 {
+            return Err("Notary ledger does not match the operator configuration".to_owned());
+        }
         Ok(database)
     }
 
     fn create_initial_state(&self) -> Result<(), String> {
         let database = StoreFile {
             schema_version: STORE_SCHEMA_VERSION,
+            operational_config_sha256: self.operational_config_sha256.clone(),
             process_instance_id: self.process_instance_id.clone(),
             grants: BTreeMap::new(),
         };
@@ -760,6 +865,23 @@ impl DurableGrantStore {
     }
 }
 
+#[cfg(unix)]
+fn validate_private_file(file: &File, label: &str) -> Result<(), String> {
+    let metadata = file
+        .metadata()
+        .map_err(|_| format!("could not inspect {label}"))?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(format!(
+            "invalid {label} file type, ownership or permissions"
+        ));
+    }
+    Ok(())
+}
+
 fn sync_parent_directory(path: &std::path::Path) -> Result<(), String> {
     File::open(path)
         .and_then(|directory| directory.sync_all())
@@ -793,7 +915,7 @@ fn ensure_private_directory(path: &std::path::Path) -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "synthetic-tlsn"))]
 mod tests {
     use super::*;
     use crate::synthetic_tlsn::{
@@ -912,10 +1034,8 @@ mod tests {
 
     fn mark_store_as_prior_process(path: &PathBuf) {
         let prior_process_id = "simulated-prior-process".to_owned();
-        let stale_store = DurableGrantStore {
-            path: path.clone(),
-            process_instance_id: prior_process_id.clone(),
-        };
+        let mut stale_store = DurableGrantStore::for_path(path.clone());
+        stale_store.process_instance_id = prior_process_id.clone();
         stale_store
             .update(|database| {
                 database.process_instance_id = prior_process_id;

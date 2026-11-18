@@ -1,5 +1,9 @@
 #![cfg(feature = "local-test-notary-fault-injection")]
 
+#[cfg(all(unix, feature = "operational-notary"))]
+#[path = "local_notary_interop/operational.rs"]
+mod operational;
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use fusou_tlsn_verifier::{
     session_context::{
@@ -226,22 +230,7 @@ impl NotaryProcess {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit());
-        #[cfg(unix)]
-        unsafe {
-            use std::os::unix::process::CommandExt;
-            let parent_pid = libc::getpid();
-            command.pre_exec(move || {
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                if libc::getppid() != parent_pid {
-                    return Err(io::Error::other(
-                        "integration-test parent exited before Notary startup",
-                    ));
-                }
-                Ok(())
-            });
-        }
+        Self::guard_notary_child(&mut command);
         let child = command
             .spawn()
             .map_err(|error| format!("start separate local Notary process: {error}"))?;
@@ -271,6 +260,29 @@ impl NotaryProcess {
             std::thread::sleep(Duration::from_millis(10));
         }
         Err("local Notary did not publish its readiness address".to_owned())
+    }
+
+    fn guard_notary_child(command: &mut Command) {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            let parent = std::process::id();
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    if libc::getppid() as u32 != parent {
+                        return Err(io::Error::other(
+                            "integration-test parent exited before Notary startup",
+                        ));
+                    }
+                    Ok(())
+                });
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = command;
     }
 
     fn stop(&mut self) -> Result<ExitStatus, String> {
