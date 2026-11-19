@@ -13,6 +13,7 @@ import { verifyTlsnRuntimeConfigProductionEnvelope } from "./tlsn-runtime-config
 // APP/Proxy notary_wire.rs: FUSOU-N1. This is not a negotiated fallback.
 const WIRE_VERSION = 1;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_RUNTIME_CONFIG_ARTIFACT_BYTES = 1_048_576;
 // Keep the operator check no more permissive than APP's manifest policy.
 const APP_POLICY_CEILINGS = {
   max_lifetime_seconds: 3600,
@@ -82,10 +83,26 @@ function validateScope(entry) {
   }
 }
 
+function assertRuntimeConfigArtifactSizes(independentInputs) {
+  if (!independentInputs || typeof independentInputs !== "object") return;
+  for (const [field, name] of Object.entries(INPUT_ARTIFACTS)) {
+    const value = independentInputs[field];
+    const size = typeof value === "string"
+      ? Buffer.byteLength(value)
+      : ArrayBuffer.isView(value) || value instanceof ArrayBuffer
+        ? value.byteLength
+        : undefined;
+    if (size > MAX_RUNTIME_CONFIG_ARTIFACT_BYTES) {
+      throw new Error(`Runtime Config artifact exceeds APP 1 MiB limit: ${name}`);
+    }
+  }
+}
+
 export function checkNotaryOperationalPreflight({
   envelopeRaw, trustedSigner, policy, independentInputs,
   registrationRaw, approvedRegistrationSha256, notaryPublicConfigRaw, sessionRegistryRaw,
 }) {
+  assertRuntimeConfigArtifactSizes(independentInputs);
   if (!registrationRaw || sha256(registrationRaw) !== approvedRegistrationSha256) {
     throw new Error("Approved Notary registration digest mismatch or missing input");
   }
@@ -166,13 +183,13 @@ export function checkNotaryOperationalPreflight({
   return { status: "NOTARY_PUBLIC_CONFIGURATION_MATCHED_OFFLINE", gameplay_authorized: false };
 }
 
-function readInput(directory, name) {
+function readInput(directory, name, maxBytes = MAX_FILE_BYTES) {
   return checked(`Missing, unreadable, or oversized input: ${name}`, () => {
     const fd = openSync(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = fstatSync(fd);
       const { size } = stat;
-      if (!stat.isFile() || !size || size > MAX_FILE_BYTES) throw new Error("Invalid file");
+      if (!stat.isFile() || !size || size > maxBytes) throw new Error("Invalid file");
       const raw = Buffer.alloc(size + 1);
       let total = 0;
       while (total < raw.length) {
@@ -204,7 +221,7 @@ function main([snapshot, approval, approvedRegistrationSha256, ...extra]) {
     trustedSigner: trust.trusted_signer,
     policy: { ...trust.policy, now_ms: Date.now() },
     independentInputs: Object.fromEntries(Object.entries(INPUT_ARTIFACTS).map(
-      ([field, name]) => [field, readInput(snapshot, name)],
+      ([field, name]) => [field, readInput(snapshot, name, MAX_RUNTIME_CONFIG_ARTIFACT_BYTES)],
     )),
     registrationRaw: readInput(approval, "notary-registration.json"),
     approvedRegistrationSha256,

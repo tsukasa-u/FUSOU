@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createECDH, createHash, generateKeyPairSync } from "node:crypto";
+import { createECDH, createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,15 +15,68 @@ const vector = JSON.parse(readFileSync(new URL(
 assert.equal(vector.test_only, true);
 const digest = (raw) => createHash("sha256").update(raw).digest("base64url");
 const raw = (value) => Buffer.from(canonicalJson(value));
+const APP_RUNTIME_CONFIG_ARTIFACT_LIMIT = 1_048_576;
+const RUNTIME_CONFIG_SIGNATURE_DOMAIN =
+  Buffer.from("FUSOU-TLSN-RUNTIME-CONFIG-MANIFEST-V2\0", "ascii");
+const runtimeConfigArtifacts = [
+  ["worker_reference_raw", "worker-reference.json"],
+  ["origin_inventory_raw", "origin-inventory.json"],
+  ["target_approval_raw", "target-approval.json"],
+  ["security_registry_set_raw", "security-registry-set.json"],
+  ["result_registry_envelope_raw", "result-registry-envelope.json"],
+];
 const newAuthorityKey = () => generateKeyPairSync("ed25519").publicKey
   .export({ type: "spki", format: "der" }).toString("base64url");
 
-function fixture() {
+function signManifestPayload(envelope, payload) {
+  const keyPair = generateKeyPairSync("ed25519");
+  const keyId = Buffer.from(envelope.signer_key_id, "ascii");
+  const keyIdLength = Buffer.alloc(2);
+  keyIdLength.writeUInt16BE(keyId.length);
+  const payloadRaw = raw(payload);
+  const signingBytes = Buffer.concat([
+    RUNTIME_CONFIG_SIGNATURE_DOMAIN,
+    keyIdLength,
+    keyId,
+    payloadRaw,
+  ]);
+  return {
+    envelopeRaw: raw({
+      ...envelope,
+      payload_base64url: payloadRaw.toString("base64url"),
+      signature_base64url: sign(null, signingBytes, keyPair.privateKey).toString("base64url"),
+    }),
+    trustedSigner: {
+      ...vector.trusted_signer,
+      public_key_spki: keyPair.publicKey.export({
+        type: "spki",
+        format: "der",
+      }).toString("base64url"),
+    },
+  };
+}
+
+function padded(value, size) {
+  assert.ok(value.length <= size);
+  return Buffer.concat([value, Buffer.alloc(size - value.length, 0x20)]);
+}
+
+function fixture({ notaryEndpoint } = {}) {
   const envelope = JSON.parse(vector.manifest_envelope_utf8);
   const payload = JSON.parse(Buffer.from(envelope.payload_base64url, "base64url"));
-  const app = payload.compile_inputs;
   const independentInputs = Object.fromEntries(Object.entries(vector.inputs_base64url)
     .map(([name, value]) => [name, Buffer.from(value, "base64url")]));
+  let envelopeRaw = Buffer.from(vector.manifest_envelope_utf8);
+  let trustedSigner = vector.trusted_signer;
+  if (notaryEndpoint) {
+    const workerReference = JSON.parse(independentInputs.worker_reference_raw);
+    workerReference.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = notaryEndpoint;
+    independentInputs.worker_reference_raw = raw(workerReference);
+    payload.compile_inputs.FUSOU_TLSN_NOTARY_ENDPOINT = notaryEndpoint;
+    payload.source.worker_reference_sha256 = digest(independentInputs.worker_reference_raw);
+    ({ envelopeRaw, trustedSigner } = signManifestPayload(envelope, payload));
+  }
+  const app = payload.compile_inputs;
   const operator = {
     endpoint: app.FUSOU_TLSN_NOTARY_ENDPOINT,
     notary_id: app.FUSOU_TLSN_NOTARY_ID,
@@ -46,8 +99,8 @@ function fixture() {
     }],
   };
   const args = {
-    envelopeRaw: Buffer.from(vector.manifest_envelope_utf8),
-    trustedSigner: vector.trusted_signer,
+    envelopeRaw,
+    trustedSigner,
     policy: { ...vector.policy, max_envelope_bytes: 65_536 },
     independentInputs,
     notaryPublicConfigRaw: raw(operator),
@@ -62,8 +115,22 @@ function fixture() {
   return { args, approve, operator, row, sessionRegistry };
 }
 
+function fixtureWithWorkerReference(workerReferenceRaw) {
+  const { args, ...rest } = fixture();
+  const envelope = JSON.parse(args.envelopeRaw);
+  const payload = JSON.parse(Buffer.from(envelope.payload_base64url, "base64url"));
+  args.independentInputs.worker_reference_raw = workerReferenceRaw;
+  payload.source.worker_reference_sha256 = digest(workerReferenceRaw);
+  const signed = signManifestPayload(envelope, payload);
+  args.envelopeRaw = signed.envelopeRaw;
+  args.trustedSigner = signed.trustedSigner;
+  return { args, ...rest };
+}
+
 test("coherent independently approved public settings match the signed Complete Runtime Config offline", () => {
-  const { args, approve, row } = fixture();
+  const { args, approve, row } = fixture({
+    notaryEndpoint: process.env.FUSOU_TEST_NOTARY_ENDPOINT,
+  });
   if (process.env.FUSOU_TEST_NOTARY_PUBLIC_EXPORT) {
     args.notaryPublicConfigRaw = readFileSync(process.env.FUSOU_TEST_NOTARY_PUBLIC_EXPORT);
   }
@@ -176,4 +243,84 @@ test("CLI actually reads its local trust file and fails without exposing input c
   assert.equal(result.status, 1, result.error?.message);
   assert.equal(result.stdout, "");
   assert.equal(result.stderr, "Notary preflight: Missing, unreadable, or oversized input: runtime-config-envelope.json\n");
+});
+
+test("direct checks apply the APP artifact limit to every independent input", () => {
+  const { args } = fixture();
+  for (const [field, name] of runtimeConfigArtifacts) {
+    const exactLimit = padded(args.independentInputs[field], APP_RUNTIME_CONFIG_ARTIFACT_LIMIT);
+    assert.throws(() => checkNotaryOperationalPreflight({
+      ...args,
+      independentInputs: { ...args.independentInputs, [field]: exactLimit },
+    }), /Runtime Config signature, policy, or independent artifacts rejected/, `${name} at limit`);
+    assert.throws(() => checkNotaryOperationalPreflight({
+      ...args,
+      independentInputs: {
+        ...args.independentInputs,
+        [field]: Buffer.concat([exactLimit, Buffer.from(" ")]),
+      },
+    }), new RegExp(`Runtime Config artifact exceeds APP 1 MiB limit: ${name}`), `${name} over limit`);
+  }
+});
+
+test("a signed digest-matching Worker reference is accepted at the limit and rejected one byte over", () => {
+  const sourceWorkerReference = fixture().args.independentInputs.worker_reference_raw;
+  const exactLimit = padded(sourceWorkerReference, APP_RUNTIME_CONFIG_ARTIFACT_LIMIT);
+  const exact = fixtureWithWorkerReference(exactLimit);
+  assert.deepEqual(checkNotaryOperationalPreflight(exact.args), {
+    status: "NOTARY_PUBLIC_CONFIGURATION_MATCHED_OFFLINE",
+    gameplay_authorized: false,
+  });
+
+  const oversized = fixtureWithWorkerReference(Buffer.concat([exactLimit, Buffer.from(" ")]));
+  assert.throws(
+    () => checkNotaryOperationalPreflight(oversized.args),
+    /Runtime Config artifact exceeds APP 1 MiB limit: worker-reference\.json/,
+  );
+});
+
+test("CLI reads each independent Runtime Config artifact only up to the APP limit", (t) => {
+  const snapshot = mkdtempSync(join(tmpdir(), "fusou-notary-preflight-snapshot-"));
+  const approval = mkdtempSync(join(tmpdir(), "fusou-notary-preflight-approval-"));
+  t.after(() => {
+    rmSync(snapshot, { recursive: true, force: true });
+    rmSync(approval, { recursive: true, force: true });
+  });
+  const { args } = fixture();
+  const { now_ms: _now, ...policy } = args.policy;
+  const files = {
+    "runtime-config-envelope.json": args.envelopeRaw,
+    "notary-operator-public-config.json": args.notaryPublicConfigRaw,
+    "session-authority-registry.json": args.sessionRegistryRaw,
+  };
+  for (const [field, name] of runtimeConfigArtifacts) {
+    files[name] = args.independentInputs[field];
+  }
+  for (const [name, value] of Object.entries(files)) writeFileSync(join(snapshot, name), value);
+  writeFileSync(join(approval, "runtime-config-trust.json"), raw({
+    trusted_signer: args.trustedSigner,
+    policy,
+  }));
+  writeFileSync(join(approval, "notary-registration.json"), args.registrationRaw);
+
+  const script = fileURLToPath(new URL("./notary-operational-preflight.mjs", import.meta.url));
+  for (const [field, name] of runtimeConfigArtifacts) {
+    const original = args.independentInputs[field];
+    for (const [resetField, resetName] of runtimeConfigArtifacts) {
+      writeFileSync(join(snapshot, resetName), args.independentInputs[resetField]);
+    }
+    for (const size of [APP_RUNTIME_CONFIG_ARTIFACT_LIMIT, APP_RUNTIME_CONFIG_ARTIFACT_LIMIT + 1]) {
+      writeFileSync(join(snapshot, name), padded(original, size));
+      const result = spawnSync(process.execPath, [
+        script, snapshot, approval, args.approvedRegistrationSha256,
+      ], { encoding: "utf8", timeout: 5000 });
+      assert.equal(result.status, 1, `${name} at ${size} bytes`);
+      const readFailure = `Notary preflight: Missing, unreadable, or oversized input: ${name}\n`;
+      if (size === APP_RUNTIME_CONFIG_ARTIFACT_LIMIT) {
+        assert.notEqual(result.stderr, readFailure, `${name} at the inclusive limit`);
+      } else {
+        assert.equal(result.stderr, readFailure, `${name} over the limit`);
+      }
+    }
+  }
 });
