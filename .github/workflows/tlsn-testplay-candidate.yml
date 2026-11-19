@@ -484,6 +484,10 @@ jobs:
           run_exact_test \
             synthetic_notary::tests::durable_notary_claims_once_and_returns_the_exact_saved_result
           run_exact_test \
+            synthetic_notary::tests::finalized_parent_directory_sync_failure_blocks_queries_until_durable_reopen
+          run_exact_test \
+            synthetic_notary::tests::signing_parent_directory_sync_failure_reopens_as_unknown_without_reuse
+          run_exact_test \
             synthetic_notary::tests::process_restart_preserves_durable_notary_states_and_exact_result_bytes
           run_exact_test \
             synthetic_notary::tests::missing_store_file_fails_closed_for_all_persisted_states
@@ -507,6 +511,59 @@ jobs:
             synthetic_notary::tests::restart_after_admission_marks_operation_unknown_without_signature
           run_exact_test \
             synthetic_notary::tests::result_query_requires_the_pinned_authority_signature
+          run_exact_test \
+            experimental_tlsn::tests::prepared_binding_expiry_is_exclusive_at_deadline
+          run_exact_test \
+            experimental_tlsn::tests::prepared_binding_issue_rechecks_expiry_after_readiness
+          run_exact_test \
+            experimental_tlsn::tests::prepared_binding_expiry_does_not_release_an_in_use_capture
+          run_exact_test \
+            experimental_tlsn::tests::expired_prepared_binding_falls_back_before_transport_send
+          run_exact_test \
+            experimental_tlsn::tests::expired_binding_cleanup_serializes_concurrent_repreparation
+          run_exact_test \
+            experimental_tlsn::tests::prepared_binding_keeps_grantless_test_bindings_compatible
+          run_exact_test \
+            real_tlsn::tests::presentation_handoff_cleanup_is_capture_scoped_for_identical_requests
+          run_exact_test \
+            real_tlsn::tests::verified_worker_results_are_capture_scoped_through_cancel_and_late_cleanup
+          run_exact_test \
+            real_tlsn::tests::forwarder_cancellation_after_presentation_publish_cleans_before_verifier
+          run_exact_test \
+            real_tlsn::tests::forwarder_cancellation_after_worker_result_registration_cleans_before_persistence
+          run_exact_test \
+            real_tlsn::tests::remote_session_cleanup_preserves_a_replacement_context
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
+          RUSTUP_TOOLCHAIN: "1.98.1"
+          RUSTUP_AUTO_INSTALL: "0"
+
+      - name: Run Notary MPC configuration preflight policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=packages/FUSOU-PROXY/proxy-https/Cargo.toml
+          features=operational-notary
+          listing="$(
+            cargo +1.98.1 test --locked --offline --lib --features "$features" \
+              --manifest-path "$manifest" -- --list
+          )"
+          required_tests=(
+            notary_server::tests::notary_mpc_config_accepts_proxy_defaults_at_exact_byte_limits
+            notary_server::tests::notary_mpc_config_rejects_byte_limits_above_capacity
+            notary_server::tests::notary_mpc_config_rejects_online_decryption_above_proxy_default
+            notary_server::tests::notary_mpc_config_rejects_explicit_record_limits
+            notary_server::tests::notary_mpc_config_rejects_unsupported_decryption_and_network_options
+          )
+          for test_name in "${required_tests[@]}"; do
+            if ! grep -Fxq "$test_name: test" <<< "$listing"; then
+              echo "Required Notary MPC policy test was not discovered: $test_name" >&2
+              exit 1
+            fi
+            cargo +1.98.1 test --locked --offline --lib --features "$features" \
+              --manifest-path "$manifest" "$test_name" -- --exact --test-threads=1
+          done
         env:
           CARGO_NET_OFFLINE: "true"
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
@@ -526,10 +583,13 @@ jobs:
           )"
           required_tests=(
             concurrent_same_grant_admission_has_one_origin_send_and_one_final_result
+            finalized_parent_directory_sync_failure_hides_result_until_same_ledger_reopens
             foreign_live_grant_and_client_acceptance_are_rejected_after_one_origin_send
             interrupted_admission_and_signing_claim_restart_as_unknown_without_retry
             missing_and_corrupt_existing_store_do_not_start_as_empty_notary
+            notary_rejects_unsupported_mpc_config_before_setup_without_publishing_result
             separate_notary_completes_complete_and_sparse_roundtrips_and_replays_exact_results
+            shared_transport_isolates_identical_request_bytes_by_capture_binding
             wrong_authority_signature_expiry_and_notary_pin_never_send_origin_http
           )
           discovered="$(awk '/: test$/ { count++ } END { print count + 0 }' <<< "$listing")"

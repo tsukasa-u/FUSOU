@@ -6,7 +6,15 @@ use std::process::ExitCode;
 #[tokio::main]
 async fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
-    let command = match args.next().as_deref().and_then(std::ffi::OsStr::to_str) {
+    let command_argument = args.next();
+    let is_serve = command_argument
+        .as_deref()
+        .and_then(std::ffi::OsStr::to_str)
+        == Some("serve");
+    let command = match command_argument
+        .as_deref()
+        .and_then(std::ffi::OsStr::to_str)
+    {
         Some("init") => Some(Command::Init),
         Some("export-public") => Some(Command::ExportPublic),
         Some("serve") => Some(Command::Serve),
@@ -16,6 +24,12 @@ async fn main() -> ExitCode {
         eprintln!("Usage: fusou-notary <init|export-public|serve> CONFIG.json");
         return ExitCode::from(2);
     };
+    if is_serve {
+        if let Err(error) = proxy_https::notary_server::init_notary_stderr_diagnostics() {
+            eprintln!("Notary diagnostics unavailable: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
     match run(command, std::path::Path::new(&config)).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

@@ -39,10 +39,10 @@ use rcgen::{
 use ring::signature::Ed25519KeyPair;
 use std::{
     fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, ChildStderr, Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, OnceLock,
@@ -52,10 +52,12 @@ use std::{
 use tlsn::{
     attestation::signing::VerifyingKey,
     attestation::{Attestation, Extension},
+    config::{prover::ProverConfig, tls_commit::mpc::MpcTlsConfig},
+    Session,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::mpsc,
     task::JoinHandle,
     time::{sleep, timeout},
@@ -64,6 +66,7 @@ use tokio_rustls::{
     rustls::pki_types::{CertificateDer, PrivateKeyDer},
     TlsAcceptor,
 };
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use uuid::Uuid;
 
 const AUTHORITY_SEED: [u8; 32] = [42; 32];
@@ -199,10 +202,28 @@ struct NotaryProcess {
     child: Child,
     ready_file: PathBuf,
     endpoint: String,
+    stderr: Option<ChildStderr>,
 }
 
 impl NotaryProcess {
     fn spawn(workspace: &TestWorkspace, files: &NotaryFiles, fault: &str) -> Result<Self, String> {
+        Self::spawn_inner(workspace, files, fault, false)
+    }
+
+    fn spawn_capturing_stderr(
+        workspace: &TestWorkspace,
+        files: &NotaryFiles,
+        fault: &str,
+    ) -> Result<Self, String> {
+        Self::spawn_inner(workspace, files, fault, true)
+    }
+
+    fn spawn_inner(
+        workspace: &TestWorkspace,
+        files: &NotaryFiles,
+        fault: &str,
+        capture_stderr: bool,
+    ) -> Result<Self, String> {
         let ready_file = workspace.path("notary-ready.txt");
         match fs::remove_file(&ready_file) {
             Ok(()) => {}
@@ -229,15 +250,21 @@ impl NotaryProcess {
             .arg(fault)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            .stderr(if capture_stderr {
+                Stdio::piped()
+            } else {
+                Stdio::inherit()
+            });
         Self::guard_notary_child(&mut command);
-        let child = command
+        let mut child = command
             .spawn()
             .map_err(|error| format!("start separate local Notary process: {error}"))?;
+        let stderr = child.stderr.take();
         let mut process = Self {
             child,
             ready_file,
             endpoint: String::new(),
+            stderr,
         };
         for _ in 0..500 {
             if let Ok(value) = fs::read_to_string(&process.ready_file) {
@@ -260,6 +287,17 @@ impl NotaryProcess {
             std::thread::sleep(Duration::from_millis(10));
         }
         Err("local Notary did not publish its readiness address".to_owned())
+    }
+
+    fn read_stderr(&mut self) -> Result<Vec<u8>, String> {
+        let Some(mut stderr) = self.stderr.take() else {
+            return Ok(Vec::new());
+        };
+        let mut output = Vec::new();
+        stderr
+            .read_to_end(&mut output)
+            .map_err(|error| format!("read Notary standard error: {error}"))?;
+        Ok(output)
     }
 
     fn guard_notary_child(command: &mut Command) {
@@ -680,7 +718,12 @@ async fn run_once_with_scope(
     let request_digest = sha256(request.bytes());
     let presentation = match capture.proof.run().await {
         Ok(()) => handoff
-            .take_for(&request_digest)
+            .take_for_capture(
+                request
+                    .capture_identifier()
+                    .expect("transport request must be bound to a capture"),
+                &request_digest,
+            )
             .map(|presentation| presentation.bytes().to_vec())
             .map_err(|error| format!("take TLSN Presentation: {error}")),
         Err(error) => Err(format!("TLSN proof continuation failed: {error}")),
@@ -881,6 +924,302 @@ async fn separate_notary_completes_complete_and_sparse_roundtrips_and_replays_ex
         NotaryGrantStatus::Finalized
     );
     origin.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_transport_isolates_identical_request_bytes_by_capture_binding() {
+    let workspace = TestWorkspace::new();
+    let credentials = Credentials::new();
+    let files = NotaryFiles::initialize(&workspace, &credentials);
+    let mut notary =
+        NotaryProcess::spawn(&workspace, &files, "none").expect("start separate local Notary");
+    let mut origin = LoopbackOrigin::start(&credentials).await;
+    let config = origin_config(origin.address, &credentials.root_der);
+    let (transport, handoff) = make_transport_with_scope(
+        config,
+        &notary.endpoint,
+        notary_verifying_key(),
+        DisclosureMode::Complete,
+        NOTARY_ID,
+        ENVIRONMENT,
+        None,
+        Vec::new(),
+    );
+    let mut first_request = None;
+    let mut first_serialized_request = None;
+
+    for nonce in [0x61, 0x62] {
+        let grant = fresh_grant(DEVICE_ID, nonce);
+        let request = request_for(&grant);
+        let request_bytes = request.bytes().to_vec();
+        if let Some(first_request) = first_request.as_ref() {
+            assert_eq!(request_bytes, *first_request);
+        } else {
+            first_request = Some(request_bytes.clone());
+            first_serialized_request = Some(request.clone());
+        }
+
+        let capture = transport
+            .send_once_with_lifecycle(request.clone(), lifecycle())
+            .await
+            .expect("shared transport permits a distinct capture binding");
+        assert_eq!(
+            capture.exchange.response.raw_response_bytes.as_ref(),
+            origin.response
+        );
+        assert_headerless_request(&origin.next_request().await, &request_bytes);
+        capture
+            .proof
+            .run()
+            .await
+            .expect("Notary completes this capture's Presentation");
+        let presentation = handoff
+            .take_for_capture(
+                request
+                    .capture_identifier()
+                    .expect("serialized request has a capture identifier"),
+                &sha256(request.bytes()),
+            )
+            .expect("take this capture's Presentation")
+            .bytes()
+            .to_vec();
+        verify_presentation(
+            &presentation,
+            &grant,
+            &request_bytes,
+            &credentials,
+            DisclosureMode::Complete,
+        );
+        transport
+            .finish_capture(
+                request
+                    .capture_identifier()
+                    .expect("serialized request has a capture identifier"),
+            )
+            .expect("release transport state for completed capture");
+    }
+
+    assert_eq!(origin.request_count(), 2);
+    assert!(
+        transport
+            .send_once_with_lifecycle(
+                first_serialized_request.expect("retain first capture for replay test"),
+                lifecycle(),
+            )
+            .await
+            .is_err(),
+        "a finalized grant cannot cause another origin send",
+    );
+    origin.assert_request_count(2).await;
+    origin.stop().await;
+    let stopped = notary.stop().expect("stop separate local Notary");
+    assert!(stopped.success(), "Notary should stop successfully");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn notary_rejects_unsupported_mpc_config_before_setup_without_publishing_result() {
+    let workspace = TestWorkspace::new();
+    let credentials = Credentials::new();
+    let files = NotaryFiles::initialize(&workspace, &credentials);
+    let mut notary =
+        NotaryProcess::spawn(&workspace, &files, "none").expect("start separate local Notary");
+    let grant = fresh_grant(DEVICE_ID, 0x63);
+
+    let mut socket = TcpStream::connect(&notary.endpoint)
+        .await
+        .expect("connect to loopback Notary");
+    notary_wire::client_admit(
+        &mut socket,
+        &grant.bytes,
+        &notary_verifying_key(),
+        NOTARY_ID,
+        ENVIRONMENT,
+    )
+    .await
+    .expect("complete signed Session grant admission");
+
+    let session = Session::new(socket.compat());
+    let (driver, mut handle) = session.split();
+    let driver_task = tokio::spawn(driver);
+    let prover = handle
+        .new_prover(
+            ProverConfig::builder()
+                .build()
+                .expect("build test prover configuration"),
+        )
+        .expect("create test prover");
+    let unsupported_config = MpcTlsConfig::builder()
+        .max_sent_data(128 * 1024 + 1)
+        .max_recv_data(4 * 1024 * 1024)
+        .build()
+        .expect("build over-limit MPC-TLS proposal");
+    let commit_result = timeout(Duration::from_secs(10), prover.commit(unsupported_config)).await;
+    assert!(
+        matches!(commit_result, Ok(Err(_))),
+        "Notary must reject the proposal before accepting or setting up MPC-TLS"
+    );
+    handle.close();
+    let driver_result = timeout(Duration::from_secs(10), driver_task)
+        .await
+        .expect("client TLSN session driver terminates after rejection");
+    assert!(
+        driver_result.is_ok(),
+        "client TLSN session driver must not panic after rejection"
+    );
+
+    let stopped = notary.stop().expect("stop Notary after config rejection");
+    assert!(
+        stopped.success(),
+        "Notary should stop cleanly after rejecting the config"
+    );
+    let reopened = LocalTestNotary::open_existing(
+        files.store.clone(),
+        synthetic_session_authority_public_key_spki(),
+        AUTHORITY_KEY_ID,
+        NOTARY_ID,
+        ENVIRONMENT,
+    )
+    .expect("reopen the same Notary ledger");
+    assert_eq!(
+        reopened.status(&grant.bytes).expect("read grant state"),
+        NotaryGrantStatus::Unknown,
+        "rejected configuration must not return an admitted grant to Unused"
+    );
+    assert!(
+        reopened.exact_result(&grant.bytes).is_err(),
+        "rejected configuration must not publish a finalized Attestation"
+    );
+    assert!(
+        reopened.admit_grant(&grant.bytes, now_ms()).is_err(),
+        "a grant admitted before config rejection cannot be reused"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn finalized_parent_directory_sync_failure_hides_result_until_same_ledger_reopens() {
+    let workspace = TestWorkspace::new();
+    let credentials = Credentials::new();
+    let files = NotaryFiles::initialize(&workspace, &credentials);
+    let mut notary = NotaryProcess::spawn_capturing_stderr(
+        &workspace,
+        &files,
+        "after-finalized-parent-directory-sync",
+    )
+    .expect("start Notary with parent-directory sync fault injection");
+    let mut origin = LoopbackOrigin::start(&credentials).await;
+    let config = origin_config(origin.address, &credentials.root_der);
+    let grant = fresh_grant(DEVICE_ID, 0x7d);
+    let request = request_for(&grant);
+    let outcome = run_once(
+        config.clone(),
+        &notary.endpoint,
+        request.clone(),
+        notary_verifying_key(),
+        DisclosureMode::Complete,
+        None,
+        Vec::new(),
+    )
+    .await
+    .expect("capture preserves the received origin response after proof failure");
+    assert_eq!(outcome.response, origin.response);
+    assert!(
+        outcome.presentation.is_err(),
+        "uncertain Finalized persistence must not complete the TLSN result"
+    );
+    assert_headerless_request(&origin.next_request().await, request.bytes());
+    assert_eq!(origin.request_count(), 1);
+    for _ in 0..3 {
+        assert!(
+            notary_wire::query_finalized_result(&notary.endpoint, &grant.bytes)
+                .await
+                .is_err(),
+            "a separate QueryFinalized connection cannot expose uncertain bytes"
+        );
+    }
+
+    let ledger: serde_json::Value = serde_json::from_slice(
+        &fs::read(&files.store).expect("read visible ledger after successful rename"),
+    )
+    .expect("parse visible Notary ledger");
+    let grant_digest =
+        URL_SAFE_NO_PAD.encode(SessionContextGrant::parse(&grant.bytes).unwrap().digest());
+    let state = &ledger["grants"][&grant_digest]["state"];
+    assert_eq!(
+        state["state"].as_str(),
+        Some("finalized"),
+        "the injected failure occurs after the Finalized rename"
+    );
+    let persisted_result = URL_SAFE_NO_PAD
+        .decode(
+            state["exact_result_base64url"]
+                .as_str()
+                .expect("Finalized ledger row contains exact result bytes"),
+        )
+        .expect("decode exact result bytes from renamed ledger");
+    let _: Attestation =
+        bincode::deserialize(&persisted_result).expect("renamed result is a signed Attestation");
+
+    assert!(
+        notary
+            .stop()
+            .expect("stop quarantined Notary process")
+            .success(),
+        "fault-injected Notary exits cleanly after the connection failure"
+    );
+    let diagnostic_bytes = notary
+        .read_stderr()
+        .expect("capture durability diagnostics from standard error");
+    let diagnostics = String::from_utf8_lossy(&diagnostic_bytes);
+    assert_eq!(
+        diagnostics
+            .matches("notary_ledger_persistence_uncertain")
+            .count(),
+        1,
+        "the durability transition emits one stable diagnostic, even after repeated queries: {diagnostics}"
+    );
+    assert!(
+        diagnostics.contains("Notary ledger durability is unconfirmed"),
+        "the diagnostic identifies the fail-closed persistence state: {diagnostics}"
+    );
+    for secret_bytes in [grant.bytes.as_slice(), persisted_result.as_slice()] {
+        assert!(
+            !diagnostic_bytes
+                .windows(secret_bytes.len())
+                .any(|window| window == secret_bytes),
+            "standard error does not contain raw grant or Attestation bytes"
+        );
+        let encoded_secret = URL_SAFE_NO_PAD.encode(secret_bytes);
+        assert!(
+            !diagnostics.contains(encoded_secret.as_str()),
+            "standard error does not contain a base64url grant or Attestation"
+        );
+    }
+    let mut restarted =
+        NotaryProcess::spawn(&workspace, &files, "none").expect("reopen the same ledger");
+    let recovered = notary_wire::query_finalized_result(&restarted.endpoint, &grant.bytes)
+        .await
+        .expect("read exact result only after same-ledger durability verification");
+    assert_eq!(recovered, persisted_result);
+    let _: Attestation =
+        bincode::deserialize(&recovered).expect("recovered exact Attestation remains valid");
+
+    assert!(
+        run_once(
+            config,
+            &restarted.endpoint,
+            request,
+            notary_verifying_key(),
+            DisclosureMode::Complete,
+            None,
+            Vec::new(),
+        )
+        .await
+        .is_err(),
+        "the finalized grant cannot be re-admitted or re-signed after restart"
+    );
+    origin.assert_request_count(1).await;
+    origin.stop().await;
+    assert!(restarted.stop().expect("stop recovered Notary").success());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

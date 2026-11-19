@@ -51,6 +51,9 @@ fn parse_arguments() -> Result<Arguments, String> {
                     "none" => LocalTestNotaryFault::None,
                     "after-admission" => LocalTestNotaryFault::ExitAfterAdmission,
                     "after-signing-claim" => LocalTestNotaryFault::ExitAfterSigningClaim,
+                    "after-finalized-parent-directory-sync" => {
+                        LocalTestNotaryFault::FailParentDirectorySyncAfterRename
+                    }
                     _ => return Err("invalid local test fault point".to_owned()),
                 };
             }
@@ -74,6 +77,10 @@ fn parse_arguments() -> Result<Arguments, String> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if let Err(error) = proxy_https::notary_server::init_notary_stderr_diagnostics() {
+        eprintln!("local test Notary diagnostics unavailable: {error}");
+        return ExitCode::FAILURE;
+    }
     let arguments = match parse_arguments() {
         Ok(arguments) => arguments,
         Err(error) => {

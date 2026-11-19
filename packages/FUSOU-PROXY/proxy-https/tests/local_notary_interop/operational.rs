@@ -52,12 +52,20 @@ fn assert_start_fails(path: &Path, expected: &str) {
 
 async fn start(workspace: &TestWorkspace, config: &Path, listen: &str) -> NotaryProcess {
     let mut command = Command::new(binary());
-    command.arg("serve").arg(config).stdin(Stdio::null());
+    command
+        .arg("serve")
+        .arg(config)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
     NotaryProcess::guard_notary_child(&mut command);
+    let mut child = command.spawn().unwrap();
+    let stderr = child.stderr.take();
     let mut process = NotaryProcess {
-        child: command.spawn().unwrap(),
+        child,
         ready_file: workspace.path("unused-operational-ready-file"),
         endpoint: listen.to_owned(),
+        stderr,
     };
     for _ in 0..500 {
         assert!(process.child.try_wait().unwrap().is_none());
@@ -277,6 +285,16 @@ async fn normal_binary_complete_and_restarts_using_the_same_ledger() {
     origin.assert_request_count(1).await;
     origin.stop().await;
     assert!(restarted.stop().unwrap().success());
+    let stderr = restarted.read_stderr().expect("read normal serve stderr");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(
+        stderr.contains("Notary connection rejected or failed"),
+        "normal serve connection rejections reach standard error: {stderr}"
+    );
+    assert!(
+        !stderr.contains("notary_ledger_persistence_uncertain"),
+        "ordinary connection rejections remain distinct from ledger-stop diagnostics"
+    );
     let ledger_path = ledger.join("ledger.json");
     let state: Value = serde_json::from_slice(&fs::read(&ledger_path).unwrap()).unwrap();
     let grants = state["grants"].as_object().unwrap();

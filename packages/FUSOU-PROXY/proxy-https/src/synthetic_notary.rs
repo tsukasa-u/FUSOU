@@ -65,6 +65,12 @@ struct GrantRecord {
     state: GrantState,
 }
 
+#[cfg(test)]
+struct ParentDirectorySyncFailureGate {
+    reached: std::sync::mpsc::Sender<()>,
+    resume: std::sync::mpsc::Receiver<()>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum GrantState {
@@ -80,6 +86,11 @@ struct DurableGrantStore {
     process_instance_id: String,
     operational_config_sha256: Option<String>,
     _instance_lock: Option<File>,
+    durability_uncertain: AtomicBool,
+    #[cfg(any(test, feature = "local-test-notary-fault-injection"))]
+    fail_next_parent_directory_sync: Arc<AtomicBool>,
+    #[cfg(test)]
+    parent_directory_sync_failure_gate: Mutex<Option<ParentDirectorySyncFailureGate>>,
 }
 
 pub struct DurableNotary {
@@ -368,6 +379,11 @@ impl DurableNotary {
 }
 
 impl LiveNotarySessionContext {
+    #[cfg(feature = "local-test-notary-fault-injection")]
+    pub(crate) fn parent_directory_sync_failure_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.lease.notary.store.fail_next_parent_directory_sync)
+    }
+
     #[cfg(test)]
     fn simulate_process_loss(&self) {
         self.lease.terminal.store(true, Ordering::Release);
@@ -709,6 +725,11 @@ impl DurableGrantStore {
                 .clone(),
             operational_config_sha256: None,
             _instance_lock: None,
+            durability_uncertain: AtomicBool::new(false),
+            #[cfg(any(test, feature = "local-test-notary-fault-injection"))]
+            fail_next_parent_directory_sync: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            parent_directory_sync_failure_gate: Mutex::new(None),
         }
     }
 
@@ -737,6 +758,7 @@ impl DurableGrantStore {
 
     fn read<R>(&self, action: impl FnOnce(&StoreFile) -> Result<R, String>) -> Result<R, String> {
         let _lock = self.lock()?;
+        self.ensure_durability_confirmed()?;
         let database = self.load()?;
         action(&database)
     }
@@ -746,10 +768,61 @@ impl DurableGrantStore {
         action: impl FnOnce(&mut StoreFile) -> Result<R, String>,
     ) -> Result<R, String> {
         let _lock = self.lock()?;
+        self.ensure_durability_confirmed()?;
         let mut database = self.load()?;
         let result = action(&mut database)?;
         self.save(&database)?;
         Ok(result)
+    }
+
+    fn ensure_durability_confirmed(&self) -> Result<(), String> {
+        if self.durability_uncertain.load(Ordering::Acquire) {
+            Err("Notary ledger durability is uncertain; this process is fail-closed".to_owned())
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    fn arm_parent_directory_sync_failure(
+        &self,
+        reached: std::sync::mpsc::Sender<()>,
+        resume: std::sync::mpsc::Receiver<()>,
+    ) {
+        *self
+            .parent_directory_sync_failure_gate
+            .lock()
+            .expect("lock test parent-directory sync gate") =
+            Some(ParentDirectorySyncFailureGate { reached, resume });
+        self.fail_next_parent_directory_sync
+            .store(true, Ordering::Release);
+    }
+
+    fn sync_parent_directory(&self, parent: &std::path::Path) -> Result<(), String> {
+        #[cfg(any(test, feature = "local-test-notary-fault-injection"))]
+        if self
+            .fail_next_parent_directory_sync
+            .swap(false, Ordering::AcqRel)
+        {
+            #[cfg(test)]
+            if let Some(gate) = self
+                .parent_directory_sync_failure_gate
+                .lock()
+                .map_err(|_| "parent-directory sync test gate is poisoned".to_owned())?
+                .take()
+            {
+                gate.reached
+                    .send(())
+                    .map_err(|_| "parent-directory sync test gate closed early".to_owned())?;
+                gate.resume.recv().map_err(|_| {
+                    "parent-directory sync test release was not received".to_owned()
+                })?;
+            }
+            return Err(
+                "injected parent-directory sync failure after Notary ledger rename".to_owned(),
+            );
+        }
+        sync_parent_directory(parent)
     }
 
     fn load(&self) -> Result<StoreFile, String> {
@@ -856,12 +929,21 @@ impl DurableGrantStore {
                 .path
                 .parent()
                 .ok_or_else(|| "Notary store path lost its parent directory".to_owned())?;
-            sync_parent_directory(parent)
+            self.sync_parent_directory(parent)
         })();
-        if write_result.is_err() {
+        if let Err(error) = write_result {
+            if !self.durability_uncertain.swap(true, Ordering::AcqRel) {
+                tracing::error!(
+                    target: "fusou_notary::ledger",
+                    event = "notary_ledger_persistence_uncertain",
+                    %error,
+                    "Notary ledger durability is unconfirmed; ledger reads and writes are disabled until same-ledger restart verification"
+                );
+            }
             let _ = fs::remove_file(&temporary_path);
+            return Err(error);
         }
-        write_result
+        Ok(())
     }
 }
 
@@ -1082,6 +1164,13 @@ mod tests {
             notary.status(&grant).expect("signing status"),
             NotaryGrantStatus::Signing
         );
+        assert!(live
+            .validate_request_extensions(&[extension(&grant)], now_ms())
+            .is_err());
+        assert_eq!(
+            notary.status(&grant).expect("single signing claim status"),
+            NotaryGrantStatus::Signing
+        );
         let exact_result = b"signed Notary result bytes";
         live.finalize_exact_result(exact_result)
             .expect("persist exact signed result");
@@ -1104,6 +1193,160 @@ mod tests {
             reopened.exact_result(&grant).expect("reopen exact result"),
             Some(exact_result.to_vec())
         );
+    }
+
+    #[test]
+    fn finalized_parent_directory_sync_failure_blocks_queries_until_durable_reopen() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.0.join("state.json");
+        let notary = initialize_test_notary(path.clone());
+        let grant = grant_bytes();
+        let live = notary
+            .admit_grant(&grant, now_ms())
+            .expect("admit Session Authority grant");
+        live.validate_request_extensions(&[extension(&grant)], now_ms())
+            .expect("persist signing claim before finalization");
+        let expected_result = b"exact signed Notary result bytes".to_vec();
+        let (sync_reached_tx, sync_reached_rx) = std::sync::mpsc::channel();
+        let (resume_sync_tx, resume_sync_rx) = std::sync::mpsc::channel();
+        notary
+            .store
+            .arm_parent_directory_sync_failure(sync_reached_tx, resume_sync_rx);
+
+        let finalize = thread::spawn(move || live.finalize_exact_result(&expected_result));
+        sync_reached_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("Finalized rename completes before injected parent-directory sync failure");
+
+        let grant_digest =
+            URL_SAFE_NO_PAD.encode(SessionContextGrant::parse(&grant).unwrap().digest());
+        let database = notary
+            .store
+            .load()
+            .expect("read renamed ledger bytes while sync is paused");
+        let record = database
+            .grants
+            .get(&grant_digest)
+            .expect("renamed ledger contains the grant");
+        let GrantState::Finalized {
+            exact_result_base64url,
+        } = &record.state
+        else {
+            panic!("renamed ledger contains Finalized state before directory sync");
+        };
+        assert_eq!(
+            URL_SAFE_NO_PAD.decode(exact_result_base64url).unwrap(),
+            b"exact signed Notary result bytes"
+        );
+
+        let query_notary = Arc::clone(&notary);
+        let query_grant = grant.clone();
+        let (query_started_tx, query_started_rx) = std::sync::mpsc::channel();
+        let query = thread::spawn(move || {
+            query_started_tx
+                .send(())
+                .expect("signal start of concurrent exact-result query");
+            query_notary.exact_result(&query_grant)
+        });
+        query_started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("start exact-result query while save lock is held");
+        resume_sync_tx
+            .send(())
+            .expect("release injected parent-directory sync failure");
+
+        assert!(finalize.join().expect("join result finalization").is_err());
+        assert!(query.join().expect("join concurrent result query").is_err());
+        assert!(notary.exact_result(&grant).is_err());
+        assert!(notary.status(&grant).is_err());
+        assert!(notary.admit_grant(&grant, now_ms()).is_err());
+        drop(notary);
+
+        let recovery = DurableGrantStore::for_path(path.clone());
+        recovery
+            .fail_next_parent_directory_sync
+            .store(true, Ordering::Release);
+        assert!(
+            recovery.open_existing().is_err(),
+            "restart cannot serve while it cannot durably confirm the existing ledger"
+        );
+
+        let reopened = reopen_test_notary(path).expect("durably reopen the same ledger");
+        assert_eq!(
+            reopened
+                .status(&grant)
+                .expect("read recovered grant status"),
+            NotaryGrantStatus::Finalized
+        );
+        assert_eq!(
+            reopened
+                .exact_result(&grant)
+                .expect("read recovered exact result"),
+            Some(b"exact signed Notary result bytes".to_vec())
+        );
+        assert!(reopened.admit_grant(&grant, now_ms()).is_err());
+    }
+
+    #[test]
+    fn signing_parent_directory_sync_failure_reopens_as_unknown_without_reuse() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.0.join("state.json");
+        let notary = initialize_test_notary(path.clone());
+        let grant = grant_bytes();
+        let live = notary
+            .admit_grant(&grant, now_ms())
+            .expect("admit Session Authority grant");
+        let (sync_reached_tx, sync_reached_rx) = std::sync::mpsc::channel();
+        let (resume_sync_tx, resume_sync_rx) = std::sync::mpsc::channel();
+        notary
+            .store
+            .arm_parent_directory_sync_failure(sync_reached_tx, resume_sync_rx);
+
+        let signing_grant = grant.clone();
+        let claim = thread::spawn(move || {
+            live.validate_request_extensions(&[extension(&signing_grant)], now_ms())
+        });
+        sync_reached_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("Signing rename completes before injected parent-directory sync failure");
+        let grant_digest =
+            URL_SAFE_NO_PAD.encode(SessionContextGrant::parse(&grant).unwrap().digest());
+        let database = notary
+            .store
+            .load()
+            .expect("read renamed Signing state while sync is paused");
+        assert!(matches!(
+            &database.grants[&grant_digest].state,
+            GrantState::Signing
+        ));
+        resume_sync_tx
+            .send(())
+            .expect("release injected parent-directory sync failure");
+        assert!(claim.join().expect("join Signing claim").is_err());
+        assert!(notary.exact_result(&grant).is_err());
+        assert!(notary.admit_grant(&grant, now_ms()).is_err());
+        drop(notary);
+
+        mark_store_as_prior_process(&path);
+        let recovery = DurableGrantStore::for_path(path.clone());
+        recovery
+            .fail_next_parent_directory_sync
+            .store(true, Ordering::Release);
+        assert!(
+            recovery.open_existing().is_err(),
+            "restart cannot serve before the Unknown transition is durably confirmed"
+        );
+
+        let reopened =
+            reopen_test_notary(path).expect("reopen the same ledger after sync recovers");
+        assert_eq!(
+            reopened
+                .status(&grant)
+                .expect("read recovered grant status"),
+            NotaryGrantStatus::Unknown
+        );
+        assert!(reopened.exact_result(&grant).is_err());
+        assert!(reopened.admit_grant(&grant, now_ms()).is_err());
     }
 
     #[test]

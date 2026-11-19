@@ -1,3 +1,4 @@
+use crate::experimental_tlsn::{MAX_TLSN_RECV_DATA_BYTES, MAX_TLSN_SENT_DATA_BYTES};
 #[cfg(feature = "local-test-notary")]
 use crate::synthetic_notary::{LOCAL_TEST_ENVIRONMENT, LOCAL_TEST_NOTARY_ID};
 use crate::{
@@ -24,8 +25,14 @@ use std::{
 #[cfg(feature = "local-test-notary")]
 use tlsn::webpki::CertificateDer;
 use tlsn::{
-    attestation::request::Request as AttestationRequest, config::verifier::VerifierConfig,
-    verifier::VerifierCommitStart, webpki::RootCertStore, Session,
+    attestation::request::Request as AttestationRequest,
+    config::{
+        tls_commit::mpc::{MpcTlsConfig, NetworkSetting},
+        verifier::VerifierConfig,
+    },
+    verifier::VerifierCommitStart,
+    webpki::RootCertStore,
+    Session,
 };
 use tokio::{
     io::AsyncWriteExt as TokioAsyncWriteExt,
@@ -44,8 +51,18 @@ const MAX_NOTARY_SIGNING_KEY_BYTES: usize = 32;
 const MAX_ROOT_CERTIFICATE_BYTES: usize = 1024 * 1024;
 const MAX_ATTESTATION_REQUEST_BYTES: usize = MAX_FINALIZED_RESULT_BYTES;
 const CONNECTION_LIMIT: usize = 32;
+const UNSUPPORTED_MPC_CONFIG_MESSAGE: &str = "unsupported TLSN MPC configuration";
 #[cfg(feature = "local-test-notary-fault-injection")]
 const FAULT_EXIT_CODE: i32 = 86;
+
+pub fn init_notary_stderr_diagnostics() -> Result<(), String> {
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .with_max_level(tracing::Level::WARN)
+        .try_init()
+        .map_err(|_| "could not initialize Notary stderr diagnostics".to_owned())
+}
 
 #[cfg(feature = "local-test-notary")]
 #[derive(Debug)]
@@ -67,6 +84,7 @@ pub enum LocalTestNotaryFault {
     None,
     ExitAfterAdmission,
     ExitAfterSigningClaim,
+    FailParentDirectorySyncAfterRename,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -293,6 +311,41 @@ async fn handle_connection(
     }
 }
 
+fn proxy_default_mpc_config() -> MpcTlsConfig {
+    MpcTlsConfig::builder()
+        .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+        .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+        .build()
+        .expect("the pinned FUSOU MPC-TLS defaults are valid")
+}
+
+fn validate_mpc_config(config: &MpcTlsConfig) -> Result<(), &'static str> {
+    if config.max_sent_data() > MAX_TLSN_SENT_DATA_BYTES {
+        return Err("max_sent_data exceeds the FUSOU limit");
+    }
+    if config.max_recv_data() > MAX_TLSN_RECV_DATA_BYTES {
+        return Err("max_recv_data exceeds the FUSOU limit");
+    }
+
+    let proxy_defaults = proxy_default_mpc_config();
+    if config.max_recv_data_online() > proxy_defaults.max_recv_data_online() {
+        return Err("max_recv_data_online exceeds the FUSOU profile");
+    }
+    if config.max_sent_records().is_some() {
+        return Err("explicit max_sent_records is unsupported");
+    }
+    if config.max_recv_records_online().is_some() {
+        return Err("explicit max_recv_records_online is unsupported");
+    }
+    if config.defer_decryption_from_start() != proxy_defaults.defer_decryption_from_start() {
+        return Err("unsupported defer_decryption_from_start setting");
+    }
+    if !matches!(config.network(), NetworkSetting::Latency) {
+        return Err("unsupported TLSN network setting");
+    }
+    Ok(())
+}
+
 async fn run_tlsn_attestation(
     socket: TcpStream,
     live_session: crate::synthetic_notary::LiveNotarySessionContext,
@@ -318,6 +371,13 @@ async fn run_tlsn_attestation(
         let VerifierCommitStart::Mpc(verifier) = verifier else {
             return Err("Notary accepts only the pinned TLSN MPC profile".to_owned());
         };
+        if let Err(reason) = validate_mpc_config(verifier.config()) {
+            verifier
+                .reject(Some(UNSUPPORTED_MPC_CONFIG_MESSAGE))
+                .await
+                .map_err(|error| format!("reject unsupported TLSN MPC configuration: {error}"))?;
+            return Err(reason.to_owned());
+        }
         let verifier = verifier
             .accept()
             .await
@@ -354,13 +414,22 @@ async fn run_tlsn_attestation(
     let request: AttestationRequest = bincode::deserialize(&request_bytes)
         .map_err(|error| format!("decode TLSN AttestationRequest: {error}"))?;
     #[cfg(feature = "local-test-notary-fault-injection")]
-    let after_claim = move || {
-        if matches!(
-            _fault,
-            ServerFault::Test(LocalTestNotaryFault::ExitAfterSigningClaim)
-        ) {
+    let parent_sync_failure = matches!(
+        _fault,
+        ServerFault::Test(LocalTestNotaryFault::FailParentDirectorySyncAfterRename)
+    )
+    .then(|| live_session.parent_directory_sync_failure_handle());
+    #[cfg(feature = "local-test-notary-fault-injection")]
+    let after_claim = move || match _fault {
+        ServerFault::Test(LocalTestNotaryFault::ExitAfterSigningClaim) => {
             std::process::exit(FAULT_EXIT_CODE);
         }
+        ServerFault::Test(LocalTestNotaryFault::FailParentDirectorySyncAfterRename) => {
+            parent_sync_failure
+                .expect("parent-sync fault is armed for this test")
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+        _ => {}
     };
     #[cfg(not(feature = "local-test-notary-fault-injection"))]
     let after_claim = || {};
@@ -460,4 +529,121 @@ fn now_ms() -> Result<u64, String> {
         .map_err(|error| format!("Notary clock is before the epoch: {error}"))?
         .as_millis();
     u64::try_from(millis).map_err(|error| format!("Notary clock is out of range: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notary_mpc_config_accepts_proxy_defaults_at_exact_byte_limits() {
+        let config = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .build()
+            .expect("build the pinned Proxy MPC-TLS profile");
+
+        assert_eq!(config.max_recv_data_online(), 32);
+        assert_eq!(config.max_sent_records(), None);
+        assert_eq!(config.max_recv_records_online(), None);
+        assert!(config.defer_decryption_from_start());
+        assert!(matches!(config.network(), NetworkSetting::Latency));
+        assert_eq!(validate_mpc_config(&config), Ok(()));
+
+        let reduced_online_limit = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .max_recv_data_online(16)
+            .build()
+            .expect("build a reduced online-decryption profile");
+        assert_eq!(validate_mpc_config(&reduced_online_limit), Ok(()));
+    }
+
+    #[test]
+    fn notary_mpc_config_rejects_byte_limits_above_capacity() {
+        let excessive_sent = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES + 1)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .build()
+            .expect("build an over-limit sent-data proposal");
+        assert_eq!(
+            validate_mpc_config(&excessive_sent),
+            Err("max_sent_data exceeds the FUSOU limit")
+        );
+
+        let excessive_received = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES + 1)
+            .build()
+            .expect("build an over-limit received-data proposal");
+        assert_eq!(
+            validate_mpc_config(&excessive_received),
+            Err("max_recv_data exceeds the FUSOU limit")
+        );
+    }
+
+    #[test]
+    fn notary_mpc_config_rejects_online_decryption_above_proxy_default() {
+        let excessive = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .max_recv_data_online(33)
+            .build()
+            .expect("build an over-limit online-decryption proposal");
+
+        assert_eq!(
+            validate_mpc_config(&excessive),
+            Err("max_recv_data_online exceeds the FUSOU profile")
+        );
+    }
+
+    #[test]
+    fn notary_mpc_config_rejects_explicit_record_limits() {
+        let sent_records = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .max_sent_records(1)
+            .build()
+            .expect("build an explicitly record-limited sent-data proposal");
+        assert_eq!(
+            validate_mpc_config(&sent_records),
+            Err("explicit max_sent_records is unsupported")
+        );
+
+        let online_recv_records = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .max_recv_records_online(1)
+            .build()
+            .expect("build an explicitly record-limited receive proposal");
+        assert_eq!(
+            validate_mpc_config(&online_recv_records),
+            Err("explicit max_recv_records_online is unsupported")
+        );
+    }
+
+    #[test]
+    fn notary_mpc_config_rejects_unsupported_decryption_and_network_options() {
+        let immediate_decryption = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .defer_decryption_from_start(false)
+            .build()
+            .expect("build an unsupported decryption proposal");
+        assert_eq!(
+            validate_mpc_config(&immediate_decryption),
+            Err("unsupported defer_decryption_from_start setting")
+        );
+
+        let bandwidth = MpcTlsConfig::builder()
+            .max_sent_data(MAX_TLSN_SENT_DATA_BYTES)
+            .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
+            .network(NetworkSetting::Bandwidth)
+            .build()
+            .expect("build an unsupported network proposal");
+        assert_eq!(
+            validate_mpc_config(&bandwidth),
+            Err("unsupported TLSN network setting")
+        );
+    }
 }

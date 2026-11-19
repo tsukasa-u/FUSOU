@@ -7756,6 +7756,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tracing",
+ "tracing-subscriber",
  "tracing-unwrap",
  "uuid 1.28.0",
  "walkdir",
