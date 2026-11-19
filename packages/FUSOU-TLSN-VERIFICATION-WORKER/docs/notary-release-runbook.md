@@ -102,6 +102,37 @@ verify the independent registration, Manifest or artifact approval. The manual
 operator gate is mandatory, including after changing either the binary or
 configuration. The public check does not attest a live process.
 
+The normal `fusou-notary serve` command writes WARN/ERROR tracing events to
+standard error. Configure the supervisor or service manager to retain and
+monitor that stream; do not redirect it to `/dev/null`. `export-public` does
+not initialize the tracing subscriber, and its standard output remains the
+canonical public JSON bytes.
+
+### TLSN MPC configuration admission
+
+Before calling the pinned TLSN SDK's `accept()`, the Notary checks the
+proposed MPC-TLS configuration. `max_sent_data` must be at most 128 KiB and
+`max_recv_data` at most 4 MiB; both limits are inclusive. Smaller byte limits
+are accepted.
+
+The normal Proxy sets those byte limits and leaves the other fields at the
+alpha.15 builder defaults: online receive decryption is 32 bytes, deferred
+decryption starts enabled, the network setting is `Latency`, and both record
+limits are omitted. The Notary permits online receive decryption up to 32
+bytes, but rejects larger values. The SDK translates omitted
+`max_sent_records` and `max_recv_records_online` by not setting the underlying
+record-limit options; an explicit `Some` value sets a record cap, which is not
+part of the supported FUSOU profile and is rejected. `defer_decryption_from_start`
+must remain `true`; `network` must remain `Latency` (the pinned SDK maps this
+to its low-bandwidth setup). These settings and their defaults are tied to the
+vendored alpha.15 SDK; an SDK upgrade requires a separate review.
+
+An unsupported proposal is rejected through the SDK's commitment-protocol
+rejection path before MPC setup or Attestation signing. The connection closes,
+and its already-admitted grant remains consumed as `Unknown`; it is not reset
+or reusable. The rejection message is generic and excludes grant contents and
+configuration values.
+
 ## 3. First start, updates, stop and recovery
 
 1. **One-time genesis only:** independently confirm the scope/key has never
@@ -117,6 +148,8 @@ configuration. The public check does not attest a live process.
    binding. It rejects missing/corrupt state or incompatible settings/schema.
    The binding covers the exact canonical public settings and the SHA-256 of
    the DER anchor. Do not replace the live ledger directory or lock files.
+   The service can remain running while a later ledger save fails; process
+   liveness is not a ledger-health signal.
    Open ingress only after confirming the approved deployment mapping and
    supervisor state. Raw TCP admission success is not a trusted health check.
 3. **Update:** close ingress, stop new captures and let authorized in-flight
@@ -146,6 +179,37 @@ Same-binary restart with the same ledger and settings is a different test
 from upgrading or rolling back between released versions. There is no
 previous operational release artifact to certify for cross-version use.
 
+### Durability uncertainty: stop and verify before resuming
+
+Monitor standard error for
+`target=fusou_notary::ledger` and
+`event=notary_ledger_persistence_uncertain`. This stable event is emitted once
+when the process first enters the durability-uncertain state; repeated query
+failures do not repeat it. Ordinary connection failures use the separate
+`Notary connection rejected or failed` warning. Treat the event as a ledger
+stop even if the process is still accepting TCP connections or the renamed
+file appears to contain a `Finalized` row.
+
+On notification, close Notary network ingress and stop new captures at the
+Proxy/APP boundary, then stop the Notary process. The process latches all
+ledger reads and writes closed under the ledger lock: it must not send the
+normal Attestation result or answer `QueryFinalized`, and lease cleanup cannot
+turn the uncertain write into a published result. Do not retry the same grant
+or capture, query repeatedly to infer success, resume an interrupted capture,
+or send its game request to the origin again.
+
+Preserve the ledger and logs. With ingress still closed, restart only against
+the same ledger and approved configuration. Startup must exclusively open
+the ledger, verify its schema and scope, and complete a fresh temporary-file
+sync, rename, and parent-directory sync before binding. A successful startup
+allows a `Finalized` row to return only its stored exact bytes; an interrupted
+`Admitted` or `Signing` row becomes `Unknown` and remains ineligible for
+admission or re-signing. If startup cannot confirm persistence, keep the
+service stopped and escalate; do not initialize an empty ledger or restore an
+older snapshot. Reopen ingress only after the operator verifies the same
+ledger and approved configuration. File visibility, a timeout, or process
+restart alone is not proof of durable completion.
+
 ## 4. Local reproduction and trust boundary
 
 Use only a temporary isolated target directory and the synthetic fixtures in
@@ -165,12 +229,25 @@ grep -Fxq "$test_name: test" <<< "$listing"
 cargo +1.98.1 test --locked --offline --manifest-path "$manifest" \
   --features "$features" --test local_notary_interop "$test_name" -- --exact --test-threads=1
 sha256sum --check "$CARGO_TARGET_DIR/fusou-notary.sha256"
+fault_features=local-test-notary-fault-injection
+fault_test=finalized_parent_directory_sync_failure_hides_result_until_same_ledger_reopens
+fault_listing="$(cargo +1.98.1 test --locked --offline --manifest-path "$manifest" \
+  --features "$fault_features" --test local_notary_interop -- --list)"
+grep -Fxq "$fault_test: test" <<< "$fault_listing"
+cargo +1.98.1 test --locked --offline --manifest-path "$manifest" \
+  --features "$fault_features" --test local_notary_interop "$fault_test" \
+  -- --exact --test-threads=1
 node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/notary-operational-preflight.test.mjs
 ```
 
 The features on the test harness are not features of the supplied release
 artifact. This invokes no APP Cargo, service, external Notary or Game Server.
-It does not exercise Worker Result or archive issuance.
+The injected failure occurs after a successful temporary-file sync and ledger
+rename but before successful parent-directory sync. The test verifies that
+the normal result and separate query withhold the Attestation, preserves the
+already received loopback origin response, and returns identical stored bytes
+only after reopening the same ledger. It does not exercise Worker Result or
+archive issuance.
 
 Trust the developer-operated Notary to protect its signing key, execute the
 approved binary/settings, and preserve the ledger. An independent verifier

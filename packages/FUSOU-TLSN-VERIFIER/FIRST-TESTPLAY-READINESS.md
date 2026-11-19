@@ -1,5 +1,232 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Notary MPC-TLS configuration gate — local verification (2026-11-20)
+
+**BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
+`576ece2188280113e6005a590677338d6caf32f0`, preserving the existing unstaged
+changes.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Proxy and Notary share the
+128 KiB sent-data and 4 MiB received-data ceilings. Before `Verifier::accept`,
+the Notary checks the proposed `MpcTlsConfig`: both byte limits are inclusive;
+online receive decryption is at most the pinned Proxy default of 32 bytes;
+record-limit fields must remain omitted; deferred decryption must start
+enabled; and the network setting must remain `Latency`. The fixed alpha.15
+SDK defaults omitted online receive decryption to 32 bytes, deferred
+decryption to `true`, and network to `Latency`. Its `deps.rs` passes those
+settings into setup, applies record caps only for `Some`, and maps `Latency`
+to `low_bandwidth()`. Runbook acceptance rationale is recorded in the Notary
+release runbook.
+
+An unsupported proposal is sent through the SDK's `reject()` path before
+MPC setup. The live grant lease then persists `Unknown`, so it is neither
+returned to `Unused` nor re-admitted; the integration test confirms no
+finalized result is available.
+
+With Rust 1.98.1, `--locked --offline`, and isolated temporary
+`CARGO_TARGET_DIR`s, the five in-memory Notary MPC policy tests passed 5/5.
+The actual loopback Notary rejection test passed 1/1. The combined
+separate-process suite passed 10/10, including Complete and Sparse transcript
+verification, exact finalized-result replay, and the normal
+`operational-notary` binary Complete/same-ledger restart regression. The
+normal release binary was built without test fault injection; SHA-256:
+`f6af67872c250a2af084b52b0ed1dadf606218462356211910c0d61f2cec33e7`.
+The candidate workflow now selects all five policy tests and the new
+loopback rejection test; its fault-injection loopback selector discovered
+9/9 required tests. Changed Rust files passed `rustfmt +1.98.1 --edition 2021
+--check`; workflow YAML parsing and the allowed-scope `git diff --check`
+passed.
+
+Only synthetic grants and loopback Notary/origin fixtures were used. APP
+Cargo, APP-launching Node suites, real Notary/Game Server traffic, deployment,
+Hosted CI, and Actions were not run. Modified Hosted CI remains
+**NOT_CHECKED**. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Notary persistence-failure stderr diagnostic — local verification
+
+**BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
+`576ece2188280113e6005a590677338d6caf32f0`, preserving the existing unstaged
+changes. No real service, deployment, or Hosted CI run was used.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Normal `fusou-notary serve`
+initializes the shared stderr tracing subscriber. On the first transition to
+durability-uncertain, the ledger emits the stable error identifier
+`target=fusou_notary::ledger event=notary_ledger_persistence_uncertain`.
+The fail-closed state is set before logging and does not depend on log output;
+subsequent rejected queries do not repeat the transition notification. The
+event contains no grant, key, credential, ledger, or Attestation bytes. The
+test-only Notary uses the same diagnostic initialization, while the normal
+binary has no fault-injection feature or option.
+
+With Rust 1.98.1, `--locked --offline`, and isolated temporary
+`CARGO_TARGET_DIR`s, all 16 `synthetic_notary::tests` passed and the
+separate-process loopback `local_notary_interop` suite passed 9/9. The
+parent-directory-sync failure case verified that repeated result queries
+remain rejected and produce exactly one diagnostic without logging synthetic
+grant or Attestation bytes. The normal operational-binary regression passed
+1/1, including ordinary connection-rejection diagnostics, fault-option
+rejection, unchanged canonical `export-public` output, and exact finalized
+bytes after same-ledger restart. The `operational-notary` binary was built
+without fault injection; SHA-256:
+`f3c88bc9bed3879025fc945cd5f4c9e3028ef7a5bd968405a5c6ccc926e3f27f`.
+Changed Rust files passed `rustfmt +1.98.1 --edition 2021 --check`;
+candidate workflow YAML parsing and the allowed-scope `git diff --check`
+passed. Existing candidate selectors already cover the exercised tests.
+
+The [Notary release runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/notary-release-runbook.md)
+documents stderr monitoring, the event identifier, ingress shutdown, and
+same-ledger confirmation/synchronization before service resumes. Modified
+Hosted CI remains **NOT_CHECKED**. Stage A/B/C and Production acceptance remain
+**BLOCKED**.
+
+## Notary ledger durability uncertainty — local verification
+
+**BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
+`576ece2188280113e6005a590677338d6caf32f0`, preserving the existing unstaged
+Proxy changes. Hosted CI and external services were not started or contacted.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** A failed ledger save now marks
+that Notary process durability-uncertain while its exclusive ledger lock is
+still held. Reads, writes, normal Attestation responses, and `QueryFinalized`
+are then refused; lease cleanup cannot turn a visible post-rename
+`Finalized` row into a published result. Restart opens and re-saves the same
+ledger, including file and parent-directory synchronization, before serving.
+Only a durably confirmed `Finalized` row returns its stored exact bytes;
+interrupted `Admitted`/`Signing` work becomes `Unknown` after process loss and
+cannot be re-admitted or re-signed.
+
+With Rust 1.98.1, `--locked --offline`, and isolated temporary
+`CARGO_TARGET_DIR`s, all 16 `synthetic_notary::tests` passed, including the
+two new deterministic parent-directory-sync failures. The separate-process
+loopback Notary suite passed 8/8: after a successful temp-file sync and
+`rename`, the injected directory-sync failure exposed neither the normal
+Attestation response nor a separate query result; the already received,
+headerless origin response was preserved and origin was sent exactly once.
+The same-ledger restart returned the byte-identical finalized result and
+rejected replay without another origin send. The normal
+`operational-notary` binary built without the fault-injection feature
+(SHA-256 `71497f65b248e22fb76870df03bcf12e90652af066ba48f2e36464ce489b92e8`);
+its existing same-ledger Complete/restart integration passed 1/1. Candidate
+workflow selectors and the Notary runbook now include the new regression and
+the mandatory stop/recovery procedure. The local synthetic request builder
+also passes the parsed grant expiry into its binding while preserving the
+original encoded grant bytes, keeping the fault-injection test feature
+compatible with prepared-binding expiry checks.
+
+No APP Cargo, APP-launching Node suite, real Notary, Game Server, or
+Production deployment was used. Modified Hosted CI remains **NOT_CHECKED**.
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Prepared Session grant expiry — 2026-11-19
+
+**BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
+`576ece2188280113e6005a590677338d6caf32f0`, preserving the existing unstaged
+capture-isolation and cancellation-cleanup work. Hosted CI #129 is a
+pre-change baseline only; no Actions run was started. All repository changes
+remain unstaged; no commit or push was made.
+
+**SOURCE_IMPLEMENTED:** The prepared binding now retains `expires_at_ms` from
+the Session Context Grant only after the existing grant-signature verification
+and Session Receipt/expiry match. `capture_ready()` and `issue_binding()` both
+reject at `now >= expires_at_ms`. Expiring an unused grant calls the existing
+provider cleanup once and blocks replacement preparation until the old Session
+context is released; in-use bindings are not revoked or replaced. The next
+capture uses the next background-prepared grant. Grantless synthetic bindings
+remain supported. Synthetic grant construction also carries expiry from its
+verified parsed grant.
+
+**LOCAL_TEST_VERIFIED:** With Rust 1.98.1, `--locked --offline`, and an
+isolated temporary `CARGO_TARGET_DIR`, all seven new exact tests passed:
+exclusive deadline (including at-deadline and after-deadline cases), expiry
+recheck after readiness, in-use capture retention, pre-send fallback and
+replacement grant delivery, serialized concurrent cleanup/repreparation,
+grantless compatibility, and preservation of a replacement Remote Session
+context. Ten related exact regressions also passed: reserved-header rejection,
+two loopback pre-send fallback cases (one origin request each), ambiguous-send
+no-retry, Complete and Sparse synthetic transport, capture-scoped Presentation
+and Result cleanup, and both forwarder cancellation cleanup points. The
+non-test `alpha15-tlsn` Proxy `cargo check` passed. Rust formatting, workflow
+YAML parsing, and the protected-path-excluded `git diff --check` passed. The
+build emitted one existing verifier dead-code warning,
+`from_verified_alpha15_partial`.
+
+No APP Cargo or APP-launching Node suite, real Notary, Game Server, or other
+live service was used. Modified Hosted CI remains **NOT_CHECKED**. Stage A/B/C
+and Production acceptance remain **BLOCKED**.
+
+## Forwarder-owned cleanup after cancellation — 2026-11-19
+
+**BASELINE:** The worktree remains on `tlsn-first-testplay-candidate` at
+`576ece2188280113e6005a590677338d6caf32f0`. The existing capture-isolation
+changes were preserved; #129 remains a pre-change baseline and does not verify
+these regressions.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Added two deterministic,
+unit-test-only pause points in the normal forwarder pipeline. The first stops
+after a synthetic Presentation is pending in the shared handoff but before the
+Presentation verifier is called. The second stops after the fixture's signed
+Worker Result has passed `ResultSignatureVerifier` and been registered, but
+before the actual `SignedResultBoundary` begins local persistence. In both
+cases `forwarder.cancel()` stops the existing lifecycle; the forwarder-owned
+`CaptureAttemptOwner` performs cleanup. Tests do not call `discard_capture`,
+`finish_capture`, or store deletion methods.
+
+Both interrupted captures returned their loopback game response and ended in
+`Cancelled`, not an evidence-success state. The first case confirmed A's
+Presentation was pending and the verifier had not started; the second confirmed
+A's verified Result was stored and the Result boundary had not started. After
+owner cleanup, the same forwarder accepted B with the same serialized HTTP
+bytes and a different binding. B's delivered Result signature verified and its
+`presentation_sha256` and binding matched B's exact synthetic Presentation and
+binding. The loopback origin received exactly one request from each capture;
+the bytes contained no binding header, Cookie, or binding value.
+
+The two new tests each passed 1/1. With Rust 1.98.1, `--locked --offline`, and a
+temporary `CARGO_TARGET_DIR`, related suites passed: `real_tlsn::tests::` 42
+passed/1 ignored, `experimental_tlsn::tests::` 22, `production_tlsn::tests::`
+28, `synthetic_notary::tests::` 14, `proxy_server_https::tests::` 42, and the
+separate-process loopback Notary integration 7/7. The non-test
+`alpha15-tlsn` Proxy `cargo check` passed with one existing verifier dead-code
+warning. Workflow YAML parsed; the modified forwarder/test files pass rustfmt.
+The whole-file `production_tlsn.rs` rustfmt check still reports two
+pre-existing formatting differences outside the new test inspection helper.
+
+The new cancellation tests use synthetic Presentation/Worker fixtures and a
+loopback TCP origin; they do not establish a TLS session or contact a Notary.
+The separate Notary integration tests use only their managed loopback Notary
+and origin. APP Cargo, APP-launching Node suites, real services, and Game Server
+traffic were not run. Modified Hosted CI is **NOT_CHECKED**. Stage A/B/C and
+Production acceptance remain **BLOCKED**.
+
+## Capture-scoped Proxy handoff follow-up
+
+**HOSTED_CI_OBSERVED (pre-change only):** The user-provided Hosted CI #129
+baseline passed all three jobs at `576ece2188280113e6005a590677338d6caf32f0`.
+That result predates this change and is not evidence for the updated source.
+
+**SOURCE_IMPLEMENTED:** Presentation handoff and Worker Result storage now use
+the capture binding identifier as their ownership key while retaining request
+and response SHA-256 checks for exact-byte verification. Cleanup is capture
+scoped, duplicate publication/registration is rejected until capture cleanup,
+and shared Proxy transport send-once state is per serialized capture rather
+than global across later captures. No game-server correlation data or wire
+contract was added.
+
+**LOCAL_TEST_VERIFIED:** Rust 1.98.1 with `--locked --offline` passed the
+`real_tlsn::tests::` selection (40 passed, 1 existing ignored), the
+`experimental_tlsn::tests::` selection (22 passed), and the
+`production_tlsn::tests::` selection (28 passed). The separate-process
+loopback Notary integration suite passed 7/7, including the existing
+Complete/Sparse roundtrip and the new shared-transport test: two captures with
+identical HTTP request bytes each produced one origin request, the received
+bytes matched the authenticated request transcript, and independent
+Presentation verification succeeded. Replaying a finalized capture did not
+increase the origin request count. All network traffic was to managed
+loopback services; APP Cargo and APP-launching Node suites were not run.
+
+**HOSTED_CI_VERIFIED: NOT_CHECKED** after this change. Stage A/B/C and
+Production acceptance remain **BLOCKED**.
+
 ## Hosted baseline #128 and current operational preflight — 2026-11-18
 
 **HOSTED_CI_VERIFIED (baseline only):** [Run #128](https://github.com/tsukasa-u/FUSOU/actions/runs/44178936943)
