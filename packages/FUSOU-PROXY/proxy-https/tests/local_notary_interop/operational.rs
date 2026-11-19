@@ -77,7 +77,14 @@ async fn start(workspace: &TestWorkspace, config: &Path, listen: &str) -> Notary
     panic!("normal Notary did not bind to loopback");
 }
 
-fn check_export_against_signed_vector(path: &Path, workspace: &TestWorkspace, config: &Value) {
+fn check_export_against_signed_vector(
+    path: &Path,
+    workspace: &TestWorkspace,
+    config: &Value,
+    endpoint: &str,
+) {
+    assert_eq!(config["listen"].as_str(), Some(endpoint));
+    assert_eq!(config["public"]["endpoint"].as_str(), Some(endpoint));
     let worker =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../FUSOU-TLSN-VERIFICATION-WORKER/scripts");
     let vector: Value = serde_json::from_slice(
@@ -95,7 +102,7 @@ fn check_export_against_signed_vector(path: &Path, workspace: &TestWorkspace, co
     let set = decode(&vector["inputs_base64url"]["security_registry_set_raw"]);
     let mut snapshot = config.clone();
     snapshot["public"] = json!({
-        "endpoint": signed["FUSOU_TLSN_NOTARY_ENDPOINT"],
+        "endpoint": endpoint,
         "environment": payload["environment"],
         "notary_id": signed["FUSOU_TLSN_NOTARY_ID"],
         "notary_key_id": set["notary_key_id"],
@@ -118,6 +125,7 @@ fn check_export_against_signed_vector(path: &Path, workspace: &TestWorkspace, co
         .arg("--test-name-pattern=^coherent independently approved public settings")
         .arg(worker.join("notary-operational-preflight.test.mjs"))
         .env("FUSOU_TEST_NOTARY_PUBLIC_EXPORT", export_path)
+        .env("FUSOU_TEST_NOTARY_ENDPOINT", endpoint)
         .output()
         .expect("run existing offline preflight against the actual public export");
     assert!(
@@ -166,7 +174,7 @@ async fn normal_binary_complete_and_restarts_using_the_same_ledger() {
         "notary_signing_key_file": key,
         "origin_trust_anchor_der": root,
     });
-    check_export_against_signed_vector(&path, &workspace, &config);
+    check_export_against_signed_vector(&path, &workspace, &config, &listen);
     assert_start_fails(&path, "cannot open operational Notary instance lock");
     let initialized = invoke("init", &path);
     assert!(
@@ -213,6 +221,26 @@ async fn normal_binary_complete_and_restarts_using_the_same_ledger() {
     assert_start_fails(&path, "ledger already in use");
     let mut origin = LoopbackOrigin::start(&credentials).await;
     let route = origin_config(origin.address, &credentials.root_der);
+    let unavailable_listen = {
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = socket.local_addr().unwrap().to_string();
+        drop(socket);
+        address
+    };
+    let unavailable = fresh_grant(DEVICE_ID, 0x75);
+    assert!(run_once(
+        route.clone(),
+        &unavailable_listen,
+        request_for(&unavailable),
+        notary_verifying_key(),
+        DisclosureMode::Complete,
+        None,
+        Vec::new(),
+    )
+    .await
+    .is_err());
+    origin.assert_request_count(0).await;
+
     let complete = fresh_grant(DEVICE_ID, 0x76);
     let request = request_for(&complete);
     let outcome = run_once(
