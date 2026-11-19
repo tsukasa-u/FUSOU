@@ -17,6 +17,16 @@ fn write_config(path: &Path, config: &Value) {
     write_file(path, &serde_json::to_vec(config).unwrap(), true);
 }
 
+fn ledger_snapshot(path: &Path) -> std::collections::BTreeMap<std::ffi::OsString, Vec<u8>> {
+    fs::read_dir(path)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (entry.file_name(), fs::read(entry.path()).unwrap())
+        })
+        .collect()
+}
+
 fn invoke(command: &str, path: &Path) -> std::process::Output {
     let mut process = Command::new(binary());
     NotaryProcess::guard_notary_child(&mut process);
@@ -339,4 +349,159 @@ async fn normal_binary_complete_and_restarts_using_the_same_ledger() {
     fs::remove_file(&ledger_path).unwrap();
     assert_start_fails(&path, "open existing Notary store");
     assert!(!invoke("init", &path).status.success());
+}
+
+#[test]
+fn normal_binary_rejects_invalid_loopback_settings_before_side_effects() {
+    const LISTEN_ERROR: &str = "Notary listen must be canonical 127.0.0.1:<non-zero-port>";
+    const ENDPOINT_ERROR: &str = "public.endpoint must exactly match Notary listen";
+
+    let workspace = TestWorkspace::new();
+    let credentials = Credentials::new();
+    let signing_key = workspace.path("notary-key");
+    let trust_anchor = workspace.path("origin-root.der");
+    write_file(&signing_key, &NOTARY_SIGNING_KEY, true);
+    write_file(&trust_anchor, &credentials.root_der, false);
+
+    let held_loopback = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listen = held_loopback.local_addr().unwrap().to_string();
+    let port = held_loopback.local_addr().unwrap().port();
+    let other_port = if port == u16::MAX { port - 1 } else { port + 1 };
+    let wildcard = format!("0.0.0.0:{port}");
+    let non_loopback = format!("192.0.2.1:{port}");
+    let hostname = format!("localhost:{port}");
+    let ipv6_loopback = format!("[::1]:{port}");
+    let mismatched_port = format!("127.0.0.1:{other_port}");
+    let invalid_cases = [
+        ("wildcard-listen", wildcard.clone(), wildcard, LISTEN_ERROR),
+        (
+            "non-loopback-listen",
+            non_loopback.clone(),
+            non_loopback,
+            LISTEN_ERROR,
+        ),
+        (
+            "ipv6-listen",
+            ipv6_loopback.clone(),
+            ipv6_loopback,
+            LISTEN_ERROR,
+        ),
+        (
+            "hostname-listen",
+            hostname.clone(),
+            hostname.clone(),
+            LISTEN_ERROR,
+        ),
+        (
+            "zero-port-listen",
+            "127.0.0.1:0".to_owned(),
+            "127.0.0.1:0".to_owned(),
+            LISTEN_ERROR,
+        ),
+        (
+            "hostname-endpoint",
+            listen.clone(),
+            hostname,
+            ENDPOINT_ERROR,
+        ),
+        (
+            "wildcard-endpoint",
+            listen.clone(),
+            format!("0.0.0.0:{port}"),
+            ENDPOINT_ERROR,
+        ),
+        (
+            "mismatched-port",
+            listen.clone(),
+            mismatched_port,
+            ENDPOINT_ERROR,
+        ),
+    ];
+
+    let ledger = workspace.path("existing-ledger");
+    fs::create_dir(&ledger).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&ledger, fs::Permissions::from_mode(0o700)).unwrap();
+    let config_path = workspace.path("operator.json");
+    let valid_config = json!({
+        "schema_version": 1,
+        "listen": listen,
+        "public": {
+            "endpoint": listen,
+            "environment": ENVIRONMENT,
+            "notary_id": NOTARY_ID,
+            "notary_key_id": "fixture-k256",
+            "notary_verifying_key": URL_SAFE_NO_PAD.encode(notary_key_bytes()),
+            "session_authority_key_id": AUTHORITY_KEY_ID,
+            "session_authority_public_key_spki": URL_SAFE_NO_PAD.encode(synthetic_session_authority_public_key_spki()),
+            "wire_version": notary_wire::VERSION,
+        },
+        "ledger_directory": ledger,
+        "notary_signing_key_file": signing_key,
+        "origin_trust_anchor_der": trust_anchor,
+    });
+    let valid_endpoint = valid_config["public"]["endpoint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    write_config(&config_path, &valid_config);
+    let initialized = invoke("init", &config_path);
+    assert!(
+        initialized.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
+    let ledger_before = ledger_snapshot(&ledger);
+
+    for (name, invalid_listen, invalid_endpoint, diagnostic) in invalid_cases {
+        let mut invalid = valid_config.clone();
+        invalid["listen"] = json!(invalid_listen);
+        invalid["public"]["endpoint"] = json!(invalid_endpoint);
+
+        let init_ledger = workspace.path(&format!("invalid-init-{name}"));
+        let mut init_config = invalid.clone();
+        init_config["ledger_directory"] = json!(init_ledger);
+        write_config(&config_path, &init_config);
+        let init = invoke("init", &config_path);
+        assert!(!init.status.success(), "{name}: invalid init succeeded");
+        assert!(
+            String::from_utf8_lossy(&init.stderr).contains(diagnostic),
+            "{name}: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+        assert!(!init_ledger.exists(), "{name}: init created a ledger");
+
+        let export_ledger = workspace.path(&format!("invalid-export-{name}"));
+        let mut export_config = invalid.clone();
+        export_config["ledger_directory"] = json!(export_ledger);
+        write_config(&config_path, &export_config);
+        let exported = invoke("export-public", &config_path);
+        assert!(
+            !exported.status.success(),
+            "{name}: invalid export succeeded"
+        );
+        assert!(
+            exported.stdout.is_empty(),
+            "{name}: export emitted public JSON"
+        );
+        assert!(
+            String::from_utf8_lossy(&exported.stderr).contains(diagnostic),
+            "{name}: {}",
+            String::from_utf8_lossy(&exported.stderr)
+        );
+        assert!(!export_ledger.exists(), "{name}: export created a ledger");
+
+        let mut serve_config = invalid;
+        if serve_config["listen"].as_str() != Some(valid_endpoint.as_str()) {
+            serve_config["public"]["endpoint"] = json!(valid_endpoint);
+        }
+        serve_config["ledger_directory"] = json!(ledger);
+        write_config(&config_path, &serve_config);
+        assert_start_fails(&config_path, diagnostic);
+        assert_eq!(
+            ledger_snapshot(&ledger),
+            ledger_before,
+            "{name}: serve modified the existing ledger"
+        );
+    }
 }

@@ -625,15 +625,20 @@ jobs:
           sha256sum "$binary" > "$RUNNER_TEMP/fusou-notary.sha256"
           export FUSOU_OPERATIONAL_NOTARY_BIN="$binary"
           features=local-test-notary-fault-injection,operational-notary
-          test_name=operational::normal_binary_complete_and_restarts_using_the_same_ledger
+          test_names=(
+            operational::normal_binary_complete_and_restarts_using_the_same_ledger
+            operational::normal_binary_rejects_invalid_loopback_settings_before_side_effects
+          )
           listing="$(
             cargo +1.98.1 test --locked --offline --features "$features" \
               --manifest-path "$manifest" --test local_notary_interop -- --list
           )"
-          grep -Fxq "$test_name: test" <<< "$listing"
-          cargo +1.98.1 test --locked --offline --features "$features" \
-            --manifest-path "$manifest" --test local_notary_interop "$test_name" \
-            -- --exact --test-threads=1
+          for test_name in "${test_names[@]}"; do
+            grep -Fxq "$test_name: test" <<< "$listing"
+            cargo +1.98.1 test --locked --offline --features "$features" \
+              --manifest-path "$manifest" --test local_notary_interop "$test_name" \
+              -- --exact --test-threads=1
+          done
           sha256sum --check "$RUNNER_TEMP/fusou-notary.sha256"
         env:
           CARGO_NET_OFFLINE: "true"

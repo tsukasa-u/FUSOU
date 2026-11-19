@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::OpenOptions,
     io::Read,
-    net::{IpAddr, SocketAddr},
+    net::{Ipv4Addr, SocketAddrV4},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
@@ -34,7 +34,7 @@ struct PublicConfig {
 struct Config {
     schema_version: u16,
     public: PublicConfig,
-    listen: SocketAddr,
+    listen: String,
     ledger_directory: PathBuf,
     notary_signing_key_file: PathBuf,
     origin_trust_anchor_der: PathBuf,
@@ -53,8 +53,6 @@ pub async fn run(command: Command, path: &Path) -> Result<(), String> {
     let public = &config.public;
     if config.schema_version != 1
         || public.wire_version != notary_wire::VERSION
-        || config.listen.port() == 0
-        || !valid_endpoint(&public.endpoint)
         || !is_valid_key_id(&public.environment)
         || !is_valid_key_id(&public.notary_key_id)
         || !is_valid_key_id(&public.session_authority_key_id)
@@ -81,6 +79,7 @@ pub async fn run(command: Command, path: &Path) -> Result<(), String> {
     {
         return Err("invalid Session Authority Ed25519 SPKI pin".to_owned());
     }
+    let listen = validate_loopback_endpoint(&config.listen, &public.endpoint)?;
     let signing_key = read_regular(
         &config.notary_signing_key_file,
         32,
@@ -133,7 +132,7 @@ pub async fn run(command: Command, path: &Path) -> Result<(), String> {
     if matches!(command, Command::Init) {
         return Ok(());
     }
-    let listener = TcpListener::bind(config.listen)
+    let listener = TcpListener::bind(listen)
         .await
         .map_err(|_| "could not bind configured Notary listener".to_owned())?;
     notary_server::serve(
@@ -143,35 +142,28 @@ pub async fn run(command: Command, path: &Path) -> Result<(), String> {
         signing_key,
         public.notary_id.clone(),
         public.environment.clone(),
-        config.listen.ip().is_loopback(),
+        listen.ip().is_loopback(),
         notary_server::ServerFault::None,
     )
     .await
 }
 
-fn valid_endpoint(endpoint: &str) -> bool {
-    if endpoint
-        .parse::<SocketAddr>()
-        .is_ok_and(|value| value.port() > 0 && !value.ip().is_unspecified())
+fn validate_loopback_endpoint(listen: &str, public_endpoint: &str) -> Result<SocketAddrV4, String> {
+    let listen_address = listen
+        .parse::<SocketAddrV4>()
+        .map_err(|_| "Notary listen must be canonical 127.0.0.1:<non-zero-port>".to_owned())?;
+    if listen_address.ip() != &Ipv4Addr::LOCALHOST
+        || listen_address.port() == 0
+        || listen_address.to_string() != listen
     {
-        return true;
+        return Err("Notary listen must be canonical 127.0.0.1:<non-zero-port>".to_owned());
     }
-    endpoint.rsplit_once(':').is_some_and(|(host, port)| {
-        host.parse::<IpAddr>().is_err()
-            && host.len() <= 253
-            && host.split('.').all(|label| {
-                !label.is_empty()
-                    && label.len() <= 63
-                    && !label.starts_with('-')
-                    && !label.ends_with('-')
-                    && label.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-                    })
-            })
-            && port
-                .parse::<u16>()
-                .is_ok_and(|value| value > 0 && value.to_string() == port)
-    })
+
+    let expected_endpoint = format!("127.0.0.1:{}", listen_address.port());
+    if public_endpoint != expected_endpoint {
+        return Err("public.endpoint must exactly match Notary listen".to_owned());
+    }
+    Ok(listen_address)
 }
 
 fn read_regular(path: &Path, limit: u64, private: bool, label: &str) -> Result<Vec<u8>, String> {
