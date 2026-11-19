@@ -5440,6 +5440,7 @@ dependencies = [
  "tokio-util",
  "tonic-build",
  "tracing",
+ "tracing-subscriber",
  "tracing-unwrap",
  "uuid",
  "walkdir",
