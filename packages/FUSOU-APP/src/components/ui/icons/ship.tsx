@@ -36,7 +36,7 @@ const name_list: { [key: number]: string } = {
   12: "BB", //    Super Dreadnoughts
   13: "SS", //    Submarine
   14: "SSV", //    Aircraft Carrying Submarine
-  15: "AO", //    Fleet Oiler
+  15: "AP", //    Transport Ship
   16: "AV", //    Seaplane Carrier
   17: "LHA", //    Amphibious Assault Ship
   18: "CVB", //    Aircraft Carrier
