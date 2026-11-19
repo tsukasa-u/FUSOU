@@ -17,7 +17,7 @@ are not current service or gameplay execution results.
 | Offline Evidence Bundle verifier and its local trust-edge checks | VERIFIED (local implementation only) | The verifier implementation and focused regressions exist in the checkout; no real Production bundle or service execution is established here. |
 | Inventory / Approval binding; exact outer Result binding; raw-only fail-closed | VERIFIED (local contracts only) | These contracts are covered by local implementation/tests; this does not verify an external Worker deployment. |
 | Consumer negative regression coverage | OBSERVED (historical hosted run) | Both disclosure modes in [Run #70](https://github.com/tsukasa-u/FUSOU/actions/runs/37835901490), exact baseline SHA, both jobs successful; this is not CI for the current HEAD. |
-| Worker verification, Session Authority, Result generation and archive source | OBSERVED (source only) | Tracked in [runtime](../src/index.ts), [job state](../src/verification_jobs.ts) and [archive](../src/result_archive.ts); deployed behavior, archive retrieval and finalized bundle delivery remain NOT_CHECKED / UNVERIFIED. |
+| Worker verification, Session Authority, Result generation and archive source | OBSERVED (source only) | Tracked in [runtime](../src/index.ts), [device proof client](../src/device-proof-client.ts), [job state](../src/verification_jobs.ts) and [archive](../src/result_archive.ts). The Worker implements `POST /attestation/session`; its configured WEB owner-proof path is `/api/auth/anonymous-sync/v2/device-proof`, and its capture-possession path is `/api/auth/anonymous-sync/v2/tlsn-device-proof`. Deployed behavior, active bindings, archive retrieval and finalized bundle delivery remain NOT_CHECKED / UNVERIFIED. |
 | APP `tlsn-production` preflight and health | VERIFIED for Hosted #128 baseline | The locked native APP tests passed. No GUI, release packaging, live bootstrap or real services were verified by that run. |
 | Real deployment, real Notary/Game Server interaction, human gameplay, real Presentation/Result/archive | UNVERIFIED | No actual operator deployment records or real evidence are established by this document. |
 | Actual Production URLs, deployed SHA/version and operator-selected public pins | UNKNOWN | Must be supplied and checked by the responsible operators. CI SHA is not deployed SHA. |
@@ -116,12 +116,40 @@ Release and handover procedure: [FUSOU-managed Notary release runbook](./notary-
 |---|---|---|
 | Runtime Config / Freshness | [APP manager](../../FUSOU-APP/src-tauri/src/tlsn_runtime_config_runtime.rs) verifies exact signed Manifest and artifacts plus Freshness before persisting high-water state. | Release/Manifest/Freshness owners: approved Bootstrap root ID/SPKI and Manifest URL, Release record and delegation, Manifest and Freshness delegations, epoch/high-water evidence and access to the actual Gateway/Coordinator/private signer Service Bindings, DO and R2 identities/readback. Confirm operator profile versus any separately approved strict profile. |
 | Worker health | [APP observer](../../FUSOU-APP/src-tauri/src/tlsn_runtime.rs) compares role/random/environment, logical deployment, active version, Git SHA, Result authority, then preserves exact `worker-health.json`. | Worker operator: independently obtained active account/script/version/deployment identity, verified WASM provenance and public pins. Health is unsigned and cannot bootstrap its own expected identity. |
-| WEB device proof | [Owner routes](../../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts) issue/consume proof for the authenticated non-anonymous owner and registered non-revoked device. | WEB/DB and identity owners: approved API origin and exact paths, proof and replay-observation migration receipts, role/service ACLs, owner enrollment and public device record. No actual migration applied here. |
-| Session / Binding Authority | Worker [Session and verification handlers](../src/index.ts) and binding DO issue/consume bound signed material; verify original user, device, Session, binding and receipt. | Authority owners: named services, approved signing pins and raw registries, DO and service binding identities and reviewed issuance/consume behavior. APP has no independent Stage A entrance bypassing these services. |
+| WEB device proof | [Owner routes](../../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts) implement `/api/auth/anonymous-sync/v2/device-proof` for Session issuance and `/api/auth/anonymous-sync/v2/tlsn-device-proof` for capture possession; both check the authenticated non-anonymous owner against the active device key. | WEB/DB and identity owners: verify the deployed API origin/paths, proof and replay-observation migrations, role/service ACLs, owner enrollment and active device record. No actual migration applied here. |
+| Session / Binding Authority | Worker [Session and verification handlers](../src/index.ts) implement `POST /attestation/session`, authenticate through the configured WEB `device-proof` URL, verify owner/device agreement and issue signed bound material through the binding DO. The configured `tlsn-device-proof` URL is used for capture possession. | Authority owners: verify the deployed Worker release, approved endpoint/keys/registries, WEB URL allowlists, DO/service binding identities and issuance/consume behavior. APP has no independent Stage A entrance bypassing these services. |
 | Notary | Headerless admission and same-connection Attestation with durable claims; separate process exercised in loopback. | FUSOU developer (operator) and release/security reviewer: approve the tagged build and endpoint, satisfy the offline checker, conformance and exclusivity checks, and record the actual placement separately. |
 | Origin | Ordinary Game Server request bytes, no added correlation header/query/Cookie/body; reject reserved `X-Attestation-Binding` at ingress. Only confirmed pre-send fallback can send once. | Game/release owner: approved test scope and exact Inventory/Target Approval bytes for intended Web PKI DNS hostname. Verify actual TLSN-observed DNS identity and retain independent trust-anchor DER. |
 | Worker Result / raw archive | Exact Presentation, signed Complete Result v2 (current v3 profile), Production Inventory/Approval pair and raw archive readback before consumed-authority commit. | Verifier/archives owners: actual Worker identity, Result signer/registry, DO/R2/catalog/read access, exact readback at approved generations and required Production execution receipt. |
 | Candidate | Local create-only candidate, signed Result checks, receipt gate, then independent finalizer. | Capture and Evidence owners: retain originals, acquire the six independent inputs, run authorized replay observation, and apply Stage B/C decisions below. |
+
+**Before the first APP session or gameplay**, the responsible operators must
+verify the live service chain rather than infer it from this source:
+
+1. Compare the APP's verified signed Runtime Config with the approved Worker
+   and Session Authority endpoints, authority registry/key pins, Notary
+   registration and Result trust inputs. Confirm there is no staging/test
+   endpoint or unapproved key in the Production configuration.
+2. Verify the actual Worker account, script, active version and release SHA.
+   Confirm `POST /attestation/session` is deployed with its Production signing
+   keys, Session/Binding authority registry, `TLSN_BINDINGS` Durable Object
+   binding and reviewed expiry/consume policy.
+3. Verify the Worker-configured WEB URLs resolve to the approved Production
+   WEB origin and exact `/api/auth/anonymous-sync/v2/device-proof` and
+   `/api/auth/anonymous-sync/v2/tlsn-device-proof` paths. Check the
+   non-anonymous Auth integration, active `user_devices` row, owner/device
+   match, required database migrations/RPCs, service-role ACLs and host
+   allowlists. Confirm the WEB public device list is not being used as a
+   public-key export.
+4. With an authorized owner/device and operator approval, perform the
+   approved live service-only APP/Session handoff check before gameplay.
+   Record the actual endpoint, release, key IDs, result and UTC time; treat
+   any consumed nonce/proof as single-use. Do not send a Game Server request
+   as part of this check, and do not retry an ambiguous handoff.
+5. Keep each check `UNVERIFIED` until the service response and deployed
+   identity have been independently observed. Any missing or mismatched
+   endpoint, service binding, key, owner, device, migration or receipt blocks
+   the first APP session/gameplay.
 
 **Start condition:** release authority authorizes one human Complete capture
 only after these pre-send gates, correct reference/health, private storage,
@@ -135,6 +163,50 @@ client request is a new capture, not a way to repair the previous one.
 exact outer Result, receipt bytes/header, independent authorized object
 readback (key/version, length/hash and exact bytes), original Session/binding/
 proof/consume/health/candidate material and approved references.
+
+### Stage B: independently acquire `device_identity`
+
+The WEB/DB operator—not the APP evidence collector—must acquire this role
+from the active Production database using an authorized read-only path. Query
+the exact authenticated owner and device IDs from the original Session and
+proof context; require exactly one row, `pubkey_algo = 'ed25519'`, a 32-byte
+`device_pubkey`, and `revoked_at IS NULL`. Record the database/deployment
+identity, query time, operator and exact output hash outside the evidence
+package. Do not use the authenticated device-list response (it omits the
+public key), invent a `/device-identity` API, or treat the APP's
+`UNVERIFIED` record as independent evidence.
+
+The operator may use the reviewed read-only equivalent of:
+
+```sql
+SELECT canonical_user_id, device_id, pubkey_algo, device_pubkey, revoked_at
+FROM public.user_devices
+WHERE canonical_user_id = '<authenticated-user-uuid>'::uuid
+  AND device_id = '<Session-device-uuid>'::uuid;
+```
+
+Normalize the returned `device_pubkey` to its exact 32 raw Ed25519 bytes;
+the role's public-key field is base64url without padding and its digest is
+SHA-256 of those raw bytes (also base64url without padding). Preserve the
+contract-shaped raw JSON, for example:
+
+```json
+{
+  "authoritative": true,
+  "authority": "fusou-web-user-devices",
+  "canonical_user_id": "<authenticated-user-uuid>",
+  "device_id": "<Session-device-uuid>",
+  "device_public_key": "<base64url-ed25519-public-key>",
+  "device_public_key_sha256": "<base64url-sha256-of-raw-key>",
+  "revoked_at": null
+}
+```
+
+Transfer and pin those exact bytes independently of the candidate package.
+The `authoritative`/`authority` labels describe the evidence contract; they
+do not authenticate a self-supplied file. If the read-only row, owner match,
+key type/length, active status, or independent provenance cannot be verified,
+Stage B remains BLOCKED.
 
 ### Local finalization and independent handoff
 
@@ -288,7 +360,7 @@ operator, evidence and stop conditions before any live operation.
 | P0-10 sparse Presentation contract and independent expected values | UNRESOLVED | The category-3 clean-upstream fixture is characterization, not an independent implementation or approved wire contract. The candidate pre-capture report has no P0-10 check; the implementation plan still marks Phase 0 NO-GO while P0-10 is unresolved. No approved exception defining a narrower exploratory testplay was found, so this is not classified as Production-only or waived. | Protocol owner and human release authority. |
 | Runtime Config Bootstrap and Manifest | BLOCKED_EXTERNAL_INPUTS; verification and publication code implemented | The APP embeds only the public manifest URL, signer key ID, and signer SPKI as Bootstrap inputs. Missing or partial registration rejects the active Production path. The compiled report labels these values `UNREGISTERED` or `EMBEDDED_UNVERIFIED`; it does not claim that a Manifest was fetched or verified. At runtime, `RuntimeConfigManager` fetches the signed Manifest and digest-pinned artifacts, verifies them, persists a local rollback high-water mark, and supplies operational Worker/Notary/authority inputs to the APP. The actual Production endpoint/key approval, controlled signer, and published Manifest/artifact set remain unregistered and unchecked. | Human trust authority and release operators, then Runtime Config/APP operators. |
 | Game Server identity, Origin Inventory and Target Approval | BLOCKED_EXTERNAL_INPUTS | The external input must be a canonical lowercase DNS hostname on the approved HTTPS inventory, not a URL, port, IP, certificate pin or custom CA. The current APP selects a `proxy_target` from its configured server selection, then `run_verified_runtime_preflight` and `build_production_tlsn_dependencies` require that selection to be in the verified Target Approval before proxy start. That selection is only a route/expected identity: TLSN verification must derive the actual identity from the Presentation and match it to the independently pinned inventory/approval. The pre-capture report's `target_approval: POST_CAPTURE_REQUIRED` means post-capture evidence must prove that match; it does not permit deferring the runtime's pre-capture approval check. No actual testplay hostname or approval was supplied or verified in this audit. | Human supplies the actual hostname from an authoritative source; FUSOU deployment operator approves the Inventory/Target Approval and signs the Runtime Config that binds their raw-byte digests. |
-| Authenticated user, registered device and Session Authority | UNVERIFIED | APP requires an existing Auth session and `DeviceKey::load_registered`, obtains the WEB challenge, signs it, calls the configured Session Authority and verifies its signed receipt. The local key is currently a file-backed record (Unix mode 0600), not Stronghold/OS keyring storage. The checked-in WEB routes provide anonymous-sync registration/challenge and an authenticated device listing, but no `/device-identity` endpoint returning an authoritative public key/hash was found; registration is keyed by `api_member_id`, and the listing omits the public key. The Session Authority service handler is not tracked. APP receipt verification does not itself prove that the receipt's user is the current non-anonymous Supabase user; the authority must enforce that binding and ownership/revocation policy. | Existing user/device owner and WEB/Auth operator; Session Authority operator must provide a running, independently trusted service and its registration/ownership evidence. |
+| Authenticated user, registered device and Session Authority | UNVERIFIED | APP requires a non-anonymous Auth session and `DeviceKey::load_registered`, obtains the WEB challenge, signs it, then calls the configured Worker `POST /attestation/session`. The tracked Worker authenticates the signed nonce through its configured WEB `/api/auth/anonymous-sync/v2/device-proof` endpoint, checks the authenticated user/device match, and issues the signed Session receipt. WEB also implements `/api/auth/anonymous-sync/v2/tlsn-device-proof` for the separate capture-possession proof. The local key is a file-backed record (Unix mode 0600), not Stronghold/OS keyring storage. These source paths do not prove that the deployed Worker/WEB routes, keys, bindings, database migration, or owner/device enrollment are correct or live. | APP, Worker, WEB/Auth and database operators must verify the actual service endpoints, release/configuration, trust pins, owner and active device record before first APP use. |
 | Worker, Notary, Result signer and WASM | NOT_CHECKED / UNRESOLVED | APP submits exact Presentation bytes and checks the signed Result against the current exchange and manifest authority pair before caching. Worker generation/receipt/archive handlers are tracked; the independent verifier separately checks signatures, exact Presentation binding, observed identity/profile, authority and transcript-derived Result contents. Live behavior and WASM provenance are not established by local compilation/tests. | Worker/deployment and Notary operators supply independently approved live references, registries and provenance; verifier/security authority reviews them. |
 | Candidate clean build and pre-capture launch | NOT_EXECUTED | `app-build-handoff.mjs` rejects a dirty source checkout. The real candidate launcher can rewrite the protected roaming configuration, so this audit did not execute it or inspect the protected files' current state. Use a separately authorized clean checkout at the approved SHA only after approvals and inputs exist. Local GNU checking is not a candidate binary/handoff or GUI launch. | Release operator prepares the clean checkout; APP operator supplies approved source/build pins, the three explicit operational limits and a private output directory. |
 | Real gameplay and post-play verification | NOT_EXECUTED | No real server, Notary, service or gameplay operation was performed. Candidate capture output is marked UNAPPROVED and target identity NOT_YET_OBSERVED. Archive implementation and the offline verifier exist, but real exact archive retrieval, finalized bundle delivery and independent verification were not executed. | Human gameplay operator, authorized storage operator, independent verifier. |
@@ -675,7 +747,7 @@ The hook does not persist its report. The table classifies every symbol in the h
 
 The historical symbol-level classification does not promote local tests into runtime guarantees. Later V2 code independently hashes the fetched Worker reference and Production authority artifacts and verifies the Result registry envelope; the manager now connects those checks to the APP TLSN gate. These checks are still unusable in Production until the independent Runtime Config signing root and endpoint are approved and enrolled. Trusted time and adversary-resistant durable rollback state remain unimplemented; local epoch state and system time are not substitutes.
 
-The manifest carries no Game Server identity. Before a real Presentation is independently verified, identity remains `NOT_YET_OBSERVED`; neither candidate configuration, Worker health, manifest contents, nor Result claims can supply it. Keep the existing human-gameplay preflight, Presentation validation, Origin Inventory, Target Approval, Result signature, and archive byte-binding requirements unchanged. Authenticated APP session handoff, device-possession binding, and a TLSN Session Authority flow are not implemented by this offline contract.
+The manifest carries no Game Server identity. Before a real Presentation is independently verified, identity remains `NOT_YET_OBSERVED`; neither candidate configuration, Worker health, manifest contents, nor Result claims can supply it. Keep the existing human-gameplay preflight, Presentation validation, Origin Inventory, Target Approval, Result signature, and archive byte-binding requirements unchanged. The online source paths for APP Session handoff, device-possession binding and the TLSN Session Authority exist, but this offline contract neither executes them nor verifies their deployments.
 
 #### Runtime Config release-adapter and APP-integration follow-up
 
@@ -820,12 +892,12 @@ Until those external steps are completed, readiness reports `NOT_REGISTERED`/`NO
 | Input | Source of truth | Who supplies it | Authenticity check | Secret? | Package | Independent? |
 |---|---|---|---|---|---|---|
 | Production Auth session / canonical user ID | Live Production Supabase login and `/auth/v1/user` | Human account holder/Auth service | Valid access token; correct origin/user; `is_anonymous` is false; available through capture | Bearer/refresh tokens yes; user ID sensitive | User observation restricted; tokens never | Yes |
-| Registered device ID, public key/hash, ownership and revocation | Existing FUSOU-WEB `anonymous-sync-v2.ts` registration, challenge, device-list and revocation routes | Device owner/WEB service | Current routes do not expose the documented device-identity response or by themselves prove current Supabase-user-to-public-key binding; Session Authority enforcement is required | ID/public key are not private secrets; identifiers sensitive | Restricted yes | Authority/deployment evidence still required |
+| Registered device ID, public key/hash, ownership and revocation | WEB `device-proof` and `tlsn-device-proof` routes plus the active `public.user_devices` row | Device owner and authorized WEB/DB operator | Verify the actual routes and Worker configuration; independently read one row for the authenticated owner/device, confirm Ed25519 key bytes and `revoked_at IS NULL`, and match Session/proof context | Public key is not private; user/device identifiers are sensitive | Restricted yes | Yes; acquire DB observation independently for Stage B |
 | Local registered device private key | Existing APP file-backed device-key record | Device owner/APP | APP challenge-signing path demonstrates possession for that request; it does not prove WEB ownership or Session Authority policy | Yes | Never; not sent to collector/offline machine | Local provisioning |
 | APP build/configuration and capture directory | Reviewed APP build and effective configuration | APP/release operator | Existing feature/config preflight, public fingerprints, endpoint/key agreement; directory writable/private; capture enabled | Config pins no; paths sensitive | Public config fingerprints/path record restricted | Yes |
 | Human gameplay operation and capture time | Human operator's actual operation record | Human operator | Record actual operation/time/account context; no test/fixture substitution | Potentially personal | Restricted record yes | Yes; not inferred from CI |
 
-No `/anonymous-sync/v2/device-identity` route is tracked. The existing [`anonymous-sync-v2.ts`](../../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts) implements registration, challenge, authenticated device listing and revocation. The device-list response does not expose the registered public key/hash; registration uses `api_member_id`, and the challenge route does not supply the missing authoritative Supabase-user-to-device-key binding. Do not call a `/device-identity` endpoint or treat a device list as proof of that binding unless a separately reviewed deployed API contract and implementation are supplied. The APP's Session Authority client verifies a receipt signature, but the corresponding service handler is not in this checkout, so non-anonymous-user ownership, device binding and revocation enforcement by that authority remain UNVERIFIED.
+No `/anonymous-sync/v2/device-identity` API is tracked; do not call or assume one. The existing [`anonymous-sync-v2.ts`](../../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts) implements challenge, `device-proof`, `tlsn-device-proof`, authenticated device listing and revocation. The two proof routes check the authenticated Supabase owner against the active `user_devices` row and verify the corresponding device signature; the configured Worker `/attestation/session` path checks the returned user/device identity before issuing a Session receipt. The device-list response intentionally does not expose the registered public key, so it is not the Stage B identity export. The APP verifies the receipt signature, but actual Worker/WEB deployment, configuration, migration, key trust and live owner/device enforcement remain UNVERIFIED until operators check the running services.
 
 The APP device key is loaded from a local file-backed record; on Unix the implementation writes it with mode `0600`. This is not an OS keyring or Stronghold integration. The current APP possession proof is distinct from Supabase authentication and server-side user/device authorization.
 
@@ -866,7 +938,7 @@ Keep checked inputs and outputs in the operator reference/validation record. A m
 | 6. Origin Inventory | `parseOriginInventory` on exact reference bytes; 20 canonical lowercase DNS hosts, port 443; independently pinned digest agrees with release/health | Invalid schema/identity, changed unapproved raw bytes or wrong digest |
 | 7. Target Approval | `parseTargetApproval(raw, inventory, rawInventoryDigest)`; APPROVED Production record; approved target relationship and independent raw digest match release/health | Invalid/unknown approval, wrong Inventory digest/membership or approval hash |
 | 8. Auth session | Authenticated `/auth/v1/user` at approved Supabase origin, publishable key and canonical non-anonymous user match intended account | Missing/expired/anonymous/wrong-origin or wrong-account session |
-| 9. Registered device | Live WEB device-identity response, correct owner/device/public key/hash and no revocation; existing APP key/challenge path available | Unknown device, wrong owner/key, revocation or inability to use registered local key |
+| 9. Registered device | Live Worker `POST /attestation/session`, configured WEB `/api/auth/anonymous-sync/v2/device-proof`, active owner/device record, and APP `DeviceKey::load_registered` challenge path; separately acquire the exact DB identity for Stage B | Missing/mismatched endpoint or release, unknown owner/device/key, revocation, absent migration, or inability to use the registered local key |
 | 10. APP capture directory | Existing APP configuration preflight; reviewed full pins/endpoints; capture enabled; private writable artifact root; enough storage | Disabled capture, incomplete config, unsupported runtime health expectation or unwritable/shared output |
 
 Use existing validators, not new acceptance logic:

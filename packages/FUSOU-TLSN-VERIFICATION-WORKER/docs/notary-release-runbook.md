@@ -108,6 +108,54 @@ monitor that stream; do not redirect it to `/dev/null`. `export-public` does
 not initialize the tracing subscriber, and its standard output remains the
 canonical public JSON bytes.
 
+### Same-host loopback endpoint and bind check
+
+For the local interop profile only, use a synthetic signed Runtime Config,
+synthetic approval keys and a loopback origin. Set the signed
+`FUSOU_TLSN_NOTARY_ENDPOINT`, exported `public.endpoint`, and actual
+`listen` address to the same `127.0.0.1:<port>`. Before `init`, run the
+offline checker against the normal binary's `export-public` output. It must
+match the signed Runtime Config and the independently approved registration
+for endpoint, Notary ID, environment, K256 pin, Session Authority key ID and
+SPKI, and wire version. Separately compare the actual `listen` value with
+that endpoint; `export-public` reports configured public identity and does
+not prove where a process is bound.
+
+The existing loopback regression exercises this ordering: it checks the
+signed synthetic endpoint and actual normal-binary export, initializes a
+dedicated temporary ledger, starts the ordinary `operational-notary`
+binary on loopback, completes one Complete capture, and verifies the
+Presentation/transcript and single origin request before restarting against
+the same ledger. A second loopback case uses an unavailable Notary endpoint
+and requires the TLSN transport to fail before any origin HTTP request.
+These fixtures establish only local source/transport behavior; they do not
+select a Production endpoint or prove a remote bind.
+
+For an actual same-host placement, the approved signed endpoint, public
+export, bind address and ingress rule must likewise agree before the
+operator initializes the ledger. The ledger is bound to the exact canonical
+public settings and trust-anchor digest; changing them after initialization
+is not a reason to clear or recreate the ledger. Finalize and independently
+approve those values first, then initialize the dedicated ledger once.
+
+### Separate-host placement is blocked without pre-grant transport security
+
+The current Proxy connects with raw TCP and sends the grant in the admission
+request before it reads and verifies the signed ACK
+([`notary_wire.rs`](../../FUSOU-PROXY/proxy-https/src/notary_wire.rs)).
+That ACK cannot authenticate the peer or protect the already-sent grant.
+Therefore do not expose this listener as public/plain TCP or treat the
+signed endpoint or ACK as transport authentication. A separate-host
+deployment requires an independently approved channel that authenticates
+the intended Notary and encrypts traffic **before the first grant byte**,
+plus an exact approved mapping between the signed endpoint and the actual
+bind/tunnel destination. The current raw-TCP Proxy path has not implemented
+or tested that remote-host contract; keep such placement BLOCKED until its
+transport is implemented or a separately reviewed authenticated encrypted
+tunnel is deployed and validated end to end. Do not change the endpoint,
+retry the same capture, or fall back to a public listener to work around a
+failed connection.
+
 ### TLSN MPC configuration admission
 
 Before calling the pinned TLSN SDK's `accept()`, the Notary checks the

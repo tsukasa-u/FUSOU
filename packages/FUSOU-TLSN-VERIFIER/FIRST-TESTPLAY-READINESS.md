@@ -1,5 +1,52 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Notary offline preflight and placement checks — local verification
+
+**BASELINE:** Work continued on branch `tlsn-first-testplay-candidate` at
+`bfaad877cfba1c2354a73cc711bb3f8f185dcc9e`. Actions [#131](https://github.com/tsukasa-u/FUSOU/actions/runs/44606865454)
+passed all three jobs (`proxy-capture-source-unit-tests`,
+`node-contract-tests`, and `rust-tlsn-preflight`) for that SHA. The previously
+blocked step-29 lockfile fetch, step-30 isolated harness (30 tests), and
+step-31 APP build handoff/Worker reference checks (110 tests) passed. This is
+the pre-change Hosted CI baseline, not evidence for the edits below.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** The Notary offline preflight now
+limits each of the five Runtime Config artifacts to the APP's inclusive
+1,048,576-byte cap in both CLI file reads and direct checker calls. Direct and
+CLI tests cover exact limit and one byte over for every artifact. A synthetic
+valid signed Manifest with an exact-digest Worker reference succeeds at the
+limit and is rejected one byte over. The targeted Node test file passed 10/10.
+
+The existing normal-binary loopback regression now binds its synthetic signed
+Notary endpoint, approved registration, `export-public` output and actual
+loopback `listen` value to the same endpoint before ledger initialization.
+The normal release binary was built with Rust 1.98.1,
+`--locked --offline`, and an isolated `CARGO_TARGET_DIR`; SHA-256:
+`f6af67872c250a2af084b52b0ed1dadf606218462356211910c0d61f2cec33e7`.
+The normal-binary Complete/restart test passed 1/1: the Presentation and
+transcript were verified, the origin received one headerless request, and
+same-ledger finalized-result readback remained exact. Its unavailable-Notary
+case failed before origin HTTP, with zero origin requests. Existing confirmed
+pre-send fallback tests passed 2/2; the ambiguous-failure no-fallback test
+passed 1/1. All Rust checks used `CARGO_NET_OFFLINE=true` and the same isolated
+target.
+
+The candidate workflow already runs the edited preflight Node test file and
+selects the exact normal-binary loopback test, so no workflow selector change
+was needed. The Notary runbook now distinguishes synthetic same-host loopback
+from unimplemented separate-host transport security. The Evidence operator
+runbook documents the tracked Worker `/attestation/session`, WEB
+`device-proof` and `tlsn-device-proof` routes, first-APP live-service checks,
+and independent Stage B `device_identity` acquisition from the authorized
+WEB/DB operator.
+
+Only synthetic Runtime Config/keys and loopback Notary/origin traffic were
+used. No APP Cargo or APP-launching Node suite, Production service, real
+Notary/Game Server, deployment, actual owner/device enrollment, Hosted CI, or
+Actions was run for these changes. Modified Hosted CI is **NOT_CHECKED**.
+Stage A/B/C and Production acceptance remain **BLOCKED**; actual placement
+and Production endpoint values remain undecided.
+
 ## Isolated APP-source Manifest harness lockfile — Actions #130
 
 **BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
