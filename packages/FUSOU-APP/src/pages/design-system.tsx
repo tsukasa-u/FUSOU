@@ -16,13 +16,13 @@ import {
   ComponentEquipmentModal,
   ComponentEquipmentMstModal,
   ComponentShipMaskedModal,
+  ComponentItemModal,
   EmptySlot,
   EmptyValue,
   IconCautionFill,
   IconKira,
   ShipIcon,
   EquipmentIcon,
-  MaterialIcon,
   FleetNumberIcon,
   KiraIcon,
   PlaneProficiencyIcon,
@@ -1898,8 +1898,7 @@ export default function DesignSystemPage() {
               <div class="space-y-3 pt-2">
                 <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
                   <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/70">
-                    資材・アイテムバッジ (&lt;MaterialIcon /&gt; / viewBox:
-                    151x151)
+                    資材・アイテムバッジ（モーダル付き）
                   </h3>
                   <span class="text-[11px] text-base-content/50 font-mono">
                     item_number: 1..79 (A0, B0, C0, D0, A3, B3, C3, C1...)
@@ -1928,7 +1927,12 @@ export default function DesignSystemPage() {
                   >
                     {(item) => (
                       <div class="p-2.5 bg-base-200/50 rounded-lg border border-base-300 flex flex-col items-center gap-1.5 text-center">
-                        <MaterialIcon item_number={item.id} size="sm" />
+                        <ComponentItemModal
+                          item_number={item.id}
+                          name={item.name}
+                          description=""
+                          size="sm"
+                        />
                         <span class="text-[11px] font-medium leading-tight">
                           {item.name}
                         </span>
@@ -3972,7 +3976,7 @@ export default function DesignSystemPage() {
               </div>
               <p class="text-xs text-base-content/60">
                 燃料(31)から改修資材(4)までの主要8資源が{" "}
-                <code>IconMaterial size=&quot;xs&quot;</code>
+                <code>ComponentItemModal size=&quot;xs&quot;</code>
                 （24x24px、DeckComponent の各SVGと同一高さ）＋横並び数値（
                 <code>tabular-nums</code>）で表示されます。
               </p>
@@ -3989,21 +3993,28 @@ export default function DesignSystemPage() {
                             <div class="pl-2 justify-start gap-x-0 gap-y-1 flex flex-wrap items-center">
                               <For
                                 each={[
-                                  { id: 31, count: 284520 },
-                                  { id: 32, count: 279140 },
-                                  { id: 33, count: 298300 },
-                                  { id: 34, count: 195400 },
-                                  { id: 2, count: 1920 },
-                                  { id: 1, count: 2840 },
-                                  { id: 3, count: 2450 },
-                                  { id: 4, count: 84 },
+                                  { id: 31, name: "燃料", count: 284520 },
+                                  { id: 32, name: "弾薬", count: 279140 },
+                                  { id: 33, name: "鋼材", count: 298300 },
+                                  {
+                                    id: 34,
+                                    name: "ボーキサイト",
+                                    count: 195400,
+                                  },
+                                  { id: 2, name: "高速建造材", count: 1920 },
+                                  { id: 1, name: "高速修復材", count: 2840 },
+                                  { id: 3, name: "開発資材", count: 2450 },
+                                  { id: 4, name: "改修資材", count: 84 },
                                 ]}
                               >
                                 {(mat) => (
                                   <div class="inline-flex items-center flex-nowrap shrink-0">
                                     <div class="shrink-0">
-                                      <MaterialIcon
+                                      <ComponentItemModal
                                         item_number={mat.id}
+                                        name={mat.name}
+                                        description=""
+                                        count={mat.count}
                                         size="xs"
                                       />
                                     </div>
@@ -4169,7 +4180,7 @@ export default function DesignSystemPage() {
                   アイテム棚生体表示 (&lt;ItemsComponent /&gt;)
                 </h3>
                 <span class="text-[11px] text-base-content/50 font-mono">
-                  Normal (id&lt;75) / Special (id&gt;=75) / Purchased (payitem)
+                  Normal / Special / Purchased / Furniture Store
                 </span>
               </div>
 
@@ -4190,7 +4201,7 @@ export default function DesignSystemPage() {
                               readonly
                             />
                             <span class="text-xs text-base-content/60 tabular-nums shrink-0">
-                              4 / 4
+                              5 / 5
                             </span>
                           </div>
                         </li>
@@ -4203,7 +4214,13 @@ export default function DesignSystemPage() {
                               <li class="text-xs py-1 w-full">
                                 <div class="px-2 flex items-start gap-2.5 w-full">
                                   <div class="shrink-0 pt-0.5">
-                                    <MaterialIcon item_number={50} size="xs" />
+                                    <ComponentItemModal
+                                      item_number={50}
+                                      name="応急修理要員"
+                                      description="轟沈した艦を一度だけ救出し、中破状態で復帰させます。"
+                                      count={5}
+                                      size="xs"
+                                    />
                                   </div>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex items-center justify-between gap-2">
@@ -4223,7 +4240,13 @@ export default function DesignSystemPage() {
                               <li class="text-xs py-1 w-full">
                                 <div class="px-2 flex items-start gap-2.5 w-full">
                                   <div class="shrink-0 pt-0.5">
-                                    <MaterialIcon item_number={57} size="xs" />
+                                    <ComponentItemModal
+                                      item_number={57}
+                                      name="勲章"
+                                      description="複数集めることで資源または改装設計図と交換可能です。"
+                                      count={14}
+                                      size="xs"
+                                    />
                                   </div>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex items-center justify-between gap-2">
@@ -4257,7 +4280,13 @@ export default function DesignSystemPage() {
                               <li class="text-xs py-1 w-full">
                                 <div class="px-2 flex items-start gap-2.5 w-full">
                                   <div class="shrink-0 pt-0.5">
-                                    <MaterialIcon item_number={75} size="xs" />
+                                    <ComponentItemModal
+                                      item_number={75}
+                                      name="新型砲熕兵装資材"
+                                      description="新型砲熕兵装の開発や改修に必要な特殊資材です。"
+                                      count={9}
+                                      size="xs"
+                                    />
                                   </div>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex items-center justify-between gap-2">
@@ -4286,7 +4315,13 @@ export default function DesignSystemPage() {
                               <li class="text-xs py-1 w-full">
                                 <div class="px-2 flex items-start gap-2.5 w-full">
                                   <div class="shrink-0 pt-0.5">
-                                    <MaterialIcon item_number={53} size="xs" />
+                                    <ComponentItemModal
+                                      item_number={53}
+                                      name="母港拡張"
+                                      description="保有艦数の上限枠を10隻分拡張します。"
+                                      count={1}
+                                      size="xs"
+                                    />
                                   </div>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex items-center justify-between gap-2">
@@ -4309,6 +4344,34 @@ export default function DesignSystemPage() {
                                       保有艦数の上限枠を10隻分拡張します。
                                     </div>
                                   </div>
+                                </div>
+                              </li>
+                            </ul>
+                          </details>
+                        </li>
+                        <li class="w-150 max-w-full">
+                          <details open>
+                            <summary class="text-xs font-semibold text-base-content/80">
+                              Furniture Store (1)
+                            </summary>
+                            <ul class="pl-0">
+                              <li class="text-xs py-1 w-full">
+                                <div class="px-2 flex items-center justify-between gap-2 w-full">
+                                  <div class="flex items-center gap-2 min-w-0">
+                                    <ComponentItemModal
+                                      item_number={44}
+                                      name="家具コイン"
+                                      description="家具の購入に使用します。"
+                                      count={12000}
+                                      size="xs"
+                                    />
+                                    <span class="truncate font-medium">
+                                      家具コイン
+                                    </span>
+                                  </div>
+                                  <span class="tabular-nums font-medium shrink-0 text-right w-14">
+                                    x12000
+                                  </span>
                                 </div>
                               </li>
                             </ul>

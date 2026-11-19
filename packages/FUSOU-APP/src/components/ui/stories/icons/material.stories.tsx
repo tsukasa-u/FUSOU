@@ -1,27 +1,57 @@
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { IconMaterialProps } from "ui";
-import { IconMaterial } from "ui";
+import { ComponentItemModal, IconMaterial } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
-import { item_list } from "../../icons/material";
+import { item_list } from "../../icons/material_data";
 
 import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
-// import require_info from "@fusou-testdata-shared-ui/data/S@api_get_member@require_info.json";
 import common_itemicons from "@fusou-testdata-shared-ui/data/common_itemicons.json";
 import common_itemicons_png from "@fusou-testdata-shared-ui/data/common_itemicons.png";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
+const itemMasterById = new Map(
+  get_data.api_data.api_mst_useitem.map((item) => [item.api_id, item] as const),
+);
+const itemNames: Record<number, string> = Object.fromEntries(
+  get_data.api_data.api_mst_useitem.map((item) => [item.api_id, item.api_name]),
+);
+const getItemName = (itemId: number) =>
+  itemMasterById.get(itemId)?.api_name ?? `Item #${itemId}`;
+const getItemDescription = (itemId: number) =>
+  (itemMasterById.get(itemId)?.api_description ?? [])
+    .filter(Boolean)
+    .map((description) => description.replace(/<br\s*\/?>/gi, "\n"))
+    .join("\n");
+const iconCatalogItems = get_data.api_data.api_mst_useitem.filter((item) => {
+  const cell = item_list[item.api_id]?.[0].trim();
+  return Boolean(cell && cell !== "UN");
+});
 
 const IconMaterialBasic = (args: IconMaterialProps) => {
-  return <IconMaterial item_number={args.item_number} size={args.size} />;
+  return (
+    <ComponentItemModal
+      item_number={args.item_number}
+      name={getItemName(args.item_number)}
+      description={getItemDescription(args.item_number)}
+      itemNames={itemNames}
+      size={args.size}
+    />
+  );
 };
 
 const IconMaterialCatalog = () => {
   return (
     <div class="grid grid-cols-10 w-100 gap-4">
-      <For each={Object.keys(item_list)}>
-        {(item_number) => (
-          <IconMaterial item_number={Number(item_number)} size={"xs"} />
+      <For each={iconCatalogItems}>
+        {(item) => (
+          <ComponentItemModal
+            item_number={item.api_id}
+            name={item.api_name}
+            description={getItemDescription(item.api_id)}
+            itemNames={itemNames}
+            size="xs"
+          />
         )}
       </For>
     </div>
@@ -29,62 +59,61 @@ const IconMaterialCatalog = () => {
 };
 
 const IconMaterialCatalogDetail = () => {
-  const itemicon_id_name = get_data.api_data.api_mst_useitem.map((icon) => [
-    icon.api_id,
-    icon.api_name,
-  ]);
-
-  const itemicons_frames = common_itemicons.frames;
+  const itemicon_frames = Object.entries(common_itemicons.frames)
+    .flatMap(([key, value]) => {
+      const match = /^common_itemicons_id_(\d+)$/.exec(key);
+      if (!match) return [];
+      const id = Number(match[1]);
+      const item = itemMasterById.get(id);
+      if (!item) return [];
+      return [
+        {
+          id,
+          name: item.api_name,
+          description: getItemDescription(id),
+          frame: value.frame,
+        },
+      ];
+    })
+    .sort((a, b) => a.id - b.id);
 
   const bg_scale = 0.6;
+  const atlasWidth = common_itemicons.meta.size.w;
+  const atlasHeight = common_itemicons.meta.size.h;
 
   return (
     <div class="grid gap-4">
-      <For each={itemicon_id_name}>
-        {([id, name]) => {
-          try {
-            const itemicons_frame = (itemicons_frames as any)[
-              `common_itemicons_id_${id}`
-            ].frame;
-            return (
-              <div class="flex h-12 items-center">
-                <h1 class="w-20">{id}</h1>
-                <IconMaterial
-                  item_number={Number(id)}
-                  size={"md"}
-                  class="w-20 h-full"
+      <For each={itemicon_frames}>
+        {(item) => (
+          <div class="flex min-h-12 items-center gap-2">
+            <span class="w-12 shrink-0">{item.id}</span>
+            <ComponentItemModal
+              item_number={item.id}
+              name={item.name}
+              description={item.description}
+              itemNames={itemNames}
+              size="md"
+              class="p-0"
+            >
+              <div class="flex items-center gap-2" aria-hidden="true">
+                <Show when={item_list[item.id]}>
+                  <IconMaterial item_number={item.id} size="md" />
+                </Show>
+                <span
+                  class="inline-block shrink-0 bg-no-repeat"
+                  style={{
+                    width: `${item.frame.w * bg_scale}px`,
+                    height: `${item.frame.h * bg_scale}px`,
+                    "background-size": `${atlasWidth * bg_scale}px ${atlasHeight * bg_scale}px`,
+                    "background-position": `-${item.frame.x * bg_scale}px -${item.frame.y * bg_scale}px`,
+                    "background-image": `url('${common_itemicons_png}')`,
+                  }}
                 />
-                <div class="w-20 h-full">
-                  <div
-                    class="h-full"
-                    style={{
-                      overflow: "hidden",
-                      "background-size": `${635 * bg_scale}px ${635 * bg_scale}px`,
-                      width: `${itemicons_frame.w * bg_scale}px`,
-                      height: `${itemicons_frame.h * bg_scale}px`,
-                      "background-position": `top -${itemicons_frame.y * bg_scale}px left -${itemicons_frame.x * bg_scale}px`,
-                      "background-image": `url('${common_itemicons_png}')`,
-                    }}
-                  />
-                </div>
-                <div class="w-40">{name}</div>
               </div>
-            );
-          } catch (_e) {
-            return (
-              <div class="flex h-12 items-center">
-                <h1 class="w-20">{id}</h1>
-                <IconMaterial
-                  item_number={Number(id)}
-                  size={"md"}
-                  class="w-20 h-full"
-                />
-                <div class="w-20">no keys</div>
-                <div class="w-40">{name}</div>
-              </div>
-            );
-          }
-        }}
+            </ComponentItemModal>
+            <span class="w-40">{item.name}</span>
+          </div>
+        )}
       </For>
     </div>
   );
@@ -104,7 +133,7 @@ export const basic: Story = {
   argTypes: {
     item_number: {
       control: { type: "select" },
-      options: [1, 2, 3, 4, 5],
+      options: iconCatalogItems.map((item) => item.api_id),
     },
     size: {
       control: { type: "select" },

@@ -1,6 +1,18 @@
 import type { Component } from "solid-js";
-import { item_list } from "./material_data";
-export { item_list };
+import {
+  item_list,
+  material_icon_columns,
+  material_icon_rows,
+  material_icon_tables,
+  getMaterialIconLocation,
+} from "./material_data";
+export {
+  getMaterialIconLocation,
+  item_list,
+  material_icon_columns,
+  material_icon_rows,
+  material_icon_tables,
+};
 
 export interface IconMaterialProps {
   item_number: number;
@@ -8,16 +20,6 @@ export interface IconMaterialProps {
   class?: string;
   classList?: any;
 }
-
-const icon_list: { [key: number]: string[] } = {
-  0: ["#FFFFFF"], //  Undefined
-  1: ["#684329"], //  owned items
-  2: ["#595959"], //  expand items
-  3: ["#1E1E1E"], //  parchased items
-  4: ["#CCCC00"], //  display only front
-  5: ["#00CCCC"], //  display only furniture store
-  6: ["#CC00CC"], //  display only infomation
-};
 
 const class_size = {
   xs: "h-6",
@@ -29,7 +31,10 @@ const class_size = {
   none: "",
 };
 const get_primary_color = (item_number: number) => {
-  return icon_list[item_list[item_number ?? 0]?.[1] ?? 0]?.[0] ?? "#FFFFFF";
+  return (
+    material_icon_tables[item_list[item_number ?? 0]?.[1] ?? 0]?.color ??
+    "#FFFFFF"
+  );
 };
 
 const get_name = (item_number: number) => {

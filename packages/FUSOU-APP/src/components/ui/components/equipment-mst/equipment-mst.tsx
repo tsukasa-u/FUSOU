@@ -94,7 +94,13 @@ export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (
       }
     >
       <div class="flex flex-nowrap w-full">
-        <div>
+        <div
+          title={
+            !props.empty_flag
+              ? props.mst_slot_item?.name || undefined
+              : undefined
+          }
+        >
           <IconEquipment
             category_number={props.mst_slot_item?.type[1] ?? 0}
             icon_number={props.mst_slot_item?.type[3] ?? 0}
