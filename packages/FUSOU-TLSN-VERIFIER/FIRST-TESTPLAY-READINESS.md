@@ -1,5 +1,37 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Isolated APP-source Manifest harness lockfile — Actions #130
+
+**BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
+`bfd90e11aaab8859c1a9f1c8481f2421c6047a97`; the allowed worktree and index
+were clean at task start. In Actions #130,
+`proxy-capture-source-unit-tests` and `rust-tlsn-preflight` passed.
+`node-contract-tests` failed at step 29 while running the isolated harness
+`cargo fetch --locked` (exit 101), so steps 30 and 31 were skipped.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** The proxy manifest declares
+`tracing-subscriber = "0.3.8"` as a normal dependency, but the isolated
+harness lockfile's `proxy-https` dependency list omitted it. The lockfile
+already contained `tracing-subscriber` 0.3.23 and its checksum. Added only the
+missing dependency edge; package versions, checksums, and Git revisions were
+left unchanged. The candidate workflow already runs the harness in steps 29
+and 30, so no workflow change was needed.
+
+With Rust 1.98.1 and a protected-file-free temporary workspace, the
+step-29-equivalent `cargo +1.98.1 fetch --locked` passed with network access
+allowed (`CARGO_NET_OFFLINE=false`). The step-30-equivalent
+`cargo +1.98.1 test --locked --offline --all-targets` passed using a new
+`CARGO_TARGET_DIR`: 29 unit tests and the shared delegation-vector integration
+test passed (30 total). The corrected lockfile SHA-256 was
+`6d60a62ca4d08569d2e6fee6028bb28953ac86db91f80419a737b1c66a8e4b43` both
+before and after Cargo validation. The lockfile remains Git-tracked and not
+ignored.
+
+The APP build handoff and Worker reference Node tests from step 31 were not
+run locally; APP Cargo and its Node suite remain outside this task's scope.
+Actions #130 remains the pre-fix failure record. Modified Hosted CI is
+**NOT_CHECKED**. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Notary MPC-TLS configuration gate — local verification (2026-11-20)
 
 **BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
