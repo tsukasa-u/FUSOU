@@ -59,7 +59,7 @@ placeholders, not production settings):
   "notary_signing_key_file": "/etc/fusou-notary-private/signing-key",
   "origin_trust_anchor_der": "/etc/fusou-notary/origin-trust-anchor.der",
   "public": {
-    "endpoint": "notary.example.invalid:9444",
+    "endpoint": "127.0.0.1:9444",
     "environment": "<signed Manifest environment>",
     "notary_id": "<approved Notary ID>",
     "notary_key_id": "<approved Notary signing key ID>",
@@ -76,9 +76,14 @@ Use a private `0600` config and a private `0600` key file containing exactly
 non-writable-by-others directories; keep the private key off the repo and
 out of arguments and logs. Specify the approved Web PKI anchor as a single
 DER certificate; do not treat it, its fingerprint or the Notary endpoint as
-the Game Server identity. Record the approved bind/ingress mapping separately
-from the advertised host:port. Only loopback has been exercised; a non-loopback
-bind and network policy need independent approval, traffic limits and validation.
+the Game Server identity. For the initial same-host Linux deployment, choose
+an unused non-zero port in this operator configuration, set `listen` to
+`127.0.0.1:<port>`, and set `public.endpoint` to that exact same value. The
+normal binary rejects wildcard, non-loopback, hostname, IPv6, zero-port and
+address/port-mismatched settings in `init`, `serve` and `export-public`.
+`9444` in the illustrative JSON is not a production port; use the operator-
+selected value consistently in the signed APP Runtime Config and approved
+Notary registration.
 
 Run as the service user before first start **and every replacement/restart**:
 
@@ -155,6 +160,17 @@ transport is implemented or a separately reviewed authenticated encrypted
 tunnel is deployed and validated end to end. Do not change the endpoint,
 retry the same capture, or fall back to a public listener to work around a
 failed connection.
+
+### Platform follow-up
+
+This release contract and regression coverage are limited to the normal
+Linux `fusou-notary` binary on the same host as the APP, using IPv4 loopback.
+They do not define or certify APP support for Windows, macOS or mobile, nor do
+they change the generic Runtime Config endpoint contract. Platform-specific
+Notary packaging, service management, filesystem protections and local
+transport behavior need separate implementation and validation. A separate-
+host Notary likewise remains blocked until its authenticated encrypted path
+is implemented and verified before grant disclosure.
 
 ### TLSN MPC configuration admission
 

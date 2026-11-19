@@ -3357,3 +3357,47 @@ canonicalization, vectors, and Notary configuration contracts are unchanged.
 - `HOSTED_CI_VERIFIED`: `NOT_CHECKED` after this fix.
 - `PRODUCTION_VERIFIED`: `NOT_VERIFIED`. Stage A/B/C and Production
   acceptance remain **BLOCKED**.
+
+## Initial Notary loopback binding — baseline Actions #132
+
+Baseline branch: `tlsn-first-testplay-candidate`, HEAD
+`62d52bf28952198e5244763ddb052153851e8e9c`. Actions
+[#132](https://github.com/tsukasa-u/FUSOU/actions/runs/44626018477) completed
+all three jobs successfully for that exact SHA. This is the pre-change baseline;
+it does not validate the local follow-up below.
+
+The normal Notary binary now validates its operator configuration before
+signing-key/trust-anchor reads, ledger operations, or listener bind. The
+`listen` value must be canonical IPv4 loopback `127.0.0.1:<non-zero-port>`,
+and `public.endpoint` must be the exact same `host:port` string. The check is
+shared by `init`, `serve`, and `export-public`. It does not change Runtime
+Config's generic endpoint contract or the Notary wire/signing format.
+
+### Local verification
+
+| Check | Result | Scope |
+|---|---|---|
+| Rust toolchain | **VERIFIED** | `rustc` and `cargo` 1.98.1. |
+| Normal Notary release build | **PASS** | `cargo +1.98.1 build --release --locked --offline --features operational-notary --bin fusou-notary`, with a fresh isolated `CARGO_TARGET_DIR`. |
+| Loopback integration test discovery | **PASS** | `local_notary_interop -- --list` reported 11 tests. |
+| Existing normal-binary Complete/restart regression | **PASS, 1/1** | `normal_binary_complete_and_restarts_using_the_same_ledger`; ordinary `fusou-notary` binary, canonical `export-public` JSON matching the approved signed endpoint, Complete capture, independent Presentation verification, one synthetic-origin request, exact finalized bytes after same-ledger restart, and zero origin requests when the Notary endpoint is unavailable. |
+| Invalid configuration regression | **PASS, 1/1** | `normal_binary_rejects_invalid_loopback_settings_before_side_effects`; covers wildcard, non-loopback, IPv6, hostname, zero-port, endpoint host substitution, and port mismatch across `init`, `serve`, and `export-public`. Init created no ledger, export emitted no JSON, and serve left the existing ledger unchanged. |
+| Rust formatting | **PASS** | `rustfmt +1.98.1 --edition 2021 --check` on the changed Rust source and integration-test module. |
+| Candidate workflow selection | **VERIFIED** | The normal release step discovers and runs both exact normal-binary test names. |
+| Workflow YAML and embedded shell | **PASS** | Parsed the candidate workflow and ran `bash -n` on the normal-Notary step. |
+| Documentation links and diff check | **PASS** | Relative links in the changed runbook and this entry resolved; `git diff --check` passed with protected paths excluded. Changes remain unstaged. |
+
+The release build and integration tests used `--locked --offline`; all Notary
+and origin communication was loopback/synthetic. The invalid-configuration
+test did not bind a non-loopback address. The [runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/notary-release-runbook.md)
+marks `9444` as illustrative and requires the operator-selected port to match
+in the signed APP config and approved registration before ledger initialization.
+No production host, port, key, or ledger was selected or initialized. Windows,
+macOS, mobile, and a separate-host authenticated/encrypted pre-grant transport
+remain follow-up work.
+
+| Acceptance | Status |
+|---|---|
+| Hosted CI after this change | **NOT_CHECKED** |
+| Stage A/B/C | **BLOCKED** |
+| Production acceptance | **BLOCKED** |
