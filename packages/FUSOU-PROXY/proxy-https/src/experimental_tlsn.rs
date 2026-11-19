@@ -11,7 +11,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -21,6 +21,7 @@ const HOST_HEADER_NAME: HeaderName = HeaderName::from_static("host");
 const CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
 const TRANSFER_ENCODING_HEADER_NAME: HeaderName = HeaderName::from_static("transfer-encoding");
 pub(crate) const MAX_TLSN_SENT_DATA_BYTES: usize = 128 * 1024;
+pub(crate) const MAX_TLSN_RECV_DATA_BYTES: usize = 4 * 1024 * 1024;
 const REQUIRE_INFO_TARGET: &str = "/kcsapi/api_get_member/require_info";
 
 pub type ExperimentalForwardFuture =
@@ -79,6 +80,7 @@ pub trait ExperimentalRequireInfoForwarder: Send + Sync {
 pub struct AttestationBinding {
     value: String,
     session_context_grant: Option<SessionContextGrantExtension>,
+    expires_at_ms: Option<u64>,
 }
 
 impl AttestationBinding {
@@ -89,18 +91,21 @@ impl AttestationBinding {
         Ok(Self {
             value,
             session_context_grant: None,
+            expires_at_ms: None,
         })
     }
 
     pub(crate) fn with_session_context_grant(
         value: String,
         encoded_grant: Bytes,
+        expires_at_ms: u64,
     ) -> Result<Self, BindingError> {
         let mut binding = Self::new(value)?;
         if encoded_grant.is_empty() || encoded_grant.len() > 2048 {
             return Err(BindingError::InvalidBinding);
         }
         binding.session_context_grant = Some(SessionContextGrantExtension(encoded_grant));
+        binding.expires_at_ms = Some(expires_at_ms);
         Ok(binding)
     }
 
@@ -108,8 +113,19 @@ impl AttestationBinding {
         &self.value
     }
 
+    pub(crate) fn capture_identifier(&self) -> [u8; 32] {
+        sha256(self.value.as_bytes())
+    }
+
     pub(crate) fn session_context_grant(&self) -> Option<&SessionContextGrantExtension> {
         self.session_context_grant.as_ref()
+    }
+
+    fn is_unexpired_at(&self, now_ms: Option<u64>) -> bool {
+        match self.expires_at_ms {
+            Some(expires_at_ms) => now_ms.is_some_and(|now_ms| now_ms < expires_at_ms),
+            None => true,
+        }
     }
 }
 
@@ -218,6 +234,16 @@ struct PreparedBindingState {
     binding: Option<AttestationBinding>,
     preparing: bool,
     in_use: bool,
+    release_in_progress: bool,
+}
+
+type BindingClock = Arc<dyn Fn() -> Option<u64> + Send + Sync>;
+
+fn unix_time_ms() -> Option<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
 }
 
 pub struct PreparedBindingProvider {
@@ -225,10 +251,19 @@ pub struct PreparedBindingProvider {
     context: BindingRequestContext,
     state: Arc<Mutex<PreparedBindingState>>,
     active: Arc<AtomicBool>,
+    clock: BindingClock,
 }
 
 impl PreparedBindingProvider {
     pub fn new(inner: Arc<dyn AttestationBindingProvider>, context: BindingRequestContext) -> Self {
+        Self::with_clock(inner, context, Arc::new(unix_time_ms))
+    }
+
+    fn with_clock(
+        inner: Arc<dyn AttestationBindingProvider>,
+        context: BindingRequestContext,
+        clock: BindingClock,
+    ) -> Self {
         Self {
             inner,
             context,
@@ -236,9 +271,40 @@ impl PreparedBindingProvider {
                 binding: None,
                 preparing: false,
                 in_use: false,
+                release_in_progress: false,
             })),
             active: Arc::new(AtomicBool::new(true)),
+            clock,
         }
+    }
+
+    fn take_expired_binding(
+        state: &mut PreparedBindingState,
+        now_ms: Option<u64>,
+    ) -> Option<AttestationBinding> {
+        if state.in_use
+            || state.release_in_progress
+            || !state
+                .binding
+                .as_ref()
+                .is_some_and(|binding| !binding.is_unexpired_at(now_ms))
+        {
+            return None;
+        }
+        state.release_in_progress = true;
+        state.binding.take()
+    }
+
+    fn release_expired_binding(&self, binding: AttestationBinding) {
+        self.inner.attempt_completed(&binding);
+        match self.state.lock() {
+            Ok(mut state) => state.release_in_progress = false,
+            Err(error) => {
+                tracing::error!(%error, "prepared TLSN binding state is poisoned after expired binding cleanup");
+                return;
+            }
+        }
+        self.prepare_in_background();
     }
 
     fn prepare_in_background(&self) {
@@ -246,7 +312,12 @@ impl PreparedBindingProvider {
             return;
         }
         let should_start = match self.state.lock() {
-            Ok(mut state) if !state.preparing && !state.in_use && state.binding.is_none() => {
+            Ok(mut state)
+                if !state.preparing
+                    && !state.in_use
+                    && !state.release_in_progress
+                    && state.binding.is_none() =>
+            {
                 state.preparing = true;
                 true
             }
@@ -324,29 +395,53 @@ impl Drop for PreparedBindingProvider {
 
 impl AttestationBindingProvider for PreparedBindingProvider {
     fn issue_binding(&self, context: BindingRequestContext) -> BindingFuture {
-        let result = if context.target() != self.context.target() {
-            Err(BindingError::InvalidBinding)
+        let (result, expired_binding) = if context.target() != self.context.target() {
+            (Err(BindingError::InvalidBinding), None)
         } else {
             match self.state.lock() {
-                Ok(mut state) if !state.in_use => match state.binding.take() {
-                    Some(binding) => {
-                        state.in_use = true;
-                        Ok(binding)
+                Ok(mut state) if !state.in_use && !state.release_in_progress => {
+                    if let Some(binding) = Self::take_expired_binding(&mut state, (self.clock)()) {
+                        (Err(BindingError::BindingNotReady), Some(binding))
+                    } else {
+                        match state.binding.take() {
+                            Some(binding) => {
+                                state.in_use = true;
+                                (Ok(binding), None)
+                            }
+                            None => (Err(BindingError::BindingNotReady), None),
+                        }
                     }
-                    None => Err(BindingError::BindingNotReady),
-                },
-                Ok(_) => Err(BindingError::BindingNotReady),
-                Err(_) => Err(BindingError::NoBindingAuthority),
+                }
+                Ok(_) => (Err(BindingError::BindingNotReady), None),
+                Err(_) => (Err(BindingError::NoBindingAuthority), None),
             }
         };
+        if let Some(binding) = expired_binding {
+            self.release_expired_binding(binding);
+        }
         Box::pin(async move { result })
     }
 
     fn capture_ready(&self) -> bool {
-        self.state
-            .lock()
-            .map(|state| state.binding.is_some() && !state.in_use)
-            .unwrap_or(false)
+        let (ready, expired_binding) = match self.state.lock() {
+            Ok(mut state) => {
+                let expired_binding = Self::take_expired_binding(&mut state, (self.clock)());
+                let ready = expired_binding.is_none()
+                    && state.binding.is_some()
+                    && !state.in_use
+                    && !state.release_in_progress;
+                (ready, expired_binding)
+            }
+            Err(error) => {
+                tracing::error!(%error, "prepared TLSN binding state is poisoned");
+                (false, None)
+            }
+        };
+        if let Some(binding) = expired_binding {
+            self.release_expired_binding(binding);
+            return false;
+        }
+        ready
     }
 
     fn start_preparation(&self, _context: BindingRequestContext) {
@@ -410,11 +505,23 @@ impl AttestationBindingProvider for SingleUseBindingProvider {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SerializedOriginRequest {
     bytes: Bytes,
     session_context_grant: Option<SessionContextGrantExtension>,
+    capture_identifier: Option<[u8; 32]>,
+    origin_send_started: Arc<AtomicBool>,
 }
+
+impl PartialEq for SerializedOriginRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+            && self.session_context_grant == other.session_context_grant
+            && self.capture_identifier == other.capture_identifier
+    }
+}
+
+impl Eq for SerializedOriginRequest {}
 
 impl SerializedOriginRequest {
     pub fn new(bytes: Bytes) -> Result<Self, SerializationError> {
@@ -424,12 +531,15 @@ impl SerializedOriginRequest {
         Ok(Self {
             bytes,
             session_context_grant: None,
+            capture_identifier: None,
+            origin_send_started: Arc::new(AtomicBool::new(false)),
         })
     }
 
     pub(crate) fn with_session_context_grant(
         bytes: Bytes,
         session_context_grant: Option<SessionContextGrantExtension>,
+        capture_identifier: [u8; 32],
     ) -> Result<Self, SerializationError> {
         if bytes.is_empty() {
             return Err(SerializationError::EmptyRequest);
@@ -437,6 +547,8 @@ impl SerializedOriginRequest {
         Ok(Self {
             bytes,
             session_context_grant,
+            capture_identifier: Some(capture_identifier),
+            origin_send_started: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -446,6 +558,14 @@ impl SerializedOriginRequest {
 
     pub(crate) fn session_context_grant(&self) -> Option<&SessionContextGrantExtension> {
         self.session_context_grant.as_ref()
+    }
+
+    pub fn capture_identifier(&self) -> Option<&[u8; 32]> {
+        self.capture_identifier.as_ref()
+    }
+
+    pub(crate) fn claim_origin_send(&self) -> bool {
+        !self.origin_send_started.swap(true, Ordering::AcqRel)
     }
 }
 
@@ -643,6 +763,7 @@ impl OriginRequestSerializer for Http1OriginRequestSerializer {
         SerializedOriginRequest::with_session_context_grant(
             Bytes::from(output),
             binding.session_context_grant().cloned(),
+            binding.capture_identifier(),
         )
         .map_err(|_| SerializationError::EmptyRequest)
     }
@@ -877,6 +998,10 @@ pub trait TlsnOriginTransport: Send + Sync {
     ) -> TlsnTransportFuture {
         self.send_once(request)
     }
+
+    fn finish_capture(&self, _capture_identifier: &[u8; 32]) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1081,6 +1206,10 @@ pub trait ExperimentalVerifierBoundary: Send + Sync {
     ) -> VerificationFuture {
         self.verify(connection_id, request, binding, exchange)
     }
+
+    fn finish_capture(&self, _capture_identifier: &[u8; 32]) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1125,6 +1254,10 @@ pub trait ExperimentalResultBoundary: Send + Sync {
         _lifecycle: ExchangeLifecycle,
     ) -> ResultBoundaryFuture {
         self.accept(evidence)
+    }
+
+    fn finish_capture(&self, _capture_identifier: &[u8; 32]) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -1204,6 +1337,65 @@ struct CaptureControl {
     current: Option<Arc<CaptureExecution>>,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ForwarderPausePoint {
+    BeforePresentationVerification,
+    BeforeResultBoundary,
+}
+
+#[cfg(test)]
+pub(crate) struct ForwarderTestPause {
+    point: ForwarderPausePoint,
+    reached: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    release: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+}
+
+#[cfg(test)]
+impl ForwarderTestPause {
+    pub(crate) fn channel(
+        point: ForwarderPausePoint,
+    ) -> (
+        Arc<Self>,
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (reached_tx, reached_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        (
+            Arc::new(Self {
+                point,
+                reached: Mutex::new(Some(reached_tx)),
+                release: Mutex::new(Some(release_rx)),
+            }),
+            reached_rx,
+            release_tx,
+        )
+    }
+
+    async fn pause_at(&self, point: ForwarderPausePoint) {
+        if point != self.point {
+            return;
+        }
+        let reached = self
+            .reached
+            .lock()
+            .expect("forwarder test pause state is not poisoned")
+            .take();
+        let release = self
+            .release
+            .lock()
+            .expect("forwarder test pause state is not poisoned")
+            .take();
+        if let Some(reached) = reached {
+            let _ = reached.send(());
+        }
+        if let Some(release) = release {
+            let _ = release.await;
+        }
+    }
+}
+
 pub struct ExperimentalTlsnForwarder {
     binding_provider: Arc<dyn AttestationBindingProvider>,
     serializer: Arc<dyn OriginRequestSerializer>,
@@ -1214,13 +1406,19 @@ pub struct ExperimentalTlsnForwarder {
     journal_target: Option<String>,
     capture_control: Arc<Mutex<CaptureControl>>,
     lifecycle_policy: Option<ExchangePolicy>,
+    #[cfg(test)]
+    test_pause: Arc<Mutex<Option<Arc<ForwarderTestPause>>>>,
 }
 
 struct CaptureAttemptOwner {
     state: Arc<Mutex<ExperimentalTlsnRuntimeState>>,
     locally_quiesced: Arc<AtomicBool>,
     binding_provider: Arc<dyn AttestationBindingProvider>,
+    transport: Arc<dyn TlsnOriginTransport>,
+    verifier: Arc<dyn ExperimentalVerifierBoundary>,
+    result_boundary: Arc<dyn ExperimentalResultBoundary>,
     binding: Option<AttestationBinding>,
+    capture_identifier: Option<[u8; 32]>,
     send_started: bool,
     finished: bool,
 }
@@ -1229,23 +1427,52 @@ impl CaptureAttemptOwner {
     fn new(
         capture: &CaptureExecution,
         binding_provider: Arc<dyn AttestationBindingProvider>,
+        transport: Arc<dyn TlsnOriginTransport>,
+        verifier: Arc<dyn ExperimentalVerifierBoundary>,
+        result_boundary: Arc<dyn ExperimentalResultBoundary>,
     ) -> Self {
         Self {
             state: Arc::clone(&capture.state),
             locally_quiesced: Arc::clone(&capture.locally_quiesced),
             binding_provider,
+            transport,
+            verifier,
+            result_boundary,
             binding: None,
+            capture_identifier: None,
             send_started: false,
             finished: false,
         }
     }
 
     fn set_binding(&mut self, binding: AttestationBinding) {
+        self.capture_identifier = Some(binding.capture_identifier());
         self.binding = Some(binding);
     }
 
     fn mark_send_started(&mut self) {
         self.send_started = true;
+    }
+
+    fn release_intermediates(&self) -> Result<(), String> {
+        if let Some(capture_identifier) = self.capture_identifier.as_ref() {
+            let mut first_error = None;
+            for result in [
+                self.transport.finish_capture(capture_identifier),
+                self.verifier.finish_capture(capture_identifier),
+                self.result_boundary.finish_capture(capture_identifier),
+            ] {
+                if let Err(error) = result {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     fn finish(
@@ -1261,6 +1488,16 @@ impl CaptureAttemptOwner {
                 ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
             self.finished = true;
             return Ok(());
+        }
+        if let Err(error) = self.release_intermediates() {
+            *self
+                .state
+                .lock()
+                .map_err(|_| "Experimental TLSN runtime state is poisoned".to_owned())? =
+                ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
+            self.locally_quiesced.store(false, Ordering::Release);
+            self.finished = true;
+            return Err(format!("capture intermediate cleanup failed: {error}"));
         }
         if let Some(next_state) = next_state {
             *self
@@ -1298,6 +1535,15 @@ impl Drop for CaptureAttemptOwner {
         }
 
         if self.send_started {
+            self.locally_quiesced.store(false, Ordering::Release);
+            return;
+        }
+
+        if let Err(error) = self.release_intermediates() {
+            tracing::error!(%error, "TLSN capture intermediates could not be released");
+            if let Ok(mut state) = self.state.lock() {
+                *state = ExperimentalTlsnRuntimeState::CleanupUnconfirmed;
+            }
             self.locally_quiesced.store(false, Ordering::Release);
             return;
         }
@@ -1387,7 +1633,18 @@ impl ExperimentalTlsnForwarder {
             journal_target,
             capture_control: Arc::new(Mutex::new(CaptureControl::default())),
             lifecycle_policy,
+            #[cfg(test)]
+            test_pause: Arc::new(Mutex::new(None)),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_pause(&self, pause: Arc<ForwarderTestPause>) -> Result<(), String> {
+        *self
+            .test_pause
+            .lock()
+            .map_err(|_| "forwarder test pause state is poisoned".to_owned())? = Some(pause);
+        Ok(())
     }
 
     pub fn unavailable() -> Arc<Self> {
@@ -1518,6 +1775,7 @@ impl ExperimentalTlsnForwarder {
         binding: AttestationBinding,
         exchange: TlsnOriginExchange,
         lifecycle: Option<ExchangeLifecycle>,
+        #[cfg(test)] test_pause: Option<Arc<ForwarderTestPause>>,
     ) {
         if Self::transition_shared(
             &state,
@@ -1562,6 +1820,12 @@ impl ExperimentalTlsnForwarder {
             let _ =
                 Self::transition_shared(&state, ExperimentalTlsnRuntimeState::ProofStarted, next);
             return;
+        }
+        #[cfg(test)]
+        if let Some(test_pause) = test_pause.as_ref() {
+            test_pause
+                .pause_at(ForwarderPausePoint::BeforePresentationVerification)
+                .await;
         }
         tracing::info!(
             connection_id,
@@ -1655,6 +1919,12 @@ impl ExperimentalTlsnForwarder {
         {
             return;
         }
+        #[cfg(test)]
+        if let Some(test_pause) = test_pause.as_ref() {
+            test_pause
+                .pause_at(ForwarderPausePoint::BeforeResultBoundary)
+                .await;
+        }
         let result_started = std::time::Instant::now();
         let result = match lifecycle {
             Some(lifecycle) => result_boundary.accept_with_lifecycle(verified, lifecycle),
@@ -1731,8 +2001,13 @@ impl ExperimentalTlsnForwarder {
                 return Ok(None);
             }
         };
-        let mut capture_owner =
-            CaptureAttemptOwner::new(&capture_execution, Arc::clone(&self.binding_provider));
+        let mut capture_owner = CaptureAttemptOwner::new(
+            &capture_execution,
+            Arc::clone(&self.binding_provider),
+            Arc::clone(&self.transport),
+            Arc::clone(&self.verifier),
+            Arc::clone(&self.result_boundary),
+        );
         let context = BindingRequestContext::new(connection_id, request.uri().path());
         let binding = match self.binding_provider.issue_binding(context).await {
             Ok(binding) => binding,
@@ -1961,6 +2236,12 @@ impl ExperimentalTlsnForwarder {
         let verifier = Arc::clone(&self.verifier);
         let result_boundary = Arc::clone(&self.result_boundary);
         let send_journal = self.send_journal.clone();
+        #[cfg(test)]
+        let test_pause = self
+            .test_pause
+            .lock()
+            .map_err(|_| "forwarder test pause state is poisoned")?
+            .clone();
         let task = AbortOnDropHandle::new(tokio::spawn(async move {
             tokio::task::yield_now().await;
             if let Some(journal) = send_journal {
@@ -1992,6 +2273,8 @@ impl ExperimentalTlsnForwarder {
                 binding,
                 exchange,
                 lifecycle.clone(),
+                #[cfg(test)]
+                test_pause,
             );
             let stopped = match lifecycle.as_ref() {
                 Some(lifecycle) => lifecycle.run(pipeline).await.err(),
@@ -2051,6 +2334,8 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
             journal_target: self.journal_target.clone(),
             capture_control: Arc::clone(&self.capture_control),
             lifecycle_policy: self.lifecycle_policy,
+            #[cfg(test)]
+            test_pause: Arc::clone(&self.test_pause),
         });
         Box::pin(forwarder.forward_inner(connection_id, request))
     }
@@ -2154,7 +2439,8 @@ pub(crate) mod test_support {
 mod tests {
     use super::*;
     use std::collections::{BTreeMap, VecDeque};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::mpsc;
     use tokio::sync::oneshot;
 
     fn request(binding: Option<&str>) -> Request<Bytes> {
@@ -2221,6 +2507,136 @@ mod tests {
         }
     }
 
+    struct PreparedBindingTestInner {
+        bindings: Mutex<VecDeque<AttestationBinding>>,
+        issue_calls: AtomicUsize,
+        completion_calls: Mutex<Vec<String>>,
+        cleared_contexts: Mutex<Vec<String>>,
+        current_binding: Mutex<Option<String>>,
+        events: Mutex<Vec<String>>,
+        blocked_cleanup_binding: Option<String>,
+        cleanup_started: Mutex<Option<mpsc::Sender<()>>>,
+        cleanup_release: Mutex<Option<mpsc::Receiver<()>>>,
+    }
+
+    impl PreparedBindingTestInner {
+        fn new(bindings: impl IntoIterator<Item = AttestationBinding>) -> Arc<Self> {
+            Arc::new(Self {
+                bindings: Mutex::new(bindings.into_iter().collect()),
+                issue_calls: AtomicUsize::new(0),
+                completion_calls: Mutex::new(Vec::new()),
+                cleared_contexts: Mutex::new(Vec::new()),
+                current_binding: Mutex::new(None),
+                events: Mutex::new(Vec::new()),
+                blocked_cleanup_binding: None,
+                cleanup_started: Mutex::new(None),
+                cleanup_release: Mutex::new(None),
+            })
+        }
+
+        fn with_blocked_cleanup(
+            bindings: impl IntoIterator<Item = AttestationBinding>,
+            binding_value: &str,
+        ) -> (Arc<Self>, mpsc::Receiver<()>, mpsc::Sender<()>) {
+            let (started_tx, started_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            (
+                Arc::new(Self {
+                    bindings: Mutex::new(bindings.into_iter().collect()),
+                    issue_calls: AtomicUsize::new(0),
+                    completion_calls: Mutex::new(Vec::new()),
+                    cleared_contexts: Mutex::new(Vec::new()),
+                    current_binding: Mutex::new(None),
+                    events: Mutex::new(Vec::new()),
+                    blocked_cleanup_binding: Some(binding_value.to_owned()),
+                    cleanup_started: Mutex::new(Some(started_tx)),
+                    cleanup_release: Mutex::new(Some(release_rx)),
+                }),
+                started_rx,
+                release_tx,
+            )
+        }
+
+        fn prepared_provider(
+            inner: &Arc<Self>,
+            now_ms: Arc<AtomicU64>,
+        ) -> Arc<PreparedBindingProvider> {
+            let binding_provider: Arc<dyn AttestationBindingProvider> = inner.clone();
+            let clock = Arc::new(move || Some(now_ms.load(Ordering::Acquire)));
+            Arc::new(PreparedBindingProvider::with_clock(
+                binding_provider,
+                BindingRequestContext::new(0, REQUIRE_INFO_TARGET),
+                clock,
+            ))
+        }
+
+        async fn wait_until_ready(provider: &PreparedBindingProvider) {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !provider.capture_ready() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("prepared binding did not become ready");
+        }
+    }
+
+    impl AttestationBindingProvider for PreparedBindingTestInner {
+        fn issue_binding(&self, _context: BindingRequestContext) -> BindingFuture {
+            self.issue_calls.fetch_add(1, Ordering::SeqCst);
+            let result = match self.bindings.lock().unwrap().pop_front() {
+                Some(binding) => {
+                    let mut current = self.current_binding.lock().unwrap();
+                    if current.is_some() {
+                        Err(BindingError::AlreadyIssued)
+                    } else {
+                        let value = binding.value().to_owned();
+                        *current = Some(value.clone());
+                        self.events.lock().unwrap().push(format!("issued:{value}"));
+                        Ok(binding)
+                    }
+                }
+                None => Err(BindingError::BindingNotReady),
+            };
+            Box::pin(async move { result })
+        }
+
+        fn attempt_completed(&self, binding: &AttestationBinding) {
+            let value = binding.value().to_owned();
+            self.completion_calls.lock().unwrap().push(value.clone());
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("cleanup-start:{value}"));
+            if self.blocked_cleanup_binding.as_deref() == Some(value.as_str()) {
+                if let Some(started) = self.cleanup_started.lock().unwrap().take() {
+                    started.send(()).unwrap();
+                }
+                if let Some(release) = self.cleanup_release.lock().unwrap().take() {
+                    release.recv().unwrap();
+                }
+            }
+            let mut current = self.current_binding.lock().unwrap();
+            if current.as_deref() == Some(value.as_str()) {
+                *current = None;
+                self.cleared_contexts.lock().unwrap().push(value.clone());
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(format!("cleanup-finished:{value}"));
+            }
+        }
+    }
+
+    fn prepared_grant_binding(value: &str, expires_at_ms: u64) -> AttestationBinding {
+        AttestationBinding::with_session_context_grant(
+            value.to_owned(),
+            Bytes::from(format!("grant-{value}")),
+            expires_at_ms,
+        )
+        .unwrap()
+    }
+
     struct FailingBindingProvider {
         calls: Arc<AtomicUsize>,
         error: BindingError,
@@ -2261,6 +2677,35 @@ mod tests {
                         })),
                         None => ProofContinuation::completed(),
                     },
+                })
+            })
+        }
+    }
+
+    struct GrantRecordingTransport {
+        calls: Arc<AtomicUsize>,
+        grants: Arc<Mutex<Vec<Option<Vec<u8>>>>>,
+        request_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl TlsnOriginTransport for GrantRecordingTransport {
+        fn send_once(&self, request: SerializedOriginRequest) -> TlsnTransportFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.request_bytes
+                .lock()
+                .unwrap()
+                .push(request.bytes().to_vec());
+            self.grants.lock().unwrap().push(
+                request
+                    .session_context_grant()
+                    .map(|grant| grant.bytes().to_vec()),
+            );
+            let mut exchange = exchange();
+            exchange.transcript.request_sha256 = sha256(request.bytes());
+            Box::pin(async move {
+                Ok(TlsnOriginCapture {
+                    exchange,
+                    proof: ProofContinuation::completed(),
                 })
             })
         }
@@ -2463,6 +2908,285 @@ mod tests {
                 response_sha256: sha256(&raw_response),
             },
         }
+    }
+
+    #[tokio::test]
+    async fn prepared_binding_expiry_is_exclusive_at_deadline() {
+        for observed_now_ms in [100, 101] {
+            let now_ms = Arc::new(AtomicU64::new(99));
+            let inner = PreparedBindingTestInner::new([
+                prepared_grant_binding("binding-A", 100),
+                prepared_grant_binding("binding-B", 300),
+            ]);
+            let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+            provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+            PreparedBindingTestInner::wait_until_ready(&provider).await;
+            assert!(
+                provider.capture_ready(),
+                "grant should be ready before expiry"
+            );
+
+            now_ms.store(observed_now_ms, Ordering::Release);
+            assert!(
+                !provider.capture_ready(),
+                "grant must not be ready at or after its expiry"
+            );
+            assert_eq!(
+                inner.completion_calls.lock().unwrap().as_slice(),
+                ["binding-A"]
+            );
+            assert_eq!(
+                inner.cleared_contexts.lock().unwrap().as_slice(),
+                ["binding-A"]
+            );
+
+            PreparedBindingTestInner::wait_until_ready(&provider).await;
+            let binding = provider
+                .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+                .await
+                .expect("next capture should receive its newly prepared grant");
+            assert_eq!(binding.value(), "binding-B");
+        }
+    }
+
+    #[tokio::test]
+    async fn prepared_binding_issue_rechecks_expiry_after_readiness() {
+        let now_ms = Arc::new(AtomicU64::new(99));
+        let inner = PreparedBindingTestInner::new([
+            prepared_grant_binding("binding-A", 100),
+            prepared_grant_binding("binding-B", 300),
+        ]);
+        let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+        provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        assert!(provider.capture_ready());
+
+        now_ms.store(100, Ordering::Release);
+        assert_eq!(
+            provider
+                .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+                .await,
+            Err(BindingError::BindingNotReady)
+        );
+        assert_eq!(
+            inner.completion_calls.lock().unwrap().as_slice(),
+            ["binding-A"]
+        );
+
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        let binding = provider
+            .issue_binding(BindingRequestContext::new(2, REQUIRE_INFO_TARGET))
+            .await
+            .expect("expired grant should be replaced before a later capture");
+        assert_eq!(binding.value(), "binding-B");
+    }
+
+    #[tokio::test]
+    async fn prepared_binding_expiry_does_not_release_an_in_use_capture() {
+        let now_ms = Arc::new(AtomicU64::new(99));
+        let inner = PreparedBindingTestInner::new([
+            prepared_grant_binding("binding-A", 100),
+            prepared_grant_binding("binding-B", 300),
+        ]);
+        let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+        provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        let binding = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await
+            .expect("capture should acquire the grant before expiry");
+        now_ms.store(100, Ordering::Release);
+
+        assert!(!provider.capture_ready());
+        assert!(inner.completion_calls.lock().unwrap().is_empty());
+        assert_eq!(
+            inner.current_binding.lock().unwrap().as_deref(),
+            Some("binding-A")
+        );
+        assert_eq!(
+            provider
+                .issue_binding(BindingRequestContext::new(2, REQUIRE_INFO_TARGET))
+                .await,
+            Err(BindingError::BindingNotReady)
+        );
+
+        provider.attempt_completed(&binding);
+        assert_eq!(
+            inner.completion_calls.lock().unwrap().as_slice(),
+            ["binding-A"]
+        );
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        assert_eq!(
+            provider
+                .issue_binding(BindingRequestContext::new(3, REQUIRE_INFO_TARGET))
+                .await
+                .expect("next capture should receive a replacement grant")
+                .value(),
+            "binding-B"
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_prepared_binding_falls_back_before_transport_send() {
+        let now_ms = Arc::new(AtomicU64::new(99));
+        let inner = PreparedBindingTestInner::new([
+            prepared_grant_binding("binding-A", 100),
+            prepared_grant_binding("binding-B", 300),
+            prepared_grant_binding("binding-C", 500),
+        ]);
+        let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+        let binding_provider: Arc<dyn AttestationBindingProvider> = provider.clone();
+        let transport_calls = Arc::new(AtomicUsize::new(0));
+        let grants = Arc::new(Mutex::new(Vec::new()));
+        let request_bytes = Arc::new(Mutex::new(Vec::new()));
+        let verifier_calls = Arc::new(AtomicUsize::new(0));
+        let result_calls = Arc::new(AtomicUsize::new(0));
+        let forwarder = ExperimentalTlsnForwarder::new(
+            binding_provider,
+            Arc::new(Http1OriginRequestSerializer),
+            Arc::new(GrantRecordingTransport {
+                calls: Arc::clone(&transport_calls),
+                grants: Arc::clone(&grants),
+                request_bytes: Arc::clone(&request_bytes),
+            }),
+            Arc::new(MockVerifier {
+                calls: Arc::clone(&verifier_calls),
+            }),
+            Arc::new(MockResultBoundary {
+                calls: Arc::clone(&result_calls),
+            }),
+        );
+        forwarder.start_preparation();
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+
+        now_ms.store(100, Ordering::Release);
+        assert!(
+            forwarder
+                .forward(41, request(None))
+                .await
+                .unwrap()
+                .is_none(),
+            "expired prepared binding should take the existing pre-send fallback"
+        );
+        assert_eq!(transport_calls.load(Ordering::SeqCst), 0);
+        assert!(grants.lock().unwrap().is_empty());
+        assert_eq!(
+            inner.completion_calls.lock().unwrap().as_slice(),
+            ["binding-A"]
+        );
+
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        let response = forwarder
+            .forward(42, request(None))
+            .await
+            .unwrap()
+            .expect("the next request should use the replacement grant");
+        assert_eq!(response.body(), &Bytes::from_static(b"ok"));
+        assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            grants.lock().unwrap().as_slice(),
+            [Some(b"grant-binding-B".to_vec())]
+        );
+        assert_eq!(
+            request_bytes.lock().unwrap().as_slice(),
+            [b"POST /kcsapi/api_get_member/require_info?x=1 HTTP/1.1\r\nhost: game.example.test\r\ncontent-length: 3\r\n\r\nabc".to_vec()]
+        );
+        assert!(!request_bytes.lock().unwrap()[0]
+            .windows(b"x-attestation-binding".len())
+            .any(|window| window.eq_ignore_ascii_case(b"x-attestation-binding")));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while result_calls.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("replacement grant proof pipeline did not complete");
+        assert_eq!(verifier_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn expired_binding_cleanup_serializes_concurrent_repreparation() {
+        let now_ms = Arc::new(AtomicU64::new(99));
+        let (inner, cleanup_started, cleanup_release) =
+            PreparedBindingTestInner::with_blocked_cleanup(
+                [
+                    prepared_grant_binding("binding-A", 100),
+                    prepared_grant_binding("binding-B", 300),
+                ],
+                "binding-A",
+            );
+        let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+        provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        now_ms.store(100, Ordering::Release);
+
+        let cleanup_provider = Arc::clone(&provider);
+        let cleanup_thread = std::thread::spawn(move || cleanup_provider.capture_ready());
+        cleanup_started
+            .recv_timeout(Duration::from_secs(2))
+            .expect("expired binding cleanup did not start");
+        assert_eq!(
+            provider
+                .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+                .await,
+            Err(BindingError::BindingNotReady)
+        );
+        provider.start_preparation(BindingRequestContext::new(2, REQUIRE_INFO_TARGET));
+        assert_eq!(inner.issue_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            inner.current_binding.lock().unwrap().as_deref(),
+            Some("binding-A")
+        );
+
+        cleanup_release.send(()).unwrap();
+        assert!(!cleanup_thread.join().unwrap());
+        assert_eq!(
+            inner.events.lock().unwrap().as_slice(),
+            [
+                "issued:binding-A",
+                "cleanup-start:binding-A",
+                "cleanup-finished:binding-A"
+            ]
+        );
+
+        provider.start_preparation(BindingRequestContext::new(3, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        let binding = provider
+            .issue_binding(BindingRequestContext::new(4, REQUIRE_INFO_TARGET))
+            .await
+            .expect("replacement grant should be prepared after old-context cleanup");
+        assert_eq!(binding.value(), "binding-B");
+        assert_eq!(
+            inner.current_binding.lock().unwrap().as_deref(),
+            Some("binding-B")
+        );
+        assert_eq!(
+            inner.completion_calls.lock().unwrap().as_slice(),
+            ["binding-A"]
+        );
+    }
+
+    #[tokio::test]
+    async fn prepared_binding_keeps_grantless_test_bindings_compatible() {
+        let inner = PreparedBindingTestInner::new([AttestationBinding::new(
+            "grantless-test-binding".to_owned(),
+        )
+        .unwrap()]);
+        let binding_provider: Arc<dyn AttestationBindingProvider> = inner.clone();
+        let provider = PreparedBindingProvider::with_clock(
+            binding_provider,
+            BindingRequestContext::new(0, REQUIRE_INFO_TARGET),
+            Arc::new(|| None),
+        );
+        provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        assert!(provider.capture_ready());
+        let binding = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await
+            .expect("grantless synthetic binding should remain usable");
+        assert_eq!(binding.value(), "grantless-test-binding");
+        assert_eq!(binding.expires_at_ms, None);
     }
 
     fn policy_forwarder(

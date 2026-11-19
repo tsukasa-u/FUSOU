@@ -11,17 +11,14 @@ use crate::experimental_tlsn::{
 use authenticity_core::ServerIdentity;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::{self, OpenOptions},
     future::Future,
     io::{self, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 pub const MAX_WORKER_HEALTH_RESPONSE_BYTES: usize = 1_048_576;
@@ -320,7 +317,7 @@ impl Alpha15OriginTransportFactory for UnconfiguredAlpha15OriginTransportFactory
 pub struct ProductionAlpha15OriginTransport {
     config: OriginTransportConfig,
     factory: Arc<dyn Alpha15OriginTransportFactory>,
-    sent: AtomicBool,
+    active_captures: Mutex<HashSet<[u8; 32]>>,
 }
 
 impl ProductionAlpha15OriginTransport {
@@ -332,15 +329,32 @@ impl ProductionAlpha15OriginTransport {
         Ok(Self {
             config,
             factory,
-            sent: AtomicBool::new(false),
+            active_captures: Mutex::new(HashSet::new()),
         })
+    }
+
+    fn reserve_capture(&self, request: &SerializedOriginRequest) -> Result<(), TlsnTransportError> {
+        if !request.claim_origin_send() {
+            return Err(TlsnTransportError::AlreadySent);
+        }
+        let Some(capture_identifier) = request.capture_identifier() else {
+            return Ok(());
+        };
+        let mut active_captures = self
+            .active_captures
+            .lock()
+            .map_err(|_| TlsnTransportError::Unavailable)?;
+        if !active_captures.insert(*capture_identifier) {
+            return Err(TlsnTransportError::AlreadySent);
+        }
+        Ok(())
     }
 }
 
 impl TlsnOriginTransport for ProductionAlpha15OriginTransport {
     fn send_once(&self, request: SerializedOriginRequest) -> TlsnTransportFuture {
-        if self.sent.swap(true, Ordering::AcqRel) {
-            return Box::pin(async { Err(TlsnTransportError::AlreadySent) });
+        if let Err(error) = self.reserve_capture(&request) {
+            return Box::pin(async move { Err(error) });
         }
         self.factory.send_once(self.config.clone(), request)
     }
@@ -350,11 +364,19 @@ impl TlsnOriginTransport for ProductionAlpha15OriginTransport {
         request: SerializedOriginRequest,
         lifecycle: ExchangeLifecycle,
     ) -> TlsnTransportFuture {
-        if self.sent.swap(true, Ordering::AcqRel) {
-            return Box::pin(async { Err(TlsnTransportError::AlreadySent) });
+        if let Err(error) = self.reserve_capture(&request) {
+            return Box::pin(async move { Err(error) });
         }
         self.factory
             .send_once_with_lifecycle(self.config.clone(), request, lifecycle)
+    }
+
+    fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        self.active_captures
+            .lock()
+            .map_err(|_| "origin transport capture state is poisoned".to_owned())?
+            .remove(capture_identifier);
+        Ok(())
     }
 }
 
@@ -734,6 +756,10 @@ pub trait PresentationProvider: Send + Sync {
     fn provide(&self, context: PresentationRequestContext) -> PresentationFuture;
 
     fn discard(&self, _context: &PresentationRequestContext) {}
+
+    fn discard_capture(&self, _capture_identifier: &[u8; 32]) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub type PresentationExportFuture =
@@ -784,10 +810,21 @@ impl PresentationProvider for UnconfiguredPresentationProvider {
     }
 }
 
+struct PendingPresentation {
+    request_sha256: [u8; 32],
+    identifier: String,
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct PresentationHandoffState {
+    pending: HashMap<[u8; 32], PendingPresentation>,
+    closed: HashSet<[u8; 32]>,
+}
+
 #[derive(Default)]
 pub struct PresentationHandoff {
-    pending: Mutex<HashMap<[u8; 32], (String, Vec<u8>)>>,
-    consumed: Mutex<HashMap<[u8; 32], TlsnPresentation>>,
+    state: Mutex<PresentationHandoffState>,
 }
 
 impl PresentationHandoff {
@@ -797,6 +834,7 @@ impl PresentationHandoff {
 
     pub fn publish(
         &self,
+        capture_identifier: [u8; 32],
         request_sha256: [u8; 32],
         identifier: String,
         bytes: Vec<u8>,
@@ -804,40 +842,96 @@ impl PresentationHandoff {
         if identifier.is_empty() || bytes.is_empty() {
             return Err(PresentationError::Invalid);
         }
-        let mut pending = self
-            .pending
-            .lock()
-            .map_err(|_| PresentationError::Invalid)?;
-        if pending.contains_key(&request_sha256) {
+
+        let mut state = self.state.lock().map_err(|_| PresentationError::Invalid)?;
+        if state.pending.contains_key(&capture_identifier)
+            || state.closed.contains(&capture_identifier)
+        {
             return Err(PresentationError::Invalid);
         }
-        pending.insert(request_sha256, (identifier, bytes));
+        state.pending.insert(
+            capture_identifier,
+            PendingPresentation {
+                request_sha256,
+                identifier,
+                bytes,
+            },
+        );
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_len(&self) -> Result<usize, PresentationError> {
+        self.state
+            .lock()
+            .map(|state| state.pending.len())
+            .map_err(|_| PresentationError::Invalid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_presentation_bytes_for_capture(
+        &self,
+        capture_identifier: &[u8; 32],
+    ) -> Result<Option<Vec<u8>>, PresentationError> {
+        self.state
+            .lock()
+            .map(|state| {
+                state
+                    .pending
+                    .get(capture_identifier)
+                    .map(|presentation| presentation.bytes.clone())
+            })
+            .map_err(|_| PresentationError::Invalid)
     }
 
     pub fn take_for(
         &self,
-        request_sha256: &[u8; 32],
+        context: &PresentationRequestContext,
     ) -> Result<TlsnPresentation, PresentationError> {
-        let mut pending = self
-            .pending
-            .lock()
-            .map_err(|_| PresentationError::Invalid)?;
-        let Some((identifier, bytes)) = pending.remove(request_sha256) else {
-            return Err(PresentationError::Unavailable);
-        };
-        let presentation = TlsnPresentation::new(identifier, bytes)?;
-        self.consumed
-            .lock()
-            .map_err(|_| PresentationError::Invalid)?
-            .insert(*request_sha256, presentation.clone());
-        Ok(presentation)
+        self.take_for_capture(
+            context.binding_identifier(),
+            context.authenticated_request_sha256(),
+        )
     }
 
-    fn discard_consumed(&self, request_sha256: &[u8; 32]) {
-        if let Ok(mut consumed) = self.consumed.lock() {
-            consumed.remove(request_sha256);
+    pub fn take_for_capture(
+        &self,
+        capture_identifier: &[u8; 32],
+        request_sha256: &[u8; 32],
+    ) -> Result<TlsnPresentation, PresentationError> {
+        let mut state = self.state.lock().map_err(|_| PresentationError::Invalid)?;
+        let Some(entry) = state.pending.get(capture_identifier) else {
+            return Err(PresentationError::Unavailable);
+        };
+        if entry.request_sha256 != *request_sha256 {
+            return Err(PresentationError::Invalid);
         }
+        let entry = state
+            .pending
+            .remove(capture_identifier)
+            .ok_or(PresentationError::Unavailable)?;
+        state.closed.insert(*capture_identifier);
+        TlsnPresentation::new(entry.identifier, entry.bytes)
+    }
+
+    fn close_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Presentation handoff is poisoned".to_owned())?;
+        state.pending.remove(capture_identifier);
+        state.closed.insert(*capture_identifier);
+        Ok(())
+    }
+
+    fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Presentation handoff is poisoned".to_owned())?;
+        state.pending.remove(capture_identifier);
+        state.closed.remove(capture_identifier);
+        Ok(())
     }
 }
 
@@ -854,12 +948,17 @@ impl HandoffPresentationProvider {
 impl PresentationProvider for HandoffPresentationProvider {
     fn provide(&self, context: PresentationRequestContext) -> PresentationFuture {
         let handoff = Arc::clone(&self.handoff);
-        Box::pin(async move { handoff.take_for(context.authenticated_request_sha256()) })
+        Box::pin(async move { handoff.take_for(&context) })
     }
 
     fn discard(&self, context: &PresentationRequestContext) {
-        self.handoff
-            .discard_consumed(context.authenticated_request_sha256());
+        if let Err(error) = self.handoff.close_capture(context.binding_identifier()) {
+            tracing::error!(%error, "could not discard capture Presentation handoff");
+        }
+    }
+
+    fn discard_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        self.handoff.finish_capture(capture_identifier)
     }
 }
 
@@ -1458,6 +1557,11 @@ impl ExperimentalVerifierBoundary for PresentationVerifierBoundary {
     ) -> VerificationFuture {
         self.verify_owned(connection_id, request, binding, exchange, Some(lifecycle))
     }
+
+    fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        self.presentation_provider
+            .discard_capture(capture_identifier)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1471,6 +1575,10 @@ pub type ResultSignerFuture =
 
 pub trait ProductionResultSigner: Send + Sync {
     fn sign(&self, evidence: VerifiedTlsnEvidence) -> ResultSignerFuture;
+
+    fn finish_capture(&self, _capture_identifier: &[u8; 32]) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1578,6 +1686,10 @@ impl ExperimentalResultBoundary for SignedResultBoundary {
                 .await
                 .map_err(|_| ResultBoundaryError::DeliveryUnavailable)?
         })
+    }
+
+    fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        self.signer.finish_capture(capture_identifier)
     }
 }
 
@@ -1998,7 +2110,10 @@ mod tests {
     use crate::experimental_tlsn::{ProofContinuation, TlsnOriginCapture};
     use http::{HeaderMap, HeaderValue, StatusCode};
     use hyper::body::Bytes;
-    use std::sync::{atomic::AtomicUsize, Mutex};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    };
 
     fn origin_config(enabled: bool) -> OriginTransportConfig {
         OriginTransportConfig::new(
@@ -3126,10 +3241,16 @@ mod tests {
         let handoff = PresentationHandoff::new();
         let request = request();
         let binding = AttestationBinding::new("opaque".to_owned()).unwrap();
+        let capture_identifier = binding.capture_identifier();
         let exchange = exchange();
         let request_sha256 = exchange.transcript.request_sha256;
         handoff
-            .publish(request_sha256, "presentation-1".to_owned(), vec![9, 8, 7])
+            .publish(
+                capture_identifier,
+                request_sha256,
+                "presentation-1".to_owned(),
+                vec![9, 8, 7],
+            )
             .unwrap();
         let boundary = PresentationVerifierBoundary::new(
             Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
@@ -3148,7 +3269,7 @@ mod tests {
             Err(VerificationError::InvalidTranscript)
         );
         assert!(matches!(
-            handoff.take_for(&request_sha256),
+            handoff.take_for_capture(&capture_identifier, &request_sha256),
             Err(PresentationError::Unavailable)
         ));
     }

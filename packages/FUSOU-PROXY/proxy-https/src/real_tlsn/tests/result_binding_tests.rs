@@ -178,6 +178,7 @@ fn current_complete_and_sparse_results_are_cached_once() {
         let (payload, verifier, session) = fixture(sparse, true);
         assert!(verifier.verify(&payload).is_ok());
         let store = RemoteWorkerResultStore::new();
+        let capture_identifier = sha256(session.binding.as_bytes());
         let current = input(
             &session,
             REQUEST,
@@ -187,8 +188,16 @@ fn current_complete_and_sparse_results_are_cached_once() {
             101,
         );
         assert!(accept(payload, &verifier, session, current, &store).is_ok());
-        assert_eq!(store.take(&sha256(REQUEST)).unwrap().connection_id, 101);
-        assert!(store.take(&sha256(REQUEST)).is_err());
+        assert_eq!(
+            store
+                .take(&capture_identifier, &sha256(REQUEST), &sha256(RESPONSE),)
+                .unwrap()
+                .connection_id,
+            101
+        );
+        assert!(store
+            .take(&capture_identifier, &sha256(REQUEST), &sha256(RESPONSE),)
+            .is_err());
     }
 }
 
@@ -367,6 +376,7 @@ fn generic_null_authority_path_cannot_accept_production_results() {
 fn duplicate_valid_result_does_not_replace_an_unconsumed_operation() {
     let (payload, verifier, session) = fixture(false, true);
     let store = RemoteWorkerResultStore::new();
+    let capture_identifier = sha256(session.binding.as_bytes());
     for connection in [101, 102] {
         let current = input(
             &session,
@@ -381,7 +391,13 @@ fn duplicate_valid_result_does_not_replace_an_unconsumed_operation() {
             connection == 101
         );
     }
-    assert_eq!(store.take(&sha256(REQUEST)).unwrap().connection_id, 101);
+    assert_eq!(
+        store
+            .take(&capture_identifier, &sha256(REQUEST), &sha256(RESPONSE),)
+            .unwrap()
+            .connection_id,
+        101
+    );
 }
 
 #[test]

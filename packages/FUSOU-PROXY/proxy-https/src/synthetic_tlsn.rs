@@ -117,8 +117,11 @@ pub fn synthetic_attestation_binding_with_grant(
         )
         .map_err(|_| crate::experimental_tlsn::BindingError::InvalidBinding)?;
     let encoded = grant.encoded().to_vec();
-    let binding =
-        AttestationBinding::with_session_context_grant(value, Bytes::from(encoded.clone()))?;
+    let binding = AttestationBinding::with_session_context_grant(
+        value,
+        Bytes::from(encoded.clone()),
+        grant.expires_at_ms(),
+    )?;
     Ok((binding, encoded))
 }
 
@@ -149,9 +152,13 @@ pub fn synthetic_test_request_with_grant(
     binding_value: String,
     encoded_grant: Vec<u8>,
 ) -> Result<SerializedOriginRequest, String> {
-    let binding =
-        AttestationBinding::with_session_context_grant(binding_value, Bytes::from(encoded_grant))
-            .map_err(|error| error.to_string())?;
+    let grant = SessionContextGrant::parse(&encoded_grant).map_err(|error| error.to_string())?;
+    let binding = AttestationBinding::with_session_context_grant(
+        binding_value,
+        Bytes::from(encoded_grant),
+        grant.expires_at_ms(),
+    )
+    .map_err(|error| error.to_string())?;
     let request = Request::builder()
         .method(Method::POST)
         .uri(format!("https://{server_identity}{REQUIRE_INFO_TARGET}"))
@@ -1418,12 +1425,16 @@ mod tests {
                 "/kcsapi/api_get_member/require_info?api_token=actual HTTP/1.1",
                 1,
             );
+        let capture_identifier = *valid_request
+            .capture_identifier()
+            .expect("synthetic serialized request has a capture identifier");
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             transport.send_once(
                 SerializedOriginRequest::with_session_context_grant(
                     Bytes::from(request),
                     session_context_grant,
+                    capture_identifier,
                 )
                 .unwrap(),
             ),

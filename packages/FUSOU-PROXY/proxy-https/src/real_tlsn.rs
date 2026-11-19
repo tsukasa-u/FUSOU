@@ -5,7 +5,7 @@ use crate::{
         ProofContinuation, ProofContinuationError, SerializedOriginRequest, TlsnOriginCapture,
         TlsnOriginExchange, TlsnOriginResponse, TlsnTransportError, VerificationError,
         VerificationFuture, VerificationOutcome, VerifiedMemberId, VerifiedTlsnEvidence,
-        MAX_TLSN_SENT_DATA_BYTES,
+        MAX_TLSN_RECV_DATA_BYTES, MAX_TLSN_SENT_DATA_BYTES,
     },
     production_tlsn::{
         canonical_json_bytes, ensure_private_candidate_root, validate_private_candidate_directory,
@@ -64,7 +64,6 @@ use tokio::net::TcpStream;
 use tokio_util::{compat::TokioAsyncReadCompatExt, task::AbortOnDropHandle};
 
 const MAX_SENT_DATA: usize = MAX_TLSN_SENT_DATA_BYTES;
-const MAX_RECV_DATA: usize = 4 * 1024 * 1024;
 const ED25519_SPKI_PREFIX: &[u8; 12] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
 const RESULT_SIGNING_KEY_REGISTRY_SCOPE: &str = "tlsn-result-signing-key-registry";
 
@@ -399,6 +398,8 @@ const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const WORKER_POLL_TIMEOUT: Duration = Duration::from_secs(660);
 
 struct RemoteWorkerResult {
+    request_sha256: [u8; 32],
+    response_sha256: [u8; 32],
     presentation: TlsnPresentation,
     session: SessionBindingContext,
     device_signature: String,
@@ -422,39 +423,74 @@ struct WorkerResponse {
 
 pub struct RemoteWorkerResultStore {
     results: Mutex<HashMap<[u8; 32], RemoteWorkerResult>>,
+    completed: Mutex<HashSet<[u8; 32]>>,
 }
 
 impl RemoteWorkerResultStore {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             results: Mutex::new(HashMap::new()),
+            completed: Mutex::new(HashSet::new()),
         })
     }
 
     fn insert(
         &self,
-        request_sha256: [u8; 32],
+        capture_identifier: [u8; 32],
         result: RemoteWorkerResult,
     ) -> Result<(), VerificationError> {
         let mut results = self
             .results
             .lock()
             .map_err(|_| VerificationError::WorkerUnavailable)?;
-        if let std::collections::hash_map::Entry::Vacant(entry) = results.entry(request_sha256) {
-            entry.insert(result);
-        } else {
-            tracing::warn!("refusing to overwrite an unconsumed Worker Result");
+        let completed = self
+            .completed
+            .lock()
+            .map_err(|_| VerificationError::WorkerUnavailable)?;
+        if completed.contains(&capture_identifier) || results.contains_key(&capture_identifier) {
+            tracing::warn!("refusing duplicate Worker Result registration for a capture");
             return Err(VerificationError::WorkerRejected);
         }
+        results.insert(capture_identifier, result);
         Ok(())
     }
 
-    fn take(&self, request_sha256: &[u8; 32]) -> Result<RemoteWorkerResult, ResultSignerError> {
-        self.results
+    fn take(
+        &self,
+        capture_identifier: &[u8; 32],
+        request_sha256: &[u8; 32],
+        response_sha256: &[u8; 32],
+    ) -> Result<RemoteWorkerResult, ResultSignerError> {
+        let mut results = self.results.lock().map_err(|_| ResultSignerError::Failed)?;
+        let mut completed = self
+            .completed
             .lock()
-            .map_err(|_| ResultSignerError::Failed)?
-            .remove(request_sha256)
-            .ok_or(ResultSignerError::Unavailable)
+            .map_err(|_| ResultSignerError::Failed)?;
+        let result = results
+            .get(capture_identifier)
+            .ok_or(ResultSignerError::Unavailable)?;
+        if result.request_sha256 != *request_sha256 || result.response_sha256 != *response_sha256 {
+            return Err(ResultSignerError::Failed);
+        }
+        let result = results
+            .remove(capture_identifier)
+            .ok_or(ResultSignerError::Unavailable)?;
+        completed.insert(*capture_identifier);
+        Ok(result)
+    }
+
+    fn discard_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        let mut results = self
+            .results
+            .lock()
+            .map_err(|_| "Worker Result store is poisoned".to_owned())?;
+        let mut completed = self
+            .completed
+            .lock()
+            .map_err(|_| "Worker Result completion state is poisoned".to_owned())?;
+        results.remove(capture_identifier);
+        completed.remove(capture_identifier);
+        Ok(())
     }
 }
 
@@ -842,8 +878,10 @@ fn accept_worker_result(
     let request_sha256 = *context.request_sha256();
     let response_sha256 = *context.response_sha256();
     results.insert(
-        request_sha256,
+        *context.binding_identifier(),
         RemoteWorkerResult {
+            request_sha256,
+            response_sha256,
             presentation,
             session,
             device_signature,
@@ -918,8 +956,11 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
         let artifact_root = self.artifact_root.clone();
         let candidate_capture_enabled = self.candidate_capture_enabled;
         let runtime_materials = self.runtime_materials.clone();
+        let capture_identifier = *evidence.metadata().binding_identifier();
+        let request_sha256 = *evidence.request_sha256();
+        let response_sha256 = *evidence.response_sha256();
         Box::pin(async move {
-            let result = results.take(evidence.request_sha256())?;
+            let result = results.take(&capture_identifier, &request_sha256, &response_sha256)?;
             let bytes =
                 serde_json::to_vec(&result.payload).map_err(|_| ResultSignerError::Failed)?;
             if candidate_capture_enabled {
@@ -941,6 +982,10 @@ impl ProductionResultSigner for RemoteWorkerResultSigner {
             }
             SignedTlsnResult::new(result.key_id, bytes).map_err(|_| ResultSignerError::Failed)
         })
+    }
+
+    fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+        self.results.discard_capture(capture_identifier)
     }
 }
 
@@ -1564,6 +1609,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             {
                 return Err(BindingError::InvalidBinding);
             }
+            let grant_expires_at_ms = grant.expires_at_ms();
             let mut state_guard = state.lock().map_err(|_| BindingError::NoBindingAuthority)?;
             if state_guard.is_some() {
                 return Err(BindingError::AlreadyIssued);
@@ -1583,6 +1629,7 @@ impl crate::experimental_tlsn::AttestationBindingProvider for RemoteSessionBindi
             AttestationBinding::with_session_context_grant(
                 authority.binding,
                 Bytes::from(grant_bytes),
+                grant_expires_at_ms,
             )
             .map_err(|_| BindingError::InvalidBinding)
         })
@@ -1940,6 +1987,10 @@ async fn run_real_exchange(
         .session_context_grant()
         .cloned()
         .ok_or(TlsnTransportError::RuntimeConfigUnavailable)?;
+    let capture_identifier = *request
+        .capture_identifier()
+        .ok_or(TlsnTransportError::RuntimeConfigUnavailable)?;
+    let request_sha256 = sha256(request.bytes());
     fusou_tlsn_verifier::validate_require_info_request_headerless(
         request.bytes(),
         config.target().server_identity(),
@@ -1993,7 +2044,7 @@ async fn run_real_exchange(
         .commit(
             MpcTlsConfig::builder()
                 .max_sent_data(max_sent_data)
-                .max_recv_data(MAX_RECV_DATA)
+                .max_recv_data(MAX_TLSN_RECV_DATA_BYTES)
                 .build()
                 .map_err(|_| TlsnTransportError::OriginConnectionFailed)?,
         )
@@ -2087,7 +2138,6 @@ async fn run_real_exchange(
         "TLSN protocol exchange response received"
     );
     let server_identity = config.target().server_identity().to_owned();
-    let request_sha256 = sha256(request.bytes());
     let response_sha256 = sha256(&response.raw_response_bytes);
     let browser_exchange = TlsnOriginExchange {
         response: TlsnOriginResponse::new(
@@ -2264,6 +2314,7 @@ async fn run_real_exchange(
         proof_lifecycle.check().map_err(proof_stop)?;
         handoff
             .publish(
+                capture_identifier,
                 request_sha256,
                 hex_identifier(&presentation_bytes),
                 presentation_bytes,
@@ -2468,15 +2519,36 @@ mod tests {
 
     use super::*;
     use crate::{
-        experimental_tlsn::{AttestationBindingProvider, ExperimentalVerifierBoundary},
+        exchange_lifecycle::{ExchangeLifecycle, ExchangePolicy},
+        experimental_tlsn::{
+            AttestationBindingProvider, BindingError, BindingFuture, BindingRequestContext,
+            ExperimentalRequireInfoForwarder, ExperimentalResultBoundary,
+            ExperimentalTlsnForwarder, ExperimentalTlsnRuntimeState, ExperimentalVerifierBoundary,
+            ForwarderPausePoint, ForwarderTestPause, Http1OriginRequestSerializer,
+            OriginRequestSerializer, ResultBoundaryFuture, TlsnOriginCapture, TlsnOriginTransport,
+            TlsnTransportError, TlsnTransportFuture, VerificationFuture,
+        },
         production_tlsn::{
-            HandoffPresentationProvider, OriginTarget, PresentationVerifierBoundary,
-            RuntimeIdentifiers,
+            HandoffPresentationProvider, OriginTarget, PresentationProvider,
+            PresentationRequestContext, PresentationVerifierBoundary, ProductionResultDelivery,
+            ResultDeliveryError, ResultDeliveryFuture, RuntimeIdentifiers, SignedResultBoundary,
         },
     };
     use ring::signature::{Ed25519KeyPair, KeyPair};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::{
+        collections::{HashMap, VecDeque},
+        net::SocketAddr,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::{
+        io::{AsyncReadExt as TokioAsyncReadExt, AsyncWriteExt as TokioAsyncWriteExt},
+        net::TcpListener,
+        sync::{mpsc, oneshot},
+        task::JoinHandle,
+        time::timeout,
+    };
     use warp::Filter;
 
     #[tokio::test]
@@ -2543,6 +2615,38 @@ mod tests {
             device_auth_nonce: "a".repeat(64),
             device_auth_signature: URL_SAFE_NO_PAD.encode([4_u8; 64]),
         }
+    }
+
+    #[test]
+    fn remote_session_cleanup_preserves_a_replacement_context() {
+        let provider = RemoteSessionBindingProvider::new(
+            "https://127.0.0.1/session".to_owned(),
+            test_auth_manager(PathBuf::from("unused-session-cleanup.json")),
+            PathBuf::from("unused-session-cleanup-device.json"),
+            [ED25519_SPKI_PREFIX.as_slice(), &[1_u8; 32]].concat(),
+            "test-session-authority".to_owned(),
+        )
+        .expect("construct offline Remote Session provider");
+        let state = provider.state();
+        let old_binding = AttestationBinding::new("binding-value".to_owned()).unwrap();
+        *state.lock().unwrap() = Some(test_session_context());
+
+        provider.attempt_completed(&old_binding);
+        assert!(state.lock().unwrap().is_none());
+
+        let mut replacement = test_session_context();
+        replacement.binding = "replacement-binding".to_owned();
+        replacement.session_receipt.binding_value = "replacement-binding".to_owned();
+        *state.lock().unwrap() = Some(replacement);
+        provider.attempt_completed(&old_binding);
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(SessionBindingContext::binding),
+            Some("replacement-binding")
+        );
     }
 
     #[tokio::test]
@@ -3121,6 +3225,18 @@ mod tests {
         )
     }
 
+    fn result_signature_verifier_for_fixture() -> Arc<ResultSignatureVerifier> {
+        let (_, public_key_spki) = signed_result_payload();
+        Arc::new(
+            ResultSignatureVerifier::new(
+                public_key_spki.clone(),
+                "result-signer-2026".to_owned(),
+                result_registry(&public_key_spki, "ACTIVE", "2020-01-01T00:00:00.000Z", None),
+            )
+            .unwrap(),
+        )
+    }
+
     fn result_registry(
         public_key_spki: &[u8],
         status: &str,
@@ -3203,6 +3319,1199 @@ mod tests {
         let mut public_key_spki = ED25519_SPKI_PREFIX.to_vec();
         public_key_spki.extend_from_slice(key_pair.public_key().as_ref());
         (payload, public_key_spki)
+    }
+
+    fn signed_result_payload_for_exchange(
+        presentation: &TlsnPresentation,
+        session: &SessionBindingContext,
+        server_identity: &str,
+        request: &[u8],
+        response: &[u8],
+    ) -> (serde_json::Value, Vec<u8>) {
+        let session_id = uuid::Uuid::parse_str(&session.session_id).unwrap();
+        let binding_nonce: [u8; 32] = URL_SAFE_NO_PAD
+            .decode(&session.binding_challenge)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let device_challenge: [u8; 32] = URL_SAFE_NO_PAD
+            .decode(&session.device_challenge)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let mut binding_bytes = Vec::new();
+        binding_bytes.extend_from_slice(fusou_tlsn_verifier::BINDING_PREFIX);
+        binding_bytes.extend_from_slice(&16_u16.to_be_bytes());
+        binding_bytes.extend_from_slice(session_id.as_bytes());
+        binding_bytes.extend_from_slice(&32_u16.to_be_bytes());
+        binding_bytes.extend_from_slice(&binding_nonce);
+        assert_eq!(session.binding, URL_SAFE_NO_PAD.encode(&binding_bytes));
+
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&[11_u8; 32]).unwrap();
+        let mut result = fusou_tlsn_verifier::VerifierResult {
+            version: 2,
+            profile_id: fusou_tlsn_verifier::PROFILE_ID.to_owned(),
+            profile_sha256: [1_u8; 32],
+            issuer: fusou_tlsn_verifier::ISSUER.to_owned(),
+            proof_purpose: fusou_tlsn_verifier::PROOF_PURPOSE.to_owned(),
+            canonical_user_id: session.session_receipt.canonical_user_id.clone(),
+            canonical_device_id: session.device_id.clone(),
+            device_challenge,
+            verified_member_id: "16189463".to_owned(),
+            attestation_session_id: session_id,
+            binding_nonce,
+            binding_value: session.binding.clone(),
+            verifier_key_id: "verifier-test".to_owned(),
+            notary_key_id: "notary-test".to_owned(),
+            tlsn_attestation_id: vec![2_u8; 16],
+            presentation_sha256: *presentation.sha256(),
+            server_identity: server_identity.to_owned(),
+            origin_inventory_sha256: None,
+            target_approval_artifact_sha256: None,
+            request_transcript_size: request.len() as u64,
+            request_transcript_sha256: sha256(request),
+            response_transcript_size: response.len() as u64,
+            response_transcript_sha256: sha256(response),
+            revealed_request_ranges: vec![fusou_tlsn_verifier::RevealedRange {
+                start: 0,
+                length: request.len() as u64,
+                bytes: request.to_vec(),
+            }],
+            revealed_response_ranges: vec![fusou_tlsn_verifier::RevealedRange {
+                start: 0,
+                length: response.len() as u64,
+                bytes: response.to_vec(),
+            }],
+            signature: [0_u8; 64],
+        };
+        let signing_bytes = result.signing_bytes().unwrap();
+        result
+            .signature
+            .copy_from_slice(key_pair.sign(&signing_bytes).as_ref());
+        let result_json: serde_json::Value =
+            serde_json::from_str(&result.canonical_json().unwrap()).unwrap();
+        let payload = serde_json::json!({
+            "verified": true,
+            "result": result_json,
+            "signer_key_id": "result-signer-2026",
+            "signature_algorithm": "Ed25519",
+        });
+        let mut public_key_spki = ED25519_SPKI_PREFIX.to_vec();
+        public_key_spki.extend_from_slice(key_pair.public_key().as_ref());
+        (payload, public_key_spki)
+    }
+
+    fn session_context_with_nonce(nonce: [u8; 32]) -> SessionBindingContext {
+        let mut session = test_session_context();
+        let session_id = uuid::Uuid::parse_str(&session.session_id).unwrap();
+        let mut binding_bytes = Vec::new();
+        binding_bytes.extend_from_slice(fusou_tlsn_verifier::BINDING_PREFIX);
+        binding_bytes.extend_from_slice(&16_u16.to_be_bytes());
+        binding_bytes.extend_from_slice(session_id.as_bytes());
+        binding_bytes.extend_from_slice(&32_u16.to_be_bytes());
+        binding_bytes.extend_from_slice(&nonce);
+        session.binding = URL_SAFE_NO_PAD.encode(&binding_bytes);
+        session.binding_challenge = URL_SAFE_NO_PAD.encode(nonce);
+        session.session_receipt.binding_value = session.binding.clone();
+        session.session_receipt.nonce = URL_SAFE_NO_PAD.encode(nonce);
+        session
+    }
+
+    struct FixtureSignedWorkerBackend {
+        result_verifier: Arc<ResultSignatureVerifier>,
+        results: Arc<RemoteWorkerResultStore>,
+        sessions: Arc<HashMap<[u8; 32], SessionBindingContext>>,
+    }
+
+    impl TlsnVerificationBackend for FixtureSignedWorkerBackend {
+        fn verify(&self, input: PresentationVerificationInput) -> VerificationFuture {
+            let result_verifier = Arc::clone(&self.result_verifier);
+            let results = Arc::clone(&self.results);
+            let sessions = Arc::clone(&self.sessions);
+            Box::pin(async move {
+                let (context, request, binding, exchange, presentation) = input.into_parts();
+                let session = sessions
+                    .get(context.binding_identifier())
+                    .cloned()
+                    .ok_or(VerificationError::WorkerRejected)?;
+                let (payload, _) = signed_result_payload_for_exchange(
+                    &presentation,
+                    &session,
+                    context.server_identity(),
+                    request.bytes(),
+                    &exchange.response.raw_response_bytes,
+                );
+                let body_bytes =
+                    serde_json::to_vec(&payload).map_err(|_| VerificationError::WorkerRejected)?;
+                let response = WorkerResponse {
+                    payload,
+                    body_bytes,
+                    verifier_execution_receipt_header_bytes: None,
+                    verifier_execution_receipt_bytes: None,
+                    status: 200,
+                };
+                accept_worker_result(
+                    PresentationVerificationInput::new(
+                        context,
+                        request,
+                        binding,
+                        exchange,
+                        presentation,
+                    ),
+                    session,
+                    "fixture-device-signature".to_owned(),
+                    response,
+                    &result_verifier,
+                    &results,
+                )
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct CapturingResultDelivery {
+        result: Mutex<Option<SignedTlsnResult>>,
+    }
+
+    impl ProductionResultDelivery for CapturingResultDelivery {
+        fn deliver(&self, result: SignedTlsnResult) -> ResultDeliveryFuture {
+            *self.result.lock().unwrap() = Some(result);
+            Box::pin(async { Ok::<(), ResultDeliveryError>(()) })
+        }
+    }
+
+    fn exchange_for_request(request: &[u8]) -> TlsnOriginExchange {
+        let response = Bytes::from_static(b"HTTP/1.1 200 OK\r\n\r\n");
+        TlsnOriginExchange {
+            response: TlsnOriginResponse::new(
+                StatusCode::OK,
+                HeaderMap::new(),
+                Bytes::new(),
+                response.clone(),
+            ),
+            transcript: crate::experimental_tlsn::UnverifiedTlsnTranscript {
+                request_sha256: sha256(request),
+                response_sha256: sha256(&response),
+            },
+        }
+    }
+
+    const FORWARDER_LOOPBACK_BODY: &[u8] = b"game response";
+    const FORWARDER_PRESENTATION_A: &[u8] = b"synthetic Presentation A";
+    const FORWARDER_PRESENTATION_B: &[u8] = b"synthetic Presentation B";
+
+    fn forwarder_test_request() -> http::Request<Bytes> {
+        http::Request::builder()
+            .method(http::Method::POST)
+            .uri("https://game.example.test/kcsapi/api_get_member/require_info?x=1")
+            .version(http::Version::HTTP_11)
+            .header("Host", "game.example.test")
+            .header("Content-Length", "3")
+            .body(Bytes::from_static(b"abc"))
+            .unwrap()
+    }
+
+    fn forwarder_loopback_response() -> Vec<u8> {
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            FORWARDER_LOOPBACK_BODY.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(FORWARDER_LOOPBACK_BODY);
+        response
+    }
+
+    struct ForwarderLoopbackOrigin {
+        address: SocketAddr,
+        requests: mpsc::UnboundedReceiver<Vec<u8>>,
+        request_count: Arc<AtomicUsize>,
+        task: Option<JoinHandle<()>>,
+    }
+
+    impl ForwarderLoopbackOrigin {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let response = forwarder_loopback_response();
+            let (request_sender, requests) = mpsc::unbounded_channel();
+            let request_count = Arc::new(AtomicUsize::new(0));
+            let server_request_count = Arc::clone(&request_count);
+            let task = tokio::spawn(async move {
+                for _ in 0..2 {
+                    let Ok((mut stream, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let mut request = Vec::new();
+                    if stream.read_to_end(&mut request).await.is_err() {
+                        return;
+                    }
+                    server_request_count.fetch_add(1, Ordering::AcqRel);
+                    if request_sender.send(request).is_err()
+                        || stream.write_all(&response).await.is_err()
+                    {
+                        return;
+                    }
+                }
+            });
+            Self {
+                address,
+                requests,
+                request_count,
+                task: Some(task),
+            }
+        }
+
+        async fn next_request(&mut self) -> Vec<u8> {
+            timeout(std::time::Duration::from_secs(5), self.requests.recv())
+                .await
+                .expect("loopback origin request timed out")
+                .expect("loopback origin request channel closed")
+        }
+
+        fn request_count(&self) -> usize {
+            self.request_count.load(Ordering::Acquire)
+        }
+
+        async fn stop(&mut self) {
+            if let Some(task) = self.task.take() {
+                task.abort();
+                let _ = task.await;
+            }
+        }
+    }
+
+    impl Drop for ForwarderLoopbackOrigin {
+        fn drop(&mut self) {
+            if let Some(task) = self.task.as_ref() {
+                task.abort();
+            }
+        }
+    }
+
+    struct ForwarderLoopbackTransport {
+        address: SocketAddr,
+        handoff: Arc<PresentationHandoff>,
+        presentations: Mutex<VecDeque<Vec<u8>>>,
+        send_counts: Arc<Mutex<HashMap<[u8; 32], usize>>>,
+        finished_captures: Arc<Mutex<Vec<[u8; 32]>>>,
+    }
+
+    impl TlsnOriginTransport for ForwarderLoopbackTransport {
+        fn send_once(&self, request: SerializedOriginRequest) -> TlsnTransportFuture {
+            let Some(capture_identifier) = request.capture_identifier().copied() else {
+                return Box::pin(async { Err(TlsnTransportError::Unavailable) });
+            };
+            let request_bytes = request.bytes().to_vec();
+            let request_sha256 = sha256(&request_bytes);
+            let presentation = self.presentations.lock().unwrap().pop_front();
+            let Some(presentation) = presentation else {
+                return Box::pin(async { Err(TlsnTransportError::Unavailable) });
+            };
+            *self
+                .send_counts
+                .lock()
+                .unwrap()
+                .entry(capture_identifier)
+                .or_default() += 1;
+            let address = self.address;
+            let handoff = Arc::clone(&self.handoff);
+            Box::pin(async move {
+                let mut stream = tokio::net::TcpStream::connect(address)
+                    .await
+                    .map_err(|_| TlsnTransportError::OriginConnectionFailed)?;
+                stream
+                    .write_all(&request_bytes)
+                    .await
+                    .map_err(|_| TlsnTransportError::AmbiguousOriginSend)?;
+                stream
+                    .shutdown()
+                    .await
+                    .map_err(|_| TlsnTransportError::AmbiguousOriginSend)?;
+                let mut raw_response = Vec::new();
+                stream
+                    .read_to_end(&mut raw_response)
+                    .await
+                    .map_err(|_| TlsnTransportError::ResponseReadFailed)?;
+                if raw_response != forwarder_loopback_response() {
+                    return Err(TlsnTransportError::ResponseReadFailed);
+                }
+
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "Content-Length",
+                    HeaderValue::from_str(&FORWARDER_LOOPBACK_BODY.len().to_string())
+                        .map_err(|_| TlsnTransportError::ResponseReadFailed)?,
+                );
+                headers.insert("Connection", HeaderValue::from_static("close"));
+                handoff
+                    .publish(
+                        capture_identifier,
+                        request_sha256,
+                        URL_SAFE_NO_PAD.encode(sha256(&presentation)),
+                        presentation,
+                    )
+                    .map_err(|_| TlsnTransportError::Unavailable)?;
+                let response_bytes = Bytes::from(raw_response);
+                let exchange = TlsnOriginExchange {
+                    response: TlsnOriginResponse::new(
+                        StatusCode::OK,
+                        headers,
+                        Bytes::from_static(FORWARDER_LOOPBACK_BODY),
+                        response_bytes.clone(),
+                    ),
+                    transcript: crate::experimental_tlsn::UnverifiedTlsnTranscript {
+                        request_sha256,
+                        response_sha256: sha256(&response_bytes),
+                    },
+                };
+                Ok(TlsnOriginCapture {
+                    exchange,
+                    proof: ProofContinuation::completed(),
+                })
+            })
+        }
+
+        fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+            self.finished_captures
+                .lock()
+                .map_err(|_| "test transport cleanup state is poisoned".to_owned())?
+                .push(*capture_identifier);
+            Ok(())
+        }
+    }
+
+    struct QueuedBindingProvider {
+        bindings: Mutex<VecDeque<AttestationBinding>>,
+        completed: Arc<Mutex<Vec<[u8; 32]>>>,
+    }
+
+    impl AttestationBindingProvider for QueuedBindingProvider {
+        fn issue_binding(&self, _context: BindingRequestContext) -> BindingFuture {
+            let binding = self.bindings.lock().unwrap().pop_front();
+            Box::pin(async move { binding.ok_or(BindingError::BindingNotReady) })
+        }
+
+        fn attempt_completed(&self, binding: &AttestationBinding) {
+            self.completed
+                .lock()
+                .unwrap()
+                .push(binding.capture_identifier());
+        }
+    }
+
+    struct CountingPresentationVerifier {
+        inner: Arc<PresentationVerifierBoundary>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ExperimentalVerifierBoundary for CountingPresentationVerifier {
+        fn verify(
+            &self,
+            connection_id: u64,
+            request: SerializedOriginRequest,
+            binding: AttestationBinding,
+            exchange: TlsnOriginExchange,
+        ) -> VerificationFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.verify(connection_id, request, binding, exchange)
+        }
+
+        fn verify_with_lifecycle(
+            &self,
+            connection_id: u64,
+            request: SerializedOriginRequest,
+            binding: AttestationBinding,
+            exchange: TlsnOriginExchange,
+            lifecycle: ExchangeLifecycle,
+        ) -> VerificationFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner
+                .verify_with_lifecycle(connection_id, request, binding, exchange, lifecycle)
+        }
+
+        fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+            self.inner.finish_capture(capture_identifier)
+        }
+    }
+
+    struct CountingSignedResultBoundary {
+        inner: Arc<SignedResultBoundary>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ExperimentalResultBoundary for CountingSignedResultBoundary {
+        fn accept(&self, evidence: VerifiedTlsnEvidence) -> ResultBoundaryFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.accept(evidence)
+        }
+
+        fn accept_with_lifecycle(
+            &self,
+            evidence: VerifiedTlsnEvidence,
+            lifecycle: ExchangeLifecycle,
+        ) -> ResultBoundaryFuture {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.accept_with_lifecycle(evidence, lifecycle)
+        }
+
+        fn finish_capture(&self, capture_identifier: &[u8; 32]) -> Result<(), String> {
+            self.inner.finish_capture(capture_identifier)
+        }
+    }
+
+    struct ForwarderCleanupFixture {
+        forwarder: Arc<ExperimentalTlsnForwarder>,
+        pause_reached: oneshot::Receiver<()>,
+        pause_release: Option<oneshot::Sender<()>>,
+        origin: ForwarderLoopbackOrigin,
+        transport: Arc<ForwarderLoopbackTransport>,
+        handoff: Arc<PresentationHandoff>,
+        results: Arc<RemoteWorkerResultStore>,
+        verifier_calls: Arc<AtomicUsize>,
+        result_boundary_calls: Arc<AtomicUsize>,
+        delivery: Arc<CapturingResultDelivery>,
+        result_verifier: Arc<ResultSignatureVerifier>,
+        binding_completed: Arc<Mutex<Vec<[u8; 32]>>>,
+        session_a: SessionBindingContext,
+        session_b: SessionBindingContext,
+        binding_a: AttestationBinding,
+        binding_b: AttestationBinding,
+        presentation_a: Vec<u8>,
+        presentation_b: Vec<u8>,
+        expected_request: Vec<u8>,
+    }
+
+    async fn forwarder_cleanup_fixture(
+        pause_point: ForwarderPausePoint,
+    ) -> ForwarderCleanupFixture {
+        let origin = ForwarderLoopbackOrigin::start().await;
+        let session_a = session_context_with_nonce([0x61; 32]);
+        let session_b = session_context_with_nonce([0x62; 32]);
+        let binding_a = AttestationBinding::new(session_a.binding.clone()).unwrap();
+        let binding_b = AttestationBinding::new(session_b.binding.clone()).unwrap();
+        let binding_completed = Arc::new(Mutex::new(Vec::new()));
+        let binding_provider = Arc::new(QueuedBindingProvider {
+            bindings: Mutex::new(VecDeque::from([binding_a.clone(), binding_b.clone()])),
+            completed: Arc::clone(&binding_completed),
+        });
+        let handoff = PresentationHandoff::new();
+        let results = RemoteWorkerResultStore::new();
+        let sessions = Arc::new(HashMap::from([
+            (binding_a.capture_identifier(), session_a.clone()),
+            (binding_b.capture_identifier(), session_b.clone()),
+        ]));
+        let result_verifier = result_signature_verifier_for_fixture();
+        let backend = Arc::new(FixtureSignedWorkerBackend {
+            result_verifier: Arc::clone(&result_verifier),
+            results: Arc::clone(&results),
+            sessions,
+        });
+        let target = OriginTarget::new(
+            "game.example.test".to_owned(),
+            443,
+            "game.example.test".to_owned(),
+        )
+        .unwrap();
+        let verifier_calls = Arc::new(AtomicUsize::new(0));
+        let verifier = Arc::new(CountingPresentationVerifier {
+            inner: PresentationVerifierBoundary::new(
+                Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
+                backend,
+                target,
+                RuntimeIdentifiers::default(),
+            ),
+            calls: Arc::clone(&verifier_calls),
+        });
+        let delivery = Arc::new(CapturingResultDelivery::default());
+        let result_boundary_calls = Arc::new(AtomicUsize::new(0));
+        let result_boundary = Arc::new(CountingSignedResultBoundary {
+            inner: SignedResultBoundary::new(
+                Arc::new(RemoteWorkerResultSigner::new(
+                    Arc::clone(&results),
+                    PathBuf::new(),
+                )),
+                delivery.clone() as Arc<dyn ProductionResultDelivery>,
+            ),
+            calls: Arc::clone(&result_boundary_calls),
+        });
+        let presentation_a = FORWARDER_PRESENTATION_A.to_vec();
+        let presentation_b = FORWARDER_PRESENTATION_B.to_vec();
+        let send_counts = Arc::new(Mutex::new(HashMap::new()));
+        let finished_captures = Arc::new(Mutex::new(Vec::new()));
+        let transport = Arc::new(ForwarderLoopbackTransport {
+            address: origin.address,
+            handoff: Arc::clone(&handoff),
+            presentations: Mutex::new(VecDeque::from([
+                presentation_a.clone(),
+                presentation_b.clone(),
+            ])),
+            send_counts,
+            finished_captures,
+        });
+        let forwarder = ExperimentalTlsnForwarder::new_with_policy(
+            binding_provider,
+            Arc::new(Http1OriginRequestSerializer),
+            transport.clone() as Arc<dyn TlsnOriginTransport>,
+            verifier as Arc<dyn ExperimentalVerifierBoundary>,
+            result_boundary as Arc<dyn ExperimentalResultBoundary>,
+            Some(
+                ExchangePolicy::from_millis(Some("60000"), Some("5000"))
+                    .expect("valid forwarder test lifecycle policy"),
+            ),
+        );
+        let (pause, pause_reached, pause_release) = ForwarderTestPause::channel(pause_point);
+        forwarder.set_test_pause(pause).unwrap();
+        let (parts, body) = forwarder_test_request().into_parts();
+        let expected_request = Http1OriginRequestSerializer
+            .serialize(&parts, body, &binding_a)
+            .unwrap()
+            .bytes()
+            .to_vec();
+        ForwarderCleanupFixture {
+            forwarder,
+            pause_reached,
+            pause_release: Some(pause_release),
+            origin,
+            transport,
+            handoff,
+            results,
+            verifier_calls,
+            result_boundary_calls,
+            delivery,
+            result_verifier,
+            binding_completed,
+            session_a,
+            session_b,
+            binding_a,
+            binding_b,
+            presentation_a,
+            presentation_b,
+            expected_request,
+        }
+    }
+
+    async fn wait_forwarder_state(
+        forwarder: &ExperimentalTlsnForwarder,
+        expected: ExperimentalTlsnRuntimeState,
+    ) {
+        timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if forwarder.state().unwrap() == expected && forwarder.capture_ready() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("forwarder capture did not reach a cleanup-confirmed state");
+    }
+
+    fn assert_headerless_forwarder_request(
+        bytes: &[u8],
+        expected: &[u8],
+        binding_a: &AttestationBinding,
+        binding_b: &AttestationBinding,
+    ) {
+        assert_eq!(bytes, expected);
+        let lowercase = bytes.to_ascii_lowercase();
+        assert!(!lowercase
+            .windows(b"x-attestation-binding".len())
+            .any(|window| window == b"x-attestation-binding"));
+        assert!(!lowercase
+            .windows(b"cookie:".len())
+            .any(|window| window == b"cookie:"));
+        for binding in [binding_a, binding_b] {
+            assert!(!bytes
+                .windows(binding.value().len())
+                .any(|window| window == binding.value().as_bytes()));
+        }
+    }
+
+    async fn complete_forwarder_capture_b(
+        fixture: &mut ForwarderCleanupFixture,
+        expected_verifier_calls: usize,
+    ) {
+        let response = timeout(
+            std::time::Duration::from_secs(5),
+            fixture.forwarder.forward(2, forwarder_test_request()),
+        )
+        .await
+        .expect("capture B forward timed out")
+        .unwrap()
+        .expect("capture B returns its origin response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body().as_ref(), FORWARDER_LOOPBACK_BODY);
+        wait_forwarder_state(
+            &fixture.forwarder,
+            ExperimentalTlsnRuntimeState::ResultReady,
+        )
+        .await;
+
+        let request_b = fixture.origin.next_request().await;
+        assert_headerless_forwarder_request(
+            &request_b,
+            &fixture.expected_request,
+            &fixture.binding_a,
+            &fixture.binding_b,
+        );
+        let capture_a = fixture.binding_a.capture_identifier();
+        let capture_b = fixture.binding_b.capture_identifier();
+        assert_eq!(
+            fixture
+                .transport
+                .send_counts
+                .lock()
+                .unwrap()
+                .get(&capture_a),
+            Some(&1)
+        );
+        assert_eq!(
+            fixture
+                .transport
+                .send_counts
+                .lock()
+                .unwrap()
+                .get(&capture_b),
+            Some(&1)
+        );
+        assert_eq!(fixture.origin.request_count(), 2);
+
+        let signed_result = fixture
+            .delivery
+            .result
+            .lock()
+            .unwrap()
+            .take()
+            .expect("B signed Result reaches the actual delivery boundary");
+        let payload: serde_json::Value = serde_json::from_slice(signed_result.bytes()).unwrap();
+        assert!(fixture.result_verifier.verify(&payload).is_ok());
+        assert_eq!(
+            payload["result"]["presentation_sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(&fixture.presentation_b))
+        );
+        assert_eq!(
+            payload["result"]["binding_value"],
+            fixture.session_b.binding.as_str()
+        );
+        assert_eq!(
+            payload["result"]["request_transcript_sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(&fixture.expected_request))
+        );
+        assert!(!fixture
+            .results
+            .results
+            .lock()
+            .unwrap()
+            .contains_key(&capture_b));
+        assert_eq!(fixture.handoff.pending_len().unwrap(), 0);
+        assert_eq!(
+            fixture.verifier_calls.load(Ordering::SeqCst),
+            expected_verifier_calls
+        );
+        assert_eq!(fixture.result_boundary_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fixture
+                .transport
+                .finished_captures
+                .lock()
+                .unwrap()
+                .as_slice(),
+            &[capture_a, capture_b]
+        );
+        assert_eq!(
+            fixture.binding_completed.lock().unwrap().as_slice(),
+            &[capture_a, capture_b]
+        );
+        fixture.origin.stop().await;
+    }
+
+    #[tokio::test]
+    async fn forwarder_cancellation_after_presentation_publish_cleans_before_verifier() {
+        let mut fixture =
+            forwarder_cleanup_fixture(ForwarderPausePoint::BeforePresentationVerification).await;
+        let capture_a = fixture.binding_a.capture_identifier();
+        let response = timeout(
+            std::time::Duration::from_secs(5),
+            fixture.forwarder.forward(1, forwarder_test_request()),
+        )
+        .await
+        .expect("capture A forward timed out")
+        .unwrap()
+        .expect("capture A must preserve its received origin response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body().as_ref(), FORWARDER_LOOPBACK_BODY);
+
+        timeout(
+            std::time::Duration::from_secs(5),
+            &mut fixture.pause_reached,
+        )
+        .await
+        .expect("Presentation verification pause was not reached")
+        .expect("forwarder pause channel closed unexpectedly");
+        assert_eq!(
+            fixture.forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::ProofStarted
+        );
+        assert_eq!(
+            fixture
+                .handoff
+                .pending_presentation_bytes_for_capture(&capture_a)
+                .unwrap(),
+            Some(fixture.presentation_a.clone())
+        );
+        assert_eq!(fixture.verifier_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.result_boundary_calls.load(Ordering::SeqCst), 0);
+        let request_a = fixture.origin.next_request().await;
+        assert_headerless_forwarder_request(
+            &request_a,
+            &fixture.expected_request,
+            &fixture.binding_a,
+            &fixture.binding_b,
+        );
+        assert_eq!(fixture.origin.request_count(), 1);
+
+        fixture.forwarder.cancel().unwrap();
+        wait_forwarder_state(&fixture.forwarder, ExperimentalTlsnRuntimeState::Cancelled).await;
+        assert_eq!(
+            fixture
+                .handoff
+                .pending_presentation_bytes_for_capture(&capture_a)
+                .unwrap(),
+            None
+        );
+        assert!(!fixture
+            .results
+            .results
+            .lock()
+            .unwrap()
+            .contains_key(&capture_a));
+        assert!(fixture.delivery.result.lock().unwrap().is_none());
+        assert_eq!(
+            fixture
+                .transport
+                .finished_captures
+                .lock()
+                .unwrap()
+                .as_slice(),
+            &[capture_a]
+        );
+        assert_eq!(
+            fixture.binding_completed.lock().unwrap().as_slice(),
+            &[capture_a]
+        );
+        assert!(
+            fixture
+                .pause_release
+                .take()
+                .expect("test pause release sender")
+                .send(())
+                .is_err(),
+            "lifecycle cancellation must drop the paused verification future"
+        );
+
+        complete_forwarder_capture_b(&mut fixture, 1).await;
+    }
+
+    #[tokio::test]
+    async fn forwarder_cancellation_after_worker_result_registration_cleans_before_persistence() {
+        let mut fixture =
+            forwarder_cleanup_fixture(ForwarderPausePoint::BeforeResultBoundary).await;
+        let capture_a = fixture.binding_a.capture_identifier();
+        let response = timeout(
+            std::time::Duration::from_secs(5),
+            fixture.forwarder.forward(1, forwarder_test_request()),
+        )
+        .await
+        .expect("capture A forward timed out")
+        .unwrap()
+        .expect("capture A must preserve its received origin response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body().as_ref(), FORWARDER_LOOPBACK_BODY);
+
+        timeout(
+            std::time::Duration::from_secs(5),
+            &mut fixture.pause_reached,
+        )
+        .await
+        .expect("Result boundary pause was not reached")
+        .expect("forwarder pause channel closed unexpectedly");
+        assert_eq!(
+            fixture.forwarder.state().unwrap(),
+            ExperimentalTlsnRuntimeState::Verified
+        );
+        assert_eq!(fixture.verifier_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.result_boundary_calls.load(Ordering::SeqCst), 0);
+        {
+            let results = fixture.results.results.lock().unwrap();
+            let result_a = results
+                .get(&capture_a)
+                .expect("verified A Worker Result is registered before cancellation");
+            assert_eq!(result_a.presentation.bytes(), fixture.presentation_a);
+            assert_eq!(result_a.session.binding, fixture.session_a.binding);
+            assert_eq!(result_a.request_sha256, sha256(&fixture.expected_request));
+            assert_eq!(
+                result_a.response_sha256,
+                sha256(&forwarder_loopback_response())
+            );
+            assert!(
+                fixture.result_verifier.verify(&result_a.payload).is_ok(),
+                "A Worker Result signature must have passed the production verifier"
+            );
+        }
+        assert!(fixture.delivery.result.lock().unwrap().is_none());
+        let request_a = fixture.origin.next_request().await;
+        assert_headerless_forwarder_request(
+            &request_a,
+            &fixture.expected_request,
+            &fixture.binding_a,
+            &fixture.binding_b,
+        );
+        assert_eq!(fixture.origin.request_count(), 1);
+
+        fixture.forwarder.cancel().unwrap();
+        wait_forwarder_state(&fixture.forwarder, ExperimentalTlsnRuntimeState::Cancelled).await;
+        assert!(!fixture
+            .results
+            .results
+            .lock()
+            .unwrap()
+            .contains_key(&capture_a));
+        assert!(fixture.delivery.result.lock().unwrap().is_none());
+        assert_eq!(
+            fixture
+                .transport
+                .finished_captures
+                .lock()
+                .unwrap()
+                .as_slice(),
+            &[capture_a]
+        );
+        assert_eq!(
+            fixture.binding_completed.lock().unwrap().as_slice(),
+            &[capture_a]
+        );
+        assert!(
+            fixture
+                .pause_release
+                .take()
+                .expect("test pause release sender")
+                .send(())
+                .is_err(),
+            "lifecycle cancellation must drop the paused Result boundary future"
+        );
+
+        complete_forwarder_capture_b(&mut fixture, 2).await;
+    }
+
+    #[tokio::test]
+    async fn presentation_handoff_cleanup_is_capture_scoped_for_identical_requests() {
+        let handoff = PresentationHandoff::new();
+        let provider = HandoffPresentationProvider::new(Arc::clone(&handoff));
+        let request = SerializedOriginRequest::new(Bytes::from_static(b"POST")).unwrap();
+        let request_sha256 = sha256(request.bytes());
+        let session_a = session_context_with_nonce([0x41; 32]);
+        let session_b = session_context_with_nonce([0x42; 32]);
+        let binding_a = AttestationBinding::new(session_a.binding.clone()).unwrap();
+        let binding_b = AttestationBinding::new(session_b.binding.clone()).unwrap();
+        let capture_a = binding_a.capture_identifier();
+        let capture_b = binding_b.capture_identifier();
+
+        assert_ne!(capture_a, capture_b);
+        handoff
+            .publish(
+                capture_a,
+                request_sha256,
+                "presentation-a".to_owned(),
+                b"presentation A".to_vec(),
+            )
+            .unwrap();
+        handoff
+            .publish(
+                capture_b,
+                request_sha256,
+                "presentation-b".to_owned(),
+                b"presentation B".to_vec(),
+            )
+            .unwrap();
+        assert!(handoff
+            .publish(
+                capture_a,
+                request_sha256,
+                "duplicate-a".to_owned(),
+                b"duplicate A".to_vec(),
+            )
+            .is_err());
+
+        provider.discard_capture(&capture_a).unwrap();
+        assert_eq!(handoff.pending_len().unwrap(), 1);
+        assert_eq!(
+            handoff.take_for_capture(&capture_a, &request_sha256),
+            Err(crate::production_tlsn::PresentationError::Unavailable)
+        );
+
+        let exchange = exchange_for_request(request.bytes());
+        let target = OriginTarget::new(
+            "game.example.test".to_owned(),
+            443,
+            "game.example.test".to_owned(),
+        )
+        .unwrap();
+        let context = PresentationRequestContext::from_exchange(
+            RuntimeIdentifiers::default(),
+            2,
+            &binding_b,
+            &request,
+            &exchange,
+            &target,
+        );
+        let presentation = provider.provide(context).await.unwrap();
+        assert_eq!(presentation.identifier(), "presentation-b");
+        assert_eq!(presentation.bytes(), b"presentation B");
+        assert_eq!(handoff.pending_len().unwrap(), 0);
+        assert!(handoff
+            .publish(
+                capture_b,
+                request_sha256,
+                "duplicate-b".to_owned(),
+                b"duplicate B".to_vec(),
+            )
+            .is_err());
+        provider.discard_capture(&capture_b).unwrap();
+    }
+
+    #[tokio::test]
+    async fn verified_worker_results_are_capture_scoped_through_cancel_and_late_cleanup() {
+        let request = SerializedOriginRequest::new(Bytes::from_static(b"POST")).unwrap();
+        let request_sha256 = sha256(request.bytes());
+        let session_a = session_context_with_nonce([0x51; 32]);
+        let session_b = session_context_with_nonce([0x52; 32]);
+        let binding_a = AttestationBinding::new(session_a.binding.clone()).unwrap();
+        let binding_b = AttestationBinding::new(session_b.binding.clone()).unwrap();
+        let capture_a = binding_a.capture_identifier();
+        let capture_b = binding_b.capture_identifier();
+        assert_ne!(capture_a, capture_b);
+
+        let presentation_a = b"actual handoff Presentation A".to_vec();
+        let presentation_b = b"actual handoff Presentation B".to_vec();
+        let handoff = PresentationHandoff::new();
+        handoff
+            .publish(
+                capture_a,
+                request_sha256,
+                "presentation-a".to_owned(),
+                presentation_a.clone(),
+            )
+            .unwrap();
+        handoff
+            .publish(
+                capture_b,
+                request_sha256,
+                "presentation-b".to_owned(),
+                presentation_b.clone(),
+            )
+            .unwrap();
+
+        let results = RemoteWorkerResultStore::new();
+        let sessions = Arc::new(HashMap::from([
+            (capture_a, session_a.clone()),
+            (capture_b, session_b.clone()),
+        ]));
+        let result_verifier = result_signature_verifier_for_fixture();
+        let backend = Arc::new(FixtureSignedWorkerBackend {
+            result_verifier: Arc::clone(&result_verifier),
+            results: Arc::clone(&results),
+            sessions,
+        });
+        let target = OriginTarget::new(
+            "game.example.test".to_owned(),
+            443,
+            "game.example.test".to_owned(),
+        )
+        .unwrap();
+        let verifier_boundary = PresentationVerifierBoundary::new(
+            Arc::new(HandoffPresentationProvider::new(Arc::clone(&handoff))),
+            backend,
+            target.clone(),
+            RuntimeIdentifiers::default(),
+        );
+        let delivery = Arc::new(CapturingResultDelivery::default());
+        let signer = Arc::new(RemoteWorkerResultSigner::new(
+            Arc::clone(&results),
+            PathBuf::new(),
+        ));
+        let result_boundary = SignedResultBoundary::new(
+            signer as Arc<dyn ProductionResultSigner>,
+            delivery.clone() as Arc<dyn ProductionResultDelivery>,
+        );
+        let exchange_a = exchange_for_request(request.bytes());
+
+        let evidence_a = match verifier_boundary
+            .verify(51, request.clone(), binding_a.clone(), exchange_a.clone())
+            .await
+            .unwrap()
+        {
+            VerificationOutcome::Verified(evidence) => evidence,
+            VerificationOutcome::Deferred(_) => panic!("fixture Worker result was deferred"),
+        };
+        assert_eq!(evidence_a.metadata().binding_identifier(), &capture_a);
+        assert_eq!(
+            results
+                .results
+                .lock()
+                .unwrap()
+                .get(&capture_a)
+                .unwrap()
+                .presentation
+                .bytes(),
+            presentation_a
+        );
+
+        let duplicate_presentation =
+            TlsnPresentation::new("presentation-a".to_owned(), presentation_a.clone()).unwrap();
+        let duplicate_context = PresentationRequestContext::from_exchange(
+            RuntimeIdentifiers::default(),
+            52,
+            &binding_a,
+            &request,
+            &exchange_a,
+            &target,
+        );
+        let duplicate_payload = signed_result_payload_for_exchange(
+            &duplicate_presentation,
+            &session_a,
+            "game.example.test",
+            request.bytes(),
+            &exchange_a.response.raw_response_bytes,
+        )
+        .0;
+        let duplicate_body = serde_json::to_vec(&duplicate_payload).unwrap();
+        assert_eq!(
+            accept_worker_result(
+                PresentationVerificationInput::new(
+                    duplicate_context,
+                    request.clone(),
+                    binding_a.clone(),
+                    exchange_a.clone(),
+                    duplicate_presentation,
+                ),
+                session_a.clone(),
+                "duplicate-device-signature".to_owned(),
+                WorkerResponse {
+                    payload: duplicate_payload,
+                    body_bytes: duplicate_body,
+                    verifier_execution_receipt_header_bytes: None,
+                    verifier_execution_receipt_bytes: None,
+                    status: 200,
+                },
+                &result_verifier,
+                &results,
+            ),
+            Err(VerificationError::WorkerRejected),
+            "duplicate Result registration for one capture must be refused",
+        );
+
+        verifier_boundary.finish_capture(&capture_a).unwrap();
+        result_boundary.finish_capture(&capture_a).unwrap();
+        assert!(!results.results.lock().unwrap().contains_key(&capture_a));
+
+        let exchange_b = exchange_for_request(request.bytes());
+        let evidence_b = match verifier_boundary
+            .verify(53, request.clone(), binding_b.clone(), exchange_b.clone())
+            .await
+            .unwrap()
+        {
+            VerificationOutcome::Verified(evidence) => evidence,
+            VerificationOutcome::Deferred(_) => panic!("fixture Worker result was deferred"),
+        };
+        assert_eq!(evidence_b.metadata().binding_identifier(), &capture_b);
+        assert_eq!(
+            results
+                .results
+                .lock()
+                .unwrap()
+                .get(&capture_b)
+                .unwrap()
+                .presentation
+                .bytes(),
+            presentation_b
+        );
+
+        verifier_boundary
+            .finish_capture(&capture_a)
+            .expect("late A Presentation cleanup only addresses A's capture key");
+        result_boundary
+            .finish_capture(&capture_a)
+            .expect("late A Result cleanup only addresses A's capture key");
+        {
+            let stored = results.results.lock().unwrap();
+            let result_b = stored.get(&capture_b).expect("B Result remains owned by B");
+            assert_eq!(result_b.request_sha256, request_sha256);
+            assert_eq!(result_b.response_sha256, sha256(b"HTTP/1.1 200 OK\r\n\r\n"));
+            assert_eq!(result_b.presentation.bytes(), presentation_b);
+            assert_eq!(result_b.session.binding, session_b.binding);
+        }
+
+        result_boundary.accept(evidence_b).await.unwrap();
+        let signed_result = delivery
+            .result
+            .lock()
+            .unwrap()
+            .take()
+            .expect("actual Result signer delivered B's signed Result");
+        let payload: serde_json::Value = serde_json::from_slice(signed_result.bytes()).unwrap();
+        assert_eq!(
+            payload["result"]["presentation_sha256"],
+            URL_SAFE_NO_PAD.encode(sha256(&presentation_b))
+        );
+        assert_eq!(
+            payload["result"]["binding_value"],
+            session_b.binding.as_str()
+        );
+        assert!(!results.results.lock().unwrap().contains_key(&capture_b));
+
+        let duplicate_presentation =
+            TlsnPresentation::new("presentation-b".to_owned(), presentation_b.clone()).unwrap();
+        let duplicate_context = PresentationRequestContext::from_exchange(
+            RuntimeIdentifiers::default(),
+            54,
+            &binding_b,
+            &request,
+            &exchange_b,
+            &target,
+        );
+        let (duplicate_payload, _) = signed_result_payload_for_exchange(
+            &duplicate_presentation,
+            &session_b,
+            "game.example.test",
+            request.bytes(),
+            &exchange_b.response.raw_response_bytes,
+        );
+        let duplicate_body = serde_json::to_vec(&duplicate_payload).unwrap();
+        assert_eq!(
+            accept_worker_result(
+                PresentationVerificationInput::new(
+                    duplicate_context,
+                    request,
+                    binding_b,
+                    exchange_b,
+                    duplicate_presentation,
+                ),
+                session_b,
+                "duplicate-device-signature".to_owned(),
+                WorkerResponse {
+                    payload: duplicate_payload,
+                    body_bytes: duplicate_body,
+                    verifier_execution_receipt_header_bytes: None,
+                    verifier_execution_receipt_bytes: None,
+                    status: 200,
+                },
+                &result_verifier,
+                &results,
+            ),
+            Err(VerificationError::WorkerRejected),
+            "a consumed capture cannot be registered again before owner cleanup",
+        );
+        result_boundary.finish_capture(&capture_b).unwrap();
     }
 
     #[test]
@@ -3397,8 +4706,10 @@ mod tests {
             },
         };
         let handoff = PresentationHandoff::new();
+        let binding = AttestationBinding::new(binding.to_owned()).unwrap();
         handoff
             .publish(
+                binding.capture_identifier(),
                 exchange.transcript.request_sha256,
                 "test-presentation".to_owned(),
                 vec![1],
@@ -3429,14 +4740,7 @@ mod tests {
             .unwrap(),
             RuntimeIdentifiers::default(),
         );
-        boundary
-            .verify(
-                1,
-                request,
-                AttestationBinding::new(binding.to_owned()).unwrap(),
-                exchange,
-            )
-            .await
+        boundary.verify(1, request, binding, exchange).await
     }
 
     #[tokio::test]
@@ -3909,12 +5213,20 @@ mod tests {
                         return Err(TlsnTransportError::OriginConnectionFailed);
                     }
                     let request_sha256 = sha256(request.bytes());
+                    let capture_identifier = *request
+                        .capture_identifier()
+                        .ok_or(TlsnTransportError::RuntimeConfigUnavailable)?;
                     let response_sha256 = sha256(&response);
                     let parsed = parse_http_response(response)?;
                     let presentation_identifier = URL_SAFE_NO_PAD.encode(sha256(&presentation));
                     let proof = ProofContinuation::new(Box::pin(async move {
                         handoff
-                            .publish(request_sha256, presentation_identifier, presentation)
+                            .publish(
+                                capture_identifier,
+                                request_sha256,
+                                presentation_identifier,
+                                presentation,
+                            )
                             .map_err(|_| ProofContinuationError::Presentation)
                     }));
                     Ok(TlsnOriginCapture {
