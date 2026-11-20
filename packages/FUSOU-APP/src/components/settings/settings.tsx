@@ -11,6 +11,10 @@ import {
   SETTING_ROW_BUTTON_SIZE_CLASS,
   type ActionSummary,
 } from "./action_result";
+import {
+  ConfigEditorComponent,
+  type ConfigEditorPreviewProps,
+} from "./config_editor";
 
 type SessionHealth = {
   has_session: boolean;
@@ -116,7 +120,11 @@ const DATA_LOADER_ITEMS: readonly DataLoaderItem[] = [
   },
 ];
 
-export function SettingsComponent() {
+export interface SettingsComponentProps {
+  configPreview?: ConfigEditorPreviewProps;
+}
+
+export function SettingsComponent(props: SettingsComponentProps = {}) {
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
     null,
   );
@@ -337,10 +345,13 @@ export function SettingsComponent() {
         <header class="space-y-1">
           <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
           <p class="text-sm text-base-content/65">
-            Manage snapshot sync, Supabase session diagnostics, and cached
-            response loaders.
+            Configure FUSOU application preferences, manage snapshot sync,
+            Supabase session diagnostics, and cached response loaders.
           </p>
         </header>
+
+        {/* Application Configuration (configs.toml) */}
+        <ConfigEditorComponent preview={props.configPreview} />
 
         {/* Sync & Application */}
         <section class="space-y-2.5">
@@ -557,7 +568,7 @@ export function SettingsComponent() {
               <ActionSummaryGrid summary={loadAllResult()} />
             </div>
 
-            <details class="group">
+            <details class="group" data-testid="individual-dataset-loaders">
               <summary class="px-4 py-3 flex items-center justify-between gap-2 cursor-pointer select-none text-sm font-medium text-base-content/80 hover:text-base-content hover:bg-base-200/30 transition-colors list-none">
                 <span class="flex items-center gap-2">
                   <span>Individual Dataset Loaders</span>

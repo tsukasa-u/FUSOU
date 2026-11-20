@@ -40,3 +40,66 @@
 #root:has(> header[data-tauri-drag-region]) .modal.spec-filter-modal {
   padding-top: 1.25rem;
 }
+
+/* Tinted surface & dimmed scrim for Settings restart confirmation modal */
+.modal.fusou-restart-modal {
+  background-color: color-mix(in oklch, var(--color-neutral) 58%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.modal.fusou-restart-modal .modal-box {
+  background-color: color-mix(
+    in oklch,
+    var(--color-warning) 9%,
+    var(--color-base-100)
+  );
+  border-color: color-mix(
+    in oklch,
+    var(--color-warning) 55%,
+    var(--color-base-300)
+  );
+  box-shadow: 0 20px 45px -12px
+    color-mix(in oklch, var(--color-neutral) 45%, transparent);
+}
+
+/* Opaque tinted floating unsaved-changes bar so it never blends into scrolling rows */
+.fusou-config-save-bar {
+  background-color: color-mix(
+    in oklch,
+    var(--color-primary) 14%,
+    var(--color-base-100)
+  );
+  border-color: color-mix(
+    in oklch,
+    var(--color-primary) 65%,
+    var(--color-base-300)
+  );
+  box-shadow: 0 12px 28px -8px
+    color-mix(in oklch, var(--color-neutral) 35%, transparent);
+}
+
+.fusou-config-save-bar.fusou-config-save-bar-warning {
+  background-color: color-mix(
+    in oklch,
+    var(--color-warning) 13%,
+    var(--color-base-100)
+  );
+  border-color: color-mix(
+    in oklch,
+    var(--color-warning) 60%,
+    var(--color-base-300)
+  );
+}
+
+.fusou-restart-pending-card {
+  background-color: color-mix(
+    in oklch,
+    var(--color-warning) 7%,
+    var(--color-base-100)
+  );
+  border-color: color-mix(
+    in oklch,
+    var(--color-warning) 50%,
+    var(--color-base-300)
+  );
+}
