@@ -1,5 +1,35 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Candidate CI #134 — Playwright CLI resolution
+
+**HOSTED_CI_OBSERVED:** [Actions #134](https://github.com/tsukasa-u/FUSOU/actions/runs/44694490416/job/136147867774#step:6:1)
+failed at `node-contract-tests` step 6:
+`pnpm --dir packages/FUSOU-APP exec playwright install --with-deps chromium`
+reported `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "playwright" not found`.
+Step 7 (the readiness Storybook regression) and later checks were skipped.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Added `playwright` as an exact
+APP devDependency at `1.58.2`. The lockfile change adds it only to the APP
+importer; both the Playwright CLI and the `@vitest/browser-playwright` provider
+resolve to `1.58.2`. The existing required Chromium-install and Storybook
+regression workflow steps are unchanged.
+
+In an isolated `node:22.16.0-bookworm` container with fresh `node_modules`,
+`pnpm install --frozen-lockfile --ignore-scripts` passed using pnpm `10.14.0`,
+and `pnpm --dir packages/FUSOU-APP exec playwright --version` returned
+`Version 1.58.2`. `playwright install --with-deps chromium` passed inside the
+container, and the specified Storybook command passed **1 file / 1 test**.
+The existing ready → refresh clears the old ready/time → IPC failure assertion
+was unchanged and passed.
+
+The first isolated run omitted the APP's sibling `FUSOU-TESTDATA` Storybook
+aliases, so Vite's dependency scan failed and Vitest reported no tests. The
+rerun mounted the two alias directories read-only at their expected location;
+the test then passed. Vite still printed non-fatal unresolved React
+`optimizeDeps.include` warnings. No workflow edit, Actions rerun, or external
+service access was made. Modified Hosted CI remains **NOT_CHECKED**; Stage A/B/C
+and Production acceptance remain **BLOCKED**.
+
 ## APP TLSN readiness refresh and PAC state — local verification
 
 **BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
