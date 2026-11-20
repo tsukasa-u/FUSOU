@@ -3476,6 +3476,40 @@ remain follow-up work.
 | Stage A/B/C | **BLOCKED** |
 | Production acceptance | **BLOCKED** |
 
+## Candidate CI #135 — isolated readiness browser regression
+
+Run [#135](https://github.com/tsukasa-u/FUSOU/actions/runs/44718041221/job/136226343474#step:7:1)
+successfully installed Chromium in step 6. Step 7 selected one readiness story,
+but Vite dependency scanning also reached an adjacent `FUSOU-TESTDATA` fixture
+that was absent in CI and reported `ENOENT`. The log then showed React
+resolution warnings, a Vite reload, and Storybook setup reporting
+`Vitest failed to find the runner`; the browser regression ran zero tests. This
+records the observed sequence without asserting a causal relationship beyond
+the log.
+
+The candidate workflow now keeps Chromium preparation and switches step 7 to
+`vitest.readiness.config.ts`, which uses the existing Solid Vite plugin, Vitest,
+the Playwright provider, and headless Chromium without loading Storybook addons,
+preview, or stories. Its focused browser test renders the actual readiness
+component, mocks only Tauri IPC, and verifies that the first response displays
+`ready` and its confirmation time; while the second response is pending both
+are cleared; and an IPC rejection displays
+`tlsn_capture_readiness_query_failed`.
+
+### Isolated local verification
+
+| Check | Result | Scope |
+|---|---|---|
+| Clean source environment | **PASS** | Temporary source snapshot without existing `node_modules`, Vite cache, or adjacent `FUSOU-TESTDATA`; protected paths were excluded. |
+| Runtime and install | **PASS** | Isolated Linux container with Node 22.16.0 and pnpm 10.14.0; `pnpm install --frozen-lockfile --ignore-scripts` passed and APP Playwright CLI reported `Version 1.58.2`. |
+| Chromium preparation | **PASS** | `playwright install --with-deps chromium` completed inside the isolated container. |
+| Dedicated readiness browser regression | **PASS, 1/1** | Workflow command `pnpm --dir packages/FUSOU-APP exec vitest run --config vitest.readiness.config.ts`; 1 test passed, 0 failed, 0 skipped in Chromium. |
+| Hosted CI after this change | **NOT_CHECKED** | No Actions run was started. |
+| Stage A/B/C and Production acceptance | **BLOCKED** | No real APP, service, Notary, Game Server, or Production evidence was exercised. |
+
+The test does not use Storybook or require `FUSOU-TESTDATA`; no skip or
+`continue-on-error` was introduced. Changes remain unstaged.
+
 ## Local APP TLSN capture-readiness diagnostic
 
 Baseline Actions [#133](https://github.com/tsukasa-u/FUSOU/actions/runs/44636473582)
