@@ -29,11 +29,10 @@ jobs:
       - name: Install Chromium for APP readiness interaction test
         run: pnpm --dir packages/FUSOU-APP exec playwright install --with-deps chromium
 
-      - name: Verify APP readiness refresh interaction
+      - name: Verify APP TLSN readiness browser regression
         run: >-
           pnpm --dir packages/FUSOU-APP exec vitest run
-          src/stories/settings/tlsn_capture_readiness.stories.tsx
-          --project=storybook
+          --config vitest.readiness.config.ts
 
       - uses: dtolnay/rust-toolchain@master
         with:
