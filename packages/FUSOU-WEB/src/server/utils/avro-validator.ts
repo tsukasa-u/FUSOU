@@ -4,7 +4,7 @@
  * Uses @fusou/compaction-core/avro for strict schema & binary OCF validation:
  * - Avro 1.11 Parsing Canonical Form matching against known server schemas
  * - Full streaming Avro OCF decode validation (32-bit int bounds, fatal UTF-8,
- *   block boundaries, sync markers, non-empty record count)
+ *   UUID logicalType format check, block boundaries, sync markers, non-empty record count)
  * - Zero WASM overhead and zero eval() (CSP compliant)
  */
 
@@ -60,7 +60,11 @@ function ensureRegistryIndex(): {
   versionMap: Map<string, RegistryVersionEntry>;
   availableVersionsSummary: string;
 } {
-  if (canonicalIndexCache && versionMapCache && availableVersionsSummaryCache !== null) {
+  if (
+    canonicalIndexCache &&
+    versionMapCache &&
+    availableVersionsSummaryCache !== null
+  ) {
     return {
       canonicalIndex: canonicalIndexCache,
       versionMap: versionMapCache,
@@ -77,7 +81,9 @@ function ensureRegistryIndex(): {
 
   for (const verEntry of registry.versions) {
     versionMap.set(verEntry.version, verEntry);
-    availableLabels.push(`${verEntry.version}(table:${verEntry.table_version})`);
+    availableLabels.push(
+      `${verEntry.version}(table:${verEntry.table_version})`,
+    );
 
     // Track first matched table per (canonicalForm, version) to keep version disambiguation deterministic
     const seenCanonicalInVersion = new Set<string>();
@@ -235,7 +241,9 @@ export async function validateAvroOCF(
   return {
     valid: res.valid,
     recordCount: res.recordCount,
-    ...(res.errorMessage !== undefined ? { errorMessage: res.errorMessage } : {}),
+    ...(res.errorMessage !== undefined
+      ? { errorMessage: res.errorMessage }
+      : {}),
   };
 }
 
@@ -275,12 +283,17 @@ export async function validateAvroOCFSmart(
     };
   }
 
-  const matchResult = matchClientSchemaSync(clientSchemaJson, hintTableVersion ?? "");
+  const matchResult = matchClientSchemaSync(
+    clientSchemaJson,
+    hintTableVersion ?? "",
+  );
   if (!matchResult.matched) {
     return {
       valid: false,
       recordCount: 0,
-      ...(matchResult.error !== undefined ? { errorMessage: matchResult.error } : {}),
+      ...(matchResult.error !== undefined
+        ? { errorMessage: matchResult.error }
+        : {}),
     };
   }
 
@@ -291,7 +304,9 @@ export async function validateAvroOCFSmart(
     ...(strictResult.errorMessage !== undefined
       ? { errorMessage: strictResult.errorMessage }
       : {}),
-    ...(matchResult.tableName !== undefined ? { tableName: matchResult.tableName } : {}),
+    ...(matchResult.tableName !== undefined
+      ? { tableName: matchResult.tableName }
+      : {}),
     ...(matchResult.tableVersion !== undefined
       ? { tableVersion: matchResult.tableVersion }
       : {}),
@@ -323,7 +338,9 @@ export async function validateAvroOCFByTable(
     recordCount: res.recordCount,
     tableName,
     tableVersion: verEntry.table_version,
-    ...(res.errorMessage !== undefined ? { errorMessage: res.errorMessage } : {}),
+    ...(res.errorMessage !== undefined
+      ? { errorMessage: res.errorMessage }
+      : {}),
   };
 }
 

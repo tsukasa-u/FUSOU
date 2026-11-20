@@ -1299,6 +1299,9 @@ export function toAvroCanonicalForm(schemaInput: unknown): string {
   return canonicalizeSchemaNode(parsed, undefined, new Set<string>());
 }
 
+const AVRO_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function readStrictString(bytes: Uint8Array, cursor: Cursor): string {
   const raw = readDataBytes(bytes, cursor);
   try {
@@ -1368,6 +1371,14 @@ function validateStrictValue(
 
   if (typeof schema.type !== "string") {
     validateStrictValue(bytes, cursor, schema.type, named);
+    return;
+  }
+
+  if (schema.type === "string" && schema.logicalType === "uuid") {
+    const value = readStrictString(bytes, cursor);
+    if (!AVRO_UUID_RE.test(value)) {
+      return fail(`Avro uuid logicalType value is invalid: ${value}`);
+    }
     return;
   }
 

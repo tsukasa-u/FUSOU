@@ -193,6 +193,65 @@ describe("pure TS avro-validator", () => {
       false,
     );
 
+    // Malformed UUID logicalType rejected
+    const badUuidRec = Buffer.concat([
+      encodeString("0.4.0"),
+      encodeString("not-a-uuid"),
+      encodeString("env-unique-1"),
+      Buffer.from(encodeZigzagLong(1730000000000)),
+    ]);
+    const badUuidOcf = buildOcf(envInfoV04, [badUuidRec]);
+    expect((await validateAvroOCFSmart(badUuidOcf, "0.4.0")).valid).toBe(false);
+    expect((await validateAvroOCF(badUuidOcf, envInfoV04)).valid).toBe(false);
+    expect((await validateAvroOCFByTable(badUuidOcf, "env_info", "v0_4")).valid).toBe(false);
+
+    // Valid UUIDv7 and nil UUID accepted, and nullable UUID union validates non-null branch
+    const uuidV7Rec = Buffer.concat([
+      encodeString("0.4.0"),
+      encodeString("01982a3b-4c5d-7000-8000-000000000001"),
+      encodeString("env-unique-2"),
+      Buffer.from(encodeZigzagLong(1730000000000)),
+    ]);
+    const nilUuidRec = Buffer.concat([
+      encodeString("0.4.0"),
+      encodeString("00000000-0000-0000-0000-000000000000"),
+      encodeString("env-unique-3"),
+      Buffer.from(encodeZigzagLong(1730000000000)),
+    ]);
+    expect(
+      (await validateAvroOCFSmart(buildOcf(envInfoV04, [uuidV7Rec, nilUuidRec]), "0.4.0")).valid,
+    ).toBe(true);
+
+    const enemyDeckV04 = get_schema_json("enemy_deck", "v0_4");
+    const validEnemyDeckNullShip = Buffer.concat([
+      encodeString(validUuid),
+      encodeString(validUuid),
+      Buffer.from(encodeZigzagLong(0)), // union branch 0 = null
+    ]);
+    const validEnemyDeckShipUuid = Buffer.concat([
+      encodeString(validUuid),
+      encodeString(validUuid),
+      Buffer.from(encodeZigzagLong(1)), // union branch 1 = uuid string
+      encodeString(validUuid),
+    ]);
+    const badEnemyDeckShipUuid = Buffer.concat([
+      encodeString(validUuid),
+      encodeString(validUuid),
+      Buffer.from(encodeZigzagLong(1)), // union branch 1 = uuid string
+      encodeString("malformed-ship-uuid"),
+    ]);
+    expect(
+      (
+        await validateAvroOCFSmart(
+          buildOcf(enemyDeckV04, [validEnemyDeckNullShip, validEnemyDeckShipUuid]),
+          "0.4.0",
+        )
+      ).valid,
+    ).toBe(true);
+    expect(
+      (await validateAvroOCFSmart(buildOcf(enemyDeckV04, [badEnemyDeckShipUuid]), "0.4.0")).valid,
+    ).toBe(false);
+
     // 32-bit int overflow rejected
     const enemySlotSchema = get_schema_json("enemy_slotitem", "v0_4");
     const overflowRec = Buffer.concat([
