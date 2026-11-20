@@ -19,6 +19,7 @@
   "SetKcsMstStypes": "set-kcs-mst-stypes",
   "SetKcsMstUseItems": "set-kcs-mst-use-items",
   "SetKcsMstUseItemMetas": "set-kcs-mst-use-item-metas",
+  "SetKcsMstMissions": "set-kcs-mst-missions",
   "SetKcsUseItems": "set-kcs-use-items",
   "SetKcsPayItems": "set-kcs-pay-items",
   "SetKcsMstSlotItemEquipTypes": "set-kcs-mst-slot-item-equip-types",

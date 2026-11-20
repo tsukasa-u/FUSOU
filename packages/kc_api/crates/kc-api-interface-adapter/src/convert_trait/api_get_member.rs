@@ -1,7 +1,8 @@
 use kc_api_interface::air_base::AirBases;
-use kc_api_interface::deck_port::DeckPorts;
+use kc_api_interface::deck_port::{DeckPort, DeckPorts};
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::mst_ship::MstShips;
+use kc_api_interface::n_dock::NDocks;
 use kc_api_interface::quest::Quests;
 use kc_api_interface::ship_growth::{ShipGrowthEntry, ShipGrowthSnapshot, SlotComposition};
 use kc_api_interface::slot_item::SlotItems;
@@ -107,23 +108,66 @@ register_trait!(
     Res,
     (
         basic,
-        deck,
         furniture,
         kdock,
         material,
         mission,
-        ndock,
         picture_book,
         practice,
         preset_deck,
         preset_slot,
-preset_dev_items,
+        preset_dev_items,
         record,
         ship_deck,
         sortie_conditions,
         unsetslot
     )
 );
+
+impl TraitForConvert for ndock::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let ndocks = InterfaceWrapper::<NDocks>::from(self.api_data.clone()).unwrap();
+        Some(vec![EmitData::Set(Set::NDocks(ndocks))])
+    }
+}
+
+impl TraitForConvert for deck::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let mut deck_ports = DeckPorts::load();
+        for deck_data in &self.api_data {
+            let existing_chart = deck_ports
+                .deck_ports
+                .get(&deck_data.api_id)
+                .map(|d| (d.chart_seiku_value, d.chart_tp_value));
+            let mut converted = InterfaceWrapper::<DeckPort>::from(deck_data.clone()).unwrap();
+            if let Some((seiku, tp)) = existing_chart {
+                converted.chart_seiku_value = seiku;
+                converted.chart_tp_value = tp;
+            }
+            deck_ports.deck_ports.insert(deck_data.api_id, converted);
+        }
+        if deck_ports.combined_flag.is_some_and(|flag| flag > 0) {
+            let ships_1 = self
+                .api_data
+                .iter()
+                .find(|d| d.api_id == 1)
+                .map(|d| d.api_ship.clone());
+            let ships_2 = self
+                .api_data
+                .iter()
+                .find(|d| d.api_id == 2)
+                .map(|d| d.api_ship.clone());
+            if let (Some(s1), Some(s2)) = (ships_1, ships_2) {
+                if let Some(deck_port) = deck_ports.deck_ports.get_mut(&1) {
+                    deck_port.ship = Some([s1, s2].concat());
+                }
+            }
+        }
+        Some(vec![EmitData::Set(Set::DeckPorts(deck_ports))])
+    }
+}
 
 impl TraitForConvert for mapinfo::Res {
     type Output = EmitData;

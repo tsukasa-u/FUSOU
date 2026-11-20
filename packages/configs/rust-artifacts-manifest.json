@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "groups": {
     "kcApiData": {
-      "inputHash": "59fb26db13a3180717871cb99c06f67b224fc999a9798c39b4e47762b75f2877",
+      "inputHash": "7e4c79078b32e3e1ac178d710fd956e0d5e7a7714935e2158cf1274208088aea",
       "outputs": {
         "packages/FUSOU-WEB/src/data/avro-schema-registry.json": "7b6fd722ba89de04544e838cad12dcdcc5e89d0af455872ce16ade89f66783ff",
         "packages/FUSOU-WEB/src/data/graphs/database_dot.json": "efbf0db190a288a9e4d2c80400b23625a77003530421deb9be354c8b2eccd34c",

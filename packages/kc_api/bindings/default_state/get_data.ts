@@ -9,6 +9,7 @@ import type {
   MstStypes,
   MstUseItems,
   MstUseItemMetas,
+  MstMissions,
 } from "../get_data.ts";
 
 export const default_mst_ship: MstShip = {
@@ -106,4 +107,8 @@ export const default_mst_useitems: MstUseItems = {
 
 export const default_mst_useitem_metas: MstUseItemMetas = {
   mst_use_item_metas: {},
+};
+
+export const default_mst_missions: MstMissions = {
+  mst_missions: {},
 };

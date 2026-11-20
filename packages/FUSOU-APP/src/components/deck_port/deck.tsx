@@ -2,9 +2,11 @@ import {
   useDeckPorts,
   useMstShips,
   useMstSlotItems,
+  useOptionalMstMissions,
   useShips,
   useSlotItems,
 } from "../../utility/provider.tsx";
+import { parseDeckMission, useTimerDisplayMode } from "../../utility/timer.ts";
 import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, Show } from "solid-js";
 
@@ -16,6 +18,7 @@ import {
   ComponentColorBarLabel,
   ComponentEquipmentModal,
   ComponentShipModal,
+  ComponentTimer,
   IconCautionFill,
   IconKira,
 } from "ui";
@@ -30,6 +33,7 @@ import type { SlotItem, SlotItems } from "@ipc-bindings/require_info.ts";
 interface DeckPortProps {
   deck_id: number;
   fleet_name?: string;
+  nowMs?: number;
 }
 
 export function DeckComponent(props: DeckPortProps) {
@@ -40,6 +44,13 @@ export function DeckComponent(props: DeckPortProps) {
   const [slot_items] = useSlotItems();
   const [mst_slot_items] = useMstSlotItems();
   const [deck_ports] = useDeckPorts();
+  const mst_missions = useOptionalMstMissions();
+  const [timerDisplayMode, toggleTimerDisplayMode] = useTimerDisplayMode();
+
+  const missionInfo = createMemo(() => {
+    const deck = deck_ports.deck_ports[props.deck_id];
+    return parseDeckMission(deck?.mission, mst_missions.mst_missions);
+  });
 
   const ship_list = createMemo<Ship[]>(() => {
     const mst_ship_list: Ship[] = [];
@@ -279,10 +290,48 @@ export function DeckComponent(props: DeckPortProps) {
           open={isOpen()}
           onToggle={(e) => setIsOpen(e.currentTarget.open)}
         >
-          <summary class="flex">
-            <div class="w-20 flex-none">{props.fleet_name ?? "Unknown"}</div>
-            <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-            <div>{get_deck_name()}</div>
+          <summary
+            class="flex items-center h-6 min-h-6 py-0!"
+            data-testid={`deck-summary-${props.deck_id}`}
+          >
+            <div class="w-20 flex-none leading-4">
+              {props.fleet_name ?? "Unknown"}
+            </div>
+            <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+            <div class="w-32 flex-none truncate leading-4">
+              {get_deck_name()}
+            </div>
+            <Show when={missionInfo()}>
+              {(info) => (
+                <>
+                  <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+                  <div
+                    class="flex items-center gap-1.5 min-w-0"
+                    data-testid={`deck-mission-${props.deck_id}`}
+                  >
+                    <span class="badge badge-xs h-4 min-h-0 border-base-300 font-mono tabular-nums w-8 justify-center flex-none">
+                      {info().dispNo}
+                    </span>
+                    <span class="w-36 flex-none truncate text-xs leading-4 text-base-content/80">
+                      {info().name}
+                    </span>
+                    <ComponentTimer
+                      completeTimeMs={info().completeTimeMs}
+                      status={info().timerStatus}
+                      displayMode={timerDisplayMode()}
+                      onToggleDisplayMode={toggleTimerDisplayMode}
+                      nowMs={props.nowMs}
+                      size="2xs"
+                    />
+                    <Show when={info().state === 3}>
+                      <span class="badge badge-xs h-4 min-h-0 border-orange-500/40 bg-orange-500/10 text-orange-500 flex-none">
+                        Recalled
+                      </span>
+                    </Show>
+                  </div>
+                </>
+              )}
+            </Show>
             <span class="flex-auto" />
           </summary>
           <ul class="pl-0">

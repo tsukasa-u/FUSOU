@@ -2337,6 +2337,154 @@ const materialList = [
             </div>
           </div>
         </div>
+
+        <!-- 08-H: Operational Timers -->
+        <div class="space-y-3 pt-2 border-t border-base-300/40">
+          <div class="flex items-center justify-between gap-2">
+            <div
+              class="text-xs font-semibold uppercase tracking-wider text-base-content/60"
+            >
+              入渠・遠征タイマー (&lt;ComponentTimer /&gt;)
+            </div>
+            <span class="text-[11px] text-base-content/50 font-mono"
+              >src/components/ui/components/timer/timer.tsx</span
+            >
+          </div>
+          <p class="text-xs text-base-content/60">
+            残り時間（<code class="font-mono">HH:MM:SS</code>）と OS
+            システム時刻による完了予定時刻（<code class="font-mono">HH:MM</code> / 翌日
+            <code class="font-mono">MM/DD HH:MM</code>）を等幅・<code
+              class="font-mono">tabular-nums</code
+            >で表示します。タイマーをクリックすると <code class="font-mono"
+              >both → remaining → complete_at</code
+            > を切り替えられます。
+          </p>
+          <div
+            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4 bg-base-200/30 rounded-lg border border-base-300 text-xs"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-base-content/60">Running (1h 23m):</span>
+              <span
+                class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-base-300 bg-base-200/40 text-base-content"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="w-3 h-3 shrink-0 opacity-80"
+                >
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M12 7v5l3 2"></path>
+                </svg>
+                <span>01:23:45</span>
+                <span class="opacity-40">·</span>
+                <span class="opacity-75">14:35</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-base-content/60">Soon (&lt;= 1m):</span>
+              <span
+                class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-500"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="w-3 h-3 shrink-0 opacity-80"
+                >
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M12 7v5l3 2"></path>
+                </svg>
+                <span>00:00:42</span>
+                <span class="opacity-40">·</span>
+                <span class="opacity-75">13:11</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-base-content/60">Complete:</span>
+              <span
+                class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-green-500/40 bg-green-500/10 text-green-500"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="w-3 h-3 shrink-0"
+                >
+                  <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+                <span>Complete</span>
+                <span class="opacity-40">·</span>
+                <span class="opacity-75">13:11</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-base-content/60">Recalled (強制帰還):</span>
+              <span
+                class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-orange-500/40 bg-orange-500/10 text-orange-500"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="w-3 h-3 shrink-0 opacity-80"
+                >
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M12 7v5l3 2"></path>
+                </svg>
+                <span>00:14:00</span>
+                <span class="opacity-40">·</span>
+                <span class="opacity-75">13:25</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-base-content/60">Next-Day Finish:</span>
+              <span
+                class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-base-300 bg-base-200/40 text-base-content"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="w-3 h-3 shrink-0 opacity-80"
+                >
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M12 7v5l3 2"></path>
+                </svg>
+                <span>14:00:00</span>
+                <span class="opacity-40">·</span>
+                <span class="opacity-75">11/22 03:11</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-base-content/60">Idle / Locked:</span>
+              <span
+                class="inline-flex items-center justify-center text-center shrink-0 select-none text-base-content/40 tabular-nums h-6 w-[184px] text-xs"
+                >—</span
+              >
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -3694,11 +3842,11 @@ const materialList = [
           <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
             <li>
               <details open>
-                <summary class="flex">
-                  <div class="w-20 flex-none">First Fleet</div>
-                  <div class="divider divider-horizontal mr-0 ml-0 flex-none">
+                <summary class="flex items-center h-6 min-h-6 py-0!">
+                  <div class="w-20 flex-none leading-4">First Fleet</div>
+                  <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch">
                   </div>
-                  <div>第一艦隊</div>
+                  <div class="w-32 flex-none truncate leading-4">第一艦隊</div>
                   <span class="flex-auto"></span>
                 </summary>
 
@@ -5164,6 +5312,64 @@ const materialList = [
                     </a>
                   </li>
                 </ul>
+              </details>
+            </li>
+            <li>
+              <details>
+                <summary class="flex items-center h-6 min-h-6 py-0!">
+                  <div class="w-20 flex-none leading-4">Second Fleet</div>
+                  <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch"></div>
+                  <div class="w-32 flex-none truncate leading-4">第二艦隊</div>
+                  <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch"></div>
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span
+                      class="badge badge-xs h-4 min-h-0 border-base-300 font-mono tabular-nums w-8 justify-center flex-none"
+                      >02</span
+                    >
+                    <span class="w-36 flex-none truncate text-xs leading-4 text-base-content/80"
+                      >長距離練習航海</span
+                    >
+                    <span
+                      class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-[18px] w-[172px] text-[11px] px-1.5 gap-1 border-base-300 bg-base-200/40 text-base-content"
+                    >
+                      <span>00:18:00</span>
+                      <span class="opacity-40">·</span>
+                      <span class="opacity-75">13:29</span>
+                    </span>
+                  </div>
+                  <span class="flex-auto"></span>
+                </summary>
+              </details>
+            </li>
+            <li>
+              <details>
+                <summary class="flex items-center h-6 min-h-6 py-0!">
+                  <div class="w-20 flex-none leading-4">Third Fleet</div>
+                  <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch"></div>
+                  <div class="w-32 flex-none truncate leading-4">遠征用高速水雷戦隊</div>
+                  <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch"></div>
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span
+                      class="badge badge-xs h-4 min-h-0 border-base-300 font-mono tabular-nums w-8 justify-center flex-none"
+                      >37</span
+                    >
+                    <span class="w-36 flex-none truncate text-xs leading-4 text-base-content/80"
+                      >東京急行</span
+                    >
+                    <span
+                      class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-[18px] w-[172px] text-[11px] px-1.5 gap-1 border-orange-500/40 bg-orange-500/10 text-orange-500"
+                    >
+                      <span>00:09:00</span>
+                      <span class="opacity-40">·</span>
+                      <span class="opacity-75">13:20</span>
+                    </span>
+                    <span
+                      class="badge badge-xs h-4 min-h-0 border-orange-500/40 bg-orange-500/10 text-orange-500 flex-none"
+                      >Recalled</span
+                    >
+                  </div>
+                  <span class="flex-auto"></span>
+                </summary>
               </details>
             </li>
           </ul>
@@ -8571,6 +8777,183 @@ const materialList = [
             </ul>
           </div>
         </div>
+
+        <!-- Part 5: Repair Docks (NDocksComponent) -->
+        <div class="space-y-3">
+          <div
+            class="flex items-center justify-between border-b border-base-300 pb-1.5"
+          >
+            <h3
+              class="text-xs font-semibold uppercase tracking-wider text-base-content/70"
+            >
+              入渠ドック一覧 (&lt;NDocksComponent /&gt;)
+            </h3>
+            <span class="text-[11px] text-base-content/50 font-mono"
+              >Repairing / Soon / Complete / Empty / Locked</span
+            >
+          </div>
+          <div
+            class="border border-base-300 rounded-box overflow-x-auto bg-base-100"
+          >
+            <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+              <li>
+                <details open>
+                  <summary class="flex items-center">
+                    <span>Repair Docks</span>
+                    <span class="badge badge-xs border-base-300 tabular-nums ml-1.5"
+                      >2 / 3</span
+                    >
+                    <span class="flex-auto"></span>
+                  </summary>
+                  <ul class="pl-0">
+                    <li class="h-auto">
+                      <div
+                        class="justify-start gap-0 flex items-center py-1 px-2 cursor-default"
+                      >
+                        <div
+                          class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums"
+                        >
+                          Dock 1
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="pl-2 pr-0.5 truncate flex-none w-[124px] text-xs">
+                          夕立改二
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="w-16 flex-none text-xs text-center tabular-nums">
+                          7 / 36
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="px-2 flex-none">
+                          <span
+                            class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-base-300 bg-base-200/40 text-base-content"
+                          >
+                            <span>02:18:30</span>
+                            <span class="opacity-40">·</span>
+                            <span class="opacity-75">15:29</span>
+                          </span>
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="pl-2 text-xs flex-none w-16 truncate text-base-content/80"
+                        >
+                          Repairing
+                        </div>
+                      </div>
+                    </li>
+                    <li class="h-auto">
+                      <div
+                        class="justify-start gap-0 flex items-center py-1 px-2 cursor-default"
+                      >
+                        <div
+                          class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums"
+                        >
+                          Dock 2
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="pl-2 pr-0.5 truncate flex-none w-[124px] text-xs">
+                          矢矧改二乙
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="w-16 flex-none text-xs text-center tabular-nums">
+                          55 / 60
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="px-2 flex-none">
+                          <span
+                            class="inline-flex items-center justify-center shrink-0 box-border rounded border font-mono tabular-nums leading-none whitespace-nowrap select-none h-6 w-[184px] text-xs px-1.5 gap-1 border-yellow-500/40 bg-yellow-500/10 text-yellow-500"
+                          >
+                            <span>00:00:45</span>
+                            <span class="opacity-40">·</span>
+                            <span class="opacity-75">13:12</span>
+                          </span>
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="pl-2 text-xs flex-none w-16 truncate text-yellow-500 font-medium"
+                        >
+                          Repairing
+                        </div>
+                      </div>
+                    </li>
+                    <li class="h-auto">
+                      <div
+                        class="justify-start gap-0 flex items-center py-1 px-2 cursor-default"
+                      >
+                        <div
+                          class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums"
+                        >
+                          Dock 3
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="pl-2 pr-0.5 truncate flex-none w-[124px] text-xs text-base-content/40"
+                        >
+                          —
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="w-16 flex-none text-xs text-center text-base-content/40"
+                        >
+                          —
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="px-2 flex-none">
+                          <span
+                            class="inline-flex items-center justify-center text-center shrink-0 select-none text-base-content/40 tabular-nums h-6 w-[184px] text-xs"
+                            >—</span
+                          >
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="pl-2 text-xs flex-none w-16 truncate text-base-content/40"
+                        >
+                          Empty
+                        </div>
+                      </div>
+                    </li>
+                    <li class="h-auto">
+                      <div
+                        class="justify-start gap-0 flex items-center py-1 px-2 cursor-default"
+                      >
+                        <div
+                          class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums"
+                        >
+                          Dock 4
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="pl-2 pr-0.5 truncate flex-none w-[124px] text-xs text-base-content/40"
+                        >
+                          —
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="w-16 flex-none text-xs text-center text-base-content/40"
+                        >
+                          —
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div class="px-2 flex-none">
+                          <span
+                            class="inline-flex items-center justify-center text-center shrink-0 select-none text-base-content/40 tabular-nums h-6 w-[184px] text-xs"
+                            >—</span
+                          >
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch"></div>
+                        <div
+                          class="pl-2 text-xs flex-none w-16 truncate text-base-content/40"
+                        >
+                          Locked
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </details>
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -8765,6 +9148,28 @@ const materialList = [
                 >
                 <td class="font-mono text-primary"
                   >ui/stories/components/empty/empty.stories.tsx</td
+                >
+                <td><span class="badge badge-success badge-xs">Active</span></td
+                >
+              </tr>
+              <tr>
+                <td class="font-bold font-mono">ComponentTimer</td>
+                <td class="font-mono text-base-content/70"
+                  >src/components/ui/components/timer/timer.tsx</td
+                >
+                <td class="font-mono text-primary"
+                  >ui/stories/components/timer/timer.stories.tsx</td
+                >
+                <td><span class="badge badge-success badge-xs">Active</span></td
+                >
+              </tr>
+              <tr>
+                <td class="font-bold font-mono">NDocksComponent</td>
+                <td class="font-mono text-base-content/70"
+                  >src/components/ndock/ndocks.tsx</td
+                >
+                <td class="font-mono text-primary"
+                  >ndock/ndocks.stories.tsx</td
                 >
                 <td><span class="badge badge-success badge-xs">Active</span></td
                 >

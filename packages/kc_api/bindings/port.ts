@@ -12,7 +12,7 @@ export type Materials = { materials: { [key in number]?: number }, };
 
 export type Mission = { mission_id: number, complete_time: number, counter: number, };
 
-export type NDock = { ship_id: number, complete_time: number, counter: number, item1: number, item2: number, item3: number, item4: number, };
+export type NDock = { id: number, state: number, ship_id: number, complete_time: number, counter: number, item1: number, item2: number, item3: number, item4: number, };
 
 export type NDocks = { n_docks: Array<NDock>, };
 

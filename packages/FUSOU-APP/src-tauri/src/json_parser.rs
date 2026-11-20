@@ -86,6 +86,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 let _ = handle.emit_to("main", events::SET_KCS_SLOT_ITEMS, data);
             }
             Set::NDocks(data) => {
+                data.restore();
                 let _ = handle.emit_to("main", events::SET_KCS_N_DOCKS, data);
             }
             Set::Logs(data) => {
@@ -138,6 +139,10 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::MstMapInfos(data) => {
                 data.restore();
+            }
+            Set::MstMissions(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", events::SET_KCS_MST_MISSIONS, data);
             }
             Set::MstShipGraphs(data) => {
                 data.restore();

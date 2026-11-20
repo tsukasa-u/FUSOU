@@ -53,7 +53,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::SlotItems(data) => {
                 data.restore();
             }
-            Set::NDocks(_) => {}
+            Set::NDocks(data) => {
+                data.restore();
+            }
             Set::Logs(_) => {}
             Set::AirBases(data) => {
                 data.restore();
@@ -89,6 +91,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 data.restore();
             }
             Set::MstMapInfos(data) => {
+                data.restore();
+            }
+            Set::MstMissions(data) => {
                 data.restore();
             }
             Set::MstShipGraphs(data) => {

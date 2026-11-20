@@ -4,6 +4,7 @@ import { SettingsComponent } from "../components/settings/settings.tsx";
 import { DataCollectionStatusComponent } from "../components/settings/data_collection_status.tsx";
 
 import { MaterialsComponent } from "./../components/materials/materials.tsx";
+import { NDocksComponent } from "./../components/ndock/ndocks.tsx";
 import { ItemsComponent } from "./../components/items/items.tsx";
 import { QuestsComponent } from "./../components/quests/quests.tsx";
 import {
@@ -13,9 +14,11 @@ import {
   DeckPortsProvider,
   DeckBattlesProvider,
   MaterialsProvider,
+  MstMissionsProvider,
   MstSlotItemEquipTypesProvider,
   MstUseItemMetasProvider,
   MstUseItemsProvider,
+  NDocksProvider,
   PayItemsProvider,
   QuestsProvider,
   MstShipsProvider,
@@ -76,17 +79,21 @@ function AppProviders(props: { children: JSX.Element }) {
                       <UseItemsProvider>
                         <PayItemsProvider>
                           <DeckPortsProvider>
-                            <AirBasesPortsProvider>
-                              <DeckBattlesProvider>
-                                <AirBasesBattlesProvider>
-                                  <CellsContextProvider>
-                                    <QuestsProvider>
-                                      {props.children}
-                                    </QuestsProvider>
-                                  </CellsContextProvider>
-                                </AirBasesBattlesProvider>
-                              </DeckBattlesProvider>
-                            </AirBasesPortsProvider>
+                            <NDocksProvider>
+                              <MstMissionsProvider>
+                                <AirBasesPortsProvider>
+                                  <DeckBattlesProvider>
+                                    <AirBasesBattlesProvider>
+                                      <CellsContextProvider>
+                                        <QuestsProvider>
+                                          {props.children}
+                                        </QuestsProvider>
+                                      </CellsContextProvider>
+                                    </AirBasesBattlesProvider>
+                                  </DeckBattlesProvider>
+                                </AirBasesPortsProvider>
+                              </MstMissionsProvider>
+                            </NDocksProvider>
                           </DeckPortsProvider>
                         </PayItemsProvider>
                       </UseItemsProvider>
@@ -139,6 +146,7 @@ function App() {
             <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
               <MaterialsComponent />
               <DecksComponent />
+              <NDocksComponent />
               <AirBasesComponent />
               <BattlesComponent />
               <div class="min-h-min min-w-min" />

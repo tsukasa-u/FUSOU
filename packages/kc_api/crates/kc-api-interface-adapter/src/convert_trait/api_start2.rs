@@ -6,6 +6,7 @@ use kc_api_interface::mst_equip_limit_exslot::MstEquipLimitExslots;
 use kc_api_interface::mst_equip_ship::MstEquipShips;
 use kc_api_interface::mst_maparea::MstMapAreas;
 use kc_api_interface::mst_mapinfo::MstMapInfos;
+use kc_api_interface::mst_mission::MstMissions;
 use kc_api_interface::mst_ship::MstShips;
 use kc_api_interface::mst_ship_graph::MstShipGraphs;
 use kc_api_interface::mst_ship_upgrade::MstShipUpgrades;
@@ -61,6 +62,8 @@ impl TraitForConvert for get_data::Res {
             InterfaceWrapper::<MstMapAreas>::from(api_data.api_mst_maparea.clone()).unwrap();
         let mst_map_infos =
             InterfaceWrapper::<MstMapInfos>::from(api_data.api_mst_mapinfo.clone()).unwrap();
+        let mst_missions =
+            InterfaceWrapper::<MstMissions>::from(api_data.api_mst_mission.clone()).unwrap();
         let mst_ship_upgrades =
             InterfaceWrapper::<MstShipUpgrades>::from(api_data.api_mst_shipupgrade.clone())
                 .unwrap();
@@ -86,6 +89,7 @@ impl TraitForConvert for get_data::Res {
             EmitData::Set(Set::MstShipGraphs(mst_ship_graphs)),
             EmitData::Set(Set::MstMapAreas(mst_map_areas)),
             EmitData::Set(Set::MstMapInfos(mst_map_infos)),
+            EmitData::Set(Set::MstMissions(mst_missions)),
             EmitData::Set(Set::MstShipUpgrades(mst_ship_upgrades)),
             EmitData::Identifier(Identifier::GetData(())),
         ]);

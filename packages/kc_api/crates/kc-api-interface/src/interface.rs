@@ -10,6 +10,7 @@ use crate::mst_equip_limit_exslot::MstEquipLimitExslots;
 use crate::mst_equip_ship::MstEquipShips;
 use crate::mst_maparea::MstMapAreas;
 use crate::mst_mapinfo::MstMapInfos;
+use crate::mst_mission::MstMissions;
 use crate::mst_ship::MstShips;
 use crate::mst_ship_graph::MstShipGraphs;
 use crate::mst_ship_upgrade::MstShipUpgrades;
@@ -78,6 +79,7 @@ pub enum Set {
     MstUseItemMetas(MstUseItemMetas),
     MstMapInfos(MstMapInfos),
     MstMapAreas(MstMapAreas),
+    MstMissions(MstMissions),
     MstShipGraphs(MstShipGraphs),
     MstShipUpgrades(MstShipUpgrades),
     Quests(Quests),

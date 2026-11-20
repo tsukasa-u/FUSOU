@@ -10,6 +10,7 @@ pub mod mst_equip_exslot;
 pub mod mst_equip_exslot_ship;
 pub mod mst_equip_limit_exslot;
 pub mod mst_equip_ship;
+pub mod mst_mission;
 pub mod mst_ship;
 pub mod mst_slot_item;
 pub mod mst_slot_item_equip_type;
