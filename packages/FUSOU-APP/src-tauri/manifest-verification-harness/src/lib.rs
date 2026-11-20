@@ -89,6 +89,9 @@ pub mod tlsn_notary_transport;
 #[path = "../../src/tlsn_capture_readiness.rs"]
 mod tlsn_capture_readiness;
 
+#[path = "../../src/pac_operation_gate.rs"]
+mod pac_operation_gate;
+
 #[cfg(all(test, feature = "tlsn-production"))]
 #[path = "tlsn_capture_readiness_tests.rs"]
 mod tlsn_capture_readiness_tests;

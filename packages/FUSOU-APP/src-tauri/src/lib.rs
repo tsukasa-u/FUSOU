@@ -18,7 +18,10 @@ mod auth;
 mod builder_setup;
 mod cmd;
 mod integration;
+#[cfg(target_os = "linux")]
+mod linux_pac_process;
 mod notify;
+mod pac_operation_gate;
 mod scheduler;
 mod senders;
 mod sequence;

@@ -16,6 +16,8 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
+#[cfg(target_os = "linux")]
+use crate::pac_operation_gate::{PacCleanupThenError, PAC_OPERATION_GATE};
 use crate::{
     builder_setup::{
         bidirectional_channel::{
@@ -48,6 +50,23 @@ use crate::ROAMING_DIR;
 enum ShutdownSignal {
     Exit,
     Restart,
+    PacCleanedExit,
+    PacCleanedRestart,
+}
+
+#[cfg(target_os = "linux")]
+fn record_pac_shutdown_readiness<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    cleanup_confirmed: bool,
+) {
+    if let Some(readiness) = app.try_state::<crate::tlsn_capture_readiness::TlsnCaptureReadiness>()
+    {
+        if cleanup_confirmed {
+            readiness.inner().pac_application_removed();
+        } else {
+            readiness.inner().pac_cleanup_unconfirmed();
+        }
+    }
 }
 
 fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -304,6 +323,94 @@ fn setup_tray(
         })
         .on_menu_event({
             let shutdown_tx = shutdown_tx.clone();
+            #[cfg(target_os = "linux")]
+            let request_linux_shutdown = {
+                let app_handle = app.handle().clone();
+                let shutdown_tx = shutdown_tx.clone();
+                let restart = restart.clone();
+                let quit = quit.clone();
+                let advanced_title = adavanced_title.clone();
+                move |signal| {
+                    let app_handle = app_handle.clone();
+                    let shutdown_tx = shutdown_tx.clone();
+                    let restart = restart.clone();
+                    let quit = quit.clone();
+                    let advanced_title = advanced_title.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let result = PAC_OPERATION_GATE
+                            .cleanup_then_shutdown(
+                                || native_cmd::remove_pac_script(&app_handle),
+                                || async move {
+                                    let signal = match signal {
+                                        ShutdownSignal::Restart => {
+                                            ShutdownSignal::PacCleanedRestart
+                                        }
+                                        _ => ShutdownSignal::PacCleanedExit,
+                                    };
+                                    shutdown_tx.send(signal).await
+                                },
+                            )
+                            .await;
+
+                        let (failure_code, script_diagnostics, cleanup_confirmed) = match result {
+                            Ok(Ok(())) => return,
+                            Ok(Err(error)) => {
+                                tracing::error!(
+                                    ?error,
+                                    "Failed to queue shutdown after PAC cleanup"
+                                );
+                                (
+                                    "pac_shutdown_request_failed".to_string(),
+                                    Vec::new(),
+                                    true,
+                                )
+                            }
+                            Err(PacCleanupThenError::Gate(error)) => {
+                                (error.diagnostic_code().to_string(), Vec::new(), false)
+                            }
+                            Err(PacCleanupThenError::Cleanup(error)) => (
+                                error.diagnostic_code.to_string(),
+                                error.script_diagnostics,
+                                false,
+                            ),
+                        };
+
+                        tracing::warn!(
+                            cleanup_confirmed,
+                            code = %failure_code,
+                            script_diagnostics = ?script_diagnostics,
+                            "Linux shutdown request did not complete"
+                        );
+                        record_pac_shutdown_readiness(&app_handle, cleanup_confirmed);
+                        for (item, id) in [
+                            (&restart, "restart"),
+                            (&quit, "quit"),
+                            (&advanced_title, "advanced-title"),
+                        ] {
+                            if let Err(error) = item.set_enabled(true) {
+                                tracing::warn!(
+                                    ?error,
+                                    item = id,
+                                    "Failed to re-enable shutdown menu item"
+                                );
+                            }
+                        }
+                        if cleanup_confirmed {
+                            notify::show(
+                                &app_handle,
+                                "Shutdown Request Failed",
+                                "PAC settings were restored, but the APP could not queue shutdown. Retry the tray action.",
+                            );
+                        } else {
+                            notify::show(
+                                &app_handle,
+                                "Proxy Cleanup Unconfirmed",
+                                "Shutdown was cancelled because PAC settings could not be verified. Resolve the system proxy state and retry.",
+                            );
+                        }
+                    });
+                }
+            };
             move |tray, event| {
                 match event.id().as_ref() {
                     #[cfg(dev)]
@@ -356,13 +463,18 @@ fn setup_tray(
                         let _ = quit.set_enabled(false);
                         let _ = adavanced_title.set_enabled(false);
 
-                        native_cmd::remove_pac(tray.app_handle());
-                        discord::close();
+                        #[cfg(target_os = "linux")]
+                        request_linux_shutdown(ShutdownSignal::Restart);
+                        #[cfg(target_os = "windows")]
+                        {
+                            native_cmd::remove_pac(tray.app_handle());
+                            discord::close();
 
-                        let shutdown_tx_clone = shutdown_tx.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = shutdown_tx_clone.send(ShutdownSignal::Restart).await;
-                        });
+                            let shutdown_tx_clone = shutdown_tx.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = shutdown_tx_clone.send(ShutdownSignal::Restart).await;
+                            });
+                        }
                     }
                     "quit" => {
                         if let Some(window) = tray.get_webview_window("main") {
@@ -389,14 +501,19 @@ fn setup_tray(
                         let _ = quit.set_enabled(false);
                         let _ = adavanced_title.set_enabled(false);
 
-                        native_cmd::remove_pac(tray.app_handle());
+                        #[cfg(target_os = "linux")]
+                        request_linux_shutdown(ShutdownSignal::Exit);
+                        #[cfg(target_os = "windows")]
+                        {
+                            native_cmd::remove_pac(tray.app_handle());
 
-                        discord::close();
+                            discord::close();
 
-                        let shutdown_tx_clone = shutdown_tx.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = shutdown_tx_clone.send(ShutdownSignal::Exit).await;
-                        });
+                            let shutdown_tx_clone = shutdown_tx.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = shutdown_tx_clone.send(ShutdownSignal::Exit).await;
+                            });
+                        }
                     }
                     "toggle-autostart" => {
                         if let Some(launch_at_startup) = &launch_at_startup {
@@ -1628,21 +1745,69 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        let mut intent = ShutdownSignal::Exit;
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Received Ctrl+C, shutting down.");
-            }
-            signal = shutdown_rx.recv() => {
-                match signal {
-                    Some(sig) => {
-                        tracing::info!("Received shutdown signal: {:?}", sig);
-                        intent = sig;
-                    }
-                    None => tracing::info!("Shutdown channel closed, exiting."),
+        let intent = loop {
+            let signal = tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("Received Ctrl+C, shutting down.");
+                    ShutdownSignal::Exit
                 }
+                signal = shutdown_rx.recv() => {
+                    match signal {
+                        Some(signal) => {
+                            tracing::info!("Received shutdown signal: {:?}", signal);
+                            signal
+                        }
+                        None => {
+                            tracing::info!("Shutdown channel closed, exiting.");
+                            ShutdownSignal::Exit
+                        }
+                    }
+                }
+            };
+            let (intent, pac_cleanup_confirmed) = match signal {
+                ShutdownSignal::Exit => (ShutdownSignal::Exit, false),
+                ShutdownSignal::Restart => (ShutdownSignal::Restart, false),
+                ShutdownSignal::PacCleanedExit => (ShutdownSignal::Exit, true),
+                ShutdownSignal::PacCleanedRestart => (ShutdownSignal::Restart, true),
+            };
+
+            #[cfg(target_os = "linux")]
+            if !pac_cleanup_confirmed {
+                match PAC_OPERATION_GATE
+                    .cleanup_then_shutdown(
+                        || native_cmd::remove_pac_script(&app_handle),
+                        || async move { intent },
+                    )
+                    .await
+                {
+                    Ok(intent) => break intent,
+                    Err(PacCleanupThenError::Gate(error)) => {
+                        tracing::warn!(
+                            code = error.diagnostic_code(),
+                            "PAC cleanup could not start; shutdown was cancelled"
+                        );
+                    }
+                    Err(PacCleanupThenError::Cleanup(error)) => {
+                        tracing::warn!(
+                            code = error.diagnostic_code,
+                            script_diagnostics = ?error.script_diagnostics,
+                            "PAC cleanup was not confirmed; shutdown was cancelled"
+                        );
+                    }
+                }
+                record_pac_shutdown_readiness(&app_handle, false);
+                notify::show(
+                    &app_handle,
+                    "Proxy Cleanup Unconfirmed",
+                    "Shutdown was cancelled because PAC settings could not be verified. Resolve the system proxy state and retry.",
+                );
+                continue;
             }
-        }
+
+            #[cfg(not(target_os = "linux"))]
+            let _ = pac_cleanup_confirmed;
+            break intent;
+        };
         // is it needed to add select! for timeout?
         let _ = tokio::join!(
             request_shutdown(proxy_bidirectional_channel_master_clone),
@@ -1656,8 +1821,10 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
         app_handle.cleanup_before_exit();
         match intent {
-            ShutdownSignal::Restart => app_handle.request_restart(),
-            ShutdownSignal::Exit => app_handle.exit(0_i32),
+            ShutdownSignal::Restart | ShutdownSignal::PacCleanedRestart => {
+                app_handle.request_restart()
+            }
+            ShutdownSignal::Exit | ShutdownSignal::PacCleanedExit => app_handle.exit(0_i32),
         }
     });
 

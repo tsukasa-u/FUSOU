@@ -1,68 +1,21 @@
 #!/bin/bash
 
-set -eu
-set -o pipefail
+set -uo pipefail
+umask 077
 
 SCRIPT_NAME="$(basename -- "$0")"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PAC_SCRIPT_NAME="$SCRIPT_NAME"
+source "$SCRIPT_DIR/pac_settings_common.sh"
 
-log_info() {
-    echo "[INFO][$SCRIPT_NAME] $1" 1>&2
-}
-
-log_error() {
-    echo "[ERROR][$SCRIPT_NAME] $1" 1>&2
-}
-
-on_error() {
-    local exit_code="$1"
-    local line_no="$2"
-    log_error "command failed at line $line_no with exit code $exit_code"
-    exit "$exit_code"
-}
-
-trap 'on_error $? $LINENO' ERR
-
-if [ -z "${1-}" ]; then
-    echo "Usage: $0 <pac_url>" 1>&2
+if [[ $# -ne 2 ]]; then
+    pac_log_error "usage_invalid"
     exit 2
 fi
 
-PAC_URL="$1"
-log_info "starting proxy auto-config apply"
-log_info "pac_url=$PAC_URL"
-
-has_gsettings_proxy() {
-    command -v gsettings >/dev/null 2>&1 && gsettings list-schemas 2>/dev/null | grep -qx 'org.gnome.system.proxy'
-}
-
-find_kwriteconfig() {
-    if command -v kwriteconfig6 >/dev/null 2>&1; then
-        echo "kwriteconfig6"
-        return
-    fi
-    if command -v kwriteconfig5 >/dev/null 2>&1; then
-        echo "kwriteconfig5"
-        return
-    fi
-    echo ""
-}
-
-if has_gsettings_proxy; then
-    log_info "detected GNOME gsettings backend"
-    gsettings set org.gnome.system.proxy mode 'auto'
-    gsettings set org.gnome.system.proxy autoconfig-url "$PAC_URL"
-    log_info "applied PAC via gsettings"
-    exit 0
+if ! pac_initialize_state_path "$2"; then
+    exit 1
 fi
-
-KWRITECONFIG_BIN="$(find_kwriteconfig)"
-if [ -n "$KWRITECONFIG_BIN" ]; then
-    log_info "detected KDE backend via $KWRITECONFIG_BIN"
-    "$KWRITECONFIG_BIN" --file kioslaverc --group "Proxy Settings" --key ProxyType 2
-    "$KWRITECONFIG_BIN" --file kioslaverc --group "Proxy Settings" --key "Proxy Config Script" "$PAC_URL"
-    log_info "applied PAC via KDE config"
-    exit 0
+if ! pac_apply "$1"; then
+    exit 1
 fi
-
-log_error "unsupported desktop proxy backend. neither GNOME gsettings nor KDE kwriteconfig was found"
-exit 4

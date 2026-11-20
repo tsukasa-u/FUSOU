@@ -6,6 +6,11 @@ use tracing_unwrap::{OptionExt, ResultExt};
 
 use crate::notify;
 
+#[cfg(target_os = "linux")]
+use crate::linux_pac_process::{run_linux_pac_script, PacScriptError};
+#[cfg(target_os = "linux")]
+use crate::pac_operation_gate::PAC_OPERATION_GATE;
+
 #[cfg(target_os = "windows")]
 pub static PATH_ADD_PROXY_PS1: &str = "cmd/windows/add_proxy.ps1";
 #[cfg(target_os = "windows")]
@@ -103,7 +108,6 @@ pub fn add_pac<R>(
         .to_string();
 
     let app_handle = app.clone();
-    let path_clone = path.clone();
     tauri::async_runtime::spawn(async move {
         #[cfg(target_os = "windows")]
         let output_result = app_handle
@@ -122,41 +126,48 @@ pub fn add_pac<R>(
             .await;
 
         #[cfg(target_os = "linux")]
-        let output_result = app_handle
-            .shell()
-            .command(cmd_path)
-            .args([path])
-            .output()
-            .await;
-
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-
-                tracing::debug!("add_pac stdout: {}", stdout);
-                tracing::debug!("add_pac stderr: {}", stderr);
-                if output.status.success() {
-                    record_pac_application_result(&readiness, true);
-                } else {
-                    record_pac_application_result(&readiness, false);
-                    tracing::warn!("add_pac failed with status: {:?}", output.status);
-                    if !stderr.trim().is_empty() {
-                        tracing::warn!("add_pac stderr: {}", stderr);
-                    }
-                    if !stdout.trim().is_empty() {
-                        tracing::warn!("add_pac stdout: {}", stdout);
-                    }
-                    notify::show(
-                        &app_handle,
-                        "Proxy Setup Failed",
-                        "Failed to apply PAC settings. Please retry and check your system proxy permissions.",
-                    );
-                }
+        let pac_result = async {
+            let _operation = PAC_OPERATION_GATE
+                .begin_apply()
+                .await
+                .map_err(|error| PacScriptError::new(error.diagnostic_code(), Vec::new()))?;
+            let state_file = get_ROAMING_DIR()
+                .join("linux-pac-settings.state")
+                .to_string_lossy()
+                .into_owned();
+            let result = run_linux_pac_script(&app_handle, cmd_path, vec![path, state_file]).await;
+            if matches!(&result, Err(error) if error.result_unknown) {
+                PAC_OPERATION_GATE.mark_result_unknown();
             }
-            Err(err) => {
+            result
+        }
+        .await;
+
+        #[cfg(target_os = "windows")]
+        match output_result {
+            Ok(output) if output.status.success() => {
+                record_pac_application_result(&readiness, true);
+            }
+            Ok(output) => {
                 record_pac_application_result(&readiness, false);
-                tracing::warn!("failed to execute add_pac process: {:?}", err);
+                tracing::warn!("add_pac failed with status: {:?}", output.status);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.trim().is_empty() {
+                    tracing::warn!("add_pac stderr: {}", stderr);
+                }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if !stdout.trim().is_empty() {
+                    tracing::warn!("add_pac stdout: {}", stdout);
+                }
+                notify::show(
+                    &app_handle,
+                    "Proxy Setup Failed",
+                    "Failed to apply PAC settings. Please retry and check your system proxy permissions.",
+                );
+            }
+            Err(error) => {
+                record_pac_application_result(&readiness, false);
+                tracing::warn!("failed to execute add_pac process: {:?}", error);
                 notify::show(
                     &app_handle,
                     "Proxy Setup Failed",
@@ -164,11 +175,52 @@ pub fn add_pac<R>(
                 );
             }
         }
+
+        #[cfg(target_os = "linux")]
+        match pac_result {
+            Ok(()) => record_pac_application_result(&readiness, true),
+            Err(error) => {
+                record_pac_application_result(&readiness, false);
+                tracing::warn!(
+                    code = error.diagnostic_code,
+                    script_diagnostics = ?error.script_diagnostics,
+                    "Linux PAC application was not verified"
+                );
+                notify::show(
+                    &app_handle,
+                    "Proxy Setup Failed",
+                    "Failed to verify PAC settings. Please retry and check your system proxy configuration.",
+                );
+            }
+        }
     });
 
-    tracing::info!("register AutoConfigURL: {}", path_clone);
+    tracing::info!("register AutoConfigURL");
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) async fn remove_pac_script<R>(app: &tauri::AppHandle<R>) -> Result<(), PacScriptError>
+where
+    R: tauri::Runtime,
+{
+    let cmd_path = get_RESOURCES_DIR()
+        .join(PATH_DELETE_PROXY_SH)
+        .as_path()
+        .to_str()
+        .expect_or_log("cmd_path not found")
+        .to_string();
+    let state_file = get_ROAMING_DIR()
+        .join("linux-pac-settings.state")
+        .to_string_lossy()
+        .into_owned();
+    let result = run_linux_pac_script(app, cmd_path, vec![state_file]).await;
+    if matches!(&result, Err(error) if error.result_unknown) {
+        PAC_OPERATION_GATE.mark_result_unknown();
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
 pub fn remove_pac<R>(app: &tauri::AppHandle<R>)
 where
     R: tauri::Runtime,

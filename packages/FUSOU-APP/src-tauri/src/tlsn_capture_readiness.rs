@@ -299,6 +299,28 @@ impl TlsnCaptureReadiness {
         });
     }
 
+    pub fn pac_application_removed(&self) {
+        self.update_current(|state| {
+            if state.pac_application.status != ReadinessStageStatus::Skipped {
+                state.pac_application = ReadinessStage::new(
+                    ReadinessStageStatus::Failed,
+                    Some("pac_application_removed"),
+                );
+            }
+        });
+    }
+
+    pub fn pac_cleanup_unconfirmed(&self) {
+        self.update_current(|state| {
+            if state.pac_application.status != ReadinessStageStatus::Skipped {
+                state.pac_application = ReadinessStage::new(
+                    ReadinessStageStatus::Failed,
+                    Some("pac_cleanup_unconfirmed"),
+                );
+            }
+        });
+    }
+
     pub fn runtime_config_verified(&self, attempt_id: u64) {
         self.update_attempt(attempt_id, |state| {
             state.runtime_config_freshness =
@@ -363,9 +385,16 @@ impl TlsnCaptureReadiness {
     }
 
     fn update_attempt(&self, attempt_id: u64, update: impl FnOnce(&mut ReadinessState)) {
+        self.update_current(|state| {
+            if state.attempt_id == attempt_id {
+                update(state);
+            }
+        });
+    }
+
+    fn update_current(&self, update: impl FnOnce(&mut ReadinessState)) {
         match self.state.lock() {
-            Ok(mut state) if state.attempt_id == attempt_id => update(&mut state),
-            Ok(_) => {}
+            Ok(mut state) => update(&mut state),
             Err(error) => tracing::error!(%error, "TLSN capture readiness state is poisoned"),
         }
     }

@@ -34,6 +34,9 @@ jobs:
           pnpm --dir packages/FUSOU-APP exec vitest run
           --config vitest.readiness.config.ts
 
+      - name: Verify mocked Linux PAC settings transactions
+        run: bash packages/FUSOU-APP/scripts/test-pac-settings.sh
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1

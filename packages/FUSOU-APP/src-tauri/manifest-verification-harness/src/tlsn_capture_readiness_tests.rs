@@ -151,6 +151,29 @@ fn repeated_readiness_reads_do_not_request_services_admit_notary_or_send_origin(
 }
 
 #[test]
+fn pac_cleanup_failure_or_removal_cannot_leave_readiness_ready() {
+    let (unconfirmed, _) = ready_readiness(ExperimentalTlsnReadinessDiagnostic {
+        session_grant: BindingPreparationDiagnostic::Ready,
+        capture: CaptureReadinessDiagnostic::Ready,
+    });
+    unconfirmed.pac_cleanup_unconfirmed();
+    let report = unconfirmed.report();
+    assert_eq!(report.status, CaptureReadinessStatus::Failed);
+    assert_eq!(report.pac_application.status, ReadinessStageStatus::Failed);
+    assert_eq!(report.diagnostic_code, Some("pac_cleanup_unconfirmed"));
+
+    let (removed, _) = ready_readiness(ExperimentalTlsnReadinessDiagnostic {
+        session_grant: BindingPreparationDiagnostic::Ready,
+        capture: CaptureReadinessDiagnostic::Ready,
+    });
+    removed.pac_application_removed();
+    let report = removed.report();
+    assert_eq!(report.status, CaptureReadinessStatus::Failed);
+    assert_eq!(report.pac_application.status, ReadinessStageStatus::Failed);
+    assert_eq!(report.diagnostic_code, Some("pac_application_removed"));
+}
+
+#[test]
 fn runtime_and_worker_failures_report_their_stage_and_safe_code() {
     let runtime_failure = TlsnCaptureReadiness::default();
     let attempt_id = runtime_failure
