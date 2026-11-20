@@ -1,6 +1,7 @@
 import { DecksComponent } from "./../components/deck_port/decks.tsx";
 import { SettingsComponent } from "../components/settings/settings.tsx";
 import { DataCollectionStatusComponent } from "../components/settings/data_collection_status.tsx";
+import { TlsnCaptureReadinessComponent } from "../components/settings/tlsn_capture_readiness.tsx";
 
 import { MaterialsComponent } from "./../components/materials/materials.tsx";
 import { QuestsComponent } from "./../components/quests/quests.tsx";
@@ -35,6 +36,7 @@ type AppTabKey =
   | "quest"
   | "data_collection"
   | "settings"
+  | "tlsn_readiness"
   | "logs"
   | "policy";
 
@@ -50,6 +52,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
   { key: "quest",           label: "Quest" },
   { key: "data_collection", label: "Uploads" },
   { key: "settings",        label: "Settings" },
+  { key: "tlsn_readiness",  label: "TLSN readiness" },
   { key: "logs",            label: "Logs" },
   { key: "policy",          label: "Policy" },
 ];
@@ -172,6 +175,12 @@ function App() {
       <div class={activeTab() === "settings" ? "block" : "hidden"}>
         <div class="pt-0 pb-0 pl-0 bg-base-100">
           <SettingsComponent />
+        </div>
+      </div>
+
+      <div class={activeTab() === "tlsn_readiness" ? "block" : "hidden"}>
+        <div class="p-4 bg-base-100">
+          <TlsnCaptureReadinessComponent />
         </div>
       </div>
 

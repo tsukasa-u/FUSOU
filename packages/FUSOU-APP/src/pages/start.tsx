@@ -18,6 +18,7 @@ import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
 import { ThemeControllerComponent } from "../components/settings/theme";
+import { TlsnCaptureReadinessComponent } from "../components/settings/tlsn_capture_readiness";
 import { createAsyncStore } from "@solidjs/router";
 
 type SessionHealth = {
@@ -536,6 +537,10 @@ function Start() {
                   </button>
                 </div>
               </fieldset>
+
+              <div class="h-4" />
+
+              <TlsnCaptureReadinessComponent />
 
               <div class="h-4" />
 

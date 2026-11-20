@@ -26,6 +26,15 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Install Chromium for APP readiness interaction test
+        run: pnpm --dir packages/FUSOU-APP exec playwright install --with-deps chromium
+
+      - name: Verify APP readiness refresh interaction
+        run: >-
+          pnpm --dir packages/FUSOU-APP exec vitest run
+          src/stories/settings/tlsn_capture_readiness.stories.tsx
+          --project=storybook
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1

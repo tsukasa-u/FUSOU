@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
+import { playwright } from "@vitest/browser-playwright";
 import path, { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +21,7 @@ export default defineConfig(async () => ({
     jsxImportSource: "solid-js",
   },
   test: {
-    workspace: [
+    projects: [
       {
         extends: true,
         plugins: [
@@ -36,7 +37,7 @@ export default defineConfig(async () => ({
             // Enable browser-based testing for UI components
             enabled: true,
             headless: true,
-            provider: "playwright",
+            provider: playwright({}),
             instances: [{ browser: "chromium" }],
           },
           // This setup file applies Storybook project annotations for Vitest
@@ -45,11 +46,8 @@ export default defineConfig(async () => ({
         },
       },
     ],
-    include: ["stories/**/*.stories.tsx", "stories/**/*.test.tsx"],
-    exclude: ["stories/**/*.mdx"],
   },
-  optimizeDeps: {
-  },
+  optimizeDeps: {},
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -77,13 +75,13 @@ export default defineConfig(async () => ({
       "@ipc-bindings": resolve(dirname, "../kc_api/bindings"),
       "@fusou-testdata-ipc": resolve(
         dirname,
-        "../../../FUSOU-TESTDATA/storybook/ipc"
+        "../../../FUSOU-TESTDATA/storybook/ipc",
       ),
-      "ui": resolve(dirname, "src/components/ui/index.tsx"),
+      ui: resolve(dirname, "src/components/ui/index.tsx"),
       "@fusou-testdata-shared-ui": resolve(
         dirname,
-        "../../../FUSOU-TESTDATA/storybook/shared-ui"
+        "../../../FUSOU-TESTDATA/storybook/shared-ui",
       ),
-    }
+    },
   },
 }));
