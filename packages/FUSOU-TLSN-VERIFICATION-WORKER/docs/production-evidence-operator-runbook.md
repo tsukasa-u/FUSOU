@@ -197,6 +197,39 @@ file. If the APP must be stopped while the gate is latched, an OS-level process
 termination is not evidence that PAC cleanup succeeded; verify and resolve the
 desktop settings before starting it again.
 
+When tray **Restart**/**Quit** or Ctrl+C is accepted, the readiness snapshot
+first moves the PAC stage to `cleanup_in_progress` with
+`pac_cleanup_in_progress`, before waiting for PAC cleanup. A delayed result
+from the same startup attempt cannot replace that state, and new apply attempts
+remain serialized by the existing operation gate. After verified restoration,
+the APP records `pac_application_removed` before queuing the shutdown signal;
+if queuing fails, the APP remains open and readiness stays unready. Cleanup
+failure or an unknown process result remains `pac_cleanup_unconfirmed`. These
+are local preparation/cleanup diagnostics, not proof of browser PAC traffic.
+If PAC setup was skipped, its stage remains `skipped` while the overall report
+is `pending` with `app_shutdown_in_progress`; an unconfirmed cleanup still
+reports `pac_cleanup_unconfirmed`.
+
+#### Candidate CI and desktop evidence status — 2026-11-21
+
+Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180)
+observed success for all three jobs at
+`929a9d6392447f78a99d7f9c50409a2dbb6d83d5`; this is the baseline only. The
+current changes are uncommitted, so Hosted CI for them is **NOT_CHECKED**.
+Local mocked evidence is **VERIFIED**: the APP-source Manifest harness passed
+44 unit tests and 1 integration test, the GNOME/KDE PAC mocks passed 26/26,
+and the Chromium readiness interaction passed 1/1.
+
+Real desktop evidence is **NOT_CHECKED**. No authorized disposable Linux
+VM/user session, verification APP binary, or managed test destination was
+available; the VM probe found no VM. No DE/browser versions, PAC settings,
+browser PAC retrieval, Proxy-routed request, Restart/Quit restoration, or
+Ctrl+C shutdown were observed. Do not treat readiness or the mocked suites as
+evidence of browser routing. For the real check, keep Open KanColle off and
+record the initial/read-back PAC pair, browser retrieval, an independently
+observed managed request through FUSOU Proxy, and post-stop settings
+separately. Do not change the normal desktop to fill this evidence gap.
+
 Normal cleanup treats mode and PAC URL as a pair. While recovery state is
 `active`, it reads both values and their saved presence before changing the
 phase: only an exact match to FUSOU's applied pair is persisted as `removing`

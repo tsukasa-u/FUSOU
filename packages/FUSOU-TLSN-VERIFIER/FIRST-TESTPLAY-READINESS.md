@@ -74,6 +74,61 @@ No APP Cargo build or APP-launching Node suite, real OS PAC change, actual
 browser-route observation, real service, gameplay, or deployment was used.
 Stage A/B/C and Production acceptance remain **BLOCKED**.
 
+## Linux PAC shutdown readiness ordering — local verification
+
+**BASELINE:** Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180)
+passed all three jobs at `929a9d6392447f78a99d7f9c50409a2dbb6d83d5`.
+That baseline included 26/26 mocked PAC cases and the 1/1 Chromium readiness
+interaction; it predates this change.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Linux tray **Restart**/**Quit**
+and Ctrl+C now mark PAC cleanup as `cleanup_in_progress` with
+`pac_cleanup_in_progress` before waiting for the serialized cleanup. PAC
+application results are recorded while the operation gate is held, and the
+readiness-state lock rejects same-attempt delayed success or failure after
+cleanup starts, completes, or becomes unconfirmed. Successful restoration is
+recorded as `pac_application_removed` before shutdown is queued; a queue failure
+therefore remains unready. Cleanup failure and an unknown process result remain
+`pac_cleanup_unconfirmed`. When PAC setup was skipped, its stage remains
+`skipped` while the overall report becomes `pending` with
+`app_shutdown_in_progress` (or `failed` if cleanup is unconfirmed). Existing
+startup-attempt rejection and PAC setup behavior remain unchanged.
+
+**LOCAL_TEST_RESULTS:** The Rust 1.98.1 isolated APP-source Manifest harness
+passed 44 unit tests plus 1 integration test. New deterministic regressions
+cover cleanup waiting behind an in-flight apply, readiness remaining unready
+through shutdown (including skipped PAC setup), delayed same-attempt results,
+cleanup failure/unknown result, and successful restoration followed by
+shutdown-queue failure. The existing mocked Linux PAC suite passed 26/26 and
+the Chromium readiness regression passed 1/1. Focused `rustfmt --check` passed
+for the readiness implementation, `native_cmd.rs`, and harness tests. A
+whole-file check of `setup.rs` still
+reports pre-existing formatting differences outside this change. The workflow
+already runs the Manifest harness with `--all-targets` and the PAC/browser
+regressions; no selector change was needed.
+
+Modified Hosted CI is **NOT_CHECKED**. The APP itself was not built or launched;
+actual Linux desktop scheduling, tray/Ctrl+C behavior, and live PAC readback
+remain unverified. No real PAC settings or services were touched. Stage A/B/C
+and Production acceptance remain **BLOCKED**.
+
+### Hosted baseline and real-device follow-up — 2026-11-21
+
+| Evidence | Status | Result and scope |
+|---|---|---|
+| Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180), SHA `929a9d6392447f78a99d7f9c50409a2dbb6d83d5` | OBSERVED | All three jobs succeeded: `rust-tlsn-preflight`, `node-contract-tests`, and `proxy-capture-source-unit-tests`. This is the unchanged-HEAD baseline, not a result for the current edits. |
+| Hosted run for the current edits | NOT_CHECKED | The six permitted worktree changes are unstaged and no commit SHA contains them. No Actions run was started. |
+| Local mocked regressions | VERIFIED | APP-source Manifest harness 44/44 unit tests plus 1/1 integration test; GNOME/KDE PAC mocks 26/26; Chromium readiness interaction 1/1. These do not establish desktop behavior. |
+| Linux desktop operation | NOT_CHECKED | No authorized disposable VM/user session or prepared verification APP and managed destination was available. No desktop, browser, PAC URL/mode, proxy traffic, Restart/Quit, or Ctrl+C observation was made. DE/browser versions are therefore not recorded. |
+
+The VM probe reported no VM, and the expected APP release-binary paths were
+absent. Do not substitute the current desktop, readiness output, or mocked
+tests for the missing real observation. Before this check can proceed, provide
+a disposable GNOME or KDE session/VM, a verification APP binary with its
+version and digest, and a managed test destination. Open KanColle must remain
+off. Record PAC setting readback separately from browser PAC retrieval and an
+observed request traversing FUSOU Proxy.
+
 ## Notary offline preflight and placement checks — local verification
 
 **BASELINE:** Work continued on branch `tlsn-first-testplay-candidate` at
