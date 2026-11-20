@@ -122,9 +122,11 @@ const DATA_LOADER_ITEMS: readonly DataLoaderItem[] = [
 
 export interface SettingsComponentProps {
   configPreview?: ConfigEditorPreviewProps;
+  mode?: "app" | "start";
 }
 
 export function SettingsComponent(props: SettingsComponentProps = {}) {
+  const isStartMode = () => props.mode === "start";
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
     null,
   );
@@ -362,7 +364,14 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
             <div class="p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div class="space-y-0.5 min-w-0">
-                  <h3 class="text-sm font-semibold">Manual Snapshot Sync</h3>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <h3 class="text-sm font-semibold">Manual Snapshot Sync</h3>
+                    <Show when={isStartMode()}>
+                      <span class="badge badge-xs badge-ghost">
+                        Available after launch
+                      </span>
+                    </Show>
+                  </div>
                   <p class="text-xs text-base-content/65">
                     Trigger an immediate snapshot synchronization with the
                     configured server.
@@ -371,7 +380,7 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
                 <button
                   type="button"
                   class={`btn btn-primary enabled:border-primary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
-                  disabled={syncingSnapshot()}
+                  disabled={isStartMode() || syncingSnapshot()}
                   onClick={handleManualSnapshotSync}
                 >
                   <Show when={syncingSnapshot()}>
@@ -404,9 +413,16 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
 
         {/* Session & Authentication */}
         <section class="space-y-2.5">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-            Session &amp; Authentication
-          </h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+              Session &amp; Authentication
+            </h2>
+            <Show when={isStartMode()}>
+              <span class="badge badge-xs badge-ghost">
+                Available after launch
+              </span>
+            </Show>
+          </div>
           <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
             <div class="p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -421,7 +437,7 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
                   type="button"
                   class={`btn btn-secondary enabled:border-secondary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
                   onClick={handleCheckSessionHealth}
-                  disabled={checkingHealth()}
+                  disabled={isStartMode() || checkingHealth()}
                 >
                   <Show when={checkingHealth()}>
                     <span class="loading loading-spinner loading-xs" />
@@ -500,7 +516,7 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
                       setSignOutResult(null);
                       setConfirmSignOut(true);
                     }}
-                    disabled={signingOut()}
+                    disabled={isStartMode() || signingOut()}
                   >
                     {signingOut() ? "Signing out..." : "Force Local Sign Out"}
                   </button>
@@ -540,9 +556,16 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
 
         {/* Cached Game Data */}
         <section class="space-y-2.5">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-            Cached Game Data
-          </h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+              Cached Game Data
+            </h2>
+            <Show when={isStartMode()}>
+              <span class="badge badge-xs badge-ghost">
+                Available after launch
+              </span>
+            </Show>
+          </div>
           <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
             <div class="p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -556,7 +579,7 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
                 <button
                   type="button"
                   class={`btn btn-primary enabled:border-primary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
-                  disabled={loadingDataKey() !== null}
+                  disabled={isStartMode() || loadingDataKey() !== null}
                   onClick={handleLoadAllData}
                 >
                   <Show when={loadingDataKey() === "all"}>
@@ -610,7 +633,7 @@ export function SettingsComponent(props: SettingsComponentProps = {}) {
                         <button
                           type="button"
                           class={`btn btn-secondary enabled:border-secondary-content ${COMPACT_ROW_BUTTON_SIZE_CLASS}`}
-                          disabled={loadingDataKey() !== null}
+                          disabled={isStartMode() || loadingDataKey() !== null}
                           onClick={() => handleLoadSingleData(item)}
                         >
                           <Show when={loadingDataKey() === item.cmd}>
