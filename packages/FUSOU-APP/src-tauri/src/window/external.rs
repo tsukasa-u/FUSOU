@@ -5,7 +5,6 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tracing_unwrap::ResultExt;
-use webbrowser::{open_browser, Browser};
 
 #[cfg(target_os = "linux")]
 use std::collections::HashSet;
@@ -102,27 +101,6 @@ fn get_game_url() -> String {
         })
         .clone()
 }
-
-#[derive(Debug, Default)]
-pub struct BrowserState(Browser);
-
-impl BrowserState {
-    pub fn new() -> Self {
-        BrowserState(Browser::default())
-    }
-
-    // pub fn set_browser(&mut self, browser: &Browser) {
-    //     browser.clone_into(&mut self.0);
-    //     // self.0 = browser.clone();
-    // }
-
-    pub fn get_browser(&self) -> Browser {
-        self.0
-    }
-}
-
-pub static SHARED_BROWSER: LazyLock<Mutex<BrowserState>> =
-    LazyLock::new(|| Mutex::new(BrowserState::new()));
 
 #[cfg(target_os = "linux")]
 static LINUX_KEY_FALLBACK_INSTALLED: LazyLock<Mutex<HashSet<String>>> =
@@ -1602,102 +1580,91 @@ pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
     set_external_window_volume(&app, volume, muted);
 }
 
-pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
-    if browse_webview {
-        if let Some(window) = app.get_webview_window("external") {
-            #[cfg(target_os = "linux")]
-            install_linux_webview_key_fallback(&window);
-
-            #[cfg(target_os = "linux")]
-            install_linux_webview_scripts(&window);
-
-            #[cfg(windows)]
-            install_windows_webview_key_fallback(&window);
-
-            match window.is_visible() {
-                Ok(visible) => {
-                    if !visible {
-                        window
-                            .show()
-                            .expect_or_log("Failed to show external window");
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Error: {e:?}");
-                }
-            }
-            return;
-        } else {
-            tracing::error!("can not get webview windows \"external\"");
-        }
-
-        let init_script = build_external_init_script();
-
-        let game_url = match get_game_url().parse() {
-            Ok(url) => url,
-            Err(e) => {
-                tracing::error!(
-                    "Invalid game URL in config, cannot open external window: {}",
-                    e
-                );
-                return;
-            }
-        };
-
-        let external = tauri::WebviewWindowBuilder::new(
-            app,
-            "external",
-            tauri::WebviewUrl::External(game_url),
-        );
-        let external = crate::window::common::configure_frameless_window(external);
-
-        let app_configs = configs::get_user_configs_for_app();
-        let kc_window = &app_configs.kc_window;
-        let inner_winow_size_width = app_configs.kc_window.get_default_inner_width() as f64;
-        let inner_winow_size_height = kc_window.get_default_inner_height() as f64;
-        let max_window_size_width = kc_window.get_max_inner_width() as f64;
-        let max_window_size_height = kc_window.get_max_inner_height() as f64;
-
-        const TITLEBAR_HEIGHT: f64 = 32.0;
-        let external = external
-            .fullscreen(false)
-            .title("fusou-viewer")
-            .inner_size(
-                inner_winow_size_width,
-                inner_winow_size_height + TITLEBAR_HEIGHT,
-            )
-            .max_inner_size(
-                max_window_size_width,
-                max_window_size_height + TITLEBAR_HEIGHT,
-            )
-            .visible(false)
-            .initialization_script_for_all_frames(init_script);
-        #[cfg(dev)]
-        let external = external.devtools(true);
-
-        let external_result = external
-            .build()
-            .expect_or_log("error while building external");
+pub fn create_external_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("external") {
+        #[cfg(target_os = "linux")]
+        install_linux_webview_key_fallback(&window);
 
         #[cfg(target_os = "linux")]
-        install_linux_webview_key_fallback(&external_result);
-
-        #[cfg(target_os = "linux")]
-        install_linux_webview_scripts(&external_result);
+        install_linux_webview_scripts(&window);
 
         #[cfg(windows)]
-        install_windows_webview_key_fallback(&external_result);
+        install_windows_webview_key_fallback(&window);
 
-        crate::window::common::setup_frameless_window(&external_result);
-
-        external_result
-            .show()
-            .expect_or_log("can not show external window");
-    } else if let Some(browser) = browser {
-        if let Err(e) = open_browser(browser, &get_game_url()) {
-            tracing::error!("Failed to open external browser: {}", e);
+        match window.is_visible() {
+            Ok(visible) => {
+                if !visible {
+                    window
+                        .show()
+                        .expect_or_log("Failed to show external window");
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error: {e:?}");
+            }
         }
+        return;
     } else {
-        tracing::error!("browse_webview=false but no browser was provided");
+        tracing::error!("can not get webview windows \"external\"");
     }
+
+    let init_script = build_external_init_script();
+
+    let game_url = match get_game_url().parse() {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::error!(
+                "Invalid game URL in config, cannot open external window: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let external =
+        tauri::WebviewWindowBuilder::new(app, "external", tauri::WebviewUrl::External(game_url));
+    let external = crate::window::common::configure_frameless_window(external);
+
+    let app_configs = configs::get_user_configs_for_app();
+    let kc_window = &app_configs.kc_window;
+    let inner_winow_size_width = app_configs.kc_window.get_default_inner_width() as f64;
+    let inner_winow_size_height = kc_window.get_default_inner_height() as f64;
+    let max_window_size_width = kc_window.get_max_inner_width() as f64;
+    let max_window_size_height = kc_window.get_max_inner_height() as f64;
+
+    const TITLEBAR_HEIGHT: f64 = 32.0;
+    let external = external
+        .fullscreen(false)
+        .title("fusou-viewer")
+        .inner_size(
+            inner_winow_size_width,
+            inner_winow_size_height + TITLEBAR_HEIGHT,
+        )
+        .max_inner_size(
+            max_window_size_width,
+            max_window_size_height + TITLEBAR_HEIGHT,
+        )
+        .visible(false)
+        .initialization_script_for_all_frames(init_script);
+    #[cfg(dev)]
+    let external = external.devtools(true);
+
+    let external_result = external
+        .build()
+        .expect_or_log("error while building external");
+
+    #[cfg(target_os = "linux")]
+    install_linux_webview_key_fallback(&external_result);
+
+    #[cfg(target_os = "linux")]
+    install_linux_webview_scripts(&external_result);
+
+    #[cfg(windows)]
+    install_windows_webview_key_fallback(&external_result);
+
+    crate::window::common::setup_frameless_window(&external_result);
+
+    external_result
+        .show()
+        .expect_or_log("can not show external window");
 }

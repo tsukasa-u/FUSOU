@@ -238,7 +238,6 @@ dependencies = [
  "tracing-unwrap",
  "url",
  "uuid 1.23.2",
- "webbrowser",
  "webkit2gtk",
  "webview2-com",
  "windows-core 0.62.2",
@@ -7539,22 +7538,6 @@ dependencies = [
  "phf_codegen",
  "string_cache",
  "string_cache_codegen",
-]
-
-[[package]]
-name = "webbrowser"
-version = "1.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe8d20d0214027baf11b8b0cc307c1da7657d8f4db9aa956f7de27a6fb1acbd5"
-dependencies = [
- "jni 0.22.4",
- "log",
- "ndk-context",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "url",
- "web-sys",
 ]
 
 [[package]]

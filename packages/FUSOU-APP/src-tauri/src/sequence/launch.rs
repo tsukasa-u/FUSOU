@@ -5,7 +5,6 @@ use tauri::Manager;
 use crate::auth::supabase;
 use crate::util::get_ROAMING_DIR;
 use crate::window::external::create_external_window;
-use crate::window::external::SHARED_BROWSER;
 use crate::{
     builder_setup::bidirectional_channel::{
         get_proxy_log_bidirectional_channel, get_response_parse_bidirectional_channel,
@@ -227,19 +226,7 @@ pub async fn launch_with_options(
     }
     if let Some(&flag) = options.get("open_kancolle") {
         if flag != 0 {
-            if let Some(&browse_webview) = options.get("open_kancolle_with_webview") {
-                if browse_webview != 0 {
-                    create_external_window(window.app_handle(), None, true);
-                } else {
-                    let browser = SHARED_BROWSER
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .get_browser();
-                    create_external_window(window.app_handle(), Some(browser), false);
-                }
-            } else {
-                create_external_window(window.app_handle(), None, true);
-            }
+            create_external_window(window.app_handle());
         }
     }
 
@@ -269,7 +256,9 @@ mod tests {
 
         let guard = try_acquire_running_flag(&TEST_FLAG).expect("acquire for normal exit");
         let handle = tokio::spawn(async {});
-        track_running_task(guard, handle).await.expect("watcher joins");
+        track_running_task(guard, handle)
+            .await
+            .expect("watcher joins");
         assert!(!TEST_FLAG.load(Ordering::Acquire));
 
         let panic_guard = try_acquire_running_flag(&TEST_FLAG).expect("acquire after exit");

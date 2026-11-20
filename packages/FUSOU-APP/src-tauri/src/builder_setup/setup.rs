@@ -273,7 +273,6 @@ fn setup_tray(
         .item(&check_session_health)
         .item(&force_local_sign_out);
 
-
     let advanced_sub_menu = advanced_sub_menu
         .separator()
         .item(&danger_ope_sub_menu)
@@ -521,10 +520,6 @@ fn setup_tray(
                             );
                         }
                     }
-                    // "visit-website" => {
-                    //     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
-                    //     let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
-                    // }
                     "open-license" => {
                         let url = "https://fusou.dev/docs/license/fusou_app";
 
@@ -804,7 +799,7 @@ fn setup_tray(
                                 _ => {}
                             },
                             None => {
-                                external::create_external_window(tray.app_handle(), None, true);
+                                external::create_external_window(tray.app_handle());
                                 // // let _ = app
                                 // //     .tray_handle()
                                 // //     .get_item("external-open/close")
