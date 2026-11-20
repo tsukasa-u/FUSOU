@@ -157,7 +157,9 @@ If `session_grant` reports `grant_expired`, do not open the game or use the
 readiness button as a refresh operation. The existing no-game retry is:
 
 1. Select **Restart** from the FUSOU system-tray menu. This follows the
-   existing shutdown path, starts PAC cleanup, and restarts the APP process.
+   Linux shutdown path, which waits for the PAC cleanup process and verified
+   restoration before restarting the APP. If cleanup cannot be confirmed, the
+   restart is cancelled and the APP remains running.
 2. On the Launch Options page, leave **Run Proxy Server** on, set **Open
    KanColle** off, and select **Start**. Keep the internal APP window enabled
    so the readiness panel remains available.
@@ -170,6 +172,61 @@ background grant preparation. It is not a grant-renewal action on the
 diagnostic itself. The snapshot is scoped to the current APP preparation
 attempt; late results from an older startup attempt cannot overwrite the
 current PAC or TLSN status.
+
+On Linux, both tray **Restart** and **Quit** wait for the PAC child process and
+the cleanup script's readback result before proceeding. A failed or unknown
+cleanup keeps the APP open, re-enables the tray actions, and displays
+**Proxy Cleanup Unconfirmed**; it does not report cleanup as successful or
+start a new APP process. If the APP remains running, readiness marks the PAC
+application stage failed as `pac_cleanup_unconfirmed`, or
+`pac_application_removed` if restoration succeeded but shutdown could not be
+queued; do not treat either snapshot as capture-ready. The saved transaction
+state remains in the APP roaming directory as `linux-pac-settings.state` when
+restoration/readback needs recovery. Do not delete that file to force a retry.
+Inspect the fixed diagnostic code and the relevant GNOME `gsettings` or KDE
+`kreadconfig` values, then retry **Restart** or **Quit** only after resolving
+the reported state. Terminal Ctrl+C shutdown uses the same serialized cleanup.
+For a known cleanup-script failure, retain the recovery state and retry only
+after correcting the reported cause. A `pac_process_timeout`,
+`pac_process_result_unknown`, or `pac_operation_result_unknown` latches the
+PAC operation gate: no further apply or successful Restart/Quit is allowed in
+that APP process. Do not start a second APP. Verify that the earlier process
+group is gone, inspect the saved `linux-pac-settings.state` and both current
+settings, and resolve any mismatch before relaunching. Do not delete the state
+file. If the APP must be stopped while the gate is latched, an OS-level process
+termination is not evidence that PAC cleanup succeeded; verify and resolve the
+desktop settings before starting it again.
+
+Normal cleanup treats mode and PAC URL as a pair. While recovery state is
+`active`, it reads both values and their saved presence before changing the
+phase: only an exact match to FUSOU's applied pair is persisted as `removing`
+and restored. If the original pair is already present, cleanup removes the
+state without writing settings. If either current value differs from the
+applied pair—including a URL returned to its original value—both current
+values are preserved, so automatic mode and a user-selected PAC URL are not
+split. For an already-persisted `removing` state, a retry recognizes original
+values as restored, restores only remaining applied values, and verifies the
+final pair; failures retain recovery state. Apply-failure rollback is separate
+and restores only settings that the failed attempt can still identify as its
+own. The local GNOME/KDE mocked regressions include the original-URL
+reselection and already-restored-pair cases, failure to persist `removing`
+before any setting write, and recovery after the first restore write succeeds
+but the second fails. The process runner uses the locked
+`tauri-plugin-shell 2.5.0`
+process-group API, waits for termination confirmation, and fails closed if the
+child/group stop cannot be verified. These protections do not provide
+atomicity against unrelated desktop-settings writers.
+
+The initial Linux desktop verification remains a separate, not-yet-run
+operator task. Keep **Open KanColle** off and use only a managed test
+destination. Record the pre-test GNOME/KDE proxy values, start the APP with
+**Run Proxy Server** enabled, observe the PAC file retrieval and a managed
+request actually traversing the proxy, then use tray **Quit** or **Restart**
+and verify the original values were restored (or a deliberate user change
+made during the run was preserved). PAC settings readback alone does not
+establish browser traffic; keep `browser_proxy_traffic` at `not_checked` until
+that separate observation is made. No desktop settings or real service were
+changed in the local regression.
 
 The APP-start marker and `LOCAL_APP_PREFLIGHT_PASS` retain their existing
 meaning: process startup and static checks, respectively. Neither represents

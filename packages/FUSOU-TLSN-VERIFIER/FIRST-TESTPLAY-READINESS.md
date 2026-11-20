@@ -3476,6 +3476,61 @@ remain follow-up work.
 | Stage A/B/C | **BLOCKED** |
 | Production acceptance | **BLOCKED** |
 
+## Linux PAC transaction and shutdown — local verification
+
+The starting branch and HEAD were `tlsn-first-testplay-candidate` and
+`2d5cc0904769c69242a7c638020a1d1322b72fef`. Existing changes outside this task
+were preserved.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Linux PAC apply now snapshots the
+selected GNOME or KDE backend and exact prior values/presence before writing.
+It reads settings back before recording success, rolls back only values still
+owned by that attempt, and preserves later user changes. Cleanup restores the
+saved values and verifies them; unconfirmed recovery state is retained. Normal
+cleanup reads the mode and URL pair while state is still `active`. It persists
+`removing` only when the current pair, including saved presence, matches both
+FUSOU-applied values. An already-restored original pair completes without
+settings writes; any other pair is preserved as an external change. A persisted
+`removing` state resumes by restoring only keys still at their applied values,
+then verifies the final original pair. Apply-failure rollback remains separate
+from this post-apply ownership check.
+Restart and Quit are serialized behind any apply operation and wait for the
+cleanup process plus its termination/readback result. Cleanup failure cancels
+shutdown/restart, leaves the APP running, and permits a retry; an unknown
+process result fails closed. If the APP remains open after cleanup failure or
+after confirmed PAC removal but a failed shutdown request, readiness marks the
+PAC stage failed with `pac_cleanup_unconfirmed` or
+`pac_application_removed`. Windows PAC behavior is unchanged.
+
+PAC application readiness still means only that the configured settings were
+read back successfully. It does not prove browser traffic; `browser_proxy_traffic`
+remains `not_checked`. The local tests did not alter desktop settings or contact
+services. The workflow now runs the GNOME/KDE mocked transaction suite, and its
+existing APP-source Manifest harness includes the PAC operation-gate tests.
+
+The PAC runner now uses the API present in the locked
+`tauri-plugin-shell 2.5.0`: `set_process_group(true)` and consuming
+`CommandChild::kill()`. It waits for the `Terminated` event and confirms the
+process group is gone. Timeout, missing termination confirmation, or an
+unconfirmed process-group stop is surfaced as an unknown outcome and latches
+the operation gate, so another apply or successful Restart/Quit is blocked.
+This does not add a recovery command for clearing that latch.
+
+| Check | Result | Scope |
+|---|---|---|
+| Linux shell syntax | **PASS** | `bash -n` for the shared helper, apply/remove scripts, and mock suite. |
+| Mocked GNOME/KDE PAC transactions | **PASS, 26/26** | The prior 18 cases remain; added the exact URL-reselected-as-original and already-original-pair cases, failed `removing`-state persistence with zero setting writes, and interrupted second-restore-write/retry coverage on both backends. |
+| Candidate workflow selection | **VERIFIED** | The existing workflow invokes `scripts/test-pac-settings.sh`; the added cases run without a selector change. |
+| Locked Tauri process API harness | **PASS, 3/3** | Rust 1.98.1 `cargo test --locked --offline --all-targets` in an isolated crate pinned to Tauri 2.12.3, `tauri-plugin-shell` 2.5.0, Tokio 1.53.2 and libc 0.2.190; compiled and exercised the production Linux PAC process module for normal exit, timeout/group stop, and unconfirmed termination. |
+| APP-source Manifest harness | **PASS, 41/41** | Rust 1.98.1 `cargo test --locked --offline --all-targets` with isolated `CARGO_TARGET_DIR`: 40 unit tests plus 1 shared-vector integration test; includes gate serialization, failed cleanup, unknown-result, and readiness-not-ready-on-cleanup cases. |
+| Readiness browser regression | **PASS, 1/1** | Dedicated Chromium readiness interaction command; existing refresh behavior remains intact. |
+| Rust formatting | **PASS (focused)** | Rust 1.98.1 `rustfmt --check` passes for the changed PAC runner, native command, and module declaration; an APP-wide format check was not run. |
+| Protected-path-excluded `git diff --check` | **PASS** | Both worktree and index whitespace checks passed while excluding the protected paths. |
+| APP Cargo / APP-launching Node suite | **NOT_RUN** | Excluded by task scope; the native APP binary and startup wiring were not built. The exact production PAC process module was type-checked separately against the locked Tauri API. |
+| Real GNOME/KDE desktop and APP Restart/Quit | **NOT_CHECKED** | No real desktop settings, PAC retrieval, browser route, or APP process was used. |
+| Hosted CI after this change | **NOT_CHECKED** | No Actions run was started. |
+| Stage A/B/C and Production acceptance | **BLOCKED** | Real deployment, services, Notary, Game Server, gameplay, and production evidence remain unverified. |
+
 ## Candidate CI #135 — isolated readiness browser regression
 
 Run [#135](https://github.com/tsukasa-u/FUSOU/actions/runs/44718041221/job/136226343474#step:7:1)
