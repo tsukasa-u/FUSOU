@@ -1,4 +1,5 @@
 import type { MarkdownInstance } from "astro";
+import { rawLocalGlob } from "virtual:fusou-local-docs";
 
 export interface LocalDocMetadata {
   slug: string;
@@ -88,16 +89,8 @@ export function isLocalOnlyDoc(slug: string): boolean {
   );
 }
 
-// Vite の glob インポートですべてのローカル用 Markdown を読み込み
-const rawLocalGlob = import.meta.glob<MarkdownInstance<Record<string, unknown>>>(
-  [
-    "@all-docs/formulas/**/*.md",
-    "@all-docs/operations/**/*.md",
-    "@all-docs/implementation-plans/**/*.md",
-    "@all-docs/architecture/**/*.md",
-  ],
-  { eager: true }
-);
+// rawLocalGlob は virtual:fusou-local-docs 経由で解決される
+// (開発環境・Storybook では localDocs.glob.ts、本番ビルドでは空マップ localDocs.empty.ts)
 
 function formatSegment(segment: string): string {
   return segment

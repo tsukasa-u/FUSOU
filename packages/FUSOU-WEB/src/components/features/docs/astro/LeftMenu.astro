@@ -1,5 +1,5 @@
 ---
-import type { MarkdownInstance } from "astro";
+import { getCollection } from "astro:content";
 import { compareSegments } from "@/utils/page_sorter";
 import { isLocalDev, isLocalOnlyDoc, getAllLocalDocs } from "@/utils/localDocs";
 
@@ -10,12 +10,7 @@ const isCurrentPageLocal = isLocalOnlyDoc(currentPath) || currentPath === "/docs
 // ==========================================
 // 1. 公開ドキュメント (Public Docs) のツリー生成
 // ==========================================
-const rawPostsGlobResult = import.meta.glob("../../../../../../../docs/contents/**/*.md", {
-  eager: true,
-});
-const rawPosts = Object.values(
-  rawPostsGlobResult
-).reverse() as MarkdownInstance<Record<string, unknown>>[];
+const rawPosts = await getCollection("docs");
 
 const normalizeSlug = (value: unknown) =>
   (typeof value === "string" ? value : "")
@@ -47,14 +42,14 @@ type PostEntry = {
 
 const publicPosts = rawPosts
   .map((post) => {
-    const slug = normalizeSlug(post.frontmatter?.["slug"]);
+    const slug = normalizeSlug(post.data.slug ?? post.id.replace(/\.md$/, ""));
     const segments = slug.split("/").filter(Boolean);
     if (segments.length === 0) return null;
 
     return {
       slug,
       segments,
-      title: (post.frontmatter?.["title"] as string) ?? formatSegment(segments.at(-1)!),
+      title: post.data.title ?? formatSegment(segments.at(-1)!),
       url: `/docs/${slug}`,
     };
   })
