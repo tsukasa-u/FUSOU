@@ -22,11 +22,31 @@ const KC_API_DB_CARGO_TOML = resolve(
 const MANIFEST_REL_PATH = "packages/configs/rust-artifacts-manifest.json";
 const MANIFEST_PATH = resolve(REPO_ROOT, MANIFEST_REL_PATH);
 
+const EXPLICIT_INPUT_FILES = [
+  "packages/kc_api/Cargo.toml",
+  "packages/FUSOU-WEB/scripts/generate-rust-data.mjs",
+  "packages/FUSOU-WEB/scripts/convert-dot-to-reactflow.mjs",
+  "packages/FUSOU-WEB/scripts/convert-schema-to-reactflow.mjs",
+  "packages/FUSOU-WEB/scripts/generate-avro-schema-registry.mjs",
+  "packages/FUSOU-WEB/scripts/lib/stable-json.mjs",
+  "packages/FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs",
+];
+
+const MONITORED_CRATE_DIRS = [
+  "packages/kc_api/crates/kc-api-build-config",
+  "packages/kc_api/crates/kc-api-database",
+  "packages/kc_api/crates/kc-api-dto",
+  "packages/kc_api/crates/kc-api-interface",
+  "packages/kc_api/crates/register_trait",
+  "packages/kc_api/crates/register_macro_derive_and_attr",
+];
+
 const args = new Set(process.argv.slice(2));
 const isCheckOnly = args.has("--check");
 const isCheckOrBuild = args.has("--check-or-build");
+const isPreCommit = args.has("--pre-commit");
 const isForce = args.has("--force") || process.env.FORCE_RUST_REBUILD === "true";
-const shouldStage = args.has("--stage");
+const shouldStage = args.has("--stage") || isPreCommit;
 
 function isCiEnvironment() {
   return Boolean(
@@ -98,29 +118,33 @@ function detectSchemaVersions() {
   return versions;
 }
 
+function isMonitoredInputPath(relPath) {
+  const p = toPosix(relPath);
+  if (EXPLICIT_INPUT_FILES.includes(p)) return true;
+  for (const crateRel of MONITORED_CRATE_DIRS) {
+    if (p === `${crateRel}/Cargo.toml` || p === `${crateRel}/build.rs`) {
+      return true;
+    }
+    if (
+      (p.startsWith(`${crateRel}/src/`) || p.startsWith(`${crateRel}/tests/`)) &&
+      (p.endsWith(".rs") || p.endsWith(".toml"))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getKcApiInputPaths() {
-  const files = [
-    "packages/kc_api/Cargo.toml",
-    "packages/FUSOU-WEB/scripts/generate-rust-data.mjs",
-    "packages/FUSOU-WEB/scripts/convert-dot-to-reactflow.mjs",
-    "packages/FUSOU-WEB/scripts/convert-schema-to-reactflow.mjs",
-    "packages/FUSOU-WEB/scripts/generate-avro-schema-registry.mjs",
-    "packages/FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs",
-  ];
+  const files = [...EXPLICIT_INPUT_FILES];
 
-  const crateDirs = [
-    "packages/kc_api/crates/kc-api-database",
-    "packages/kc_api/crates/kc-api-dto",
-    "packages/kc_api/crates/kc-api-interface",
-    "packages/kc_api/crates/register_trait",
-    "packages/kc_api/crates/register_macro_derive_and_attr",
-  ];
-
-  for (const crateRel of crateDirs) {
+  for (const crateRel of MONITORED_CRATE_DIRS) {
     const crateAbs = resolve(REPO_ROOT, crateRel);
-    const cargoToml = resolve(crateAbs, "Cargo.toml");
-    if (existsSync(cargoToml)) {
-      files.push(toPosix(relative(REPO_ROOT, cargoToml)));
+    for (const rootFile of ["Cargo.toml", "build.rs"]) {
+      const absFile = resolve(crateAbs, rootFile);
+      if (existsSync(absFile)) {
+        files.push(toPosix(relative(REPO_ROOT, absFile)));
+      }
     }
     for (const subDir of ["src", "tests"]) {
       for (const file of collectFiles(
@@ -203,8 +227,28 @@ function runNodeScript(absScriptPath, scriptArgs = [], cwd = WEB_DIR) {
   }
 }
 
+function gitPaths(gitArgs) {
+  const result = spawnSync("git", gitArgs, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error) throw result.error;
+  if (typeof result.status === "number" && result.status !== 0) {
+    throw new Error(
+      `git ${gitArgs.join(" ")} exited with status ${result.status}: ${(result.stderr || "").trim()}`,
+    );
+  }
+  return (result.stdout || "")
+    .split("\0")
+    .filter(Boolean)
+    .map(toPosix);
+}
+
 function stageFiles(relPaths) {
-  const existing = relPaths.filter((p) => existsSync(resolve(REPO_ROOT, p)));
+  const existing = [...new Set(relPaths.map(toPosix))].filter((p) =>
+    existsSync(resolve(REPO_ROOT, p)),
+  );
   if (!existing.length) return;
   const result = spawnSync("git", ["add", "--", ...existing], {
     cwd: REPO_ROOT,
@@ -216,45 +260,12 @@ function stageFiles(relPaths) {
   }
 }
 
-function main() {
-  const versions = detectSchemaVersions();
-  const manifest = readManifest();
-
-  const kcApiInputs = getKcApiInputPaths();
-  const kcApiOutputs = getKcApiOutputPaths(versions);
-  const kcStatus = evaluateGroup(manifest?.groups?.kcApiData, kcApiInputs, kcApiOutputs);
-
-  if (kcStatus.upToDate && !isForce) {
-    console.log(
-      "[rust-artifacts] OK: prebuilt schemas, graphs, and avro registry are up to date (skipping Rust build).",
-    );
-    return;
-  }
-
-  const reportStale = () => {
-    console.error("[rust-artifacts] kcApiData is stale:");
-    for (const r of kcStatus.reasons) console.error(`  - ${r}`);
-  };
-
-  if (isCheckOnly) {
-    reportStale();
-    console.error(
-      "[rust-artifacts] Run 'pnpm run sync:rust-artifacts' locally and commit the updated files.",
-    );
-    process.exit(1);
-  }
-
-  if (isCheckOrBuild && !isForce && isCiEnvironment()) {
-    reportStale();
-    console.error(
-      "[rust-artifacts] Refusing to run a cold Rust rebuild in CI. Run 'pnpm run sync:rust-artifacts' locally and commit the generated artifacts (or set FORCE_RUST_REBUILD=true to override).",
-    );
-    process.exit(1);
-  }
-
+function regenerateAndWriteManifest() {
   runNodeScript(resolve(WEB_DIR, "scripts/setup-rust-env.mjs"));
 
-  console.log("[rust-artifacts] Regenerating kc_api schemas, fingerprints, graphs, and avro registry...");
+  console.log(
+    "[rust-artifacts] Regenerating kc_api schemas, fingerprints, graphs, and avro registry...",
+  );
   runNodeScript(resolve(WEB_DIR, "scripts/generate-rust-data.mjs"));
   runNodeScript(resolve(WEB_DIR, "scripts/convert-dot-to-reactflow.mjs"));
   runNodeScript(resolve(WEB_DIR, "scripts/convert-schema-to-reactflow.mjs"));
@@ -284,8 +295,164 @@ function main() {
   };
 
   mkdirSync(dirname(MANIFEST_PATH), { recursive: true });
-  writeFileSync(MANIFEST_PATH, `${JSON.stringify(nextManifest, null, 2)}\n`, "utf8");
+  writeFileSync(
+    MANIFEST_PATH,
+    `${JSON.stringify(nextManifest, null, 2)}\n`,
+    "utf8",
+  );
   console.log(`[rust-artifacts] Manifest updated: ${MANIFEST_REL_PATH}`);
+
+  return finalOutputs;
+}
+
+function runPreCommit() {
+  const versions = detectSchemaVersions();
+  const kcApiInputs = getKcApiInputPaths();
+  const kcApiOutputs = getKcApiOutputPaths(versions);
+  const outputAndManifestSet = new Set([...kcApiOutputs, MANIFEST_REL_PATH]);
+
+  const staged = gitPaths([
+    "diff",
+    "--cached",
+    "--name-only",
+    "-z",
+    "--diff-filter=ACMRD",
+  ]);
+  if (staged.length === 0) return;
+
+  const isRelevantStaged = staged.some(
+    (p) =>
+      isMonitoredInputPath(p) ||
+      outputAndManifestSet.has(p) ||
+      p.startsWith("packages/kc_api/generated-schemas/") ||
+      p.startsWith("packages/FUSOU-WEB/src/data/graphs/"),
+  );
+  if (!isRelevantStaged) return;
+
+  const unstaged = gitPaths([
+    "diff",
+    "--name-only",
+    "-z",
+    "--diff-filter=ACMRD",
+  ]);
+  const untracked = gitPaths(["ls-files", "--others", "--exclude-standard", "-z"]);
+  const dirtyPaths = [...new Set([...unstaged, ...untracked])];
+
+  // Reject partially staged or untracked monitored inputs so generated artifacts
+  // always correspond to the exact staged snapshot being committed.
+  const dirtyInputs = dirtyPaths.filter((p) => isMonitoredInputPath(p)).sort();
+  if (dirtyInputs.length > 0) {
+    console.error(
+      "[pre-commit] Refusing to commit: monitored Rust/schema input files have unstaged or untracked changes:",
+    );
+    for (const p of dirtyInputs) console.error(`  - ${p}`);
+    console.error(
+      "[pre-commit] Stage or stash those changes first so generated artifacts match the exact staged snapshot.",
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    "[pre-commit] Rust schema sources or generated artifacts changed. Verifying staged snapshot...",
+  );
+
+  const manifest = readManifest();
+  const kcStatus = evaluateGroup(
+    manifest?.groups?.kcApiData,
+    kcApiInputs,
+    kcApiOutputs,
+  );
+
+  let trackedOutputs = [...kcApiOutputs, MANIFEST_REL_PATH];
+
+  if (!kcStatus.upToDate || isForce) {
+    console.log("[pre-commit] Regenerating and staging Rust artifacts...");
+    const finalOutputs = regenerateAndWriteManifest();
+    trackedOutputs = [...finalOutputs, MANIFEST_REL_PATH];
+    stageFiles(trackedOutputs);
+    console.log("[pre-commit] Staged updated Rust artifacts for commit.");
+  } else {
+    const dirtyOutputs = dirtyPaths
+      .filter((p) => outputAndManifestSet.has(p))
+      .sort();
+    if (dirtyOutputs.length > 0) {
+      console.log(
+        "[pre-commit] Staging already-regenerated Rust artifacts and manifest...",
+      );
+      stageFiles(dirtyOutputs);
+    } else {
+      console.log(
+        "[rust-artifacts] OK: staged schemas, graphs, avro registry, and manifest are up to date (skipping Rust build).",
+      );
+    }
+  }
+
+  // Final safety check: ensure no monitored output or manifest remains unstaged.
+  const remainingUnstaged = gitPaths([
+    "diff",
+    "--name-only",
+    "-z",
+    "--diff-filter=ACMRD",
+  ]);
+  const trackedOutputSet = new Set(trackedOutputs);
+  const stillDirtyOutputs = remainingUnstaged
+    .filter((p) => trackedOutputSet.has(p))
+    .sort();
+  if (stillDirtyOutputs.length > 0) {
+    console.error(
+      "[pre-commit] Refusing to commit: generated Rust artifacts still have unstaged changes:",
+    );
+    for (const p of stillDirtyOutputs) console.error(`  - ${p}`);
+    process.exit(1);
+  }
+}
+
+function main() {
+  if (isPreCommit) {
+    runPreCommit();
+    return;
+  }
+
+  const versions = detectSchemaVersions();
+  const manifest = readManifest();
+
+  const kcApiInputs = getKcApiInputPaths();
+  const kcApiOutputs = getKcApiOutputPaths(versions);
+  const kcStatus = evaluateGroup(
+    manifest?.groups?.kcApiData,
+    kcApiInputs,
+    kcApiOutputs,
+  );
+
+  if (kcStatus.upToDate && !isForce) {
+    console.log(
+      "[rust-artifacts] OK: prebuilt schemas, graphs, and avro registry are up to date (skipping Rust build).",
+    );
+    return;
+  }
+
+  const reportStale = () => {
+    console.error("[rust-artifacts] kcApiData is stale:");
+    for (const r of kcStatus.reasons) console.error(`  - ${r}`);
+  };
+
+  if (isCheckOnly) {
+    reportStale();
+    console.error(
+      "[rust-artifacts] Run 'pnpm run sync:rust-artifacts' locally and commit the updated files.",
+    );
+    process.exit(1);
+  }
+
+  if (isCheckOrBuild && !isForce && isCiEnvironment()) {
+    reportStale();
+    console.error(
+      "[rust-artifacts] Refusing to run a cold Rust rebuild in CI. Run 'pnpm run sync:rust-artifacts' locally and commit the generated artifacts (or set FORCE_RUST_REBUILD=true to override).",
+    );
+    process.exit(1);
+  }
+
+  const finalOutputs = regenerateAndWriteManifest();
 
   if (shouldStage) {
     stageFiles([...finalOutputs, MANIFEST_REL_PATH]);
