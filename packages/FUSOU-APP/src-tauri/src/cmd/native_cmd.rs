@@ -1,8 +1,8 @@
 // use tauri::api::process::Command;
 // use std::process::Command;
+use std::path::PathBuf;
 use tauri_plugin_shell::ShellExt;
 use tracing_unwrap::{OptionExt, ResultExt};
-use std::path::PathBuf;
 
 use crate::notify;
 
@@ -66,8 +66,24 @@ fn resolve_store_cert_path() -> Result<PathBuf, String> {
     }
 }
 
-pub fn add_pac<R>(path: String, app: &tauri::AppHandle<R>)
-where
+fn record_pac_application_result(
+    readiness: &Option<(crate::tlsn_capture_readiness::TlsnCaptureReadiness, u64)>,
+    succeeded: bool,
+) {
+    if let Some((readiness, attempt_id)) = readiness {
+        if succeeded {
+            readiness.pac_application_succeeded(*attempt_id);
+        } else {
+            readiness.pac_application_failed(*attempt_id);
+        }
+    }
+}
+
+pub fn add_pac<R>(
+    path: String,
+    app: &tauri::AppHandle<R>,
+    readiness: Option<(crate::tlsn_capture_readiness::TlsnCaptureReadiness, u64)>,
+) where
     R: tauri::Runtime,
 {
     #[cfg(target_os = "windows")]
@@ -120,7 +136,10 @@ where
 
                 tracing::debug!("add_pac stdout: {}", stdout);
                 tracing::debug!("add_pac stderr: {}", stderr);
-                if !output.status.success() {
+                if output.status.success() {
+                    record_pac_application_result(&readiness, true);
+                } else {
+                    record_pac_application_result(&readiness, false);
                     tracing::warn!("add_pac failed with status: {:?}", output.status);
                     if !stderr.trim().is_empty() {
                         tracing::warn!("add_pac stderr: {}", stderr);
@@ -136,6 +155,7 @@ where
                 }
             }
             Err(err) => {
+                record_pac_application_result(&readiness, false);
                 tracing::warn!("failed to execute add_pac process: {:?}", err);
                 notify::show(
                     &app_handle,
@@ -187,11 +207,7 @@ where
             .await;
 
         #[cfg(target_os = "linux")]
-        let output_result = app_handle
-            .shell()
-            .command(cmd_path)
-            .output()
-            .await;
+        let output_result = app_handle.shell().command(cmd_path).output().await;
 
         match output_result {
             Ok(output) => {
@@ -293,12 +309,7 @@ where
         .await;
 
     #[cfg(target_os = "linux")]
-    let output_result = app
-        .shell()
-        .command(cmd_path)
-        .args([ca_path])
-        .output()
-        .await;
+    let output_result = app.shell().command(cmd_path).args([ca_path]).output().await;
 
     match output_result {
         Ok(output) => {

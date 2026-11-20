@@ -24,6 +24,7 @@ mod senders;
 mod sequence;
 mod storage;
 pub mod tlsn_build_handoff;
+mod tlsn_capture_readiness;
 #[cfg(feature = "tlsn-production")]
 mod tlsn_notary_transport;
 pub mod tlsn_preflight;
@@ -167,7 +168,8 @@ pub async fn run() {
             move |app: &tauri::AppHandle, argv: Vec<String>, _cwd| {
                 builder_setup::single_instance::single_instance_init(app, argv)
             },
-        ));
+        ))
+        .manage(tlsn_capture_readiness::TlsnCaptureReadiness::default());
 
     builder = builder
         .invoke_handler(tauri::generate_handler![
@@ -200,6 +202,7 @@ pub async fn run() {
             cmd::tauri_cmd::delete_pending_upload_item,
             cmd::tauri_cmd::get_pending_upload_retry_status,
             cmd::tauri_cmd::run_tlsn_production_preflight,
+            cmd::tauri_cmd::get_tlsn_capture_readiness,
             cmd::tauri_cmd::get_ship_growth_suppression_status,
             cmd::tauri_cmd::get_quest_tree_suppression_status,
             cmd::tauri_cmd::get_remodel_suppression_status,

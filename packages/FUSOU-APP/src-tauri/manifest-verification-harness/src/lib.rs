@@ -85,3 +85,10 @@ pub mod tlsn_runtime_config_manifest;
 
 #[path = "../../src/tlsn_notary_transport.rs"]
 pub mod tlsn_notary_transport;
+
+#[path = "../../src/tlsn_capture_readiness.rs"]
+mod tlsn_capture_readiness;
+
+#[cfg(all(test, feature = "tlsn-production"))]
+#[path = "tlsn_capture_readiness_tests.rs"]
+mod tlsn_capture_readiness_tests;

@@ -33,6 +33,7 @@ use crate::capture::{
 use crate::capture_io::{CaptureDirection, CaptureRecorder};
 pub use crate::experimental_tlsn::{
     ExperimentalForwardFuture, ExperimentalRequireInfoForwarder, ExperimentalTlsnForwarder,
+    ExperimentalTlsnReadinessDiagnostic,
 };
 use crate::{bidirectional_channel, capture, experimental_tlsn::MAX_TLSN_SENT_DATA_BYTES};
 
@@ -91,6 +92,15 @@ impl ExperimentalTlsnForwarderSlot {
         forwarder.start_preparation();
         *current = Some(forwarder);
         Ok(())
+    }
+
+    pub fn readiness_diagnostic(&self) -> Result<Option<ExperimentalTlsnReadinessDiagnostic>, ()> {
+        let current = self.forwarder.lock().map_err(|error| {
+            tracing::error!(%error, "Experimental TLSN forwarder slot is poisoned during read-only diagnostics");
+        })?;
+        Ok(current
+            .as_ref()
+            .map(|forwarder| forwarder.readiness_diagnostic()))
     }
 
     fn get(&self) -> Option<Arc<dyn ExperimentalRequireInfoForwarder>> {

@@ -66,6 +66,79 @@ pub enum VerificationOutcome {
 pub type ResultBoundaryFuture =
     Pin<Box<dyn Future<Output = Result<(), ResultBoundaryError>> + Send>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingPreparationFailureCode {
+    AuthenticationUnavailable,
+    DeviceProofUnavailable,
+    RuntimeConfigUnavailable,
+    RuntimeConfigChanged,
+    SessionAuthorityUnavailable,
+    SessionGrantRejected,
+    ClockUnavailable,
+}
+
+impl BindingPreparationFailureCode {
+    pub fn diagnostic_code(self) -> &'static str {
+        match self {
+            Self::AuthenticationUnavailable => "session_authentication_unavailable",
+            Self::DeviceProofUnavailable => "device_proof_unavailable",
+            Self::RuntimeConfigUnavailable => "runtime_config_unavailable",
+            Self::RuntimeConfigChanged => "runtime_config_changed",
+            Self::SessionAuthorityUnavailable => "session_authority_unavailable",
+            Self::SessionGrantRejected => "session_grant_rejected",
+            Self::ClockUnavailable => "session_grant_clock_unavailable",
+        }
+    }
+
+    fn from_binding_error(error: &BindingError) -> Self {
+        match error {
+            BindingError::CandidateAuthUnavailable => Self::AuthenticationUnavailable,
+            BindingError::CandidateDeviceUnavailable => Self::DeviceProofUnavailable,
+            BindingError::RuntimeConfigUnavailable => Self::RuntimeConfigUnavailable,
+            BindingError::RuntimeConfigChanged => Self::RuntimeConfigChanged,
+            BindingError::BindingNotReady => Self::SessionAuthorityUnavailable,
+            BindingError::NoBindingAuthority
+            | BindingError::AlreadyIssued
+            | BindingError::InvalidBinding => Self::SessionGrantRejected,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingPreparationDiagnostic {
+    Unavailable,
+    Pending,
+    Ready,
+    Expired,
+    InUse,
+    CleanupInProgress,
+    Failed(BindingPreparationFailureCode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureReadinessDiagnostic {
+    NotReady,
+    Ready,
+    InProgress,
+    CleanupUnconfirmed,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExperimentalTlsnReadinessDiagnostic {
+    pub session_grant: BindingPreparationDiagnostic,
+    pub capture: CaptureReadinessDiagnostic,
+}
+
+impl ExperimentalTlsnReadinessDiagnostic {
+    const fn unavailable() -> Self {
+        Self {
+            session_grant: BindingPreparationDiagnostic::Unavailable,
+            capture: CaptureReadinessDiagnostic::Unavailable,
+        }
+    }
+}
+
 pub trait ExperimentalRequireInfoForwarder: Send + Sync {
     fn forward(&self, connection_id: u64, request: Request<Bytes>) -> ExperimentalForwardFuture;
 
@@ -74,6 +147,10 @@ pub trait ExperimentalRequireInfoForwarder: Send + Sync {
     }
 
     fn start_preparation(&self) {}
+
+    fn readiness_diagnostic(&self) -> ExperimentalTlsnReadinessDiagnostic {
+        ExperimentalTlsnReadinessDiagnostic::unavailable()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,6 +282,10 @@ pub trait AttestationBindingProvider: Send + Sync {
     fn start_preparation(&self, _context: BindingRequestContext) {}
 
     fn attempt_completed(&self, _binding: &AttestationBinding) {}
+
+    fn readiness_diagnostic(&self) -> BindingPreparationDiagnostic {
+        BindingPreparationDiagnostic::Unavailable
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +316,7 @@ struct PreparedBindingState {
     preparing: bool,
     in_use: bool,
     release_in_progress: bool,
+    last_failure: Option<BindingPreparationFailureCode>,
 }
 
 type BindingClock = Arc<dyn Fn() -> Option<u64> + Send + Sync>;
@@ -272,6 +354,7 @@ impl PreparedBindingProvider {
                 preparing: false,
                 in_use: false,
                 release_in_progress: false,
+                last_failure: None,
             })),
             active: Arc::new(AtomicBool::new(true)),
             clock,
@@ -319,6 +402,7 @@ impl PreparedBindingProvider {
                     && state.binding.is_none() =>
             {
                 state.preparing = true;
+                state.last_failure = None;
                 true
             }
             Ok(_) => false,
@@ -363,6 +447,7 @@ impl PreparedBindingProvider {
                         match state.lock() {
                             Ok(mut state) => {
                                 state.preparing = false;
+                                state.last_failure = None;
                                 if !state.in_use && state.binding.is_none() {
                                     state.binding = Some(binding);
                                 } else {
@@ -377,6 +462,15 @@ impl PreparedBindingProvider {
                         return;
                     }
                     Err(error) => {
+                        match state.lock() {
+                            Ok(mut state) => {
+                                state.last_failure =
+                                    Some(BindingPreparationFailureCode::from_binding_error(&error));
+                            }
+                            Err(_) => tracing::error!(
+                                "prepared TLSN binding state is poisoned after preparation failure"
+                            ),
+                        }
                         tracing::warn!(%error, "TLSN binding preparation failed; ordinary proxy traffic remains available");
                         tokio::time::sleep(retry_delay).await;
                         retry_delay = (retry_delay * 2).min(Duration::from_secs(30));
@@ -442,6 +536,42 @@ impl AttestationBindingProvider for PreparedBindingProvider {
             return false;
         }
         ready
+    }
+
+    fn readiness_diagnostic(&self) -> BindingPreparationDiagnostic {
+        let state = match self.state.lock() {
+            Ok(state) => state,
+            Err(error) => {
+                tracing::error!(%error, "prepared TLSN binding state is poisoned during read-only diagnostics");
+                return BindingPreparationDiagnostic::Unavailable;
+            }
+        };
+        if state.release_in_progress {
+            return BindingPreparationDiagnostic::CleanupInProgress;
+        }
+        if state.in_use {
+            return BindingPreparationDiagnostic::InUse;
+        }
+        if let Some(binding) = state.binding.as_ref() {
+            return match binding.expires_at_ms {
+                Some(expires_at_ms) => match (self.clock)() {
+                    Some(now_ms) if now_ms < expires_at_ms => BindingPreparationDiagnostic::Ready,
+                    Some(_) => BindingPreparationDiagnostic::Expired,
+                    None => BindingPreparationDiagnostic::Failed(
+                        BindingPreparationFailureCode::ClockUnavailable,
+                    ),
+                },
+                None => BindingPreparationDiagnostic::Ready,
+            };
+        }
+        if let Some(failure) = state.last_failure {
+            return BindingPreparationDiagnostic::Failed(failure);
+        }
+        if state.preparing {
+            BindingPreparationDiagnostic::Pending
+        } else {
+            BindingPreparationDiagnostic::Pending
+        }
     }
 
     fn start_preparation(&self, _context: BindingRequestContext) {
@@ -1724,6 +1854,41 @@ impl ExperimentalTlsnForwarder {
         local_slot_available && self.binding_provider.capture_ready()
     }
 
+    pub fn readiness_diagnostic(&self) -> ExperimentalTlsnReadinessDiagnostic {
+        let capture_control = match self.capture_control.lock() {
+            Ok(capture_control) => capture_control,
+            Err(error) => {
+                tracing::error!(%error, "TLSN capture state is poisoned during read-only diagnostics");
+                return ExperimentalTlsnReadinessDiagnostic::unavailable();
+            }
+        };
+        let session_grant = self.binding_provider.readiness_diagnostic();
+        let Some(capture) = capture_control.current.as_ref() else {
+            return ExperimentalTlsnReadinessDiagnostic {
+                session_grant,
+                capture: capture_status_without_active_capture(session_grant),
+            };
+        };
+        let state = match capture.state.lock() {
+            Ok(state) => *state,
+            Err(error) => {
+                tracing::error!(%error, "TLSN runtime state is poisoned during read-only diagnostics");
+                return ExperimentalTlsnReadinessDiagnostic::unavailable();
+            }
+        };
+        let capture_status = if state == ExperimentalTlsnRuntimeState::CleanupUnconfirmed {
+            CaptureReadinessDiagnostic::CleanupUnconfirmed
+        } else if !capture.locally_quiesced.load(Ordering::Acquire) {
+            CaptureReadinessDiagnostic::InProgress
+        } else {
+            capture_status_without_active_capture(session_grant)
+        };
+        ExperimentalTlsnReadinessDiagnostic {
+            session_grant,
+            capture: capture_status,
+        }
+    }
+
     pub fn cancel(&self) -> Result<(), String> {
         let capture = self
             .current_capture()?
@@ -2339,6 +2504,24 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
         });
         Box::pin(forwarder.forward_inner(connection_id, request))
     }
+
+    fn readiness_diagnostic(&self) -> ExperimentalTlsnReadinessDiagnostic {
+        ExperimentalTlsnForwarder::readiness_diagnostic(self)
+    }
+}
+
+fn capture_status_without_active_capture(
+    session_grant: BindingPreparationDiagnostic,
+) -> CaptureReadinessDiagnostic {
+    match session_grant {
+        BindingPreparationDiagnostic::Ready => CaptureReadinessDiagnostic::Ready,
+        BindingPreparationDiagnostic::InUse => CaptureReadinessDiagnostic::InProgress,
+        BindingPreparationDiagnostic::Unavailable => CaptureReadinessDiagnostic::Unavailable,
+        BindingPreparationDiagnostic::Pending
+        | BindingPreparationDiagnostic::Expired
+        | BindingPreparationDiagnostic::CleanupInProgress
+        | BindingPreparationDiagnostic::Failed(_) => CaptureReadinessDiagnostic::NotReady,
+    }
 }
 
 fn response_from_origin(response: TlsnOriginResponse) -> Result<Response<Bytes>, String> {
@@ -2950,6 +3133,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn readiness_diagnostic_observes_expiry_without_releasing_or_repreparing() {
+        let now_ms = Arc::new(AtomicU64::new(99));
+        let inner = PreparedBindingTestInner::new([
+            prepared_grant_binding("binding-A", 100),
+            prepared_grant_binding("binding-B", 300),
+        ]);
+        let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+        provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        assert_eq!(
+            provider.readiness_diagnostic(),
+            BindingPreparationDiagnostic::Ready
+        );
+        let issue_calls = inner.issue_calls.load(Ordering::SeqCst);
+
+        for observed_now_ms in [100, 101] {
+            now_ms.store(observed_now_ms, Ordering::Release);
+            for _ in 0..3 {
+                assert_eq!(
+                    provider.readiness_diagnostic(),
+                    BindingPreparationDiagnostic::Expired
+                );
+            }
+        }
+
+        assert_eq!(inner.issue_calls.load(Ordering::SeqCst), issue_calls);
+        assert!(inner.completion_calls.lock().unwrap().is_empty());
+        assert!(inner.cleared_contexts.lock().unwrap().is_empty());
+        assert_eq!(
+            inner.current_binding.lock().unwrap().as_deref(),
+            Some("binding-A")
+        );
+    }
+
+    #[tokio::test]
+    async fn readiness_diagnostic_reports_in_use_expired_grant_without_cleanup() {
+        let now_ms = Arc::new(AtomicU64::new(99));
+        let inner = PreparedBindingTestInner::new([prepared_grant_binding("binding-A", 100)]);
+        let provider = PreparedBindingTestInner::prepared_provider(&inner, Arc::clone(&now_ms));
+        provider.start_preparation(BindingRequestContext::new(0, REQUIRE_INFO_TARGET));
+        PreparedBindingTestInner::wait_until_ready(&provider).await;
+        let binding = provider
+            .issue_binding(BindingRequestContext::new(1, REQUIRE_INFO_TARGET))
+            .await
+            .expect("capture should acquire the prepared grant");
+        now_ms.store(100, Ordering::Release);
+
+        for _ in 0..3 {
+            assert_eq!(
+                provider.readiness_diagnostic(),
+                BindingPreparationDiagnostic::InUse
+            );
+        }
+        assert!(inner.completion_calls.lock().unwrap().is_empty());
+        assert_eq!(
+            inner.current_binding.lock().unwrap().as_deref(),
+            Some("binding-A")
+        );
+
+        provider.attempt_completed(&binding);
+    }
+
+    #[tokio::test]
     async fn prepared_binding_issue_rechecks_expiry_after_readiness() {
         let now_ms = Arc::new(AtomicU64::new(99));
         let inner = PreparedBindingTestInner::new([
@@ -3325,6 +3571,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn readiness_diagnostic_never_reports_an_active_capture_as_ready() {
+        let (forwarder, _, _) = policy_forwarder(None, "1000");
+        let (pause, reached, release) =
+            ForwarderTestPause::channel(ForwarderPausePoint::BeforePresentationVerification);
+        forwarder.set_test_pause(pause).unwrap();
+
+        assert!(forwarder.forward(1, request(None)).await.unwrap().is_some());
+        tokio::time::timeout(std::time::Duration::from_secs(2), reached)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            forwarder.readiness_diagnostic().capture,
+            CaptureReadinessDiagnostic::InProgress
+        );
+
+        release.send(()).unwrap();
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::ResultReady).await;
+    }
+
+    #[tokio::test]
     async fn cancelled_proof_cannot_publish_late_result_or_affect_another_exchange() {
         let (release, wait) = oneshot::channel();
         let (forwarder, sends, results) = policy_forwarder(Some(wait), "1000");
@@ -3373,6 +3640,10 @@ mod tests {
         let unfinished = lifecycle.tasks().spawn(std::future::pending::<()>());
         forwarder.cancel().unwrap();
         wait_state(&forwarder, ExperimentalTlsnRuntimeState::CleanupUnconfirmed).await;
+        assert_eq!(
+            forwarder.readiness_diagnostic().capture,
+            CaptureReadinessDiagnostic::CleanupUnconfirmed
+        );
         assert!(!forwarder.capture_ready());
         assert!(forwarder.forward(2, request(None)).await.unwrap().is_none());
         assert_eq!(sends.load(Ordering::SeqCst), 1);

@@ -665,6 +665,13 @@ pub async fn run_tlsn_production_preflight(
         .map_err(|error| format!("TLSN Runtime Config verification failed: {error}"))
 }
 
+#[tauri::command]
+pub fn get_tlsn_capture_readiness(
+    readiness: tauri::State<'_, crate::tlsn_capture_readiness::TlsnCaptureReadiness>,
+) -> crate::tlsn_capture_readiness::TlsnCaptureReadinessReport {
+    readiness.report()
+}
+
 #[cfg(not(feature = "tlsn-production"))]
 #[tauri::command]
 pub fn run_tlsn_production_preflight() -> crate::tlsn_preflight::TlsnPreflightReport {

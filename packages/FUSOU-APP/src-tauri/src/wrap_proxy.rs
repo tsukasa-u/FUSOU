@@ -118,6 +118,25 @@ fn production_configuration_error(error: impl std::fmt::Display) -> Box<dyn std:
     std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()).into()
 }
 
+fn capture_readiness_state<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<crate::tlsn_capture_readiness::TlsnCaptureReadiness> {
+    use tauri::Manager;
+
+    app.try_state::<crate::tlsn_capture_readiness::TlsnCaptureReadiness>()
+        .map(|state| state.inner().clone())
+}
+
+fn update_capture_readiness(
+    readiness: Option<&crate::tlsn_capture_readiness::TlsnCaptureReadiness>,
+    attempt_id: Option<u64>,
+    update: impl FnOnce(&crate::tlsn_capture_readiness::TlsnCaptureReadiness, u64),
+) {
+    if let (Some(readiness), Some(attempt_id)) = (readiness, attempt_id) {
+        update(readiness, attempt_id);
+    }
+}
+
 #[cfg(feature = "tlsn-production")]
 type RuntimeConfigRefreshFuture<'a> =
     Pin<Box<dyn Future<Output = Result<String, RuntimeConfigManifestError>> + Send + 'a>>;
@@ -250,6 +269,7 @@ impl Alpha15OriginTransportFactory for RuntimeConfigGuardedOriginTransportFactor
 fn build_production_tlsn_dependencies(
     proxy_target: &str,
     artifact_root: &str,
+    candidate_capture_enabled: bool,
     auth_manager: &AuthManager<FileStorage>,
     runtime_config: &VerifiedRuntimeConfigManifest,
     runtime_config_manager: Arc<dyn RuntimeConfigRevalidator>,
@@ -294,7 +314,6 @@ fn build_production_tlsn_dependencies(
         ));
     }
     let artifact_root = std::path::PathBuf::from(artifact_root);
-    let candidate_capture_enabled = proxy_configs.get_tlsn_candidate_capture_enabled();
     if artifact_root.as_os_str().is_empty() {
         return Err(production_configuration_error(
             "tlsn_artifact_output_path is required for the TLSN experiment",
@@ -438,16 +457,35 @@ where
         get_pac_bidirectional_channel().clone_slave();
 
     let proxy_configs = configs::get_user_configs_for_proxy();
+    let tlsn_enabled = proxy_configs.get_tlsn_experiment_enabled();
+    let candidate_capture_enabled = proxy_configs.get_tlsn_candidate_capture_enabled();
+    let tlsn_readiness = capture_readiness_state(app);
+    let readiness_attempt = tlsn_readiness.as_ref().and_then(|readiness| {
+        readiness.begin_proxy(
+            tlsn_enabled,
+            cfg!(feature = "tlsn-production"),
+            candidate_capture_enabled,
+            cfg!(target_os = "linux"),
+        )
+    });
+    let mark_proxy_listener_failed = || {
+        update_capture_readiness(
+            tlsn_readiness.as_ref(),
+            readiness_attempt,
+            |readiness, attempt_id| readiness.proxy_listener_failed(attempt_id),
+        );
+    };
+
     let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
     #[cfg(feature = "tlsn-production")]
-    let runtime_config_manager = if proxy_configs.get_tlsn_experiment_enabled() {
+    let runtime_config_manager = if tlsn_enabled {
         app.try_state::<RuntimeConfigManager>()
             .map(|manager| manager.inner().clone())
     } else {
         None
     };
     #[cfg(not(feature = "tlsn-production"))]
-    if proxy_configs.get_tlsn_experiment_enabled() {
+    if tlsn_enabled {
         tracing::warn!(
             "TLSN production feature is unavailable; ordinary proxy will start with capture disabled"
         );
@@ -459,16 +497,19 @@ where
         if ca_check_result {
             tracing::info!("Generated CA certificate already exists");
             if !check_ca_and_install(app).await {
+                mark_proxy_listener_failed();
                 return Err("Failed to install or verify generated CA certificate".into());
             }
         } else {
             tracing::info!("Generated CA certificate does not exist, creating...");
             proxy_https::proxy_server_https::create_ca(ca_path.clone());
             if !add_store_sync(app).await {
+                mark_proxy_listener_failed();
                 return Err("Failed to install regenerated CA certificate".into());
             }
             #[cfg(target_os = "linux")]
             if !check_ca_installed(app).await {
+                mark_proxy_listener_failed();
                 return Err(
                     "Generated CA certificate verification failed after regeneration".into(),
                 );
@@ -477,10 +518,12 @@ where
     } else {
         if let Err(err) = validate_custom_certificate_mode_settings() {
             tracing::warn!("custom certificate preflight failed: {}", err);
+            mark_proxy_listener_failed();
             return Err(err.into());
         }
         tracing::info!("Custom CA mode is enabled by settings; skipping generated CA create/check");
         if !check_ca_and_install(app).await {
+            mark_proxy_listener_failed();
             return Err("Failed to install or verify custom CA certificate".into());
         }
     }
@@ -499,7 +542,8 @@ where
         game_client: "FUSOU-APP external WebView/browser".to_string(),
         allowlisted_game_server: proxy_target.clone(),
     });
-    let proxy_addr = if proxy_configs.get_tlsn_experiment_enabled() {
+
+    let proxy_addr = if tlsn_enabled {
         #[cfg(feature = "tlsn-production")]
         {
             let forwarder_slot =
@@ -517,6 +561,11 @@ where
                 forwarder_slot.clone(),
             );
             if proxy_addr.is_ok() {
+                if let (Some(readiness), Some(attempt_id)) =
+                    (tlsn_readiness.as_ref(), readiness_attempt)
+                {
+                    readiness.set_forwarder_slot(attempt_id, forwarder_slot.clone());
+                }
                 let target = proxy_target.clone();
                 let artifact_root = proxy_configs.get_tlsn_artifact_output_path();
                 let auth_manager = {
@@ -525,36 +574,117 @@ where
                         .unwrap_or_else(|error| error.into_inner());
                     Arc::new(guard.clone())
                 };
+                let readiness_attempt = readiness_attempt;
                 let runtime_config_manager = runtime_config_manager.clone();
+                let readiness = tlsn_readiness.clone();
                 tokio::spawn(async move {
                     let initialized = async {
-                        let manager = runtime_config_manager.ok_or_else(|| {
-                            "Runtime Config manager is not registered".to_owned()
-                        })?;
-                        let verified = manager
-                            .refresh()
-                            .await
-                            .map_err(|error| format!("Runtime Config verification failed: {error}"))?;
+                        let manager = match runtime_config_manager {
+                            Some(manager) => manager,
+                            None => {
+                                update_capture_readiness(
+                                    readiness.as_ref(),
+                                    readiness_attempt,
+                                    |readiness, attempt_id| {
+                                        readiness.runtime_config_failed(attempt_id)
+                                    },
+                                );
+                                return Err(
+                                    "Runtime Config manager is not registered".to_owned()
+                                );
+                            }
+                        };
+                        let verified = match manager.refresh().await {
+                            Ok(verified) => verified,
+                            Err(error) => {
+                                update_capture_readiness(
+                                    readiness.as_ref(),
+                                    readiness_attempt,
+                                    |readiness, attempt_id| {
+                                        readiness.runtime_config_failed(attempt_id)
+                                    },
+                                );
+                                return Err(format!(
+                                    "Runtime Config verification failed: {error}"
+                                ));
+                            }
+                        };
                         let report =
                             crate::tlsn_preflight::run_verified_runtime_preflight(&verified, &target);
                         if !report.ready {
+                            update_capture_readiness(
+                                readiness.as_ref(),
+                                readiness_attempt,
+                                |readiness, attempt_id| {
+                                    readiness.runtime_config_failed(attempt_id)
+                                },
+                            );
                             return Err(report.failure_summary());
                         }
                         let expected = crate::tlsn_runtime::ExpectedWorkerIdentity::from_verified_runtime_config(&verified);
-                        crate::tlsn_worker_identity::validate_disclosure_endpoint(
+                        if let Err(error) = crate::tlsn_worker_identity::validate_disclosure_endpoint(
                             &verified.payload().source.disclosure_mode,
                             expected.verification_endpoint,
-                        )
-                        .map_err(|error| error.to_string())?;
+                        ) {
+                            update_capture_readiness(
+                                readiness.as_ref(),
+                                readiness_attempt,
+                                |readiness, attempt_id| {
+                                    readiness.runtime_config_failed(attempt_id)
+                                },
+                            );
+                            return Err(error.to_string());
+                        }
+                        update_capture_readiness(
+                            readiness.as_ref(),
+                            readiness_attempt,
+                            |readiness, attempt_id| {
+                                readiness.runtime_config_verified(attempt_id)
+                            },
+                        );
                         let worker_health =
-                            crate::tlsn_runtime::fetch_and_validate_health_observation(&expected)
-                                .await?;
-                        let artifact_root = artifact_root
-                            .ok_or_else(|| "tlsn_artifact_output_path is not configured".to_owned())?;
+                            match crate::tlsn_runtime::fetch_and_validate_health_observation(&expected)
+                                .await
+                            {
+                                Ok(worker_health) => worker_health,
+                                Err(error) => {
+                                    update_capture_readiness(
+                                        readiness.as_ref(),
+                                        readiness_attempt,
+                                        |readiness, attempt_id| {
+                                            readiness.worker_health_failed(attempt_id)
+                                        },
+                                    );
+                                    return Err(error);
+                                }
+                            };
+                        update_capture_readiness(
+                            readiness.as_ref(),
+                            readiness_attempt,
+                            |readiness, attempt_id| {
+                                readiness.worker_health_verified(attempt_id)
+                            },
+                        );
+                        let artifact_root = match artifact_root {
+                            Some(artifact_root) => artifact_root,
+                            None => {
+                                update_capture_readiness(
+                                    readiness.as_ref(),
+                                    readiness_attempt,
+                                    |readiness, attempt_id| {
+                                        readiness.forwarder_initialization_failed(attempt_id)
+                                    },
+                                );
+                                return Err(
+                                    "tlsn_artifact_output_path is not configured".to_owned()
+                                );
+                            }
+                        };
                         let fingerprints = report.public_configuration_fingerprints;
                         let dependencies = build_production_tlsn_dependencies(
                             &target,
                             &artifact_root,
+                            candidate_capture_enabled,
                             &auth_manager,
                             &verified,
                             Arc::new(manager),
@@ -568,13 +698,41 @@ where
                                 candidate_binding_status: fingerprints.candidate_binding_status.to_owned(),
                             },
                         )
-                        .map_err(|error| error.to_string())?;
-                        let forwarder = dependencies
-                            .build_forwarder()
-                            .map_err(|error| error.to_string())?;
-                        forwarder_slot
-                            .install(forwarder)
-                            .map_err(|error| error.to_string())?;
+                        .map_err(|error| {
+                            update_capture_readiness(
+                                readiness.as_ref(),
+                                readiness_attempt,
+                                |readiness, attempt_id| {
+                                    readiness.forwarder_initialization_failed(attempt_id)
+                                },
+                            );
+                            error.to_string()
+                        })?;
+                        let forwarder = dependencies.build_forwarder().map_err(|error| {
+                            update_capture_readiness(
+                                readiness.as_ref(),
+                                readiness_attempt,
+                                |readiness, attempt_id| {
+                                    readiness.forwarder_initialization_failed(attempt_id)
+                                },
+                            );
+                            error.to_string()
+                        })?;
+                        forwarder_slot.install(forwarder).map_err(|error| {
+                            update_capture_readiness(
+                                readiness.as_ref(),
+                                readiness_attempt,
+                                |readiness, attempt_id| {
+                                    readiness.forwarder_initialization_failed(attempt_id)
+                                },
+                            );
+                            error.to_string()
+                        })?;
+                        update_capture_readiness(
+                            readiness.as_ref(),
+                            readiness_attempt,
+                            |readiness, attempt_id| readiness.forwarder_initialized(attempt_id),
+                        );
                         Ok::<(), String>(())
                     }
                     .await;
@@ -619,6 +777,20 @@ where
         )
     };
 
+    if proxy_addr.is_ok() {
+        update_capture_readiness(
+            tlsn_readiness.as_ref(),
+            readiness_attempt,
+            |readiness, attempt_id| readiness.proxy_listener_ready(attempt_id),
+        );
+    } else {
+        update_capture_readiness(
+            tlsn_readiness.as_ref(),
+            readiness_attempt,
+            |readiness, attempt_id| readiness.proxy_listener_failed(attempt_id),
+        );
+    }
+
     if proxy_addr.is_err() {
         return Err("Failed to start proxy server".into());
     }
@@ -631,9 +803,24 @@ where
         pac_bidirectional_channel_slave,
     );
 
-    if pac_addr.is_err() {
-        return Err("Failed to start pac server".into());
-    }
+    let pac_socket = match pac_addr {
+        Ok(addr) => {
+            update_capture_readiness(
+                tlsn_readiness.as_ref(),
+                readiness_attempt,
+                |readiness, attempt_id| readiness.pac_server_started(attempt_id),
+            );
+            addr
+        }
+        Err(_) => {
+            update_capture_readiness(
+                tlsn_readiness.as_ref(),
+                readiness_attempt,
+                |readiness, attempt_id| readiness.pac_server_failed(attempt_id),
+            );
+            return Err("Failed to start pac server".into());
+        }
+    };
 
     // edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str());
     let host = if proxy_target.is_empty() {
@@ -647,14 +834,11 @@ where
     };
     edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
-    if let Ok(pac_socket) = pac_addr {
-        native_cmd::add_pac(
-            format!("http://localhost:{}/proxy.pac", pac_socket.port()),
-            app,
-        );
-    } else {
-        return Err("Failed to start pac server".into());
-    }
+    native_cmd::add_pac(
+        format!("http://localhost:{}/proxy.pac", pac_socket.port()),
+        app,
+        tlsn_readiness.clone().zip(readiness_attempt),
+    );
 
     let proxy_url = Url::parse(&format!("http://{proxy_addr_string}"))
         .map_err(|_| "Failed to parse proxy URL")?;
