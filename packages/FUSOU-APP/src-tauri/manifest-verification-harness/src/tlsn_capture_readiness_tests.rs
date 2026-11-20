@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
 };
 
+use crate::pac_operation_gate::{PacCleanupThenError, PacOperationGate, PacOperationGateError};
 use proxy_https::{
     experimental_tlsn::{
         BindingPreparationDiagnostic, BindingPreparationFailureCode, CaptureReadinessDiagnostic,
@@ -16,6 +17,7 @@ use crate::tlsn_capture_readiness::{
     CaptureReadinessStatus, IndependentObservationStatus, ReadinessStageStatus,
     TlsnCaptureReadiness,
 };
+use tokio::sync::oneshot;
 
 #[derive(Default)]
 struct DiagnosticCallCounts {
@@ -171,6 +173,260 @@ fn pac_cleanup_failure_or_removal_cannot_leave_readiness_ready() {
     assert_eq!(report.status, CaptureReadinessStatus::Failed);
     assert_eq!(report.pac_application.status, ReadinessStageStatus::Failed);
     assert_eq!(report.diagnostic_code, Some("pac_application_removed"));
+}
+
+#[tokio::test]
+async fn cleanup_waits_for_apply_and_readiness_stays_unready_through_shutdown() {
+    let diagnostic = ExperimentalTlsnReadinessDiagnostic {
+        session_grant: BindingPreparationDiagnostic::Ready,
+        capture: CaptureReadinessDiagnostic::Ready,
+    };
+    let (readiness, _, attempt_id) = readiness_with_pending_pac(diagnostic);
+    readiness.pac_server_started(attempt_id);
+    readiness.pac_application_succeeded(attempt_id);
+    assert_eq!(readiness.report().status, CaptureReadinessStatus::Ready);
+
+    let gate = Arc::new(PacOperationGate::new());
+    let apply_guard = gate.begin_apply().await.expect("apply is allowed");
+    readiness.pac_cleanup_started();
+    let cleanup_pending = readiness.report();
+    assert_eq!(cleanup_pending.status, CaptureReadinessStatus::Pending);
+    assert_eq!(
+        cleanup_pending.pac_application.status,
+        ReadinessStageStatus::CleanupInProgress
+    );
+    assert_eq!(
+        cleanup_pending.diagnostic_code,
+        Some("pac_cleanup_in_progress")
+    );
+
+    readiness.pac_application_succeeded(attempt_id);
+    readiness.pac_application_failed(attempt_id);
+    assert_eq!(
+        readiness.report().diagnostic_code,
+        Some("pac_cleanup_in_progress")
+    );
+
+    let (cleanup_started_tx, cleanup_started_rx) = oneshot::channel();
+    let (continue_cleanup_tx, continue_cleanup_rx) = oneshot::channel();
+    let (shutdown_started_tx, shutdown_started_rx) = oneshot::channel();
+    let (finish_shutdown_tx, finish_shutdown_rx) = oneshot::channel();
+    let cleanup = move || async move {
+        cleanup_started_tx
+            .send(())
+            .expect("test is waiting for cleanup to start");
+        continue_cleanup_rx
+            .await
+            .map_err(|_| "cleanup continuation was dropped")?;
+        Ok::<(), &'static str>(())
+    };
+    let shutdown_readiness = readiness.clone();
+    let shutdown = move || async move {
+        shutdown_readiness.pac_application_removed();
+        shutdown_started_tx
+            .send(())
+            .expect("test is waiting for shutdown to start");
+        finish_shutdown_rx
+            .await
+            .map_err(|_| "shutdown continuation was dropped")?;
+        Ok::<(), &'static str>(())
+    };
+    let cleanup_gate = Arc::clone(&gate);
+    let cleanup_task =
+        tokio::spawn(async move { cleanup_gate.cleanup_then_shutdown(cleanup, shutdown).await });
+
+    drop(apply_guard);
+    cleanup_started_rx
+        .await
+        .expect("cleanup starts after the apply guard is released");
+    assert_eq!(
+        readiness.report().diagnostic_code,
+        Some("pac_cleanup_in_progress")
+    );
+    continue_cleanup_tx
+        .send(())
+        .expect("cleanup is waiting to finish");
+    shutdown_started_rx
+        .await
+        .expect("shutdown starts after cleanup succeeds");
+
+    let removed = readiness.report();
+    assert_eq!(removed.status, CaptureReadinessStatus::Failed);
+    assert_eq!(removed.diagnostic_code, Some("pac_application_removed"));
+    readiness.pac_application_succeeded(attempt_id);
+    readiness.pac_application_failed(attempt_id);
+    assert_eq!(
+        readiness.report().diagnostic_code,
+        Some("pac_application_removed")
+    );
+
+    finish_shutdown_tx
+        .send(())
+        .expect("shutdown is waiting to finish");
+    assert_eq!(
+        cleanup_task.await.expect("cleanup task completes"),
+        Ok(Ok(()))
+    );
+}
+
+#[tokio::test]
+async fn failed_and_unknown_cleanup_keep_unconfirmed_readiness() {
+    let diagnostic = ExperimentalTlsnReadinessDiagnostic {
+        session_grant: BindingPreparationDiagnostic::Ready,
+        capture: CaptureReadinessDiagnostic::Ready,
+    };
+    let (failed_readiness, _, failed_attempt) = readiness_with_pending_pac(diagnostic);
+    failed_readiness.pac_server_started(failed_attempt);
+    failed_readiness.pac_application_succeeded(failed_attempt);
+    failed_readiness.pac_cleanup_started();
+    let failed_gate = PacOperationGate::new();
+    let failed_result = failed_gate
+        .cleanup_then_shutdown(
+            || async { Err::<(), _>("pac_restore_unconfirmed") },
+            || async { "unexpected shutdown" },
+        )
+        .await;
+    assert_eq!(
+        failed_result,
+        Err(PacCleanupThenError::Cleanup("pac_restore_unconfirmed"))
+    );
+    failed_readiness.pac_cleanup_unconfirmed();
+    failed_readiness.pac_application_succeeded(failed_attempt);
+    failed_readiness.pac_application_failed(failed_attempt);
+    assert_eq!(
+        failed_readiness.report().diagnostic_code,
+        Some("pac_cleanup_unconfirmed")
+    );
+
+    let (unknown_readiness, _, unknown_attempt) = readiness_with_pending_pac(diagnostic);
+    unknown_readiness.pac_server_started(unknown_attempt);
+    unknown_readiness.pac_application_succeeded(unknown_attempt);
+    unknown_readiness.pac_cleanup_started();
+    let unknown_gate = PacOperationGate::new();
+    unknown_gate.mark_result_unknown();
+    let unknown_result = unknown_gate
+        .cleanup_then_shutdown(|| async { Ok::<(), &'static str>(()) }, || async {})
+        .await;
+    assert_eq!(
+        unknown_result,
+        Err(PacCleanupThenError::Gate(
+            PacOperationGateError::PreviousResultUnknown
+        ))
+    );
+    unknown_readiness.pac_cleanup_unconfirmed();
+    unknown_readiness.pac_application_succeeded(unknown_attempt);
+    unknown_readiness.pac_application_failed(unknown_attempt);
+    assert_eq!(
+        unknown_readiness.report().diagnostic_code,
+        Some("pac_cleanup_unconfirmed")
+    );
+}
+
+#[tokio::test]
+async fn removed_readiness_is_recorded_before_shutdown_queue_failure() {
+    let diagnostic = ExperimentalTlsnReadinessDiagnostic {
+        session_grant: BindingPreparationDiagnostic::Ready,
+        capture: CaptureReadinessDiagnostic::Ready,
+    };
+    let (readiness, _, attempt_id) = readiness_with_pending_pac(diagnostic);
+    readiness.pac_server_started(attempt_id);
+    readiness.pac_application_succeeded(attempt_id);
+    readiness.pac_cleanup_started();
+
+    let gate = PacOperationGate::new();
+    let shutdown_readiness = readiness.clone();
+    let result = gate
+        .cleanup_then_shutdown(
+            || async { Ok::<(), &'static str>(()) },
+            || async move {
+                shutdown_readiness.pac_application_removed();
+                Err::<(), _>("shutdown queue failed")
+            },
+        )
+        .await;
+
+    assert_eq!(result, Ok(Err("shutdown queue failed")));
+    readiness.pac_application_succeeded(attempt_id);
+    readiness.pac_application_failed(attempt_id);
+    assert_eq!(
+        readiness.report().diagnostic_code,
+        Some("pac_application_removed")
+    );
+}
+
+#[test]
+fn shutdown_never_reports_ready_when_pac_setup_was_skipped() {
+    let readiness = TlsnCaptureReadiness::default();
+    let attempt_id = readiness
+        .begin_proxy(true, true, true, false)
+        .expect("readiness state is available");
+    readiness.proxy_listener_ready(attempt_id);
+    readiness.runtime_config_verified(attempt_id);
+    readiness.worker_health_verified(attempt_id);
+    let forwarder = Arc::new(DiagnosticForwarder {
+        diagnostic: ExperimentalTlsnReadinessDiagnostic {
+            session_grant: BindingPreparationDiagnostic::Ready,
+            capture: CaptureReadinessDiagnostic::Ready,
+        },
+        calls: Arc::new(DiagnosticCallCounts::default()),
+    });
+    readiness.set_forwarder_slot(
+        attempt_id,
+        ExperimentalTlsnForwarderSlot::new(Some(forwarder)),
+    );
+    readiness.forwarder_initialized(attempt_id);
+    assert_eq!(readiness.report().status, CaptureReadinessStatus::Ready);
+
+    readiness.pac_cleanup_started();
+
+    let retry_attempt = readiness
+        .begin_proxy(true, true, true, false)
+        .expect("readiness state is available");
+    readiness.proxy_listener_ready(retry_attempt);
+    readiness.runtime_config_verified(retry_attempt);
+    readiness.worker_health_verified(retry_attempt);
+    let retry_forwarder = Arc::new(DiagnosticForwarder {
+        diagnostic: ExperimentalTlsnReadinessDiagnostic {
+            session_grant: BindingPreparationDiagnostic::Ready,
+            capture: CaptureReadinessDiagnostic::Ready,
+        },
+        calls: Arc::new(DiagnosticCallCounts::default()),
+    });
+    readiness.set_forwarder_slot(
+        retry_attempt,
+        ExperimentalTlsnForwarderSlot::new(Some(retry_forwarder)),
+    );
+    readiness.forwarder_initialized(retry_attempt);
+
+    let cleanup_in_progress = readiness.report();
+    assert_eq!(cleanup_in_progress.status, CaptureReadinessStatus::Pending);
+    assert_eq!(
+        cleanup_in_progress.diagnostic_code,
+        Some("app_shutdown_in_progress")
+    );
+    assert_eq!(
+        cleanup_in_progress.pac_application.status,
+        ReadinessStageStatus::Skipped
+    );
+
+    readiness.pac_application_removed();
+    readiness.pac_application_succeeded(retry_attempt);
+    let removed = readiness.report();
+    assert_eq!(removed.status, CaptureReadinessStatus::Pending);
+    assert_eq!(removed.diagnostic_code, Some("app_shutdown_in_progress"));
+    assert_eq!(
+        removed.pac_application.status,
+        ReadinessStageStatus::Skipped
+    );
+
+    readiness.pac_cleanup_unconfirmed();
+    let unconfirmed = readiness.report();
+    assert_eq!(unconfirmed.status, CaptureReadinessStatus::Failed);
+    assert_eq!(unconfirmed.diagnostic_code, Some("pac_cleanup_unconfirmed"));
+    assert_eq!(
+        unconfirmed.pac_application.status,
+        ReadinessStageStatus::Skipped
+    );
 }
 
 #[test]

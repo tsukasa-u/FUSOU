@@ -55,6 +55,14 @@ enum ShutdownSignal {
 }
 
 #[cfg(target_os = "linux")]
+fn record_pac_shutdown_started<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(readiness) = app.try_state::<crate::tlsn_capture_readiness::TlsnCaptureReadiness>()
+    {
+        readiness.inner().pac_cleanup_started();
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn record_pac_shutdown_readiness<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     cleanup_confirmed: bool,
@@ -336,11 +344,15 @@ fn setup_tray(
                     let restart = restart.clone();
                     let quit = quit.clone();
                     let advanced_title = advanced_title.clone();
+                    record_pac_shutdown_started(&app_handle);
                     tauri::async_runtime::spawn(async move {
+                        let cleanup_app_handle = app_handle.clone();
+                        let cleaned_app_handle = app_handle.clone();
                         let result = PAC_OPERATION_GATE
                             .cleanup_then_shutdown(
-                                || native_cmd::remove_pac_script(&app_handle),
+                                || native_cmd::remove_pac_script(&cleanup_app_handle),
                                 || async move {
+                                    record_pac_shutdown_readiness(&cleaned_app_handle, true);
                                     let signal = match signal {
                                         ShutdownSignal::Restart => {
                                             ShutdownSignal::PacCleanedRestart
@@ -1773,10 +1785,16 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
             #[cfg(target_os = "linux")]
             if !pac_cleanup_confirmed {
+                record_pac_shutdown_started(&app_handle);
+                let cleanup_app_handle = app_handle.clone();
+                let cleaned_app_handle = app_handle.clone();
                 match PAC_OPERATION_GATE
                     .cleanup_then_shutdown(
-                        || native_cmd::remove_pac_script(&app_handle),
-                        || async move { intent },
+                        || native_cmd::remove_pac_script(&cleanup_app_handle),
+                        || async move {
+                            record_pac_shutdown_readiness(&cleaned_app_handle, true);
+                            intent
+                        },
                     )
                     .await
                 {

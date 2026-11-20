@@ -139,6 +139,7 @@ pub fn add_pac<R>(
             if matches!(&result, Err(error) if error.result_unknown) {
                 PAC_OPERATION_GATE.mark_result_unknown();
             }
+            record_pac_application_result(&readiness, result.is_ok());
             result
         }
         .await;
@@ -178,9 +179,8 @@ pub fn add_pac<R>(
 
         #[cfg(target_os = "linux")]
         match pac_result {
-            Ok(()) => record_pac_application_result(&readiness, true),
+            Ok(()) => {}
             Err(error) => {
-                record_pac_application_result(&readiness, false);
                 tracing::warn!(
                     code = error.diagnostic_code,
                     script_diagnostics = ?error.script_diagnostics,

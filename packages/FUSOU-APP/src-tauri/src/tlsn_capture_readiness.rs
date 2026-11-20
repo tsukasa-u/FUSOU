@@ -90,10 +90,19 @@ enum ProxyMode {
     ProductionFeatureUnavailable,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PacShutdownStatus {
+    NotRequested,
+    InProgress,
+    CleanupConfirmed,
+    CleanupUnconfirmed,
+}
+
 #[derive(Clone)]
 struct ReadinessState {
     attempt_id: u64,
     mode: ProxyMode,
+    pac_shutdown_status: PacShutdownStatus,
     proxy_listener: ReadinessStage,
     pac_server: ReadinessStage,
     pac_application: ReadinessStage,
@@ -110,6 +119,7 @@ impl Default for ReadinessState {
         Self {
             attempt_id: 0,
             mode: ProxyMode::NotStarted,
+            pac_shutdown_status: PacShutdownStatus::NotRequested,
             proxy_listener: ReadinessStage::new(
                 ReadinessStageStatus::NotStarted,
                 Some("proxy_not_started"),
@@ -282,7 +292,7 @@ impl TlsnCaptureReadiness {
 
     pub fn pac_application_succeeded(&self, attempt_id: u64) {
         self.update_attempt(attempt_id, |state| {
-            if state.pac_application.status != ReadinessStageStatus::Skipped {
+            if pac_application_result_allowed(state) {
                 state.pac_application = ReadinessStage::new(ReadinessStageStatus::Verified, None);
             }
         });
@@ -290,7 +300,7 @@ impl TlsnCaptureReadiness {
 
     pub fn pac_application_failed(&self, attempt_id: u64) {
         self.update_attempt(attempt_id, |state| {
-            if state.pac_application.status != ReadinessStageStatus::Skipped {
+            if pac_application_result_allowed(state) {
                 state.pac_application = ReadinessStage::new(
                     ReadinessStageStatus::Failed,
                     Some("pac_application_failed"),
@@ -299,8 +309,21 @@ impl TlsnCaptureReadiness {
         });
     }
 
+    pub fn pac_cleanup_started(&self) {
+        self.update_current(|state| {
+            state.pac_shutdown_status = PacShutdownStatus::InProgress;
+            if state.pac_application.status != ReadinessStageStatus::Skipped {
+                state.pac_application = ReadinessStage::new(
+                    ReadinessStageStatus::CleanupInProgress,
+                    Some("pac_cleanup_in_progress"),
+                );
+            }
+        });
+    }
+
     pub fn pac_application_removed(&self) {
         self.update_current(|state| {
+            state.pac_shutdown_status = PacShutdownStatus::CleanupConfirmed;
             if state.pac_application.status != ReadinessStageStatus::Skipped {
                 state.pac_application = ReadinessStage::new(
                     ReadinessStageStatus::Failed,
@@ -312,6 +335,7 @@ impl TlsnCaptureReadiness {
 
     pub fn pac_cleanup_unconfirmed(&self) {
         self.update_current(|state| {
+            state.pac_shutdown_status = PacShutdownStatus::CleanupUnconfirmed;
             if state.pac_application.status != ReadinessStageStatus::Skipped {
                 state.pac_application = ReadinessStage::new(
                     ReadinessStageStatus::Failed,
@@ -444,6 +468,22 @@ impl TlsnCaptureReadiness {
             ProxyMode::Enabled => {}
         }
 
+        if state.pac_application.status == ReadinessStageStatus::Skipped {
+            match state.pac_shutdown_status {
+                PacShutdownStatus::InProgress | PacShutdownStatus::CleanupConfirmed => {
+                    report.status = CaptureReadinessStatus::Pending;
+                    report.diagnostic_code = Some("app_shutdown_in_progress");
+                    return report;
+                }
+                PacShutdownStatus::CleanupUnconfirmed => {
+                    report.status = CaptureReadinessStatus::Failed;
+                    report.diagnostic_code = Some("pac_cleanup_unconfirmed");
+                    return report;
+                }
+                PacShutdownStatus::NotRequested => {}
+            }
+        }
+
         let startup_stages = [
             report.proxy_listener,
             report.pac_server,
@@ -524,6 +564,11 @@ impl TlsnCaptureReadiness {
         }
         report
     }
+}
+
+fn pac_application_result_allowed(state: &ReadinessState) -> bool {
+    state.pac_shutdown_status == PacShutdownStatus::NotRequested
+        && state.pac_application.status != ReadinessStageStatus::Skipped
 }
 
 #[cfg(feature = "tlsn-production")]
