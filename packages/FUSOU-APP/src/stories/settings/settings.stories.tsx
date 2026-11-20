@@ -79,16 +79,17 @@ export const UniformButtonSizing = {
     expect(cancelBtn.scrollWidth).toBeLessThanOrEqual(cancelBtn.clientWidth);
     expect(confirmBtn.scrollWidth).toBeLessThanOrEqual(confirmBtn.clientWidth);
 
-    const summary = canvasElement.querySelector("details > summary");
-    if (!summary) {
+    const loaderDetails = canvasElement.querySelector(
+      '[data-testid="individual-dataset-loaders"]',
+    );
+    const summary = loaderDetails?.querySelector(":scope > summary");
+    if (!loaderDetails || !summary) {
       throw new Error("Missing Individual Dataset Loaders summary");
     }
     (summary as HTMLElement).click();
 
     await waitFor(() => {
-      const loadButtons = Array.from(
-        canvasElement.querySelectorAll("details button"),
-      );
+      const loadButtons = Array.from(loaderDetails.querySelectorAll("button"));
       expect(loadButtons.length).toBe(12);
       const firstLoadRect = loadButtons[0].getBoundingClientRect();
       expect(firstLoadRect.width).toBeCloseTo(80, 0);
@@ -122,13 +123,14 @@ export const InlineResultSummaries = {
     });
     findButtonByLabel(canvasElement, "Confirm Sign Out")!.click();
 
-    (canvasElement.querySelector("details > summary") as HTMLElement).click();
+    const loaderDetails = canvasElement.querySelector(
+      '[data-testid="individual-dataset-loaders"]',
+    )!;
+    (loaderDetails.querySelector(":scope > summary") as HTMLElement).click();
     await waitFor(() => {
-      expect(canvasElement.querySelector("details button")).toBeTruthy();
+      expect(loaderDetails.querySelector("button")).toBeTruthy();
     });
-    (
-      canvasElement.querySelector("details button") as HTMLButtonElement
-    ).click();
+    (loaderDetails.querySelector("button") as HTMLButtonElement).click();
 
     await waitFor(() => {
       const text = canvasElement.textContent ?? "";
@@ -143,5 +145,110 @@ export const InlineResultSummaries = {
     });
 
     expect(canvasElement.querySelector(".toast")).toBeNull();
+  },
+};
+
+export const ConfigRestartChoiceModal = {
+  render: () => {
+    const onRestart = fn();
+    return (
+      <SettingsComponent
+        configPreview={{
+          configPath:
+            "C:/Users/example/AppData/Roaming/FUSOU/user/configs.toml",
+          onRestart,
+        }}
+      />
+    );
+  },
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await waitFor(() => {
+      expect(
+        canvasElement.querySelector('[data-testid="config-editor"]'),
+      ).toBeTruthy();
+    });
+
+    // Toggle a restart-required setting (Local Filesystem Storage)
+    const localStorageToggle = canvasElement.querySelector(
+      'input[id="cfg-app.database.allow_data_to_local"]',
+    ) as HTMLInputElement | null;
+    expect(localStorageToggle).toBeTruthy();
+    localStorageToggle!.click();
+
+    await waitFor(() => {
+      expect(
+        canvasElement.querySelector('[data-testid="config-save-bar"]'),
+      ).toBeTruthy();
+      expect(findButtonByLabel(canvasElement, "Save Changes")).toBeTruthy();
+    });
+
+    findButtonByLabel(canvasElement, "Save Changes")!.click();
+
+    // Restart choice modal should appear with Restart Later & Restart Now
+    await waitFor(() => {
+      const modal = canvasElement.querySelector(
+        '[data-testid="restart-required-modal"]',
+      );
+      expect(modal).toBeTruthy();
+      expect(
+        findButtonByLabel(modal as HTMLElement, "Restart Later"),
+      ).toBeTruthy();
+      expect(
+        findButtonByLabel(modal as HTMLElement, "Restart Now"),
+      ).toBeTruthy();
+      expect(modal!.textContent).toContain("Local Filesystem Storage");
+    });
+
+    // Choosing Restart Later closes the modal and shows the persistent pending banner
+    findButtonByLabel(canvasElement, "Restart Later")!.click();
+
+    await waitFor(() => {
+      expect(
+        canvasElement.querySelector('[data-testid="restart-required-modal"]'),
+      ).toBeNull();
+      const banner = canvasElement.querySelector(
+        '[data-testid="pending-restart-banner"]',
+      );
+      expect(banner).toBeTruthy();
+      expect(banner!.textContent).toContain("Local Filesystem Storage");
+    });
+  },
+};
+
+export const ImmediateConfigSaveWithoutRestart = {
+  render: () => (
+    <SettingsComponent
+      configPreview={{
+        configPath: "C:/Users/example/AppData/Roaming/FUSOU/user/configs.toml",
+      }}
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await waitFor(() => {
+      expect(
+        canvasElement.querySelector(
+          'input[id="cfg-app.browser.external_screenshot_directory"]',
+        ),
+      ).toBeTruthy();
+    });
+
+    const screenshotInput = canvasElement.querySelector(
+      'input[id="cfg-app.browser.external_screenshot_directory"]',
+    ) as HTMLInputElement;
+    screenshotInput.value = "C:/Users/example/Pictures/FUSOU/custom";
+    screenshotInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(findButtonByLabel(canvasElement, "Save Changes")).toBeTruthy();
+    });
+
+    findButtonByLabel(canvasElement, "Save Changes")!.click();
+
+    await waitFor(() => {
+      expect(canvasElement.textContent).toContain("Applied immediately");
+      expect(
+        canvasElement.querySelector('[data-testid="restart-required-modal"]'),
+      ).toBeNull();
+    });
   },
 };

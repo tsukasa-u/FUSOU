@@ -10,7 +10,7 @@ const isCurrentPageLocal = isLocalOnlyDoc(currentPath) || currentPath === "/docs
 // ==========================================
 // 1. 公開ドキュメント (Public Docs) のツリー生成
 // ==========================================
-const rawPostsGlobResult = import.meta.glob("@docs/**/*.md", {
+const rawPostsGlobResult = import.meta.glob("../../../../../../../docs/contents/**/*.md", {
   eager: true,
 });
 const rawPosts = Object.values(

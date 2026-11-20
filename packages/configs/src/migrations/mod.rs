@@ -1,4 +1,5 @@
 // Keep each schema transition isolated in its own module.
+mod v0_5_0_to_0_5_1;
 mod v0_to_0_5_0;
 
 use std::io;
@@ -59,11 +60,18 @@ impl Migration {
 }
 
 // Register one step per schema transition, ending at the configs crate version.
-const MIGRATIONS: &[Migration] = &[Migration {
-    from: None,
-    to: "0.5.0",
-    apply: v0_to_0_5_0::migrate,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        from: None,
+        to: "0.5.0",
+        apply: v0_to_0_5_0::migrate,
+    },
+    Migration {
+        from: Some("0.5.0"),
+        to: "0.5.1",
+        apply: v0_5_0_to_0_5_1::migrate,
+    },
+];
 
 pub(super) fn migrate_config(
     document: &mut toml_edit::DocumentMut,

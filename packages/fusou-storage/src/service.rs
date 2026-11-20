@@ -3,13 +3,6 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::providers::{LocalFileSystemProvider, R2StorageProvider};
-#[cfg(feature = "gdrive")]
-use crate::providers::CloudTableStorageProvider;
-#[cfg(feature = "gdrive")]
-use crate::{
-    cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY},
-    constants::GOOGLE_DRIVE_PROVIDER_NAME,
-};
 use fusou_upload::{PendingStore, UploadRetryService};
 
 // Global singleton for StorageService to avoid repeated initialization
@@ -90,19 +83,11 @@ pub struct StorageService {
 }
 
 impl StorageService {
-    #[cfg(feature = "gdrive")]
-    fn provider_display_name(provider_key: &str) -> &'static str {
-        match provider_key {
-            GOOGLE_PROVIDER_KEY => GOOGLE_DRIVE_PROVIDER_NAME,
-            _ => "cloud",
-        }
-    }
-
     /// Get or initialize the singleton StorageService instance.
     /// This ensures initialization happens only once, avoiding redundant logs and provider creation.
     pub async fn get_instance(
         pending_store: Arc<PendingStore>,
-        retry_service: Arc<UploadRetryService>
+        retry_service: Arc<UploadRetryService>,
     ) -> Option<&'static StorageService> {
         if let Some(instance) = STORAGE_SERVICE_INSTANCE.get() {
             return Some(instance);
@@ -128,39 +113,19 @@ impl StorageService {
     /// Internal initialization - called only once by get_instance
     fn initialize(
         pending_store: Arc<PendingStore>,
-        retry_service: Arc<UploadRetryService>
+        retry_service: Arc<UploadRetryService>,
     ) -> Option<StorageService> {
         let app_configs = configs::get_user_configs_for_app();
+        let allow_auth = app_configs.auth.get_allow_auth();
         let database_config = app_configs.database;
         let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
 
-        tracing::info!("Initializing storage service: cloud={}, local={}, shared_cloud={}", 
-            database_config.get_allow_data_to_cloud(),
+        tracing::info!(
+            "Initializing storage service: allow_auth={}, local={}, shared_cloud={}",
+            allow_auth,
             database_config.get_allow_data_to_local(),
             database_config.get_allow_data_to_shared_cloud()
         );
-
-        if database_config.get_allow_data_to_cloud() {
-            #[cfg(feature = "gdrive")]
-            {
-                for provider_key in CloudProviderFactory::supported_providers() {
-                    tracing::debug!(provider_key, "Attempting to initialize cloud storage provider");
-                    let provider_name = Self::provider_display_name(provider_key);
-                    match CloudTableStorageProvider::try_new_cloud_provider(
-                        provider_key,
-                        provider_name,
-                        pending_store.clone(),
-                        retry_service.clone(),
-                    ) {
-                        Ok(provider) => {
-                            tracing::info!(provider_key, "Cloud storage provider initialized");
-                            providers.push(Arc::new(provider));
-                        }
-                        Err(err) => tracing::error!(provider_key, "Failed to initialize cloud storage provider: {err}"),
-                    }
-                }
-            }
-        }
 
         if database_config.get_allow_data_to_local() {
             tracing::debug!("Attempting to initialize local filesystem storage provider");
@@ -172,36 +137,48 @@ impl StorageService {
                 Ok(provider) => {
                     tracing::info!("Local filesystem storage provider initialized");
                     providers.push(Arc::new(provider));
-                },
+                }
                 Err(err) => {
                     tracing::error!("Failed to initialize local storage provider: {err}");
                 }
             }
         }
 
-        // Add R2 storage provider when shared cloud sync is enabled
-        if database_config.get_allow_data_to_shared_cloud() {
+        // Add R2 storage provider only when authentication master switch and shared cloud sync are both enabled
+        if allow_auth && database_config.get_allow_data_to_shared_cloud() {
             tracing::debug!("Attempting to initialize R2 storage provider");
-            providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
+            providers.push(Arc::new(R2StorageProvider::new(
+                pending_store,
+                retry_service,
+            )));
             tracing::info!("R2 storage provider initialized");
+        } else if database_config.get_allow_data_to_shared_cloud() && !allow_auth {
+            tracing::info!(
+                "R2 storage provider skipped because authentication is disabled (app.auth.allow_auth = false)"
+            );
         }
 
         if providers.is_empty() {
             tracing::warn!("No storage providers initialized - storage disabled");
             None
         } else {
-            tracing::info!("Storage service initialized with {} provider(s)", providers.len());
+            tracing::info!(
+                "Storage service initialized with {} provider(s)",
+                providers.len()
+            );
             Some(StorageService {
                 providers: Arc::new(providers),
             })
         }
     }
-    
+
     /// Legacy compatibility method - deprecated, use get_instance instead
-    #[deprecated(note = "Use get_instance() for singleton pattern to avoid repeated initialization")]
+    #[deprecated(
+        note = "Use get_instance() for singleton pattern to avoid repeated initialization"
+    )]
     pub fn resolve(
         pending_store: Arc<PendingStore>,
-        retry_service: Arc<UploadRetryService>
+        retry_service: Arc<UploadRetryService>,
     ) -> Option<StorageService> {
         Self::initialize(pending_store, retry_service)
     }
@@ -245,20 +222,25 @@ impl StorageService {
     ) -> bool {
         tracing::info!(
             "StorageService::write_port_table called: period={}, map={}-{}, provider_count={}",
-            period_tag, maparea_id, mapinfo_no, self.providers.len()
+            period_tag,
+            maparea_id,
+            mapinfo_no,
+            self.providers.len()
         );
-        
+
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let table_clone = table.clone();
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
-            
+
             tracing::info!(
                 "Dispatching write_port_table to provider: {} for map {}-{}",
-                provider_name, maparea_id, mapinfo_no
+                provider_name,
+                maparea_id,
+                mapinfo_no
             );
-            
+
             let handle = tokio::spawn(async move {
                 if let Err(err) = provider
                     .write_port_table(&period_clone, &table_clone, maparea_id, mapinfo_no)
@@ -273,7 +255,9 @@ impl StorageService {
                 } else {
                     tracing::info!(
                         "{} storage successfully wrote port_table for map {}-{}",
-                        provider_name, maparea_id, mapinfo_no
+                        provider_name,
+                        maparea_id,
+                        mapinfo_no
                     );
                     true
                 }
@@ -319,10 +303,7 @@ impl StorageService {
             }
 
             let handle = tokio::spawn(async move {
-                if let Err(err) = provider
-                    .integrate_port_table(&period_clone)
-                    .await
-                {
+                if let Err(err) = provider.integrate_port_table(&period_clone).await {
                     tracing::warn!(
                         "{} storage failed to integrate port_table: {}",
                         provider_name,

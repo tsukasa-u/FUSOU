@@ -11,6 +11,10 @@ import {
   SETTING_ROW_BUTTON_SIZE_CLASS,
   type ActionSummary,
 } from "./action_result";
+import {
+  ConfigEditorComponent,
+  type ConfigEditorPreviewProps,
+} from "./config_editor";
 
 type SessionHealth = {
   has_session: boolean;
@@ -116,7 +120,13 @@ const DATA_LOADER_ITEMS: readonly DataLoaderItem[] = [
   },
 ];
 
-export function SettingsComponent() {
+export interface SettingsComponentProps {
+  configPreview?: ConfigEditorPreviewProps;
+  mode?: "app" | "start";
+}
+
+export function SettingsComponent(props: SettingsComponentProps = {}) {
+  const isStartMode = () => props.mode === "start";
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
     null,
   );
@@ -337,10 +347,13 @@ export function SettingsComponent() {
         <header class="space-y-1">
           <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
           <p class="text-sm text-base-content/65">
-            Manage snapshot sync, Supabase session diagnostics, and cached
-            response loaders.
+            Configure FUSOU application preferences, manage snapshot sync,
+            Supabase session diagnostics, and cached response loaders.
           </p>
         </header>
+
+        {/* Application Configuration (configs.toml) */}
+        <ConfigEditorComponent preview={props.configPreview} />
 
         {/* Sync & Application */}
         <section class="space-y-2.5">
@@ -351,7 +364,14 @@ export function SettingsComponent() {
             <div class="p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div class="space-y-0.5 min-w-0">
-                  <h3 class="text-sm font-semibold">Manual Snapshot Sync</h3>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <h3 class="text-sm font-semibold">Manual Snapshot Sync</h3>
+                    <Show when={isStartMode()}>
+                      <span class="badge badge-xs badge-ghost">
+                        Available after launch
+                      </span>
+                    </Show>
+                  </div>
                   <p class="text-xs text-base-content/65">
                     Trigger an immediate snapshot synchronization with the
                     configured server.
@@ -360,7 +380,7 @@ export function SettingsComponent() {
                 <button
                   type="button"
                   class={`btn btn-primary enabled:border-primary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
-                  disabled={syncingSnapshot()}
+                  disabled={isStartMode() || syncingSnapshot()}
                   onClick={handleManualSnapshotSync}
                 >
                   <Show when={syncingSnapshot()}>
@@ -393,9 +413,16 @@ export function SettingsComponent() {
 
         {/* Session & Authentication */}
         <section class="space-y-2.5">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-            Session &amp; Authentication
-          </h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+              Session &amp; Authentication
+            </h2>
+            <Show when={isStartMode()}>
+              <span class="badge badge-xs badge-ghost">
+                Available after launch
+              </span>
+            </Show>
+          </div>
           <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
             <div class="p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -410,7 +437,7 @@ export function SettingsComponent() {
                   type="button"
                   class={`btn btn-secondary enabled:border-secondary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
                   onClick={handleCheckSessionHealth}
-                  disabled={checkingHealth()}
+                  disabled={isStartMode() || checkingHealth()}
                 >
                   <Show when={checkingHealth()}>
                     <span class="loading loading-spinner loading-xs" />
@@ -489,7 +516,7 @@ export function SettingsComponent() {
                       setSignOutResult(null);
                       setConfirmSignOut(true);
                     }}
-                    disabled={signingOut()}
+                    disabled={isStartMode() || signingOut()}
                   >
                     {signingOut() ? "Signing out..." : "Force Local Sign Out"}
                   </button>
@@ -529,9 +556,16 @@ export function SettingsComponent() {
 
         {/* Cached Game Data */}
         <section class="space-y-2.5">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-            Cached Game Data
-          </h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+              Cached Game Data
+            </h2>
+            <Show when={isStartMode()}>
+              <span class="badge badge-xs badge-ghost">
+                Available after launch
+              </span>
+            </Show>
+          </div>
           <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
             <div class="p-4 space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -545,7 +579,7 @@ export function SettingsComponent() {
                 <button
                   type="button"
                   class={`btn btn-primary enabled:border-primary-content ${SETTING_ROW_BUTTON_SIZE_CLASS}`}
-                  disabled={loadingDataKey() !== null}
+                  disabled={isStartMode() || loadingDataKey() !== null}
                   onClick={handleLoadAllData}
                 >
                   <Show when={loadingDataKey() === "all"}>
@@ -557,7 +591,7 @@ export function SettingsComponent() {
               <ActionSummaryGrid summary={loadAllResult()} />
             </div>
 
-            <details class="group">
+            <details class="group" data-testid="individual-dataset-loaders">
               <summary class="px-4 py-3 flex items-center justify-between gap-2 cursor-pointer select-none text-sm font-medium text-base-content/80 hover:text-base-content hover:bg-base-200/30 transition-colors list-none">
                 <span class="flex items-center gap-2">
                   <span>Individual Dataset Loaders</span>
@@ -581,7 +615,7 @@ export function SettingsComponent() {
               </summary>
 
               <div class="px-4 pb-4 pt-2 space-y-3">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div class="grid grid-cols-1 gap-2.5">
                   <For each={DATA_LOADER_ITEMS}>
                     {(item) => (
                       <div
@@ -599,7 +633,7 @@ export function SettingsComponent() {
                         <button
                           type="button"
                           class={`btn btn-secondary enabled:border-secondary-content ${COMPACT_ROW_BUTTON_SIZE_CLASS}`}
-                          disabled={loadingDataKey() !== null}
+                          disabled={isStartMode() || loadingDataKey() !== null}
                           onClick={() => handleLoadSingleData(item)}
                         >
                           <Show when={loadingDataKey() === item.cmd}>

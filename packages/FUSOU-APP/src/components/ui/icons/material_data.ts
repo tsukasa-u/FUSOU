@@ -101,5 +101,158 @@ export const item_list: { [key: number]: [string, number] } = {
   99: ["B4", 2], //  白たすき
   100: ["D2", 2], //  海外艦最新技術
   101: ["D1", 2], //  夜間熟練搭乗員
-  102: ["D4", 2], //
+  102: ["D4", 2], //  航空特別増加食
+  103: ["E1", 2], //  工廠拡張キー
+  104: ["E2", 2], //  工廠資源
+  105: ["D3", 2], //  格納庫増設
 };
+
+export const material_icon_tables: Record<
+  number,
+  { name: string; color: string }
+> = {
+  0: { name: "Undefined", color: "#FFFFFF" },
+  1: { name: "Owned items", color: "#684329" },
+  2: { name: "Expansion items", color: "#595959" },
+  3: { name: "Purchased items", color: "#1E1E1E" },
+  4: { name: "Front display only", color: "#CCCC00" },
+  5: { name: "Furniture store only", color: "#00CCCC" },
+  6: { name: "Information only", color: "#CC00CC" },
+};
+
+export const material_icon_rows = [1, 2, 3, 4];
+export const material_icon_columns = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+export type MaterialIconShelfCell = {
+  cell: string;
+  row: number;
+  column: string;
+  present: boolean;
+  occupied: boolean;
+  label?: string;
+};
+
+const expansion_shelf_columns = material_icon_columns.slice(0, 5);
+const resource_shelf_layout = [
+  ["A0", "C0"],
+  ["B0", "D0"],
+];
+const absent_shelf_cells: Record<number, ReadonlySet<string>> = {
+  1: new Set(["A1", "G1", "D3"]),
+  2: new Set(["E1"]),
+};
+
+function getOccupiedMaterialIconCells(tableId: number) {
+  return new Set(
+    Object.values(item_list).flatMap(([rawCell, itemTableId]) => {
+      const cell = rawCell.trim();
+      return itemTableId === tableId && /^[A-H][0-4]$/.test(cell) ? [cell] : [];
+    }),
+  );
+}
+
+function createMaterialIconShelfCell(
+  cell: string,
+  occupied: boolean,
+  present = true,
+) {
+  const match = /^([A-H])([0-4])$/.exec(cell);
+  return {
+    cell,
+    row: Number(match?.[2]),
+    column: match?.[1] ?? "",
+    present,
+    occupied: present && occupied,
+  };
+}
+
+export function getMaterialIconShelfRows(
+  tableId: number,
+  columns = material_icon_columns,
+) {
+  const occupiedCells = getOccupiedMaterialIconCells(tableId);
+  const absentCells = absent_shelf_cells[tableId] ?? new Set<string>();
+
+  return material_icon_rows.map((row) =>
+    columns.map((column) => {
+      const cell = `${column}${row}`;
+      return createMaterialIconShelfCell(
+        cell,
+        occupiedCells.has(cell),
+        !absentCells.has(cell),
+      );
+    }),
+  );
+}
+
+export function getMaterialIconItemNumbersAtCell(
+  tableId: number,
+  cell: string,
+) {
+  if (absent_shelf_cells[tableId]?.has(cell)) return [];
+
+  const itemCell = tableId === 2 && cell === "A1" ? "LT" : cell;
+
+  return Object.entries(item_list).flatMap(
+    ([itemNumber, [rawCell, itemTableId]]) =>
+      itemTableId === tableId && rawCell.trim() === itemCell
+        ? [Number(itemNumber)]
+        : [],
+  );
+}
+
+export function getMaterialIconResourceShelfRows() {
+  const occupiedCells = getOccupiedMaterialIconCells(4);
+  return resource_shelf_layout.map((row) =>
+    row.map((cell) =>
+      createMaterialIconShelfCell(cell, occupiedCells.has(cell)),
+    ),
+  );
+}
+
+export function getMaterialIconFurnitureStoreRows() {
+  const occupiedCells = getOccupiedMaterialIconCells(5);
+  return [[createMaterialIconShelfCell("E0", occupiedCells.has("E0"))]];
+}
+
+export function getMaterialIconExpansionShelfRows() {
+  const rows = getMaterialIconShelfRows(2, expansion_shelf_columns);
+  const hasLtItem = Object.values(item_list).some(
+    ([cell, tableId]) => tableId === 2 && cell.trim() === "LT",
+  );
+
+  if (!hasLtItem) return rows;
+
+  return rows.map((row) =>
+    row.map((cell) =>
+      cell.cell === "A1" ? { ...cell, occupied: true, label: "LT" } : cell,
+    ),
+  );
+}
+
+export function getMaterialIconShelfCell(itemNumber: number) {
+  const { cell, tableId } = getMaterialIconLocation(itemNumber);
+  if (absent_shelf_cells[tableId]?.has(cell)) return null;
+
+  if (tableId === 2 && cell === "LT") return "A1";
+  if (tableId === 4 && /^[A-D]0$/.test(cell)) return cell;
+  if (tableId === 1 && /^[A-H][1-4]$/.test(cell)) return cell;
+  if (tableId === 2 && /^[A-E][1-4]$/.test(cell)) return cell;
+  if (tableId === 3 && /^[A-H][1-4]$/.test(cell)) return cell;
+  if (tableId === 5 && cell === "E0") return cell;
+
+  return null;
+}
+
+export function getMaterialIconLocation(itemNumber: number) {
+  const [rawCell, tableId] = item_list[itemNumber] ?? ["UN", 0];
+  const cell = rawCell.trim() || "UN";
+  const match = /^([A-H])([0-4])$/.exec(cell);
+
+  return {
+    cell,
+    tableId,
+    row: match ? Number(match[2]) : null,
+    column: match?.[1] ?? null,
+  };
+}

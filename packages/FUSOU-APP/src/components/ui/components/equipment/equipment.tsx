@@ -182,7 +182,14 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (
       }
     >
       <div class="flex flex-nowrap w-full">
-        <div class="indicator">
+        <div
+          class="indicator"
+          title={
+            !props.empty_flag
+              ? props.mst_slot_item?.name || undefined
+              : undefined
+          }
+        >
           <span class="indicator-item">{levelTemplate()}</span>
           <IconEquipment
             category_number={props.mst_slot_item?.type[1] ?? 0}

@@ -1,4 +1,4 @@
-﻿/** @jsxImportSource solid-js */
+/** @jsxImportSource solid-js */
 import { workspaceAddModalRef, workspaceEditTarget, workspaceModalMode } from "./WorkspaceAddModal";
 
 import { FusouPageHeader } from "@/components/common/solid/FusouPageHeader";
@@ -217,21 +217,6 @@ export function SimulatorTabManager(props: { initialTab: string }) {
           </button>
 
                     {/* Workspace tab actions */}
-          <button
-            id="btn-workspace-save-current"
-            class="fusou-btn-secondary gap-1.5"
-            hidden={!isWorkspace()}
-            onClick={() => {
-              workspaceEditTarget[1](null);
-              workspaceModalMode[1]("saveCurrent");
-              workspaceAddModalRef.current?.showModal();
-            }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4" />
-            </svg>
-            <span class="hidden md:inline">現在の編成を保存</span>
-          </button>
           <button
             id="btn-workspace-add-url"
             class="fusou-btn-secondary gap-1.5"

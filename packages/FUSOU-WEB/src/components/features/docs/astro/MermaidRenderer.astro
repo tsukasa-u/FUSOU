@@ -1,0 +1,57 @@
+<script type="module" is:inline>
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+  mermaid.initialize({ startOnLoad: false });
+
+  let isRendering = false;
+  let renderScheduled = false;
+
+  async function renderPendingDiagrams() {
+    if (isRendering) return;
+
+    const diagrams = [
+      ...document.querySelectorAll(
+        "pre.mermaid:not([data-mermaid-rendered]):not([data-mermaid-render-failed])",
+      ),
+    ];
+    if (diagrams.length === 0) return;
+
+    isRendering = true;
+    try {
+      for (const diagram of diagrams) {
+        try {
+          await mermaid.run({ nodes: [diagram] });
+          diagram.dataset.mermaidRendered = "true";
+        } catch (error) {
+          diagram.dataset.mermaidRenderFailed = "true";
+          console.error("Failed to render a Mermaid diagram.", error);
+        }
+      }
+    } finally {
+      isRendering = false;
+      scheduleRender();
+    }
+  }
+
+  function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(() => {
+      renderScheduled = false;
+      void renderPendingDiagrams();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleRender, {
+      once: true,
+    });
+  } else {
+    scheduleRender();
+  }
+
+  new MutationObserver(scheduleRender).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+</script>

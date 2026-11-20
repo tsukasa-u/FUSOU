@@ -2,7 +2,7 @@ import type { MstUseItemMetas, MstUseItems } from "@ipc-bindings/get_data";
 import type { PayItems, UseItems } from "@ipc-bindings/require_info";
 import { item_list } from "../components/ui/icons/material_data";
 
-export type ItemShelfKind = "normal" | "special" | "purchased";
+export type ItemShelfKind = "normal" | "special" | "purchased" | "furniture";
 
 export type ItemViewEntry = {
   key: string;
@@ -23,10 +23,12 @@ export type ItemShelvesData = {
   normal: ItemViewEntry[];
   special: ItemViewEntry[];
   purchased: ItemViewEntry[];
+  furniture: ItemViewEntry[];
 };
 
-const RESOURCE_MATERIAL_IDS = new Set([1, 2, 3, 4, 31, 32, 33, 34, 44]);
+const RESOURCE_MATERIAL_IDS = new Set([1, 2, 3, 4, 31, 32, 33, 34]);
 const PURCHASED_USEITEM_IDS = new Set([53]);
+const FURNITURE_STORE_USEITEM_IDS = new Set([44]);
 const SPECIAL_SHELF_MIN_USEITEM_ID = 75;
 
 const PAYITEM_ICON_MAP: Record<number, number> = {
@@ -138,6 +140,7 @@ function resolvePayItemIconNumber(
 
 export function classifyUseItemShelf(useItemId: number): ItemShelfKind {
   if (PURCHASED_USEITEM_IDS.has(useItemId)) return "purchased";
+  if (FURNITURE_STORE_USEITEM_IDS.has(useItemId)) return "furniture";
   if (useItemId >= SPECIAL_SHELF_MIN_USEITEM_ID) return "special";
   return "normal";
 }
@@ -149,8 +152,33 @@ export type BuildItemShelvesInput = {
   mstUseItemMetas: MstUseItemMetas;
 };
 
+export function buildUseItemNameMap(
+  mstUseItems: MstUseItems,
+  mstUseItemMetas: MstUseItemMetas,
+): Record<number, string> {
+  const names: Record<number, string> = {};
+
+  for (const meta of Object.values(mstUseItemMetas.mst_use_item_metas)) {
+    if (!meta) continue;
+    const name = (
+      meta.name ||
+      mstUseItems.mst_use_items[meta.id]?.name ||
+      ""
+    ).trim();
+    if (name) names[meta.id] = name;
+  }
+
+  for (const item of Object.values(mstUseItems.mst_use_items)) {
+    if (!item || names[item.id]) continue;
+    const name = item.name.trim();
+    if (name) names[item.id] = name;
+  }
+
+  return names;
+}
+
 /**
- * Splits owned `useitem` and `payitem` records into Normal / Special / Purchased shelves,
+ * Splits owned `useitem` and `payitem` records into Normal / Special / Purchased / Furniture Store shelves,
  * enriched with `api_start2/getData` names, descriptions, usetype, and `IconMaterial` IDs.
  */
 export function buildItemShelves(
@@ -159,6 +187,7 @@ export function buildItemShelves(
   const normal: ItemViewEntry[] = [];
   const special: ItemViewEntry[] = [];
   const purchased: ItemViewEntry[] = [];
+  const furniture: ItemViewEntry[] = [];
 
   for (const item of Object.values(input.useItems.use_items)) {
     if (!item || item.count <= 0) continue;
@@ -188,6 +217,8 @@ export function buildItemShelves(
 
     if (shelf === "purchased") {
       purchased.push(entry);
+    } else if (shelf === "furniture") {
+      furniture.push(entry);
     } else if (shelf === "special") {
       special.push(entry);
     } else {
@@ -221,9 +252,10 @@ export function buildItemShelves(
 
   normal.sort((a, b) => a.id - b.id);
   special.sort((a, b) => a.id - b.id);
+  furniture.sort((a, b) => a.id - b.id);
   purchased.sort(
     (a, b) => Number(b.isPayItem) - Number(a.isPayItem) || a.id - b.id,
   );
 
-  return { normal, special, purchased };
+  return { normal, special, purchased, furniture };
 }

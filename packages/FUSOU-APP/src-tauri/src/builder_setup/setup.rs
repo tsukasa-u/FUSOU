@@ -46,6 +46,39 @@ enum ShutdownSignal {
     Restart,
 }
 
+#[derive(Clone)]
+pub struct AppShutdownController {
+    tx: mpsc::Sender<ShutdownSignal>,
+}
+
+impl AppShutdownController {
+    pub fn request_restart(&self, app: &tauri::AppHandle) {
+        if let Some(window) = app.get_webview_window("main") {
+            if let Ok(true) = window.is_visible() {
+                if let Err(e) = window.hide() {
+                    tracing::error!("Failed to hide main window: {}", e);
+                }
+            }
+        }
+
+        if let Some(window) = app.get_webview_window("external") {
+            if let Ok(true) = window.is_visible() {
+                if let Err(e) = window.hide() {
+                    tracing::error!("Failed to hide external window: {}", e);
+                }
+            }
+        }
+
+        native_cmd::remove_pac(app);
+        discord::close();
+
+        let shutdown_tx_clone = self.tx.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = shutdown_tx_clone.send(ShutdownSignal::Restart).await;
+        });
+    }
+}
+
 fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
     app.deep_link().register_all()?;
@@ -239,7 +272,6 @@ fn setup_tray(
         .item(&check_update)
         .item(&check_session_health)
         .item(&force_local_sign_out);
-
 
     let advanced_sub_menu = advanced_sub_menu
         .separator()
@@ -488,10 +520,6 @@ fn setup_tray(
                             );
                         }
                     }
-                    // "visit-website" => {
-                    //     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
-                    //     let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
-                    // }
                     "open-license" => {
                         let url = "https://fusou.dev/docs/license/fusou_app";
 
@@ -553,6 +581,14 @@ fn setup_tray(
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
                         let app_handle = tray.app_handle();
+                        if !configs::get_user_configs_for_app().auth.get_allow_auth() {
+                            notify::show(
+                                app_handle,
+                                "Snapshot Sync Disabled",
+                                "Authentication & Cloud Sync is disabled in Settings (app.auth.allow_auth = false).",
+                            );
+                            return;
+                        }
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
                         let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
@@ -631,6 +667,15 @@ fn setup_tray(
                                     );
                                 }
                                 Ok(None) => {
+                                    if !configs::get_user_configs_for_app().auth.get_allow_auth() {
+                                        notify::show(
+                                            &app_handle,
+                                            "Authentication Disabled",
+                                            "Authentication & Cloud Sync is disabled in Settings (app.auth.allow_auth = false)."
+                                        );
+                                        return;
+                                    }
+
                                     notify::show(
                                         &app_handle,
                                         "Session Missing",
@@ -754,7 +799,7 @@ fn setup_tray(
                                 _ => {}
                             },
                             None => {
-                                external::create_external_window(tray.app_handle(), None, true);
+                                external::create_external_window(tray.app_handle());
                                 // // let _ = app
                                 // //     .tray_handle()
                                 // //     .get_item("external-open/close")
@@ -825,19 +870,11 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn configure_channel_transport() {
-    let proxy_configs = configs::get_user_configs_for_proxy();
-    let transport = proxy_configs.get_channel_transport();
-
-    if matches!(transport, configs::ChannelTransportKind::Grpc) {
-        tracing::warn!(
-            "proxy.channel.transport is set to `grpc`, but gRPC support has been removed. Falling back to the in-process channel."
-        );
-    }
-}
-
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
+    app.manage(AppShutdownController {
+        tx: shutdown_tx.clone(),
+    });
 
     let cli_invocation = cli::parse_invocation();
     cli::prepare_terminal_logs(&cli_invocation);
@@ -855,7 +892,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         .get_enable_autostart();
     configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
-    configure_channel_transport();
     if configs::get_user_configs_for_app()
         .discord
         .get_enable_discord_integration()

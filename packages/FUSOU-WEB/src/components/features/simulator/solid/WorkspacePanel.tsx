@@ -133,38 +133,48 @@ export function WorkspacePanel(props: { onSelectEntry?: () => void }) {
       {/* Main Grid: Playground & Saved Entries */}
       <div class="space-y-4">
         {/* Active / Playground Quick Access */}
-        <div class="space-y-2">
+        <div class="space-y-1.5">
           <h3 class="text-xs font-semibold text-base-content/60 uppercase tracking-wider">作業エリア (Playground)</h3>
           <div
             id="workspace-playground-entry"
-            class={`fusou-card p-4 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-              isPlaygroundActive() ? "border-primary bg-primary/10 shadow-sm" : "hover:border-primary/50"
+            class={`fusou-card px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors ${
+              isPlaygroundActive() ? "border-primary bg-primary/10" : ""
             }`}
-            onClick={handleSelectPlayground}
           >
-            <div class="space-y-1">
+            <div class="min-w-0 flex-1 space-y-0.5">
               <div class="flex items-center gap-2">
                 <span class="font-bold text-sm">Playground</span>
                 <Show when={isPlaygroundActive()}>
                   <span class="badge badge-primary badge-xs">現在編集中</span>
                 </Show>
               </div>
-              <p class="text-xs text-base-content/60">
-                {isSnapshotPlayground() ? "スナップショットを反映した一時的な作業領域です。" : "白紙状態から作成する一時的な作業領域です。"}
+              <p class="text-xs text-base-content/60 truncate">
+                {isSnapshotPlayground() ? "スナップショットを反映した一時作業領域" : "白紙状態から作成する一時作業領域"}
               </p>
             </div>
-            <button
-              class="fusou-btn-primary btn-sm shrink-0 gap-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSelectPlayground();
-              }}
-            >
-              <span>編成タブで開く</span>
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"></path>
-              </svg>
-            </button>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button
+                id="btn-workspace-save-current"
+                type="button"
+                class="fusou-btn-xs-secondary gap-1"
+                onClick={handleAddCurrent}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                <span>現在の編成を保存</span>
+              </button>
+              <button
+                type="button"
+                class="fusou-btn-xs-primary shrink-0 gap-1"
+                onClick={handleSelectPlayground}
+              >
+                <span>編成タブで開く</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"></path>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -182,12 +192,12 @@ export function WorkspacePanel(props: { onSelectEntry?: () => void }) {
               <div class="fusou-card p-8 text-center text-base-content/50 space-y-2">
                 <p class="text-sm font-medium">保存された編成はまだありません。</p>
                 <p class="text-xs">
-                  右上の「現在の編成を保存」ボタンを押すか、「URL追加」から他の人の編成URLを取り込むことができます。
+                  上の「現在の編成を保存」ボタンを押すか、右上の「URL追加」から他の人の編成URLを取り込むことができます。
                 </p>
               </div>
             }
           >
-            <div id="workspace-entry-list" role="list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div id="workspace-entry-list" role="list" class="fusou-card overflow-hidden divide-y divide-base-300/60">
               <For each={ws().entries}>
                 {(entry: ViewerEntry) => {
                   const isActive = () => ws().activeId === entry.id;
@@ -198,81 +208,77 @@ export function WorkspacePanel(props: { onSelectEntry?: () => void }) {
                     <div
                       data-entry-id={entry.id}
                       role="listitem"
-                      class={`fusou-card p-4 flex flex-col justify-between gap-3 transition-colors cursor-pointer ${
-                        isActive() ? "border-primary bg-primary/10 shadow-sm" : "hover:border-primary/50"
+                      class={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                        isActive()
+                          ? "bg-primary/10 border-l-2 border-l-primary"
+                          : "hover:bg-base-200/40"
                       }`}
-                      onClick={() => handleSelectEntry(entry)}
                     >
-                      <div class="space-y-1.5">
-                        <div class="flex items-center justify-between gap-2">
-                          <div class="flex items-center gap-1.5 min-w-0">
-                            <span class="truncate font-bold text-sm">{entry.name}</span>
-                            <Show when={isActive()}>
-                              <span class="badge badge-primary badge-xs shrink-0">{entry.locked ? "編集中 (ロック)" : "編集中 (オートセーブ)"}</span>
+                      {/* 左側: 1行目（ワークスペース名・バッジ）＋ 2行目（メモ） */}
+                      <div class="min-w-0 flex-1 space-y-0.5">
+                        <div class="flex items-center flex-wrap gap-1.5 min-w-0">
+                          <span class="truncate font-semibold text-sm">{entry.name}</span>
+                          <Show when={isActive()}>
+                            <span class="badge badge-primary badge-xs shrink-0">{entry.locked ? "編集中 (ロック)" : "編集中 (オートセーブ)"}</span>
+                          </Show>
+                          <span class={`badge badge-xs font-semibold shrink-0 ${isDeck ? "badge-warning" : "badge-accent"}`}>
+                            {isDeck ? "DECK" : "URL"}
+                          </span>
+                          <span class={`badge badge-xs shrink-0 ${hasSnap ? "badge-info" : "badge-ghost"}`}>
+                            {hasSnap ? "SNAP" : "NO-SNAP"}
+                          </span>
+                          <span class="text-[11px] text-base-content/50 shrink-0">
+                            {isDeck ? (entry.locked ? "ロック中" : "オートセーブ") : "共有URL"}
+                            <Show when={entry.updatedAt}>
+                              {" · "}更新: {new Date(entry.updatedAt).toLocaleTimeString()}
                             </Show>
-                          </div>
-                          <div class="flex items-center gap-1 shrink-0">
-                            <span class={`badge badge-xs font-semibold ${isDeck ? "badge-warning" : "badge-accent"}`}>
-                              {isDeck ? "DECK" : "URL"}
-                            </span>
-                            <span class={`badge badge-xs ${hasSnap ? "badge-info" : "badge-ghost"}`}>
-                              {hasSnap ? "SNAP" : "NO-SNAP"}
-                            </span>
-                          </div>
+                          </span>
                         </div>
 
-                        {/* メモ表示エリア（アイコンなし・枠線なし・枠内収束＆はみ出し省略） */}
-                        <div class="mt-1 min-w-0">
+                        <div class="min-w-0">
                           <Show
                             when={entry.memo?.trim()}
                             fallback={
-                              <div class="text-xs text-base-content/40 italic py-0.5">
+                              <div class="text-xs text-base-content/40 italic truncate">
                                 メモなし
                               </div>
                             }
                           >
-                            <p class="text-xs text-base-content/75 line-clamp-2 break-all leading-relaxed py-0.5">
+                            <p class="text-xs text-base-content/75 line-clamp-1 break-all leading-relaxed">
                               {entry.memo!.trim()}
                             </p>
                           </Show>
                         </div>
-
-                        <div class="flex items-center justify-between text-[11px] text-base-content/50 pt-0.5">
-                          <span>{isDeck ? (entry.locked ? "ロック中（変更非保存）" : "オートセーブ有効") : "共有URL（閲覧専用）"}</span>
-                          <Show when={entry.updatedAt}>
-                            <span>更新: {new Date(entry.updatedAt).toLocaleTimeString()}</span>
-                          </Show>
-                        </div>
                       </div>
 
-                      <div class="flex items-center justify-between gap-2 pt-2 border-t border-base-300/40">
-                        <div class="flex items-center gap-1">
-                          <button
-                            class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
-                            aria-label={entry.locked ? "ロック解除" : "ロック"}
-                            style={{
-                              color: entry.locked ? "#dc2626" : "#16a34a",
-                              "background-color": entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)",
-                              border: `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`
-                            }}
-                            title={entry.locked ? "ロック中: R2再読込で上書きされません。クリックで解除" : "未ロック: クリックでロック"}
-                            onClick={(e) => handleToggleLock(e, entry)}
-                          >
-                            <LockIcon locked={entry.locked || false} />
-                          </button>
-                          <button class="fusou-btn-xs-ghost px-2" title="この編成を複製" onClick={(e) => handleDuplicate(e, entry)}>
-                            複製
-                          </button>
-                          <button class="fusou-btn-xs-ghost px-2" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "名前やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
-                            編集
-                          </button>
-                          <button class="fusou-btn-xs-ghost text-error px-2" title="削除" onClick={(e) => handleDelete(e, entry)}>
-                            削除
-                          </button>
-                        </div>
-
+                      {/* 右側: 操作ボタン（すべて 24px / btn-xs で統一） */}
+                      <div class="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
                         <button
-                          class="fusou-btn-primary btn-xs gap-1"
+                          type="button"
+                          class="inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors cursor-pointer"
+                          aria-label={entry.locked ? "ロック解除" : "ロック"}
+                          style={{
+                            color: entry.locked ? "#dc2626" : "#16a34a",
+                            "background-color": entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)",
+                            border: `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`
+                          }}
+                          title={entry.locked ? "ロック中: R2再読込で上書きされません。クリックで解除" : "未ロック: クリックでロック"}
+                          onClick={(e) => handleToggleLock(e, entry)}
+                        >
+                          <LockIcon locked={entry.locked || false} />
+                        </button>
+                        <button type="button" class="fusou-btn-xs-secondary" title="この編成を複製" onClick={(e) => handleDuplicate(e, entry)}>
+                          複製
+                        </button>
+                        <button type="button" class="fusou-btn-xs-secondary" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "名前やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
+                          編集
+                        </button>
+                        <button type="button" class="fusou-btn-xs-secondary text-error" title="削除" onClick={(e) => handleDelete(e, entry)}>
+                          削除
+                        </button>
+                        <button
+                          type="button"
+                          class="fusou-btn-xs-primary gap-1"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleSelectEntry(entry);

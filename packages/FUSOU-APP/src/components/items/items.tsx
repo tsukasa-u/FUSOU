@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { EmptyValue, IconMaterial, MenuFilterBar } from "ui";
+import { ComponentItemModal, EmptyValue, MenuFilterBar } from "ui";
 import {
   useMstUseItemMetas,
   useMstUseItems,
@@ -7,7 +7,10 @@ import {
   useUseItems,
 } from "../../utility/provider.tsx";
 import type { ItemViewEntry } from "../../utility/item_shelves.ts";
-import { buildItemShelves } from "../../utility/item_shelves.ts";
+import {
+  buildItemShelves,
+  buildUseItemNameMap,
+} from "../../utility/item_shelves.ts";
 
 export function ItemsComponent() {
   const [useItems] = useUseItems();
@@ -23,6 +26,9 @@ export function ItemsComponent() {
       mstUseItems,
       mstUseItemMetas,
     }),
+  );
+  const itemNames = createMemo(() =>
+    buildUseItemNameMap(mstUseItems, mstUseItemMetas),
   );
 
   const normalizedQuery = createMemo(() => query().trim().toLowerCase());
@@ -41,17 +47,22 @@ export function ItemsComponent() {
   const normalItems = createMemo(() => filterList(shelves().normal));
   const specialItems = createMemo(() => filterList(shelves().special));
   const purchasedItems = createMemo(() => filterList(shelves().purchased));
+  const furnitureItems = createMemo(() => filterList(shelves().furniture));
 
   const rawTotalCount = createMemo(
     () =>
       shelves().normal.length +
       shelves().special.length +
-      shelves().purchased.length,
+      shelves().purchased.length +
+      shelves().furniture.length,
   );
 
   const filteredTotalCount = createMemo(
     () =>
-      normalItems().length + specialItems().length + purchasedItems().length,
+      normalItems().length +
+      specialItems().length +
+      purchasedItems().length +
+      furnitureItems().length,
   );
 
   const hasLoaded = createMemo(
@@ -65,7 +76,15 @@ export function ItemsComponent() {
     <li class="text-xs py-1 w-full">
       <div class="px-2 flex items-start gap-2.5 w-full">
         <div class="shrink-0 pt-0.5">
-          <IconMaterial item_number={item.iconNumber} size="xs" />
+          <ComponentItemModal
+            item_number={item.iconNumber}
+            name={item.name}
+            description={item.description}
+            descriptionIsNormalized={true}
+            itemNames={itemNames()}
+            count={item.count}
+            size="xs"
+          />
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center justify-between gap-2">
@@ -139,6 +158,7 @@ export function ItemsComponent() {
             {renderShelf("Normal Items", normalItems)}
             {renderShelf("Special Items", specialItems)}
             {renderShelf("Purchased Items", purchasedItems)}
+            {renderShelf("Furniture Store", furnitureItems)}
           </Show>
         </ul>
       </details>

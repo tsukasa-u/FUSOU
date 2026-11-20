@@ -3,7 +3,7 @@ import DocsLayout from "@/layouts/DocsLayout.astro";
 import { getEntry, render } from "astro:content";
 import { isLocalDev, isLocalOnlyDoc, getLocalDocBySlug } from "@/utils/localDocs";
 
-const { slug } = Astro.params;
+const slug = Astro.params["slug"] ?? Astro.props["slug"];
 if (slug === undefined) {
   throw new Error("Slug is required");
 }

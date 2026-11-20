@@ -1,8 +1,11 @@
 import { fn } from "storybook/test";
+import type { MstUseItemMetas, MstUseItems } from "@ipc-bindings/get_data";
 
 import { MaterialsComponent } from "../../components/materials/materials.tsx";
 import {
   ShipsContext,
+  MstUseItemMetasContext,
+  MstUseItemsContext,
   MstShipsContext,
   MstSlotItemsContext,
   SlotItemsContext,
@@ -14,6 +17,17 @@ import { mst_ships } from "@fusou-testdata-ipc/mst_ships.ts";
 import { slot_items } from "@fusou-testdata-ipc/slot_items.ts";
 import { mst_slot_itmes } from "@fusou-testdata-ipc/mst_slot_items.ts";
 import { materials } from "@fusou-testdata-ipc/materilas.ts";
+import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
+
+const mstUseItems: MstUseItems = {
+  mst_use_items: Object.fromEntries(
+    get_data.api_data.api_mst_useitem.map((item) => [
+      item.api_id,
+      { id: item.api_id, name: item.api_name },
+    ]),
+  ),
+};
+const mstUseItemMetas: MstUseItemMetas = { mst_use_item_metas: {} };
 
 export default {
   title: "components/materials/materials",
@@ -34,7 +48,13 @@ export const WithDecorator = {
               <ShipsContext.Provider value={[ships]}>
                 <MstShipsContext.Provider value={[mst_ships]}>
                   <MaterialsContext.Provider value={[materials]}>
-                    <Story {...context.args} />
+                    <MstUseItemsContext.Provider value={[mstUseItems]}>
+                      <MstUseItemMetasContext.Provider
+                        value={[mstUseItemMetas]}
+                      >
+                        <Story {...context.args} />
+                      </MstUseItemMetasContext.Provider>
+                    </MstUseItemsContext.Provider>
                   </MaterialsContext.Provider>
                 </MstShipsContext.Provider>
               </ShipsContext.Provider>

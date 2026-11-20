@@ -3,7 +3,10 @@ import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
 import PageShell from "@/components/common/astro/ui/PageShell.astro";
 
 const year = new Date().getFullYear();
-const appVersion = __FUSOU_APP_VERSION__;
+const appVersion =
+  typeof __FUSOU_APP_VERSION__ === "undefined"
+    ? "development"
+    : __FUSOU_APP_VERSION__;
 ---
 
 <PageShell container="medium" paddingY="8">

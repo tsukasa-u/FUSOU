@@ -1,101 +1,102 @@
 # This file is used to configure the FUSOU-PROXY and FUSOU-APP
 # By default, the application's features are kept to a minimum. To use restricted features, please change the configuration values.
+# Settings marked with "Requires restart to take effect." apply after restarting FUSOU.
 
 # Must match the configs crate version. Configurations without this field are treated as v0.
-version = "0.5.0"
+version = "0.5.1"
 
 [proxy]
 # Whether to save KanColle API requests
+# Requires restart to take effect.
 allow_save_api_requests = true
 
 # Whether to save KanColle API responses
+# Requires restart to take effect.
 allow_save_api_responses = true
 
 # Whether to save KanColle resources such as images and metadata
+# Requires restart to take effect.
 allow_save_resources = true
 
 # Whether to save only main.js locally (JS is not uploaded by asset sync)
+# Requires restart to take effect.
 allow_save_main_js_local = true
 
 # The location to save files
 # The default location is under the user's Documents directory
 # to use the default location, leave this empty
+# Requires restart to take effect.
 save_file_location = ""
 
-    [proxy.network]    
-    # The backend crate used in FUSOU-PROXY
-    # You can choose two backend crates
-    # 1. hudsucker          (default)         (https://crates.io/crates/hudsucker)
-    # 2. http-mitm-proxy    (not implemented) (https://crates.io/crates/http-mitm-proxy)
-    backend_crate = "hudsucker"
-
+    [proxy.network]
     # Whether to enforce HTTP to proxy client
     # default is false
+    # Requires restart to take effect.
     enforce_http = false
 
     # Whether to set TCP_NODELAY on the proxy server
     # default is false
+    # Requires restart to take effect.
     set_nodelay = false
 
     # The timeout (in seconds) for connecting to the KanColle server
     # set 0 or negative to use the system default
+    # Requires restart to take effect.
     connect_timeout = 0
 
     # The interval (in seconds) to keep the TCP connection alive
     # set 0 or negative to use the system default
+    # Requires restart to take effect.
     keepalive_interval = 0
 
     # The size of the receive buffer
     # set 0 or negative to use the system default
+    # Requires restart to take effect.
     recv_buffer_size = 8_000_000
 
     # The size of the send buffer
     # set 0 or negative to use the system default
+    # Requires restart to take effect.
     send_buffer_size = 8_000_000
 
     # The fixed port of the proxy server
     # set 0 to use an unused port automatically
+    # Requires restart to take effect.
     proxy_server_port = 0
 
 
     [proxy.certificates]
     # Whether to use generated certificates
     # default is true
+    # Requires restart to take effect.
     use_generated_certs = true
 
     # The path to the SSL certificate file
     # this option is only used when `use_generated_certs` is false
+    # Requires restart to take effect.
     cert_file = "path/to/cert/file"
 
     # The path to the SSL key file
     # this option is only used when `use_generated_certs` is false
+    # Requires restart to take effect.
     key_file = "path/to/key/file"
 
 
     [proxy.pac]
     # Whether to use a custom PAC script
     # default is false
+    # Requires restart to take effect.
     use_custom_pac = false
 
     # The path to the PAC script
     # this option is only used when `use_custom_pac` is true
+    # Requires restart to take effect.
     pac_script = "path/to/pac/script.pac"
 
     # The fixed port of the PAC server
     # set 0 to use an unused port automatically
+    # Requires restart to take effect.
     pac_server_port = 0
-
-
-    [proxy.channel]
-    # The transport implementation for BidirectionalChannel.
-    # Supported values: "mpsc" (default, in-process queues) or "grpc" (connect to the channel microservice).
-    transport = "mpsc"
-
-    # The gRPC endpoint used when transport = "grpc". Leave empty to use the built-in default.
-    endpoint = "http://127.0.0.1:50061"
-
-    # Optional buffer size hint for the gRPC channel service. Set 0 to use the server default.
-    buffer_size = 0
 
 
 [app]
@@ -130,11 +131,13 @@ save_file_location = ""
     # The correspondence table of server hostname and server name is in [app.connect_kc_server.server_list]
     # Set KanColle server hostname or empty if you want to choose KanColle server automatically
     # kc_server_name = "w16s.kancolle-server.com" # This is example
+    # Requires restart to take effect.
     kc_server_name = "w16s.kancolle-server.com"
 
 
     [app.browser]
     # The URL to open first in the browser
+    # Requires restart to take effect.
     url = "https://play.games.dmm.com/game/kancolle"
 
     # The directory used to save external WebView screenshots.
@@ -148,6 +151,7 @@ save_file_location = ""
     [app.autostart]
     # Whether to enable the Tauri autostart integration
     # default is false
+    # Requires restart to take effect.
     enable = false
 
 
@@ -166,46 +170,54 @@ save_file_location = ""
 
     [app.discord]
     # Whether to enable Discord integration (Discord Rich Presence)
+    # Requires restart to take effect.
     enable_discord_integration = true
 
-    # Whether to use a custom to use for Discord Rich Presence
+    # Whether to use a custom message for Discord Rich Presence
+    # Requires restart to take effect.
     use_custom_message = true
 
     # The custom message to use for Discord Rich Presence
     # This option is only used when `use_custom_message` is true
+    # Requires restart to take effect.
     custom_message = "This is experimental implementation"
+
+    # The custom details line to use for Discord Rich Presence
+    # This option is only used when `use_custom_message` is true
+    # Requires restart to take effect.
     custom_details = "Playing KanColle with FUSOU"
 
     # Whether to use a custom image for Discord Rich Presence
+    # Requires restart to take effect.
     use_custom_image = true
 
     # The custom image url to use for Discord Rich Presence
     # This option is only used when `use_custom_image` is true
+    # Requires restart to take effect.
     custom_image_url = "https://avatars.githubusercontent.com/u/68815462?v=4"
 
 
     [app.map_cell_labels]
     # URL of the FUSOU-WEB map cell label bundle used by FUSOU-APP
+    # Requires restart to take effect.
     bundle_url = "https://fusou.dev/battle-maps/cell_labels.json"
 
 
     [app.database]
-    # Whether to save KanColle data to the cloud
-    # this feature can be enabled with user authentication
-    # check [app.auth]
-
-    # Whether to allow syncing KanColle data to your cloud storage
-    allow_data_to_cloud = true
+    # Cloud sync options require [app.auth].allow_auth = true
 
     # Whether to sync KanColle data to the shared database (Cloudflare R2)
+    # Requires restart to take effect.
     allow_data_to_shared_cloud = true
 
     # Whether to save KanColle data to the local filesystem
+    # Requires restart to take effect.
     allow_data_to_local = true
 
     # Cron schedule for integration jobs (e.g., local FS or cloud storage integration)
     # Format: "sec min hour day month day_of_week"
     # Example: "0 0 * * * *" runs every hour
+    # Requires restart to take effect.
     integration_schedule_cron = "0 0 * * * *"
 
     [app.database.r2]
@@ -217,6 +229,7 @@ save_file_location = ""
     [app.database.local]
     # Base directory used when writing KanColle data locally
     # leave it empty to use the Documents directory/FUSOU/storage path
+    # Requires restart to take effect.
     output_directory = ""
 
     # Batch size for local filesystem integration operations
@@ -225,35 +238,34 @@ save_file_location = ""
     # Default is 500 (can adjust down for memory-constrained systems)
     integration_batch_size = 500
 
-    # Google Drive integration configuration (only available when gdrive feature is enabled)
-    [app.database.google_drive]
-    # Page size for Google Drive API requests (deprecated, use original implementation)
-    # Clamped to 1-100, defaults to 100
-    # Lower values reduce memory per request, higher values reduce API calls
-    page_size = 100
-
 
     [app.asset_sync]
     # Whether asset upload worker (Cloudflare R2) is enabled
     # default is false
+    # Requires restart to take effect.
     asset_upload_enable = true
 
     # The polling interval (in seconds) for scanning the cache directory
+    # Requires restart to take effect.
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
+    # Requires restart to take effect.
     asset_upload_endpoint = "https://fusou.dev/api/asset-sync/upload"
 
     # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
     fleet_snapshot_endpoint = "https://fusou.dev/api/fleet/snapshot"
 
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
+    # Requires restart to take effect.
     kc_period_endpoint = "https://fusou.dev/api/kc-period/latest"
 
     # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
+    # Requires restart to take effect.
     asset_existing_keys_endpoint = "https://fusou.dev/api/asset-sync/keys"
 
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
+    # Requires restart to take effect.
     asset_skip_extensions = ["mp3", "woff2", "js"]
 
 
@@ -266,6 +278,7 @@ save_file_location = ""
     ttl_seconds = 2592000 # 30 days
 
     # Interval (in seconds) between retry attempts
+    # Requires restart to take effect.
     interval_seconds = 900 # 15 minutes (base for exponential backoff)
 
     # Cooldown (in seconds) after an authentication failure before retrying
@@ -277,9 +290,11 @@ save_file_location = ""
 
 
     [app.auth]
-    # Whether to allow user authentication (currently unused; app runs in anonymous session mode)
+    # Master switch for anonymous authentication and all cloud sync features
+    # When false, FUSOU will not authenticate or upload data to cloud endpoints (local saving still works)
     # default is false
-    allow_auth = false
+    # Requires restart to take effect.
+    allow_auth = true
 
     # Authentication page URL
     # The URL to open when authentication is required
@@ -298,75 +313,95 @@ save_file_location = ""
     [app.quest_tree_sender]
     # Whether to enable quest tree data ingestion
     # default is false
+    # Requires restart to take effect.
     enable = true
 
     # Whether to save quest tree data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
+    # Requires restart to take effect.
     allow_data_to_local = true
 
     # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
     # If empty, quest tree sender is disabled
+    # Requires restart to take effect.
     ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
 
     [app.ship_growth_sender]
     # Whether to enable ship growth data ingestion
     # default is false
+    # Requires restart to take effect.
     enable = true
 
     # Whether to save ship growth (parameter progression) data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
+    # Requires restart to take effect.
     allow_data_to_local = true
 
     # Endpoint to ingest ship growth data
     # If empty, ship growth sender is disabled
+    # Requires restart to take effect.
     ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
 
     [app.soku_speed_sender]
     # Whether to enable speed observed data collection
     # default is false
+    # Requires restart to take effect.
     enable = true
 
     # Whether to save soku_speed observed data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
+    # Requires restart to take effect.
     allow_data_to_local = true
 
     # Endpoint to ingest soku_speed observed data
+    # Requires restart to take effect.
     ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
 
     [app.remodel_sender]
     # Whether to enable remodel tree data ingestion (experimental feature)
     # This sends your remodel recipe observations to help build the remodel tree.
     # default is false
+    # Requires restart to take effect.
     enable = true
 
     # Whether to save remodel data locally as JSON Lines (.jsonl)
     # Files are written under [app.database.local].output_directory (or the default local storage path)
     # default is false
+    # Requires restart to take effect.
     allow_data_to_local = true
 
     # Endpoint to ingest remodel data
     # Must be set when enable=true
+    # Requires restart to take effect.
     ingest_endpoint = "https://fusou.dev/api/remodel-data/ingest"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
     # This option is used when you use linux platform and the system internally uses wayland instead of X11
+    # Requires restart to take effect.
     resize_debounce_millis = 200
 
     # The duration (in milliseconds) to keep the KanColle window size when resized events occur
     # This option is used when you use linux platform and the system internally uses wayland instead of X11
     keep_window_size_duration_millis = 1000
 
-    # The maximum inner width and height of the KanColle window
+    # The maximum inner width of the KanColle window
+    # Requires restart to take effect.
     max_inner_width = 1920
+
+    # The maximum inner height of the KanColle window
+    # Requires restart to take effect.
     max_inner_height = 1080
 
-    # The default inner width and height of the KanColle window
-    # This size is used for keeping aspect ratio when resizing the window
+    # The default inner width of the KanColle window (used for keeping aspect ratio when resizing)
+    # Requires restart to take effect.
     default_inner_width = 1200
+
+    # The default inner height of the KanColle window (used for keeping aspect ratio when resizing)
+    # Requires restart to take effect.
     default_inner_height = 720
 
 

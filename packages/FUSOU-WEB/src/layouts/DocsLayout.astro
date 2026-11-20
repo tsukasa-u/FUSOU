@@ -7,6 +7,7 @@ import RightMenu from "@/components/features/docs/astro/RightMenu.astro";
 import Breadcrumb from "@/components/features/docs/astro/Breadcrumb.astro";
 import DocumentInfo from "@/components/features/docs/astro/DocumentInfo.astro";
 import DiagramZoomModal from "@/components/features/docs/astro/DiagramZoomModal.astro";
+import MermaidRenderer from "@/components/features/docs/astro/MermaidRenderer.astro";
 import { getCollection, getEntry } from "astro:content";
 import { compareSegments } from "@/utils/page_sorter";
 
@@ -96,10 +97,7 @@ if (currentSlug) {
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/katex@0.15.2/dist/katex.min.css"
     />
-    <script type="module" is:inline>
-      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-      mermaid.initialize({ startOnLoad: true });
-    </script>
+    <MermaidRenderer />
   </slot>
 
   <Navigation filled={true} />

@@ -44,6 +44,13 @@ async fn bootstrap_tokens_on_startup(
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
 ) {
+    if !configs::get_user_configs_for_app().auth.get_allow_auth() {
+        tracing::info!(
+            "startup: authentication disabled (app.auth.allow_auth = false); skipping token bootstrap"
+        );
+        return;
+    }
+
     // Try to load existing session from storage
     if let Ok(Some(session)) = storage.load_session().await {
         tracing::info!("startup: session loaded from storage");
@@ -189,6 +196,11 @@ pub async fn run() {
             cmd::tauri_cmd::get_app_theme,
             cmd::tauri_cmd::get_app_font,
             cmd::tauri_cmd::get_kc_server_name,
+            cmd::config_cmd::get_app_configs,
+            cmd::config_cmd::save_app_configs,
+            cmd::config_cmd::restart_app,
+            cmd::config_cmd::open_config_file,
+            cmd::config_cmd::pick_config_path,
             cmd::tauri_cmd::get_access_token,
             cmd::tauri_cmd::get_user_tokens,
             cmd::tauri_cmd::check_supabase_session_health,
@@ -363,9 +375,17 @@ pub async fn run() {
 
             // Initialize JSONL/ingest senders if remote or local saving is enabled
             {
+                let app_configs = configs::get_user_configs_for_app();
+                let allow_auth = app_configs.auth.get_allow_auth();
                 let resolve_remote_endpoint =
                     |sender_name: &str, remote_enabled: bool, endpoint: Option<String>| {
                         if !remote_enabled {
+                            return None;
+                        }
+                        if !allow_auth {
+                            tracing::info!(
+                                "{sender_name} remote upload skipped because authentication is disabled (app.auth.allow_auth = false)"
+                            );
                             return None;
                         }
                         if endpoint.is_none() {
@@ -375,8 +395,6 @@ pub async fn run() {
                         }
                         endpoint
                     };
-
-                let app_configs = configs::get_user_configs_for_app();
                 let suppression_root = util::get_ROAMING_DIR()
                     .join("cache")
                     .join("request_suppression");

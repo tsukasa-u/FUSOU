@@ -344,7 +344,7 @@ const returnTo = validateInternalReturnPath(
       }
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
+    const initialize = () => {
       function createButtonIcon(pathData: string): SVGSVGElement {
         const svgNs = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNs, "svg");
@@ -502,6 +502,12 @@ const returnTo = validateInternalReturnPath(
 
       // Initialize
       window.showStep("1");
-    });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initialize, { once: true });
+    } else {
+      initialize();
+    }
   </script>
 </Layout>

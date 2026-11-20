@@ -55,6 +55,18 @@ FUSOU-WEB : <br>
 &emsp; Data viewer for analyzed data<br>
 &emsp; 解析データ閲覧用
 
+### FUSOU-WEB Storybook
+
+Run Storybook directly; a separate Astro development server is not required:
+
+```powershell
+pnpm --filter fusou-web storybook
+```
+
+Page stories import and render the Astro pages directly in the Storybook canvas. Storybook supplies deterministic mock API data, authentication state, and route query state. The page catalog includes the public documentation articles, the main tab/query states for Battles, Simulator, Ship Growth, and API Schema, plus populated, empty, and request-error states where applicable. Legacy redirect routes are listed as their destination states. Component stories render the Astro, React, and Solid implementations directly, using deterministic local fixtures for stateful and data-dependent props. Regenerate stories after adding pages or components with `pnpm --filter fusou-web storybook.generate`; build the static catalog with `pnpm --filter fusou-web storybook.build`.
+
+Ship images in Storybook use the public FUSOU asset-sync service and require a network connection; unavailable assets are not replaced with generic placeholders.
+
 ## Enviroment Variables Management
 
 We use [dotenvx](https://dotenvx.com/) to securely manage and encrypt environment variables for both local development and deployment. dotenvx enables encrypted `.env` files, making it easy to sync, share, and integrate environment variables across different environments and CI/CD pipelines while ensuring sensitive information remains protected.

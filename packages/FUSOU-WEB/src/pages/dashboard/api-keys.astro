@@ -12,30 +12,8 @@ import { resolvePublicIdsForUser } from "@/server/utils";
 import type { User } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
 
-const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
-const supabase = createSupabaseServerClient(cookies, runtimeEnv);
-
-const accessToken = cookies.get("sb-access-token");
-const refreshToken = cookies.get("sb-refresh-token");
-
-if (!accessToken || !refreshToken) {
-  return Astro.redirect("/auth/signin");
-}
-
-let user: User | null = null;
-try {
-  const session = await supabase.auth.setSession({
-    refresh_token: refreshToken.value,
-    access_token: accessToken.value,
-  });
-  if (session.error) {
-    return Astro.redirect("/auth/signin");
-  }
-  user = session.data.user;
-} catch (_error) {
-  return Astro.redirect("/auth/signin");
-}
+const isStorybook = Astro.props["storybook"] === true;
 
 type MemberMap = {
   linked?: boolean;
@@ -43,14 +21,57 @@ type MemberMap = {
   source?: string;
 };
 
+type ApiKeysUser = Pick<User, "id" | "app_metadata" | "user_metadata" | "email">;
+
+let user: ApiKeysUser | null = null;
 let memberMaps: MemberMap[] = [];
 let memberMap: MemberMap | null = null;
+
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
 }
 
-try {
-  if (user?.id) {
+if (isStorybook) {
+  user = {
+    id: "storybook-user",
+    app_metadata: { provider: "google" },
+    user_metadata: { name: "Storybook User" },
+    email: "storybook@example.invalid",
+  };
+  memberMaps = [
+    { linked: true, public_id_masked: "123456...7890", source: "storybook" },
+  ];
+  memberMap = memberMaps[0] ?? null;
+} else {
+  const cookies = Astro.cookies;
+  const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+  const accessToken = cookies.get("sb-access-token");
+  const refreshToken = cookies.get("sb-refresh-token");
+
+  if (!accessToken || !refreshToken) {
+    return Astro.redirect("/auth/signin");
+  }
+
+  let authenticatedUser: User | null = null;
+  try {
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshToken.value,
+      access_token: accessToken.value,
+    });
+    if (session.error) {
+      return Astro.redirect("/auth/signin");
+    }
+    authenticatedUser = session.data.user;
+  } catch (_error) {
+    return Astro.redirect("/auth/signin");
+  }
+
+  user = authenticatedUser;
+  if (!user) {
+    return Astro.redirect("/auth/signin");
+  }
+
+  try {
     const resolved = await resolvePublicIdsForUser({
       supabaseAdmin: createSupabaseAdminClient(runtimeEnv),
       userId: user.id,
@@ -64,13 +85,9 @@ try {
       ...(resolved.source ? { source: resolved.source } : {}),
     }));
     memberMap = memberMaps[0] ?? null;
+  } catch (error) {
+    console.error("Member ID association check failed:", error);
   }
-} catch (error) {
-  console.error("Member ID association check failed:", error);
-}
-
-if (!user) {
-  return Astro.redirect("/auth/signin");
 }
 ---
 
@@ -764,8 +781,7 @@ if (!user) {
     });
   }
 
-  // Initialize
-  document.addEventListener("DOMContentLoaded", () => {
+  const initialize = () => {
     fetchApiKeys();
     fetchDevices();
     fetchUsage();
@@ -806,5 +822,11 @@ if (!user) {
         pendingDeleteAction = null;
       }
     });
-  });
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initialize, { once: true });
+  } else {
+    initialize();
+  }
 </script>

@@ -70,7 +70,13 @@ export const ComponentShipMst: Component<ComponentShipMstProps> = (props) => {
       }
     >
       <div class="flex flex-nowrap w-full">
-        <div>
+        <div
+          title={
+            props.mst_ship && !props.empty_flag
+              ? mst_ship().name || undefined
+              : undefined
+          }
+        >
           <IconShip
             ship_stype={mst_ship().stype}
             color={props.color ?? ""}

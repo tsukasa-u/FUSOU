@@ -95,7 +95,7 @@ export function MasterDataLoadStatusAlert(props: {
               </Show>
             </div>
             <button
-              class="btn btn-xs btn-ghost ml-auto shrink-0 whitespace-nowrap"
+              class="btn btn-xs btn-outline ml-auto shrink-0 whitespace-nowrap"
               type="button"
               onClick={() => setShowDetails((prev) => !prev)}
             >

@@ -81,10 +81,10 @@ enum PortTableDispatchOutcome {
 }
 
 fn is_any_storage_provider_configured() -> bool {
-    let database = configs::get_user_configs_for_app().database;
-    database.get_allow_data_to_cloud()
-        || database.get_allow_data_to_local()
-        || database.get_allow_data_to_shared_cloud()
+    let app_configs = configs::get_user_configs_for_app();
+    let database = app_configs.database;
+    database.get_allow_data_to_local()
+        || (app_configs.auth.get_allow_auth() && database.get_allow_data_to_shared_cloud())
 }
 
 fn save_deferred_port_table(
@@ -177,11 +177,7 @@ async fn attempt_port_table_upload(
     }
 }
 
-async fn process_captured_port_table(
-    cells: Cells,
-    timestamp: i64,
-    deps_opt: Option<StorageDeps>,
-) {
+async fn process_captured_port_table(cells: Cells, timestamp: i64, deps_opt: Option<StorageDeps>) {
     let Some((pending_store, retry_service)) = deps_opt else {
         if Cells::reset_flag() {
             cells.restore();
@@ -196,7 +192,8 @@ async fn process_captured_port_table(
         return;
     };
 
-    let storage_service = StorageService::get_instance(pending_store.clone(), retry_service.clone()).await;
+    let storage_service =
+        StorageService::get_instance(pending_store.clone(), retry_service.clone()).await;
     let period_tag = if storage_service.is_some() {
         supabase::get_period_tag().await
     } else {
@@ -332,15 +329,8 @@ mod tests {
         );
 
         let timestamp = 1_793_180_000_i64;
-        let outcome = attempt_port_table_upload(
-            None,
-            true,
-            None,
-            &captured,
-            timestamp,
-            &auth_manager,
-        )
-        .await;
+        let outcome =
+            attempt_port_table_upload(None, true, None, &captured, timestamp, &auth_manager).await;
         assert_eq!(
             outcome,
             PortTableDispatchOutcome::DeferredTemporary("storage service temporarily unavailable")

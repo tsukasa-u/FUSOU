@@ -1,13 +1,58 @@
 import { describe, expect, it } from "vitest";
-import { buildItemShelves, classifyUseItemShelf } from "./item_shelves";
+import {
+  buildItemShelves,
+  buildUseItemNameMap,
+  classifyUseItemShelf,
+} from "./item_shelves";
 
 describe("classifyUseItemShelf", () => {
-  it("routes normal, special (>=75), and port expansion (53) items to matching shelves", () => {
+  it("routes normal, special, purchased, and furniture store items to matching shelves", () => {
     expect(classifyUseItemShelf(50)).toBe("normal");
     expect(classifyUseItemShelf(74)).toBe("normal");
     expect(classifyUseItemShelf(75)).toBe("special");
     expect(classifyUseItemShelf(93)).toBe("special");
     expect(classifyUseItemShelf(53)).toBe("purchased");
+    expect(classifyUseItemShelf(44)).toBe("furniture");
+  });
+});
+
+describe("buildUseItemNameMap", () => {
+  it("prefers metadata names and falls back to use-item master names", () => {
+    expect(
+      buildUseItemNameMap(
+        {
+          mst_use_items: {
+            50: { id: 50, name: "Master name" },
+            57: { id: 57, name: "勲章" },
+            75: { id: 75, name: "Fallback name" },
+          },
+        },
+        {
+          mst_use_item_metas: {
+            50: {
+              id: 50,
+              usetype: 0,
+              category: 1,
+              name: "Metadata name",
+              description: [],
+              price: 0,
+            },
+            75: {
+              id: 75,
+              usetype: 0,
+              category: 1,
+              name: " ",
+              description: [],
+              price: 0,
+            },
+          },
+        },
+      ),
+    ).toEqual({
+      50: "Metadata name",
+      57: "勲章",
+      75: "Fallback name",
+    });
   });
 });
 
@@ -18,7 +63,7 @@ describe("buildItemShelves", () => {
         use_items: {
           1: { id: 1, count: 1500 }, // Bucket (resource strip)
           31: { id: 31, count: 50000 }, // Fuel (resource strip)
-          44: { id: 44, count: 12000 }, // Furniture coin (resource strip)
+          44: { id: 44, count: 12000 }, // Furniture Store
           50: { id: 50, count: 3 },
           57: { id: 57, count: 12 },
           75: { id: 75, count: 4 },
@@ -56,6 +101,14 @@ describe("buildItemShelves", () => {
             ],
             price: 200,
           },
+          44: {
+            id: 44,
+            usetype: 0,
+            category: 5,
+            name: "家具コイン",
+            description: ["家具の購入に使用します。"],
+            price: 0,
+          },
           57: {
             id: 57,
             usetype: 4,
@@ -83,6 +136,12 @@ describe("buildItemShelves", () => {
     expect(result.normal[1].usable).toBe(true);
     expect(result.special.map((i) => i.id)).toEqual([75]);
     expect(result.special[0].iconNumber).toBe(75);
+    expect(result.furniture.map((i) => i.id)).toEqual([44]);
+    expect(result.furniture[0]).toMatchObject({
+      iconNumber: 44,
+      name: "家具コイン",
+      count: 12000,
+    });
     expect(result.purchased).toHaveLength(1);
     expect(result.purchased[0].iconNumber).toBe(50);
     expect(result.purchased[0].description).toBe(

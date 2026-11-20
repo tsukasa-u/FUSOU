@@ -81,41 +81,138 @@
   --noise: 0;
 }
 
-/* Global baseline normalization for consistent UI across pages */
+/* Global baseline normalization for consistent UI across pages (E2 Crisp Hairline) */
 .btn {
   @apply rounded-lg font-medium;
   letter-spacing: 0.01em;
+  box-shadow: none;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.08s ease;
 }
 
-.btn:not(.btn-link) {
-  border-width: 1px;
-  border-color: color-mix(in oklch, var(--color-base-content) 22%, transparent);
+.btn:not(:disabled, .btn-disabled, [aria-disabled="true"]):active {
+  transform: translateY(0.5px);
 }
 
-.btn.btn-primary {
-  border-color: color-mix(
-    in oklch,
-    var(--color-primary-content) 45%,
-    transparent
-  );
+/* Neutral default button */
+.btn:not(
+    .btn-link,
+    .btn-ghost,
+    .btn-outline,
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ) {
+  --btn-border: color-mix(in oklab, var(--color-base-content) 18%, transparent);
 }
 
-.btn.btn-outline,
-.btn.btn-ghost {
-  border-color: color-mix(in oklch, var(--color-base-content) 25%, transparent);
+@media (hover: hover) {
+  .btn:not(
+      .btn-link,
+      .btn-ghost,
+      .btn-outline,
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error,
+      :disabled,
+      .btn-disabled,
+      [aria-disabled="true"]
+    ):hover {
+    --btn-border: color-mix(in oklab, var(--color-base-content) 28%, transparent);
+  }
+}
+
+/* Solid colored buttons: harmonious same-hue border */
+.btn.btn-primary:not(.btn-outline, .btn-ghost, .btn-link) {
+  --btn-border: color-mix(in oklab, var(--color-primary) 78%, #000);
+}
+
+.btn.btn-secondary:not(.btn-outline, .btn-ghost, .btn-link) {
+  --btn-border: color-mix(in oklab, var(--color-secondary) 78%, #000);
+}
+
+.btn.btn-error:not(.btn-outline, .btn-ghost, .btn-link) {
+  --btn-border: color-mix(in oklab, var(--color-error) 78%, #000);
+}
+
+@media (hover: hover) {
+  .btn.btn-primary:not(.btn-outline, .btn-ghost, .btn-link, :disabled, .btn-disabled):hover {
+    --btn-border: color-mix(in oklab, var(--color-primary) 72%, #000);
+  }
+  .btn.btn-secondary:not(.btn-outline, .btn-ghost, .btn-link, :disabled, .btn-disabled):hover {
+    --btn-border: color-mix(in oklab, var(--color-secondary) 72%, #000);
+  }
+  .btn.btn-error:not(.btn-outline, .btn-ghost, .btn-link, :disabled, .btn-disabled):hover {
+    --btn-border: color-mix(in oklab, var(--color-error) 72%, #000);
+  }
+}
+
+/* Neutral outline button (preserves colored outline variants) */
+.btn.btn-outline:not(
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-neutral,
+    .btn-info,
+    .btn-success,
+    .btn-warning,
+    .btn-error
+  ) {
+  --btn-bg: transparent;
+  color: var(--color-base-content);
+  --btn-border: color-mix(in oklab, var(--color-base-content) 22%, transparent);
+}
+
+@media (hover: hover) {
+  .btn.btn-outline:not(
+      .btn-primary,
+      .btn-secondary,
+      .btn-accent,
+      .btn-neutral,
+      .btn-info,
+      .btn-success,
+      .btn-warning,
+      .btn-error,
+      :disabled,
+      .btn-disabled,
+      [aria-disabled="true"]
+    ):hover {
+    --btn-bg: color-mix(in oklab, var(--color-base-content) 7%, var(--color-base-100));
+    color: var(--color-base-content);
+    --btn-border: color-mix(in oklab, var(--color-base-content) 34%, transparent);
+  }
 }
 
 .btn.btn-link {
-  border-color: transparent;
+  --btn-border: transparent;
 }
 
 .btn.btn-sm {
   min-height: 2rem;
 }
 
+/* Ghost button: borderless at rest, clean hover surface */
 .btn.btn-ghost {
-  border: 1px solid
-    color-mix(in oklch, var(--color-base-content) 12%, transparent);
+  --btn-border: transparent;
+}
+
+@media (hover: hover) {
+  .btn.btn-ghost:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-border: transparent;
+  }
 }
 
 .navbar .btn {
@@ -684,40 +781,128 @@ select::picker(select) {
   @apply p-6;
 }
 
-.fusou-btn-primary {
-  @apply btn btn-primary btn-sm rounded-lg border border-primary-content/45;
+.fusou-btn-primary,
+.fusou-btn-secondary,
+.fusou-btn-ghost,
+.fusou-btn-outline,
+.fusou-btn-danger,
+.fusou-btn-xs,
+.fusou-btn-xs-primary,
+.fusou-btn-xs-secondary,
+.fusou-btn-xs-ghost {
+  box-shadow: none;
+  letter-spacing: 0.01em;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.08s ease;
 }
 
-.fusou-btn-secondary {
-  @apply btn btn-outline btn-sm rounded-lg border border-base-300;
+.fusou-btn-primary:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-secondary:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-ghost:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-outline:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-danger:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-xs:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-xs-primary:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-xs-secondary:not(:disabled, .btn-disabled, [aria-disabled="true"]):active,
+.fusou-btn-xs-ghost:not(:disabled, .btn-disabled, [aria-disabled="true"]):active {
+  transform: translateY(0.5px);
+}
+
+.fusou-btn-primary {
+  @apply btn btn-primary btn-sm rounded-lg font-medium;
+  --btn-border: color-mix(in oklab, var(--color-primary) 78%, #000);
+}
+@media (hover: hover) {
+  .fusou-btn-primary:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-border: color-mix(in oklab, var(--color-primary) 72%, #000);
+  }
+}
+
+.fusou-btn-secondary,
+.fusou-btn-outline {
+  @apply btn btn-outline btn-sm rounded-lg font-medium;
+  --btn-bg: transparent;
+  color: var(--color-base-content);
+  --btn-border: color-mix(in oklab, var(--color-base-content) 22%, transparent);
+}
+@media (hover: hover) {
+  .fusou-btn-secondary:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover,
+  .fusou-btn-outline:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(in oklab, var(--color-base-content) 7%, var(--color-base-100));
+    color: var(--color-base-content);
+    --btn-border: color-mix(in oklab, var(--color-base-content) 34%, transparent);
+  }
 }
 
 .fusou-btn-ghost {
-  @apply btn btn-ghost btn-sm rounded-lg border border-base-300;
+  @apply btn btn-ghost btn-sm rounded-lg font-medium;
+  --btn-bg: transparent;
+  --btn-border: transparent;
 }
-
-.fusou-btn-outline {
-  @apply btn btn-outline btn-sm rounded-lg border border-base-300;
+@media (hover: hover) {
+  .fusou-btn-ghost:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+    --btn-border: transparent;
+  }
 }
 
 .fusou-btn-danger {
-  @apply btn btn-error btn-sm rounded-lg text-error-content border-error;
+  @apply btn btn-error btn-sm rounded-lg text-error-content font-medium;
+  --btn-border: color-mix(in oklab, var(--color-error) 78%, #000);
+}
+@media (hover: hover) {
+  .fusou-btn-danger:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-border: color-mix(in oklab, var(--color-error) 72%, #000);
+  }
 }
 
 .fusou-btn-xs {
-  @apply btn btn-xs rounded-md border border-base-300 font-medium;
+  @apply btn btn-xs rounded-md font-medium;
+  --btn-border: color-mix(in oklab, var(--color-base-content) 18%, transparent);
+}
+@media (hover: hover) {
+  .fusou-btn-xs:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-border: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+  }
 }
 
 .fusou-btn-xs-primary {
-  @apply btn btn-primary btn-xs rounded-md border border-primary-content/45;
+  @apply btn btn-primary btn-xs rounded-md font-medium;
+  --btn-border: color-mix(in oklab, var(--color-primary) 78%, #000);
+}
+@media (hover: hover) {
+  .fusou-btn-xs-primary:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-border: color-mix(in oklab, var(--color-primary) 72%, #000);
+  }
 }
 
 .fusou-btn-xs-secondary {
-  @apply btn btn-outline btn-xs rounded-md border border-base-300;
+  @apply btn btn-outline btn-xs rounded-md font-medium;
+  --btn-bg: transparent;
+  color: var(--color-base-content);
+  --btn-border: color-mix(in oklab, var(--color-base-content) 22%, transparent);
+}
+@media (hover: hover) {
+  .fusou-btn-xs-secondary:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(in oklab, var(--color-base-content) 7%, var(--color-base-100));
+    color: var(--color-base-content);
+    --btn-border: color-mix(in oklab, var(--color-base-content) 34%, transparent);
+  }
 }
 
 .fusou-btn-xs-ghost {
-  @apply btn btn-ghost btn-xs rounded-md border border-base-300;
+  @apply btn btn-ghost btn-xs rounded-md font-medium;
+  --btn-bg: transparent;
+  --btn-border: transparent;
+}
+@media (hover: hover) {
+  .fusou-btn-xs-ghost:not(:disabled, .btn-disabled, [aria-disabled="true"]):hover {
+    --btn-bg: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+    --btn-border: transparent;
+  }
 }
 
 .fusou-card-interactive {

@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["kc-api-epoch-20250627"]
-gdrive = ["dep:google-drive3", "dep:rustls", "configs/gdrive"]
+gdrive = ["dep:google-drive3", "dep:rustls"]
 kc-api-epoch-genesis = ["kc_api/genesis"]
 kc-api-epoch-20250627 = ["kc_api/epoch_20250627"]
 

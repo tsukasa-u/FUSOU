@@ -14,6 +14,7 @@ import {
 const sampleMstUseItems: MstUseItems = {
   mst_use_items: {
     10: { id: 10, name: "家具箱（小）" },
+    44: { id: 44, name: "家具コイン" },
     50: { id: 50, name: "応急修理要員" },
     57: { id: 57, name: "勲章" },
     75: { id: 75, name: "新型砲熕兵装資材" },
@@ -29,6 +30,14 @@ const sampleMstUseItemMetas: MstUseItemMetas = {
       category: 3,
       name: "家具箱（小）",
       description: ["開けると家具コインを200入手できます。"],
+      price: 0,
+    },
+    44: {
+      id: 44,
+      usetype: 0,
+      category: 5,
+      name: "家具コイン",
+      description: ["家具の購入に使用します。"],
       price: 0,
     },
     50: {
@@ -73,6 +82,7 @@ const sampleUseItems: UseItems = {
     1: { id: 1, count: 1420 },
     31: { id: 31, count: 120000 },
     10: { id: 10, count: 24 },
+    44: { id: 44, count: 12000 },
     50: { id: 50, count: 5 },
     57: { id: 57, count: 14 },
     75: { id: 75, count: 9 },

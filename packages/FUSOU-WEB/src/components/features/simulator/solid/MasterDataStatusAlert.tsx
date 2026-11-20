@@ -94,7 +94,7 @@ export function MasterDataStatusAlert() {
           <button
             id="data-status-details-toggle"
             type="button"
-            class="fusou-btn-ghost btn-xs text-[11px] h-6 min-h-0 px-2 shrink-0"
+            class="fusou-btn-xs-secondary text-[11px] h-6 min-h-0 px-2 shrink-0"
             title="詳細ロード結果を表示/非表示"
             onClick={() => setDetailsOpen((open) => !open)}
           >

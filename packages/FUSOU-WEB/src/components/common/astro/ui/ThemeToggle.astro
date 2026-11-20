@@ -13,16 +13,18 @@
 </label>
 
 <script is:inline>
-  const toggle = document.getElementById("theme-toggle");
-  if (toggle) {
-    if (document.documentElement.getAttribute("data-theme") === "dark") {
-      toggle.checked = true;
+  (() => {
+    const toggle = document.getElementById("theme-toggle");
+    if (toggle) {
+      if (document.documentElement.getAttribute("data-theme") === "dark") {
+        toggle.checked = true;
+      }
+
+      toggle.addEventListener("change", (e) => {
+        const theme = e.target.checked ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("theme", theme);
+      });
     }
-    
-    toggle.addEventListener("change", (e) => {
-      const theme = e.target.checked ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", theme);
-      localStorage.setItem("theme", theme);
-    });
-  }
+  })();
 </script>

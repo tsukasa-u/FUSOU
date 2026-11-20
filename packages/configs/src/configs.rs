@@ -3,9 +3,11 @@ extern crate toml;
 
 use crate::migrations::{self, ConfigVersion};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, RwLock};
 
 use once_cell::sync::OnceCell;
 
@@ -65,48 +67,8 @@ impl ConfigsProxyPac {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ChannelTransportKind {
-    Mpsc,
-    Grpc,
-}
-
-impl Default for ChannelTransportKind {
-    fn default() -> Self {
-        ChannelTransportKind::Mpsc
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigsProxyChannel {
-    pub transport: ChannelTransportKind,
-    endpoint: Option<String>,
-    buffer_size: Option<i64>,
-}
-
-impl ConfigsProxyChannel {
-    pub fn get_endpoint(&self) -> Option<String> {
-        match self.endpoint {
-            Some(ref value) if !value.is_empty() => Some(value.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn get_buffer_size(&self) -> Option<usize> {
-        self.buffer_size.and_then(|value| {
-            if value <= 0 {
-                None
-            } else {
-                Some(value as usize)
-            }
-        })
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyNetwork {
-    backend_crate: Option<String>,
     enforce_http: Option<bool>,
     set_nodelay: Option<bool>,
     connect_timeout: Option<i64>,
@@ -117,17 +79,6 @@ pub struct ConfigsProxyNetwork {
 }
 
 impl ConfigsProxyNetwork {
-    pub fn get_backend_crate(&self) -> String {
-        self.backend_crate.clone().unwrap_or_else(|| {
-            get_default_configs()
-                .proxy
-                .network
-                .backend_crate
-                .clone()
-                .unwrap()
-        })
-    }
-
     pub fn get_enforce_http(&self) -> bool {
         self.enforce_http
             .unwrap_or_else(|| get_default_configs().proxy.network.enforce_http.unwrap())
@@ -385,60 +336,6 @@ impl ConfigsAppDiscord {
     }
 }
 
-#[cfg(feature = "gdrive")]
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[deprecated(
-    since = "0.2.0",
-    note = "Google Drive authentication is deprecated. Use anonymous authentication instead."
-)]
-pub struct ConfigsAppDatabaseGoogleDrive {
-    schedule_cron: Option<String>,
-    page_size: Option<i32>,
-}
-
-#[cfg(feature = "gdrive")]
-#[allow(deprecated)]
-impl ConfigsAppDatabaseGoogleDrive {
-    #[deprecated(
-        since = "0.2.0",
-        note = "Google Drive authentication is deprecated. Use anonymous authentication instead."
-    )]
-    pub fn get_schedule_cron(&self) -> String {
-        self.schedule_cron.clone().unwrap_or_else(|| {
-            #[allow(deprecated)]
-            get_default_configs()
-                .app
-                .database
-                .google_drive
-                .schedule_cron
-                .clone()
-                .unwrap_or_default()
-        })
-    }
-
-    #[deprecated(
-        since = "0.2.0",
-        note = "Google Drive authentication is deprecated. Use anonymous authentication instead."
-    )]
-    pub fn get_page_size(&self) -> i32 {
-        match self.page_size {
-            Some(v) if v <= 0 => 100,
-            Some(v) if v > 100 => 100,
-            Some(v) => v,
-            None =>
-            {
-                #[allow(deprecated)]
-                get_default_configs()
-                    .app
-                    .database
-                    .google_drive
-                    .page_size
-                    .unwrap_or(100)
-            }
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseLocal {
     output_directory: Option<String>,
@@ -492,28 +389,14 @@ impl ConfigsAppDatabaseR2 {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
-    allow_data_to_cloud: Option<bool>,
     allow_data_to_shared_cloud: Option<bool>,
     allow_data_to_local: Option<bool>,
     integration_schedule_cron: Option<String>,
     pub local: ConfigsAppDatabaseLocal,
-    #[cfg(feature = "gdrive")]
-    #[serde(default)]
-    pub google_drive: ConfigsAppDatabaseGoogleDrive,
     pub r2: ConfigsAppDatabaseR2,
 }
 
 impl ConfigsAppDatabase {
-    pub fn get_allow_data_to_cloud(&self) -> bool {
-        self.allow_data_to_cloud.unwrap_or_else(|| {
-            get_default_configs()
-                .app
-                .database
-                .allow_data_to_cloud
-                .unwrap()
-        })
-    }
-
     pub fn get_allow_data_to_shared_cloud(&self) -> bool {
         self.allow_data_to_shared_cloud.unwrap_or_else(|| {
             get_default_configs()
@@ -1020,7 +903,6 @@ pub struct ConfigsProxy {
     pub network: ConfigsProxyNetwork,
     pub certificates: ConfigsProxyCertificates,
     pub pac: ConfigsProxyPac,
-    pub channel: ConfigsProxyChannel,
 }
 
 impl ConfigsProxy {
@@ -1057,22 +939,6 @@ impl ConfigsProxy {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
             _ => None,
         }
-    }
-
-    pub fn get_channel_transport(&self) -> ChannelTransportKind {
-        self.channel.transport.clone()
-    }
-
-    pub fn get_channel_endpoint(&self) -> Option<String> {
-        self.channel
-            .get_endpoint()
-            .or_else(|| get_default_configs().proxy.channel.get_endpoint())
-    }
-
-    pub fn get_channel_buffer_size(&self) -> Option<usize> {
-        self.channel
-            .get_buffer_size()
-            .or_else(|| get_default_configs().proxy.channel.get_buffer_size())
     }
 }
 
@@ -1119,22 +985,44 @@ pub struct Configs {
     pub env: ConfigEnv,
 }
 
-static USER_CONFIGS: OnceCell<Configs> = OnceCell::new();
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ConfigPatchValue {
+    Bool(bool),
+    Integer(i64),
+    String(String),
+    StringArray(Vec<String>),
+}
+
+static USER_CONFIGS: LazyLock<RwLock<Option<Configs>>> = LazyLock::new(|| RwLock::new(None));
+static USER_CONFIG_PATH: LazyLock<RwLock<Option<PathBuf>>> = LazyLock::new(|| RwLock::new(None));
 static DEFAULT_USER_CONFIGS: OnceCell<Configs> = OnceCell::new();
+
+const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
 
 /// Get the default configs parsed from embedded configs.toml
 fn get_default_configs() -> &'static Configs {
     DEFAULT_USER_CONFIGS.get_or_init(|| {
-        let toml_str = include_str!("../configs.toml");
-        toml::from_str(toml_str).expect("Failed to parse embedded configs.toml")
+        toml::from_str(DEFAULT_TOML_FILE).expect("Failed to parse embedded configs.toml")
     })
+}
+
+pub fn get_user_config_path() -> Option<PathBuf> {
+    USER_CONFIG_PATH
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config = get_configs(path)?;
-    if USER_CONFIGS.set(config).is_err() {
-        // Configs may be initialized multiple times in dev/hot-reload runs; keep the first one.
-        tracing::warn!("User configs already set; reusing existing instance");
+    {
+        let mut guard = USER_CONFIGS.write().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(config);
+    }
+    {
+        let mut path_guard = USER_CONFIG_PATH.write().unwrap_or_else(|e| e.into_inner());
+        *path_guard = Some(PathBuf::from(path));
     }
     Ok(())
 }
@@ -1143,7 +1031,6 @@ pub fn get_configs(config_path: &str) -> Result<Configs, Box<dyn std::error::Err
     use toml_edit::DocumentMut;
 
     tracing::info!("Loading configs from: {}", config_path);
-    const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
     let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
     let default_configs = toml::from_str::<Configs>(DEFAULT_TOML_FILE)?;
     let current_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
@@ -1201,7 +1088,11 @@ pub fn get_configs(config_path: &str) -> Result<Configs, Box<dyn std::error::Err
 }
 
 pub fn get_user_configs() -> Configs {
-    if let Some(configs) = USER_CONFIGS.get() {
+    if let Some(configs) = USER_CONFIGS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
         return configs.clone();
     }
 
@@ -1210,6 +1101,219 @@ pub fn get_user_configs() -> Configs {
     // embedded defaults without touching the filesystem.
     tracing::warn!("User configs not initialized; using embedded defaults (no file written)");
     get_default_configs().clone()
+}
+
+fn toml_value_to_patch(value: &toml_edit::Value) -> Option<ConfigPatchValue> {
+    match value {
+        toml_edit::Value::Boolean(b) => Some(ConfigPatchValue::Bool(*b.value())),
+        toml_edit::Value::Integer(i) => Some(ConfigPatchValue::Integer(*i.value())),
+        toml_edit::Value::String(s) => Some(ConfigPatchValue::String(s.value().clone())),
+        toml_edit::Value::Array(arr) => {
+            let mut items = Vec::with_capacity(arr.len());
+            for elem in arr.iter() {
+                match elem {
+                    toml_edit::Value::String(s) => items.push(s.value().clone()),
+                    _ => return None,
+                }
+            }
+            Some(ConfigPatchValue::StringArray(items))
+        }
+        _ => None,
+    }
+}
+
+fn collect_flat_table_values(
+    prefix: &str,
+    table: &toml_edit::Table,
+    out: &mut BTreeMap<String, ConfigPatchValue>,
+) {
+    for (key, item) in table.iter() {
+        let full_key = if prefix.is_empty() {
+            key.to_string()
+        } else {
+            format!("{prefix}.{key}")
+        };
+        if full_key == "version" || full_key == "app.connect_kc_server.server_list" {
+            continue;
+        }
+        match item {
+            toml_edit::Item::Table(subtable) => {
+                collect_flat_table_values(&full_key, subtable, out);
+            }
+            toml_edit::Item::Value(value) => {
+                if let Some(patch_value) = toml_value_to_patch(value) {
+                    out.insert(full_key, patch_value);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn load_merged_document(
+    config_path: Option<&Path>,
+) -> Result<toml_edit::DocumentMut, Box<dyn std::error::Error>> {
+    use toml_edit::DocumentMut;
+
+    let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
+    if let Some(path) = config_path {
+        match fs::read_to_string(path) {
+            Ok(contents) => {
+                let mut user_doc = contents.parse::<DocumentMut>()?;
+                let current_version = semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
+                let source_version = migrations::read_config_version(&user_doc)?;
+                let _ =
+                    migrations::migrate_config(&mut user_doc, &source_version, &current_version)?;
+                merge_toml_values(&mut default_doc, &user_doc);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(Box::new(error)),
+        }
+    }
+    Ok(default_doc)
+}
+
+pub fn export_default_config_values() -> BTreeMap<String, ConfigPatchValue> {
+    let mut values = BTreeMap::new();
+    if let Ok(doc) = DEFAULT_TOML_FILE.parse::<toml_edit::DocumentMut>() {
+        collect_flat_table_values("", doc.as_table(), &mut values);
+    }
+    values
+}
+
+pub fn export_config_values_from_path(
+    config_path: Option<&Path>,
+) -> Result<BTreeMap<String, ConfigPatchValue>, Box<dyn std::error::Error>> {
+    let doc = load_merged_document(config_path)?;
+    let mut values = BTreeMap::new();
+    collect_flat_table_values("", doc.as_table(), &mut values);
+    Ok(values)
+}
+
+pub fn export_user_config_values(
+) -> Result<BTreeMap<String, ConfigPatchValue>, Box<dyn std::error::Error>> {
+    let path = get_user_config_path();
+    export_config_values_from_path(path.as_deref())
+}
+
+fn apply_patch_to_document(
+    doc: &mut toml_edit::DocumentMut,
+    dot_path: &str,
+    patch: &ConfigPatchValue,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if dot_path == "version" || dot_path.starts_with("app.connect_kc_server.server_list") {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Config key '{dot_path}' is read-only"),
+        )));
+    }
+
+    let segments: Vec<&str> = dot_path.split('.').collect();
+    if segments.is_empty() || segments.iter().any(|s| s.is_empty()) {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid config key path: '{dot_path}'"),
+        )));
+    }
+
+    let mut current_table = doc.as_table_mut();
+    for segment in &segments[..segments.len() - 1] {
+        current_table = current_table
+            .get_mut(segment)
+            .and_then(|item| item.as_table_mut())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Unknown config section in key '{dot_path}'"),
+                )
+            })?;
+    }
+
+    let leaf_key = segments[segments.len() - 1];
+    let target_item = current_table.get_mut(leaf_key).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Unknown config key '{dot_path}'"),
+        )
+    })?;
+
+    let existing_value = target_item.as_value_mut().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Config key '{dot_path}' does not point to a value"),
+        )
+    })?;
+
+    let new_value = match (existing_value as &toml_edit::Value, patch) {
+        (toml_edit::Value::Boolean(_), ConfigPatchValue::Bool(b)) => toml_edit::Value::from(*b),
+        (toml_edit::Value::Integer(_), ConfigPatchValue::Integer(n)) => toml_edit::Value::from(*n),
+        (toml_edit::Value::String(_), ConfigPatchValue::String(s)) => {
+            toml_edit::Value::from(s.as_str())
+        }
+        (toml_edit::Value::Array(_), ConfigPatchValue::StringArray(items)) => {
+            let mut arr = toml_edit::Array::new();
+            for item in items {
+                arr.push(item.as_str());
+            }
+            toml_edit::Value::Array(arr)
+        }
+        _ => {
+            return Err(Box::new(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Type mismatch for config key '{dot_path}'"),
+            )));
+        }
+    };
+
+    let decor = existing_value.decor().clone();
+    *existing_value = new_value;
+    *existing_value.decor_mut() = decor;
+    Ok(())
+}
+
+/// Apply typed updates to a configs.toml file while preserving comments, formatting, and schema safety.
+pub fn update_config_file(
+    config_path: &Path,
+    updates: &BTreeMap<String, ConfigPatchValue>,
+) -> Result<(Configs, BTreeMap<String, ConfigPatchValue>), Box<dyn std::error::Error>> {
+    let mut doc = load_merged_document(Some(config_path))?;
+
+    for (key, patch) in updates {
+        apply_patch_to_document(&mut doc, key, patch)?;
+    }
+
+    let updated_toml = doc.to_string();
+    let parsed_configs = toml::from_str::<Configs>(&updated_toml)?;
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(config_path, &updated_toml)?;
+
+    let mut flat_values = BTreeMap::new();
+    collect_flat_table_values("", doc.as_table(), &mut flat_values);
+
+    Ok((parsed_configs, flat_values))
+}
+
+/// Update the active user configs.toml on disk and refresh the in-memory `USER_CONFIGS`.
+pub fn update_user_config_values(
+    updates: &BTreeMap<String, ConfigPatchValue>,
+) -> Result<(Configs, BTreeMap<String, ConfigPatchValue>), Box<dyn std::error::Error>> {
+    let config_path = get_user_config_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "User config path is not initialized",
+        )
+    })?;
+
+    let (parsed_configs, flat_values) = update_config_file(&config_path, updates)?;
+    {
+        let mut guard = USER_CONFIGS.write().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(parsed_configs.clone());
+    }
+
+    Ok((parsed_configs, flat_values))
 }
 
 /// Recursively merge user values into default document while keeping schema/type safety
@@ -1260,8 +1364,8 @@ mod tests {
 
     fn remove_test_config_files(path: &Path) {
         let _ = fs::remove_file(path);
-        for version in 0..=1 {
-            let backup_path = path.with_extension(format!("toml.v{version}.bak"));
+        for label in ["v0", "v1", "0.5.0", "0.5.1"] {
+            let backup_path = path.with_extension(format!("toml.{label}.bak"));
             let _ = fs::remove_file(backup_path);
         }
     }
@@ -1357,7 +1461,6 @@ mod tests {
 
         // Test Proxy Network defaults
         let empty_network = ConfigsProxyNetwork {
-            backend_crate: None,
             enforce_http: None,
             set_nodelay: None,
             connect_timeout: None,
@@ -1367,11 +1470,6 @@ mod tests {
             proxy_server_port: None,
         };
 
-        assert_eq!(
-            empty_network.get_backend_crate(),
-            default_configs.proxy.network.get_backend_crate(),
-            "backend_crate getter should return configs.toml default"
-        );
         assert_eq!(
             empty_network.get_enforce_http(),
             default_configs.proxy.network.get_enforce_http(),
@@ -1429,7 +1527,6 @@ mod tests {
             network: default_configs.proxy.network.clone(),
             certificates: default_configs.proxy.certificates.clone(),
             pac: default_configs.proxy.pac.clone(),
-            channel: default_configs.proxy.channel.clone(),
         };
 
         assert_eq!(
@@ -1523,45 +1620,26 @@ mod tests {
 
         // Test App Database defaults
         let empty_database_fields = ConfigsAppDatabase {
-            allow_data_to_cloud: None,
             allow_data_to_shared_cloud: None,
             allow_data_to_local: None,
             integration_schedule_cron: None,
             local: default_configs.app.database.local.clone(),
-            #[cfg(feature = "gdrive")]
-            google_drive: default_configs.app.database.google_drive.clone(),
             r2: default_configs.app.database.r2.clone(),
         };
 
         assert_eq!(
-            empty_database_fields.get_allow_data_to_cloud(),
-            default_configs.app.database.get_allow_data_to_cloud(),
-            "database allow_data_to_cloud getter should return configs.toml default"
+            empty_database_fields.get_allow_data_to_shared_cloud(),
+            default_configs
+                .app
+                .database
+                .get_allow_data_to_shared_cloud(),
+            "database allow_data_to_shared_cloud getter should return configs.toml default"
         );
         assert_eq!(
             empty_database_fields.get_allow_data_to_local(),
             default_configs.app.database.get_allow_data_to_local(),
             "database allow_data_to_local getter should return configs.toml default"
         );
-
-        // Test App Database Google Drive defaults
-        #[cfg(feature = "gdrive")]
-        {
-            #[allow(deprecated)]
-            let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
-                schedule_cron: None,
-                page_size: None,
-            };
-
-            #[allow(deprecated)]
-            {
-                assert_eq!(
-                    empty_google_drive.get_page_size(),
-                    default_configs.app.database.google_drive.get_page_size(),
-                    "google_drive page_size getter should return configs.toml default and validate"
-                );
-            }
-        }
 
         // Test App Asset Sync defaults
         let empty_asset_sync = ConfigsAppAssetSync {
@@ -1985,6 +2063,152 @@ allow_data_to_local = true
         assert!(merged.app.soku_speed_sender.get_allow_data_to_local());
         assert!(merged.app.remodel_sender.get_enable());
         assert!(merged.app.remodel_sender.get_allow_data_to_local());
+        remove_test_config_files(&path);
+    }
+
+    #[test]
+    fn update_config_file_patches_typed_values_and_preserves_comments() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-patch-test-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let _ = get_configs(path.to_str().unwrap()).unwrap();
+
+        let mut updates = BTreeMap::new();
+        updates.insert(
+            "app.theme.theme".to_string(),
+            ConfigPatchValue::String("dark".to_string()),
+        );
+        updates.insert(
+            "app.database.allow_data_to_local".to_string(),
+            ConfigPatchValue::Bool(true),
+        );
+        updates.insert(
+            "app.asset_sync.retry.ttl_seconds".to_string(),
+            ConfigPatchValue::Integer(86400),
+        );
+        updates.insert(
+            "app.asset_sync.asset_skip_extensions".to_string(),
+            ConfigPatchValue::StringArray(vec!["mp3".to_string(), "ogg".to_string()]),
+        );
+
+        let (updated, flat) = update_config_file(&path, &updates).unwrap();
+        assert_eq!(updated.app.theme.get_theme(), "dark");
+        assert!(updated.app.database.get_allow_data_to_local());
+        assert_eq!(updated.app.asset_sync.retry.get_ttl_seconds(), 86400);
+        assert_eq!(
+            updated.app.asset_sync.get_asset_skip_extensions(),
+            vec!["mp3".to_string(), "ogg".to_string()]
+        );
+        assert_eq!(
+            flat.get("app.theme.theme"),
+            Some(&ConfigPatchValue::String("dark".to_string()))
+        );
+
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(
+            raw.contains("# 30 days"),
+            "inline comment should be preserved"
+        );
+        assert!(
+            raw.contains("# Whether to save KanColle data to the local filesystem"),
+            "section comments should be preserved"
+        );
+
+        let mut invalid_updates = BTreeMap::new();
+        invalid_updates.insert(
+            "version".to_string(),
+            ConfigPatchValue::String("9.9.9".to_string()),
+        );
+        assert!(update_config_file(&path, &invalid_updates).is_err());
+
+        let mut mismatch_updates = BTreeMap::new();
+        mismatch_updates.insert(
+            "app.database.allow_data_to_local".to_string(),
+            ConfigPatchValue::String("yes".to_string()),
+        );
+        assert!(update_config_file(&path, &mismatch_updates).is_err());
+
+        let mut unknown_updates = BTreeMap::new();
+        unknown_updates.insert(
+            "app.nonexistent.flag".to_string(),
+            ConfigPatchValue::Bool(true),
+        );
+        assert!(update_config_file(&path, &unknown_updates).is_err());
+
+        // File must remain valid and unchanged after rejected updates
+        let reloaded = get_configs(path.to_str().unwrap()).unwrap();
+        assert_eq!(reloaded.app.theme.get_theme(), "dark");
+        assert!(reloaded.app.database.get_allow_data_to_local());
+
+        remove_test_config_files(&path);
+    }
+
+    #[test]
+    fn test_0_5_0_migration_removes_obsolete_channel_backend_and_gdrive() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "fusou-configs-0-5-0-migration-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"
+version = "0.5.0"
+
+[proxy]
+allow_save_api_responses = true
+
+[proxy.network]
+backend_crate = "hudsucker"
+proxy_server_port = 18080
+
+[proxy.channel]
+transport = "grpc"
+endpoint = "http://127.0.0.1:50061"
+buffer_size = 64
+
+[app.database]
+allow_data_to_cloud = true
+allow_data_to_local = true
+
+[app.database.google_drive]
+page_size = 50
+"#,
+        )
+        .unwrap();
+
+        let loaded = get_configs(path.to_str().unwrap()).unwrap();
+        assert!(loaded.proxy.get_allow_save_api_responses());
+        assert_eq!(loaded.proxy.network.get_proxy_server_port(), 18080);
+        assert!(loaded.app.database.get_allow_data_to_local());
+        assert_eq!(loaded.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+
+        let migrated: toml::Value = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            migrated["version"].as_str(),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert!(migrated["proxy"].get("channel").is_none());
+        assert!(migrated["proxy"]["network"].get("backend_crate").is_none());
+        assert!(migrated["app"]["database"]
+            .get("allow_data_to_cloud")
+            .is_none());
+        assert!(migrated["app"]["database"].get("google_drive").is_none());
+        assert_eq!(
+            migrated["proxy"]["network"]["proxy_server_port"].as_integer(),
+            Some(18080)
+        );
+        assert!(path.with_extension("toml.0.5.0.bak").exists());
+
         remove_test_config_files(&path);
     }
 }

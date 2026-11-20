@@ -917,7 +917,7 @@ pub fn serve_proxy_with_handle(
 
     // Phase 1: Launch asset_sync in independent tokio task (non-blocking)
     // This prevents asset_sync initialization from blocking the proxy's main handler
-    if _app_configs.asset_sync.get_enable() {
+    if _app_configs.auth.get_allow_auth() && _app_configs.asset_sync.get_enable() {
         let auth_manager_clone = _auth_manager.clone();
         let save_path_clone = save_path.clone();
         let asset_sync_save_path_clone = asset_sync_save_path.clone();

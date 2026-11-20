@@ -24,28 +24,13 @@ export function inferRouteOverlays(
         observedCounts.get([cr.from, cr.to].sort((a, b) => a - b).join("-")) ?? 0;
       const fromSpot = spotByNo.get(cr.from);
       const toSpot = spotByNo.get(cr.to);
-
-      let startX = cr.startX;
-      let startY = cr.startY;
-      let endX = cr.endX;
-      let endY = cr.endY;
-
-      // セルの位置を基準にし、セル同士の中心をまっすぐ貫く直線を生成（一定スペース・余白を確保）
-      if (fromSpot && toSpot) {
-        const dx = toSpot.x - fromSpot.x;
-        const dy = toSpot.y - fromSpot.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const ux = dx / dist;
-        const uy = dy / dist;
-        const padding = Math.min(ROUTE_NODE_PADDING, dist * ROUTE_PADDING_MAX_RATIO);
-
-        startX = fromSpot.x + ux * padding;
-        startY = fromSpot.y + uy * padding;
-        endX = toSpot.x - ux * padding;
-        endY = toSpot.y - uy * padding;
-      }
-
-      const pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
+      const { startX, startY, ctrlX, ctrlY, endX, endY } = cr;
+      const isCurved =
+        Math.hypot(ctrlX - (startX + endX) / 2, ctrlY - (startY + endY) / 2) >
+        1;
+      const pathD = isCurved
+        ? `M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`
+        : `M ${startX} ${startY} L ${endX} ${endY}`;
 
       return {
         key,
@@ -59,9 +44,9 @@ export function inferRouteOverlays(
         renderFromY: startY,
         renderToX: endX,
         renderToY: endY,
-        ctrlX: (startX + endX) / 2,
-        ctrlY: (startY + endY) / 2,
-        curvature: 0,
+        ctrlX,
+        ctrlY,
+        curvature: cr.curvature,
         isArrow: cr.isArrow ?? false,
         pathD,
         observedCount,
