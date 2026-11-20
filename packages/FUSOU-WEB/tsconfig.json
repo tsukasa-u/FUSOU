@@ -21,8 +21,7 @@
     "noPropertyAccessFromIndexSignature": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@all-docs/*": ["../../docs/*"],
-      "@fusou/avro-wasm": ["../avro-wasm/index.ts"]
+      "@all-docs/*": ["../../docs/*"]
     },
     "types": ["@cloudflare/workers-types", "astro/client"]
   }

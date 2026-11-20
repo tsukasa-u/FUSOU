@@ -3,11 +3,6 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const AVRO_WASM_DIR = resolve(__dirname, "../../avro-wasm");
 
 function fail(message) {
   console.error(`[setup-rust-env] ${message}`);
@@ -56,38 +51,6 @@ function resolveCargoCommand() {
   return null;
 }
 
-function resolveWasmPackCommand() {
-  const home = homedir();
-  const homeCandidate = resolve(
-    home,
-    ".cargo",
-    "bin",
-    process.platform === "win32" ? "wasm-pack.exe" : "wasm-pack",
-  );
-
-  const binName = process.platform === "win32" ? "wasm-pack.cmd" : "wasm-pack";
-  const localCandidate = resolve(AVRO_WASM_DIR, "node_modules/.bin", binName);
-  const workspaceCandidate = resolve(
-    AVRO_WASM_DIR,
-    "../../node_modules/.bin",
-    binName,
-  );
-
-  const candidates = [
-    "wasm-pack",
-    homeCandidate,
-    localCandidate,
-    workspaceCandidate,
-  ];
-  for (const candidate of candidates) {
-    if (canRun(candidate, ["--version"])) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
 function installRustToolchain() {
   if (process.platform === "win32") {
     fail(
@@ -121,29 +84,9 @@ function ensureCargo() {
   return cargoCommand;
 }
 
-function ensureWasmPack(cargoCommand) {
-  let wasmPackCommand = resolveWasmPackCommand();
-  if (wasmPackCommand) {
-    return wasmPackCommand;
-  }
-
-  console.log("[setup-rust-env] Installing wasm-pack via cargo...");
-  run(cargoCommand, ["install", "wasm-pack", "--locked", "--force"]);
-
-  wasmPackCommand = resolveWasmPackCommand();
-  if (!wasmPackCommand) {
-    fail("wasm-pack installation did not produce an executable command");
-  }
-
-  return wasmPackCommand;
-}
-
 function main() {
   const cargoCommand = ensureCargo();
-  const wasmPackCommand = ensureWasmPack(cargoCommand);
-
   console.log(`[setup-rust-env] cargo ready: ${cargoCommand}`);
-  console.log(`[setup-rust-env] wasm-pack ready: ${wasmPackCommand}`);
 }
 
 try {

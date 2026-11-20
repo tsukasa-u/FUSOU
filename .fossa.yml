@@ -18,5 +18,4 @@ paths:
     - packages/kc_api
     - packages/fusou-auth
     - packages/fusou-upload
-    - packages/avro-wasm
     - packages/configs

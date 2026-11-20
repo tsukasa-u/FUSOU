@@ -70,7 +70,9 @@ describe("CI regression gates", () => {
   it("detects patch-version schema features, including the current default", () => {
     const cargo = readFileSync(new URL("../../kc_api/crates/kc-api-database/Cargo.toml", import.meta.url), "utf8");
     const workflow = readFileSync(new URL("../../../.github/workflows/validate_schema_chain.yml", import.meta.url), "utf8");
-    expect(workflow.match(/\^schema_\(v\[0-9\]\+_\[0-9\]\+\(_\[0-9\]\+\)\?\)/g)).toHaveLength(2);
+    expect(workflow.match(/\^schema_\(v\[0-9\]\+_\[0-9\]\+\(_\[0-9\]\+\)\?\)/g)).toHaveLength(1);
+    expect(workflow).toContain("avro-schema-registry.json");
+    expect(workflow).toContain("sync-rust-artifacts.mjs --check");
     const versions = [...cargo.matchAll(/^schema_(v[0-9]+_[0-9]+(_[0-9]+)?)\s*=/gm)].map((match) => match[1]);
     expect(versions).toContain("v0_5_1");
     expect(versions).toContain("v0_6_0");
