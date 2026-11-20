@@ -1,5 +1,49 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## APP TLSN readiness refresh and PAC state — local verification
+
+**BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
+`75ff8c7c6287629e8bb120742396137da4ae1a4d`. Actions [#133](https://github.com/tsukasa-u/FUSOU/actions/runs/44636473582)
+passed all three jobs for that pre-change SHA; it is baseline evidence only.
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** Read-only APP readiness now
+separates Proxy listener, PAC server startup, Linux PAC application,
+Runtime Config/Freshness, Worker health, forwarder initialization, candidate
+saving, grant, and capture state. PAC server binding is fallible and a startup
+error is reported as `pac_server_start_failed`; Linux PAC application is
+verified only after the existing command succeeds. Attempt IDs prevent an
+older asynchronous startup result from overwriting a newer attempt. The actual
+candidate-saving setting is shared by readiness, Result signing, and artifact
+saving. Start and `/app` use the same UI: beginning a refresh clears the prior
+snapshot, a successful result shows its check time, and a failed query shows
+`unavailable` with its fixed diagnostic code.
+
+The readiness snapshot is read-only: it does not reapply PAC, request
+Runtime Config/Freshness or Worker/Session services, obtain or consume a grant,
+admit to the Notary, or contact the origin. `ready` is only the APP's
+preparation state at the displayed check time; it does not prove browser PAC
+traffic, live Notary connectivity, observed Game Server identity, evidence
+capture, or gameplay approval. The existing no-game retry for `grant_expired`
+(tray **Restart**, then Proxy on / Open KanColle off / **Start**) was checked
+against the source path, not reproduced against live services.
+
+**LOCAL_TEST_RESULTS:** The isolated APP-source Manifest harness passed 37/37;
+the Proxy capture/lifecycle harness passed 38/38, including grant expiry,
+cleanup, pre-send fallback, and no-resend cases. The new Storybook browser
+interaction passed 1/1, exercising ready followed by a failed refresh with no
+stale ready state. The Vite build, focused Rust formatting, Prettier, and
+Rust 1.98.1 `cargo check --locked --offline` for `proxy-https` passed. The
+frontend `tsc --noEmit` remains blocked by 20 existing TS1117 duplicate
+properties in `FUSOU-TESTDATA/storybook/ipc/1-5/cells.ts`; it reported no
+readiness component/story errors. Targeted ESLint could not run because the
+installed ESLint/Minimatch stack throws `TypeError: expand is not a function`.
+
+The candidate workflow now installs Chromium on its ephemeral runner and runs
+the readiness interaction story. Modified Hosted CI is **NOT_CHECKED**.
+No APP Cargo build or APP-launching Node suite, real OS PAC change, actual
+browser-route observation, real service, gameplay, or deployment was used.
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Notary offline preflight and placement checks — local verification
 
 **BASELINE:** Work continued on branch `tlsn-first-testplay-candidate` at
@@ -3395,6 +3439,51 @@ in the signed APP config and approved registration before ledger initialization.
 No production host, port, key, or ledger was selected or initialized. Windows,
 macOS, mobile, and a separate-host authenticated/encrypted pre-grant transport
 remain follow-up work.
+
+| Acceptance | Status |
+|---|---|
+| Hosted CI after this change | **NOT_CHECKED** |
+| Stage A/B/C | **BLOCKED** |
+| Production acceptance | **BLOCKED** |
+
+## Local APP TLSN capture-readiness diagnostic
+
+Baseline Actions [#133](https://github.com/tsukasa-u/FUSOU/actions/runs/44636473582)
+passed all three jobs at the exact pre-change SHA
+`75ff8c7c6287629e8bb120742396137da4ae1a4d`. This is a historical baseline,
+not Hosted CI verification of the diagnostic changes below.
+
+The APP now has an on-demand, read-only capture-readiness snapshot on its Start
+page and `/app` TLSN readiness tab. It reports Proxy listener, Runtime Config /
+Freshness, Worker health, forwarder initialization, grant expiry/use/cleanup,
+and active-capture state using fixed status values and diagnostic codes. It
+does not refresh configuration, call Session/device-proof services, admit to
+the Notary, or contact the origin. Notary connectivity, observed server
+identity, evidence acquisition, and gameplay authorization remain separately
+`not_checked`. The existing APP-start marker and static preflight retain their
+prior meaning.
+
+### Local verification
+
+| Check | Result | Scope |
+|---|---|---|
+| Rust toolchain | **VERIFIED** | Rust/Cargo 1.98.1. |
+| Proxy capture/lifecycle harness | **PASS, 38/38** | `cargo +1.98.1 test --locked --offline --lib` with isolated `CARGO_TARGET_DIR`; includes repeated expiry reads at `now >= expires_at_ms`, no grant release/repreparation, in-use expiry, active capture, and cleanup-unconfirmed status. |
+| APP-source Manifest harness | **PASS, 34/34** | `cargo +1.98.1 test --locked --offline --all-targets` with isolated `CARGO_TARGET_DIR`; 33 unit tests plus 1 shared-vector integration test, including stage failures, forwarder pending, expired/in-use/cleanup readiness, and ten repeated reads with zero `capture_ready` checks, freshness, Worker-health, Session, device-proof, Notary-admission, or origin calls. |
+| APP-source harness type-check | **PASS** | `cargo +1.98.1 check --locked --offline --lib` after adding only direct harness dependencies already present in the lock graph (`http` 1.5.0, `hyper` 1.12.0, `tracing` 0.1.44). No dependency versions or checksums changed. |
+| APP frontend bundle | **PASS** | `corepack pnpm exec vite build --outDir /tmp/fusou-app-vite-check`; the Solid UI transformed and bundled without launching Tauri or the native APP. |
+| APP frontend ESLint | **BLOCKED** | Both package lint and targeted ESLint stop before analysis with installed `minimatch` error `expand is not a function`; no dependency or unrelated tooling change was made. |
+| Rust formatting | **PASS WITH EXISTING DRIFT** | Focused `rustfmt +1.98.1 --edition 2021 --config skip_children=true --check` passes for changed Proxy, APP readiness, and harness modules. A full-file check of the existing `cmd/tauri_cmd.rs` reports unrelated pre-existing formatting differences; those lines were not reformatted. |
+| Candidate workflow selection | **VERIFIED** | The existing Proxy capture `--lib` harness and APP-source Manifest `--all-targets` harness include these tests; no workflow selector change was needed. |
+| APP Cargo / launching Node suite | **NOT_RUN** | Excluded by task scope; the native Tauri command and startup wiring are not compiled by the isolated harness. |
+| Hosted CI after this change | **NOT_CHECKED** | No Actions run was started. |
+| Stage A/B/C and Production acceptance | **BLOCKED** | No real APP deployment, Worker/Session service, Notary, Game Server, gameplay, or Production Presentation/Result was exercised. |
+
+The [operator runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md)
+describes the local panel, status interpretation, and the requirement to keep
+gameplay disabled until readiness is `ready`. That status is only APP-side
+preparation; it is not evidence of live Notary connectivity or Production
+acceptance. Changes remain unstaged.
 
 | Acceptance | Status |
 |---|---|

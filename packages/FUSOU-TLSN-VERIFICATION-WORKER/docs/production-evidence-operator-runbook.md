@@ -110,6 +110,76 @@ configuration or open a socket.
 
 Release and handover procedure: [FUSOU-managed Notary release runbook](./notary-release-runbook.md).
 
+### Read-only TLSN readiness in the first Linux APP
+
+The APP exposes a local, on-demand readiness snapshot on the Start page under
+Advanced Settings and on the `/app` **TLSN readiness** tab. For the first
+same-host Linux test, start the APP/proxy with **Run Proxy Server** on and
+**Open KanColle** off, then select **Read current readiness** before allowing
+any game request. Keep the internal APP window open to view the `/app`
+**TLSN readiness** tab. The snapshot reports the Proxy listener, PAC server,
+Linux PAC application, Runtime Config/Freshness, Worker health, forwarder,
+candidate evidence saving, grant and current-capture states separately.
+Each successful snapshot is time-stamped; a new query removes the prior
+snapshot while it runs, and a failed query displays `unavailable` rather than
+leaving an earlier `ready` result visible.
+
+On Linux, `pac_application: verified` means the existing PAC setup command
+completed successfully (GNOME `gsettings` or KDE `kwriteconfig`); a failed
+command remains failed and retains the existing proxy-setup notification.
+The PAC server must also bind successfully; a bind/startup error is reported
+with `pac_server_start_failed` and is not inferred from the Proxy listener.
+It does not prove that a browser used the PAC route:
+`browser_proxy_traffic` remains `not_checked`. The command only reads
+in-memory APP/forwarder state. Re-reading does not reapply PAC, refresh Runtime
+Config/Freshness, contact Worker/Session services, request device proof, obtain
+or consume a grant, admit to the Notary, or contact the Game Server.
+
+For an intended TLSN capture, require `status: ready`. Otherwise stop before
+gameplay and use the stage plus its fixed `diagnostic_code` to locate the
+blocker:
+
+- `proxy_listener`, `pac_server`, and (on Linux) `pac_application` must be
+  `verified`;
+- `runtime_config_freshness` must be `verified`;
+- `worker_health` must be `verified`;
+- `forwarder_initialization` must be `verified`;
+- `candidate_capture` must be `verified`; if it reports
+  `candidate_capture_disabled`, enable candidate saving in the effective APP
+  config and restart the APP/proxy before the test;
+- `session_grant` and `capture` must both be `ready`.
+- `pending`, `failed`, `grant_expired`, `capture_in_progress`,
+  `cleanup_unconfirmed`, `candidate_capture_disabled`, `disabled`, or
+  `unavailable` is not ready. A PAC-application failure or pending state must
+  not be interpreted as ready even if the proxy listener is running.
+
+If `session_grant` reports `grant_expired`, do not open the game or use the
+readiness button as a refresh operation. The existing no-game retry is:
+
+1. Select **Restart** from the FUSOU system-tray menu. This follows the
+   existing shutdown path, starts PAC cleanup, and restarts the APP process.
+2. On the Launch Options page, leave **Run Proxy Server** on, set **Open
+   KanColle** off, and select **Start**. Keep the internal APP window enabled
+   so the readiness panel remains available.
+3. Wait for the new proxy/PAC setup and background Runtime Config, Worker,
+   forwarder and Session-grant preparation. Re-read readiness; do not open the
+   game unless the new snapshot is `ready`.
+
+Starting a new proxy creates a new forwarder and starts its existing
+background grant preparation. It is not a grant-renewal action on the
+diagnostic itself. The snapshot is scoped to the current APP preparation
+attempt; late results from an older startup attempt cannot overwrite the
+current PAC or TLSN status.
+
+The APP-start marker and `LOCAL_APP_PREFLIGHT_PASS` retain their existing
+meaning: process startup and static checks, respectively. Neither represents
+the dynamic Runtime Config/Freshness, Worker health, forwarder, or grant
+result. Even `status: ready` does **not** check a live Notary connection,
+observe the Game Server identity, acquire evidence, or approve gameplay; the
+report leaves these separate checks `not_checked`. This diagnostic does not
+gate the existing ordinary-proxy fallback, so operators must withhold gameplay
+themselves when a TLSN capture is required.
+
 ### Complete APP path and the first authorized capture
 
 | Boundary in order | Implemented path | Evidence still needed / owner |
@@ -940,6 +1010,7 @@ Keep checked inputs and outputs in the operator reference/validation record. A m
 | 8. Auth session | Authenticated `/auth/v1/user` at approved Supabase origin, publishable key and canonical non-anonymous user match intended account | Missing/expired/anonymous/wrong-origin or wrong-account session |
 | 9. Registered device | Live Worker `POST /attestation/session`, configured WEB `/api/auth/anonymous-sync/v2/device-proof`, active owner/device record, and APP `DeviceKey::load_registered` challenge path; separately acquire the exact DB identity for Stage B | Missing/mismatched endpoint or release, unknown owner/device/key, revocation, absent migration, or inability to use the registered local key |
 | 10. APP capture directory | Existing APP configuration preflight; reviewed full pins/endpoints; capture enabled; private writable artifact root; enough storage | Disabled capture, incomplete config, unsupported runtime health expectation or unwritable/shared output |
+| 11. Dynamic APP capture readiness | With **Open KanColle** off, use the local **TLSN readiness** panel after the proxy starts; record the overall status and stage codes. Require Runtime Config/Freshness, Worker health, and forwarder verification plus a `ready` session grant/capture | Any `pending`, `failed`, `grant_expired`, `capture_in_progress`, `cleanup_unconfirmed`, `disabled` or `unavailable` state; `ready` does not replace live Notary, observed identity, evidence, or gameplay-approval checks |
 
 Use existing validators, not new acceptance logic:
 [deployment contract](../scripts/deployment-contract.mjs),
