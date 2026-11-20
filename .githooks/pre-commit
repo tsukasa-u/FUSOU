@@ -1,0 +1,39 @@
+#!/usr/bin/env sh
+set -eu
+
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMRD || true)"
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+NEEDS_RUST_SYNC=0
+for file in $STAGED_FILES; do
+  case "$file" in
+    packages/kc_api/generated-schemas/*)
+      ;;
+    packages/kc_api/Cargo.toml|\
+    packages/kc_api/crates/kc-api-database/*|\
+    packages/kc_api/crates/kc-api-dto/*|\
+    packages/kc_api/crates/kc-api-interface/*|\
+    packages/kc_api/crates/register_trait/*|\
+    packages/kc_api/crates/register_macro_derive_and_attr/*|\
+    packages/FUSOU-WEB/scripts/generate-rust-data.mjs|\
+    packages/FUSOU-WEB/scripts/convert-dot-to-reactflow.mjs|\
+    packages/FUSOU-WEB/scripts/convert-schema-to-reactflow.mjs|\
+    packages/FUSOU-WEB/scripts/generate-avro-schema-registry.mjs|\
+    packages/FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs)
+      NEEDS_RUST_SYNC=1
+      break
+      ;;
+  esac
+done
+
+if [ "$NEEDS_RUST_SYNC" -eq 0 ]; then
+  exit 0
+fi
+
+echo "[pre-commit] Rust schema sources changed. Checking generated artifacts..."
+if ! node scripts/sync-rust-artifacts.mjs --check; then
+  echo "[pre-commit] Regenerating and staging Rust artifacts..."
+  node scripts/sync-rust-artifacts.mjs --stage
+fi
