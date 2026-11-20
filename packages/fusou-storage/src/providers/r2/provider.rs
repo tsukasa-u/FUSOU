@@ -92,8 +92,15 @@ impl R2StorageProvider {
         );
 
         let configs = configs::get_user_configs_for_app();
+        let allow_auth = configs.auth.get_allow_auth();
         let db_config = configs.database;
         let r2_config = &db_config.r2;
+
+        if !allow_auth {
+            return Err(StorageError::Operation(
+                "Authentication is disabled in config (app.auth.allow_auth = false)".into(),
+            ));
+        }
 
         if !db_config.get_allow_data_to_shared_cloud() {
             return Err(StorageError::Operation(
@@ -211,7 +218,10 @@ impl R2StorageProvider {
             "table_version": DATABASE_TABLE_VERSION,
         }));
         let context_json = serde_json::to_string(&context).map_err(|e| {
-            StorageError::Operation(format!("Failed to serialize pending master data context: {}", e))
+            StorageError::Operation(format!(
+                "Failed to serialize pending master data context: {}",
+                e
+            ))
         })?;
 
         self.pending_store
@@ -313,14 +323,16 @@ impl StorageProvider for R2StorageProvider {
             // becomes ready.
             let dataset_id = self.resolve_dataset_id_for_cloud_upload().await;
 
-            // Check if master data upload is enabled
+            // Check if authentication and master data upload are enabled
             let configs = configs::get_user_configs_for_app();
+            let allow_auth = configs.auth.get_allow_auth();
             let db_config = configs.database;
 
-            if !db_config.get_allow_data_to_shared_cloud() {
+            if !allow_auth || !db_config.get_allow_data_to_shared_cloud() {
                 tracing::debug!("Master data upload disabled in config");
                 tracing::info!(
                     period = period_tag,
+                    allow_auth,
                     "master data upload event completed (disabled)"
                 );
                 return Ok(());

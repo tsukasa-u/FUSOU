@@ -74,6 +74,13 @@ pub async fn perform_snapshot_sync_app(
 
     let app_configs = configs::get_user_configs_for_app();
 
+    if !app_configs.auth.get_allow_auth() {
+        let msg =
+            "Authentication is disabled in Settings (app.auth.allow_auth = false)".to_string();
+        tracing::info!("{}", msg);
+        return Err(msg);
+    }
+
     let snapshot_url = if let Some(explicit) = app_configs.asset_sync.get_snapshot_endpoint() {
         explicit
     } else {

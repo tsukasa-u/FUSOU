@@ -50,14 +50,7 @@ impl CloudTableStorageProvider {
         retry_service: Arc<UploadRetryService>,
     ) -> Result<Self, String> {
         let cloud = CloudProviderFactory::create(provider_key)?;
-        let batch_size = if provider_key == GOOGLE_PROVIDER_KEY {
-            configs::get_user_configs_for_app()
-                .database
-                .google_drive
-                .get_page_size()
-        } else {
-            100
-        };
+        let batch_size = 100;
         Ok(Self {
             provider_name,
             provider_key,
@@ -332,15 +325,6 @@ impl StorageProvider for CloudTableStorageProvider {
         self.provider_name
     }
 
-    #[cfg(feature = "gdrive")]
-    fn supports_integration(&self) -> bool {
-        // CloudTable integrates only when feature is enabled and user config allows cloud sync
-        configs::get_user_configs_for_app()
-            .database
-            .get_allow_data_to_cloud()
-    }
-
-    #[cfg(not(feature = "gdrive"))]
     fn supports_integration(&self) -> bool {
         false
     }

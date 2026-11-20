@@ -77,6 +77,18 @@ fn goto_restore_window(app: &tauri::AppHandle) {
 /// 4. Completes the pending handoff through the Worker
 /// 5. WEB polls the Worker and receives the public UUID
 fn handle_public_id_sync(url: &Url, app: &tauri::AppHandle) {
+    if !configs::get_user_configs_for_app().auth.get_allow_auth() {
+        tracing::info!(
+            "[Public ID Sync] Authentication is disabled (app.auth.allow_auth = false); ignoring fusou://sync request"
+        );
+        crate::notify::show(
+            app,
+            "Authentication Disabled",
+            "Enable Authentication & Cloud Sync in Settings to sync with FUSOU-WEB.",
+        );
+        return;
+    }
+
     // 1. Extract token
     let token = match url
         .query_pairs()
