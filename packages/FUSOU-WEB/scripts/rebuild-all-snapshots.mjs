@@ -29,9 +29,6 @@ function emptyAirBase() {
 }
 
 // src/features/simulator/state.ts
-var simulatorFleetRevision = atom(0);
-var simulatorAirbaseRevision = atom(0);
-var simulatorDisplayRevision = atom(0);
 var simulatorReadOnly = atom(false);
 var simulatorCombinedFleetType = atom(0);
 var simulatorFleetState = atom({
@@ -41,7 +38,6 @@ var simulatorFleetState = atom({
   fleet4: []
 });
 var simulatorAirbaseState = atom([]);
-var simulatorSearchQuery = atom("");
 function cloneFleetSlot(slot) {
   return {
     ...slot,

@@ -16,7 +16,7 @@ export const workspaceModalMode = createSignal<WorkspaceModalMode>("saveCurrent"
 export function WorkspaceAddModal() {
   const ws = useStore(workspaceStore);
   const [target, setTarget] = workspaceEditTarget;
-  const [mode, setMode] = workspaceModalMode;
+  const [mode] = workspaceModalMode;
   
   const [label, setLabel] = createSignal("");
   const [memo, setMemo] = createSignal("");

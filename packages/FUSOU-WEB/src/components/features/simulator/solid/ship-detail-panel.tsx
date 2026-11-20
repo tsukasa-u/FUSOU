@@ -73,7 +73,6 @@ import {
 } from "./shared-ui";
 import { useStore } from "@nanostores/solid";
 import { simulatorSearchQuery } from "@/features/simulator/state";
-import { IconFilter } from "@/components/common/solid/icons/CommonIcons";
 
 function ShipDetailPanel(props: {
   ship: MstShipData;
