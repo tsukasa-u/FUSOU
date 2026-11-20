@@ -3,8 +3,11 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
+#[cfg(since = "20250627")]
 use serde::ser::SerializeStruct;
-use serde::{Deserialize, Serialize, Serializer};
+#[cfg(since = "20250627")]
+use serde::Serializer;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use register_trait::{FieldSizeChecker, TraitForEncode};

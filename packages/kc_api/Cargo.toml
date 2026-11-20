@@ -15,7 +15,6 @@ members = [
 resolver = "2"
 
 [workspace.package]
-name = "kc_api"
 version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -26,7 +25,6 @@ chrono = "0.4.38"
 confy = "0.6.1"
 dot-writer = "0.1.3"
 dotenvy = "0.15.7"
-dotenvy_macro = "0.15.7"
 once_cell = "1.21.3"
 proc-macro2 = "1.0.86"
 quote = "1.0.38"
@@ -47,7 +45,6 @@ sha2 = "0.10"
 syn = { version = "2.0.67", features = ["full"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 tracing = "0.1.41"
-tracing-unwrap = "1.0.1"
 ts-rs = "11.0.1"
 uuid = { version = "1.16.0", features = ["v4", "v7"] }
 
