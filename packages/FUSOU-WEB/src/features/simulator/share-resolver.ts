@@ -18,15 +18,14 @@ type ResolvedShare =
   | { ok: false; error: string };
 
 const ResolveApiResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     key: z.string().optional(),
     originalUrl: z.string().optional(),
     dataPayload: z.record(z.string(), z.unknown()).optional(),
     snapshotPayload: z.record(z.string(), z.unknown()).nullable().optional(),
     error: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 /** Extract a 16-char hex key from a short URL or a bare key string. */
 function extractShortKey(input: string): string | null {

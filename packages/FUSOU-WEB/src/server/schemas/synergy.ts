@@ -13,7 +13,7 @@ const GeneratorVersionSchema = z
   .regex(/^v\d+\.\d+\.\d+$/, "expected format vX.Y.Z");
 
 export const SynergyManifestRequestSchema = z
-  .object({
+  .looseObject({
     period_tag: PeriodTagSchema,
     sp_effect_sha256: Sha256Schema,
     api_start2_batch_hash: Sha256Schema,
@@ -25,15 +25,14 @@ export const SynergyManifestRequestSchema = z
         message: "generated_at must be a valid ISO8601 date string",
       }),
     allow_duplicate_content: z.boolean().optional(),
-  })
-  .passthrough();
+  });
 
 export type SynergyManifestRequest = z.infer<
   typeof SynergyManifestRequestSchema
 >;
 
 export const SynergyManifestRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_tag: z.string().min(1),
     period_revision: z.number().int().positive(),
@@ -43,82 +42,72 @@ export const SynergyManifestRowSchema = z
     generator_version: z.string().min(1),
     upload_status: z.enum(["pending", "completed", "superseded", "failed"]),
     completed_at: z.number().int().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const SynergyExistingManifestRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_revision: z.number().int().positive(),
-  })
-  .passthrough();
+  });
 
 export const SynergyPendingManifestRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     content_hash: z.string().min(1),
     sp_effect_sha256: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const SynergyInsertedManifestRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_tag: z.string().min(1),
     period_revision: z.number().int().positive(),
     content_hash: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const SynergyUpdatedManifestRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_tag: z.string().min(1),
     period_revision: z.number().int().positive(),
     upload_status: z.enum(["completed", "superseded", "failed"]),
     completed_at: z.number().int().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const SynergyValidationManifestRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     period_revision: z.number().int().positive(),
     sp_effect_sha256: z.string().min(1),
     api_start2_batch_hash: z.string().min(1),
     generator_version: z.string().min(1),
     completed_at: z.number().int().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const MasterDataHashRowSchema = z
-  .object({
+  .looseObject({
     content_hash: z.string().min(1),
     period_revision: z.number().int().positive(),
-  })
-  .passthrough();
+  });
 
 export const LatestSynergyPeriodRowSchema = z
-  .object({ period_tag: z.string().min(1) })
-  .passthrough();
+  .looseObject({ period_tag: z.string().min(1) });
 
 export type LatestSynergyPeriodRow = z.infer<
   typeof LatestSynergyPeriodRowSchema
 >;
 
 export const SynergyNextRevisionRowSchema = z
-  .object({ next_revision: z.number().int().positive() })
-  .passthrough();
+  .looseObject({ next_revision: z.number().int().positive() });
 
 export const CompletedSynergyManifestRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     period_revision: z.number().int().positive(),
     content_hash: z.string().min(1),
     sp_effect_sha256: z.string().min(1),
     completed_at: z.number().int().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export type CompletedSynergyManifestRow = z.infer<
   typeof CompletedSynergyManifestRowSchema
@@ -129,26 +118,25 @@ export const CompletedSynergyManifestRowsSchema = z.array(
 );
 
 export const SynergyDatasetManifestRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     period_revision: z.number().int().positive(),
     content_hash: z.string().min(1),
     sp_effect_sha256: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const SynergyStatBonusSchema = z
   .object({
-    kaih: z.number().finite().optional(),
-    houk: z.number().finite().optional(),
-    kaihi: z.number().finite().optional(),
-    tais: z.number().finite().optional(),
-    taisen: z.number().finite().optional(),
-    saku: z.number().finite().optional(),
-    sakuteki: z.number().finite().optional(),
-    luck: z.number().finite().optional(),
-    luk: z.number().finite().optional(),
-    lucky: z.number().finite().optional(),
+    kaih: z.number().optional(),
+    houk: z.number().optional(),
+    kaihi: z.number().optional(),
+    tais: z.number().optional(),
+    taisen: z.number().optional(),
+    saku: z.number().optional(),
+    sakuteki: z.number().optional(),
+    luck: z.number().optional(),
+    luk: z.number().optional(),
+    lucky: z.number().optional(),
   })
   .strip();
 
@@ -170,18 +158,17 @@ export function parseSynergyShipIds(value: unknown): number[] {
 }
 
 const SynergyEffectRuleSchema = z
-  .object({
+  .looseObject({
     ships: z.unknown().optional(),
     b: z.record(z.string(), z.unknown()).optional(),
     l: z.record(z.string(), z.unknown()).optional(),
     c2: z.record(z.string(), z.unknown()).optional(),
     c3: z.record(z.string(), z.unknown()).optional(),
     items: z.array(z.number()).optional(),
-  })
-  .passthrough();
+  });
 
 const SynergyCrossRuleSchema = z
-  .object({
+  .looseObject({
     ships: z.unknown().optional(),
     synergy: z.record(z.string(), z.unknown()).optional(),
     pairs: z.array(z.tuple([z.number(), z.number()])).optional(),
@@ -192,16 +179,14 @@ const SynergyCrossRuleSchema = z
     free_pick_count: z.number().optional(),
     category_pools: z.array(z.array(z.number())).optional(),
     implicants: z.array(z.array(z.array(z.number()))).optional(),
-  })
-  .passthrough();
+  });
 
 export const SynergyPayloadSchema = z
-  .object({
+  .looseObject({
     effects: z.record(z.string(), z.unknown()).optional(),
     cross_effects: z.record(z.string(), z.unknown()).optional(),
     effect_rules: z.array(SynergyEffectRuleSchema).optional(),
     cross_rules: z.array(SynergyCrossRuleSchema).optional(),
-  })
-  .passthrough();
+  });
 
 export type SynergyPayload = z.infer<typeof SynergyPayloadSchema>;

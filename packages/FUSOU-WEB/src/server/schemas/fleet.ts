@@ -4,14 +4,13 @@ const FleetSnapshotRecordSchema = z.record(z.string(), z.unknown());
 const FleetSnapshotArraySchema = FleetSnapshotRecordSchema.array();
 
 export const FleetSnapshotPayloadSchema = z
-  .object({
+  .looseObject({
     s3s: FleetSnapshotArraySchema.optional(),
     u7s: FleetSnapshotArraySchema.optional(),
     s8s: FleetSnapshotArraySchema.optional(),
     d8k: FleetSnapshotArraySchema.optional(),
-    c11g: z.number().finite().nullable().optional(),
+    c11g: z.number().nullable().optional(),
   })
-  .passthrough()
   .superRefine((payload, context) => {
     if (!("s3s" in payload || "u7s" in payload || "s8s" in payload || "d8k" in payload)) {
       context.addIssue({

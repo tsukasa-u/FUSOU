@@ -87,8 +87,7 @@ export async function supabaseRestRequest(
 // ─── Public ID Resolution ───────────────────────────────────────────────────
 
 const PublicIdRowsSchema = z
-  .object({ public_id: PublicIdSchema.optional() })
-  .passthrough()
+  .looseObject({ public_id: PublicIdSchema.optional() })
   .array();
 
 /**

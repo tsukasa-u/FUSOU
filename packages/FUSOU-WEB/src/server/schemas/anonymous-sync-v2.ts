@@ -3,7 +3,7 @@ import { z } from "zod";
 const ApiMemberIdSchema = z.string().regex(/^[0-9]{1,16}$/);
 
 const NonEmptyStringSchema = z.string().min(1);
-const UuidV4Schema = z.string().uuid().refine(
+const UuidV4Schema = z.uuid().refine(
   (value) => {
     const normalized = value.toLowerCase();
     return normalized[14] === "4" && /^[89ab]$/.test(normalized[19] ?? "");
@@ -12,66 +12,59 @@ const UuidV4Schema = z.string().uuid().refine(
 );
 
 export const UserMemberMapRowSchema = z
-  .object({
+  .looseObject({
     user_id: NonEmptyStringSchema,
     public_id: UuidV4Schema,
-  })
-  .passthrough();
+  });
 
 export type UserMemberMapRow = z.infer<typeof UserMemberMapRowSchema>;
 
 export const UserDeviceLookupRowSchema = z
-  .object({
+  .looseObject({
     device_id: UuidV4Schema,
     revoked_at: z.string().nullable(),
-  })
-  .passthrough();
+  });
 
 export const UserDeviceInsertRowSchema = z
-  .object({ device_id: UuidV4Schema })
-  .passthrough();
+  .looseObject({ device_id: UuidV4Schema });
 
 export type UserDeviceLookupRow = z.infer<typeof UserDeviceLookupRowSchema>;
 
 export const UserDeviceListRowSchema = z
-  .object({
+  .looseObject({
     device_id: UuidV4Schema,
     public_id: UuidV4Schema,
     created_at: NonEmptyStringSchema,
     last_seen_at: z.string().nullable(),
     revoked_at: z.string().nullable(),
     revoked_reason: z.string().nullable(),
-  })
-  .passthrough();
+  });
 
 export type UserDeviceListRow = z.infer<typeof UserDeviceListRowSchema>;
 
 export const UserDeviceRefreshRowSchema = z
-  .object({
+  .looseObject({
     canonical_user_id: NonEmptyStringSchema,
     public_id: UuidV4Schema,
     device_pubkey: NonEmptyStringSchema,
     revoked_at: z.string().nullable(),
-  })
-  .passthrough();
+  });
 
 export type UserDeviceRefreshRow = z.infer<
   typeof UserDeviceRefreshRowSchema
 >;
 
 export const UserDeviceRevokeTargetRowSchema = z
-  .object({
+  .looseObject({
     canonical_user_id: NonEmptyStringSchema,
     revoked_at: z.string().nullable(),
-  })
-  .passthrough();
+  });
 
 export const UserDeviceWebRevokeTargetRowSchema = z
-  .object({
+  .looseObject({
     public_id: UuidV4Schema,
     revoked_at: z.string().nullable(),
-  })
-  .passthrough();
+  });
 
 export const RegisterRequestSchema = z
   .object({
@@ -89,23 +82,21 @@ export const RegisterRequestSchema = z
   .strict();
 
 export const RefreshRequestSchema = z
-  .object({
+  .looseObject({
     device_id: NonEmptyStringSchema,
     api_member_id: ApiMemberIdSchema,
     nonce: NonEmptyStringSchema,
     sig: NonEmptyStringSchema,
-  })
-  .passthrough();
+  });
 
 export const RevokeRequestSchema = z
-  .object({
+  .looseObject({
     device_id: NonEmptyStringSchema,
     target_device_id: NonEmptyStringSchema,
     nonce: NonEmptyStringSchema,
     sig: NonEmptyStringSchema,
     reason: z.string().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const PendingSyncCompleteRequestSchema = z
   .object({
@@ -119,11 +110,10 @@ export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
 export type RevokeRequest = z.infer<typeof RevokeRequestSchema>;
 
 export const AuthConfigDiagnosticsSchema = z
-  .object({
+  .looseObject({
     enable_anonymous_sign_ins: z.boolean().optional(),
     external_url: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export const AuthSettingsDiagnosticsSchema = z
   .record(z.string(), z.unknown());
@@ -136,11 +126,10 @@ export type AuthSettingsDiagnostics = z.infer<
 >;
 
 export const SupabaseAccessTokenUserSchema = z
-  .object({
+  .looseObject({
     id: NonEmptyStringSchema,
     email: z.string().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export type SupabaseAccessTokenUser = z.infer<
   typeof SupabaseAccessTokenUserSchema

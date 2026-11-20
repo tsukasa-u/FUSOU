@@ -159,7 +159,7 @@ export async function serveShipGrowthSnapshot(
   if (r2Obj.size > MAX_SHIP_GROWTH_JSON_BYTES) {
     throw new Error("Ship-growth snapshot exceeds the 16 MiB input limit");
   }
-  const value = z.object({ ok: z.literal(true) }).passthrough()
+  const value = z.looseObject({ ok: z.literal(true) })
     .parse(await decompressBrotliToJson<unknown>(await r2Obj.arrayBuffer()));
   return new Response(JSON.stringify(value), { status: 200, headers });
 }
@@ -483,13 +483,13 @@ export async function rebuildAllShipGrowthSnapshots(
       throw new Error(`Ship-growth archive exceeds the 16 MiB limit: ${key}`);
     }
     const text = await obj.text();
-    const parsed = z.object({
-      archived_at: z.number().finite(),
+    const parsed = z.looseObject({
+      archived_at: z.number(),
       rows: z.object({
         bounds: z.array(ShipGrowthArchiveBoundsRowSchema),
         caps: z.array(ShipGrowthArchiveCapsRowSchema),
       }),
-    }).passthrough().parse(JSON.parse(text));
+    }).parse(JSON.parse(text));
 
     const archivedAt = Number(parsed.archived_at) || 0;
     if (archivedAt > lastArchivedAtSec) lastArchivedAtSec = archivedAt;
@@ -742,17 +742,17 @@ export async function refreshShipGrowthPeriodSnapshots(
         if (!object) throw new Error(`Published ship-growth aggregate object is missing: ${key}`);
         return decompressBrotliToJson<unknown>(await object.arrayBuffer());
       };
-      const cumulative = z.object({
+      const cumulative = z.looseObject({
         ok: z.literal(true),
         bounds: z.array(ShipGrowthBoundsRowSchema),
         caps: z.array(ShipGrowthCapsRowSchema),
-      }).passthrough().parse(await readAggregate(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY));
+      }).parse(await readAggregate(SHIP_GROWTH_CUMULATIVE_SNAPSHOT_KEY));
       const mergedCumulative = emptyPeriod();
       for (const row of [...cumulative.bounds, ...bounds.bounds]) mergeBound(mergedCumulative.bounds, row);
       for (const row of [...cumulative.caps, ...bounds.caps]) mergeCap(mergedCumulative.caps, row);
       cumulative.bounds = [...mergedCumulative.bounds.values()].sort((a, b) => a.master_id - b.master_id || a.lv - b.lv);
       cumulative.caps = [...mergedCumulative.caps.values()].sort((a, b) => a.master_id - b.master_id);
-      const allPeriods = z.object({
+      const allPeriods = z.looseObject({
         ok: z.literal(true),
         entries: z.array(z.object({
           period_tag: z.string(),
@@ -760,7 +760,7 @@ export async function refreshShipGrowthPeriodSnapshots(
           bounds: z.array(ShipGrowthBoundsRowSchema),
           caps: z.array(ShipGrowthCapsRowSchema),
         })),
-      }).passthrough().parse(await readAggregate(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY));
+      }).parse(await readAggregate(SHIP_GROWTH_ALL_PERIODS_SNAPSHOT_KEY));
       const entries = new Map(allPeriods.entries.map((entry) => [
         `${entry.period_tag}/${entry.table_version}`, entry,
       ]));

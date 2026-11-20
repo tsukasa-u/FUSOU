@@ -2,51 +2,45 @@ import { z } from "zod";
 import { PublicIdSchema } from "./public-id";
 
 export const VerifyDeviceRequestSchema = z
-  .object({
+  .looseObject({
     code: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export const VerifyGoogleRequestSchema = z
-  .object({
+  .looseObject({
     email: z.string().optional(),
     google_token: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export const ApiKeyValidationRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.string().min(1),
       user_id: z.string().min(1),
       email: z.string().min(1),
-    })
-    .passthrough(),
+    }),
 );
 
 export const TrustedDeviceTrustRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.string().min(1),
       last_used_at: z.string().min(1),
-    })
-    .passthrough(),
+    }),
 );
 
 export const VerificationCodeRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.string().min(1),
-    })
-    .passthrough(),
+    }),
 );
 
 export const TableNameRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       table_name: z.string(),
-    })
-    .passthrough(),
+    }),
 );
 
 export function parseTableNames(value: unknown): string[] {
@@ -54,7 +48,7 @@ export function parseTableNames(value: unknown): string[] {
   return result.success ? result.data.map((row) => row.table_name) : [];
 }
 
-const RateLimitAttemptsSchema = z.array(z.number().finite());
+const RateLimitAttemptsSchema = z.array(z.number());
 
 export function parseRateLimitAttempts(value: string | null): number[] | null {
   if (!value) return [];
@@ -68,7 +62,7 @@ export function parseRateLimitAttempts(value: string | null): number[] | null {
 
 export const MasterDataFileRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.number().int(),
       period_tag: z.string(),
       table_version: z.string(),
@@ -76,13 +70,11 @@ export const MasterDataFileRowsSchema = z.array(
       table_name: z.string(),
       r2_key: z.string().nullable(),
       completed_at: z.number().int().nullable(),
-    })
-    .passthrough(),
+    }),
 );
 
 export const MasterDataR2KeyRowSchema = z
-  .object({ r2_key: z.string().min(1) })
-  .passthrough();
+  .looseObject({ r2_key: z.string().min(1) });
 
 export type MasterDataFileRow = z.infer<
   typeof MasterDataFileRowsSchema
@@ -97,7 +89,7 @@ export function parseMasterDataFileRows(
 
 export const ArchivedBlockRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.number().int(),
       dataset_id: PublicIdSchema,
       table_name: z.string(),
@@ -112,19 +104,17 @@ export const ArchivedBlockRowsSchema = z.array(
       period_tag: z.string(),
       start_byte: z.number().int(),
       file_path: z.string(),
-    })
-    .passthrough(),
+    }),
 );
 
 export const DataLoaderBlockInfoRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int(),
     start_byte: z.number().int(),
     length: z.number().int(),
     dataset_id: PublicIdSchema,
     file_path: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export type ArchivedBlockRow = z.infer<
   typeof ArchivedBlockRowsSchema

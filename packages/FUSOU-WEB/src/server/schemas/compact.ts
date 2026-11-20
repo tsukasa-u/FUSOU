@@ -1,9 +1,8 @@
 import { z } from "zod";
 
 export const SanitizeStateRequestSchema = z
-  .object({
+  .looseObject({
     datasetId: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export type SanitizeStateRequest = z.infer<typeof SanitizeStateRequestSchema>;
