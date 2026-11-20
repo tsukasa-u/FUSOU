@@ -8,6 +8,10 @@
       "types": "./dist/index.d.ts",
       "node": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./avro": {
+      "types": "./dist/avro.d.ts",
+      "default": "./dist/avro.js"
     }
   },
   "main": "dist/index.js",

@@ -87,59 +87,52 @@ const QuestListEntrySchema = z.preprocess(
 );
 
 export const QuestIngestEventIdRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int(),
   })
-  .passthrough()
   .nullable();
 
 export const QuestIngestConflictRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int(),
     payload_hash: z.string().min(1),
   })
-  .passthrough()
   .nullable();
 
 export const QuestCollectionSessionRowSchema = z
-  .object({
+  .looseObject({
     collection_session_id: z.string().min(1),
     ended_at_ms: z.number().int().nullable(),
     bootstrap_completed_at_ms: z.number().int().nullable(),
   })
-  .passthrough()
   .nullable();
 
 export const QuestCollectionSessionIdRowSchema = z
-  .object({ collection_session_id: z.string().min(1) })
-  .passthrough()
+  .looseObject({ collection_session_id: z.string().min(1) })
   .nullable();
 
 export const QuestAppearanceEventRowSchema = z
-  .object({
+  .looseObject({
     target_quest_id: z.number().int(),
-    appeared_at_ms: z.number().finite(),
+    appeared_at_ms: z.number(),
     collection_session_id: z.string().min(1),
     is_bootstrap_unknown: z.number().int(),
-  })
-  .passthrough();
+  });
 
 export const QuestStateEventRowSchema = z
-  .object({
+  .looseObject({
     quest_id: z.number().int(),
     event_type: z.string().min(1),
     state_after: z.enum(["active", "visible_inactive", "claimed"]),
-    timestamp_ms: z.number().finite(),
+    timestamp_ms: z.number(),
     collection_session_id: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const QuestSnapshotPageRowSchema = z
-  .object({
+  .looseObject({
     page_no: z.number().int(),
     visible_quest_ids_json: z.string().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const QuestTreeIngestBodySchema = z
   .object({

@@ -7,7 +7,6 @@ test:
 clean:
     cargo clean
     cd ./packages/kc_api/ && cargo clean
-    cd ./packages/avro-wasm/ && cargo clean
 
 clean_fusou_app:
     cd ./packages/FUSOU-APP/src-tauri/ && cargo clean
@@ -23,9 +22,6 @@ clean_kc_api:
 
 clean_auth:
     cd ./packages/fusou-auth/ && cargo clean
-
-clean_avro_wasm:
-    cd ./packages/avro-wasm/ && cargo clean
 
 clean_fusou-upload:
     cd ./packages/fusou-upload/ && cargo clean

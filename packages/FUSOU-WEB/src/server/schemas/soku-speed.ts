@@ -10,43 +10,38 @@ export const SokuObservedSpeedSchema = z.union([
 ]);
 
 export const LatestSokuSpeedPeriodRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const SokuSpeedSlotSchema = z
-  .object({ slotitem_id: z.number().int().positive() })
-  .passthrough();
+  .looseObject({ slotitem_id: z.number().int().positive() });
 
 export const SokuSpeedSlotRowsSchema = SokuSpeedSlotSchema.array();
 export const SokuSpeedExslotSchema = SokuSpeedSlotSchema.nullable();
 
 export const SokuSpeedObservationRowSchema = z
-  .object({
+  .looseObject({
     master_id: z.number().int().positive(),
     soku_observed: SokuObservedSpeedSchema,
     slots_json: z.string(),
     exslot_json: z.string().nullable(),
-  })
-  .passthrough();
+  });
 
 const SokuSpeedAggregateEntrySchema = z
-  .object({
+  .looseObject({
     soku_observed: SokuObservedSpeedSchema,
     item_ids: z.number().int().positive().array(),
-  })
-  .passthrough();
+  });
 
 export const SokuSpeedUpgradeResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.literal(true),
     period_tag: z.string().min(1).nullable(),
     table_version: z.string().min(1).nullable(),
     data: z.record(z.string(), SokuSpeedAggregateEntrySchema.array()),
   })
-  .passthrough()
   .superRefine((response, context) => {
     if ((response.period_tag === null) !== (response.table_version === null)) {
       context.addIssue({
@@ -100,7 +95,7 @@ const OptionalNumberInputSchema = z.preprocess(
     }
     return undefined;
   },
-  z.number().finite().optional(),
+  z.number().optional(),
 );
 
 const OptionalBooleanInputSchema = z.preprocess(
@@ -111,19 +106,18 @@ const OptionalBooleanInputSchema = z.preprocess(
 const SokuSpeedSlotInputSchema = z.preprocess(
   (value) => (isRecord(value) ? value : {}),
   z
-    .object({
+    .looseObject({
       slotitem_id: OptionalNumberInputSchema,
       locked: OptionalBooleanInputSchema,
       level: OptionalNumberInputSchema,
       alv: OptionalNumberInputSchema,
-    })
-    .passthrough(),
+    }),
 );
 
 const SokuSpeedShipInputSchema = z.preprocess(
   (value) => (isRecord(value) ? value : {}),
   z
-    .object({
+    .looseObject({
       master_id: OptionalNumberInputSchema,
       lv: OptionalNumberInputSchema,
       soku_observed: OptionalNumberInputSchema,
@@ -139,12 +133,11 @@ const SokuSpeedShipInputSchema = z.preprocess(
         },
         SokuSpeedSlotInputSchema.nullable().optional(),
       ),
-    })
-    .passthrough(),
+    }),
 );
 
 export const SokuSpeedIngestBodySchema = z
-  .object({
+  .looseObject({
     dataset_id: OptionalStringInputSchema,
     dataset_token: OptionalStringInputSchema,
     request_id: OptionalStringInputSchema,
@@ -159,8 +152,7 @@ export const SokuSpeedIngestBodySchema = z
     ),
     content_hash: OptionalStringInputSchema,
     file_size: OptionalNumberInputSchema,
-  })
-  .passthrough();
+  });
 
 function isValidInteger(value: unknown): value is number {
   return (

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "groups": {
+    "kcApiData": {
+      "inputHash": "59fb26db13a3180717871cb99c06f67b224fc999a9798c39b4e47762b75f2877",
+      "outputs": {
+        "packages/FUSOU-WEB/src/data/avro-schema-registry.json": "7b6fd722ba89de04544e838cad12dcdcc5e89d0af455872ce16ade89f66783ff",
+        "packages/FUSOU-WEB/src/data/graphs/database_dot.json": "efbf0db190a288a9e4d2c80400b23625a77003530421deb9be354c8b2eccd34c",
+        "packages/FUSOU-WEB/src/data/graphs/db_v0_4.json": "4ff65f158c82bd91af550bf4b044fb2a4ce3e1eca57f331242891166f2de6e6d",
+        "packages/FUSOU-WEB/src/data/graphs/db_v0_5.json": "a97824a87471eaa8051e6d750f2b9ddac44ff78694b02c01cda43e12d75769f2",
+        "packages/FUSOU-WEB/src/data/graphs/db_v0_5_1.json": "682efbd39a192ee3cb6327bf998dbe05764cd3de3c2d425723be3a908cff26b9",
+        "packages/FUSOU-WEB/src/data/graphs/db_v0_6_0.json": "4e4474599cb24b53d6fac15977d3da8047f444bc9806c1815fbf88c542b63f65",
+        "packages/FUSOU-WEB/src/data/graphs/db_versions.json": "7284c93ea2412a4e20759f48571668b9db381fd124dba54e602092adf12f53ad",
+        "packages/FUSOU-WEB/src/data/graphs/endpoints_by_group.json": "7f4b939dbaf8090c4f2b6449fd4cfba0a07fd9b375a9d5a83f33b502a682dab9",
+        "packages/configs/fingerprints.json": "2379ef4291760b5ce5b22ed8c3d8274a4be2c5e0222edbf9247e989fba25ead5",
+        "packages/kc_api/generated-schemas/master_schema_v0_4.json": "2e8446d1c960cb0caaf9fcc78121ffa18b4b0d4eac154c2185508a2933adb76f",
+        "packages/kc_api/generated-schemas/master_schema_v0_5.json": "d8df6846551cb1517b5c6fe296f35a6b3f80fc1e3931ee4a3f19195f2fcf41e4",
+        "packages/kc_api/generated-schemas/master_schema_v0_5_1.json": "261e704e315d368aa80e8e41de78223fb8be97fcaec0bbdf12a4d1be3997d815",
+        "packages/kc_api/generated-schemas/master_schema_v0_6_0.json": "1240291ab9d94549198d584ef27043e176c2bda6069bff3bfdbca3bde0a69c46",
+        "packages/kc_api/generated-schemas/schema_v0_4.json": "2f829e1ecc6a1d09aa62a6e42b2d4123638fec0267849f4c8fd320665466aa81",
+        "packages/kc_api/generated-schemas/schema_v0_5.json": "0582bdc8c04ecd0456efb56e34ad6036712943fa90cabaa61a6d77569ff67a90",
+        "packages/kc_api/generated-schemas/schema_v0_5_1.json": "e7f6ed72cf48bb74e4731b4a12886652d274cff684f4a9c0adf6bf7322b1842c",
+        "packages/kc_api/generated-schemas/schema_v0_6_0.json": "9d54693168c24ad3149fa477674d7f7e9c3db15b341986057663cde8ee3818f4"
+      }
+    }
+  }
+}

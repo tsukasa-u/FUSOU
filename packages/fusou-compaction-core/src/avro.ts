@@ -69,6 +69,19 @@ type NamedSchemas = Map<string, SchemaNode>;
 const OCF_MAGIC = Uint8Array.of(0x4f, 0x62, 0x6a, 0x01);
 const OCF_SYNC_MARKER_LENGTH = 16;
 const MAX_METADATA_ENTRIES = 4096;
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+const PRIMITIVE_TYPES = new Set([
+  "null",
+  "boolean",
+  "int",
+  "long",
+  "float",
+  "double",
+  "bytes",
+  "string",
+]);
+const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function fail(message: string): never {
   throw new AvroOcfError("CORRUPT_AVRO", message);
@@ -1076,4 +1089,529 @@ export async function decodeAvroOcfToJsonAsync(
     "UNSUPPORTED_CODEC",
     `Unsupported Avro codec: ${codec}`,
   );
+}
+
+// ============================================================================
+// Avro 1.11 Parsing Canonical Form & Strict OCF Validation
+// ============================================================================
+
+function resolveCanonicalFullname(
+  name: string,
+  explicitNamespace: string | undefined,
+  enclosingNamespace: string | undefined,
+): string {
+  if (name.includes(".")) return name;
+  const ns = explicitNamespace !== undefined ? explicitNamespace : enclosingNamespace;
+  return ns && ns.length > 0 ? `${ns}.${name}` : name;
+}
+
+function namespaceOfFullname(fullname: string): string | undefined {
+  const idx = fullname.lastIndexOf(".");
+  return idx > 0 ? fullname.slice(0, idx) : undefined;
+}
+
+function canonicalizeSchemaNode(
+  node: unknown,
+  enclosingNamespace: string | undefined,
+  definedNames: Set<string>,
+): string {
+  if (typeof node === "string") {
+    if (PRIMITIVE_TYPES.has(node)) {
+      return JSON.stringify(node);
+    }
+    const fullname = resolveCanonicalFullname(node, undefined, enclosingNamespace);
+    if (definedNames.has(fullname)) {
+      return JSON.stringify(fullname);
+    }
+    return fail(`Unknown Avro schema type: ${node}`);
+  }
+
+  if (Array.isArray(node)) {
+    if (node.length === 0) {
+      return fail("Avro union schema must not be empty");
+    }
+    const seenBranches = new Set<string>();
+    const parts: string[] = [];
+    for (const branch of node) {
+      if (Array.isArray(branch)) {
+        return fail("Avro union schema cannot contain a nested union");
+      }
+      const canonical = canonicalizeSchemaNode(branch, enclosingNamespace, definedNames);
+      let branchKey = canonical;
+      if (branch && typeof branch === "object" && !Array.isArray(branch)) {
+        const bType = (branch as Record<string, unknown>)["type"];
+        if (bType === "array" || bType === "map") {
+          branchKey = bType;
+        }
+      }
+      if (seenBranches.has(branchKey)) {
+        return fail(`Duplicate branch in Avro union schema: ${branchKey}`);
+      }
+      seenBranches.add(branchKey);
+      parts.push(canonical);
+    }
+    return `[${parts.join(",")}]`;
+  }
+
+  if (node === null || typeof node !== "object") {
+    return fail("Invalid Avro schema node");
+  }
+
+  const obj = node as Record<string, unknown>;
+  const rawType = obj["type"];
+
+  if (typeof rawType !== "string") {
+    return canonicalizeSchemaNode(rawType, enclosingNamespace, definedNames);
+  }
+
+  if (PRIMITIVE_TYPES.has(rawType)) {
+    const logicalType = obj["logicalType"];
+    if (typeof logicalType === "string" && logicalType.length > 0) {
+      return `{"type":${JSON.stringify(rawType)},"logicalType":${JSON.stringify(logicalType)}}`;
+    }
+    return JSON.stringify(rawType);
+  }
+
+  const explicitNamespace =
+    typeof obj["namespace"] === "string" ? obj["namespace"] : undefined;
+
+  switch (rawType) {
+    case "record": {
+      const name = obj["name"];
+      if (typeof name !== "string" || name.length === 0) {
+        return fail("Avro record schema requires a non-empty name");
+      }
+      if (!Array.isArray(obj["fields"])) {
+        return fail("Avro record schema requires a fields array");
+      }
+      const fullname = resolveCanonicalFullname(name, explicitNamespace, enclosingNamespace);
+      if (definedNames.has(fullname)) {
+        return fail(`Duplicate Avro named schema: ${fullname}`);
+      }
+      definedNames.add(fullname);
+      const childNs = namespaceOfFullname(fullname);
+      const seenFields = new Set<string>();
+      const fieldParts: string[] = [];
+      for (const field of obj["fields"]) {
+        if (field === null || typeof field !== "object" || Array.isArray(field)) {
+          return fail("Avro record field must be an object");
+        }
+        const fieldObj = field as Record<string, unknown>;
+        const fieldName = fieldObj["name"];
+        if (typeof fieldName !== "string" || fieldName.length === 0) {
+          return fail("Avro record field requires a non-empty name");
+        }
+        if (seenFields.has(fieldName)) {
+          return fail(`Duplicate Avro record field: ${fieldName}`);
+        }
+        seenFields.add(fieldName);
+        if (!("type" in fieldObj)) {
+          return fail(`Avro record field '${fieldName}' is missing a type`);
+        }
+        const fieldType = canonicalizeSchemaNode(fieldObj["type"], childNs, definedNames);
+        fieldParts.push(`{"name":${JSON.stringify(fieldName)},"type":${fieldType}}`);
+      }
+      return `{"name":${JSON.stringify(fullname)},"type":"record","fields":[${fieldParts.join(",")}]}`;
+    }
+    case "enum": {
+      const name = obj["name"];
+      if (typeof name !== "string" || name.length === 0) {
+        return fail("Avro enum schema requires a non-empty name");
+      }
+      if (!Array.isArray(obj["symbols"])) {
+        return fail("Avro enum schema requires a symbols array");
+      }
+      const fullname = resolveCanonicalFullname(name, explicitNamespace, enclosingNamespace);
+      if (definedNames.has(fullname)) {
+        return fail(`Duplicate Avro named schema: ${fullname}`);
+      }
+      definedNames.add(fullname);
+      const seenSymbols = new Set<string>();
+      const symbols: string[] = [];
+      for (const sym of obj["symbols"]) {
+        if (typeof sym !== "string" || sym.length === 0) {
+          return fail("Avro enum symbols must be non-empty strings");
+        }
+        if (seenSymbols.has(sym)) {
+          return fail(`Duplicate Avro enum symbol: ${sym}`);
+        }
+        seenSymbols.add(sym);
+        symbols.push(JSON.stringify(sym));
+      }
+      return `{"name":${JSON.stringify(fullname)},"type":"enum","symbols":[${symbols.join(",")}]}`;
+    }
+    case "fixed": {
+      const name = obj["name"];
+      const size = obj["size"];
+      if (typeof name !== "string" || name.length === 0) {
+        return fail("Avro fixed schema requires a non-empty name");
+      }
+      if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
+        return fail("Avro fixed schema requires a non-negative integer size");
+      }
+      const fullname = resolveCanonicalFullname(name, explicitNamespace, enclosingNamespace);
+      if (definedNames.has(fullname)) {
+        return fail(`Duplicate Avro named schema: ${fullname}`);
+      }
+      definedNames.add(fullname);
+      return `{"name":${JSON.stringify(fullname)},"type":"fixed","size":${size}}`;
+    }
+    case "array": {
+      if (!("items" in obj)) {
+        return fail("Avro array schema requires items");
+      }
+      const items = canonicalizeSchemaNode(obj["items"], enclosingNamespace, definedNames);
+      return `{"type":"array","items":${items}}`;
+    }
+    case "map": {
+      if (!("values" in obj)) {
+        return fail("Avro map schema requires values");
+      }
+      const values = canonicalizeSchemaNode(obj["values"], enclosingNamespace, definedNames);
+      return `{"type":"map","values":${values}}`;
+    }
+    default: {
+      const fullname = resolveCanonicalFullname(rawType, explicitNamespace, enclosingNamespace);
+      if (definedNames.has(fullname)) {
+        return JSON.stringify(fullname);
+      }
+      return fail(`Unknown Avro schema type: ${rawType}`);
+    }
+  }
+}
+
+/**
+ * Computes the Avro Parsing Canonical Form for a schema JSON string or object.
+ * Matches `apache-avro` 0.19 `Schema::canonical_form()` (strips doc, default, aliases
+ * while preserving `logicalType` on primitive types).
+ */
+export function toAvroCanonicalForm(schemaInput: unknown): string {
+  let parsed: unknown = schemaInput;
+  if (typeof schemaInput === "string") {
+    try {
+      parsed = JSON.parse(schemaInput);
+    } catch (error) {
+      return fail(
+        `Invalid Avro schema JSON: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return canonicalizeSchemaNode(parsed, undefined, new Set<string>());
+}
+
+const AVRO_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readStrictString(bytes: Uint8Array, cursor: Cursor): string {
+  const raw = readDataBytes(bytes, cursor);
+  try {
+    return FATAL_UTF8_DECODER.decode(raw);
+  } catch {
+    return fail("Avro string contains invalid UTF-8");
+  }
+}
+
+function validateStrictValue(
+  bytes: Uint8Array,
+  cursor: Cursor,
+  originalSchema: SchemaNode,
+  named: NamedSchemas,
+): void {
+  const schema = resolveSchema(originalSchema, named);
+
+  if (Array.isArray(schema)) {
+    const branch = readDataLong(bytes, cursor);
+    if (!Number.isSafeInteger(branch) || branch < 0 || branch >= schema.length) {
+      return fail("Avro union branch is invalid");
+    }
+    const branchSchema = schema[branch];
+    if (branchSchema === undefined) return fail("Avro union branch is invalid");
+    validateStrictValue(bytes, cursor, branchSchema, named);
+    return;
+  }
+
+  if (typeof schema === "string") {
+    switch (schema) {
+      case "null":
+        return;
+      case "boolean": {
+        const byte = bytes[cursor.offset];
+        if (byte === undefined) return fail("Avro boolean is truncated");
+        cursor.offset += 1;
+        if (byte !== 0 && byte !== 1) return fail("Avro boolean is invalid");
+        return;
+      }
+      case "int": {
+        const value = readDataLong(bytes, cursor);
+        if (value < INT32_MIN || value > INT32_MAX) {
+          return fail(`Avro int value out of 32-bit range: ${value}`);
+        }
+        return;
+      }
+      case "long": {
+        readDataLong(bytes, cursor);
+        return;
+      }
+      case "float":
+        readFloat(bytes, cursor, 4);
+        return;
+      case "double":
+        readFloat(bytes, cursor, 8);
+        return;
+      case "bytes":
+        readDataBytes(bytes, cursor);
+        return;
+      case "string":
+        readStrictString(bytes, cursor);
+        return;
+      default:
+        return fail(`Unknown Avro named type: ${schema}`);
+    }
+  }
+
+  if (typeof schema.type !== "string") {
+    validateStrictValue(bytes, cursor, schema.type, named);
+    return;
+  }
+
+  if (schema.type === "string" && schema.logicalType === "uuid") {
+    const value = readStrictString(bytes, cursor);
+    if (!AVRO_UUID_RE.test(value)) {
+      return fail(`Avro uuid logicalType value is invalid: ${value}`);
+    }
+    return;
+  }
+
+  switch (schema.type) {
+    case "null":
+    case "boolean":
+    case "int":
+    case "long":
+    case "float":
+    case "double":
+    case "bytes":
+    case "string":
+      validateStrictValue(bytes, cursor, schema.type, named);
+      return;
+    case "record": {
+      for (const field of schema.fields ?? []) {
+        validateStrictValue(bytes, cursor, field.type, named);
+      }
+      return;
+    }
+    case "enum": {
+      const index = readDataLong(bytes, cursor);
+      const symbols = schema.symbols ?? [];
+      if (index < 0 || index >= symbols.length) {
+        return fail("Avro enum index is invalid");
+      }
+      return;
+    }
+    case "fixed": {
+      const size = schema.size;
+      if (!Number.isSafeInteger(size) || size === undefined || size < 0) {
+        return fail("Avro fixed type has an invalid size");
+      }
+      if (size > bytes.length - cursor.offset) {
+        return fail("Avro fixed value is truncated");
+      }
+      cursor.offset += size;
+      return;
+    }
+    case "array": {
+      if (!schema.items) return fail("Avro array type has no items schema");
+      let blockCount = readDataLong(bytes, cursor);
+      while (blockCount !== 0) {
+        let blockEnd: number | undefined;
+        if (blockCount < 0) {
+          blockCount = -blockCount;
+          const blockSize = readDataLong(bytes, cursor);
+          if (blockSize < 0 || blockSize > bytes.length - cursor.offset) {
+            return fail("Avro array block size is invalid");
+          }
+          blockEnd = cursor.offset + blockSize;
+        }
+        if (!Number.isSafeInteger(blockCount) || blockCount > bytes.length) {
+          return fail("Avro array block count is invalid");
+        }
+        for (let index = 0; index < blockCount; index += 1) {
+          validateStrictValue(bytes, cursor, schema.items, named);
+        }
+        if (blockEnd !== undefined && cursor.offset !== blockEnd) {
+          return fail("Avro array block size does not match elements");
+        }
+        blockCount = readDataLong(bytes, cursor);
+      }
+      return;
+    }
+    case "map": {
+      if (!schema.values) return fail("Avro map type has no values schema");
+      let blockCount = readDataLong(bytes, cursor);
+      while (blockCount !== 0) {
+        let blockEnd: number | undefined;
+        if (blockCount < 0) {
+          blockCount = -blockCount;
+          const blockSize = readDataLong(bytes, cursor);
+          if (blockSize < 0 || blockSize > bytes.length - cursor.offset) {
+            return fail("Avro map block size is invalid");
+          }
+          blockEnd = cursor.offset + blockSize;
+        }
+        if (!Number.isSafeInteger(blockCount) || blockCount > bytes.length) {
+          return fail("Avro map block count is invalid");
+        }
+        for (let index = 0; index < blockCount; index += 1) {
+          readStrictString(bytes, cursor);
+          validateStrictValue(bytes, cursor, schema.values, named);
+        }
+        if (blockEnd !== undefined && cursor.offset !== blockEnd) {
+          return fail("Avro map block size does not match entries");
+        }
+        blockCount = readDataLong(bytes, cursor);
+      }
+      return;
+    }
+    default:
+      return fail("Avro schema contains an unsupported type");
+  }
+}
+
+export interface StrictAvroOcfValidationResult {
+  valid: boolean;
+  recordCount: number;
+  errorMessage?: string;
+  header?: OcfHeader;
+}
+
+/**
+ * Strictly validates an Avro OCF payload against an expected schema (or its embedded header schema
+ * when `expectedSchema` is omitted), without retaining decoded records in memory.
+ */
+export async function validateAvroOcfStrict(
+  avroBytes: Uint8Array,
+  options: {
+    expectedSchema?: unknown;
+    maxRecords?: number;
+    maxDecodedBytes?: number;
+  } = {},
+): Promise<StrictAvroOcfValidationResult> {
+  try {
+    if (avroBytes.length < 4) {
+      return { valid: false, recordCount: 0, errorMessage: "Avro file too small" };
+    }
+    if (!OCF_MAGIC.every((b, idx) => avroBytes[idx] === b)) {
+      return { valid: false, recordCount: 0, errorMessage: "Invalid Avro magic bytes" };
+    }
+
+    const header = parseHeaderForDecoder(avroBytes);
+    const codec = header.codec ?? "null";
+    if (codec !== "null" && codec !== "deflate") {
+      return {
+        valid: false,
+        recordCount: 0,
+        errorMessage: `Unsupported Avro codec: ${codec}`,
+        header,
+      };
+    }
+
+    // Validate header schema canonical form
+    const headerCanonical = toAvroCanonicalForm(header.schema);
+    if (options.expectedSchema !== undefined) {
+      const expectedCanonical = toAvroCanonicalForm(options.expectedSchema);
+      if (headerCanonical !== expectedCanonical) {
+        return {
+          valid: false,
+          recordCount: 0,
+          errorMessage: "Avro OCF schema does not match expected schema",
+          header,
+        };
+      }
+    }
+
+    const context = prepareAvroDecoderContext(header);
+    const body = avroBytes.subarray(header.bodyOffset);
+    let offset = 0;
+    let totalRecords = 0;
+    let totalDecodedBytes = 0;
+
+    while (offset < body.length) {
+      const blockCursor: Cursor = { offset };
+      const blockCount = readDataLong(body, blockCursor);
+      if (!Number.isSafeInteger(blockCount) || blockCount <= 0) {
+        return fail("Avro block record count is invalid");
+      }
+      const blockSize = readDataLong(body, blockCursor);
+      if (
+        !Number.isSafeInteger(blockSize) ||
+        blockSize < 0 ||
+        blockSize > body.length - blockCursor.offset - header.syncMarker.length
+      ) {
+        return fail("Avro block payload is truncated");
+      }
+
+      const payloadStart = blockCursor.offset;
+      const payloadEnd = payloadStart + blockSize;
+      assertSyncMarker(body, payloadEnd, header.syncMarker);
+
+      const rawPayload = body.subarray(payloadStart, payloadEnd);
+      const payload =
+        codec === "deflate"
+          ? await inflateRawAsync(
+              rawPayload,
+              options.maxDecodedBytes === undefined
+                ? undefined
+                : options.maxDecodedBytes - totalDecodedBytes,
+            )
+          : rawPayload;
+      totalDecodedBytes += payload.byteLength;
+      if (
+        options.maxDecodedBytes !== undefined &&
+        totalDecodedBytes > options.maxDecodedBytes
+      ) {
+        throw new AvroOcfError(
+          "OUT_OF_MEMORY_GUARD",
+          "Avro expanded bytes exceed the configured limit",
+        );
+      }
+
+      const payloadCursor: Cursor = { offset: 0 };
+      for (let i = 0; i < blockCount; i += 1) {
+        if (options.maxRecords !== undefined && totalRecords >= options.maxRecords) {
+          throw new AvroOcfError(
+            "OUT_OF_MEMORY_GUARD",
+            "Avro decoded record count exceeds the configured limit",
+          );
+        }
+        validateStrictValue(payload, payloadCursor, context.schema, context.named);
+        totalRecords += 1;
+      }
+
+      if (payloadCursor.offset !== payload.length) {
+        return fail("Avro block payload has trailing bytes");
+      }
+
+      offset = payloadEnd + header.syncMarker.length;
+    }
+
+    if (totalRecords === 0) {
+      return {
+        valid: false,
+        recordCount: 0,
+        errorMessage: "No records found in Avro file",
+        header,
+      };
+    }
+
+    return {
+      valid: true,
+      recordCount: totalRecords,
+      header,
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      recordCount: 0,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

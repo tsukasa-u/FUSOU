@@ -204,9 +204,6 @@ importers:
       '@dagrejs/dagre':
         specifier: ^2.0.4
         version: 2.0.4
-      '@fusou/avro-wasm':
-        specifier: workspace:*
-        version: link:../avro-wasm
       '@fusou/compaction-core':
         specifier: workspace:*
         version: link:../fusou-compaction-core
@@ -413,12 +410,6 @@ importers:
       wrangler:
         specifier: ^4.135.0
         version: 4.135.0(@cloudflare/workers-types@4.20260329.1)(@types/node@22.20.4)
-
-  packages/avro-wasm:
-    devDependencies:
-      wasm-pack:
-        specifier: ^0.15.0
-        version: 0.15.0
 
   packages/fusou-compaction-core:
     devDependencies:
@@ -7706,11 +7697,6 @@ packages:
     resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
     engines: {node: '>=18'}
 
-  wasm-pack@0.15.0:
-    resolution: {integrity: sha512-DdqtGWc3+iFx+7lL7QU5LBWs7qMnwQSWxF0htSfE15sNa3roVwHjAkTm2JXgueU2GGfSwNqbq2EzyC2b/biKDA==}
-    engines: {node: '>=16'}
-    hasBin: true
-
   watchpack@2.6.4:
     resolution: {integrity: sha512-5H3Tce2GfzWbcr9VnSqyak2whFaONw4BdmI5BDnMXold4qSlCFd64XaMQESRh2vkDKmdUkv6rUo17UvZ9f9nXw==}
     engines: {node: '>=10.13.0'}
@@ -11116,9 +11102,9 @@ snapshots:
       obug: 2.2.1
       std-env: 4.2.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@4.1.12)(@vitest/coverage-v8@4.1.12)(jsdom@30.1.0(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))
+      vitest: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@4.1.12)(@vitest/coverage-v8@4.1.12)(jsdom@30.1.0(@noble/hashes@1.8.0))(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.1))
     optionalDependencies:
-      '@vitest/browser': 4.1.12(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))(vitest@4.1.12)
+      '@vitest/browser': 4.1.12(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.1))(vitest@4.1.12)
 
   '@vitest/expect@3.2.4':
     dependencies:
@@ -16133,10 +16119,6 @@ snapshots:
   w3c-xmlserializer@5.0.0:
     dependencies:
       xml-name-validator: 5.0.0
-
-  wasm-pack@0.15.0:
-    dependencies:
-      tar: 7.5.22
 
   watchpack@2.6.4:
     dependencies:

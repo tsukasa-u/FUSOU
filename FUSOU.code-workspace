@@ -19,9 +19,6 @@
 			"path": "packages/fusou-auth"
 		},
 		{
-			"path": "packages/avro-wasm"
-		},
-		{
 			"path": "packages/fusou-upload"
 		},
 		{

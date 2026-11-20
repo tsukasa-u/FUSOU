@@ -1010,11 +1010,10 @@ export function validateTokenPayload(
   return validateTokenPayloadWithSchema(
     payload,
     z
-      .object({
+      .looseObject({
         user_id: z.string().min(1),
         expectedFileSize: z.number().positive().nullable().optional(),
-      })
-      .passthrough(),
+      }),
     requiredFields ?? [],
   );
 }

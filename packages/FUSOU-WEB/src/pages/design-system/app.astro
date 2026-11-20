@@ -460,8 +460,9 @@ const materialList = [
             class="btn btn-xs btn-outline"
             onclick="
                 const frame = document.getElementById('mock-app-frame');
+                const maxBtn = document.getElementById('toggle-max-btn');
                 const isMax = frame.classList.toggle('is-maximized');
-                this.textContent = isMax ? 'ウィンドウモードに戻す' : '最大化モードに切り替え';
+                if (maxBtn) maxBtn.textContent = isMax ? 'ウィンドウモードに戻す' : '最大化モードに切り替え';
               "
           >
             最大化モードに切り替え
@@ -981,8 +982,9 @@ const materialList = [
               />
               <button
                 type="button"
+                id="mute-audio-specimen-btn"
                 class="fusou-custom-mute-btn"
-                onclick="this.classList.toggle('is-muted'); this.textContent = this.classList.contains('is-muted') ? 'Unmute' : 'Mute Audio';"
+                onclick="const muteBtn = document.getElementById('mute-audio-specimen-btn'); if (muteBtn) { muteBtn.classList.toggle('is-muted'); muteBtn.textContent = muteBtn.classList.contains('is-muted') ? 'Unmute' : 'Mute Audio'; }"
               >
                 Mute Audio
               </button>

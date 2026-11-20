@@ -53,8 +53,8 @@ pnpm --dir packages/FUSOU-WEB run deploy
 
 この 1 コマンドが、以下の必須処理を順番に実行します。
 
-1. `pnpm --filter @fusou/avro-wasm run build`
-1. `pnpm run generate:all`
+1. `node ../../scripts/sync-rust-artifacts.mjs --check-or-build`（`kc_api` 生成物鮮度チェック／未同期時のみ Rust 生成）
+1. `pnpm run generate:all`（`generate:graph-data` + `generate:avro-schemas`）
 1. `pnpm run check:security:dom`
 1. `astro check`
 1. `astro build`
@@ -64,10 +64,10 @@ pnpm --dir packages/FUSOU-WEB run deploy
 
 `generate:all` の中身:
 
-1. `generate:rust-data`
 1. `generate:graph-data`
+1. `generate:avro-schemas`（`src/data/avro-schema-registry.json` を再生成）
 
-`generate:rust-data` の中身:
+`kc_api` 側の Rust 生成物同期（`pnpm run sync:rust-artifacts` / pre-commit フックで自動同期）:
 
 1. `cd ../kc_api && bash scripts/generate-schemas.sh`
 1. `cargo test -p kc-api-dto test_struct_dependency_syn -- --nocapture`
@@ -75,8 +75,8 @@ pnpm --dir packages/FUSOU-WEB run deploy
 
 実務上の意味:
 
-- ここが失敗すると WEB build が止まる
-- スキーマ更新時は特に必須
+- `kc_api` を変更して Rust 生成物が未同期のままビルドすると鮮度チェックで停止する
+- スキーマ更新時は `pnpm run sync:rust-artifacts`（または pre-commit フック）で同期してからコミットする
 - `generate-schemas.sh` は `bash` を使うため、Windows では Git Bash/WSL が必要
 
 ### 3.3 やってはいけない実行
@@ -85,8 +85,8 @@ pnpm --dir packages/FUSOU-WEB run deploy
 
 理由:
 
-- `avro-wasm` build
-- schema/graph 生成
+- Rust 生成物の鮮度チェック
+- schema/graph・Avro レジストリ生成
 - DOM セキュリティ差分検査
 - Astro 型検査
 
@@ -99,7 +99,6 @@ pnpm --dir packages/FUSOU-WEB run deploy
 ## 4.1 Simulator 最小構成（まずこれ）
 
 ```bash
-pnpm --filter @fusou/avro-wasm run build
 pnpm --dir packages/FUSOU-WEB run seed:master-data
 pnpm --dir packages/FUSOU-WEB run dev
 ```

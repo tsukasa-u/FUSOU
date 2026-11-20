@@ -3,19 +3,16 @@ import { isValidPeriodTagDate } from "../utils/period-tags";
 import { PublicIdSchema } from "./public-id";
 
 export const RemodelMaxUpdatedAtRowSchema = z
-  .object({ max_updated_at_ms: z.number().nullable().optional() })
-  .passthrough();
+  .looseObject({ max_updated_at_ms: z.number().nullable().optional() });
 
 export const RemodelChangedPeriodRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
-    max_updated_at_ms: z.number().finite(),
-  })
-  .passthrough();
+    max_updated_at_ms: z.number(),
+  });
 
 export const RemodelPeriodTagRowSchema = z
-  .object({ period_tag: z.string().min(1) })
-  .passthrough();
+  .looseObject({ period_tag: z.string().min(1) });
 
 export const RemodelSlotlistArchiveRowSchema = z.object({
   period_tag: z.string().min(1),
@@ -56,12 +53,11 @@ export const RemodelDetailArchiveRowSchema = z.object({
 });
 
 export const RemodelPeriodSummaryRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     row_count: z.number().int().nonnegative(),
     slotitem_count: z.number().int().nonnegative(),
-  })
-  .passthrough();
+  });
 
 export function parseRemodelPeriodSummaryRows(
   value: unknown,
@@ -74,14 +70,13 @@ export function parseRemodelPeriodSummaryRows(
 }
 
 export const RemodelEffectiveSummaryRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     total_rows: z.number().int().nonnegative(),
     slotlist_rows: z.number().int().nonnegative(),
     recovered_from_detail_rows: z.number().int().nonnegative(),
     unresolved_fallback_rows: z.number().int().nonnegative(),
-  })
-  .passthrough();
+  });
 
 export function parseRemodelEffectiveSummaryRows(
   value: unknown,
@@ -105,7 +100,7 @@ const RemodelJsonValueSchema: z.ZodType<RemodelJsonValue> = z.lazy(() =>
   z.union([
     z.null(),
     z.boolean(),
-    z.number().finite(),
+    z.number(),
     z.string(),
     z.array(RemodelJsonValueSchema),
     z.record(z.string(), RemodelJsonValueSchema),

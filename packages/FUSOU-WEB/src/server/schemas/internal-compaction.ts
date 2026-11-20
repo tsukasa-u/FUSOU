@@ -7,10 +7,10 @@ const CompactionTierSchema = z.enum([
   "period",
 ]);
 
-const NullableNumberSchema = z.number().finite().nullable().optional();
+const NullableNumberSchema = z.number().nullable().optional();
 
 export const ListSourceBlockRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     dataset_id: z.string().min(1),
     table_name: z.string().min(1),
@@ -19,100 +19,87 @@ export const ListSourceBlockRowSchema = z
     start_byte: z.number().int().nonnegative(),
     length: z.number().int().positive(),
     record_count: z.number().int().nonnegative(),
-    start_timestamp: z.number().finite(),
-    end_timestamp: z.number().finite(),
+    start_timestamp: z.number(),
+    end_timestamp: z.number(),
     compaction_tier: CompactionTierSchema,
     window_start_ms: NullableNumberSchema,
     window_end_ms: NullableNumberSchema,
     file_id: z.number().int().positive(),
     file_path: z.string().min(1),
     file_size: z.number().nonnegative(),
-  })
-  .passthrough();
+  });
 
 export const SourceGroupRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
     source_blocks: z.number().int().nonnegative(),
-  })
-  .passthrough();
+  });
 
 export const SourceTableRowSchema = z
-  .object({ table_name: z.string().min(1) })
-  .passthrough();
+  .looseObject({ table_name: z.string().min(1) });
 
 export const SourceWindowRangeRowSchema = z
-  .object({
+  .looseObject({
     start_ms: NullableNumberSchema,
     end_ms: NullableNumberSchema,
-  })
-  .passthrough();
+  });
 
 export const OutputLockOwnerRowSchema = z
-  .object({
+  .looseObject({
     lock_token: z.string().nullable().optional(),
     lock_expires_ms: NullableNumberSchema,
     lock_owner_run_key: z.string().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const RegisteredOutputLockRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     lock_token: z.string().nullable().optional(),
     lock_expires_ms: NullableNumberSchema,
-  })
-  .passthrough();
+  });
 
 export const CleanupOutputRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     lifecycle_state: z.string().min(1),
     output_verified_at_ms: NullableNumberSchema,
     compaction_tier: CompactionTierSchema.optional(),
     lock_owner_run_key: z.string().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const LinkedSourceRowSchema = z
-  .object({
+  .looseObject({
     source_file_id: z.number().int().positive(),
     source_file_path: z.string().min(1),
     archived_source_path: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const CleanupSourceRowSchema = z
-  .object({
+  .looseObject({
     file_id: z.number().int().positive(),
     file_path: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const CompletedCompactionRunRowSchema = z
-  .object({ ok: z.number().optional() })
-  .passthrough();
+  .looseObject({ ok: z.number().optional() });
 
 export const TableVersionRowSchema = z
-  .object({ table_version: z.string().min(1) })
-  .passthrough();
+  .looseObject({ table_version: z.string().min(1) });
 
 export const CompactionDatasetRowSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
     user_id: z.string().min(1),
     dataset_name: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export type CompactionDatasetRow = z.infer<
   typeof CompactionDatasetRowSchema
 >;
 
 export const ClosedPeriodTagRowSchema = z
-  .object({ period_tag: z.string().min(1).nullable().optional() })
-  .passthrough();
+  .looseObject({ period_tag: z.string().min(1).nullable().optional() });
 
 const NumericRequestFieldSchema = z.preprocess(
   (value) =>
@@ -121,7 +108,7 @@ const NumericRequestFieldSchema = z.preprocess(
         ? value
         : Number(value)
       : value,
-  z.number().int().nonnegative().safe(),
+  z.int().nonnegative(),
 );
 
 const OptionalNumericRequestFieldSchema = z.preprocess((value) => {
@@ -131,7 +118,7 @@ const OptionalNumericRequestFieldSchema = z.preprocess((value) => {
   return Number.isSafeInteger(numericValue) && numericValue >= 0
     ? numericValue
     : undefined;
-}, z.number().int().nonnegative().safe().optional());
+}, z.int().nonnegative().optional());
 
 const SourceFileIdsRequestFieldSchema = z.preprocess(
   (value) => (Array.isArray(value) ? value : []),
@@ -143,7 +130,7 @@ const SourceFileIdsRequestFieldSchema = z.preprocess(
             ? value
             : Number(value)
           : value,
-      z.number().int().positive().safe(),
+      z.int().positive(),
     ),
   ),
 );
@@ -159,7 +146,7 @@ const SourceObjectsRequestFieldSchema = z.preprocess(
               ? value
               : Number(value)
             : value,
-        z.number().int().positive().safe(),
+        z.int().positive(),
       ),
       file_path: z.preprocess(
         (value) => String(value ?? "").trim(),
@@ -180,7 +167,7 @@ const FileSizeRequestFieldSchema = z.preprocess(
         ? undefined
         : Number(value)
       : value,
-  z.number().int().nonnegative().safe().optional(),
+  z.int().nonnegative().optional(),
 );
 
 const TableNameSchema = z.preprocess(
@@ -200,7 +187,7 @@ const BlockNonNegativeIntegerSchema = z.preprocess(
         ? value
         : Number(value)
       : value,
-  z.number().int().nonnegative().safe(),
+  z.int().nonnegative(),
 );
 
 const BlockPositiveIntegerSchema = z.preprocess(
@@ -210,14 +197,14 @@ const BlockPositiveIntegerSchema = z.preprocess(
         ? value
         : Number(value)
       : value,
-  z.number().int().positive().safe(),
+  z.int().positive(),
 );
 
 const BlocksRequestFieldSchema = z.preprocess(
   (value) => (Array.isArray(value) ? value : []),
   z.array(
     z
-      .object({
+      .looseObject({
         dataset_id: z.preprocess(
           (value) => (typeof value === "string" ? value.trim() : value),
           z.string().min(1),
@@ -238,44 +225,40 @@ const BlocksRequestFieldSchema = z.preprocess(
                 ? value
                 : Number(value)
               : value,
-          z.number().int().positive().safe(),
+          z.int().positive(),
         ),
-      })
-      .passthrough(),
+      }),
   ),
 );
 
 export const ListSourceGroupsRequestSchema = z
-  .object({
+  .looseObject({
     tier: CompactionTierSchema.optional(),
     table_name: TableNameSchema.optional(),
     window_start_ms: NumericRequestFieldSchema.optional(),
     window_end_ms: NumericRequestFieldSchema.optional(),
-  })
-  .passthrough();
+  });
 
 export type ListSourceGroupsRequest = z.infer<
   typeof ListSourceGroupsRequestSchema
 >;
 
 export const ListSourceTablesRequestSchema = z
-  .object({
+  .looseObject({
     tier: CompactionTierSchema.optional(),
     window_start_ms: OptionalNumericRequestFieldSchema,
     window_end_ms: OptionalNumericRequestFieldSchema,
-  })
-  .passthrough();
+  });
 
 export type ListSourceTablesRequest = z.infer<
   typeof ListSourceTablesRequestSchema
 >;
 
 export const ResolveSourceWindowRangeRequestSchema = z
-  .object({
+  .looseObject({
     tier: CompactionTierSchema.optional(),
     table_names: z.array(z.string().trim().min(1)).optional(),
-  })
-  .passthrough();
+  });
 
 export type ResolveSourceWindowRangeRequest = z.infer<
   typeof ResolveSourceWindowRangeRequestSchema
@@ -287,41 +270,38 @@ const TrimmedStringRequestFieldSchema = z.preprocess(
 );
 
 export const FetchBlockOcfRequestSchema = z
-  .object({
+  .looseObject({
     file_path: TrimmedStringRequestFieldSchema.optional(),
     start_byte: NumericRequestFieldSchema.optional(),
     length: z.preprocess(
       (value) => (value == null ? value : Number(value)),
-      z.number().int().positive().safe().optional(),
+      z.int().positive().optional(),
     ),
-  })
-  .passthrough();
+  });
 
 export type FetchBlockOcfRequest = z.infer<typeof FetchBlockOcfRequestSchema>;
 
 export const VerifyOutputVisibleRequestSchema = z
-  .object({
+  .looseObject({
     file_path: TrimmedStringRequestFieldSchema.optional(),
-  })
-  .passthrough();
+  });
 
 export type VerifyOutputVisibleRequest = z.infer<
   typeof VerifyOutputVisibleRequestSchema
 >;
 
 export const ReleaseOutputLockRequestSchema = z
-  .object({
+  .looseObject({
     file_path: TrimmedStringRequestFieldSchema.optional(),
     lock_token: TrimmedStringRequestFieldSchema.optional(),
-  })
-  .passthrough();
+  });
 
 export type ReleaseOutputLockRequest = z.infer<
   typeof ReleaseOutputLockRequestSchema
 >;
 
 export const AcquireOutputLockRequestSchema = z
-  .object({
+  .looseObject({
     file_path: TrimmedStringRequestFieldSchema.optional(),
     lock_token: TrimmedStringRequestFieldSchema.optional(),
     table_version: TrimmedStringRequestFieldSchema.optional(),
@@ -331,8 +311,7 @@ export const AcquireOutputLockRequestSchema = z
     window_end_ms: NumericRequestFieldSchema.optional(),
     run_key: TrimmedStringRequestFieldSchema.optional(),
     lock_ttl_ms: OptionalNumericRequestFieldSchema,
-  })
-  .passthrough();
+  });
 
 export type AcquireOutputLockRequest = z.infer<
   typeof AcquireOutputLockRequestSchema
@@ -349,30 +328,28 @@ const DefaultHourlyTierRequestFieldSchema = z.preprocess(
 );
 
 export const PeriodRolloverCheckRequestSchema = z
-  .object({
+  .looseObject({
     table_name: TrimmedStringRequestFieldSchema.optional(),
     source_tier: DefaultWeeklyTierRequestFieldSchema,
-  })
-  .passthrough();
+  });
 
 export type PeriodRolloverCheckRequest = z.infer<
   typeof PeriodRolloverCheckRequestSchema
 >;
 
 export const ResolveTableVersionRequestSchema = z
-  .object({
+  .looseObject({
     table_name: TrimmedStringRequestFieldSchema.optional(),
     period_tag: TrimmedStringRequestFieldSchema.optional(),
     source_tier: DefaultHourlyTierRequestFieldSchema,
-  })
-  .passthrough();
+  });
 
 export type ResolveTableVersionRequest = z.infer<
   typeof ResolveTableVersionRequestSchema
 >;
 
 export const ListSourceBlocksRequestSchema = z
-  .object({
+  .looseObject({
     tier: CompactionTierSchema.optional(),
     table_name: TrimmedStringRequestFieldSchema.optional(),
     period_tag: TrimmedStringRequestFieldSchema.optional(),
@@ -381,15 +358,14 @@ export const ListSourceBlocksRequestSchema = z
     limit: OptionalNumericRequestFieldSchema,
     window_start_ms: OptionalNumericRequestFieldSchema,
     window_end_ms: OptionalNumericRequestFieldSchema,
-  })
-  .passthrough();
+  });
 
 export type ListSourceBlocksRequest = z.infer<
   typeof ListSourceBlocksRequestSchema
 >;
 
 export const CleanupConsumedSourcesRequestSchema = z
-  .object({
+  .looseObject({
     output_file_path: TrimmedStringRequestFieldSchema.optional(),
     source_tier: CompactionTierSchema.optional(),
     table_name: TrimmedStringRequestFieldSchema.optional(),
@@ -399,8 +375,7 @@ export const CleanupConsumedSourcesRequestSchema = z
     window_end_ms: OptionalNumericRequestFieldSchema,
     source_file_ids: SourceFileIdsRequestFieldSchema,
     source_objects: SourceObjectsRequestFieldSchema,
-  })
-  .passthrough();
+  });
 
 export type CleanupConsumedSourcesRequest = z.infer<
   typeof CleanupConsumedSourcesRequestSchema
@@ -411,7 +386,7 @@ export const RegisterOutputRequestSchema = z
     (value) =>
       value && typeof value === "object" && !Array.isArray(value) ? value : {},
     z
-      .object({
+      .looseObject({
         file_path: TrimmedStringRequestFieldSchema.optional(),
         lock_token: TrimmedStringRequestFieldSchema.optional(),
         source_objects: SourceObjectsRequestFieldSchema,
@@ -428,8 +403,7 @@ export const RegisterOutputRequestSchema = z
           )
           .default("deflate"),
         blocks: BlocksRequestFieldSchema,
-      })
-      .passthrough(),
+      }),
   );
 
 export type RegisterOutputRequest = z.infer<typeof RegisterOutputRequestSchema>;

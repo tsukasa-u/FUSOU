@@ -1,15 +1,10 @@
 ---
-import type { MarkdownInstance } from "astro";
+import { getCollection } from "astro:content";
 import DocsLayout from "@/layouts/DocsLayout.astro";
 import { compareSegments } from "@/utils/page_sorter";
 import { isLocalDev } from "@/utils/localDocs";
 
-const rawPostsGlobResult = import.meta.glob("../../../../../docs/contents/**/*.md", {
-  eager: true,
-});
-const rawPosts = Object.values(
-  rawPostsGlobResult,
-).reverse() as MarkdownInstance<Record<string, unknown>>[];
+const rawPosts = await getCollection("docs");
 
 const normalizeSlug = (value: unknown) =>
   (typeof value === "string" ? value : "")
@@ -79,7 +74,7 @@ const CATEGORY_MAP: Record<
 
 const docs: DocItem[] = rawPosts
   .map((post) => {
-    const slug = normalizeSlug(post.frontmatter?.["slug"]);
+    const slug = normalizeSlug(post.data.slug ?? post.id.replace(/\.md$/, ""));
     const segments = slug.split("/").filter(Boolean);
     if (segments.length === 0) return null;
 
@@ -97,10 +92,10 @@ const docs: DocItem[] = rawPosts
       categoryLabel: catConfig.label,
       categoryOrder: catConfig.order,
       categoryIcon: catConfig.icon,
-      title: (post.frontmatter?.["title"] as string) ?? formatSegment(segments.at(-1)!),
-      description: (post.frontmatter?.["description"] as string) ?? "",
+      title: post.data.title ?? formatSegment(segments.at(-1)!),
+      description: post.data.description ?? "",
       url: `/docs/${slug}`,
-      tags: (post.frontmatter?.["tags"] as string[]) ?? [],
+      tags: post.data.tags ?? [],
     };
   })
   .filter(Boolean) as DocItem[];

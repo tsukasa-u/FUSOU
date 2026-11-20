@@ -267,11 +267,10 @@ function masterRecordsResponseSchema<T>(
   parse: (value: unknown) => T | null,
 ) {
   return z
-    .object({
+    .looseObject({
       records: parsedRecordsSchema(parse),
       ...responseMetadataShape,
-    })
-    .passthrough();
+    });
 }
 
 const MasterShipResponseSchema = masterRecordsResponseSchema(parseMstShip);
@@ -292,76 +291,66 @@ const MasterEquipLimitExslotResponseSchema = masterRecordsResponseSchema(
   parseMstEquipLimitExslot,
 );
 const MasterEquipExslotResponseSchema = z
-  .object({
+  .looseObject({
     records: z.array(
-      z.object({ equip: z.number().finite() }).passthrough(),
+      z.looseObject({ equip: z.number() }),
     ),
     ...responseMetadataShape,
-  })
-  .passthrough();
+  });
 
 const AssetMapResponseSchema = z
-  .object({
+  .looseObject({
     base_url: z.string(),
     banners: z.record(z.string(), z.string()),
-  })
-  .passthrough();
+  });
 const CardMapResponseSchema = z
-  .object({
+  .looseObject({
     base_url: z.string(),
     cards: z.record(z.string(), z.string()),
-  })
-  .passthrough();
+  });
 const ShipIconMapResponseSchema = z
-  .object({
+  .looseObject({
     base_url: z.string(),
     icons: z.record(z.string(), z.string()),
-  })
-  .passthrough();
+  });
 const EquipImageMapResponseSchema = z
-  .object({
+  .looseObject({
     base_url: z.string(),
     card: z.record(z.string(), z.string()),
     item_on: z.record(z.string(), z.string()),
     item_up: z.record(z.string(), z.string()),
-  })
-  .passthrough();
+  });
 
 const IconFrameSchema = z
-  .object({
+  .looseObject({
     frame: z
-      .object({
-        x: z.number().finite(),
-        y: z.number().finite(),
-        w: z.number().finite(),
-        h: z.number().finite(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
+      .looseObject({
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number(),
+      }),
+  });
 const IconFramesResponseSchema = z
-  .object({
+  .looseObject({
     frames: z.record(z.string(), IconFrameSchema),
     meta: z
-      .object({
+      .looseObject({
         size: z
-          .object({ w: z.number().finite(), h: z.number().finite() })
-          .passthrough()
+          .looseObject({ w: z.number(), h: z.number() })
           .optional(),
       })
-      .passthrough()
       .optional(),
-  })
-  .passthrough();
+  });
 
 const SokuSpeedResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.literal(true),
     data: z.record(
       z.string(),
       z.array(
         z
-          .object({
+          .looseObject({
             soku_observed: z.union([
               z.literal(5),
               z.literal(10),
@@ -369,12 +358,10 @@ const SokuSpeedResponseSchema = z
               z.literal(20),
             ]),
             item_ids: z.array(z.number().int().positive()),
-          })
-          .passthrough(),
+          }),
       ),
     ),
-  })
-  .passthrough();
+  });
 
 function filterRecords(value: unknown): Array<{
   record: Record<string, unknown>;

@@ -5,9 +5,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
-      "@fusou/avro-wasm": fileURLToPath(
-        new URL("../avro-wasm/index.ts", import.meta.url),
-      ),
     },
   },
   test: {

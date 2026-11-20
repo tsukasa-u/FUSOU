@@ -1,17 +1,16 @@
 import { z } from "zod";
 
 export const BattleMasterDataRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
     period_revision: z.number().int().positive(),
     r2_key: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const BattleChunkRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.number().int(),
       table_name: z.string(),
       size: z.number().int(),
@@ -19,8 +18,7 @@ export const BattleChunkRowsSchema = z.array(
       file_path: z.string(),
       start_timestamp: z.number().int(),
       record_count: z.number().int(),
-    })
-    .passthrough(),
+    }),
 );
 
 export type BattleChunkRow = z.infer<typeof BattleChunkRowsSchema>[number];
@@ -34,7 +32,7 @@ export function parseBattleChunkRows(
 
 export const BattleBlockRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       id: z.number().int(),
       dataset_id: z.string().min(1),
       start_byte: z.number().int(),
@@ -46,8 +44,7 @@ export const BattleBlockRowsSchema = z.array(
       window_end_ms: z.number().int().nullable(),
       compaction_tier: z.string().nullable(),
       file_path: z.string(),
-    })
-    .passthrough(),
+    }),
 );
 
 export type BattleBlockRow = z.infer<typeof BattleBlockRowsSchema>[number];
@@ -63,17 +60,15 @@ export const BattleJsonRecordSchema = z.record(z.string(), z.unknown());
 
 export const BattlePeriodTagRowsSchema = z.array(
   z
-    .object({ period_tag: z.string().min(1).nullable().optional() })
-    .passthrough(),
+    .looseObject({ period_tag: z.string().min(1).nullable().optional() }),
 );
 
 export const BattleSummaryRowsSchema = z.array(
   z
-    .object({
+    .looseObject({
       period_tag: z.string().min(1),
       table_version: z.string().min(1),
-    })
-    .passthrough(),
+    }),
 );
 
 export function parseBattleJsonRecords(

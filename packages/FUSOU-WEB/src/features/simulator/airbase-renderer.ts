@@ -22,15 +22,14 @@ const DISPLAY_SETTINGS_KEY = "__fusouDisplaySettingsV1";
 let displaySettingsLoaded = false;
 
 const DisplaySettingsSchema = z
-  .object({
+  .looseObject({
     fleets: z.record(z.string(), z.boolean()).optional(),
     showAirbase: z.boolean().optional(),
-    airbaseCount: z.number().finite().optional(),
+    airbaseCount: z.number().optional(),
     fleetSlotLayout: z.enum(["2x3", "3x2"]).optional(),
-    combinedFleetType: z.number().finite().optional(),
+    combinedFleetType: z.number().optional(),
     singleFleetGrid3x2: z.boolean().optional(),
-  })
-  .passthrough();
+  });
 
 type DisplaySettings = {
   fleets: Record<number, boolean>;

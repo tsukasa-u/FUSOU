@@ -1,4 +1,4 @@
-import { createStorybookBattleViewArgs, createStorybookShipMap, createStorybookSlotItemMap } from "../../../../storybook-fixtures";
+import { createStorybookBattleViewArgs } from "../../../../storybook-fixtures";
 import BattlePhaseView from "../../../../../components/features/battle-detail/solid/BattlePhaseView";
 
 export default {
