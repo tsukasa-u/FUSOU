@@ -227,7 +227,6 @@ function parseBattleDetailPayload(value: unknown): BattleDetailPayload | null {
   return payload;
 }
 
-const DEFAULT_LIMIT_BLOCKS = 200;
 const DEFAULT_LIMIT_RECORDS = 20000;
 
 function requestInit(

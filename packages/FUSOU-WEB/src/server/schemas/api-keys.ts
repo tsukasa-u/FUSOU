@@ -7,47 +7,42 @@ export const UpdateApiKeyRequestSchema = z.object({
 export type UpdateApiKeyRequest = z.infer<typeof UpdateApiKeyRequestSchema>;
 
 export const SupabaseApiUserSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
     email: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const ApiKeyCreateRowsSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
     key: z.string().min(1),
   })
-  .passthrough()
   .array();
 
 export const ApiKeyIdRowsSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
   })
-  .passthrough()
   .array();
 
 export const TrustedDeviceListRowsSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
     client_id: z.string().min(1),
     device_name: z.string().nullable(),
     created_at: z.string().min(1),
     last_used_at: z.string().nullable(),
   })
-  .passthrough()
   .array();
 
 export const TrustedDeviceIdRowsSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
   })
-  .passthrough()
   .array();
 
 export const ApiKeyListRowsSchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
     key: z.string().min(1),
     email: z.string().min(1),
@@ -55,5 +50,4 @@ export const ApiKeyListRowsSchema = z
     created_at: z.string().min(1),
     updated_at: z.string().min(1),
   })
-  .passthrough()
   .array();

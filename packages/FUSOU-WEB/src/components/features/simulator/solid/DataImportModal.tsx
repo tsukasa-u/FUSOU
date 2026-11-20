@@ -28,14 +28,11 @@ const SnapshotEntrySchema = z.object({
   size: z.number(),
 });
 const SnapshotListResponseSchema = z
-  .object({ ok: z.boolean(), tags: z.array(SnapshotEntrySchema) })
-  .passthrough();
+  .looseObject({ ok: z.boolean(), tags: z.array(SnapshotEntrySchema) });
 const SnapshotResponseSchema = z
-  .object({ ok: z.literal(true), snapshot: z.record(z.string(), z.unknown()) })
-  .passthrough();
+  .looseObject({ ok: z.literal(true), snapshot: z.record(z.string(), z.unknown()) });
 const ErrorResponseSchema = z
-  .object({ error: z.string().optional() })
-  .passthrough();
+  .looseObject({ error: z.string().optional() });
 
 type SnapshotEntry = z.infer<typeof SnapshotEntrySchema>;
 

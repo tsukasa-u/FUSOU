@@ -1,46 +1,41 @@
 import { z } from "zod";
 
 export const MasterDataNextRevisionRowSchema = z
-  .object({ next_revision: z.number().nullable().optional() })
-  .passthrough();
+  .looseObject({ next_revision: z.number().nullable().optional() });
 
 export type MasterDataNextRevisionRow = z.infer<
   typeof MasterDataNextRevisionRowSchema
 >;
 
 export const MasterDataDedupeRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_revision: z.number().int().positive(),
     upload_status: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const MasterDataInsertedRevisionRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_revision: z.number().int().positive(),
-  })
-  .passthrough();
+  });
 
 export const MasterDataJsonLookupRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
     period_revision: z.number().int().positive(),
     r2_key: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const MasterDataDownloadRowSchema = z
-  .object({
+  .looseObject({
     period_revision: z.number().int().positive(),
     r2_key: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 export const MasterDataMetadataRowSchema = z
-  .object({
+  .looseObject({
     id: z.number().int().positive(),
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
@@ -48,10 +43,9 @@ export const MasterDataMetadataRowSchema = z
     table_count: z.number().int().nonnegative().nullable(),
     table_offsets: z.string().nullable(),
     upload_status: z.string().min(1),
-    created_at: z.number().finite(),
-    completed_at: z.number().finite().nullable(),
-  })
-  .passthrough();
+    created_at: z.number(),
+    completed_at: z.number().nullable(),
+  });
 
 export const MasterDataTableOffsetSchema = z.object({
   table_name: z.string().min(1),

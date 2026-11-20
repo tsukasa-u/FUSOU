@@ -14,11 +14,10 @@ const RU_COSTS = {
 };
 
 const RUBucketStateSchema = z
-  .object({
-    tokens: z.number().finite().nonnegative().max(DEFAULT_MAX_RU),
-    lastRefill: z.number().finite().nonnegative(),
-  })
-  .passthrough();
+  .looseObject({
+    tokens: z.number().nonnegative().max(DEFAULT_MAX_RU),
+    lastRefill: z.number().nonnegative(),
+  });
 
 export type RUBucketState = z.infer<typeof RUBucketStateSchema>;
 

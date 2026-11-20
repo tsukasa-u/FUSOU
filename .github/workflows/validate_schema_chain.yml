@@ -3,32 +3,58 @@ name: validate schema chain
 on:
   pull_request:
     paths:
-      - "packages/kc_api/crates/kc-api-database/src/**"
-      - "packages/kc_api/crates/kc-api-database/Cargo.toml"
+      - "packages/kc_api/Cargo.toml"
+      - "packages/kc_api/crates/kc-api-build-config/**"
+      - "packages/kc_api/crates/kc-api-database/**"
+      - "packages/kc_api/crates/kc-api-dto/**"
+      - "packages/kc_api/crates/kc-api-interface/**"
+      - "packages/kc_api/crates/register_trait/**"
+      - "packages/kc_api/crates/register_macro_derive_and_attr/**"
       - "packages/kc_api/generated-schemas/**"
-      - "packages/avro-wasm/Cargo.toml"
-      - "packages/avro-wasm/src/**"
       - "packages/configs/fingerprints.json"
+      - "packages/configs/rust-artifacts-manifest.json"
+      - "packages/FUSOU-WEB/scripts/generate-rust-data.mjs"
+      - "packages/FUSOU-WEB/scripts/convert-dot-to-reactflow.mjs"
+      - "packages/FUSOU-WEB/scripts/convert-schema-to-reactflow.mjs"
+      - "packages/FUSOU-WEB/scripts/generate-avro-schema-registry.mjs"
+      - "packages/FUSOU-WEB/scripts/lib/stable-json.mjs"
+      - "packages/FUSOU-WEB/src/data/avro-schema-registry.json"
+      - "packages/FUSOU-WEB/src/data/graphs/**"
+      - "packages/FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs"
       - "packages/FUSOU-WORKFLOW/src/reader.ts"
       - "packages/FUSOU-WORKFLOW/src/avro-*.ts"
       - "packages/FUSOU-WORKFLOW/src/schemas.ts"
       - "packages/FUSOU-WORKFLOW/scripts/gen_python_constants.py"
       - "packages/fusou-datasets/python/fusou_datasets/schema.py"
+      - "scripts/sync-rust-artifacts.mjs"
       - ".github/workflows/validate_schema_chain.yml"
   push:
     branches: [main, dev]
     paths:
-      - "packages/kc_api/crates/kc-api-database/src/**"
-      - "packages/kc_api/crates/kc-api-database/Cargo.toml"
+      - "packages/kc_api/Cargo.toml"
+      - "packages/kc_api/crates/kc-api-build-config/**"
+      - "packages/kc_api/crates/kc-api-database/**"
+      - "packages/kc_api/crates/kc-api-dto/**"
+      - "packages/kc_api/crates/kc-api-interface/**"
+      - "packages/kc_api/crates/register_trait/**"
+      - "packages/kc_api/crates/register_macro_derive_and_attr/**"
       - "packages/kc_api/generated-schemas/**"
-      - "packages/avro-wasm/Cargo.toml"
-      - "packages/avro-wasm/src/**"
       - "packages/configs/fingerprints.json"
+      - "packages/configs/rust-artifacts-manifest.json"
+      - "packages/FUSOU-WEB/scripts/generate-rust-data.mjs"
+      - "packages/FUSOU-WEB/scripts/convert-dot-to-reactflow.mjs"
+      - "packages/FUSOU-WEB/scripts/convert-schema-to-reactflow.mjs"
+      - "packages/FUSOU-WEB/scripts/generate-avro-schema-registry.mjs"
+      - "packages/FUSOU-WEB/scripts/lib/stable-json.mjs"
+      - "packages/FUSOU-WEB/src/data/avro-schema-registry.json"
+      - "packages/FUSOU-WEB/src/data/graphs/**"
+      - "packages/FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs"
       - "packages/FUSOU-WORKFLOW/src/reader.ts"
       - "packages/FUSOU-WORKFLOW/src/avro-*.ts"
       - "packages/FUSOU-WORKFLOW/src/schemas.ts"
       - "packages/FUSOU-WORKFLOW/scripts/gen_python_constants.py"
       - "packages/fusou-datasets/python/fusou_datasets/schema.py"
+      - "scripts/sync-rust-artifacts.mjs"
       - ".github/workflows/validate_schema_chain.yml"
 
 permissions:
@@ -262,39 +288,27 @@ jobs:
           }
           "
 
-      # Step 4: Validate avro-wasm features include all versions
-      - name: Validate avro-wasm features
+      # Step 4: Validate pure-TS avro-schema-registry covers all versions
+      - name: Validate avro-schema-registry versions
         run: |
           VERSIONS=(${{ steps.detect.outputs.versions }})
-          WASM_FEATURES=()
-          while IFS= read -r line; do
-            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+(_[0-9]+)?)[[:space:]]*= ]]; then
-              WASM_FEATURES+=("${BASH_REMATCH[1]}")
-            fi
-          done < packages/avro-wasm/Cargo.toml
+          node -e "
+          const fs = require('fs');
+          const reg = JSON.parse(fs.readFileSync('packages/FUSOU-WEB/src/data/avro-schema-registry.json', 'utf8'));
+          const have = new Set((reg.versions || []).map(v => v.version));
+          const missing = process.argv.slice(1).filter(v => !have.has(v));
+          if (missing.length > 0) {
+            console.error('::error::avro-schema-registry.json is missing versions: ' + missing.join(' '));
+            process.exit(1);
+          }
+          console.log('✅ avro-schema-registry.json covers all versions:', [...have].join(', '));
+          " "${VERSIONS[@]}"
 
-          MISSING=()
-          for ver in "${VERSIONS[@]}"; do
-            if [[ ! " ${WASM_FEATURES[*]} " =~ " ${ver} " ]]; then
-              MISSING+=("$ver")
-            fi
-          done
+      # Step 5: Validate prebuilt Rust artifacts manifest (schemas, graphs, avro-schema-registry)
+      - name: Validate prebuilt Rust artifacts freshness
+        run: node scripts/sync-rust-artifacts.mjs --check
 
-          if [ ${#MISSING[@]} -gt 0 ]; then
-            echo "::error::avro-wasm/Cargo.toml is missing schema features: ${MISSING[*]}. Add them to [features] and default."
-            exit 1
-          fi
-
-          # Check default features include all versions
-          DEFAULT_LINE=$(grep '^default' packages/avro-wasm/Cargo.toml || true)
-          for ver in "${VERSIONS[@]}"; do
-            if [[ ! "$DEFAULT_LINE" =~ "schema_${ver}" ]]; then
-              echo "::warning::avro-wasm default features do not include schema_${ver}. Consider adding it."
-            fi
-          done
-          echo "✅ avro-wasm features are consistent"
-
-      # Step 5: Validate Python schema constants are in sync
+      # Step 6: Validate Python schema constants are in sync
       - name: Validate Python schema constants
         run: |
           python3 packages/FUSOU-WORKFLOW/scripts/gen_python_constants.py

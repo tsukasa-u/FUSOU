@@ -17,7 +17,6 @@ on:
       - "packages/kc_api/**"
       - "packages/fusou-*/**"
       - "packages/FUSOU-PROXY/**"
-      - "packages/avro-wasm/**"
       - ".github/workflows/check_build.yml"
 
 env:

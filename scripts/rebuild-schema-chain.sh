@@ -8,30 +8,22 @@ set -e
 #
 # Steps:
 #   1. Generate schema JSON from Rust models (all versions)
-#   2. Build avro-wasm with all versions embedded
+#   2. Generate pure-TS deduplicated Avro schema registry for FUSOU-WEB
 #   3. Compute fingerprints from generated schemas
 #   4. Update configs/fingerprints.json
 #   5. Regenerate Python schema constants (fusou_datasets/schema.py)
 #
 # Usage:
 #   ./scripts/rebuild-schema-chain.sh          # full rebuild
-#   ./scripts/rebuild-schema-chain.sh --skip-wasm  # skip WASM build (faster)
 #
 # After running, commit the updated files:
 #   - packages/kc_api/generated-schemas/schema_v*.json
-#   - packages/avro-wasm/pkg/*
+#   - packages/FUSOU-WEB/src/data/avro-schema-registry.json
 #   - packages/configs/fingerprints.json
 #   - packages/fusou-datasets/python/fusou_datasets/schema.py
 # ============================================================================
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKIP_WASM=false
-
-for arg in "$@"; do
-    case $arg in
-        --skip-wasm) SKIP_WASM=true ;;
-    esac
-done
 
 echo "═══════════════════════════════════════════════════════════"
 echo " FUSOU Schema Chain Rebuild"
@@ -58,14 +50,9 @@ fi
 echo "  Found ${#SCHEMA_FILES[@]} schema version(s): ${SCHEMA_FILES[*]##*/}"
 echo ""
 
-# ── Step 2: Rebuild avro-wasm ──────────────────────────────────
-if [ "$SKIP_WASM" = true ]; then
-    echo "── Step 2/4: Skipping WASM build (--skip-wasm) ──"
-else
-    echo "── Step 2/4: Building avro-wasm (all versions) ──"
-    cd "$REPO_ROOT/packages/avro-wasm"
-    bash build-wasm.sh all
-fi
+# ── Step 2: Generate FUSOU-WEB Avro schema registry ───────────
+echo "── Step 2/5: Generating FUSOU-WEB Avro schema registry ──"
+node "$REPO_ROOT/packages/FUSOU-WEB/scripts/generate-avro-schema-registry.mjs"
 echo ""
 
 # ── Step 3: Compute fingerprints ───────────────────────────────
@@ -169,9 +156,9 @@ echo ""
 echo "Next steps:"
 echo "  1. Commit updated files:"
 echo "     git add packages/kc_api/generated-schemas/"
-echo "     git add packages/avro-wasm/pkg/"
+echo "     git add packages/FUSOU-WEB/src/data/avro-schema-registry.json"
 echo "     git add packages/configs/fingerprints.json"
 echo "     git add packages/fusou-datasets/python/fusou_datasets/schema.py"
-echo "  2. Deploy FUSOU-WORKFLOW with updated WASM"
+echo "  2. Deploy FUSOU-WORKFLOW and FUSOU-WEB"
 echo "     (fingerprints are auto-loaded from bundled fingerprints.json at build time)"
 echo ""

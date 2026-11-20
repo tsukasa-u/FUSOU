@@ -12,12 +12,9 @@ import {
   activateWorkspaceEntry,
   switchToPlayground,
   isSnapshotPlayground,
-  createOwnDeckFromCurrentState,
   buildCurrentPlaygroundPayload,
 } from "@/features/simulator/io-handlers";
-import { hasSnapshotData } from "@/features/simulator/simulator-selectors";
 import { workspaceAddModalRef, workspaceEditTarget, workspaceModalMode } from "./WorkspaceAddModal";
-import { simulatorDisplayRevision } from "@/features/simulator/state";
 import { setWorkspaceReadOnly } from "@/features/simulator/simulator-mutations";
 
 function LockIcon(props: { locked: boolean }) {
@@ -48,29 +45,8 @@ function hasSnapshotLink(entry: ViewerEntry): boolean {
 
 export function WorkspacePanel(props: { onSelectEntry?: () => void }) {
   const ws = useStore(workspaceStore);
-  const displayRev = useStore(simulatorDisplayRevision);
 
   const isPlaygroundActive = () => ws().activeId === null;
-  const activeEntry = () => ws().activeId ? ws().entries.find((e: ViewerEntry) => e.id === ws().activeId) : null;
-  
-  const modeStatusText = () => {
-    if (isPlaygroundActive()) return isSnapshotPlayground() ? "PLAYGROUND: SNAPSHOT" : "PLAYGROUND: BLANK";
-    const e = activeEntry();
-    if (!e) return "PLAYGROUND";
-    return `WORKSPACE: ${e.sourceType === "ownDeck" ? "DECK" : "URL"}`;
-  };
-
-  const modeStatusClass = () => {
-    if (isPlaygroundActive()) return isSnapshotPlayground() ? "badge badge-sm badge-info" : "badge badge-sm badge-ghost";
-    const e = activeEntry();
-    if (!e) return "badge badge-sm badge-ghost";
-    return e.sourceType === "ownDeck" ? "badge badge-sm badge-success" : "badge badge-sm badge-accent";
-  };
-
-  const snapshotAvailable = () => {
-    displayRev();
-    return hasSnapshotData();
-  };
 
   const handleAddCurrent = () => {
     workspaceEditTarget[1](null);

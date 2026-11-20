@@ -30,14 +30,13 @@ import { onSimulatorStateDirty } from "./state";
 import { z } from "zod";
 
 const ShortenApiResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     shortUrl: z.string().optional(),
     error: z.string().optional(),
     detail: z.string().optional(),
     status: z.number().optional(),
-  })
-  .passthrough();
+  });
 
 export type ShareOptions = {
   includeAirBases: boolean;

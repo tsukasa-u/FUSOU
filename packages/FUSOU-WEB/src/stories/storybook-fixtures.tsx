@@ -50,7 +50,6 @@ import {
   getStorybookBattleOverview,
   getStorybookBattleScenario,
   getStorybookRecords,
-  STORYBOOK_PROJECT_API_ORIGIN,
   STORYBOOK_SAMPLE_FLEET,
   STORYBOOK_SAMPLE_PERIOD,
   STORYBOOK_SAMPLE_PERIODS,
@@ -146,7 +145,7 @@ export function createStorybookDashboardState(): SharedDashboardState {
   const mstSlotItems = parseMasterSlotItemRecords(STORYBOOK_SAMPLE_SLOT_ITEMS);
   const [activeTab, setActiveTab] =
     createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
-  const [selectedPeriod, setSelectedPeriod] = createSignal(periods[0] ?? null);
+  const [selectedPeriod] = createSignal(periods[0] ?? null);
   const [loadingPeriods] = createSignal(false);
   const [loading] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");

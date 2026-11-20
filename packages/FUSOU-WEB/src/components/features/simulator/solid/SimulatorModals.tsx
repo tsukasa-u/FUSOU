@@ -8,14 +8,12 @@ import {
   isAirbaseSectionVisible,
   getVisibleAirbaseCount,
   getCombinedFleetType,
-  getFleetSlotLayoutMode,
 } from "@/features/simulator/simulator-selectors";
 import {
   setFleetSectionVisible,
   setAirbaseSectionVisible,
   setVisibleAirbaseCount,
   setCombinedFleetType,
-  setFleetSlotLayoutMode,
 } from "@/features/simulator/simulator-mutations";
 import { writeDisplaySettings } from "@/features/simulator/airbase-renderer";
 import { captureAndSaveImage, type CaptureImageOptions } from "@/features/simulator/image-capture";

@@ -1,5 +1,5 @@
-﻿import dagre from "@dagrejs/dagre";
-import ELK from "elkjs/lib/elk.bundled.js";
+import dagre from "@dagrejs/dagre";
+import type { ELK as ElkInstance } from "elkjs/lib/elk.bundled.js";
 import type { GraphEdge, GraphNode } from "./schemaGraphTypes";
 
 export const NODE_WIDTH = 300;
@@ -28,7 +28,16 @@ export const ELK_SPACING_MAP: Record<
   spacious: { nodeSpacing: 130, layerSpacing: 320 },
 };
 
-const elk = new ELK();
+let elkInstancePromise: Promise<ElkInstance> | null = null;
+
+async function getElk(): Promise<ElkInstance> {
+  if (!elkInstancePromise) {
+    elkInstancePromise = import("elkjs/lib/elk.bundled.js").then(
+      ({ default: ELK }) => new ELK(),
+    );
+  }
+  return elkInstancePromise;
+}
 
 export function estimateNodeHeight(node: GraphNode): number {
   const fields = node.data.fields;
@@ -170,6 +179,7 @@ export async function applyElkLayout(
     })),
   };
 
+  const elk = await getElk();
   const laid = await elk.layout(elkGraph);
   const posMap = new Map<string, { x: number; y: number }>();
   for (const child of laid.children ?? []) {

@@ -4,51 +4,45 @@ export type MasterDataJsonResponse = z.infer<
   typeof MasterDataJsonResponseSchema
 >;
 export const MasterDataJsonResponseSchema = z
-  .object({
+  .looseObject({
     records: z.array(z.record(z.string(), z.unknown())).optional(),
     period_tag: z.string().optional(),
     period_revision: z.number().int().optional(),
     table_version: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export const MasterShipListResponseSchema = z
-  .object({
+  .looseObject({
     records: z
       .array(
         z
-          .object({
-            id: z.number().finite().optional(),
+          .looseObject({
+            id: z.number().optional(),
             name: z.string().optional(),
-            stype: z.number().finite().optional(),
-          })
-          .passthrough(),
+            stype: z.number().optional(),
+          }),
       )
       .optional(),
     period_tag: z.string().optional(),
     period_revision: z.number().int().optional(),
     table_version: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export const FleetSnapshotsListResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     tags: z.array(
       z
-        .object({
+        .looseObject({
           tag: z.string(),
           uploaded: z.string().optional(),
-          size: z.number().finite().optional(),
-        })
-        .passthrough(),
+          size: z.number().optional(),
+        }),
     ),
-  })
-  .passthrough();
+  });
 
 export const ShortUrlResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     shortUrl: z.string().min(1).optional(),
-  })
-  .passthrough();
+  });

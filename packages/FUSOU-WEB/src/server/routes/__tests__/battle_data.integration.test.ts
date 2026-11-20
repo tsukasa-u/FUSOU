@@ -3,21 +3,6 @@ import type { R2Bucket } from "@cloudflare/workers-types";
 import { parseOcfHeader } from "../../../features/avro/ocf-header";
 import { battleFixtureBytes } from "../../../features/avro/test-fixtures";
 
-vi.mock("@fusou/avro-wasm", () => ({
-	initWasm: vi.fn(),
-	validateAvroOCF: vi.fn(),
-	validateAvroOCFSmart: vi.fn(),
-	validateAvroOCFByTable: vi.fn(),
-	matchClientSchema: vi.fn(),
-	validate_avro_ocf: vi.fn(),
-	validate_avro_ocf_smart: vi.fn(),
-	validate_avro_ocf_by_table: vi.fn(),
-	match_client_schema: vi.fn(),
-	get_available_schemas: vi.fn(),
-	get_available_versions: vi.fn(),
-	get_schema_json: vi.fn(),
-}));
-
 import { mergeAvroOCF, mergeAvroOCFWithBoundaries, decodeAvroOcfToJson } from "@fusou/compaction-core";
 import battleDataApp, { attachSortieIds, extractTimestampFromUuidV7, getDynamicSnapshotPeriodTags, pruneSubsumedTierBlocks, queryGlobalRecordsDirectBatch } from "../battle_data";
 
@@ -697,7 +682,7 @@ describe("battle-data route integration", () => {
 
 		const d1 = {
 			prepare: (sql: string) => ({
-				bind: (...args: unknown[]) => ({
+				bind: (..._args: unknown[]) => ({
 					first: async () => {
 						if (sql.includes("start_timestamp <= ?")) {
 							return { period_tag: "2026-08-05" };
@@ -769,8 +754,8 @@ describe("battle-data route integration", () => {
 		};
 
 		const d1 = {
-			prepare: (sql: string) => ({
-				bind: (...args: unknown[]) => ({
+			prepare: (_sql: string) => ({
+				bind: (..._args: unknown[]) => ({
 					first: async () => {
 						return { period_tag: "2026-10-14" };
 					},

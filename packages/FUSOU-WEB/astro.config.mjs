@@ -1,8 +1,7 @@
-
 function remarkNormalizeCrlf() {
   return (tree) => {
     function visit(node) {
-      if (node && typeof node.value === 'string') {
+      if (node && typeof node.value === "string") {
         const crlf = String.fromCharCode(13, 10);
         const cr = String.fromCharCode(13);
         const lf = String.fromCharCode(10);
@@ -36,7 +35,30 @@ import rehypeKatex from "rehype-katex";
 import { resolveLatestFusouVersion } from "./scripts/resolve-latest-fusou-version.mjs";
 
 const latestFusouVersion = resolveLatestFusouVersion();
-const isStorybookProcess = /[\\/]storybook(?:[\\/]|$)/.test(process.argv[1] ?? "");
+const isStorybookProcess = /[\\/]storybook(?:[\\/]|$)/.test(
+  process.argv[1] ?? "",
+);
+const enableLocalDocs =
+  process.argv.includes("dev") ||
+  process.env["NODE_ENV"] === "development" ||
+  process.env["ENABLE_LOCAL_DOCS"] === "true" ||
+  isStorybookProcess;
+const localDocsPlugin = {
+  name: "fusou-local-docs-resolver",
+  enforce: "pre",
+  resolveId(source) {
+    if (source === "virtual:fusou-local-docs") {
+      return fileURLToPath(
+        new URL(
+          enableLocalDocs
+            ? "./src/utils/localDocs.glob.ts"
+            : "./src/utils/localDocs.empty.ts",
+          import.meta.url,
+        ),
+      );
+    }
+  },
+};
 const storybookCloudflareMockPlugin = isStorybookProcess
   ? {
       name: "storybook-cloudflare-workers-mock",
@@ -44,7 +66,10 @@ const storybookCloudflareMockPlugin = isStorybookProcess
       resolveId(source) {
         if (source === "cloudflare:workers") {
           return fileURLToPath(
-            new URL("./.storybook/mocks/cloudflare-workers.ts", import.meta.url),
+            new URL(
+              "./.storybook/mocks/cloudflare-workers.ts",
+              import.meta.url,
+            ),
           );
         }
       },
@@ -202,6 +227,7 @@ export default defineConfig({
     },
     // @ts-ignore
     plugins: [
+      localDocsPlugin,
       ...(storybookCloudflareMockPlugin ? [storybookCloudflareMockPlugin] : []),
       tailwindcss(),
       /*
@@ -225,16 +251,16 @@ export default defineConfig({
         "@": fileURLToPath(new URL("./src", import.meta.url)),
         "@docs": fileURLToPath(new URL("../../docs/contents", import.meta.url)),
         "@all-docs": fileURLToPath(new URL("../../docs", import.meta.url)),
-        "@fusou/avro-wasm": fileURLToPath(
-          new URL("../avro-wasm/index.ts", import.meta.url),
-        ),
       },
     },
   },
   markdown: {
     processor: unified({
       remarkPlugins: [remarkNormalizeCrlf, remarkCallout, remarkMath],
-      rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], [rehypeKatex, { strict: false }]],
+      rehypePlugins: [
+        [rehypeMermaid, { strategy: "pre-mermaid" }],
+        [rehypeKatex, { strict: false }],
+      ],
     }),
     syntaxHighlight: {
       type: "shiki",

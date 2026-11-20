@@ -3,10 +3,9 @@ import { MAX_QUEST_TREE_UPLOAD_BYTES } from "../constants";
 import { PublicIdSchema } from "./public-id";
 
 const SignedTokenBaseSchema = z
-  .object({
+  .looseObject({
     user_id: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 const parseNumericClaim = (value: unknown): unknown => {
   if (typeof value === "number") return value;
@@ -18,22 +17,19 @@ const parseNumericClaim = (value: unknown): unknown => {
 
 const PositiveIntegerClaimSchema = z.preprocess(
   parseNumericClaim,
-  z.number().int().positive().safe(),
+  z.int().positive(),
 );
 
 const QuestTreeDeclaredSizeClaimSchema = z.preprocess(
   parseNumericClaim,
-  z
-    .number()
-    .int()
+  z.int()
     .positive()
-    .safe()
     .max(MAX_QUEST_TREE_UPLOAD_BYTES),
 );
 
 const IntegerClaimSchema = z.preprocess(
   parseNumericClaim,
-  z.number().int().safe(),
+  z.int(),
 );
 
 export const UploadTokenPayloadSchema = SignedTokenBaseSchema.extend({

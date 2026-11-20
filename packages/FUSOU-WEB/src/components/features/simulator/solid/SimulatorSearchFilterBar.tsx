@@ -38,7 +38,6 @@ export function SimulatorSearchFilterBar(props: SimulatorSearchFilterBarProps): 
   const [query, setQuery] = createSignal(simulatorSearchQuery.get());
   const [isOpen, setIsOpen] = createSignal(false);
   const workspaces = useStore(workspaceStore);
-  let searchInputRef: HTMLInputElement | undefined;
 
   createEffect(() => {
     simulatorSearchQuery.set(query());
@@ -132,9 +131,6 @@ export function SimulatorSearchFilterBar(props: SimulatorSearchFilterBarProps): 
       isOpen={isOpen}
       onOpenChange={setIsOpen}
       class={props.class}
-      inputRef={(el) => {
-        searchInputRef = el;
-      }}
     >
       <Show when={props.activeTab?.() === "ship"}>
         <div class="px-2.5 py-1.5 bg-primary/10 border border-primary/20 rounded-lg text-xs text-primary font-medium flex items-center justify-between">

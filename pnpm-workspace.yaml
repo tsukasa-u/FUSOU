@@ -3,3 +3,10 @@ packages:
 
 linkWorkspacePackages: deep
 minimumReleaseAge: 2880
+ignoredBuiltDependencies:
+  - "@depot/cli"
+  - "@swc/core"
+  - esbuild
+  - isolated-vm
+  - msgpackr-extract
+  - workerd

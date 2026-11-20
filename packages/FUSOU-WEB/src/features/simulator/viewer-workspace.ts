@@ -25,7 +25,7 @@ export interface ViewerWorkspace {
 }
 
 const StoredViewerEntrySchema = z
-  .object({
+  .looseObject({
     id: z.string().min(1),
     name: z.string(),
     memo: z.string().optional().default(""),
@@ -43,22 +43,20 @@ const StoredViewerEntrySchema = z
       z.array(z.unknown()),
       z.record(z.string(), z.unknown()),
     ]),
-    updatedAt: z.number().finite(),
+    updatedAt: z.number(),
     pinned: z.boolean(),
     locked: z.boolean().optional().default(false),
   })
-  .passthrough()
   .transform((entry): ViewerEntry => ({
     ...entry,
     sourceType: entry.sourceType === "snapshotTag" ? "ownDeck" : entry.sourceType,
   }));
 
 const StoredViewerWorkspaceSchema = z
-  .object({
+  .looseObject({
     activeId: z.string().nullable().optional().default(null),
     entries: z.array(StoredViewerEntrySchema),
-  })
-  .passthrough();
+  });
 
 import { atom } from "nanostores";
 

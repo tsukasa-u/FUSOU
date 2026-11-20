@@ -1,20 +1,19 @@
 import { z } from "zod";
 import { PublicIdSchema } from "./public-id";
 
-const IntegerSchema = z.number().int().safe();
+const IntegerSchema = z.int();
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/i);
 
 const ShipGrowthSlotSchema = z
-  .object({
+  .looseObject({
     slotitem_id: IntegerSchema,
     locked: z.boolean(),
     level: IntegerSchema,
     alv: IntegerSchema,
-  })
-  .passthrough();
+  });
 
 const ShipGrowthEntrySchema = z
-  .object({
+  .looseObject({
     master_id: IntegerSchema.positive(),
     lv: IntegerSchema.positive(),
     exp_current: IntegerSchema,
@@ -34,77 +33,69 @@ const ShipGrowthEntrySchema = z
     sakuteki_max: IntegerSchema,
     slots: z.array(ShipGrowthSlotSchema),
     exslot: ShipGrowthSlotSchema.nullable(),
-  })
-  .passthrough();
+  });
 
 export const MasterDataR2KeyRowSchema = z
-  .object({ r2_key: z.string().min(1).nullable().optional() })
-  .passthrough();
+  .looseObject({ r2_key: z.string().min(1).nullable().optional() });
 
 export const ShipGrowthExpRowSchema = z
-  .object({
+  .looseObject({
     lv: IntegerSchema,
     exp_current: IntegerSchema,
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthExpUpdatedRowSchema = ShipGrowthExpRowSchema.extend({
-  updated_at: z.number().finite(),
+  updated_at: z.number(),
 });
 
 export const ShipGrowthPeriodRowSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
-  })
-  .passthrough();
+  });
 
-const ShipGrowthStatSchema = z.number().finite();
+const ShipGrowthStatSchema = z.number();
 
 export const ShipGrowthCountRowSchema = z
-  .object({ c: z.number().int().nonnegative() })
-  .passthrough();
+  .looseObject({ c: z.number().int().nonnegative() });
 
 export const ShipGrowthBoundsRowSchema = z
-  .object({
+  .looseObject({
     master_id: IntegerSchema.positive(),
     lv: IntegerSchema.positive(),
     kaihi_naked: ShipGrowthStatSchema,
     taisen_naked: ShipGrowthStatSchema,
     sakuteki_naked: ShipGrowthStatSchema,
     lucky_naked: ShipGrowthStatSchema,
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthLegacyBoundsRowSchema = z
-  .object({
+  .looseObject({
     master_id: IntegerSchema.positive(),
     lv: IntegerSchema.positive(),
     kaihi_naked: ShipGrowthStatSchema,
     taisen_naked: ShipGrowthStatSchema,
     sakuteki_naked: ShipGrowthStatSchema,
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthBoundsUpdatedRowSchema = ShipGrowthBoundsRowSchema.extend(
-  { updated_at: z.number().finite() },
+  { updated_at: z.number() },
 );
 
 export const ShipGrowthCapsRowSchema = z
-  .object({
+  .looseObject({
     master_id: IntegerSchema.positive(),
     kaihi_max: ShipGrowthStatSchema,
     taisen_max: ShipGrowthStatSchema,
     sakuteki_max: ShipGrowthStatSchema,
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthCapsUpdatedRowSchema = ShipGrowthCapsRowSchema.extend({
-  updated_at: z.number().finite(),
+  updated_at: z.number(),
 });
 
 export const ShipGrowthArchiveBoundsRowSchema = z
-  .object({
+  .looseObject({
     row_id: IntegerSchema.positive().optional().default(1),
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
@@ -114,11 +105,10 @@ export const ShipGrowthArchiveBoundsRowSchema = z
     taisen_naked: ShipGrowthStatSchema,
     sakuteki_naked: ShipGrowthStatSchema,
     lucky_naked: ShipGrowthStatSchema.optional().default(0),
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthArchiveCapsRowSchema = z
-  .object({
+  .looseObject({
     row_id: IntegerSchema.positive().optional().default(1),
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
@@ -126,23 +116,21 @@ export const ShipGrowthArchiveCapsRowSchema = z
     kaihi_max: ShipGrowthStatSchema,
     taisen_max: ShipGrowthStatSchema,
     sakuteki_max: ShipGrowthStatSchema,
-  })
-  .passthrough();
+  });
 
 export const SpEffectItemSchema = z
-  .object({
+  .looseObject({
     api_kind: z.number().nullable().optional(),
     api_houg: z.number().nullable().optional(),
     api_kaih: z.number().nullable().optional(),
     api_raig: z.number().nullable().optional(),
     api_souk: z.number().nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export type SpEffectItem = z.infer<typeof SpEffectItemSchema>;
 
 export const ShipGrowthIngestBodySchema = z
-  .object({
+  .looseObject({
     dataset_id: PublicIdSchema,
     dataset_token: z.string().optional(),
     request_id: z.string().min(1),
@@ -163,10 +151,9 @@ export const ShipGrowthIngestBodySchema = z
         if (typeof value === "string" && value.trim()) return Number(value);
         return undefined;
       },
-      z.number().finite().positive().optional(),
+      z.number().positive().optional(),
     ),
-  })
-  .passthrough();
+  });
 
 export type ShipGrowthIngestBody = z.infer<
   typeof ShipGrowthIngestBodySchema

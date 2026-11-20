@@ -42,10 +42,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup Rust environment for wasm build
-        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
-
-      - name: Build web dependencies (avro-wasm, compaction-core)
+      - name: Build web dependencies (compaction-core)
         run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Run DOM security check
@@ -101,10 +98,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup Rust environment for wasm build
-        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
-
-      - name: Build web dependencies (avro-wasm, compaction-core)
+      - name: Build web dependencies (compaction-core)
         run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Configure apt timeout & retries
@@ -175,10 +169,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup Rust environment for wasm build
-        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
-
-      - name: Build web dependencies (avro-wasm, compaction-core)
+      - name: Build web dependencies (compaction-core)
         run: pnpm --dir packages/FUSOU-WEB run build:deps
 
       - name: Seed local D1/R2 for simulator

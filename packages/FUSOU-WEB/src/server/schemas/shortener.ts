@@ -1,18 +1,16 @@
 import { z } from "zod";
 
 export const SnapshotPayloadSchema = z
-  .object({
+  .looseObject({
     snapshotShips: z.record(z.string(), z.unknown()).optional(),
     snapshotSlotItems: z.record(z.string(), z.unknown()).optional(),
-  })
-  .passthrough();
+  });
 
 export const ShareRecordResponseSchema = z
-  .object({
+  .looseObject({
     originalUrl: z.string().optional(),
     snapshotPayload: SnapshotPayloadSchema.nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const ShortenerRequestSchema = z
   .object({

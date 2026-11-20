@@ -1,13 +1,12 @@
 import { z } from "zod";
 
 export const TableOffsetMetadataSchema = z
-  .object({
+  .looseObject({
     table_name: z.string(),
     start_byte: z.number(),
     byte_length: z.number(),
     format: z.string().optional().default("avro"),
-  })
-  .passthrough();
+  });
 
 export interface TableOffsetMetadata {
   table_name: string;

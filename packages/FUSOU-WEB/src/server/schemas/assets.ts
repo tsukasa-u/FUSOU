@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 export const AssetKeyRowSchema = z
-  .object({ key: z.string().min(1) })
-  .passthrough();
+  .looseObject({ key: z.string().min(1) });
 
 export type AssetKeyRow = z.infer<typeof AssetKeyRowSchema>;
 
@@ -15,72 +14,61 @@ export function parseAssetKeyRows(value: unknown): AssetKeyRow[] {
 }
 
 export const AssetContentHashRowSchema = z
-  .object({ content_hash: z.string().nullable().optional() })
-  .passthrough();
+  .looseObject({ content_hash: z.string().nullable().optional() });
 
 export const AssetHashLookupRowSchema = z
-  .object({
+  .looseObject({
     key: z.string().min(1),
     size: z.number().nonnegative(),
-    uploaded_at: z.number().finite(),
-  })
-  .passthrough();
+    uploaded_at: z.number(),
+  });
 
 const SpriteAtlasNumberSchema = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim() !== ""
       ? Number(value)
       : value,
-  z.number().finite(),
+  z.number(),
 );
 
 const SpriteAtlasFrameSchema = z
-  .object({
+  .looseObject({
     frame: z
-      .object({
+      .looseObject({
         x: SpriteAtlasNumberSchema,
         y: SpriteAtlasNumberSchema,
         w: SpriteAtlasNumberSchema,
         h: SpriteAtlasNumberSchema,
-      })
-      .passthrough(),
-  })
-  .passthrough();
+      }),
+  });
 
 export const SpriteAtlasSchema = z
-  .object({
+  .looseObject({
     frames: z.record(z.string(), SpriteAtlasFrameSchema),
     meta: z
-      .object({
+      .looseObject({
         size: z
-          .object({
+          .looseObject({
             w: SpriteAtlasNumberSchema,
             h: SpriteAtlasNumberSchema,
-          })
-          .passthrough(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
+          }),
+      }),
+  });
 
 export const CacheClearKeysSchema = z.array(z.string().min(1));
 
 export const ShipBannerMapCacheSchema = z
-  .object({ banners: z.record(z.string(), z.string()) })
-  .passthrough();
+  .looseObject({ banners: z.record(z.string(), z.string()) });
 
 export const ShipCardMapCacheSchema = z
-  .object({ cards: z.record(z.string(), z.string()) })
-  .passthrough();
+  .looseObject({ cards: z.record(z.string(), z.string()) });
 
 export const ShipIconMapCacheSchema = z
-  .object({ icons: z.record(z.string(), z.string()) })
-  .passthrough();
+  .looseObject({ icons: z.record(z.string(), z.string()) });
 
 export const EquipImageMapCacheSchema = z
-  .object({
+  .looseObject({
     card: z.record(z.string(), z.string()),
     item_on: z.record(z.string(), z.string()),
     item_up: z.record(z.string(), z.string()),
-  })
-  .passthrough();
+  });

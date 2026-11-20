@@ -144,7 +144,6 @@ import { CORS_HEADERS, MAX_UPLOAD_BYTES } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual, safeWaitUntil } from "../utils";
 import {
   getAllowedPeriodTagSet,
-  getLatestMasterPeriodTag,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
@@ -166,8 +165,6 @@ import {
   extractSchemaFromOCF,
   validateAvroHeader,
 } from "../utils/avro-validator";
-import { buildBattleOverviewPayload } from "../../features/battles/resolvers/overview";
-import { buildBattleDropsPayload } from "../../features/battles/resolvers/drops";
 import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
 import { compareTableVersions } from "../../features/battles/helpers";
 import {
@@ -249,84 +246,6 @@ function getBattleDataCacheControl(periodTagParam: string): string {
     : "public, max-age=3600, stale-while-revalidate=86400";
 }
 
-function buildTableVersionSearchParam(tableVersion: string): string {
-  const trimmed = tableVersion.trim();
-  if (!trimmed) return "";
-  return `&table_version=${encodeURIComponent(trimmed)}`;
-}
-
-function buildGlobalRecordsPath(options: {
-  table: string;
-  periodTag: string;
-  tableVersion: string;
-  datasetId?: string;
-  limitBlocks: number;
-  limitRecords: number;
-  filter?: Record<string, unknown>;
-  includeSortieKey?: boolean;
-  fromTimestampMs?: number;
-  toTimestampMs?: number;
-}): string {
-  const datasetId = options.datasetId?.trim();
-  const datasetIdParam = datasetId
-    ? `&dataset_id=${encodeURIComponent(datasetId)}`
-    : "";
-  const filterJson = options.filter
-    ? `&filter_json=${encodeURIComponent(JSON.stringify(options.filter))}`
-    : "";
-  const includeSortieKey = options.includeSortieKey
-    ? "&include_sortie_key=1"
-    : "";
-  const fromTsParam =
-    options.fromTimestampMs != null && Number.isFinite(options.fromTimestampMs)
-      ? `&from_timestamp_ms=${Math.trunc(options.fromTimestampMs)}`
-      : "";
-  const toTsParam =
-    options.toTimestampMs != null && Number.isFinite(options.toTimestampMs)
-      ? `&to_timestamp_ms=${Math.trunc(options.toTimestampMs)}`
-      : "";
-  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}${datasetIdParam}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${fromTsParam}${toTsParam}${filterJson}`;
-}
-
-function toBattleDataInternalPath(path: string): string {
-  if (path.startsWith("/api/battle-data/")) {
-    return path.replace(/^\/api\/battle-data/, "");
-  }
-  if (path === "/api/battle-data") return "/";
-  return path;
-}
-
-async function fetchBattleDataJsonInternal(
-  c: Context<{ Bindings: Bindings }>,
-  path: string,
-): Promise<unknown> {
-  const normalizedPath = toBattleDataInternalPath(path);
-  const targetUrl = new URL(c.req.url);
-  targetUrl.pathname = normalizedPath;
-  targetUrl.search = "";
-  if (normalizedPath.includes("?")) {
-    const [pathname, search] = normalizedPath.split("?", 2);
-    targetUrl.pathname = pathname || "/";
-    targetUrl.search = search ? `?${search}` : "";
-  }
-  const request = new Request(targetUrl.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-  let executionCtx: ExecutionContext | undefined;
-  try {
-    executionCtx = c.executionCtx as ExecutionContext;
-  } catch {
-    executionCtx = undefined;
-  }
-  const response = await app.fetch(request, c.env, executionCtx);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${targetUrl.pathname}: HTTP ${response.status}`);
-  }
-  const payload: unknown = await response.json();
-  return payload;
-}
-
 type MasterDataJsonPayload = {
   table_name: string;
   table_version: string | null;
@@ -336,27 +255,8 @@ type MasterDataJsonPayload = {
   records: Array<Record<string, unknown>>;
 };
 
-type BattleEnvBundlePayload = {
-  ownDecks: Array<Record<string, unknown>>;
-  ownShips: Array<Record<string, unknown>>;
-  ownSlotItems: Array<Record<string, unknown>>;
-  enemyDecks: Array<Record<string, unknown>>;
-  enemyShips: Array<Record<string, unknown>>;
-  enemySlotItems: Array<Record<string, unknown>>;
-};
-
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function parseJsonRecords(value: unknown): Array<Record<string, unknown>> | null {
-  if (!Array.isArray(value)) return null;
-  const records: Array<Record<string, unknown>> = [];
-  for (const item of value) {
-    if (!isJsonRecord(item)) return null;
-    records.push(item);
-  }
-  return records;
 }
 
 type BattleRecordsPayload = {
@@ -366,57 +266,6 @@ type BattleRecordsPayload = {
   matched_min_start_timestamp_ms?: number | null;
   matched_max_end_timestamp_ms?: number | null;
 };
-
-function parseRecordsPayload(value: unknown): BattleRecordsPayload | null {
-  if (!isJsonRecord(value)) return null;
-  if (!("records" in value)) return {};
-  const records = parseJsonRecords(value["records"]);
-  if (!records) return null;
-  const matchedMin = value["matched_min_start_timestamp_ms"];
-  const matchedMax = value["matched_max_end_timestamp_ms"];
-  return {
-    records,
-    ...(typeof value["period_tag"] === "string"
-      ? { period_tag: value["period_tag"] }
-      : {}),
-    ...(typeof value["table_version"] === "string" || value["table_version"] === null
-      ? { table_version: value["table_version"] }
-      : {}),
-    ...(typeof matchedMin === "number" && Number.isFinite(matchedMin)
-      ? { matched_min_start_timestamp_ms: matchedMin }
-      : {}),
-    ...(typeof matchedMax === "number" && Number.isFinite(matchedMax)
-      ? { matched_max_end_timestamp_ms: matchedMax }
-      : {}),
-  };
-}
-
-function parseBattleEnvBundlePayload(
-  value: unknown,
-): BattleEnvBundlePayload | null {
-  if (!isJsonRecord(value)) return null;
-  const payload: BattleEnvBundlePayload = {
-    ownDecks: [],
-    ownShips: [],
-    ownSlotItems: [],
-    enemyDecks: [],
-    enemyShips: [],
-    enemySlotItems: [],
-  };
-  for (const key of [
-    "ownDecks",
-    "ownShips",
-    "ownSlotItems",
-    "enemyDecks",
-    "enemyShips",
-    "enemySlotItems",
-  ] as const) {
-    const records = parseJsonRecords(value[key]);
-    if (!records) return null;
-    payload[key] = records;
-  }
-  return payload;
-}
 
 function parseJsonObjectText(text: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(text);
@@ -428,10 +277,6 @@ const MASTER_DATA_MEM_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour memory TTL
 const masterDataGlobalPayloadCache = new Map<
   string,
   { expiresAt: number; promise: Promise<MasterDataJsonPayload> }
->();
-const masterDataImmutableRecordsCache = new Map<
-  string,
-  Array<Record<string, unknown>>
 >();
 
 async function fetchMasterDataJsonDirect(
@@ -563,135 +408,6 @@ async function fetchMasterDataJsonDirect(
   }
 }
 
-async function fetchBattleEnvBundleInternal(
-  c: Context<{ Bindings: Bindings }>,
-  envUuid: string,
-  tableVersion: string,
-  periodTag: string,
-  datasetId?: string,
-  timeWindow?: { fromTimestampMs?: number; toTimestampMs?: number },
-): Promise<BattleEnvBundlePayload> {
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const normalizedDatasetId = datasetId?.trim() || "";
-  const cacheKey = new Request(
-    new URL(
-      `/api/battle-data/detail-env?env_uuid=${encodeURIComponent(envUuid)}&period_tag=${encodeURIComponent(periodTag)}&table_version=${encodeURIComponent(tableVersion || "")}&dataset_id=${encodeURIComponent(normalizedDatasetId)}`,
-      c.req.url,
-    ).toString(),
-    { method: "GET" },
-  );
-
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const payload = parseBattleEnvBundlePayload(await cached.json());
-      if (payload) return payload;
-    }
-  }
-
-  const baseScope = {
-    periodTag,
-    tableVersion,
-    ...(normalizedDatasetId ? { datasetId: normalizedDatasetId } : {}),
-  };
-
-  const runBundleFetch = async (windowScope: {
-    fromTimestampMs?: number;
-    toTimestampMs?: number;
-  }) => {
-    const scope = { ...baseScope, ...windowScope };
-    const [
-      ownDecksPayload,
-      ownShipsPayload,
-      ownSlotItemsPayload,
-      enemyDecksPayload,
-      enemyShipsPayload,
-      enemySlotItemsPayload,
-    ] = await queryGlobalRecordsDirectBatch(c, [
-      {
-        table: "own_deck",
-        ...scope,
-        limitBlocks: 120,
-        limitRecords: 200,
-        filter: { env_uuid: envUuid },
-      },
-      {
-        table: "own_ship",
-        ...scope,
-        limitBlocks: 120,
-        limitRecords: 2000,
-        filter: { env_uuid: envUuid },
-      },
-      {
-        table: "own_slotitem",
-        ...scope,
-        limitBlocks: 120,
-        limitRecords: 4000,
-        filter: { env_uuid: envUuid },
-      },
-      {
-        table: "enemy_deck",
-        ...scope,
-        limitBlocks: 120,
-        limitRecords: 200,
-        filter: { env_uuid: envUuid },
-      },
-      {
-        table: "enemy_ship",
-        ...scope,
-        limitBlocks: 120,
-        limitRecords: 2000,
-        filter: { env_uuid: envUuid },
-      },
-      {
-        table: "enemy_slotitem",
-        ...scope,
-        limitBlocks: 120,
-        limitRecords: 4000,
-        filter: { env_uuid: envUuid },
-      },
-    ]);
-    const ownDecks = ownDecksPayload?.records || [];
-    const ownShips = ownShipsPayload?.records || [];
-    const ownSlotItems = ownSlotItemsPayload?.records || [];
-    const enemyDecks = enemyDecksPayload?.records || [];
-    const enemyShips = enemyShipsPayload?.records || [];
-    const enemySlotItems = enemySlotItemsPayload?.records || [];
-    return {
-      ownDecks,
-      ownShips,
-      ownSlotItems,
-      enemyDecks,
-      enemyShips,
-      enemySlotItems,
-    };
-  };
-
-  const hasTimeWindow =
-    timeWindow?.fromTimestampMs !== undefined ||
-    timeWindow?.toTimestampMs !== undefined;
-  let payload = await runBundleFetch(timeWindow ?? {});
-  if (
-    hasTimeWindow &&
-    payload.ownDecks.length === 0 &&
-    payload.enemyDecks.length === 0
-  ) {
-    payload = await runBundleFetch({});
-  }
-
-  if (cache) {
-    const response = new Response(JSON.stringify(payload), {
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "public, max-age=600, stale-while-revalidate=3600",
-      },
-    });
-    await cache.put(cacheKey, response);
-  }
-
-  return payload;
-}
-
 const WEAPON_ICON_CACHE_TTL_MS = 10 * 60 * 1000;
 const weaponIconBucketCache = new WeakMap<
   object,
@@ -739,51 +455,6 @@ async function fetchWeaponIconFramesDirect(
     weaponIconBucketCache.delete(bucket);
     throw err;
   }
-}
-
-async function fetchGlobalRecordsInternal(
-  c: Context<{ Bindings: Bindings }>,
-  options: {
-    table: string;
-    periodTag: string;
-    tableVersion: string;
-    datasetId?: string;
-    limitBlocks: number;
-    limitRecords: number;
-    filter?: Record<string, unknown>;
-    includeSortieKey?: boolean;
-    fromTimestampMs?: number;
-    toTimestampMs?: number;
-  },
-): Promise<Array<Record<string, unknown>>> {
-  const payload = await fetchGlobalRecordsPayloadInternal(c, options);
-  return payload.records || [];
-}
-
-async function fetchGlobalRecordsPayloadInternal(
-  c: Context<{ Bindings: Bindings }>,
-  options: {
-    table: string;
-    periodTag: string;
-    tableVersion: string;
-    datasetId?: string;
-    limitBlocks: number;
-    limitRecords: number;
-    filter?: Record<string, unknown>;
-    includeSortieKey?: boolean;
-    fromTimestampMs?: number;
-    toTimestampMs?: number;
-  },
-): Promise<BattleRecordsPayload> {
-  const datasetId = options.datasetId ?? c.req.query("dataset_id")?.trim();
-  const pathOptions =
-    datasetId === undefined ? options : { ...options, datasetId };
-  return queryGlobalRecordsDirect(c, pathOptions);
-}
-
-function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
-  if (Array.isArray(rawIds)) return rawIds.filter((id): id is string => typeof id === "string" && id.length > 0);
-  return typeof rawIds === "string" && rawIds.length > 0 ? [rawIds] : [];
 }
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
@@ -1083,18 +754,6 @@ export function extractTimestampFromUuidV7(uuidStr: string): number | null {
     return null;
   }
   return ts;
-}
-
-function shouldFetchBattlePhase(
-  battle: Record<string, unknown> | undefined,
-  field: string,
-): boolean {
-  if (!battle) return true;
-  if (!(field in battle)) return true;
-  const value = battle[field];
-  if (value === null || value === undefined || value === "") return false;
-  if (Array.isArray(value) && value.length === 0) return false;
-  return true;
 }
 
 async function putCacheSafely(
@@ -1910,16 +1569,6 @@ export async function queryGlobalRecordsDirectBatch(
   );
 }
 
-async function queryGlobalRecordsDirect(
-  c: Context<{ Bindings: Bindings }>,
-  options: TableQueryOptions,
-): Promise<BattleRecordsPayload> {
-  const [result] = await queryGlobalRecordsDirectBatch(c, [options]);
-  if (!result) {
-    throw new Error(`Failed to query table: ${options.table}`);
-  }
-  return result;
-}
 // validateAvroHeader is now imported from avro-validator
 
 /**
@@ -3649,7 +3298,6 @@ app.get("/detail-env", async (c) => {
   };
   const envUuid = (c.req.query("env_uuid") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
-  const tableVersion = (c.req.query("table_version") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
 
   if (!envUuid) {
@@ -3862,7 +3510,6 @@ app.get("/detail", async (c) => {
   const battleIndexRaw = (c.req.query("battle_index") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const tableVersion = (c.req.query("table_version") || "").trim();
-  const datasetId = (c.req.query("dataset_id") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
 
   if (!envUuid) {

@@ -9,7 +9,6 @@ members = [
     "packages/FUSOU-APP/src-tauri",
 ]
 exclude = [
-    "packages/avro-wasm",
     "packages/kc_api",
 ]
 

@@ -10,18 +10,17 @@ const PositionSchema = z.object({
 });
 
 export const GraphEdgeSchema = z
-  .object({
+  .looseObject({
     id: z.string(),
     source: z.string(),
     target: z.string(),
     label: z.string().optional(),
     sourceHandle: z.string().optional(),
     targetHandle: z.string().optional(),
-  })
-  .passthrough();
+  });
 
 export const SchemaFieldSchema = z
-  .object({
+  .looseObject({
     name: z.string(),
     type: z.string(),
     isUuid: z.boolean().optional(),
@@ -29,11 +28,10 @@ export const SchemaFieldSchema = z
     isFk: z.boolean().optional(),
     isEnvRef: z.boolean().optional(),
     diffStatus: DiffStatusSchema.nullable().optional(),
-  })
-  .passthrough();
+  });
 
 export const EndpointFieldSchema = z
-  .object({
+  .looseObject({
     name: z.string(),
     type: z.string(),
     diffStatus: DiffStatusSchema.nullable().optional(),
@@ -44,8 +42,7 @@ export const EndpointFieldSchema = z
         withoutFeature: z.string().nullable(),
       })
       .optional(),
-  })
-  .passthrough();
+  });
 
 const RelationDataSchema = z.object({
   relationType: z.enum(["selected", "ancestor", "descendant"]).nullable().optional(),
@@ -53,7 +50,7 @@ const RelationDataSchema = z.object({
 });
 
 export const SchemaTableNodeDataSchema = z
-  .object({
+  .looseObject({
     tableName: z.string(),
     recordName: z.string(),
     structName: z.string().optional(),
@@ -61,11 +58,10 @@ export const SchemaTableNodeDataSchema = z
     highlighted: z.boolean().optional(),
     diffStatus: DiffStatusSchema.nullable().optional(),
   })
-  .merge(RelationDataSchema)
-  .passthrough();
+  .extend(RelationDataSchema.shape);
 
 export const EndpointNodeDataSchema = z
-  .object({
+  .looseObject({
     structName: z.string(),
     fields: z.array(EndpointFieldSchema),
     isReq: z.boolean(),
@@ -73,17 +69,15 @@ export const EndpointNodeDataSchema = z
     isDataType: z.boolean(),
     diffStatus: DiffStatusSchema.nullable().optional(),
   })
-  .merge(RelationDataSchema)
-  .passthrough();
+  .extend(RelationDataSchema.shape);
 
 export const GraphNodeSchema = z
-  .object({
+  .looseObject({
     id: z.string(),
     position: PositionSchema,
     type: z.string().optional(),
     data: z.union([SchemaTableNodeDataSchema, EndpointNodeDataSchema]),
-  })
-  .passthrough();
+  });
 
 export const GraphDataSchema = z.object({
   nodes: z.array(GraphNodeSchema),
@@ -91,29 +85,28 @@ export const GraphDataSchema = z.object({
 });
 
 const DatabaseVersionDiffSchema = z
-  .object({
+  .looseObject({
     status: DiffStatusSchema,
     addedFields: z.array(z.string()),
     changedFields: z.array(z.string()),
     removedFields: z.array(z.string()),
-  })
-  .passthrough();
+  });
 
 export const DbVersionsSchema = z.object({
   versions: z.record(
     z.string(),
-    z.object({ tableCount: z.number(), version: z.string() }).passthrough(),
+    z.looseObject({ tableCount: z.number(), version: z.string() }),
   ),
   sortedVersions: z.array(z.string()),
   majorVersions: z.record(
     z.string(),
-    z.object({ versions: z.array(z.string()), latest: z.string() }).passthrough(),
+    z.looseObject({ versions: z.array(z.string()), latest: z.string() }),
   ),
   diffs: z.record(z.string(), z.record(z.string(), DatabaseVersionDiffSchema)),
 });
 
 export const EndpointFeatureVariantsSchema = z
-  .object({
+  .looseObject({
     activeFeatures: z.array(z.string()),
     allFeatures: z.array(z.string()),
     fieldDiffs: z.record(
@@ -129,8 +122,7 @@ export const EndpointFeatureVariantsSchema = z
         ),
       ),
     ),
-  })
-  .passthrough();
+  });
 
 export const EndpointGroupSchema = z.object({
   endpoints: z.array(
@@ -143,11 +135,10 @@ export const EndpointGroupSchema = z.object({
 });
 
 export const EndpointGraphSchema = z
-  .object({
+  .looseObject({
     featureVariants: EndpointFeatureVariantsSchema,
     groups: z.record(z.string(), EndpointGroupSchema),
-  })
-  .passthrough();
+  });
 
 export type DiffStatus = "added" | "removed" | "changed";
 export type RelationType = "selected" | "ancestor" | "descendant";

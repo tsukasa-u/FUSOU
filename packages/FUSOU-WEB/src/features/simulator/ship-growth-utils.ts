@@ -46,23 +46,21 @@ export type ShipGrowthBoundsResponse = {
 };
 
 const ShipGrowthPeriodSchema = z
-  .object({
+  .looseObject({
     period_tag: z.string().min(1),
     table_version: z.string().min(1),
-  })
-  .passthrough();
+  });
 
 const ShipGrowthCapSchema = z
-  .object({
+  .looseObject({
     master_id: z.number().int().positive(),
-    kaihi_max: z.number().finite().optional(),
-    taisen_max: z.number().finite().optional(),
-    sakuteki_max: z.number().finite().optional(),
-    kaih_max: z.number().finite().optional(),
-    tais_max: z.number().finite().optional(),
-    saku_max: z.number().finite().optional(),
+    kaihi_max: z.number().optional(),
+    taisen_max: z.number().optional(),
+    sakuteki_max: z.number().optional(),
+    kaih_max: z.number().optional(),
+    tais_max: z.number().optional(),
+    saku_max: z.number().optional(),
   })
-  .passthrough()
   .transform((value): ShipGrowthCaps => {
     const result: ShipGrowthCaps = { master_id: value.master_id };
     if (value.kaihi_max !== undefined) result.kaihi_max = value.kaihi_max;
@@ -76,73 +74,67 @@ const ShipGrowthCapSchema = z
   });
 
 const ShipGrowthBoundSchema = z
-  .object({
+  .looseObject({
     master_id: z.number().int().positive(),
     lv: z.number().int().positive(),
-    kaihi_naked: z.number().finite(),
-    taisen_naked: z.number().finite(),
-    sakuteki_naked: z.number().finite(),
-    lucky_naked: z.number().finite().optional().default(0),
-  })
-  .passthrough();
+    kaihi_naked: z.number(),
+    taisen_naked: z.number(),
+    sakuteki_naked: z.number(),
+    lucky_naked: z.number().optional().default(0),
+  });
 
 const ShipGrowthExpRowSchema = z
-  .object({
+  .looseObject({
     lv: z.number().int().positive(),
     exp_current: z.number().int().nonnegative(),
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthSummaryResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     periods: z.array(ShipGrowthPeriodSchema).optional(),
     cumulative_available: z.boolean().optional(),
     archive_object_count: z.number().int().nonnegative().optional(),
-  })
-  .passthrough();
+  });
 
 export const ShipGrowthExpResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     exp: z.array(ShipGrowthExpRowSchema).optional(),
     rows: z.array(ShipGrowthExpRowSchema).optional(),
-    updated_at: z.number().finite().optional(),
+    updated_at: z.number().optional(),
     updated_at_iso: z.string().nullable().optional(),
   })
-  .passthrough()
   .refine((value) => !value.ok || value.exp !== undefined || value.rows !== undefined, {
     message: "Successful EXP response must include exp or rows",
   })
   .transform((value) => ({ ...value, exp: value.exp ?? value.rows ?? [] }));
 
 export const ShipGrowthBoundsResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     bounds: z.array(ShipGrowthBoundSchema).optional(),
     caps: z.array(ShipGrowthCapSchema).optional(),
-    updated_at: z.number().finite().optional(),
+    updated_at: z.number().optional(),
     updated_at_iso: z.string().nullable().optional(),
   })
-  .passthrough()
   .refine((value) => !value.ok || (value.bounds !== undefined && value.caps !== undefined), {
     message: "Successful bounds response must include bounds and caps",
   });
 
-const ShipGrowthAllPeriodsEntrySchema = z.object({
+const ShipGrowthAllPeriodsEntrySchema = z.looseObject({
   period_tag: z.string().min(1),
   table_version: z.string().min(1),
   bounds: z.array(ShipGrowthBoundSchema),
   caps: z.array(ShipGrowthCapSchema),
-}).passthrough();
+});
 
 export const ShipGrowthAllPeriodsResponseSchema = z
-  .object({
+  .looseObject({
     ok: z.boolean(),
     entries: z.array(ShipGrowthAllPeriodsEntrySchema).optional(),
     periods: z.array(ShipGrowthAllPeriodsEntrySchema).optional(),
   })
-  .passthrough()
   .refine((value) => !value.ok || value.entries !== undefined || value.periods !== undefined, {
     message: "Successful all-periods response must include entries or periods",
   })

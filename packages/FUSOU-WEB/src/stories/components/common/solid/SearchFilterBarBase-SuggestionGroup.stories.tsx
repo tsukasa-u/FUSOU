@@ -1,4 +1,3 @@
-import { fn } from "storybook/test";
 import { SuggestionGroup } from "../../../../components/common/solid/SearchFilterBarBase";
 
 export default {
