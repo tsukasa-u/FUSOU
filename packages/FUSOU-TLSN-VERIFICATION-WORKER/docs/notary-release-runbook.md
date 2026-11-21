@@ -286,12 +286,18 @@ binary="$CARGO_TARGET_DIR/release/fusou-notary"
 sha256sum "$binary" > "$CARGO_TARGET_DIR/fusou-notary.sha256"
 export FUSOU_OPERATIONAL_NOTARY_BIN="$binary"
 features=local-test-notary-fault-injection,operational-notary
-test_name=operational::normal_binary_complete_and_restarts_using_the_same_ledger
+test_names=(
+  operational::normal_binary_complete_and_restarts_using_the_same_ledger
+  operational::normal_binary_rejects_invalid_loopback_settings_before_side_effects
+)
 listing="$(cargo +1.98.1 test --locked --offline --manifest-path "$manifest" \
   --features "$features" --test local_notary_interop -- --list)"
-grep -Fxq "$test_name: test" <<< "$listing"
-cargo +1.98.1 test --locked --offline --manifest-path "$manifest" \
-  --features "$features" --test local_notary_interop "$test_name" -- --exact --test-threads=1
+for test_name in "${test_names[@]}"; do
+  grep -Fxq "$test_name: test" <<< "$listing"
+  cargo +1.98.1 test --locked --offline --manifest-path "$manifest" \
+    --features "$features" --test local_notary_interop "$test_name" \
+    -- --exact --test-threads=1
+done
 sha256sum --check "$CARGO_TARGET_DIR/fusou-notary.sha256"
 fault_features=local-test-notary-fault-injection
 fault_test=finalized_parent_directory_sync_failure_hides_result_until_same_ledger_reopens
