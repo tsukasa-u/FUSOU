@@ -1,5 +1,71 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Candidate artifact pnpm setup — preventive correction
+
+**BASELINE:** Actions [#138](https://github.com/tsukasa-u/FUSOU/actions/runs/44834317244)
+passed all three jobs at `e81af0d3e9744ca3fc25238584fbb0ee288dcb4a`; it
+published no verification APP artifact. The conflicting action input was
+identified from source; no Hosted failure log exists for it.
+
+**SOURCE_CORRECTED:** Removed the artifact job's explicit
+`pnpm/action-setup@v4` version so the action resolves the root
+`packageManager` pin, including its integrity hash, as the existing jobs do.
+The subsequent exact `pnpm --version` check and
+`pnpm install --frozen-lockfile --ignore-scripts` remain in place. No
+dependency, hash, lockfile, Tauri build setting, artifact condition, or
+existing test job was changed.
+
+**LOCAL_VALIDATION:** Workflow YAML and the artifact job were parsed; the
+explicit version is absent while the root pin, version check, and frozen
+install command remain. With a fresh `COREPACK_HOME`, `corepack pnpm
+--version` resolved `10.14.0`; this local check used Node `v22.21.1`, not the
+workflow's Node `22.16.0`, and did not execute the GitHub Action or install
+project dependencies. GitHub Actions was not run, so Hosted CI and artifact
+generation remain **NOT_CHECKED**.
+
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Linux verification APP artifact — candidate CI path
+
+**BASELINE:** Candidate Actions [#138](https://github.com/tsukasa-u/FUSOU/actions/runs/44834317244)
+passed all three jobs at `e81af0d3e9744ca3fc25238584fbb0ee288dcb4a`; that run
+published no verification APP artifact.
+
+**SOURCE_IMPLEMENTED:** The candidate workflow now builds a Linux x86_64
+verification-only Debian package after all three existing jobs pass. It runs
+only for a push to `tlsn-first-testplay-candidate` or a manual dispatch on that
+branch, not for pull requests. The build pins Ubuntu 24.04, Rust 1.98.1, Node
+22.16.0 and pnpm 10.14.0; uses the committed APP Cargo lockfile and repository
+pnpm lockfile; explicitly enables `tlsn-production` and `custom-protocol`;
+and records the default Cargo feature set. Vite uses an empty runner-temp
+environment directory, and the Tauri dotenvx wrapper is not invoked. No
+Production TLSN bootstrap values, private signing keys, secrets or roaming
+user configuration are supplied. The package is unsigned, updater artifacts
+are disabled, and the verification overlay has no updater endpoints.
+
+The workflow extracts the Debian package before upload and requires the APP
+binary, Linux PAC scripts, shared PAC helper, PAC files and bundled default
+config at their runtime paths. It checks executable/read permissions and
+uploads the package with `MANIFEST.json` and `SHA256SUMS`. The manifest records
+the actual checkout SHA, runner OS, target, features, toolchain versions,
+package filename, byte length and SHA-256. This is a test artifact, not a
+release or production acceptance artifact.
+
+**HOSTED_CI:** **NOT_CHECKED** for these changes; no workflow run was started.
+No artifact was generated locally. A downloadable artifact is available only
+after a new candidate-branch push or manual workflow dispatch completes all
+required jobs successfully.
+
+**DEVICE_OBSERVATION:** **NOT_CHECKED.** No disposable Linux desktop/VM,
+verification package from a new hosted run, or managed test destination was
+available here. PAC mode/URL readback, browser PAC retrieval and actual Proxy
+traffic, Restart/Quit/Ctrl+C restoration, and preservation of an operator's
+replacement PAC remain unobserved. Keep Open KanColle off, restrict egress to
+the managed test destination, and do not infer Proxy traffic from readiness
+or package creation.
+
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Candidate CI #134 — Playwright CLI resolution
 
 **HOSTED_CI_OBSERVED:** [Actions #134](https://github.com/tsukasa-u/FUSOU/actions/runs/44694490416/job/136147867774#step:6:1)

@@ -1,8 +1,66 @@
 # Production evidence: human/operator preflight
 
-This runbook does not authorize gameplay. The current APP acceptance path is
-Production **Complete**. Sparse is covered by Proxy/Notary/Verifier tests, not
-by APP acceptance. See the [current baseline and blockers](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md).
+This runbook does not authorize gameplay. The APP's configured evidence mode
+is Production **Complete**; that mode does not imply Production acceptance.
+Sparse is covered by Proxy/Notary/Verifier tests, not by APP acceptance.
+Production acceptance remains **BLOCKED**. See the
+[current baseline and blockers](../../FUSOU-TLSN-VERIFIER/FIRST-TESTPLAY-READINESS.md).
+
+## Linux verification APP artifact (not a release)
+
+The candidate workflow produces an unsigned x86_64 Debian package only after
+all three required jobs pass, and only on a push or manual dispatch for
+`tlsn-first-testplay-candidate`. Pull requests do not publish it. The latest
+baseline, Actions [#138](https://github.com/tsukasa-u/FUSOU/actions/runs/44834317244)
+at `e81af0d3e9744ca3fc25238584fbb0ee288dcb4a`, passed its three jobs but had
+no APP artifact. A build from a newer SHA is **NOT_CHECKED** until that SHA has
+its own hosted run; no local package is a substitute.
+
+From that candidate-branch Actions run, download
+`fusou-linux-x86_64-verification-<full-checkout-SHA>`. Before use:
+
+1. Compare `MANIFEST.json`'s `sourceSha` to the run's checked-out SHA and the
+   artifact name. Confirm Ubuntu 24.04, `x86_64-unknown-linux-gnu`,
+   `tlsn-production` plus `custom-protocol`, Rust 1.98.1, Node 22.16.0 and pnpm
+   10.14.0. The manifest also records the package name, byte length and
+   SHA-256.
+2. Verify the archive hash and inspect the package contents:
+
+   ```sh
+   sha256sum -c SHA256SUMS
+   dpkg-deb --contents fusou_*.deb
+   ```
+
+3. Extract the package and verify the installed runtime paths:
+
+   ```sh
+   extract_dir="$(mktemp -d)"
+   dpkg-deb --extract fusou_*.deb "$extract_dir"
+   test -x "$extract_dir/usr/bin/fusou"
+   for script in add_proxy.sh delete_proxy.sh add_store.sh check_ca.sh; do
+     test -x "$extract_dir/usr/lib/fusou/resources/cmd/linux/$script"
+   done
+   test -r "$extract_dir/usr/lib/fusou/resources/cmd/linux/pac_settings_common.sh"
+   test -r "$extract_dir/usr/lib/fusou/resources/pac/proxy_auto.pac"
+   test -r "$extract_dir/usr/lib/fusou/resources/pac/proxy_local.pac"
+   ```
+
+   The workflow performs these checks, plus the bundled default config check,
+   before upload.
+
+This package is for disposable Linux PAC investigation only. It is not signed,
+not an updater/release artifact, and carries no Production Runtime Config
+bootstrap values or private signing secrets. Its build uses the tracked
+non-roaming default resource config; it does not copy an operator's roaming
+config. Use a fresh disposable OS user/VM, keep Open KanColle off, and enforce
+egress restriction so only the managed test destination is reachable. Do not
+open the update page or enable unrelated integrations during the test. The
+verification overlay has no updater endpoints, so update checks fail closed.
+
+No artifact build or real-device observation was performed while preparing
+this change. Until a new hosted artifact exists, artifact acquisition and all
+device checks below remain **NOT_CHECKED**. Stage A/B/C and Production
+acceptance remain **BLOCKED**.
 
 ## 1. Fixed status and current stop conditions
 
