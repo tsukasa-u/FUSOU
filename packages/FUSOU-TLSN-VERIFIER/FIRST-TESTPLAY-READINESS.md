@@ -1,6 +1,99 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## #140 hosted artifact verified; disposable Linux PAC observed
+
+**HOSTED_CI_OBSERVED:** [Actions #140](https://github.com/tsukasa-u/FUSOU/actions/runs/44903160622)
+completed successfully with all four jobs green, including Linux verification
+APP packaging and upload. The run SHA, artifact manifest `sourceSha`, and local
+HEAD are all `4b402486bce85d31cd2c7c8e19ca3f6954e130cf`.
+
+**ARTIFACT_VERIFIED:** Artifact ID `14706959705`,
+`fusou-linux-x86_64-verification-4b402486bce85d31cd2c7c8e19ca3f6954e130cf`.
+The downloaded archive is 29,248,512 bytes and SHA-256
+`c952b31d494d51bcb11fcb6d8b4a27f984240b0231153e1fa6cdf4a554bb72d5`, matching
+the GitHub artifact digest. `MANIFEST.json` and `SHA256SUMS` identify
+`fusou_0.5.0_amd64.deb` at 29,569,016 bytes, SHA-256
+`776989992e6a335b141072530882473672c43108db7f5ddd3fc59d9db5edc2d6`; the
+manifest source SHA matches the run and HEAD, and `sha256sum --check` passed.
+Package extraction verified the executable APP and four executable Linux
+scripts, the readable common PAC helper, both PAC files and bundled default
+config; the expected bundled roaming-config path was absent. The package was
+installed and run only in the disposable container described below. The host
+package database, user configuration, trust store and proxy settings were not
+changed.
+
+**DEVICE_OBSERVATION:** **OBSERVED (disposable container only).** The APP ran
+in Ubuntu 24.04 with Xvfb `:99`, GNOME Shell 46.0 / Mutter 46.2 and Chrome
+158.0.8127.36. This was an internal-only Docker network, not a full VM,
+physical desktop or normal GNOME login; those environments remain
+**NOT_CHECKED**. The test endpoint `pac-test.invalid:8123` resolved to
+`172.19.0.2`; the APP/browser container was `172.19.0.3`. No external route
+was available.
+
+Runtime observations were recorded on 2026-11-22 from 03:12 to 03:23 JST.
+
+The test user received a full config derived from the tracked default, with
+TLSN and candidate capture disabled, custom PAC enabled, and
+`pac-test.invalid` as the only selected target. Open KanColle was off for every
+Start. No existing roaming config was copied and no Production setting was
+changed. Initial GNOME readback was mode `none` and
+`http://pac-test.invalid:8123/previous.pac`. After Start, readback was mode
+`auto` and the APP's generated `http://localhost:<port>/proxy.pac`. The
+generated PAC returned `PROXY 127.0.0.1:<port>` for `pac-test.invalid`.
+
+The first Start stopped before PAC setup because the container lacked XDG
+Documents metadata; adding the test user's `Documents` directory and
+`user-dirs.dirs` allowed the attempt to continue. CA installation then stopped
+because `pkexec` was unavailable. The generated test CA was trusted only in
+the disposable container with `update-ca-certificates`; the host trust store
+was not touched, and the next Start succeeded.
+
+Chrome was launched without a manual proxy argument. Its NetLog recorded
+`from_system: true`, the APP PAC URL, a PAC fetch, and selection of
+`PROXY 127.0.0.1:34631` for
+`http://pac-test.invalid:8123/observed/browser-pac-02`. Chrome sent the
+absolute-form request through that proxy; the APP Proxy log recorded status
+`200 OK` for the same path from `127.0.0.1:40738`, and the test HTTP server
+recorded the same path from `172.19.0.3`. This correlates browser PAC
+resolution, Proxy handling and endpoint receipt; it is not evidence about
+TLSN or a real Game Server.
+
+Tray Restart, tray Quit and a terminal Ctrl+C each restored mode `none` and
+the original `/previous.pac` URL; the recovery state was absent after each
+confirmed cleanup. In a separate run, changing only the PAC URL to
+`http://pac-test.invalid:8123/user-selected.pac` while mode remained `auto`
+was preserved as the same auto-mode/URL pair after tray Quit.
+
+The first Chrome attempt lacked `XDG_CURRENT_DESKTOP=GNOME` and NetLog showed
+an empty system proxy config with `DIRECT`; rerunning with the GNOME session
+environment made Chrome consume the system PAC. Chrome also required
+`--no-sandbox` because this container could not create the browser's namespace
+sandbox. One initial omnibox selection attempted a Google search, which failed
+inside the internal-only network and is excluded from the test evidence. The
+APP's period-tag request also failed closed; no external service was allowed.
+No PAC defect was reproduced, so no APP implementation or regression test
+changed. Results remain limited to this container session.
+
+**TEST CONFIG:** For repeat runs, use a full config in a fresh test user's
+roaming directory, never a partial TOML file or existing roaming config. Keep
+both TLSN switches false, enable `proxy.pac.use_custom_pac`, set `pac_script`
+to that user's generated `ROAMING_DIR/pac/proxy.pac`, and use port `0`. Set
+`app.connect_kc_server.kc_server_name` and the selected proxy target to the
+managed test hostname only. Keep egress default-deny and Open KanColle off;
+do not allow the period-tag service as a workaround.
+
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+Historical sections below preserve `NOT_CHECKED` and `NOT_RUN` statuses as of
+their named source baseline or run; they are not the current status unless
+explicitly stated. The current #140 and disposable-container results are
+recorded above.
+
 ## Candidate artifact pnpm setup — preventive correction
+
+**HISTORICAL SNAPSHOT:** The local correction was checked on 2026-11-21 JST
+against the #138 baseline SHA below (session record: 20:10 JST; exact command
+completion time was not retained).
 
 **BASELINE:** Actions [#138](https://github.com/tsukasa-u/FUSOU/actions/runs/44834317244)
 passed all three jobs at `e81af0d3e9744ca3fc25238584fbb0ee288dcb4a`; it
@@ -20,12 +113,18 @@ explicit version is absent while the root pin, version check, and frozen
 install command remain. With a fresh `COREPACK_HOME`, `corepack pnpm
 --version` resolved `10.14.0`; this local check used Node `v22.21.1`, not the
 workflow's Node `22.16.0`, and did not execute the GitHub Action or install
-project dependencies. GitHub Actions was not run, so Hosted CI and artifact
-generation remain **NOT_CHECKED**.
+project dependencies. At that handoff, GitHub Actions had not run, so Hosted
+CI and artifact generation were **NOT_CHECKED**. That state was superseded by
+the successful #140 run and artifact verification recorded above.
 
 Stage A/B/C and Production acceptance remain **BLOCKED**.
 
 ## Candidate artifact job rejected before execution — #139
+
+**HISTORICAL SNAPSHOT:** This correction followed the #139 rejection at base
+SHA `0d723e8555f6ad413862eeb7f18c9d6c85a3bca7`, recorded on 2026-11-21 JST
+(session record: 20:52 JST; exact local validation completion time was not
+retained).
 
 **HOSTED_CI_OBSERVED:** Actions [#139](https://github.com/tsukasa-u/FUSOU/actions/runs/44898661267)
 was rejected while evaluating `linux-verification-app-artifact`: job-level
@@ -47,7 +146,10 @@ the expected target path; the build and package-check steps both use
 against GitHub's [official context-availability table](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability),
 where `runner` is absent for `jobs.<job_id>.env` and allowed for step-level
 contexts. Hosted CI was not run; the corrected workflow, Debian package
-generation/upload, and real PAC inspection remain **NOT_CHECKED**.
+generation/upload, and real PAC inspection were **NOT_CHECKED** at that
+handoff. This was superseded by #140's successful package generation/upload
+and by the disposable-container PAC observations above. A normal GNOME login
+remains **NOT_CHECKED**.
 
 Stage A/B/C and Production acceptance remain **BLOCKED**.
 
@@ -77,18 +179,13 @@ the actual checkout SHA, runner OS, target, features, toolchain versions,
 package filename, byte length and SHA-256. This is a test artifact, not a
 release or production acceptance artifact.
 
-**HOSTED_CI:** **NOT_CHECKED** for these changes; no workflow run was started.
-No artifact was generated locally. A downloadable artifact is available only
-after a new candidate-branch push or manual workflow dispatch completes all
-required jobs successfully.
+**HOSTED_CI:** At the original implementation handoff, the new workflow had
+not yet run. This was superseded by the successful #140 run and artifact
+verification recorded above; no additional run was started for this PAC task.
 
-**DEVICE_OBSERVATION:** **NOT_CHECKED.** No disposable Linux desktop/VM,
-verification package from a new hosted run, or managed test destination was
-available here. PAC mode/URL readback, browser PAC retrieval and actual Proxy
-traffic, Restart/Quit/Ctrl+C restoration, and preservation of an operator's
-replacement PAC remain unobserved. Keep Open KanColle off, restrict egress to
-the managed test destination, and do not infer Proxy traffic from readiness
-or package creation.
+**DEVICE_OBSERVATION:** Refer to the current #140 status above. Artifact
+creation and package inspection do not establish that a browser fetched PAC
+or sent traffic through the Proxy.
 
 Stage A/B/C and Production acceptance remain **BLOCKED**.
 
@@ -123,6 +220,11 @@ service access was made. Modified Hosted CI remains **NOT_CHECKED**; Stage A/B/C
 and Production acceptance remain **BLOCKED**.
 
 ## APP TLSN readiness refresh and PAC state — local verification
+
+**HISTORICAL SNAPSHOT:** These local checks used baseline SHA
+`75ff8c7c6287629e8bb120742396137da4ae1a4d` during the 2026-11-20 JST session
+(recorded start: 15:22 JST; exact test completion time was not retained).
+The #133 result below was pre-change baseline evidence only.
 
 **BASELINE:** Work continued on `tlsn-first-testplay-candidate` at
 `75ff8c7c6287629e8bb120742396137da4ae1a4d`. Actions [#133](https://github.com/tsukasa-u/FUSOU/actions/runs/44636473582)
@@ -160,13 +262,20 @@ properties in `FUSOU-TESTDATA/storybook/ipc/1-5/cells.ts`; it reported no
 readiness component/story errors. Targeted ESLint could not run because the
 installed ESLint/Minimatch stack throws `TypeError: expand is not a function`.
 
-The candidate workflow now installs Chromium on its ephemeral runner and runs
-the readiness interaction story. Modified Hosted CI is **NOT_CHECKED**.
-No APP Cargo build or APP-launching Node suite, real OS PAC change, actual
-browser-route observation, real service, gameplay, or deployment was used.
-Stage A/B/C and Production acceptance remain **BLOCKED**.
+The candidate workflow installed Chromium on its ephemeral runner and ran the
+readiness interaction story. At that snapshot, Modified Hosted CI was
+**NOT_CHECKED**. No APP Cargo build or APP-launching Node suite, real OS PAC
+change, actual browser-route observation, real service, gameplay, or
+deployment had been used for that local work. The later #140 hosted and
+container-only evidence is recorded above; a normal GNOME login remains
+**NOT_CHECKED**. Stage A/B/C and Production acceptance remain **BLOCKED**.
 
 ## Linux PAC shutdown readiness ordering — local verification
+
+**HISTORICAL SNAPSHOT:** This local validation followed the #137 baseline SHA
+`929a9d6392447f78a99d7f9c50409a2dbb6d83d5` on 2026-11-21 JST (session
+record: 07:40 JST; exact test completion time was not retained). The Hosted CI
+and desktop statuses below describe that snapshot only.
 
 **BASELINE:** Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180)
 passed all three jobs at `929a9d6392447f78a99d7f9c50409a2dbb6d83d5`.
@@ -199,27 +308,32 @@ reports pre-existing formatting differences outside this change. The workflow
 already runs the Manifest harness with `--all-targets` and the PAC/browser
 regressions; no selector change was needed.
 
-Modified Hosted CI is **NOT_CHECKED**. The APP itself was not built or launched;
-actual Linux desktop scheduling, tray/Ctrl+C behavior, and live PAC readback
-remain unverified. No real PAC settings or services were touched. Stage A/B/C
-and Production acceptance remain **BLOCKED**.
+At that snapshot, Modified Hosted CI was **NOT_CHECKED**. The APP had not been
+built or launched for that local change; actual Linux desktop scheduling,
+tray/Ctrl+C behavior, and live PAC readback had not been observed. No real PAC
+settings or services were touched. The later #140 hosted package and
+container-only runtime observations are recorded at the top; a normal GNOME
+login remains **NOT_CHECKED**. Stage A/B/C and Production acceptance remain
+**BLOCKED**.
 
-### Hosted baseline and real-device follow-up — 2026-11-21
+### #137 handoff snapshot — 2026-11-21 (historical; superseded)
 
-| Evidence | Status | Result and scope |
+This table preserves the state at the #137 handoff, not the current status.
+The current #140 artifact and container observations are recorded at the top
+of this document.
+
+| Evidence at that handoff | Status then | Result and scope |
 |---|---|---|
-| Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180), SHA `929a9d6392447f78a99d7f9c50409a2dbb6d83d5` | OBSERVED | All three jobs succeeded: `rust-tlsn-preflight`, `node-contract-tests`, and `proxy-capture-source-unit-tests`. This is the unchanged-HEAD baseline, not a result for the current edits. |
-| Hosted run for the current edits | NOT_CHECKED | The six permitted worktree changes are unstaged and no commit SHA contains them. No Actions run was started. |
+| Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180), SHA `929a9d6392447f78a99d7f9c50409a2dbb6d83d5` | OBSERVED | All three jobs succeeded: `rust-tlsn-preflight`, `node-contract-tests`, and `proxy-capture-source-unit-tests`. This was the unchanged-HEAD baseline, not a result for the then-current edits. |
+| Hosted run for the then-current edits | NOT_CHECKED | At that handoff, the six permitted worktree changes were unstaged and no commit SHA contained them. No Actions run had been started. |
 | Local mocked regressions | VERIFIED | APP-source Manifest harness 44/44 unit tests plus 1/1 integration test; GNOME/KDE PAC mocks 26/26; Chromium readiness interaction 1/1. These do not establish desktop behavior. |
-| Linux desktop operation | NOT_CHECKED | No authorized disposable VM/user session or prepared verification APP and managed destination was available. No desktop, browser, PAC URL/mode, proxy traffic, Restart/Quit, or Ctrl+C observation was made. DE/browser versions are therefore not recorded. |
+| Linux desktop operation | NOT_CHECKED | At that time, no authorized disposable VM/user session or prepared verification APP and managed destination was available. No desktop, browser, PAC URL/mode, proxy traffic, Restart/Quit, or Ctrl+C observation had been made; DE/browser versions were not recorded. |
 
-The VM probe reported no VM, and the expected APP release-binary paths were
-absent. Do not substitute the current desktop, readiness output, or mocked
-tests for the missing real observation. Before this check can proceed, provide
-a disposable GNOME or KDE session/VM, a verification APP binary with its
-version and digest, and a managed test destination. Open KanColle must remain
-off. Record PAC setting readback separately from browser PAC retrieval and an
-observed request traversing FUSOU Proxy.
+The VM probe reported no VM and the expected APP release-binary paths were
+absent at that handoff. The missing observation was later completed to
+container-only scope in the #140 results at the top of this document. A normal
+GNOME login remains **NOT_CHECKED**; the container result does not substitute
+for it.
 
 ## Notary offline preflight and placement checks — local verification
 
@@ -3625,6 +3739,13 @@ remain follow-up work.
 
 ## Linux PAC transaction and shutdown — local verification
 
+**HISTORICAL SNAPSHOT:** These local results were recorded for a worktree
+based on `2d5cc0904769c69242a7c638020a1d1322b72fef`, during the
+2026-11-21 JST validation session (session record began at 03:39 JST; exact
+test completion time was not retained). The Hosted CI and desktop statuses
+below describe that snapshot, not the current state. Current #140 evidence is
+recorded at the top of this document.
+
 The starting branch and HEAD were `tlsn-first-testplay-candidate` and
 `2d5cc0904769c69242a7c638020a1d1322b72fef`. Existing changes outside this task
 were preserved.
@@ -3649,11 +3770,15 @@ after confirmed PAC removal but a failed shutdown request, readiness marks the
 PAC stage failed with `pac_cleanup_unconfirmed` or
 `pac_application_removed`. Windows PAC behavior is unchanged.
 
-PAC application readiness still means only that the configured settings were
-read back successfully. It does not prove browser traffic; `browser_proxy_traffic`
-remains `not_checked`. The local tests did not alter desktop settings or contact
-services. The workflow now runs the GNOME/KDE mocked transaction suite, and its
-existing APP-source Manifest harness includes the PAC operation-gate tests.
+At this snapshot, PAC application readiness meant only that the configured
+settings were read back successfully. Readiness did not collect browser
+evidence, so `browser_proxy_traffic` remained `not_checked`. Separately, the
+#140 disposable-container observation at the top of this document recorded
+system PAC retrieval and a browser request through FUSOU Proxy; that does not
+change the readiness field. The local tests did not alter desktop settings or
+contact services. The workflow already ran the GNOME/KDE mocked transaction
+suite, and its APP-source Manifest harness included the PAC operation-gate
+tests.
 
 The PAC runner now uses the API present in the locked
 `tauri-plugin-shell 2.5.0`: `set_process_group(true)` and consuming
@@ -3674,8 +3799,8 @@ This does not add a recovery command for clearing that latch.
 | Rust formatting | **PASS (focused)** | Rust 1.98.1 `rustfmt --check` passes for the changed PAC runner, native command, and module declaration; an APP-wide format check was not run. |
 | Protected-path-excluded `git diff --check` | **PASS** | Both worktree and index whitespace checks passed while excluding the protected paths. |
 | APP Cargo / APP-launching Node suite | **NOT_RUN** | Excluded by task scope; the native APP binary and startup wiring were not built. The exact production PAC process module was type-checked separately against the locked Tauri API. |
-| Real GNOME/KDE desktop and APP Restart/Quit | **NOT_CHECKED** | No real desktop settings, PAC retrieval, browser route, or APP process was used. |
-| Hosted CI after this change | **NOT_CHECKED** | No Actions run was started. |
+| Real GNOME/KDE desktop and APP Restart/Quit at this snapshot | **NOT_CHECKED** | No real desktop settings, PAC retrieval, browser route, or APP process was used then; later container-only observations are recorded at the top. |
+| Hosted CI after this change at this snapshot | **NOT_CHECKED** | No Actions run had been started then; Actions #140 is the later hosted result recorded at the top. |
 | Stage A/B/C and Production acceptance | **BLOCKED** | Real deployment, services, Notary, Game Server, gameplay, and production evidence remain unverified. |
 
 ## Candidate CI #135 — isolated readiness browser regression
