@@ -42,18 +42,30 @@ where
 }
 
 fn has_fractional_part(value: f32) -> bool {
-    value.floor() < value
+    value.is_finite() && value > 0.0 && value.floor() < value
 }
 
-fn calc_opening_ydam_protect_flag(ydam_items: &Vec<Option<Vec<f32>>>) -> Vec<bool> {
-    ydam_items
-        .iter()
-        .map(|item| {
-            item.as_ref()
-                .and_then(|v| v.first().copied())
-                .is_some_and(has_fractional_part)
-        })
-        .collect()
+/// Broadcasts a fleet-wide protect flag across all slots so that simultaneous
+/// torpedo phases (`PhaseRaigeki` / `PhaseRaigekiOpening`) record only what is
+/// observable on screen (`hasShield_f()` / `hasShield_e()` on flagship index 0)
+/// without leaking which individual ship protected the flagship.
+fn calc_fleet_protect_flag(damages: &[f32]) -> Vec<bool> {
+    let has_shield = damages.iter().copied().any(has_fractional_part);
+    vec![has_shield; damages.len()]
+}
+
+/// Broadcasts protect flags per 6-ship fleet group (`0..6` main, `6..12` escort),
+/// matching `PhaseSupportHou` / `PhaseSupportRai` where simultaneous explosions
+/// show deduplicated `showShieldAtBanner` per group flagship (`getShieldTargetBanner`)
+/// without revealing which individual ship inside the group protected.
+fn calc_group_protect_flag(damages: &[f32], group_size: usize) -> Vec<bool> {
+    let mut flags = vec![false; damages.len()];
+    for (chunk_src, chunk_dst) in damages.chunks(group_size).zip(flags.chunks_mut(group_size)) {
+        if chunk_src.iter().copied().any(has_fractional_part) {
+            chunk_dst.fill(true);
+        }
+    }
+    flags
 }
 
 #[derive(Clone, Copy)]
@@ -966,7 +978,9 @@ pub fn calc_air_damage(
         })
     });
 
-    // Air stage damage paths do not trigger cover shield semantics.
+    // In main.js, AirWarStage3Model.isShield(idx) evaluates `this.getDamage(idx) % 1 != 0`
+    // where getDamage() already returns Math.floor(raw_damage), so Stage3 air attacks never
+    // display a shield mark or shield motion in-game even when raw api_fdam/api_edam has .1.
     let f_protect: Option<Vec<bool>> = stage3
         .clone()
         .and_then(|stage3| stage3.api_fdam.map(|values| vec![false; values.len()]));
@@ -1190,12 +1204,14 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for InterfaceWrapper<Op
 impl From<kcapi_common::common_battle::ApiOpeningAtack> for InterfaceWrapper<OpeningRaigeki> {
     fn from(opening_raigeki: kcapi_common::common_battle::ApiOpeningAtack) -> Self {
         let f_damages: Vec<f32> = calc_floor(&opening_raigeki.api_fdam);
-        let f_protect_flag: Vec<bool> =
-            calc_opening_ydam_protect_flag(&opening_raigeki.api_fydam_list_items);
+        // In main.js PhaseRaigeki._damageEffect (inherited by PhaseRaigekiOpening),
+        // torpedoes strike simultaneously and `showShieldAtBanner` only renders on
+        // flagship index 0 based on `hasShield_f()` (`api_fdam`) / `hasShield_e()` (`api_edam`).
+        // Broadcast fleet-wide so DB and UI match screen observability without leaking
+        // which individual ship protected.
+        let f_protect_flag: Vec<bool> = calc_fleet_protect_flag(&opening_raigeki.api_fdam);
         let e_damages: Vec<f32> = calc_floor(&opening_raigeki.api_edam);
-        // Client behavior uses fydam_list_items path even for enemy shield checks.
-        let e_protect_flag: Vec<bool> =
-            calc_opening_ydam_protect_flag(&opening_raigeki.api_fydam_list_items);
+        let e_protect_flag: Vec<bool> = calc_fleet_protect_flag(&opening_raigeki.api_edam);
 
         let f_cl_list = calc_critical(
             &f_damages,
@@ -1247,11 +1263,14 @@ impl From<kcapi_common::common_battle::ApiRaigeki> for InterfaceWrapper<ClosingR
     fn from(closing_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
         let f_damages: Vec<f32> = calc_floor(&closing_raigeki.api_fdam);
         let f_cl = calc_critical(&f_damages, &closing_raigeki.api_fcl.to_vec());
-        let f_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_fydam);
+        // In main.js PhaseRaigeki._damageEffect, torpedoes strike simultaneously and
+        // `showShieldAtBanner` only renders on flagship index 0 based on `hasShield_f()`
+        // (`api_fdam`) / `hasShield_e()` (`api_edam`). Broadcast fleet-wide so DB and UI
+        // match screen observability without leaking which individual ship protected.
+        let f_protect_flag: Vec<bool> = calc_fleet_protect_flag(&closing_raigeki.api_fdam);
         let e_damages: Vec<f32> = calc_floor(&closing_raigeki.api_edam);
         let e_cl = calc_critical(&e_damages, &closing_raigeki.api_ecl.to_vec());
-        // Client behavior uses fydam path even for enemy shield checks.
-        let e_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_fydam);
+        let e_protect_flag: Vec<bool> = calc_fleet_protect_flag(&closing_raigeki.api_edam);
 
         let f_now_hps: Vec<i64> = vec![0; f_damages.len()];
         let e_now_hps: Vec<i64> = vec![0; e_damages.len()];
@@ -1277,30 +1296,38 @@ impl From<kcapi_common::common_battle::ApiHougeki> for InterfaceWrapper<Hougeki>
     fn from(hougeki: kcapi_common::common_battle::ApiHougeki) -> Self {
         let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().map(calc_si_list).collect();
 
-        let damages_raw: Vec<Vec<f32>> = hougeki
+        let damages_clean: Vec<Vec<f32>> = hougeki
             .api_damage
             .iter()
             .enumerate()
             .map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx]))
-            .enumerate()
-            .map(|(idx, damages)| {
-                match hougeki.api_at_type[idx] {
-                    0..=2 => damages,
-                    n if n < 100 => {
-                        let df_0 = hougeki.api_df_list[idx][0];
-                        if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
-                            return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
-                        } else {
-                            return damages;
-                        }
-                    }
-                    _ => damages,
-                }
-                .to_vec()
-            })
             .collect();
 
-        let damages: Vec<Vec<f32>> = damages_raw.iter().map(calc_floor).collect();
+        let is_collapsed_cutin = |idx: usize| -> bool {
+            let at_type = hougeki.api_at_type[idx];
+            if !(3..100).contains(&at_type) {
+                return false;
+            }
+            let df_row = &hougeki.api_df_list[idx];
+            let Some(&df_0) = df_row.first() else {
+                return false;
+            };
+            df_row.iter().all(|x| *x == df_0)
+        };
+
+        // In main.js, collapsed single-target cut-ins floor each hit before summing
+        // and evaluate shield via `isShield(0)` (hit 0 only).
+        let damages: Vec<Vec<f32>> = damages_clean
+            .iter()
+            .enumerate()
+            .map(|(idx, damages)| {
+                if is_collapsed_cutin(idx) {
+                    vec![damages.iter().map(|d| d.floor()).sum()]
+                } else {
+                    calc_floor(damages)
+                }
+            })
+            .collect();
 
         let cl_list: Vec<Vec<i64>> = hougeki
             .api_cl_list
@@ -1309,25 +1336,27 @@ impl From<kcapi_common::common_battle::ApiHougeki> for InterfaceWrapper<Hougeki>
             .map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx]))
             .enumerate()
             .map(|(idx, cl_list)| {
-                match hougeki.api_at_type[idx] {
-                    0..=2 => cl_list,
-                    n if n < 100 => {
-                        let df_0 = hougeki.api_df_list[idx][0];
-                        if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
-                            return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
-                        } else {
-                            return cl_list;
-                        }
-                    }
-                    _ => cl_list,
+                if is_collapsed_cutin(idx) {
+                    vec![cl_list.iter().max().unwrap_or(&0).to_owned()]
+                } else {
+                    cl_list
                 }
-                .to_vec()
             })
             .enumerate()
             .map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list))
             .collect();
 
-        let protect_flag: Vec<Vec<bool>> = damages_raw.iter().map(calc_protect_flag).collect();
+        let protect_flag: Vec<Vec<bool>> = damages_clean
+            .iter()
+            .enumerate()
+            .map(|(idx, damages)| {
+                if is_collapsed_cutin(idx) {
+                    vec![damages.first().copied().is_some_and(has_fractional_part)]
+                } else {
+                    calc_protect_flag(damages)
+                }
+            })
+            .collect();
 
         let df_list: Vec<Vec<i64>> = hougeki
             .api_df_list
@@ -1381,35 +1410,49 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                 .collect()
         });
 
-        let damages_raw: Option<Vec<Vec<f32>>> =
+        let is_collapsed_midnight_cutin =
+            |idx: usize, api_sp_list: &[i64], df_list: &[Vec<i64>]| -> bool {
+                let sp = api_sp_list[idx];
+                if !(2..100).contains(&sp) {
+                    return false;
+                }
+                let df_row = &df_list[idx];
+                let Some(&df_0) = df_row.first() else {
+                    return false;
+                };
+                df_row.iter().all(|x| *x == df_0)
+            };
+
+        let damages_clean: Option<Vec<Vec<f32>>> =
             hougeki.api_damage.clone().and_then(|api_damage| {
-                hougeki.api_df_list.clone().and_then(|df_list| {
-                    hougeki.api_sp_list.clone().map(|api_sp_list| {
-                        api_damage
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
-                            .enumerate()
-                            .map(|(idx, damages)| match api_sp_list[idx] {
-                                0 | 1 => damages,
-                                n if n < 100 => {
-                                    let df_0 = df_list[idx][0];
-                                    if df_list[idx].iter().all(|x| *x == df_0) {
-                                        vec![damages.iter().fold(0_f32, |acc, y| acc + *y)]
-                                    } else {
-                                        damages
-                                    }
-                                }
-                                _ => damages,
-                            })
-                            .collect()
-                    })
+                hougeki.api_df_list.clone().map(|df_list| {
+                    api_damage
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
+                        .collect()
                 })
             });
 
-        let damages: Option<Vec<Vec<f32>>> = damages_raw
-            .clone()
-            .map(|rows| rows.iter().map(calc_floor).collect());
+        // In main.js PhaseHougekiNight, 2-hit single-target cut-ins (sp 2, 3, 11..=14)
+        // display `getDamage(0) + getDamage(1)` (flooring each hit first) and evaluate
+        // shield via `isShield(0)` (hit 0 only).
+        let damages: Option<Vec<Vec<f32>>> = damages_clean.as_ref().and_then(|rows| {
+            hougeki.api_df_list.as_ref().and_then(|df_list| {
+                hougeki.api_sp_list.as_ref().map(|api_sp_list| {
+                    rows.iter()
+                        .enumerate()
+                        .map(|(idx, damages)| {
+                            if is_collapsed_midnight_cutin(idx, api_sp_list, df_list) {
+                                vec![damages.iter().map(|d| d.floor()).sum()]
+                            } else {
+                                calc_floor(damages)
+                            }
+                        })
+                        .collect()
+                })
+            })
+        });
 
         let cl_list: Option<Vec<Vec<i64>>> = hougeki.api_cl_list.and_then(|api_cl_list| {
             damages.clone().and_then(|damages| {
@@ -1420,17 +1463,12 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                             .enumerate()
                             .map(|(idx, cl_list)| remove_m1(cl_list, &df_list[idx]))
                             .enumerate()
-                            .map(|(idx, cl_list)| match api_sp_list[idx] {
-                                0 | 1 => cl_list,
-                                n if n < 100 => {
-                                    let df_0 = df_list[idx][0];
-                                    if df_list[idx].iter().all(|x| *x == df_0) {
-                                        vec![cl_list.iter().max().unwrap_or(&0).to_owned()]
-                                    } else {
-                                        cl_list
-                                    }
+                            .map(|(idx, cl_list)| {
+                                if is_collapsed_midnight_cutin(idx, &api_sp_list, &df_list) {
+                                    vec![cl_list.iter().max().unwrap_or(&0).to_owned()]
+                                } else {
+                                    cl_list
                                 }
-                                _ => cl_list,
                             })
                             .enumerate()
                             .map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list))
@@ -1440,9 +1478,22 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
             })
         });
 
-        let protect_flag: Option<Vec<Vec<bool>>> = damages_raw
-            .clone()
-            .map(|rows| rows.iter().map(calc_protect_flag).collect());
+        let protect_flag: Option<Vec<Vec<bool>>> = damages_clean.as_ref().and_then(|rows| {
+            hougeki.api_df_list.as_ref().and_then(|df_list| {
+                hougeki.api_sp_list.as_ref().map(|api_sp_list| {
+                    rows.iter()
+                        .enumerate()
+                        .map(|(idx, damages)| {
+                            if is_collapsed_midnight_cutin(idx, api_sp_list, df_list) {
+                                vec![damages.first().copied().is_some_and(has_fractional_part)]
+                            } else {
+                                calc_protect_flag(damages)
+                            }
+                        })
+                        .collect()
+                })
+            })
+        });
 
         let df_list: Option<Vec<Vec<i64>>> = hougeki.api_df_list.and_then(|api_df_list| {
             hougeki.api_sp_list.clone().map(|api_sp_list| {
@@ -1517,7 +1568,11 @@ impl From<kcapi_common::common_battle::ApiSupportHourai> for InterfaceWrapper<Su
         let raw_damage = support_hourai.api_damage.clone();
         let damages: Vec<f32> = calc_floor(&raw_damage);
         let cl_list: Vec<i64> = calc_critical(&damages, &support_hourai.api_cl_list);
-        let protect_flag: Vec<bool> = calc_protect_flag(&raw_damage);
+        // In main.js PhaseSupportHou / PhaseSupportRai, all enemy ships are hit
+        // simultaneously and `showShieldAtBanner` is deduplicated per fleet group flagship
+        // (`0..6` enemy main flagship, `6..12` enemy escort flagship). Broadcast per 6-ship
+        // group so DB and UI match screen observability without leaking which ship protected.
+        let protect_flag: Vec<bool> = calc_group_protect_flag(&raw_damage, 6);
         let now_hps: Vec<i64> = vec![0; damages.len()];
 
         Self(SupportHourai {
@@ -2714,7 +2769,7 @@ fn calc_si_list(si_list: &Vec<Option<DuoType<i64, String>>>) -> Vec<Option<i64>>
 }
 
 fn calc_protect_flag(damages: &Vec<f32>) -> Vec<bool> {
-    damages.iter().map(|dmg| (*dmg).floor() < *dmg).collect()
+    damages.iter().copied().map(has_fractional_part).collect()
 }
 
 fn calc_max_critical(cl_list: &Vec<i64>) -> i64 {
@@ -2793,5 +2848,123 @@ impl From<kcapi_common::common_battle::ApiSupportInfo> for InterfaceWrapper<Nigh
             .map(|support_airatack| InterfaceWrapper::from(support_airatack).unwrap());
 
         Self(NightSupportAttack { hourai, airatack })
+    }
+}
+
+#[cfg(test)]
+mod protect_flag_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn opening_raigeki_broadcasts_fleet_level_shield_from_fdam_and_edam() {
+        let api: kcapi_common::common_battle::ApiOpeningAtack = serde_json::from_value(json!({
+            "api_frai_list_items": [[1], null, null, null, null, null, null, null],
+            "api_fcl_list_items": [[1], null, null, null, null, null, null, null],
+            "api_fydam_list_items": [[55.1], null, null, null, null, null, null, null],
+            "api_erai_list_items": [[2], null, null, null, null, null],
+            "api_ecl_list_items": [[1], null, null, null, null, null],
+            "api_eydam_list_items": [[30.1], null, null, null, null, null],
+            "api_fdam": [0.0, 0.0, 30.1, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "api_edam": [0.0, 55.1, 0.0, 0.0, 0.0, 0.0]
+        }))
+        .unwrap();
+
+        let converted: OpeningRaigeki = InterfaceWrapper::from(api).unwrap();
+        // Both sides had a flagship protect -> broadcast across the whole side without leaking ship index.
+        assert_eq!(converted.f_protect_flag, vec![true; 8]);
+        assert_eq!(converted.e_protect_flag, vec![true; 6]);
+        assert_eq!(converted.f_protect_flag.len(), converted.fdam.len());
+        assert_eq!(converted.e_protect_flag.len(), converted.edam.len());
+    }
+
+    #[test]
+    fn closing_raigeki_separates_and_broadcasts_friend_and_enemy_protect_flags() {
+        let api: kcapi_common::common_battle::ApiRaigeki = serde_json::from_value(json!({
+            "api_frai": [-1, 3, -1, -1, -1, -1],
+            "api_erai": [2, -1, -1, -1, -1, -1],
+            "api_fdam": [0.0, 0.0, 22.1, 0.0, 0.0, 0.0],
+            "api_edam": [0.0, 0.0, 0.0, 44.0, 0.0, 0.0],
+            "api_fydam": [0.0, 44.0, 0.0, 0.0, 0.0, 0.0],
+            "api_eydam": [22.1, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "api_fcl": [0, 0, 1, 0, 0, 0],
+            "api_ecl": [0, 0, 0, 2, 0, 0]
+        }))
+        .unwrap();
+
+        let converted: ClosingRaigeki = InterfaceWrapper::from(api).unwrap();
+        // Friend side protected (broadcast across all 6 slots); enemy side did NOT protect.
+        assert_eq!(converted.f_protect_flag, vec![true; 6]);
+        assert_eq!(converted.e_protect_flag, vec![false; 6]);
+    }
+
+    #[test]
+    fn air_stage3_protect_flags_remain_false_matching_main_js() {
+        let stage3: kcapi_common::common_air::ApiStage3 = serde_json::from_value(json!({
+            "api_frai_flag": [0, 1],
+            "api_erai_flag": [1, 0],
+            "api_fbak_flag": [1, 0],
+            "api_ebak_flag": [0, 1],
+            "api_fcl_flag": [0, 1],
+            "api_ecl_flag": [1, 0],
+            "api_fdam": [8.1, 0.0],
+            "api_edam": [0.0, 32.1]
+        }))
+        .unwrap();
+
+        let (f_dmg, e_dmg) = calc_air_damage(None, None, None, Some(stage3), None);
+        assert_eq!(f_dmg.protect_flag, Some(vec![false, false]));
+        assert_eq!(e_dmg.protect_flag, Some(vec![false, false]));
+    }
+
+    #[test]
+    fn midnight_cutin_matches_main_js_floor_sum_and_hit0_shield() {
+        let api: kcapi_common::common_midnight::ApiHougeki = serde_json::from_value(json!({
+            "api_at_eflag": [0, 0, 0],
+            "api_at_list": [0, 1, 2],
+            "api_df_list": [[3, 3], [4, 4], [2, 2]],
+            "api_si_list": [[], [], []],
+            "api_cl_list": [[1, 2], [2, 1], [1, 1]],
+            "api_sp_list": [3, 3, 1],
+            "api_damage": [
+                [50.0, 40.1],
+                [50.1, 40.0],
+                [20.0, 25.1]
+            ]
+        }))
+        .unwrap();
+
+        let converted: MidnightHougeki = InterfaceWrapper::from(api).unwrap();
+        assert_eq!(
+            converted.damage,
+            Some(vec![vec![90.0], vec![90.0], vec![20.0, 25.0]])
+        );
+        assert_eq!(
+            converted.protect_flag,
+            Some(vec![vec![false], vec![true], vec![false, true]])
+        );
+    }
+
+    #[test]
+    fn support_hourai_broadcasts_protect_flags_per_6_ship_enemy_group() {
+        let api: kcapi_common::common_battle::ApiSupportHourai = serde_json::from_value(json!({
+            "api_deck_id": 3,
+            "api_ship_id": [1, 2, 3, 4, 5, 6],
+            "api_undressing_flag": [0, 0, 0, 0, 0, 0],
+            "api_cl_list": [0, 1, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+            // Main fleet (0..6): ship 1 protected -> main flagship shield shown.
+            // Escort fleet (6..12): no ship protected -> escort flagship shield NOT shown.
+            "api_damage": [0.0, 25.1, 32.0, 0.0, 0.0, 0.0, 0.0, 18.0, 0.0, 0.0, 0.0, 0.0]
+        }))
+        .unwrap();
+
+        let converted: SupportHourai = InterfaceWrapper::from(api).unwrap();
+        assert_eq!(
+            converted.protect_flag,
+            vec![
+                true, true, true, true, true, true,
+                false, false, false, false, false, false,
+            ]
+        );
     }
 }

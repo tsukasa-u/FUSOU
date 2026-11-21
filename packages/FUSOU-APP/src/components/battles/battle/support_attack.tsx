@@ -152,11 +152,8 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                 />
                 <Show
                   when={
-                    props
-                      .battle_selected()
-                      ?.support_attack?.support_hourai?.protect_flag.some(
-                        (flag) => flag,
-                      ) ?? false
+                    props.battle_selected()?.support_attack?.support_hourai
+                      ?.protect_flag[idx()] ?? false
                   }
                 >
                   <IconShield class="h-4 self-center ml-auto" />

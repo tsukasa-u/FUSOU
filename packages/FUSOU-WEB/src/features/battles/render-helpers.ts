@@ -435,6 +435,8 @@ export function renderRaigekiRows(
 ): string {
   const fDam = unknownArrayOf(data?.["f_dam"]);
   const eDam = unknownArrayOf(data?.["e_dam"]);
+  const fProtect = unknownArrayOf(data?.["f_protect_flag"]);
+  const eProtect = unknownArrayOf(data?.["e_protect_flag"]);
   const fNow = getRowHpSnapshot(data, "friend");
   const eNow = getRowHpSnapshot(data, "enemy");
   const fHits = fDam
@@ -442,6 +444,7 @@ export function renderRaigekiRows(
       side: "friend" as const,
       idx: i,
       dmg: normalizeNullableNumber(d),
+      protect: Boolean(fProtect[i]),
       beforeHp: fNow[i],
     }))
     .filter((x): x is typeof x & { dmg: number } => x.dmg !== null && x.dmg >= 0);
@@ -450,6 +453,7 @@ export function renderRaigekiRows(
       side: "enemy" as const,
       idx: i,
       dmg: normalizeNullableNumber(d),
+      protect: Boolean(eProtect[i]),
       beforeHp: eNow[i],
     }))
     .filter((x): x is typeof x & { dmg: number } => x.dmg !== null && x.dmg >= 0);
@@ -472,7 +476,7 @@ export function renderRaigekiRows(
             </div>
             <div class="text-[10px] text-base-content/65">${renderInlineHpMeter(beforeHp, mHp)} <span class="text-base-content/40">-></span> ${renderInlineHpMeter(afterHp, mHp)}</div>
           </div>
-          <div class="flex flex-wrap gap-1">${renderOutcomeBadges({ damage: hit.dmg, crit: false, protect: false, sunk: state.sunk, afterState: state.afterState })}</div>
+          <div class="flex flex-wrap gap-1">${renderOutcomeBadges({ damage: hit.dmg, crit: false, protect: hit.protect, sunk: state.sunk, afterState: state.afterState })}</div>
         </div>
       </div>`;
     })
