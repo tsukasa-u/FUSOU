@@ -1,7 +1,7 @@
 use crate::{
     mst_equip_exslot::MstEquipExslot, mst_equip_exslot_ship::MstEquipExslotShip,
     mst_equip_limit_exslot::MstEquipLimitExslot, mst_equip_ship::MstEquipShip,
-    mst_maparea::MstMapArea, mst_mapinfo::MstMapInfo, mst_ship::MstShip,
+    mst_maparea::MstMapArea, mst_mapinfo::MstMapInfo, mst_mission::MstMission, mst_ship::MstShip,
     mst_ship_graph::MstShipGraph, mst_ship_upgrade::MstShipUpgrade, mst_slot_item::MstSlotItem,
     mst_slot_item_equip_type::MstSlotItemEquipType, mst_stype::MstStype, mst_use_item::MstUseItem,
 };
@@ -103,5 +103,10 @@ impl MstEquipLimitExslot {
 impl MstEquipShip {
     pub fn get_table_name() -> String {
         "mst_equip_ships".to_string()
+    }
+}
+impl MstMission {
+    pub fn get_table_name() -> String {
+        "mst_missions".to_string()
     }
 }

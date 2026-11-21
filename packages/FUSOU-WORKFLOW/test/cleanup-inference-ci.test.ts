@@ -76,6 +76,7 @@ describe("CI regression gates", () => {
     const versions = [...cargo.matchAll(/^schema_(v[0-9]+_[0-9]+(_[0-9]+)?)\s*=/gm)].map((match) => match[1]);
     expect(versions).toContain("v0_5_1");
     expect(versions).toContain("v0_6_0");
+    expect(versions).toContain("v0_6_1");
     const defaultFeature = cargo.match(/^default\s*=.*"schema_(v[0-9_]+)"/m)?.[1];
     expect(versions).toContain(defaultFeature);
   });

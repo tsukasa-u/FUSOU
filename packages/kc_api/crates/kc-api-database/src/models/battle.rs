@@ -1585,6 +1585,24 @@ pub struct SupportHourai {
     pub e_now_hps: Vec<i32>,
 }
 
+fn load_decks_prefer_cache() -> DeckPorts {
+    let cached = DeckPorts::load_cashe();
+    if cached.deck_ports.is_empty() {
+        DeckPorts::load()
+    } else {
+        cached
+    }
+}
+
+fn load_ships_prefer_cache() -> Ships {
+    let cached = Ships::load_cashe();
+    if cached.ships.is_empty() {
+        Ships::load()
+    } else {
+        cached
+    }
+}
+
 impl SupportHourai {
     pub fn new_ret_option(
         _ts: uuid::Timestamp,
@@ -1593,7 +1611,7 @@ impl SupportHourai {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
-        let decks = DeckPorts::load();
+        let decks = load_decks_prefer_cache();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
         match deck.ship.clone() {
@@ -1601,7 +1619,7 @@ impl SupportHourai {
             _ => return None,
         }
 
-        let ships = Ships::load();
+        let ships = load_ships_prefer_cache();
 
         let new_f_now_hps = deck
             .ship
@@ -1675,7 +1693,7 @@ impl NightSupportHourai {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
-        let decks = DeckPorts::load();
+        let decks = load_decks_prefer_cache();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
         match deck.ship.clone() {
@@ -1683,7 +1701,7 @@ impl NightSupportHourai {
             _ => return None,
         }
 
-        let ships = Ships::load();
+        let ships = load_ships_prefer_cache();
 
         let new_f_now_hps = deck
             .ship
@@ -1777,7 +1795,7 @@ impl SupportAirattack {
         data: kc_api_interface::battle::SupportAiratack,
         env_uuid: EnvInfoId,
     ) -> Option<SupportAirattack> {
-        let decks = DeckPorts::load();
+        let decks = load_decks_prefer_cache();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
         let ship_ids = match deck.ship.clone() {
@@ -1785,7 +1803,7 @@ impl SupportAirattack {
             _ => return None,
         };
 
-        let ships = Ships::load();
+        let ships = load_ships_prefer_cache();
 
         let new_f_now_hps: Vec<i32> = ship_ids
             .iter()

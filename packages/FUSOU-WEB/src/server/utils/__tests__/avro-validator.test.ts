@@ -63,7 +63,7 @@ function buildOcf(
 describe("pure TS avro-validator", () => {
   it("exposes all expected schema versions and table schemas", () => {
     const versions = get_available_versions();
-    expect(versions).toEqual(["v0_4", "v0_5", "v0_5_1", "v0_6_0"]);
+    expect(versions).toEqual(["v0_4", "v0_5", "v0_5_1", "v0_6_0", "v0_6_1"]);
     for (const v of versions) {
       expect(get_available_schemas(v).length).toBeGreaterThan(20);
     }

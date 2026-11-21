@@ -64,7 +64,7 @@ vi.mock("../../utils/period-tags", () => ({
 
 import masterDataApp from "../master_data";
 
-const TABLE_NAMES = [
+const LEGACY_TABLE_NAMES = [
   "mst_ship",
   "mst_shipgraph",
   "mst_slotitem",
@@ -79,6 +79,8 @@ const TABLE_NAMES = [
   "mst_map_info",
   "mst_ship_upgrade",
 ];
+
+const TABLE_NAMES = [...LEGACY_TABLE_NAMES, "mst_mission"];
 
 function createDatabaseMock() {
   const preparedSql: string[] = [];
@@ -299,5 +301,65 @@ describe("master-data upload", () => {
     expect(secondResponse.status).toBe(200);
     expect(db.batch).toHaveBeenCalledTimes(2);
     expect(bucket.put).toHaveBeenCalledTimes(TABLE_NAMES.length * 2);
+  });
+
+  it("requires mst_mission for table_version 0.6.1 and rejects legacy 13-table payload", async () => {
+    const legacyOffsets = LEGACY_TABLE_NAMES.map((table_name, index) => ({
+      table_name,
+      start: index,
+      end: index + 1,
+    }));
+
+    const response = await masterDataApp.request(
+      "https://example.test/upload",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Dataset-Token": "dataset-token",
+        },
+        body: JSON.stringify(
+          createPreparationBody({
+            table_version: "0.6.1",
+            file_size: legacyOffsets.length,
+            table_offsets: JSON.stringify(legacyOffsets),
+          }),
+        ),
+      },
+      createEnv(createDatabaseMock(), createBucketMock()),
+    );
+
+    expect(response.status).toBe(400);
+    const json = (await response.json()) as { error?: string };
+    expect(json.error).toContain("mst_mission");
+  });
+
+  it("still accepts legacy 13-table preparation payload for table_version 0.6.0", async () => {
+    const legacyOffsets = LEGACY_TABLE_NAMES.map((table_name, index) => ({
+      table_name,
+      start: index,
+      end: index + 1,
+    }));
+
+    const response = await masterDataApp.request(
+      "https://example.test/upload",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Dataset-Token": "dataset-token",
+        },
+        body: JSON.stringify(
+          createPreparationBody({
+            table_version: "0.6.0",
+            file_size: legacyOffsets.length,
+            table_offsets: JSON.stringify(legacyOffsets),
+          }),
+        ),
+      },
+      createEnv(createDatabaseMock(), createBucketMock()),
+    );
+
+    expect(response.status).not.toBe(400);
   });
 });

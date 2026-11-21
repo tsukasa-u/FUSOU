@@ -32,6 +32,13 @@ pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     })
 });
 
+pub static KCS_DECKS_RESTORE: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
+    Mutex::new(DeckPorts {
+        deck_ports: HashMap::new(),
+        combined_flag: None,
+    })
+});
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "port.ts")]
 pub struct DeckPorts {
@@ -56,8 +63,19 @@ impl DeckPorts {
         deck_ports.clone()
     }
 
+    pub fn load_cashe() -> Self {
+        let restore_decks = KCS_DECKS_RESTORE.lock().unwrap();
+        restore_decks.clone()
+    }
+
     pub fn restore(&self) {
         let mut deck_ports = KCS_DECKS.lock().unwrap();
         *deck_ports = self.clone();
+    }
+
+    pub fn cashe_restore() {
+        let mut restore_decks = KCS_DECKS_RESTORE.lock().unwrap();
+        let deck_ports = KCS_DECKS.lock().unwrap();
+        *restore_decks = deck_ports.clone();
     }
 }

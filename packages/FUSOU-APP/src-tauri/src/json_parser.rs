@@ -190,6 +190,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 let _ = handle.emit_to("main", events::SET_KCS_AIR_BASES_BATTLES, AirBases::load());
                 let _ = handle.emit_to("main", events::SET_KCS_DECK_BATTLES, DeckPorts::load());
                 Ships::cashe_restore();
+                DeckPorts::cashe_restore();
             }
         },
     }

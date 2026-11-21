@@ -6,9 +6,9 @@ mod tests {
     use std::collections::HashSet;
     use super::EXPECTED_MASTER_TABLE_COUNT;
 
-    /// Test: All 13 master tables are included in consistent order
+    /// Test: All 14 master tables are included in consistent order
     #[test]
-    fn test_all_13_tables_included() {
+    fn test_all_14_tables_included() {
         let table_names = vec![
             "mst_ship",
             "mst_shipgraph",
@@ -23,9 +23,10 @@ mod tests {
             "mst_map_area",
             "mst_map_info",
             "mst_ship_upgrade",
+            "mst_mission",
         ];
 
-        assert_eq!(table_names.len(), 13, "Must have exactly 13 tables");
+        assert_eq!(table_names.len(), 14, "Must have exactly 14 tables");
         
         // Verify the constant matches the actual table count
         assert_eq!(
@@ -36,7 +37,7 @@ mod tests {
 
         // Verify no duplicates
         let set: HashSet<_> = table_names.iter().collect();
-        assert_eq!(set.len(), 13, "All table names must be unique");
+        assert_eq!(set.len(), 14, "All table names must be unique");
     }
 
     /// Test: Table offsets JSON serialization

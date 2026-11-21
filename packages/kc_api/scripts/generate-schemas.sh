@@ -7,7 +7,7 @@ OUTPUT_DIR="$KC_API_ROOT/generated-schemas"
 
 # Legacy schema snapshots must not drift accidentally.
 # Set ALLOW_LEGACY_SCHEMA_UPDATE=1 only when intentionally updating these files.
-PROTECTED_SCHEMA_VERSIONS=("v0_4" "v0_5" "v0_5_1")
+PROTECTED_SCHEMA_VERSIONS=("v0_4" "v0_5" "v0_5_1" "v0_6_0")
 
 echo "Generating Avro schemas from kc-api-database..."
 

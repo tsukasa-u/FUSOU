@@ -13,6 +13,8 @@ use crate::models::ship::OwnShip;
 use crate::models::ship::OwnShipId;
 use crate::table::PortTable;
 use kc_api_interface::deck_port::DeckPorts;
+#[cfg(schema_since = "0.6.1")]
+use kc_api_interface::mst_mission::MstMissions;
 use kc_api_interface::ship::Ships;
 
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
@@ -140,6 +142,18 @@ pub struct SupportDeck {
     pub chart_seiku_value: Option<i32>,
     #[cfg(schema_since = "0.5.0")]
     pub chart_tp_value: Option<i32>,
+    #[cfg(schema_since = "0.6.1")]
+    pub support_mission_id: Option<i32>,
+}
+
+#[cfg(schema_since = "0.6.1")]
+fn resolve_support_mission_id(mission: &[i64], mst_missions: &MstMissions) -> Option<i32> {
+    let state = mission.first().copied().unwrap_or(0);
+    let mission_id = mission.get(1).copied().unwrap_or(0);
+    if !matches!(state, 1 | 2) || !mst_missions.is_support_mission(mission_id) {
+        return None;
+    }
+    i32::try_from(mission_id).ok()
 }
 
 impl SupportDeck {
@@ -151,7 +165,16 @@ impl SupportDeck {
         env_uuid: EnvInfoId,
         cashe: bool,
     ) -> Option<()> {
-        let decks = DeckPorts::load();
+        let decks = if cashe {
+            let cached = DeckPorts::load_cashe();
+            if cached.deck_ports.is_empty() {
+                DeckPorts::load()
+            } else {
+                cached
+            }
+        } else {
+            DeckPorts::load()
+        };
         let deck = match decks.deck_ports.get(&data) {
             Some(deck) => deck,
             None => {
@@ -161,7 +184,12 @@ impl SupportDeck {
         };
 
         let ships = if cashe {
-            Ships::load_cashe()
+            let cached = Ships::load_cashe();
+            if cached.ships.is_empty() {
+                Ships::load()
+            } else {
+                cached
+            }
         } else {
             Ships::load()
         };
@@ -210,6 +238,9 @@ impl SupportDeck {
             _ => None,
         };
 
+        #[cfg(schema_since = "0.6.1")]
+        let support_mission_id = resolve_support_mission_id(&deck.mission, &MstMissions::load());
+
         let new_data = SupportDeck {
             env_uuid,
             uuid,
@@ -218,6 +249,8 @@ impl SupportDeck {
             chart_seiku_value: deck.chart_seiku_value.map(|v| v as i32),
             #[cfg(schema_since = "0.5.0")]
             chart_tp_value: deck.chart_tp_value.map(|v| v as i32),
+            #[cfg(schema_since = "0.6.1")]
+            support_mission_id,
         };
 
         table.support_deck.push(new_data);

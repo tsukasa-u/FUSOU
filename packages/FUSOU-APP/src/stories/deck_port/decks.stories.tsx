@@ -58,6 +58,7 @@ const mockMstMissions: MstMissions = {
       name: "長距離練習航海",
       time: 30,
       reset_type: 0,
+      return_flag: 1,
     },
     37: {
       id: 37,
@@ -66,6 +67,7 @@ const mockMstMissions: MstMissions = {
       name: "東京急行",
       time: 165,
       reset_type: 0,
+      return_flag: 1,
     },
   },
 };

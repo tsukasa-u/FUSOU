@@ -27,6 +27,7 @@ impl From<kcapi_main::api_start2::get_data::ApiMstMission> for InterfaceWrapper<
             name: mission.api_name,
             time: mission.api_time,
             reset_type: mission.api_reset_type,
+            return_flag: mission.api_return_flag,
         })
     }
 }

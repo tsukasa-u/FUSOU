@@ -5,7 +5,7 @@
 mod tests {
     use std::collections::HashSet;
 
-    /// Test: All 13 master tables are in correct order
+    /// Test: All 14 master tables are in correct order
     #[test]
     fn test_master_table_names_and_count() {
         let tables = vec![
@@ -22,23 +22,24 @@ mod tests {
             "mst_map_area",
             "mst_map_info",
             "mst_ship_upgrade",
+            "mst_mission",
         ];
 
         // Count check
-        assert_eq!(tables.len(), 13, "Must have exactly 13 master tables");
+        assert_eq!(tables.len(), 14, "Must have exactly 14 master tables");
 
         // Uniqueness check
         let unique_tables: HashSet<_> = tables.iter().collect();
-        assert_eq!(unique_tables.len(), 13, "All table names must be unique");
+        assert_eq!(unique_tables.len(), 14, "All table names must be unique");
 
         // Order check (first and last)
         assert_eq!(tables[0], "mst_ship", "First table must be mst_ship");
         assert_eq!(
-            tables[12], "mst_ship_upgrade",
-            "Last table must be mst_ship_upgrade"
+            tables[13], "mst_mission",
+            "Last table must be mst_mission"
         );
 
-        println!("✓ All 13 master tables verified with correct order");
+        println!("✓ All 14 master tables verified with correct order");
     }
 
     /// Test: Table offsets serialization as JSON string
@@ -200,9 +201,9 @@ mod tests {
         println!("✓ SHA-256 hash format verified: {}", hash_hex);
     }
 
-    /// Test: All 13 tables concatenation with correct offsets
+    /// Test: All 14 tables concatenation with correct offsets
     #[test]
-    fn test_concatenate_13_tables() {
+    fn test_concatenate_14_tables() {
         #[derive(serde::Serialize, Debug)]
         struct TableOffset {
             table_name: String,
@@ -224,6 +225,7 @@ mod tests {
             ("mst_map_area", vec![11u8; 40]),
             ("mst_map_info", vec![12u8; 0]), // Empty
             ("mst_ship_upgrade", vec![13u8; 10]),
+            ("mst_mission", vec![14u8; 20]),
         ];
 
         let mut concatenated = Vec::new();
@@ -243,12 +245,12 @@ mod tests {
         }
 
         // Verify results
-        assert_eq!(tables.len(), 13, "Must have 13 tables");
-        assert_eq!(offsets.len(), 13, "Must have 13 offsets");
+        assert_eq!(tables.len(), 14, "Must have 14 tables");
+        assert_eq!(offsets.len(), 14, "Must have 14 offsets");
         assert_eq!(
             concatenated.len(),
-            330,
-            "Total size: 100+0+50+0+75+0+25+0+30+0+40+0+10"
+            350,
+            "Total size: 100+0+50+0+75+0+25+0+30+0+40+0+10+20"
         );
 
         // Verify offsets are in JSON format
@@ -258,11 +260,11 @@ mod tests {
             "JSON must contain first table"
         );
         assert!(
-            json_string.contains("mst_ship_upgrade"),
+            json_string.contains("mst_mission"),
             "JSON must contain last table"
         );
 
-        println!("✓ All 13 tables concatenated correctly");
+        println!("✓ All 14 tables concatenated correctly");
         println!("  Total size: {} bytes", concatenated.len());
         println!("  JSON: {}", json_string);
     }
@@ -351,6 +353,7 @@ mod tests {
             "mst_map_area",
             "mst_map_info",
             "mst_ship_upgrade",
+            "mst_mission",
         ];
 
         let provided_complete = vec![
@@ -367,6 +370,7 @@ mod tests {
             "mst_map_area",
             "mst_map_info",
             "mst_ship_upgrade",
+            "mst_mission",
         ];
 
         let provided_incomplete = vec![
@@ -395,7 +399,7 @@ mod tests {
             !missing_incomplete.is_empty(),
             "Incomplete set should have missing tables"
         );
-        assert_eq!(missing_incomplete.len(), 10, "Should be missing 10 tables");
+        assert_eq!(missing_incomplete.len(), 11, "Should be missing 11 tables");
 
         println!("✓ Required tables validation verified");
     }

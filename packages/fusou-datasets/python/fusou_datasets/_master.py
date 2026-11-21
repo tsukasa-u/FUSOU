@@ -52,6 +52,8 @@ _MASTER_CANONICAL = {
     "mst_map_areas": "mst_map_areas",
     "mst_map_info": "mst_map_infos",
     "mst_map_infos": "mst_map_infos",
+    "mst_mission": "mst_missions",
+    "mst_missions": "mst_missions",
     "mst_stype": "mst_stypes",
     "mst_stypes": "mst_stypes",
     "mst_use_item": "mst_use_items",

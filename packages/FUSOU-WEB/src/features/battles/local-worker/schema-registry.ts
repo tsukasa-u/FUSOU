@@ -34,6 +34,8 @@ const SCHEMA_NAMES: Readonly<Record<string, string>> = {
   mst_map_areas: "MstMapArea",
   mst_map_info: "MstMapInfo",
   mst_map_infos: "MstMapInfo",
+  mst_mission: "MstMission",
+  mst_missions: "MstMission",
   mst_ship: "MstShip",
   mst_ship_graph: "MstShipGraph",
   mst_ship_graphs: "MstShipGraph",

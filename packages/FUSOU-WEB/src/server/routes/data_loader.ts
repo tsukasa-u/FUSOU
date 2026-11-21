@@ -1594,6 +1594,7 @@ app.get("/download-master", async (c) => {
     "mst_map_area",
     "mst_map_info",
     "mst_ship_upgrade",
+    "mst_mission",
   ]);
   if (!VALID_MASTER_TABLE_NAMES.has(tableName)) {
     return new Response("Invalid table_name", { status: 400 });

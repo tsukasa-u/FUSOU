@@ -28,6 +28,8 @@ use kc_api_interface::mst_equip_limit_exslot::{MstEquipLimitExslot, MstEquipLimi
 use kc_api_interface::mst_equip_ship::{MstEquipShip, MstEquipShips};
 use kc_api_interface::mst_maparea::{MstMapArea, MstMapAreas};
 use kc_api_interface::mst_mapinfo::{MstMapInfo, MstMapInfos};
+#[cfg(schema_since = "0.6.1")]
+use kc_api_interface::mst_mission::{MstMission, MstMissions};
 use kc_api_interface::mst_ship::{MstShip, MstShips};
 use kc_api_interface::mst_ship_graph::{MstShipGraph, MstShipGraphs};
 use kc_api_interface::mst_ship_upgrade::{MstShipUpgrade, MstShipUpgrades};
@@ -541,6 +543,8 @@ define_get_data_table_schema! {
     MstMapInfo => mst_map_info: MstMapInfo => "mst_map_info",
     MstShipGraph => mst_ship_graph: MstShipGraph => "mst_ship_graph",
     MstShipUpgrade => mst_ship_upgrade: MstShipUpgrade => "mst_ship_upgrade",
+    #[cfg(schema_since = "0.6.1")]
+    MstMission => mst_mission: MstMission => "mst_mission",
 }
 
 pub static GET_DATA_TABLE_NAMES: std::sync::LazyLock<Vec<String>> =
@@ -585,6 +589,8 @@ impl GetDataTable {
         let mst_map_info = collect_values_sorted_by_key(&MstMapInfos::load().mst_map_infos);
         let mst_ship_upgrade =
             collect_values_sorted_by_key(&MstShipUpgrades::load().mst_ship_upgrades);
+        #[cfg(schema_since = "0.6.1")]
+        let mst_mission = collect_values_sorted_by_key(&MstMissions::load().mst_missions);
 
         GetDataTable {
             mst_ship,
@@ -600,6 +606,8 @@ impl GetDataTable {
             mst_map_info,
             mst_ship_graph,
             mst_ship_upgrade,
+            #[cfg(schema_since = "0.6.1")]
+            mst_mission,
         }
     }
 
@@ -994,5 +1002,64 @@ mod schema_invariants {
         assert_eq!(bytes_a_exslot_ship, bytes_b_exslot_ship);
         assert_eq!(bytes_a_equip_ship, bytes_b_equip_ship);
         assert_eq!(bytes_a_stype, bytes_b_stype);
+    }
+
+    #[cfg(schema_since = "0.6.1")]
+    #[test]
+    fn get_data_table_includes_and_encodes_mst_mission_deterministically() {
+        let original_missions = MstMissions::load();
+
+        let mission_33 = MstMission {
+            id: 33,
+            disp_no: "33".to_string(),
+            maparea_id: 5,
+            name: "前衛支援任務".to_string(),
+            time: 15,
+            reset_type: 0,
+            return_flag: 0,
+        };
+        let mission_302 = MstMission {
+            id: 302,
+            disp_no: "S2".to_string(),
+            maparea_id: 61,
+            name: "艦隊決戦支援任務".to_string(),
+            time: 30,
+            reset_type: 0,
+            return_flag: 0,
+        };
+
+        let mut map_a = HashMap::new();
+        map_a.insert(302, mission_302.clone());
+        map_a.insert(33, mission_33.clone());
+        MstMissions {
+            mst_missions: map_a,
+        }
+        .restore();
+        let encoded_a = GetDataTable::new()
+            .encode()
+            .expect("encode table a with mst_mission")
+            .get(GetDataTableEnum::MstMission)
+            .expect("mst_mission bytes a")
+            .to_vec();
+
+        let mut map_b = HashMap::new();
+        map_b.insert(33, mission_33);
+        map_b.insert(302, mission_302);
+        MstMissions {
+            mst_missions: map_b,
+        }
+        .restore();
+        let encoded_b = GetDataTable::new()
+            .encode()
+            .expect("encode table b with mst_mission")
+            .get(GetDataTableEnum::MstMission)
+            .expect("mst_mission bytes b")
+            .to_vec();
+
+        MstMissions::restore(&original_missions);
+
+        assert!(!encoded_a.is_empty());
+        assert_eq!(encoded_a, encoded_b);
+        assert_eq!(GetDataTableEnum::MstMission.table_name(), "mst_mission");
     }
 }

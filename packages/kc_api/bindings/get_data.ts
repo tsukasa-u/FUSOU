@@ -24,7 +24,7 @@ export type MstMapInfo = { id: number, maparea_id: number, no: number, name: str
 
 export type MstMapInfos = { mst_map_infos: { [key in number]?: MstMapInfo }, };
 
-export type MstMission = { id: number, disp_no: string, maparea_id: number, name: string, time: number, reset_type: number, };
+export type MstMission = { id: number, disp_no: string, maparea_id: number, name: string, time: number, reset_type: number, return_flag: number, };
 
 export type MstMissions = { mst_missions: { [key in number]?: MstMission }, };
 
