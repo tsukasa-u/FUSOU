@@ -25,6 +25,32 @@ generation remain **NOT_CHECKED**.
 
 Stage A/B/C and Production acceptance remain **BLOCKED**.
 
+## Candidate artifact job rejected before execution — #139
+
+**HOSTED_CI_OBSERVED:** Actions [#139](https://github.com/tsukasa-u/FUSOU/actions/runs/44898661267)
+was rejected while evaluating `linux-verification-app-artifact`: job-level
+`env.CARGO_TARGET_DIR` referenced `${{ runner.temp }}`, which is not an allowed
+context for `jobs.<job_id>.env`. All jobs were unexecuted and no artifact was
+produced.
+
+**SOURCE_CORRECTED:** Removed only that job-level `CARGO_TARGET_DIR`
+expression. A Bash initialization step now creates the same isolated path
+under `$RUNNER_TEMP` and writes it to `$GITHUB_ENV` before Cargo is used.
+The package build inherits this value, and package inspection reads the same
+`$CARGO_TARGET_DIR`. Existing jobs, artifact conditions, lockfiles, Tauri
+configuration, and the pnpm root pin/version check remain unchanged.
+
+**LOCAL_VALIDATION:** Workflow YAML, expression placement, and the initialization
+shell were checked. With mock `RUNNER_TEMP` and `GITHUB_ENV`, the script saved
+the expected target path; the build and package-check steps both use
+`CARGO_TARGET_DIR`. `actionlint` was unavailable; the placement was checked
+against GitHub's [official context-availability table](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability),
+where `runner` is absent for `jobs.<job_id>.env` and allowed for step-level
+contexts. Hosted CI was not run; the corrected workflow, Debian package
+generation/upload, and real PAC inspection remain **NOT_CHECKED**.
+
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## Linux verification APP artifact — candidate CI path
 
 **BASELINE:** Candidate Actions [#138](https://github.com/tsukasa-u/FUSOU/actions/runs/44834317244)
