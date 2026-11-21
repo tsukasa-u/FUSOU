@@ -656,3 +656,196 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
           RUSTUP_TOOLCHAIN: "1.98.1"
           RUSTUP_AUTO_INSTALL: "0"
+
+  linux-verification-app-artifact:
+    name: Linux verification APP artifact
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/tlsn-first-testplay-candidate'
+    needs:
+      - node-contract-tests
+      - rust-tlsn-preflight
+      - proxy-capture-source-unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-linux-verification-app-target
+      RUSTUP_TOOLCHAIN: "1.98.1"
+      RUSTUP_AUTO_INSTALL: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: Install Linux Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install locked JavaScript dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify the checkout and pinned toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git ls-files --error-unmatch packages/FUSOU-APP/src-tauri/Cargo.lock
+          test "$(rustc --version | cut -d' ' -f2)" = "1.98.1"
+          test "$(node --version)" = "v22.16.0"
+          test "$(pnpm --version)" = "10.14.0"
+
+      - name: Fetch APP dependencies from the committed lockfile
+        run: >-
+          cargo +1.98.1 fetch --locked
+          --manifest-path packages/FUSOU-APP/src-tauri/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+        env:
+          CARGO_NET_OFFLINE: "false"
+
+      - name: Build frontend without repository dotenv files
+        working-directory: packages/FUSOU-APP
+        env:
+          FUSOU_APP_VITE_ENV_DIR: ${{ runner.temp }}/fusou-empty-vite-env
+        run: |
+          set -euo pipefail
+          mkdir -p "$FUSOU_APP_VITE_ENV_DIR"
+          if find "$FUSOU_APP_VITE_ENV_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+            echo "Vite env directory must be empty" >&2
+            exit 1
+          fi
+          pnpm exec vite build --mode production
+          test -s dist/index.html
+
+      - name: Build the unsigned, verification-only Debian package
+        working-directory: packages/FUSOU-APP
+        run: >-
+          pnpm exec tauri build
+          --target x86_64-unknown-linux-gnu
+          --features tlsn-production,custom-protocol
+          --bundles deb
+          --config src-tauri/tauri.verification-linux.conf.json
+          --no-sign
+          --ci
+          --
+          --locked
+        env:
+          CARGO_NET_OFFLINE: "true"
+          FUSOU_APP_BUILD_SOURCE_SHA: ${{ github.sha }}
+
+      - name: Verify and describe the packaged APP
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb_dir="$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/bundle/deb"
+          mapfile -t packages < <(find "$deb_dir" -maxdepth 1 -type f -name '*.deb' -print)
+          if [[ "${#packages[@]}" -ne 1 ]]; then
+            echo "Expected exactly one verification Debian package, found ${#packages[@]}" >&2
+            exit 1
+          fi
+
+          package_root="$RUNNER_TEMP/fusou-linux-verification-extract"
+          mkdir -p "$package_root"
+          dpkg-deb --extract "${packages[0]}" "$package_root"
+
+          resource_dir="$package_root/usr/lib/fusou/resources"
+          test -x "$package_root/usr/bin/fusou"
+          for script in add_proxy.sh delete_proxy.sh add_store.sh check_ca.sh; do
+            test -x "$resource_dir/cmd/linux/$script"
+          done
+          test -r "$resource_dir/cmd/linux/pac_settings_common.sh"
+          test -r "$resource_dir/pac/proxy_auto.pac"
+          test -r "$resource_dir/pac/proxy_local.pac"
+          test -r "$resource_dir/user/configs.toml"
+          test ! -e "$resource_dir/roaming/user/configs.toml"
+
+          artifact_dir="$RUNNER_TEMP/fusou-linux-verification-artifact"
+          mkdir -p "$artifact_dir"
+          package_name="$(basename "${packages[0]}")"
+          cp "${packages[0]}" "$artifact_dir/$package_name"
+          (
+            cd "$artifact_dir"
+            sha256sum "$package_name" > SHA256SUMS
+          )
+
+          export FUSOU_ARTIFACT_DIR="$artifact_dir"
+          export FUSOU_ARTIFACT_FILE="$package_name"
+          export FUSOU_ARTIFACT_NAME="fusou-linux-x86_64-verification-$GITHUB_SHA"
+          export FUSOU_FRONTEND_INDEX="$GITHUB_WORKSPACE/packages/FUSOU-APP/dist/index.html"
+          node <<'NODE'
+          const fs = require("node:fs");
+          const { execFileSync } = require("node:child_process");
+          const path = require("node:path");
+
+          const sha256 = (file) =>
+            execFileSync("sha256sum", [file], { encoding: "utf8" }).split(/\s+/)[0];
+          const osRelease = Object.fromEntries(
+            fs.readFileSync("/etc/os-release", "utf8")
+              .split("\n")
+              .filter((line) => /^[A-Z0-9_]+=/.test(line))
+              .map((line) => {
+                const separator = line.indexOf("=");
+                return [line.slice(0, separator), line.slice(separator + 1).replace(/^"|"$/g, "")];
+              }),
+          );
+          const packagePath = path.join(process.env.FUSOU_ARTIFACT_DIR, process.env.FUSOU_ARTIFACT_FILE);
+          const manifest = {
+            format: "fusou-linux-verification-app-v1",
+            classification: "verification-only; not a release or production acceptance artifact",
+            artifactName: process.env.FUSOU_ARTIFACT_NAME,
+            sourceSha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+            event: process.env.GITHUB_EVENT_NAME,
+            ref: process.env.GITHUB_REF,
+            runner: {
+              image: "ubuntu-24.04",
+              os: osRelease.PRETTY_NAME,
+            },
+            target: "x86_64-unknown-linux-gnu",
+            features: {
+              defaultFeatures: true,
+              default: ["kc-api-epoch-20250627"],
+              explicitlyEnabled: ["tlsn-production", "custom-protocol"],
+            },
+            toolchains: {
+              rustc: execFileSync("rustc", ["--version"], { encoding: "utf8" }).trim(),
+              cargo: execFileSync("cargo", ["--version"], { encoding: "utf8" }).trim(),
+              node: process.version,
+              pnpm: execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim(),
+            },
+            frontend: {
+              mode: "production",
+              indexHtmlSha256: sha256(process.env.FUSOU_FRONTEND_INDEX),
+              envDir: "empty runner-temp directory; repository dotenv files are not loaded",
+            },
+            updater: {
+              endpoints: [],
+              updaterArtifacts: false,
+              signing: "disabled",
+            },
+            tlsnRuntimeConfig: "no Production bootstrap values or secrets supplied",
+            package: {
+              fileName: process.env.FUSOU_ARTIFACT_FILE,
+              bytes: fs.statSync(packagePath).size,
+              sha256: sha256(packagePath),
+              format: "deb",
+            },
+          };
+          fs.writeFileSync(
+            path.join(process.env.FUSOU_ARTIFACT_DIR, "MANIFEST.json"),
+            `${JSON.stringify(manifest, null, 2)}\n`,
+          );
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fusou-linux-x86_64-verification-${{ github.sha }}
+          path: ${{ runner.temp }}/fusou-linux-verification-artifact/
+          if-no-files-found: error
+          retention-days: 30

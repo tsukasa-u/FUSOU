@@ -12,9 +12,11 @@ const dirname =
     : path.dirname(fileURLToPath(import.meta.url));
 
 const host = process.env.TAURI_DEV_HOST;
+const envDir = process.env.FUSOU_APP_VITE_ENV_DIR;
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
+  envDir: envDir ? resolve(envDir) : undefined,
   plugins: [solid()],
   esbuild: {
     jsx: "automatic",

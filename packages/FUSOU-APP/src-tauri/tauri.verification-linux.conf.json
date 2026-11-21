@@ -1,0 +1,14 @@
+{
+  "build": {
+    "beforeBuildCommand": "true"
+  },
+  "bundle": {
+    "targets": ["deb"],
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}
