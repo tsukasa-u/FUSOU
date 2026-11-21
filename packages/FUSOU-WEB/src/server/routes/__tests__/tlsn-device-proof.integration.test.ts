@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ChildProcess } from "node:child_process";
 import { createPrivateKey, sign } from "node:crypto";
+import { once } from "node:events";
+import { PassThrough } from "node:stream";
 import { ProofPostgres } from "./tlsn-proof-postgres";
 import { issueChallengeNonce } from "../../utils/pepper";
 import { tlsnDeviceProofSigningBytes } from "../../../../../FUSOU-TLSN-VERIFICATION-WORKER/src/device-proof-framing";
@@ -21,6 +24,13 @@ const privateKey = createPrivateKey({
   format: "der", type: "pkcs8",
 });
 const db = new ProofPostgres();
+function createPsqlMock() {
+  const child = Object.assign(new ChildProcess(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+  });
+  return { child, postgres: new ProofPostgres(() => child) };
+}
 const environment = {
   PUBLIC_SUPABASE_URL: "https://proof-db.invalid",
   PUBLIC_SUPABASE_PUBLISHABLE_KEY: "offline-test-only",
@@ -145,6 +155,75 @@ beforeEach(() => {
 });
 
 describe("actual owner handlers, signatures, PostgreSQL transactions and Worker clients", () => {
+  it("collects stdout emitted after psql exit and before close", async () => {
+    const { child, postgres } = createPsqlMock();
+    try {
+      const result = postgres.concurrent("SELECT 1");
+      child.emit("exit", 0, null);
+      const stdoutEnded = once(child.stdout, "end");
+      const stderrEnded = once(child.stderr, "end");
+      child.stdout.end("ok\n");
+      child.stderr.end();
+      await Promise.all([stdoutEnded, stderrEnded]);
+      child.emit("close", 0, null);
+      await expect(result).resolves.toBe("ok");
+    } finally {
+      child.stdout.destroy();
+      child.stderr.destroy();
+      postgres.stop();
+    }
+  });
+
+  it("rejects psql spawn errors", async () => {
+    const { child, postgres } = createPsqlMock();
+    const failure = new Error("mock psql spawn failure");
+    try {
+      const result = postgres.concurrent("SELECT 1");
+      child.emit("error", failure);
+      await expect(result).rejects.toBe(failure);
+    } finally {
+      child.stdout.destroy();
+      child.stderr.destroy();
+      postgres.stop();
+    }
+  });
+
+  it("rejects psql nonzero exits with stderr diagnostics", async () => {
+    const { child, postgres } = createPsqlMock();
+    try {
+      const result = postgres.concurrent("SELECT 1");
+      const stderrEnded = once(child.stderr, "end");
+      child.stderr.end("mock psql failure\n");
+      await stderrEnded;
+      child.emit("exit", 23, null);
+      child.emit("close", 23, null);
+      await expect(result).rejects.toThrow("psql failed with exit code 23: mock psql failure");
+    } finally {
+      child.stdout.destroy();
+      child.stderr.destroy();
+      postgres.stop();
+    }
+  });
+
+  it("rejects psql signal termination", async () => {
+    const { child, postgres } = createPsqlMock();
+    try {
+      const result = postgres.concurrent("SELECT 1");
+      const stdoutEnded = once(child.stdout, "end");
+      const stderrEnded = once(child.stderr, "end");
+      child.stdout.end();
+      child.stderr.end();
+      await Promise.all([stdoutEnded, stderrEnded]);
+      child.emit("exit", null, "SIGTERM");
+      child.emit("close", null, "SIGTERM");
+      await expect(result).rejects.toThrow("psql failed with signal SIGTERM");
+    } finally {
+      child.stdout.destroy();
+      child.stderr.destroy();
+      postgres.stop();
+    }
+  });
+
   it("authenticates through the actual Worker consumer and commits exactly once", async () => {
     const proof = await authenticationProof();
     expect(await authenticateDeviceProof(subject, proof, endpoint("device-proof"), handlerFetch))
@@ -307,8 +386,19 @@ describe("actual owner handlers, signatures, PostgreSQL transactions and Worker 
     const query = `SELECT public.rpc_consume_tlsn_device_proof('possession','${userId}',
       '${deviceId}',decode('${publicKey}','hex'),repeat('a',64),NULL,'${sessionId}',repeat('b',64),repeat('c',64))`;
     const results = await Promise.all(Array.from({ length: 8 }, () => db.concurrent(query)));
-    expect(results.filter((result) => result === "ok")).toHaveLength(1);
-    expect(results.filter((result) => result === "device_proof_replayed")).toHaveLength(7);
+    const outcomes = {
+      total: results.length,
+      success: results.filter((result) => result === "ok").length,
+      replay: results.filter((result) => result === "device_proof_replayed").length,
+      unexpected: results.filter((result) => result !== "ok" && result !== "device_proof_replayed").length,
+    };
+    expect(outcomes, `eight-connection results: ${JSON.stringify(results)}`).toEqual({
+      total: 8,
+      success: 1,
+      replay: 7,
+      unexpected: 0,
+    });
+    expect(db.sql("SELECT count(*) FROM public.tlsn_device_proof_consumptions")).toBe("1");
     expect(db.sql(`SELECT canonical_user_id::text || ':' || encode(device_pubkey,'hex')
       FROM public.tlsn_device_proof_consumptions`)).toBe(`${userId}:${publicKey}`);
   });

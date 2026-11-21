@@ -1,9 +1,11 @@
 /// <reference types="node" />
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+type PsqlSpawner = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
 export class ProofPostgres {
   private readonly directory = mkdtempSync(join(tmpdir(), "fusou-proof-db-"));
@@ -12,6 +14,8 @@ export class ProofPostgres {
   private readonly data = join(this.directory, "data");
   private readonly environment = { PATH: process.env["PATH"], HOME: this.directory, LANG: "C" };
   private process: ChildProcess | undefined;
+
+  constructor(private readonly psqlSpawner: PsqlSpawner = spawn) {}
 
   async start(): Promise<void> {
     execFileSync(join(this.binaries, "initdb"), [
@@ -57,16 +61,32 @@ export class ProofPostgres {
 
   async concurrent(query: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.client, [
+      const child = this.psqlSpawner(this.client, [
         "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
         "-h", this.directory, "-U", "fusou_test", "-d", "postgres", "-c", query,
       ], { env: this.environment, stdio: ["ignore", "pipe", "pipe"] });
       let output = "";
       let errors = "";
-      child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-      child.stderr.on("data", (chunk: Buffer) => { errors += chunk.toString(); });
       child.on("error", reject);
-      child.on("exit", (code: number | null) => code === 0 ? resolve(output.trim()) : reject(new Error(errors)));
+      const stdout = child.stdout;
+      const stderr = child.stderr;
+      if (!stdout || !stderr) {
+        reject(new Error("psql stdout/stderr pipes are unavailable"));
+        return;
+      }
+      stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+      stderr.on("data", (chunk: Buffer) => { errors += chunk.toString(); });
+      stdout.on("error", reject);
+      stderr.on("error", reject);
+      child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+        if (code !== 0 || signal !== null) {
+          const status = signal === null ? `exit code ${String(code)}` : `signal ${signal}`;
+          const detail = errors.trim();
+          reject(new Error(detail ? `psql failed with ${status}: ${detail}` : `psql failed with ${status}`));
+          return;
+        }
+        resolve(output.trim());
+      });
     });
   }
 
