@@ -1,5 +1,78 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## #142: same-host Notary release candidate built and tested
+
+**HOSTED_CI_OBSERVED:** Actions
+[#142](https://github.com/tsukasa-u/FUSOU/actions/runs/44944308825)
+completed with all four jobs successful at source SHA
+`46f11efede83d83a672614f7dc575f27a47f4120`, matching this build candidate.
+The successful `proxy-capture-source-unit-tests` job includes the normal
+Notary release build and exact binary tests. Its uploaded artifact
+`fusou-linux-x86_64-verification-46f11efede83d83a672614f7dc575f27a47f4120`
+(ID `14724630764`, digest
+`sha256:e618311e3e92a2f66da4584d746715662b33ee89934d8f332b3329a823d5812c`)
+is the verification APP package, **not** a Notary binary.
+
+**SOURCE_AND_BUILD_VERIFIED:** The clean isolated source snapshot came from
+the candidate commit; the existing worktree was not used as build input.
+Builder: Ubuntu 24.04.5 LTS, Linux x86_64; `rustc 1.98.1
+(48a229cea 2026-09-01)`, Cargo `1.98.1 (797e8a9bc 2026-08-05)`,
+target `x86_64-unknown-linux-gnu`. The release command was:
+
+```sh
+cargo +1.98.1 build --release --locked --offline \
+  --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml \
+  --features operational-notary --bin fusou-notary
+```
+
+The binary was built with `operational-notary` only. The tracked Proxy
+`Cargo.lock` SHA-256 was
+`e001bb7815a4af743fd60f906ae6aad86dd4e59be68f6a478e6805b9d42f1dc6`
+before and after dependency fetch, build, and tests. The TLSN SDK upstream
+revision is `47aee45b53e06648c1b2ad3689b367b8c923fdec`; its FUSOU tree ID is
+`a6726d9c69108b0d93ea6b3d4041052620e6cab9`.
+
+**LOCAL_ARTIFACT_VERIFIED:** The tested and locally retained candidate file
+`fusou-notary` is an executable x86-64 Linux ELF, mode `0755`, length
+`23,204,144` bytes, SHA-256
+`702a27898ec7908c8a3a6b37503bb68a24cdb5e1d6bb6d77ef72736245423fa3`.
+`SHA256SUMS` passed, and the copied file compared byte-for-byte with the
+release output. The same digest and length were verified before and after the
+tests.
+
+**LOCAL_TEST_VERIFIED:** The two exact candidate selectors ran against this
+binary using test-harness features
+`local-test-notary-fault-injection,operational-notary`; those are distinct
+from the release artifact's features:
+
+| Exact test | Result | Observed scope |
+|---|---|---|
+| `operational::normal_binary_complete_and_restarts_using_the_same_ledger` | **PASS, 1/1** | Synthetic credentials, ephemeral IPv4 loopback, temporary ledger, Complete capture, public export/offline preflight against the synthetic signed vector, and restart using the same ledger. |
+| `operational::normal_binary_rejects_invalid_loopback_settings_before_side_effects` | **PASS, 1/1** | Wildcard, non-loopback, IPv6, hostname, zero-port, and mismatched endpoint settings were rejected before the tested side effects. |
+
+No production endpoint, key, registration, trust anchor, APP Bootstrap,
+service placement, or durable ledger was used. Reusable exact-selector
+commands are in the [Notary release runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/notary-release-runbook.md).
+The #142 `.deb` is the Linux APP job's uploaded verification package;
+`fusou-notary` is a separate local candidate and was not uploaded. The local
+candidate binary, `RELEASE-RECORD.md`, and `SHA256SUMS` remain in local storage.
+Their terminal-specific location is provided in the local handoff report, not
+in this shared document.
+
+**OPERATOR_APPROVAL_NOT_CHECKED:** Still required before release or placement:
+an approved signed `notary/vX.Y.Z` tag and signer; approval of this binary
+digest; actual Notary ID/environment; an operator-selected nonzero loopback
+port; production K256 Notary pin; dedicated Session Authority key ID/SPKI;
+independently approved registration-table digest; approved Web PKI anchor;
+protected key/config paths; dedicated durable ledger custody; stop/recovery
+and compatibility procedure; and host/instance, ingress, preflight, and
+resume approvals. None of these are supplied by the synthetic test fixtures.
+
+No tag, publication, installation, production configuration, key registration,
+ledger initialization, service start, or deployment was performed. APP
+Bootstrap and service confirmation remain subsequent work. Stage A/B/C and
+Production acceptance remain **BLOCKED**.
+
 ## Candidate CI #141: PostgreSQL output capture correction
 
 **HOSTED_CI_OBSERVED:** Actions [#141](https://github.com/tsukasa-u/FUSOU/actions/runs/44937896359)
