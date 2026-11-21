@@ -13,8 +13,10 @@ all three required jobs pass, and only on a push or manual dispatch for
 `tlsn-first-testplay-candidate`. Pull requests do not publish it. The latest
 baseline, Actions [#138](https://github.com/tsukasa-u/FUSOU/actions/runs/44834317244)
 at `e81af0d3e9744ca3fc25238584fbb0ee288dcb4a`, passed its three jobs but had
-no APP artifact. A build from a newer SHA is **NOT_CHECKED** until that SHA has
-its own hosted run; no local package is a substitute.
+no APP artifact. The subsequent [#140](https://github.com/tsukasa-u/FUSOU/actions/runs/44903160622)
+run passed all four jobs at SHA `4b402486bce85d31cd2c7c8e19ca3f6954e130cf`
+and uploaded artifact ID `14706959705`. Its manifest source SHA matches both
+the run and current local HEAD.
 
 From that candidate-branch Actions run, download
 `fusou-linux-x86_64-verification-<full-checkout-SHA>`. Before use:
@@ -48,6 +50,76 @@ From that candidate-branch Actions run, download
    The workflow performs these checks, plus the bundled default config check,
    before upload.
 
+**LOCAL ARTIFACT CHECK:** Artifact `14706959705` was downloaded and inspected.
+Its ZIP size was 29,248,512 bytes and its SHA-256
+`c952b31d494d51bcb11fcb6d8b4a27f984240b0231153e1fa6cdf4a554bb72d5` matched
+the Actions artifact digest. The manifest and checksum file matched package
+`fusou_0.5.0_amd64.deb` (29,569,016 bytes,
+`776989992e6a335b141072530882473672c43108db7f5ddd3fc59d9db5edc2d6`), and
+`sha256sum --check` passed. Extraction confirmed the APP binary, four
+executable Linux PAC scripts, readable common PAC helper/PAC files/default
+config, and absence of a bundled roaming config. The package was installed
+and executed only in the disposable container below; the host package
+database, trust store, roaming config and proxy settings were untouched.
+
+### Disposable Linux PAC observations
+
+**Observation window:** 2026-11-22 03:12-03:23 JST.
+
+**OBSERVED (container only):** The package ran in Ubuntu 24.04 with Xvfb
+`:99`, GNOME Shell 46.0 / Mutter 46.2, and Chrome 158.0.8127.36, on an
+internal-only Docker network. This was not a full VM, physical desktop or
+normal GNOME login; behavior in those environments remains **NOT_CHECKED**.
+The test hostname `pac-test.invalid` resolved to the fixed-response HTTP
+endpoint at `172.19.0.2`; the APP/browser container was `172.19.0.3`. No
+external route was available.
+
+The test profile was a full config derived from the tracked default in a new
+test user's roaming directory; no existing roaming config was copied. TLSN
+and candidate capture were disabled, custom PAC was enabled, the only selected
+target was `pac-test.invalid`, and Open KanColle was off. The initial GNOME
+readback was mode `none` with
+`http://pac-test.invalid:8123/previous.pac`. After Start it was mode `auto`
+with the generated `http://localhost:<port>/proxy.pac`.
+
+The first APP start stopped because the disposable user's XDG Documents
+metadata was missing. Creating its `Documents` directory and `user-dirs.dirs`
+allowed startup to continue. CA installation then stopped because `pkexec`
+was unavailable. The generated test CA was installed with
+`update-ca-certificates` only inside the disposable container; no host trust
+store was changed. A subsequent Start succeeded.
+
+Chrome was launched without a manual proxy argument. With the GNOME session
+environment set, Chrome NetLog recorded `from_system: true`, the generated
+PAC URL and a PAC fetch; its proxy decision selected
+`PROXY 127.0.0.1:34631` for
+`http://pac-test.invalid:8123/observed/browser-pac-02`. The NetLog showed the
+absolute-form request. The APP Proxy log recorded status `200 OK` for the
+same path from `127.0.0.1:40738`, and the fixed-response HTTP server recorded
+the same path from `172.19.0.3`.
+
+Tray Restart, tray Quit and terminal Ctrl+C each restored the initial `none`
+mode and `/previous.pac` URL. A separate URL-only user change to
+`http://pac-test.invalid:8123/user-selected.pac` while mode remained `auto`
+was preserved as an auto-mode/URL pair after tray Quit. The recovery state
+file was absent after each confirmed cleanup.
+
+The initial Chrome launch omitted `XDG_CURRENT_DESKTOP=GNOME`; it reported an
+empty system proxy config and `DIRECT`. The rerun with the GNOME session
+environment consumed the system PAC. Chrome required `--no-sandbox` because
+the container could not create its namespace sandbox. One initial omnibox
+selection attempted a Google search but failed inside the internal-only
+network; it is not test evidence. The APP's period-tag request also failed
+closed, and no external service was allowed.
+
+These are **OBSERVED** results for the disposable container only, not a full
+desktop/VM certification. No FUSOU PAC defect was reproduced and no APP code
+or regression test changed. For a repeat, use a fresh Ubuntu VM or disposable
+desktop, the same full test-only config and managed endpoint, default-deny
+egress, OS setting readback and Proxy logs. Do not copy roaming settings,
+enable Open KanColle, or allow the period-tag service. TLSN and Production
+acceptance are not part of this test.
+
 This package is for disposable Linux PAC investigation only. It is not signed,
 not an updater/release artifact, and carries no Production Runtime Config
 bootstrap values or private signing secrets. Its build uses the tracked
@@ -57,10 +129,10 @@ egress restriction so only the managed test destination is reachable. Do not
 open the update page or enable unrelated integrations during the test. The
 verification overlay has no updater endpoints, so update checks fail closed.
 
-No artifact build or real-device observation was performed while preparing
-this change. Until a new hosted artifact exists, artifact acquisition and all
-device checks below remain **NOT_CHECKED**. Stage A/B/C and Production
-acceptance remain **BLOCKED**.
+The artifact was generated and verified in #140, but no real-device PAC
+observation was performed for this follow-up. Artifact verification is not
+browser-route evidence. Stage A/B/C and Production acceptance remain
+**BLOCKED**.
 
 ## 1. Fixed status and current stop conditions
 
@@ -268,25 +340,26 @@ If PAC setup was skipped, its stage remains `skipped` while the overall report
 is `pending` with `app_shutdown_in_progress`; an unconfirmed cleanup still
 reports `pac_cleanup_unconfirmed`.
 
-#### Candidate CI and desktop evidence status — 2026-11-21
+#### #137 handoff snapshot — 2026-11-21 (historical; superseded)
 
+This records the status at the #137 handoff, not the current evidence state.
 Actions [#137](https://github.com/tsukasa-u/FUSOU/actions/runs/44824868180)
-observed success for all three jobs at
-`929a9d6392447f78a99d7f9c50409a2dbb6d83d5`; this is the baseline only. The
-current changes are uncommitted, so Hosted CI for them is **NOT_CHECKED**.
-Local mocked evidence is **VERIFIED**: the APP-source Manifest harness passed
-44 unit tests and 1 integration test, the GNOME/KDE PAC mocks passed 26/26,
-and the Chromium readiness interaction passed 1/1.
+passed all three jobs at
+`929a9d6392447f78a99d7f9c50409a2dbb6d83d5`; this is the baseline only.
+At that handoff, the then-uncommitted changes had no Hosted CI result
+(**NOT_CHECKED**). The local APP-source Manifest harness had passed 44 unit
+tests plus 1 integration test, the GNOME/KDE PAC mocks had passed 26/26, and
+the Chromium readiness interaction had passed 1/1.
 
-Real desktop evidence is **NOT_CHECKED**. No authorized disposable Linux
-VM/user session, verification APP binary, or managed test destination was
-available; the VM probe found no VM. No DE/browser versions, PAC settings,
-browser PAC retrieval, Proxy-routed request, Restart/Quit restoration, or
-Ctrl+C shutdown were observed. Do not treat readiness or the mocked suites as
-evidence of browser routing. For the real check, keep Open KanColle off and
-record the initial/read-back PAC pair, browser retrieval, an independently
-observed managed request through FUSOU Proxy, and post-stop settings
-separately. Do not change the normal desktop to fill this evidence gap.
+At that handoff, real desktop evidence was **NOT_CHECKED**: no authorized
+disposable VM/user session, verification APP binary, or managed test
+destination was available, and the VM probe found no VM. DE/browser versions,
+PAC settings, browser PAC retrieval, Proxy-routed requests, Restart/Quit
+restoration, and Ctrl+C shutdown had not been observed then. That gap was
+later addressed to container-only scope in
+[Disposable Linux PAC observations](#disposable-linux-pac-observations).
+Those observations do not cover a normal GNOME login, which remains
+**NOT_CHECKED**.
 
 Normal cleanup treats mode and PAC URL as a pair. While recovery state is
 `active`, it reads both values and their saved presence before changing the
@@ -308,16 +381,14 @@ process-group API, waits for termination confirmation, and fails closed if the
 child/group stop cannot be verified. These protections do not provide
 atomicity against unrelated desktop-settings writers.
 
-The initial Linux desktop verification remains a separate, not-yet-run
-operator task. Keep **Open KanColle** off and use only a managed test
-destination. Record the pre-test GNOME/KDE proxy values, start the APP with
-**Run Proxy Server** enabled, observe the PAC file retrieval and a managed
-request actually traversing the proxy, then use tray **Quit** or **Restart**
-and verify the original values were restored (or a deliberate user change
-made during the run was preserved). PAC settings readback alone does not
-establish browser traffic; keep `browser_proxy_traffic` at `not_checked` until
-that separate observation is made. No desktop settings or real service were
-changed in the local regression.
+The later observation is recorded in
+[Disposable Linux PAC observations](#disposable-linux-pac-observations):
+system PAC retrieval, a browser request through FUSOU Proxy, cleanup, and a
+user-selected PAC pair were observed in the disposable container. A normal
+GNOME login remains **NOT_CHECKED**. The readiness field
+`browser_proxy_traffic` remains `not_checked` because readiness does not
+collect browser traffic evidence; it is distinct from the independent
+container observation. No normal desktop settings or real services were used.
 
 The APP-start marker and `LOCAL_APP_PREFLIGHT_PASS` retain their existing
 meaning: process startup and static checks, respectively. Neither represents
