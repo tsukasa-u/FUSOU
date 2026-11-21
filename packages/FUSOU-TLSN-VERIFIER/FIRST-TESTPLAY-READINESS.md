@@ -1,5 +1,43 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Candidate CI #141: PostgreSQL output capture correction
+
+**HOSTED_CI_OBSERVED:** Actions [#141](https://github.com/tsukasa-u/FUSOU/actions/runs/44937896359)
+ran at baseline SHA `cd4c8535bacb7c8527548e814ee5754111304f15`. The WEB
+PostgreSQL concurrency check failed: 67 tests passed and one failed; the
+verification APP artifact job was skipped. The failed assertion expected seven
+replay rejections but observed six. This is the pre-fix run, not post-fix
+Hosted verification.
+
+**ROOT_CAUSE_REPRODUCED:** `ProofPostgres.concurrent()` finalized stdout on the
+child `exit` event, although stdout may still deliver data before `close`. A
+deterministic mock emitted `exit` before its successful stdout; the regression
+failed against the old handler with expected `"ok"` and received `""`. The
+helper now collects stdout/stderr through `close`, rejects spawn and stream
+errors, and reports nonzero exits or signal termination as failures. The same
+mock passes with the corrected handler. Additional deterministic cases cover
+spawn failure, nonzero exit with stderr diagnostics, and signal termination.
+
+**LOCAL_VERIFIED:** In an isolated container with networking disabled, Node
+`22.16.0`, pnpm `10.14.0`, Vitest `4.1.11`, and PostgreSQL `16.15`:
+
+- The workflow WEB type-check (`pnpm exec tsc --noEmit --pretty false`) passed.
+- All four workflow Vitest files passed: 4 files, 72 tests, zero skipped.
+- The complete PostgreSQL integration file passed in three independent runs,
+  each with 33/33 tests passing and a newly initialized temporary database.
+  Each run exercised eight concurrent connections and asserted exactly one
+  `ok`, seven `device_proof_replayed` results, and one saved row with the
+  expected owner and device key.
+
+The eight-result assertion includes every returned value in failure output.
+The SQL, replay contract, workflow, and artifact-job dependency were unchanged.
+
+**NOT_CHECKED:** Hosted CI for the post-fix revision. No Production database,
+migration, APP Cargo build, APP-launching Node suite, or Actions run was used.
+The changes remain local and unstaged.
+
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## #140 hosted artifact verified; disposable Linux PAC observed
 
 **HOSTED_CI_OBSERVED:** [Actions #140](https://github.com/tsukasa-u/FUSOU/actions/runs/44903160622)
