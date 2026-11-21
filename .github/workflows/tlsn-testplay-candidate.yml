@@ -667,11 +667,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-linux-verification-app-target
       RUSTUP_TOOLCHAIN: "1.98.1"
       RUSTUP_AUTO_INSTALL: "0"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Initialize isolated Cargo target directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_dir="$RUNNER_TEMP/fusou-linux-verification-app-target"
+          mkdir -p "$target_dir"
+          printf 'CARGO_TARGET_DIR=%s\n' "$target_dir" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
 
