@@ -9,7 +9,10 @@ impl From<Vec<kcapi_main::api_port::port::ApiMaterial>> for InterfaceWrapper<Mat
         for (idx, material) in materials.iter().enumerate() {
             ret.insert(idx, material.api_value);
         }
-        Self(Materials { materials: ret })
+        Self(Materials {
+            materials: ret,
+            furniture_coin: None,
+        })
     }
 }
 
@@ -19,6 +22,9 @@ impl From<kcapi_main::api_req_hokyu::charge::ApiData> for InterfaceWrapper<Mater
         for (idx, material) in data.api_material.iter().enumerate() {
             ret.insert(idx, *material);
         }
-        Self(Materials { materials: ret })
+        Self(Materials {
+            materials: ret,
+            furniture_coin: None,
+        })
     }
 }

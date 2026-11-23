@@ -6,9 +6,12 @@ import {
   getMaterialIconFurnitureStoreRows,
   getMaterialIconItemNumbersAtCell,
   getMaterialIconLocation,
+  getMaterialIconPurchasedShelfRows,
   getMaterialIconResourceShelfRows,
   getMaterialIconShelfCell,
   getMaterialIconShelfRows,
+  getPayItemIdsAtCell,
+  getPayItemShelfCell,
   type MaterialIconShelfCell,
   material_icon_tables,
 } from "../../icons/material_data";
@@ -19,6 +22,9 @@ export interface ComponentItemModalProps {
   description: string;
   descriptionIsNormalized?: boolean;
   itemNames?: Readonly<Record<number, string>>;
+  payItemId?: number;
+  additionalPurchasedPayItems?: readonly { id: number; name: string }[];
+  ownedUseItemIds?: readonly number[];
   count?: number;
   size?: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
   class?: string;
@@ -34,6 +40,9 @@ interface ItemStorageShelfProps {
   selectedItemNumber: number;
   selectedItemName: string;
   itemNames?: Readonly<Record<number, string>>;
+  ownedUseItemIds: readonly number[];
+  additionalPayItemIds?: readonly number[];
+  payItemNames?: Readonly<Record<number, string>>;
 }
 
 const ItemStorageShelf: Component<ItemStorageShelfProps> = (props) => (
@@ -60,6 +69,7 @@ const ItemStorageShelf: Component<ItemStorageShelfProps> = (props) => (
               const cellItemNames = getMaterialIconItemNumbersAtCell(
                 props.tableId,
                 cell.cell,
+                props.ownedUseItemIds,
               )
                 .map((itemNumber) =>
                   itemNumber === props.selectedItemNumber
@@ -67,9 +77,16 @@ const ItemStorageShelf: Component<ItemStorageShelfProps> = (props) => (
                     : props.itemNames?.[itemNumber],
                 )
                 .filter((name): name is string => Boolean(name));
+              const cellPayItemNames = getPayItemIdsAtCell(
+                cell.cell,
+                props.additionalPayItemIds,
+              )
+                .map((payItemId) => props.payItemNames?.[payItemId])
+                .filter((name): name is string => Boolean(name));
               const itemName =
-                [...new Set(cellItemNames)].join(", ") ||
-                (isCurrentCell ? props.selectedItemName : undefined);
+                [...new Set([...cellItemNames, ...cellPayItemNames])].join(
+                  ", ",
+                ) || (isCurrentCell ? props.selectedItemName : undefined);
               return (
                 <Show
                   when={cell.present}
@@ -123,7 +140,32 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
   const [showDialog, setShowDialog] = createSignal(false);
 
   const location = () => getMaterialIconLocation(props.item_number);
-  const shelfCell = () => getMaterialIconShelfCell(props.item_number);
+  const ownedUseItemIds = () =>
+    props.ownedUseItemIds ??
+    (props.payItemId === undefined ? [props.item_number] : []);
+  const selectedTableId = () =>
+    props.payItemId !== undefined ? 3 : location().tableId;
+  const shelfCell = () =>
+    props.payItemId !== undefined
+      ? getPayItemShelfCell(props.payItemId)
+      : getMaterialIconShelfCell(props.item_number);
+  const purchasedPayItemIds = () => [
+    ...new Set([
+      ...(props.additionalPurchasedPayItems ?? []).map(({ id }) => id),
+      ...(props.payItemId !== undefined ? [props.payItemId] : []),
+    ]),
+  ];
+  const purchasedPayItemNames = () => {
+    const names = Object.fromEntries(
+      (props.additionalPurchasedPayItems ?? []).map(
+        ({ id, name }) => [id, name] as const,
+      ),
+    );
+    if (props.payItemId !== undefined) {
+      names[props.payItemId] = props.name;
+    }
+    return names;
+  };
   const description = () =>
     props.descriptionIsNormalized
       ? props.description.trim()
@@ -151,6 +193,10 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
           <IconMaterial
             item_number={props.item_number}
             size={props.size ?? "xs"}
+            cellOverride={
+              props.payItemId !== undefined ? (shelfCell() ?? "UN") : undefined
+            }
+            tableIdOverride={props.payItemId !== undefined ? 3 : undefined}
           />
         )}
       </button>
@@ -198,12 +244,17 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
                       <ItemStorageShelf
                         name="Regular items shelf"
                         tableId={1}
-                        rows={getMaterialIconShelfRows(1)}
-                        selectedTableId={location().tableId}
+                        rows={getMaterialIconShelfRows(
+                          1,
+                          undefined,
+                          ownedUseItemIds(),
+                        )}
+                        selectedTableId={selectedTableId()}
                         selectedCell={shelfCell()}
                         selectedItemNumber={props.item_number}
                         selectedItemName={props.name}
                         itemNames={props.itemNames}
+                        ownedUseItemIds={ownedUseItemIds()}
                       />
                     </div>
                   </section>
@@ -214,12 +265,15 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
                       <ItemStorageShelf
                         name="Expansion items shelf"
                         tableId={2}
-                        rows={getMaterialIconExpansionShelfRows()}
-                        selectedTableId={location().tableId}
+                        rows={getMaterialIconExpansionShelfRows(
+                          ownedUseItemIds(),
+                        )}
+                        selectedTableId={selectedTableId()}
                         selectedCell={shelfCell()}
                         selectedItemNumber={props.item_number}
                         selectedItemName={props.name}
                         itemNames={props.itemNames}
+                        ownedUseItemIds={ownedUseItemIds()}
                       />
                     </div>
                   </section>
@@ -232,12 +286,18 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
                       <ItemStorageShelf
                         name="Purchased items shelf"
                         tableId={3}
-                        rows={getMaterialIconShelfRows(3)}
-                        selectedTableId={location().tableId}
+                        rows={getMaterialIconPurchasedShelfRows(
+                          purchasedPayItemIds(),
+                          ownedUseItemIds(),
+                        )}
+                        selectedTableId={selectedTableId()}
                         selectedCell={shelfCell()}
                         selectedItemNumber={props.item_number}
                         selectedItemName={props.name}
                         itemNames={props.itemNames}
+                        ownedUseItemIds={ownedUseItemIds()}
+                        additionalPayItemIds={purchasedPayItemIds()}
+                        payItemNames={purchasedPayItemNames()}
                       />
                     </div>
                   </section>
@@ -252,12 +312,15 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
                         <ItemStorageShelf
                           name="Resource shelf"
                           tableId={4}
-                          rows={getMaterialIconResourceShelfRows()}
-                          selectedTableId={location().tableId}
+                          rows={getMaterialIconResourceShelfRows(
+                            ownedUseItemIds(),
+                          )}
+                          selectedTableId={selectedTableId()}
                           selectedCell={shelfCell()}
                           selectedItemNumber={props.item_number}
                           selectedItemName={props.name}
                           itemNames={props.itemNames}
+                          ownedUseItemIds={ownedUseItemIds()}
                         />
                       </div>
                     </section>
@@ -271,12 +334,15 @@ export const ComponentItemModal: Component<ComponentItemModalProps> = (
                         <ItemStorageShelf
                           name="Furniture Store shelf"
                           tableId={5}
-                          rows={getMaterialIconFurnitureStoreRows()}
-                          selectedTableId={location().tableId}
+                          rows={getMaterialIconFurnitureStoreRows(
+                            ownedUseItemIds(),
+                          )}
+                          selectedTableId={selectedTableId()}
                           selectedCell={shelfCell()}
                           selectedItemNumber={props.item_number}
                           selectedItemName={props.name}
                           itemNames={props.itemNames}
+                          ownedUseItemIds={ownedUseItemIds()}
                         />
                         <span class="text-xs">家具コイン</span>
                       </div>

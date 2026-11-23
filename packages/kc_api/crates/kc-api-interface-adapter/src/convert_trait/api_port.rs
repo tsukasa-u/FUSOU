@@ -80,8 +80,9 @@ register_trait!(Res, (air_corps_cond_recovery_with_timer));
 impl TraitForConvert for port::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        let materials =
+        let mut materials =
             InterfaceWrapper::<Materials>::from(self.api_data.api_material.clone()).unwrap();
+        materials.furniture_coin = Some(self.api_data.api_basic.api_fcoin);
         let ships = InterfaceWrapper::<Ships>::from(self.api_data.api_ship.clone()).unwrap();
         let ndocks = InterfaceWrapper::<NDocks>::from(self.api_data.api_ndock.clone()).unwrap();
         let logs = InterfaceWrapper::<Logs>::from(self.api_data.api_log.clone()).unwrap();

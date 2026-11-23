@@ -1,5 +1,6 @@
 import { fn } from "storybook/test";
 import type { MstUseItemMetas, MstUseItems } from "@ipc-bindings/get_data";
+import type { Materials } from "@ipc-bindings/port";
 
 import { MaterialsComponent } from "../../components/materials/materials.tsx";
 import {
@@ -28,6 +29,10 @@ const mstUseItems: MstUseItems = {
   ),
 };
 const mstUseItemMetas: MstUseItemMetas = { mst_use_item_metas: {} };
+const storyMaterials: Materials = {
+  ...materials,
+  furniture_coin: 12000,
+};
 
 export default {
   title: "components/materials/materials",
@@ -47,7 +52,7 @@ export const WithDecorator = {
             <SlotItemsContext.Provider value={[slot_items]}>
               <ShipsContext.Provider value={[ships]}>
                 <MstShipsContext.Provider value={[mst_ships]}>
-                  <MaterialsContext.Provider value={[materials]}>
+                  <MaterialsContext.Provider value={[storyMaterials]}>
                     <MstUseItemsContext.Provider value={[mstUseItems]}>
                       <MstUseItemMetasContext.Provider
                         value={[mstUseItemMetas]}

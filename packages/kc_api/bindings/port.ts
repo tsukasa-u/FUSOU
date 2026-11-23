@@ -8,7 +8,7 @@ export type DeckPorts = { deck_ports: { [key in number]?: DeckPort }, combined_f
 
 export type Logs = { message: Array<string> | null, };
 
-export type Materials = { materials: { [key in number]?: number }, };
+export type Materials = { materials: { [key in number]?: number }, furniture_coin?: number, };
 
 export type Mission = { mission_id: number, complete_time: number, counter: number, };
 

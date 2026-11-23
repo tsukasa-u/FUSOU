@@ -1,13 +1,16 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { ComponentItemModal, EmptyValue, MenuFilterBar } from "ui";
 import {
+  useMaterials,
   useMstUseItemMetas,
   useMstUseItems,
   usePayItems,
+  useSlotItems,
   useUseItems,
 } from "../../utility/provider.tsx";
 import type { ItemViewEntry } from "../../utility/item_shelves.ts";
 import {
+  buildOwnedItemNumbers,
   buildItemShelves,
   buildUseItemNameMap,
 } from "../../utility/item_shelves.ts";
@@ -15,6 +18,8 @@ import {
 export function ItemsComponent() {
   const [useItems] = useUseItems();
   const [payItems] = usePayItems();
+  const [materials] = useMaterials();
+  const [slotItems] = useSlotItems();
   const [mstUseItems] = useMstUseItems();
   const [mstUseItemMetas] = useMstUseItemMetas();
   const [query, setQuery] = createSignal("");
@@ -25,10 +30,21 @@ export function ItemsComponent() {
       payItems,
       mstUseItems,
       mstUseItemMetas,
+      materials,
+      slotItems,
+      furnitureCoin: materials.furniture_coin,
     }),
   );
   const itemNames = createMemo(() =>
     buildUseItemNameMap(mstUseItems, mstUseItemMetas),
+  );
+  const ownedUseItemIds = createMemo(() =>
+    buildOwnedItemNumbers(
+      useItems,
+      materials,
+      shelves().furniture.map((item) => item.id),
+      slotItems,
+    ),
   );
 
   const normalizedQuery = createMemo(() => query().trim().toLowerCase());
@@ -48,6 +64,11 @@ export function ItemsComponent() {
   const specialItems = createMemo(() => filterList(shelves().special));
   const purchasedItems = createMemo(() => filterList(shelves().purchased));
   const furnitureItems = createMemo(() => filterList(shelves().furniture));
+  const purchasedPayItems = createMemo(() =>
+    shelves()
+      .purchased.filter((item) => item.isPayItem)
+      .map(({ id, name }) => ({ id, name })),
+  );
 
   const rawTotalCount = createMemo(
     () =>
@@ -69,7 +90,10 @@ export function ItemsComponent() {
     () =>
       Object.keys(useItems.use_items).length > 0 ||
       Object.keys(payItems.pay_items).length > 0 ||
-      Object.keys(mstUseItemMetas.mst_use_item_metas).length > 0,
+      Object.keys(materials.materials).length > 0 ||
+      Object.keys(slotItems.slot_items).length > 0 ||
+      Object.keys(mstUseItemMetas.mst_use_item_metas).length > 0 ||
+      typeof materials.furniture_coin === "number",
   );
 
   const renderItemRow = (item: ItemViewEntry) => (
@@ -82,7 +106,10 @@ export function ItemsComponent() {
             description={item.description}
             descriptionIsNormalized={true}
             itemNames={itemNames()}
+            payItemId={item.isPayItem ? item.id : undefined}
+            additionalPurchasedPayItems={purchasedPayItems()}
             count={item.count}
+            ownedUseItemIds={ownedUseItemIds()}
             size="xs"
           />
         </div>

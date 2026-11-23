@@ -1,3 +1,25 @@
+export const material_icon_number_by_index: Record<number, number> = {
+  0: 31,
+  1: 32,
+  2: 33,
+  3: 34,
+  4: 2,
+  5: 1,
+  6: 3,
+  7: 4,
+};
+
+export const material_icon_name_by_number: Record<number, string> = {
+  31: "燃料",
+  32: "弾薬",
+  33: "鋼材",
+  34: "ボーキサイト",
+  2: "高速建造材",
+  1: "高速修復材",
+  3: "開発資材",
+  4: "改修資材",
+};
+
 export const item_list: { [key: number]: [string, number] } = {
   0: ["  ", 0], //  undifined
   1: ["A3", 1], //  高速修復材
@@ -61,7 +83,7 @@ export const item_list: { [key: number]: [string, number] } = {
   59: ["D1", 1], //  給糧艦「伊良湖」
   60: ["E1", 1], //  プレゼント箱
   61: ["G1", 1], //  甲種勲章
-  62: ["LT", 1], //  菱餅
+  62: ["G3", 1], //  菱餅
   63: ["G2", 1], //  司令部要員
   64: ["H2", 1], //  補強増設
   65: ["B4", 1], //  試製カタパルト
@@ -88,15 +110,15 @@ export const item_list: { [key: number]: [string, number] } = {
   86: ["LT", 2], //  梅干し
   87: ["LT", 2], //  海苔
   88: ["LT", 2], //  お茶
-  89: ["LT", 2], //  鳳翔さん鳳翔食券
-  90: ["LT", 2], //  節分の豆
+  89: ["B1", 2], //  鳳翔さん鳳翔食券
+  90: ["C4", 2], //  節分の豆
   91: ["B3", 2], //  緊急修理資材
   92: ["C2", 2], //  新型噴進装備開発資材
   93: ["LT", 2], //  鰯
   94: ["C3", 2], //  新型兵装資材
   95: ["H4", 1], //  潜水艦補給物資
   96: ["LT", 2], //  南瓜
-  97: ["LT", 2], //  てるてる坊主
+  97: ["H3", 1], //  てるてる坊主
   98: ["A4", 2], //  海色リボン
   99: ["B4", 2], //  白たすき
   100: ["D2", 2], //  海外艦最新技術
@@ -137,16 +159,20 @@ const resource_shelf_layout = [
   ["A0", "C0"],
   ["B0", "D0"],
 ];
-const absent_shelf_cells: Record<number, ReadonlySet<string>> = {
-  1: new Set(["A1", "G1", "D3"]),
-  2: new Set(["E1"]),
-};
+// Mirrors the game's PAYITEMLIST_ORDER; positions are assigned row-major.
+const purchased_item_order = [
+  1, 2, 3, 4, 11, 14, 24, 30, 5, 6, 7, 8, 9, 10, 25, 31, 13, 15, 17, 16, 18, 19,
+  26, 32, 20, 21, 23, 22, 27, 28, 29, -1,
+] as const;
 
-function getOccupiedMaterialIconCells(tableId: number) {
+function getOccupiedMaterialIconCells(
+  tableId: number,
+  ownedUseItemIds: readonly number[],
+) {
   return new Set(
-    Object.values(item_list).flatMap(([rawCell, itemTableId]) => {
-      const cell = rawCell.trim();
-      return itemTableId === tableId && /^[A-H][0-4]$/.test(cell) ? [cell] : [];
+    ownedUseItemIds.flatMap((itemNumber) => {
+      const cell = getMaterialIconShelfCell(itemNumber);
+      return item_list[itemNumber]?.[1] === tableId && cell ? [cell] : [];
     }),
   );
 }
@@ -169,40 +195,82 @@ function createMaterialIconShelfCell(
 export function getMaterialIconShelfRows(
   tableId: number,
   columns = material_icon_columns,
+  ownedUseItemIds: readonly number[] = [],
 ) {
-  const occupiedCells = getOccupiedMaterialIconCells(tableId);
-  const absentCells = absent_shelf_cells[tableId] ?? new Set<string>();
+  const occupiedCells = getOccupiedMaterialIconCells(tableId, ownedUseItemIds);
 
   return material_icon_rows.map((row) =>
     columns.map((column) => {
       const cell = `${column}${row}`;
-      return createMaterialIconShelfCell(
-        cell,
-        occupiedCells.has(cell),
-        !absentCells.has(cell),
-      );
+      return createMaterialIconShelfCell(cell, occupiedCells.has(cell));
     }),
+  );
+}
+
+export function getPayItemShelfCell(payItemId: number) {
+  const index = purchased_item_order.indexOf(
+    payItemId as (typeof purchased_item_order)[number],
+  );
+  if (index < 0 || purchased_item_order[index] < 0) return null;
+
+  const row = Math.floor(index / material_icon_columns.length) + 1;
+  const column = material_icon_columns[index % material_icon_columns.length];
+  return column ? `${column}${row}` : null;
+}
+
+export function getPayItemIdsAtCell(
+  cell: string,
+  additionalPayItemIds: readonly number[] = [],
+) {
+  return [
+    ...new Set(
+      additionalPayItemIds.filter(
+        (payItemId) => getPayItemShelfCell(payItemId) === cell,
+      ),
+    ),
+  ];
+}
+
+export function getMaterialIconPurchasedShelfRows(
+  additionalPayItemIds: readonly number[] = [],
+  ownedUseItemIds: readonly number[] = [],
+) {
+  const rows = getMaterialIconShelfRows(
+    3,
+    material_icon_columns,
+    ownedUseItemIds,
+  );
+  const occupiedCells = new Set(
+    additionalPayItemIds
+      .map(getPayItemShelfCell)
+      .filter((cell): cell is string => cell !== null),
+  );
+
+  return rows.map((row) =>
+    row.map((cell) =>
+      occupiedCells.has(cell.cell) ? { ...cell, occupied: true } : cell,
+    ),
   );
 }
 
 export function getMaterialIconItemNumbersAtCell(
   tableId: number,
   cell: string,
+  ownedUseItemIds: readonly number[] = [],
 ) {
-  if (absent_shelf_cells[tableId]?.has(cell)) return [];
-
-  const itemCell = tableId === 2 && cell === "A1" ? "LT" : cell;
-
-  return Object.entries(item_list).flatMap(
-    ([itemNumber, [rawCell, itemTableId]]) =>
-      itemTableId === tableId && rawCell.trim() === itemCell
-        ? [Number(itemNumber)]
-        : [],
+  const itemNumbers = ownedUseItemIds.filter(
+    (itemNumber) =>
+      item_list[itemNumber]?.[1] === tableId &&
+      getMaterialIconShelfCell(itemNumber) === cell,
   );
+
+  return [...new Set(itemNumbers)];
 }
 
-export function getMaterialIconResourceShelfRows() {
-  const occupiedCells = getOccupiedMaterialIconCells(4);
+export function getMaterialIconResourceShelfRows(
+  ownedUseItemIds: readonly number[] = [],
+) {
+  const occupiedCells = getOccupiedMaterialIconCells(4, ownedUseItemIds);
   return resource_shelf_layout.map((row) =>
     row.map((cell) =>
       createMaterialIconShelfCell(cell, occupiedCells.has(cell)),
@@ -210,31 +278,33 @@ export function getMaterialIconResourceShelfRows() {
   );
 }
 
-export function getMaterialIconFurnitureStoreRows() {
-  const occupiedCells = getOccupiedMaterialIconCells(5);
+export function getMaterialIconFurnitureStoreRows(
+  ownedUseItemIds: readonly number[] = [],
+) {
+  const occupiedCells = getOccupiedMaterialIconCells(5, ownedUseItemIds);
   return [[createMaterialIconShelfCell("E0", occupiedCells.has("E0"))]];
 }
 
-export function getMaterialIconExpansionShelfRows() {
-  const rows = getMaterialIconShelfRows(2, expansion_shelf_columns);
-  const hasLtItem = Object.values(item_list).some(
-    ([cell, tableId]) => tableId === 2 && cell.trim() === "LT",
+export function getMaterialIconExpansionShelfRows(
+  ownedUseItemIds: readonly number[] = [],
+) {
+  const rows = getMaterialIconShelfRows(
+    2,
+    expansion_shelf_columns,
+    ownedUseItemIds,
   );
-
-  if (!hasLtItem) return rows;
 
   return rows.map((row) =>
     row.map((cell) =>
-      cell.cell === "A1" ? { ...cell, occupied: true, label: "LT" } : cell,
+      cell.cell === "A1" && cell.occupied ? { ...cell, label: "LT" } : cell,
     ),
   );
 }
 
 export function getMaterialIconShelfCell(itemNumber: number) {
   const { cell, tableId } = getMaterialIconLocation(itemNumber);
-  if (absent_shelf_cells[tableId]?.has(cell)) return null;
 
-  if (tableId === 2 && cell === "LT") return "A1";
+  if (tableId === 2 && cell === "LT" && itemNumber === 96) return "A1";
   if (tableId === 4 && /^[A-D]0$/.test(cell)) return cell;
   if (tableId === 1 && /^[A-H][1-4]$/.test(cell)) return cell;
   if (tableId === 2 && /^[A-E][1-4]$/.test(cell)) return cell;

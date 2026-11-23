@@ -8,6 +8,7 @@ use ts_rs::TS;
 pub static KCS_MATERIALS: Lazy<Mutex<Materials>> = Lazy::new(|| {
     Mutex::new(Materials {
         materials: HashMap::new(),
+        furniture_coin: None,
     })
 });
 
@@ -15,6 +16,9 @@ pub static KCS_MATERIALS: Lazy<Mutex<Materials>> = Lazy::new(|| {
 #[ts(export, export_to = "port.ts")]
 pub struct Materials {
     pub materials: HashMap<usize, i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub furniture_coin: Option<i64>,
 }
 
 impl Materials {
