@@ -250,6 +250,18 @@ const EDITABLE_CONFIG_SPECS: &[ConfigKeySpec] = &[
         key: "app.kc_window.keep_window_size_duration_millis",
         requires_restart: false,
     },
+    ConfigKeySpec {
+        key: "app.kc_window.window_mode",
+        requires_restart: true,
+    },
+    ConfigKeySpec {
+        key: "app.kc_window.dock_position",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.kc_window.dock_panel_ratio_percent",
+        requires_restart: false,
+    },
     // UI Visibility & Collapse State
     ConfigKeySpec {
         key: "app.ui.tabs.show_fleet",
@@ -663,6 +675,28 @@ fn validate_config_entry(key: &str, value: &ConfigPatchValue) -> Result<(), Stri
                 return Err(format!("{key} must be between 0 and 60000"));
             }
         }
+        ("app.kc_window.window_mode", ConfigPatchValue::String(mode)) => {
+            if !matches!(mode.as_str(), "separate" | "combined") {
+                return Err(
+                    "app.kc_window.window_mode must be 'separate' or 'combined'".to_string()
+                );
+            }
+        }
+        ("app.kc_window.dock_position", ConfigPatchValue::String(pos)) => {
+            if !matches!(pos.as_str(), "auto" | "right" | "bottom" | "left" | "top") {
+                return Err(
+                    "app.kc_window.dock_position must be 'auto', 'right', 'bottom', 'left', or 'top'"
+                        .to_string(),
+                );
+            }
+        }
+        ("app.kc_window.dock_panel_ratio_percent", ConfigPatchValue::Integer(val)) => {
+            if !(15..=80).contains(val) {
+                return Err(
+                    "app.kc_window.dock_panel_ratio_percent must be between 15 and 80".to_string()
+                );
+            }
+        }
         (
             "app.browser.url"
             | "app.discord.custom_image_url"
@@ -767,6 +801,7 @@ pub async fn get_app_configs() -> Result<AppConfigsResponse, String> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn save_app_configs(
+    app: tauri::AppHandle,
     updates: BTreeMap<String, ConfigPatchValue>,
 ) -> Result<SaveAppConfigsResponse, String> {
     let current_values = configs::export_user_config_values()
@@ -794,6 +829,14 @@ pub async fn save_app_configs(
         .map_err(|err| format!("Failed to save configs: {err}"))?;
 
     let updated_keys: Vec<String> = changed_updates.keys().cloned().collect();
+    if updated_keys.iter().any(|k| {
+        matches!(
+            k.as_str(),
+            "app.kc_window.dock_position" | "app.kc_window.dock_panel_ratio_percent"
+        )
+    }) {
+        crate::window::host::apply_config_layout_updates(&app);
+    }
     let restart_required_keys: Vec<String> = updated_keys
         .iter()
         .filter(|key| {

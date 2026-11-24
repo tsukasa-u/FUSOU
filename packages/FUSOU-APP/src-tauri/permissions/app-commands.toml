@@ -53,6 +53,14 @@ commands.allow = [
   "read_emit_file",
   "trigger_external_screenshot",
   "trigger_external_reload",
-  "set_external_volume"
+  "set_external_volume",
+  "get_window_layout_state",
+  "set_dock_position",
+  "set_dock_panel_ratio",
+  "open_game_pane",
+  "close_game_pane",
+  "begin_splitter_drag",
+  "update_splitter_drag",
+  "end_splitter_drag"
 ]
 

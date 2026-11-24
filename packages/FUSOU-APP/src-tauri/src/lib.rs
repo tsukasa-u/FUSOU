@@ -152,6 +152,7 @@ pub async fn run() {
         )
         .plugin(
             tauri_plugin_window_state::Builder::default()
+                .with_denylist(&[window::host::COMBINED_WINDOW_LABEL])
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::all()
                         - tauri_plugin_window_state::StateFlags::DECORATIONS,
@@ -226,16 +227,20 @@ pub async fn run() {
             window::external::trigger_external_screenshot,
             window::external::trigger_external_reload,
             window::external::set_external_volume,
+            cmd::layout_cmd::get_window_layout_state,
+            cmd::layout_cmd::set_dock_position,
+            cmd::layout_cmd::set_dock_panel_ratio,
+            cmd::layout_cmd::open_game_pane,
+            cmd::layout_cmd::close_game_pane,
+            cmd::layout_cmd::begin_splitter_drag,
+            cmd::layout_cmd::update_splitter_drag,
+            cmd::layout_cmd::end_splitter_drag,
         ])
         .setup(move |app: &mut tauri::App| {
             crate::notify::set_app_handle(app.handle().clone());
 
             // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
             builder_setup::setup::set_paths(app)?;
-
-            if let Some(main_window) = app.get_webview_window("main") {
-                window::common::setup_frameless_window(&main_window);
-            }
 
             // Initialize AuthManager
             let session_path = util::get_ROAMING_DIR().join("fusou-auth-session.json");
@@ -296,8 +301,9 @@ pub async fn run() {
                 tracing::debug!(%err, "shared asset sync retry dependencies already initialized");
             }
 
-            // Ensure user config file path is initialized before reading retry settings.
+            // Ensure user config file path is initialized before reading retry and window layout settings.
             builder_setup::setup::setup_configs()?;
+            window::host::init_primary_window(app.handle());
 
             // Kick retry on startup and keep retrying on configured interval.
             let retry_service_for_background = retry_service.clone();

@@ -26,7 +26,7 @@ use crate::{
     notify, scheduler,
     storage::integrate,
     util::{get_DEFAULT_CONFIG_PATH, get_ROAMING_DIR, try_anonymous_auth},
-    window::{app, external},
+    window::external,
 };
 use proxy_https::bidirectional_channel::request_shutdown;
 
@@ -53,21 +53,7 @@ pub struct AppShutdownController {
 
 impl AppShutdownController {
     pub fn request_restart(&self, app: &tauri::AppHandle) {
-        if let Some(window) = app.get_webview_window("main") {
-            if let Ok(true) = window.is_visible() {
-                if let Err(e) = window.hide() {
-                    tracing::error!("Failed to hide main window: {}", e);
-                }
-            }
-        }
-
-        if let Some(window) = app.get_webview_window("external") {
-            if let Ok(true) = window.is_visible() {
-                if let Err(e) = window.hide() {
-                    tracing::error!("Failed to hide external window: {}", e);
-                }
-            }
-        }
+        crate::window::host::hide_all_windows_for_shutdown(app);
 
         native_cmd::remove_pac(app);
         discord::close();
@@ -315,19 +301,7 @@ fn setup_tray(
             } = event
             {
                 let app = tray.app_handle();
-                let window = app.get_webview_window("main");
-                match window {
-                    Some(window) => {
-                        if let Ok(false) = window.is_visible() {
-                            if let Err(e) = window.show() {
-                                tracing::error!("Failed to show window: {}", e);
-                            }
-                        }
-                    }
-                    None => {
-                        app::open_main_window(app);
-                    }
-                }
+                crate::window::host::show_primary_window(app);
             }
         })
         .on_menu_event({
@@ -411,28 +385,7 @@ fn setup_tray(
                         );
                     }
                     "restart" => {
-                        if let Some(window) = tray.get_webview_window("main") {
-                            if let Ok(visible) = window.is_visible() {
-                                if visible {
-                                    if let Err(e) = window.hide() {
-                                        tracing::error!("Failed to hide main window: {}", e);
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(window) = tray.get_webview_window("external") {
-                            if let Ok(visible) = window.is_visible() {
-                                if visible {
-                                    if let Err(e) = window.hide() {
-                                        tracing::error!(
-                                            "Failed to hide external window: {}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                        crate::window::host::hide_all_windows_for_shutdown(tray.app_handle());
 
                         let _ = restart.set_enabled(false);
                         let _ = quit.set_enabled(false);
@@ -447,25 +400,7 @@ fn setup_tray(
                         });
                     }
                     "quit" => {
-                        if let Some(window) = tray.get_webview_window("main") {
-                            if let Ok(visible) = window.is_visible() {
-                                if visible {
-                                    if let Err(e) = window.hide() {
-                                        tracing::error!("Failed to hide main window: {}", e);
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(window) = tray.get_webview_window("external") {
-                            if let Ok(visible) = window.is_visible() {
-                                if visible {
-                                    if let Err(e) = window.hide() {
-                                        tracing::error!("Failed to hide external window: {}", e);
-                                    }
-                                }
-                            }
-                        }
+                        crate::window::host::hide_all_windows_for_shutdown(tray.app_handle());
 
                         // let _ = main_open_close.set_enabled(false);
                         let _ = quit.set_enabled(false);
@@ -528,24 +463,12 @@ fn setup_tray(
                         }
                     }
                     "open-launch-page" => {
-                        let window = tray.get_webview_window("main");
-                        match window {
-                            Some(window) => {
-                                if let Ok(false) = window.is_visible() {
-                                    if let Err(e) = window.show() {
-                                        tracing::error!("Failed to show main window: {}", e);
-                                    }
-                                }
-                                let _ = window.emit_to(
-                                    "main",
-                                    crate::events::SET_MAIN_PAGE_LAUNCH,
-                                    (),
-                                );
-                            }
-                            None => {
-                                app::open_main_window(tray.app_handle());
-                            }
-                        }
+                        crate::window::host::show_primary_window(tray.app_handle());
+                        let _ = tray.app_handle().emit_to(
+                            "main",
+                            crate::events::SET_MAIN_PAGE_LAUNCH,
+                            (),
+                        );
                     }
                     "open-configs" => {
                         let config_path = get_ROAMING_DIR().join("user").join("configs.toml");
@@ -636,21 +559,8 @@ fn setup_tray(
                         integrate::integrate_port_table(pending_store, retry_service);
                     }
                     "check-update" => {
-                        let window = tray.get_webview_window("main");
-                        match window {
-                            Some(window) => {
-                                if let Ok(false) = window.is_visible() {
-                                    if let Err(e) = window.show() {
-                                        tracing::error!("Failed to show main window: {}", e);
-                                    }
-                                }
-                                tauri_cmd::set_update_page(tray.app_handle());
-                            }
-                            None => {
-                                app::open_main_window(tray.app_handle());
-                                tauri_cmd::set_update_page(tray.app_handle());
-                            }
-                        }
+                        crate::window::host::show_primary_window(tray.app_handle());
+                        tauri_cmd::set_update_page(tray.app_handle());
                     }
                     "check-session-health" => {
                         let app_handle = tray.app_handle().clone();
@@ -721,14 +631,11 @@ fn setup_tray(
                                         "Local Sign Out",
                                         "Local tokens cleared. Anonymous session will be recreated automatically when needed."
                                     );
-                                    let main_window = app_handle.get_webview_window("main");
-                                    if let Some(window) = main_window {
-                                        let _ = window.emit_to(
-                                            "main",
-                                            crate::events::SET_SUPABASE_TOKENS,
-                                            vec![String::new(), String::new()],
-                                        );
-                                    }
+                                    let _ = app_handle.emit_to(
+                                        "main",
+                                        crate::events::SET_SUPABASE_TOKENS,
+                                        vec![String::new(), String::new()],
+                                    );
                                 }
                                 Err(e) => {
                                     notify::show(
@@ -741,70 +648,29 @@ fn setup_tray(
                         });
                     }
                     "main-open/close" => {
-                        let window = tray.get_webview_window("main");
-                        match window {
-                            Some(window) => match window.is_visible() {
-                                Ok(true) => {
-                                    if let Err(e) = window.hide() {
-                                        tracing::error!("Failed to hide main window: {}", e);
-                                    }
-                                    // // let _ = app
-                                    // //     .tray_handle()
-                                    // //     .get_item("main-open/close")
-                                    // //     .set_title("Open Main Window");
-                                    // let _ = main_open_close.set_text("Open Main Window");
-                                }
-                                Ok(false) => {
-                                    if let Err(e) = window.show() {
-                                        tracing::error!("Failed to show main window: {}", e);
-                                    }
-                                    // // let _ = app
-                                    // //     .tray_handle()
-                                    // //     .get_item("main-open/close")
-                                    // //     .set_title("Close Main Window");
-                                    // let _ = main_open_close.set_text("Close Main Window");
-                                }
-                                _ => {}
-                            },
-                            None => {
-                                app::open_main_window(tray.app_handle());
-                                // main_open_close.set_text("Close Main Window");
-                            }
-                        }
+                        crate::window::host::toggle_primary_window(tray.app_handle());
                     }
                     "external-open/close" => {
-                        let window = tray.get_webview_window("external");
-                        match window {
-                            Some(window) => match window.is_visible() {
-                                Ok(true) => {
-                                    // if let Err(e) = window.hide() {
-                                    //     tracing::error!("Failed to hide external window: {}", e);
-                                    // }
-                                    // // let _ = app
-                                    // //     .tray_handle()
-                                    // //     .get_item("external-open/close")
-                                    // //     .set_title("Open WebView");
-                                    // external_open_close.set_text("Open WebView");
-                                }
-                                Ok(false) => {
-                                    if let Err(e) = window.show() {
-                                        tracing::error!("Failed to show external window: {}", e);
+                        if crate::window::host::is_combined_mode(tray.app_handle()) {
+                            let app_handle = tray.app_handle().clone();
+                            tauri::async_runtime::spawn(async move {
+                                external::create_external_window(&app_handle);
+                            });
+                        } else {
+                            let window = tray.get_webview_window("external");
+                            match window {
+                                Some(window) => match window.is_visible() {
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        if let Err(e) = window.show() {
+                                            tracing::error!("Failed to show external window: {}", e);
+                                        }
                                     }
-                                    // // let _ = app
-                                    // //     .tray_handle()
-                                    // //     .get_item("external-open/close")
-                                    // //     .set_title("Close WebView");
-                                    // external_open_close.set_text("Close WebView");
+                                    _ => {}
+                                },
+                                None => {
+                                    external::create_external_window(tray.app_handle());
                                 }
-                                _ => {}
-                            },
-                            None => {
-                                external::create_external_window(tray.app_handle());
-                                // // let _ = app
-                                // //     .tray_handle()
-                                // //     .get_item("external-open/close")
-                                // //     .set_title("Close WebView");
-                                // external_open_close.set_text("Close WebView");
                             }
                         }
                     }

@@ -189,6 +189,8 @@ pub async fn launch_with_options(
         }
     };
 
+    let open_kancolle_requested = options.get("open_kancolle").copied().unwrap_or(0) != 0;
+
     if let Some(&flag) = options.get("open_app") {
         if flag != 0 {
             if let Some(parser_flag_guard) = try_acquire_running_flag(&PARSER_SERVER_RUNNING) {
@@ -201,33 +203,15 @@ pub async fn launch_with_options(
             } else {
                 tracing::info!("response parser is already running; skipping duplicate start");
             }
-            window
-                .get_webview_window("main")
-                .expect_or_log("no window labeled 'main' found")
-                .show()
-                .unwrap();
-            // let _ = window
-            //     .app_handle()
-            //     .tray_handle()
-            //     .get_item("main-open/close")
-            //     .set_title("Close Main Window");
-        } else {
-            window
-                .get_webview_window("main")
-                .expect_or_log("no window labeled 'main' found")
-                .close()
-                .unwrap();
-            // let _ = window
-            //     .app_handle()
-            //     .tray_handle()
-            //     .get_item("main-open/close")
-            //     .set_title("Open Main Window");
+            crate::window::host::show_primary_window(window.app_handle());
+        } else if !crate::window::host::is_combined_mode(window.app_handle())
+            || !open_kancolle_requested
+        {
+            crate::window::host::hide_primary_window(window.app_handle());
         }
     }
-    if let Some(&flag) = options.get("open_kancolle") {
-        if flag != 0 {
-            create_external_window(window.app_handle());
-        }
+    if open_kancolle_requested {
+        create_external_window(window.app_handle());
     }
 
     Ok(())

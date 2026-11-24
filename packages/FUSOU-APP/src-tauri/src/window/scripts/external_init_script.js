@@ -657,10 +657,12 @@ window.addEventListener("message", (e) => {
 
 const GAME_FRAME_HEIGHT = 720;
 const GAME_FRAME_WIDTH = 1200;
-const TITLEBAR_HEIGHT = 32;
+const isDocked = Boolean(window.__fusouDocked);
+const TITLEBAR_HEIGHT = isDocked ? 0 : 32;
 let oldUrl = "";
 let isInitialized = false;
 let areShortcutsBound = false;
+let dockedResizeEdges = { top: false, bottom: true, left: true, right: false };
 
 const FUSOU_LOGO_SVG = `
 <svg viewBox="0 0 1000 1000" width="16" height="16" xmlns="http://www.w3.org/2000/svg" style="display:inline-block; vertical-align:middle; flex-shrink:0; pointer-events:none;">
@@ -799,18 +801,39 @@ const ensureTitlebarStyles = () => {
       background: transparent !important;
     }
 
-    /* Clip entire window surface strictly to 10px rounded rectangle (eliminates square corner bleed) */
+    /* Clip entire window surface strictly to 10px rounded rectangle in separate mode */
+    ${
+      isDocked
+        ? `
+    html, body {
+      clip-path: none !important;
+      background-color: #ffffff !important;
+      background: #ffffff !important;
+    }
+    html.fusou-game-mode,
+    html.fusou-game-mode body {
+      background-color: #0e0e11 !important;
+      background: #0e0e11 !important;
+      overflow: hidden !important;
+    }
+    `
+        : `
     html:not(.is-maximized):not(.fusou-screenshot-mode) {
       clip-path: inset(0 round 10px) !important;
     }
     html:not(.is-maximized):not(.fusou-screenshot-mode) body {
       clip-path: inset(0 round 10px) !important;
     }
+    `
+    }
     html.is-maximized,
     html.is-maximized body,
     html.fusou-screenshot-mode,
     html.fusou-screenshot-mode body {
       clip-path: none !important;
+    }
+    html.fusou-screenshot-mode #fusou-volume-popover {
+      display: none !important;
     }
 
     /* Prevent DMM white container/background bleeding into transparent corners */
@@ -924,8 +947,8 @@ const ensureTitlebarStyles = () => {
     #area-game #game_frame,
     .fusou-game-container #game_frame {
       position: absolute !important;
-      top: 0 !important;
-      left: 0 !important;
+      top: 0;
+      left: 0;
       margin: 0 !important;
       padding: 0 !important;
       border: none !important;
@@ -1208,8 +1231,156 @@ const updateVolumeUI = (vol, muted) => {
   }
 };
 
+const ensureDockedResizeHandles = () => {
+  if (!isTopWindow() || !isDocked) return;
+  const parent = document.body || document.documentElement;
+  if (!parent) return;
+
+  const { left, right, bottom } = dockedResizeEdges;
+  const edgeKey = `${left ? 1 : 0}:${right ? 1 : 0}:${bottom ? 1 : 0}`;
+
+  let container = document.getElementById("fusou-docked-resize-handles");
+  if (
+    container &&
+    container.isConnected &&
+    container.dataset.fusouEdgeKey === edgeKey
+  ) {
+    return;
+  }
+
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "fusou-docked-resize-handles";
+    container.style.cssText =
+      "position:fixed; inset:0; pointer-events:none; z-index:2147483645;";
+    parent.appendChild(container);
+  } else if (!container.isConnected) {
+    parent.appendChild(container);
+  }
+
+  container.dataset.fusouEdgeKey = edgeKey;
+  container.innerHTML = "";
+
+  const addHandle = (direction, css) => {
+    const el = document.createElement("div");
+    el.style.cssText = `position:fixed; pointer-events:auto; background:transparent; ${css}`;
+    el.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      requestNativeShortcut(`resize:${direction}`);
+    });
+    container.appendChild(el);
+  };
+
+  if (bottom) {
+    addHandle("South", "bottom:0; left:8px; right:8px; height:4px; cursor:ns-resize;");
+  }
+  if (left) {
+    addHandle("West", "left:0; top:0; bottom:8px; width:4px; cursor:ew-resize;");
+  }
+  if (right) {
+    addHandle("East", "right:0; top:0; bottom:8px; width:4px; cursor:ew-resize;");
+  }
+  if (bottom && left) {
+    addHandle("SouthWest", "bottom:0; left:0; width:8px; height:8px; cursor:nesw-resize;");
+  }
+  if (bottom && right) {
+    addHandle("SouthEast", "bottom:0; right:0; width:8px; height:8px; cursor:nwse-resize;");
+  }
+};
+
+window.__fusouSetDockEdges = (edges) => {
+  if (!edges || typeof edges !== "object") return;
+  dockedResizeEdges = {
+    top: Boolean(edges.top),
+    bottom: Boolean(edges.bottom),
+    left: Boolean(edges.left),
+    right: Boolean(edges.right),
+  };
+  ensureDockedResizeHandles();
+};
+
+let splitterOverlayEl = null;
+let splitterDragRaf = 0;
+let pendingSplitterCoords = null;
+
+window.__fusouSetSplitterDragging = (active, axis) => {
+  if (!isTopWindow() || !isDocked) return;
+  const parent = document.body || document.documentElement;
+  if (!parent) return;
+
+  if (!active) {
+    if (splitterDragRaf) {
+      cancelAnimationFrame(splitterDragRaf);
+      splitterDragRaf = 0;
+    }
+    pendingSplitterCoords = null;
+    if (splitterOverlayEl && splitterOverlayEl.parentNode) {
+      splitterOverlayEl.parentNode.removeChild(splitterOverlayEl);
+    }
+    splitterOverlayEl = null;
+    return;
+  }
+
+  if (!splitterOverlayEl) {
+    const overlay = document.createElement("div");
+    overlay.id = "fusou-splitter-capture-overlay";
+    overlay.style.cssText = `position:fixed; inset:0; z-index:2147483647; background:transparent; cursor:${
+      axis === "vertical" ? "row-resize" : "col-resize"
+    }; user-select:none; touch-action:none;`;
+
+    overlay.addEventListener("pointermove", (e) => {
+      pendingSplitterCoords = { x: e.screenX, y: e.screenY };
+      if (!splitterDragRaf) {
+        splitterDragRaf = requestAnimationFrame(() => {
+          splitterDragRaf = 0;
+          if (pendingSplitterCoords) {
+            requestNativeShortcut(
+              `splitter-move:${pendingSplitterCoords.x}:${pendingSplitterCoords.y}`,
+            );
+          }
+        });
+      }
+    });
+
+    const finishDrag = () => {
+      requestNativeShortcut("splitter-end");
+      window.__fusouSetSplitterDragging(false);
+    };
+    overlay.addEventListener("pointerup", finishDrag);
+    overlay.addEventListener("pointercancel", finishDrag);
+    parent.appendChild(overlay);
+    splitterOverlayEl = overlay;
+  } else {
+    splitterOverlayEl.style.cursor =
+      axis === "vertical" ? "row-resize" : "col-resize";
+  }
+};
+
+let dockedVolumeInitialized = false;
+
+const initDockedVolume = () => {
+  if (dockedVolumeInitialized) return;
+  dockedVolumeInitialized = true;
+  const savedVol = localStorage.getItem("fusou-external-volume");
+  const savedMuted = localStorage.getItem("fusou-external-muted");
+  const initVol = savedVol !== null ? Number(savedVol) : 100;
+  const initMuted = savedMuted === "true";
+
+  fusouCurrentVolume = Math.max(0, Math.min(1, initVol / 100));
+  fusouIsMuted = initMuted;
+  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+  requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
+  broadcastToAllFrames({
+    type: "fusou-set-volume",
+    volume: fusouCurrentVolume,
+    muted: fusouIsMuted,
+  });
+};
+
 const ensureWindowFrameElements = () => {
-  if (!isTopWindow()) return;
+  if (!isTopWindow() || isDocked) return;
   const parent = document.body || document.documentElement;
   if (!parent) return;
 
@@ -1229,6 +1400,11 @@ const ensureWindowFrameElements = () => {
 const injectTitlebar = () => {
   if (!isTopWindow()) return;
   ensureTitlebarStyles();
+  if (isDocked) {
+    ensureDockedResizeHandles();
+    initDockedVolume();
+    return;
+  }
   ensureWindowFrameElements();
 
   if (document.getElementById("fusou-titlebar")) return;
@@ -1521,9 +1697,24 @@ const adjustGameFrameScale = (
 ) => {
   if (!frame) return;
   const availableWidth = window.innerWidth;
+  const availableHeight = Math.max(1, window.innerHeight - TITLEBAR_HEIGHT);
   if (availableWidth <= 0) return;
-  const scale = availableWidth / GAME_FRAME_WIDTH;
-  frame.style.transform = `scale(${scale}, ${scale})`;
+  if (isDocked) {
+    const scale = Math.min(
+      availableWidth / GAME_FRAME_WIDTH,
+      availableHeight / GAME_FRAME_HEIGHT,
+    );
+    const offsetX = Math.max(0, (availableWidth - GAME_FRAME_WIDTH * scale) / 2);
+    const offsetY = Math.max(0, (availableHeight - GAME_FRAME_HEIGHT * scale) / 2);
+    frame.style.setProperty("left", `${offsetX}px`, "important");
+    frame.style.setProperty("top", `${offsetY}px`, "important");
+    frame.style.setProperty("transform", `scale(${scale}, ${scale})`, "important");
+  } else {
+    const scale = availableWidth / GAME_FRAME_WIDTH;
+    frame.style.setProperty("left", "0px", "important");
+    frame.style.setProperty("top", "0px", "important");
+    frame.style.setProperty("transform", `scale(${scale}, ${scale})`, "important");
+  }
 };
 
 let isApplyingLayout = false;
@@ -1665,11 +1856,17 @@ window.addEventListener("load", initialize);
 window.addEventListener("resize", () => {
   if (isTopWindow()) {
     adjustGameFrameScale();
-    updateMaximizeIcon();
+    if (!isDocked) {
+      updateMaximizeIcon();
+    }
   }
 });
 window.addEventListener("scroll", () => {
-  if (isTopWindow() && (window.scrollX !== 0 || window.scrollY !== 0)) {
+  if (
+    isTopWindow() &&
+    (!isDocked || document.documentElement.classList.contains("fusou-game-mode")) &&
+    (window.scrollX !== 0 || window.scrollY !== 0)
+  ) {
     window.scrollTo(0, 0);
   }
 });
@@ -1735,6 +1932,14 @@ window.__fusouFinishScreenshot = () => {
 };
 
 window.__fusouPrepareScreenshot = () => {
+  const volumePopover = document.getElementById("fusou-volume-popover");
+  if (volumePopover) {
+    volumePopover.style.display = "none";
+  }
+  const volumeBtn = volumePopover?.parentElement?.querySelector(".fusou-tool-btn");
+  if (volumeBtn) {
+    volumeBtn.classList.remove("fusou-active");
+  }
   document.documentElement.classList.add("fusou-screenshot-mode");
   if (document.body) {
     document.body.classList.add("fusou-screenshot-mode");

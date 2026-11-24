@@ -179,10 +179,33 @@ fn get_external_screenshot_dir() -> PathBuf {
     dir
 }
 
-fn get_visible_external_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
-    let external = app.get_webview_window("external")?;
+pub fn parse_game_url() -> Option<tauri::Url> {
+    match get_game_url().parse() {
+        Ok(url) => Some(url),
+        Err(e) => {
+            tracing::error!(
+                "Invalid game URL in config, cannot open external window: {}",
+                e
+            );
+            None
+        }
+    }
+}
 
-    match external.is_visible() {
+fn get_visible_external_webview(app: &AppHandle) -> Option<tauri::Webview> {
+    let external = app.get_webview("external")?;
+
+    if crate::window::host::is_combined_mode(app) {
+        let game_visible = app
+            .try_state::<crate::window::host::WindowLayoutState>()
+            .map(|state| state.snapshot().game_visible)
+            .unwrap_or(false);
+        if !game_visible {
+            return None;
+        }
+    }
+
+    match external.window().is_visible() {
         Ok(true) => Some(external),
         Ok(false) => None,
         Err(e) => {
@@ -193,11 +216,11 @@ fn get_visible_external_window(app: &AppHandle) -> Option<tauri::WebviewWindow> 
 }
 
 pub fn is_external_window_focused(app: &AppHandle) -> bool {
-    let Some(external) = get_visible_external_window(app) else {
+    let Some(external) = get_visible_external_webview(app) else {
         return false;
     };
 
-    match external.is_focused() {
+    match external.window().is_focused() {
         Ok(is_focused) => is_focused,
         Err(error) => {
             tracing::warn!("failed to determine external window focus: {}", error);
@@ -208,7 +231,7 @@ pub fn is_external_window_focused(app: &AppHandle) -> bool {
 
 #[cfg(target_os = "linux")]
 fn eval_external_script_with_callback(
-    external: &tauri::WebviewWindow,
+    external: &tauri::Webview,
     script: &'static str,
     action_name: &'static str,
 ) {
@@ -247,7 +270,7 @@ fn eval_external_script_with_callback(
 }
 
 #[cfg(target_os = "linux")]
-fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
+fn install_linux_webview_key_fallback(external: &tauri::Webview) {
     let window_label = external.label().to_string();
 
     {
@@ -317,25 +340,30 @@ fn install_linux_webview_key_fallback(external: &tauri::WebviewWindow) {
     }
 }
 
-fn build_external_init_script() -> String {
+pub fn build_external_init_script(docked: bool) -> String {
     #[cfg(windows)]
-    let prefix = "window.__fusouPlatform = \"windows\";\n";
+    let platform = "windows";
     #[cfg(target_os = "linux")]
-    let prefix = "window.__fusouPlatform = \"linux\";\n";
+    let platform = "linux";
     #[cfg(not(any(windows, target_os = "linux")))]
-    let prefix = "window.__fusouPlatform = \"other\";\n";
+    let platform = "other";
+
+    let prefix = format!(
+        "window.__fusouPlatform = \"{platform}\";\nwindow.__fusouDocked = {docked};\n"
+    );
 
     let raw_script = include_str!("./scripts/external_init_script.js");
     let mut combined = String::with_capacity(prefix.len() + raw_script.len());
-    combined.push_str(prefix);
+    combined.push_str(&prefix);
     combined.push_str(raw_script);
     combined
 }
 
 #[cfg(target_os = "linux")]
-fn install_linux_webview_scripts(external: &tauri::WebviewWindow) {
+fn install_linux_webview_scripts(external: &tauri::Webview) {
     let window_label = external.label().to_string();
-    let init_script = build_external_init_script();
+    let docked = crate::window::host::is_combined_mode(external.app_handle());
+    let init_script = build_external_init_script(docked);
     let install_result = external.with_webview(move |webview| {
         let wv = webview.inner();
 
@@ -384,7 +412,7 @@ fn is_windows_key_up(kind: COREWEBVIEW2_KEY_EVENT_KIND) -> bool {
 }
 
 #[cfg(windows)]
-fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
+fn install_windows_webview_key_fallback(external: &tauri::Webview) {
     let window_label = external.label().to_string();
 
     {
@@ -513,8 +541,32 @@ fn install_windows_webview_key_fallback(external: &tauri::WebviewWindow) {
     }
 }
 
-fn nudge_external_window_size(external: &tauri::WebviewWindow) {
-    let Ok(size) = external.inner_size() else {
+pub fn install_webview_hooks(external: &tauri::Webview) {
+    #[cfg(target_os = "linux")]
+    {
+        install_linux_webview_key_fallback(external);
+        install_linux_webview_scripts(external);
+    }
+
+    #[cfg(windows)]
+    {
+        install_windows_webview_key_fallback(external);
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = external;
+    }
+}
+
+fn nudge_external_window_size(external: &tauri::Webview) {
+    if crate::window::host::is_combined_mode(external.app_handle()) {
+        crate::window::combined::sync_combined_layout(external.app_handle());
+        return;
+    }
+
+    let window = external.window();
+    let Ok(size) = window.inner_size() else {
         return;
     };
 
@@ -530,23 +582,46 @@ fn nudge_external_window_size(external: &tauri::WebviewWindow) {
 
     let nudged_size = tauri::PhysicalSize::new(nudged_width, size.height);
 
-    if let Err(e) = external.set_size(nudged_size) {
+    if let Err(e) = window.set_size(nudged_size) {
         tracing::warn!("failed to nudge external window size: {}", e);
         return;
     }
 
-    if let Err(e) = external.set_size(size) {
+    if let Err(e) = window.set_size(size) {
         tracing::warn!("failed to restore external window size after nudge: {}", e);
     }
 }
 
 pub fn reload_focused_external_window(app: &AppHandle) -> bool {
-    let Some(external) = get_visible_external_window(app) else {
+    let Some(external) = get_visible_external_webview(app) else {
         tracing::debug!("skip external reload: external window not found or not visible");
         return false;
     };
 
-    tracing::warn!("trigger external reload");
+    let current_url = external.url().ok();
+    tracing::warn!(
+        combined = crate::window::host::is_combined_mode(app),
+        url = ?current_url,
+        bounds = ?external.bounds(),
+        "trigger external reload"
+    );
+
+    if current_url
+        .as_ref()
+        .map(|u| u.as_str() == "about:blank" || u.as_str().is_empty())
+        .unwrap_or(true)
+    {
+        if let Some(game_url) = parse_game_url() {
+            tracing::warn!(target_url = %game_url, "external webview was on blank URL; navigating to game URL");
+            return match external.navigate(game_url) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!("failed to navigate external window: {}", error);
+                    false
+                }
+            };
+        }
+    }
 
     match external.reload() {
         Ok(()) => true,
@@ -558,7 +633,7 @@ pub fn reload_focused_external_window(app: &AppHandle) -> bool {
 }
 
 pub fn force_refresh_focused_external_window(app: &AppHandle) -> bool {
-    let Some(external) = get_visible_external_window(app) else {
+    let Some(external) = get_visible_external_webview(app) else {
         tracing::debug!("skip external force refresh: external window not found or not visible");
         return false;
     };
@@ -708,6 +783,54 @@ mod screenshot_clipboard_tests {
 
         assert_eq!(rgba, [12, 34, 56, 78]);
     }
+
+    #[test]
+    fn centered_aspect_crop_removes_top_bottom_and_side_letterboxes() {
+        // Tall pane (e.g. 1421x980 at 1.25x DPI, right-docked panel)
+        assert_eq!(
+            compute_centered_aspect_crop(1421, 980, GAME_ASPECT_WIDTH, GAME_ASPECT_HEIGHT),
+            (0, 64, 1421, 852)
+        );
+        // Wide pane (e.g. 1920x720, bottom-docked panel)
+        assert_eq!(
+            compute_centered_aspect_crop(1920, 720, GAME_ASPECT_WIDTH, GAME_ASPECT_HEIGHT),
+            (360, 0, 1200, 720)
+        );
+        // Exact 5:3 pane
+        assert_eq!(
+            compute_centered_aspect_crop(1200, 720, GAME_ASPECT_WIDTH, GAME_ASPECT_HEIGHT),
+            (0, 0, 1200, 720)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn crop_png_to_game_aspect_strips_letterbox_rows() {
+        // 10x10 PNG: 5:3 aspect inside 10x10 is 10x6 centered at y = 2..8
+        let mut raw = Vec::with_capacity(10 * 10 * 4);
+        for y in 0..10 {
+            for _x in 0..10 {
+                if (2..8).contains(&y) {
+                    raw.extend_from_slice(&[20, 180, 90, 255]);
+                } else {
+                    raw.extend_from_slice(&[14, 14, 17, 255]);
+                }
+            }
+        }
+        let mut png_bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_bytes, 10, 10);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("header");
+            writer.write_image_data(&raw).expect("data");
+        }
+
+        let cropped = crop_png_to_game_aspect(&png_bytes).expect("crop succeeds");
+        let (w, h, rgba) = decode_png_to_rgba(&cropped).expect("decode cropped");
+        assert_eq!((w, h), (10, 6));
+        assert!(rgba.chunks_exact(4).all(|px| px == [20, 180, 90, 255]));
+    }
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -729,7 +852,7 @@ fn save_screenshot_and_copy(
 #[cfg(any(windows, target_os = "linux"))]
 fn finish_screenshot_delivery(
     app: &AppHandle,
-    external: &tauri::WebviewWindow,
+    external: &tauri::Webview,
     output_path: &PathBuf,
     save_result: Result<(), String>,
     copy_result: Result<(), String>,
@@ -772,6 +895,110 @@ fn finish_screenshot_delivery(
         },
     );
     crate::notify::show(app, "External window", &notification);
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+const GAME_ASPECT_WIDTH: f64 = 1200.0;
+#[cfg(any(windows, target_os = "linux"))]
+const GAME_ASPECT_HEIGHT: f64 = 720.0;
+
+#[cfg(any(windows, target_os = "linux"))]
+fn compute_centered_aspect_crop(
+    img_width: u32,
+    img_height: u32,
+    aspect_width: f64,
+    aspect_height: f64,
+) -> (u32, u32, u32, u32) {
+    if img_width == 0 || img_height == 0 || aspect_width <= 0.0 || aspect_height <= 0.0 {
+        return (0, 0, img_width.max(1), img_height.max(1));
+    }
+
+    let w = img_width as f64;
+    let h = img_height as f64;
+    let scale = (w / aspect_width).min(h / aspect_height);
+    let exact_w = aspect_width * scale;
+    let exact_h = aspect_height * scale;
+    let exact_x = ((w - exact_w) / 2.0).max(0.0);
+    let exact_y = ((h - exact_h) / 2.0).max(0.0);
+
+    // Use [ceil(start), floor(end)] so fractional-pixel letterbox edges never bleed into the crop.
+    let x0 = (exact_x.ceil() as u32).min(img_width.saturating_sub(1));
+    let y0 = (exact_y.ceil() as u32).min(img_height.saturating_sub(1));
+    let x1 = ((exact_x + exact_w).floor() as u32).clamp(x0 + 1, img_width);
+    let y1 = ((exact_y + exact_h).floor() as u32).clamp(y0 + 1, img_height);
+
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+#[cfg(windows)]
+fn crop_png_rect(
+    png_bytes: &[u8],
+    crop_x: u32,
+    crop_y: u32,
+    crop_w: u32,
+    crop_h: u32,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let cursor = std::io::Cursor::new(png_bytes);
+    let decoder = png::Decoder::new(cursor);
+    let mut reader = decoder.read_info()?;
+    let buf_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "image too large"))?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader.next_frame(&mut buf)?;
+
+    let bytes_per_pixel = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Indexed => 1,
+    } * (info.bit_depth as usize / 8).max(1);
+
+    let x0 = crop_x.min(info.width.saturating_sub(1)) as usize;
+    let y0 = crop_y.min(info.height.saturating_sub(1)) as usize;
+    let out_w = crop_w.clamp(1, info.width - x0 as u32) as usize;
+    let out_h = crop_h.clamp(1, info.height - y0 as u32) as usize;
+
+    let src_row_bytes = info.line_size;
+    let dst_row_bytes = out_w * bytes_per_pixel;
+    let mut cropped = Vec::with_capacity(dst_row_bytes * out_h);
+
+    for row in y0..(y0 + out_h) {
+        let start = row * src_row_bytes + x0 * bytes_per_pixel;
+        let end = start + dst_row_bytes;
+        if end <= buf.len() {
+            cropped.extend_from_slice(&buf[start..end]);
+        }
+    }
+
+    let mut output = Vec::new();
+    let mut encoder = png::Encoder::new(&mut output, out_w as u32, out_h as u32);
+    encoder.set_color(info.color_type);
+    encoder.set_depth(info.bit_depth);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&cropped)?;
+    drop(writer);
+
+    Ok(output)
+}
+
+#[cfg(windows)]
+fn crop_png_to_game_aspect(png_bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let cursor = std::io::Cursor::new(png_bytes);
+    let decoder = png::Decoder::new(cursor);
+    let reader = decoder.read_info()?;
+    let info = reader.info();
+    let (crop_x, crop_y, crop_w, crop_h) = compute_centered_aspect_crop(
+        info.width,
+        info.height,
+        GAME_ASPECT_WIDTH,
+        GAME_ASPECT_HEIGHT,
+    );
+    if crop_x == 0 && crop_y == 0 && crop_w == info.width && crop_h == info.height {
+        return Ok(png_bytes.to_vec());
+    }
+    crop_png_rect(png_bytes, crop_x, crop_y, crop_w, crop_h)
 }
 
 #[cfg(windows)]
@@ -827,6 +1054,7 @@ fn process_windows_screenshot(
     result_json: &str,
     titlebar_logical_height: f64,
     logical_height: f64,
+    docked: bool,
 ) -> Result<Vec<u8>, (String, &'static str)> {
     let value = serde_json::from_str::<serde_json::Value>(result_json).map_err(|error| {
         (
@@ -856,14 +1084,28 @@ fn process_windows_screenshot(
             )
         })?;
 
-    let final_image_bytes =
+    let final_image_bytes = if docked {
+        match crop_png_to_game_aspect(&image_bytes) {
+            Ok(cropped) => cropped,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to crop letterbox from docked windows screenshot: {}",
+                    error
+                );
+                image_bytes
+            }
+        }
+    } else if titlebar_logical_height > 0.0 {
         match crop_top_from_png(&image_bytes, titlebar_logical_height, logical_height) {
             Ok(cropped) => cropped,
             Err(error) => {
                 tracing::warn!("failed to crop titlebar from windows screenshot: {}", error);
                 image_bytes
             }
-        };
+        }
+    } else {
+        image_bytes
+    };
 
     Ok(final_image_bytes)
 }
@@ -874,7 +1116,7 @@ fn emit_screenshot_status(app: &AppHandle, status: &'static str) {
     }
 }
 
-fn restore_external_screenshot_mode(external: &tauri::WebviewWindow) {
+fn restore_external_screenshot_mode(external: &tauri::Webview) {
     if let Err(error) = external.eval(
         "if (typeof window.__fusouRestoreScreenshotMode === 'function') { window.__fusouRestoreScreenshotMode(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); if (document.body) { document.body.classList.remove('fusou-screenshot-mode'); } }",
     ) {
@@ -882,7 +1124,7 @@ fn restore_external_screenshot_mode(external: &tauri::WebviewWindow) {
     }
 }
 
-fn finish_external_screenshot(external: &tauri::WebviewWindow) {
+fn finish_external_screenshot(external: &tauri::Webview) {
     if let Err(error) = external.eval(
         "if (typeof window.__fusouFinishScreenshot === 'function') { window.__fusouFinishScreenshot(); } else { document.documentElement.classList.remove('fusou-screenshot-mode'); if (document.body) { document.body.classList.remove('fusou-screenshot-mode'); } }",
     ) {
@@ -900,7 +1142,7 @@ fn capture_focused_external_window_screenshot_with_prepare(
 ) -> Option<PathBuf> {
     emit_screenshot_status(app, "started");
 
-    let Some(external) = get_visible_external_window(app) else {
+    let Some(external) = get_visible_external_webview(app) else {
         tracing::debug!("skip external screenshot: external window not found or not visible");
         emit_screenshot_status(app, "failed");
         return None;
@@ -917,7 +1159,10 @@ fn capture_focused_external_window_screenshot_with_prepare(
         return None;
     }
 
-    let window_title = external.title().unwrap_or_else(|_| "external".to_string());
+    let window_title = external
+        .window()
+        .title()
+        .unwrap_or_else(|_| "external".to_string());
     let normalized_title = sanitize_filename_fragment(&window_title);
     let title_suffix = if normalized_title.is_empty() {
         "external".to_string()
@@ -940,16 +1185,28 @@ fn capture_focused_external_window_screenshot_with_prepare(
         }
     }
 
+    let docked = crate::window::host::is_combined_mode(app);
+
     #[cfg(target_os = "linux")]
     {
-        const TITLEBAR_HEIGHT: f64 = 32.0;
-        let scale_factor = external.scale_factor().unwrap_or(1.0);
-        let titlebar_height_px = (TITLEBAR_HEIGHT * scale_factor).round() as f64;
+        let titlebar_height: f64 = if docked { 0.0 } else { 32.0 };
+        let scale_factor = external.window().scale_factor().unwrap_or(1.0);
+        let titlebar_height_px = (titlebar_height * scale_factor).round() as f64;
 
         let (capture_width, capture_height) = external
-            .inner_size()
+            .bounds()
             .ok()
-            .map(|size| (size.width as i32, size.height as i32))
+            .map(|rect| {
+                let phys = rect.size.to_physical::<u32>(scale_factor);
+                (phys.width as i32, phys.height as i32)
+            })
+            .or_else(|| {
+                external
+                    .window()
+                    .inner_size()
+                    .ok()
+                    .map(|size| (size.width as i32, size.height as i32))
+            })
             .unwrap_or((1200, 752));
 
         let cropped_height = (capture_height - titlebar_height_px as i32).max(1);
@@ -990,10 +1247,21 @@ fn capture_focused_external_window_screenshot_with_prepare(
                             };
 
                             let image_result = (|| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+                                let (crop_x, crop_y, out_w, out_h) = if docked {
+                                    let (x, y, w, h) = compute_centered_aspect_crop(
+                                        capture_width.max(1) as u32,
+                                        cropped_height.max(1) as u32,
+                                        GAME_ASPECT_WIDTH,
+                                        GAME_ASPECT_HEIGHT,
+                                    );
+                                    (x as f64, y as f64, w as i32, h as i32)
+                                } else {
+                                    (0.0, 0.0, capture_width, cropped_height)
+                                };
                                 let target = cairo::ImageSurface::create(
                                     cairo::Format::ARgb32,
-                                    capture_width,
-                                    cropped_height,
+                                    out_w,
+                                    out_h,
                                 )?;
                                 let cr = cairo::Context::new(&target)?;
 
@@ -1002,8 +1270,12 @@ fn capture_focused_external_window_screenshot_with_prepare(
                                 cr.set_source_rgb(14.0 / 255.0, 14.0 / 255.0, 17.0 / 255.0);
                                 cr.paint()?;
 
-                                // Paint cropped webview surface (offsetting top titlebar)
-                                cr.set_source_surface(&surface, 0.0, -titlebar_height_px)?;
+                                // Paint cropped webview surface (offsetting top titlebar and docked letterbox)
+                                cr.set_source_surface(
+                                    &surface,
+                                    -crop_x,
+                                    -(titlebar_height_px + crop_y),
+                                )?;
                                 cr.paint()?;
                                 target.flush();
 
@@ -1091,12 +1363,19 @@ fn capture_focused_external_window_screenshot_with_prepare(
 
     #[cfg(windows)]
     {
-        const TITLEBAR_HEIGHT: f64 = 32.0;
-        let scale_factor = external.scale_factor().unwrap_or(1.0);
+        let titlebar_height: f64 = if docked { 0.0 } else { 32.0 };
+        let scale_factor = external.window().scale_factor().unwrap_or(1.0);
         let logical_height = external
-            .inner_size()
+            .bounds()
             .ok()
-            .map(|size| size.to_logical::<f64>(scale_factor).height)
+            .map(|rect| rect.size.to_logical::<f64>(scale_factor).height)
+            .or_else(|| {
+                external
+                    .window()
+                    .inner_size()
+                    .ok()
+                    .map(|size| size.to_logical::<f64>(scale_factor).height)
+            })
             .unwrap_or(752.0);
 
         let output_path_for_callback = output_path.clone();
@@ -1154,8 +1433,9 @@ fn capture_focused_external_window_screenshot_with_prepare(
                         let delivery_result = tauri::async_runtime::spawn_blocking(move || {
                             let image_bytes = process_windows_screenshot(
                                 &result_json,
-                                TITLEBAR_HEIGHT,
+                                titlebar_height,
                                 logical_height,
+                                docked,
                             )?;
                             Ok::<_, (String, &'static str)>(save_screenshot_and_copy(
                                 &output_path_for_processing,
@@ -1420,17 +1700,57 @@ pub fn set_linux_app_audio_volume(volume: f64, muted: bool) {
     });
 }
 
+fn parse_resize_direction(raw: &str) -> Option<tauri_runtime::ResizeDirection> {
+    match raw {
+        "North" => Some(tauri_runtime::ResizeDirection::North),
+        "South" => Some(tauri_runtime::ResizeDirection::South),
+        "East" => Some(tauri_runtime::ResizeDirection::East),
+        "West" => Some(tauri_runtime::ResizeDirection::West),
+        "NorthEast" => Some(tauri_runtime::ResizeDirection::NorthEast),
+        "NorthWest" => Some(tauri_runtime::ResizeDirection::NorthWest),
+        "SouthEast" => Some(tauri_runtime::ResizeDirection::SouthEast),
+        "SouthWest" => Some(tauri_runtime::ResizeDirection::SouthWest),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 pub fn external_window_shortcut(
-    window: tauri::WebviewWindow,
+    webview: tauri::Webview,
     action: String,
 ) -> Result<(), String> {
-    if window.label() != "external" {
+    if webview.label() != "external" {
         return Err("shortcut actions are only available to the external window".to_string());
     }
 
+    let window = webview.window();
+
     if action == "start-dragging" {
         let _ = window.start_dragging();
+        return Ok(());
+    }
+
+    if let Some(direction_raw) = action.strip_prefix("resize:") {
+        if let Some(direction) = parse_resize_direction(direction_raw) {
+            let _ = window.start_resize_dragging(direction);
+            return Ok(());
+        }
+        return Err(format!("unsupported resize direction: {direction_raw}"));
+    }
+
+    if let Some(coords) = action.strip_prefix("splitter-move:") {
+        let mut parts = coords.split(':');
+        if let (Some(x), Some(y)) = (
+            parts.next().and_then(|s| s.parse::<f64>().ok()),
+            parts.next().and_then(|s| s.parse::<f64>().ok()),
+        ) {
+            crate::window::combined::update_splitter_drag(webview.app_handle(), x, y);
+        }
+        return Ok(());
+    }
+
+    if action == "splitter-end" {
+        crate::window::combined::end_splitter_drag(webview.app_handle());
         return Ok(());
     }
 
@@ -1449,7 +1769,11 @@ pub fn external_window_shortcut(
     }
 
     if action == "close" {
-        let _ = window.close();
+        if crate::window::host::is_combined_mode(webview.app_handle()) {
+            crate::window::combined::hide_external_child_webview(webview.app_handle());
+        } else {
+            let _ = window.close();
+        }
         return Ok(());
     }
 
@@ -1464,7 +1788,7 @@ pub fn external_window_shortcut(
             {
                 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
                 use windows_core::Interface;
-                let _ = window.with_webview(move |platform_webview| {
+                let _ = webview.with_webview(move |platform_webview| {
                     let controller = platform_webview.controller();
                     let webview = match unsafe { controller.CoreWebView2() } {
                         Ok(wv) => wv,
@@ -1479,14 +1803,14 @@ pub fn external_window_shortcut(
             #[cfg(target_os = "linux")]
             {
                 use webkit2gtk::WebViewExt;
-                let _ = window.with_webview(move |platform_webview| {
+                let _ = webview.with_webview(move |platform_webview| {
                     let webview = platform_webview.inner();
                     webview.set_is_muted(is_muted);
                 });
                 set_linux_app_audio_volume(vol, muted);
             }
 
-            let app_handle = window.app_handle();
+            let app_handle = webview.app_handle();
             use tauri::Emitter;
             let _ = app_handle.emit(
                 "fusou-volume-changed",
@@ -1499,7 +1823,7 @@ pub fn external_window_shortcut(
         return Ok(());
     }
 
-    let app = window.app_handle();
+    let app = webview.app_handle();
 
     match action.as_str() {
         "reload" => handle_external_reload_shortcut(app),
@@ -1512,7 +1836,11 @@ pub fn external_window_shortcut(
 }
 
 pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
-    let Some(external) = get_visible_external_window(app) else {
+    let Some(external) = (if crate::window::host::is_combined_mode(app) {
+        app.get_webview("external")
+    } else {
+        get_visible_external_webview(app)
+    }) else {
         return;
     };
 
@@ -1581,15 +1909,15 @@ pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
 }
 
 pub fn create_external_window(app: &AppHandle) {
+    if crate::window::host::is_combined_mode(app) {
+        crate::window::combined::attach_external_child_webview(app);
+        return;
+    }
+
     if let Some(window) = app.get_webview_window("external") {
-        #[cfg(target_os = "linux")]
-        install_linux_webview_key_fallback(&window);
-
-        #[cfg(target_os = "linux")]
-        install_linux_webview_scripts(&window);
-
-        #[cfg(windows)]
-        install_windows_webview_key_fallback(&window);
+        if let Some(webview) = app.get_webview("external") {
+            install_webview_hooks(&webview);
+        }
 
         match window.is_visible() {
             Ok(visible) => {
@@ -1608,17 +1936,10 @@ pub fn create_external_window(app: &AppHandle) {
         tracing::error!("can not get webview windows \"external\"");
     }
 
-    let init_script = build_external_init_script();
+    let init_script = build_external_init_script(false);
 
-    let game_url = match get_game_url().parse() {
-        Ok(url) => url,
-        Err(e) => {
-            tracing::error!(
-                "Invalid game URL in config, cannot open external window: {}",
-                e
-            );
-            return;
-        }
+    let Some(game_url) = parse_game_url() else {
+        return;
     };
 
     let external =
@@ -1653,14 +1974,9 @@ pub fn create_external_window(app: &AppHandle) {
         .build()
         .expect_or_log("error while building external");
 
-    #[cfg(target_os = "linux")]
-    install_linux_webview_key_fallback(&external_result);
-
-    #[cfg(target_os = "linux")]
-    install_linux_webview_scripts(&external_result);
-
-    #[cfg(windows)]
-    install_windows_webview_key_fallback(&external_result);
+    if let Some(webview) = app.get_webview("external") {
+        install_webview_hooks(&webview);
+    }
 
     crate::window::common::setup_frameless_window(&external_result);
 

@@ -1,5 +1,6 @@
 use configs;
 use std::sync::{LazyLock, Mutex};
+use tauri::Manager;
 
 use crate::window::external;
 
@@ -91,9 +92,9 @@ static RESIZE_DEBOUNCER: LazyLock<Debouncer> = LazyLock::new(|| {
 pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) {
     match event {
         tauri::WindowEvent::CloseRequested { api, .. } => match window.label() {
-            "main" => {
+            "main" | "combined" => {
                 if let Err(e) = window.hide() {
-                    tracing::warn!("failed to hide main window on close request: {}", e);
+                    tracing::warn!("failed to hide primary window on close request: {}", e);
                 }
                 api.prevent_close();
             }
@@ -113,6 +114,12 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
             _ => {}
         },
         tauri::WindowEvent::Resized(size) => {
+            if window.label() == crate::window::host::COMBINED_WINDOW_LABEL {
+                if size.width > 0 && size.height > 0 {
+                    crate::window::combined::schedule_sync_combined_layout(window.app_handle(), 16);
+                }
+                return;
+            }
             {
                 let mut ctx = LAST_RESIZE_CONTEXT
                     .lock()
