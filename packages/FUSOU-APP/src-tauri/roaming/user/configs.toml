@@ -405,6 +405,68 @@ save_file_location = ""
     default_inner_height = 720
 
 
+    [app.ui.tabs]
+    # Show or hide top-level tabs in FUSOU-APP (Settings tab is always visible)
+    show_fleet = true
+    show_ship = true
+    show_equip = true
+    show_item = true
+    show_quest = true
+    show_uploads = true
+    show_logs = true
+    show_policy = true
+
+    [app.ui.fleet_tab]
+    # Show/hide and initial expanded state for sections inside the Fleet tab
+    show_materials = true
+    open_materials = false
+    show_fleets = true
+    open_fleets = true
+    show_repair_docks = true
+    open_repair_docks = false
+    show_air_bases = true
+    open_air_bases = false
+    open_air_base_squadrons = false
+    show_battles = true
+    open_battles = true
+
+    [app.ui.fleets]
+    # Show/hide and initial expanded state for each fleet (1st - 4th Fleet)
+    show_condition_value = true
+    show_fleet_1 = true
+    open_fleet_1 = true
+    show_fleet_2 = true
+    open_fleet_2 = false
+    show_fleet_3 = true
+    open_fleet_3 = false
+    show_fleet_4 = true
+    open_fleet_4 = false
+
+    [app.ui.items]
+    # Show/hide and initial expanded state for the Items list and each item shelf
+    show_items = true
+    open_items = true
+    show_normal = true
+    open_normal = true
+    show_special = true
+    open_special = true
+    show_purchased = true
+    open_purchased = true
+    show_furniture = true
+    open_furniture = true
+
+    [app.ui.quests]
+    # Show/hide and initial expanded state for the Quests list and each quest category
+    show_quests = true
+    open_quests = true
+    show_accepted = true
+    open_accepted = true
+    show_available = true
+    open_available = true
+    show_completed = true
+    open_completed = true
+
+
 [env]
 # Environment-specific configurations
 # Keep it empty for now
