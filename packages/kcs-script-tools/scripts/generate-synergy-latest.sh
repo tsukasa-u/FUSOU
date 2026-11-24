@@ -151,6 +151,16 @@ echo "Processing latest period_tag: $tag"
 echo "----------------------------------------"
 echo "[scan] node binary: $SCAN_NODE_BIN"
 
+# 0. Preflight check (verify main.js and S@api_start2@getData in FUSOU-PROXY-DATA)
+echo "[0/3] Checking required FUSOU-PROXY-DATA files..."
+"$SCAN_NODE_BIN" -e '
+const path = require("path");
+const { ROOT, validatePeriodInputs } = require(path.resolve(process.argv[1], "..", "lib", "loader"));
+const res = validatePeriodInputs(process.argv[2]);
+console.log("[preflight] main.js:     " + path.relative(ROOT, res.mainJsPath));
+console.log("[preflight] master data: " + path.relative(ROOT, res.masterPath));
+' "$SCRIPT_DIR" "$tag"
+
 # 1. Deobfuscate
 echo "[1/3] Deobfuscating..."
 "$SCAN_NODE_BIN" "$SCRIPT_DIR/core/deobfuscate.js" --period-tag "$tag"

@@ -308,16 +308,42 @@ function wranglerR2Put(r2Key, localPath, env, bucketName) {
 }
 
 // ── API calls ──────────────────────────────────────────────────────
+function isLocalUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function apiPost(baseUrl, path, body, adminToken) {
   const url = `${baseUrl}${path}`;
   console.log(`  POST ${url}`);
   const headers = { "Content-Type": "application/json" };
   if (adminToken) headers["X-ADMIN-TOKEN"] = adminToken;
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const cause = err?.cause;
+    const causeParts = [cause?.code, cause?.message].filter(Boolean);
+    const detail = causeParts.length > 0 ? ` (${causeParts.join(": ")})` : "";
+    const localHint = isLocalUrl(baseUrl)
+      ? `\nHint: Local FUSOU-WEB dev server does not appear to be reachable at ${baseUrl}. Start it first (e.g. \`pnpm --filter fusou-web dev\`), or use \`pnpm upload:remote\` for production.`
+      : "";
+    throw new Error(
+      `Request failed for POST ${url}: ${err?.message || err}${detail}${localHint}`,
+    );
+  }
   const rawBody = await res.text();
   let responseBody = null;
   if (rawBody) {
@@ -349,7 +375,12 @@ async function main() {
   if (!filePath) {
     filePath = findDefaultFile(opts.periodTag || null);
     if (!filePath) {
-      console.error("Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in kcs-script-tools/output.");
+      console.error(
+        "Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in kcs-script-tools/output.",
+      );
+      console.error(
+        "  Run `pnpm generate:latest` in kcs-script-tools first, or pass --file <path>.",
+      );
       process.exit(1);
     }
   }
@@ -357,7 +388,7 @@ async function main() {
   if (!existsSync(filePath)) {
     console.error(`Error: File not found: ${filePath}`);
     console.error(
-      "  Run `pnpm scan:volatile` in kcs-script-tools first, or pass --file <path>",
+      "  Run `pnpm generate:latest` in kcs-script-tools first, or pass --file <path>.",
     );
     process.exit(1);
   }

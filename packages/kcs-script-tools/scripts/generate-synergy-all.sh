@@ -29,17 +29,27 @@ for tag in $tags; do
   echo "Processing period_tag: $tag"
   echo "----------------------------------------"
 
+  # 0. Preflight check (verify main.js and S@api_start2@getData in FUSOU-PROXY-DATA)
+  echo "[0/3] Checking required FUSOU-PROXY-DATA files..."
+  node -e '
+const path = require("path");
+const { ROOT, validatePeriodInputs } = require(path.resolve(process.argv[1], "..", "lib", "loader"));
+const res = validatePeriodInputs(process.argv[2]);
+console.log("[preflight] main.js:     " + path.relative(ROOT, res.mainJsPath));
+console.log("[preflight] master data: " + path.relative(ROOT, res.masterPath));
+' "$SCRIPT_DIR" "$tag"
+
   # 1. Deobfuscate
   echo "[1/3] Deobfuscating..."
-  node "$SCRIPT_DIR/deobfuscate.js" --period-tag "$tag"
+  node "$SCRIPT_DIR/core/deobfuscate.js" --period-tag "$tag"
 
   # 2. Extract AST
   echo "[2/3] Extracting AST..."
-  node "$SCRIPT_DIR/extract-ast.js" --period-tag "$tag"
+  node "$SCRIPT_DIR/core/extract-ast.js" --period-tag "$tag"
 
   # 3. Scan Synergy
   echo "[3/3] Scanning Synergy..."
-  node "$SCRIPT_DIR/scan-ast.js" --period-tag "$tag"
+  node "$SCRIPT_DIR/core/scan-ast.js" --period-tag "$tag"
 
   echo "Finished $tag successfully!"
 done

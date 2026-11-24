@@ -855,6 +855,19 @@ async function main() {
 
   const tmpDir = path.join(ROOT, "output", `.scan-ast-parallel-${Date.now()}-${process.pid}`);
   fs.mkdirSync(tmpDir, { recursive: true });
+  const cleanupTmpDir = () => {
+    try {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    } catch {}
+  };
+  const onSignal = (sig) => {
+    cleanupTmpDir();
+    process.exit(sig === "SIGINT" ? 130 : 143);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
 
   const sharedState = {
     startedAt: Date.now(),
@@ -898,68 +911,73 @@ async function main() {
   }
 
   try {
-    await Promise.all(Array.from({ length: workers }, (_, i) => workerLoop(i + 1)));
+    try {
+      await Promise.all(Array.from({ length: workers }, (_, i) => workerLoop(i + 1)));
+    } finally {
+      clearInterval(timer);
+      renderProgress(sharedState, totalEstimated);
+    }
+
+    const docs = outputs.map((p) => JSON.parse(fs.readFileSync(p, "utf8")));
+    const base = docs[0];
+    const sumMeta = (key) => docs.reduce((acc, d) => acc + (Number(d?._meta?.[key]) || 0), 0);
+
+    const outName = opts.periodTag
+      ? `slot_item_effects_${opts.periodTag}.json`
+      : "slot_item_effects_ast.json";
+    const finalOutputPath = opts.outputPath || path.join(ROOT, "output", outName);
+
+    const merged = {
+      _meta: {
+        ...base._meta,
+        parallel_scan: true,
+        parallel_workers: workers,
+        schedule_shards: tasks.length,
+        strict_nminus1: opts.strictNMinusOne,
+        allow_duplicate_items: opts.allowDuplicateItems,
+        max_combo_size: opts.maxComboSize,
+        total_ships: Object.keys(Object.assign({}, ...docs.map((d) => d.ships || {}))).length,
+        total_single_bonuses: sumMeta("total_single_bonuses"),
+        total_cross_synergies: sumMeta("total_cross_synergies"),
+        total_triple_synergies: sumMeta("total_triple_synergies"),
+        total_quad_corrections: sumMeta("total_quad_corrections"),
+        total_penta_corrections: sumMeta("total_penta_corrections"),
+        total_hexa_corrections: sumMeta("total_hexa_corrections"),
+      },
+      ships: Object.assign({}, ...docs.map((d) => d.ships || {})),
+      items: base.items || {},
+    };
+
+    merged.effect_rules = mergeRuleSet(docs.map((d) => d.effect_rules || []), "items");
+    merged.cross_rules = mergeRuleSet(docs.map((d) => d.cross_rules || []), "pairs");
+    merged.triple_rules = mergeRuleSet(docs.map((d) => d.triple_rules || []));
+    merged.quad_rules = mergeRuleSet(docs.map((d) => d.quad_rules || []));
+    merged.penta_rules = mergeRuleSet(docs.map((d) => d.penta_rules || []));
+    merged.hexa_rules = mergeRuleSet(docs.map((d) => d.hexa_rules || []));
+
+    merged.effect_rules_equip_index = buildEquipIndex(merged.effect_rules);
+    merged.cross_rules_equip_index = buildEquipIndex(merged.cross_rules);
+    merged.triple_rules_equip_index = buildEquipIndex(merged.triple_rules);
+    merged.quad_rules_equip_index = buildEquipIndex(merged.quad_rules);
+    merged.penta_rules_equip_index = buildEquipIndex(merged.penta_rules);
+    merged.hexa_rules_equip_index = buildEquipIndex(merged.hexa_rules);
+
+    merged._meta.effect_rule_count = merged.effect_rules.length;
+    merged._meta.cross_rule_count = merged.cross_rules.length;
+    merged._meta.triple_rule_count = merged.triple_rules.length;
+    merged._meta.quad_rule_count = merged.quad_rules.length;
+    merged._meta.penta_rule_count = merged.penta_rules.length;
+    merged._meta.hexa_rule_count = merged.hexa_rules.length;
+
+    fs.mkdirSync(path.dirname(finalOutputPath), { recursive: true });
+    fs.writeFileSync(finalOutputPath, JSON.stringify(merged), "utf8");
+
+    console.log(`[parallel-scan] merged output: ${path.relative(ROOT, finalOutputPath)}`);
   } finally {
-    clearInterval(timer);
-    renderProgress(sharedState, totalEstimated);
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    cleanupTmpDir();
   }
-
-  const docs = outputs.map((p) => JSON.parse(fs.readFileSync(p, "utf8")));
-  const base = docs[0];
-  const sumMeta = (key) => docs.reduce((acc, d) => acc + (Number(d?._meta?.[key]) || 0), 0);
-
-  const outName = opts.periodTag
-    ? `slot_item_effects_${opts.periodTag}.json`
-    : "slot_item_effects_ast.json";
-  const finalOutputPath = opts.outputPath || path.join(ROOT, "output", outName);
-
-  const merged = {
-    _meta: {
-      ...base._meta,
-      parallel_scan: true,
-      parallel_workers: workers,
-      schedule_shards: tasks.length,
-      strict_nminus1: opts.strictNMinusOne,
-      allow_duplicate_items: opts.allowDuplicateItems,
-      max_combo_size: opts.maxComboSize,
-      total_ships: Object.keys(Object.assign({}, ...docs.map((d) => d.ships || {}))).length,
-      total_single_bonuses: sumMeta("total_single_bonuses"),
-      total_cross_synergies: sumMeta("total_cross_synergies"),
-      total_triple_synergies: sumMeta("total_triple_synergies"),
-      total_quad_corrections: sumMeta("total_quad_corrections"),
-      total_penta_corrections: sumMeta("total_penta_corrections"),
-      total_hexa_corrections: sumMeta("total_hexa_corrections"),
-    },
-    ships: Object.assign({}, ...docs.map((d) => d.ships || {})),
-    items: base.items || {},
-  };
-
-  merged.effect_rules = mergeRuleSet(docs.map((d) => d.effect_rules || []), "items");
-  merged.cross_rules = mergeRuleSet(docs.map((d) => d.cross_rules || []), "pairs");
-  merged.triple_rules = mergeRuleSet(docs.map((d) => d.triple_rules || []));
-  merged.quad_rules = mergeRuleSet(docs.map((d) => d.quad_rules || []));
-  merged.penta_rules = mergeRuleSet(docs.map((d) => d.penta_rules || []));
-  merged.hexa_rules = mergeRuleSet(docs.map((d) => d.hexa_rules || []));
-
-  merged.effect_rules_equip_index = buildEquipIndex(merged.effect_rules);
-  merged.cross_rules_equip_index = buildEquipIndex(merged.cross_rules);
-  merged.triple_rules_equip_index = buildEquipIndex(merged.triple_rules);
-  merged.quad_rules_equip_index = buildEquipIndex(merged.quad_rules);
-  merged.penta_rules_equip_index = buildEquipIndex(merged.penta_rules);
-  merged.hexa_rules_equip_index = buildEquipIndex(merged.hexa_rules);
-
-  merged._meta.effect_rule_count = merged.effect_rules.length;
-  merged._meta.cross_rule_count = merged.cross_rules.length;
-  merged._meta.triple_rule_count = merged.triple_rules.length;
-  merged._meta.quad_rule_count = merged.quad_rules.length;
-  merged._meta.penta_rule_count = merged.penta_rules.length;
-  merged._meta.hexa_rule_count = merged.hexa_rules.length;
-
-  fs.mkdirSync(path.dirname(finalOutputPath), { recursive: true });
-  fs.writeFileSync(finalOutputPath, JSON.stringify(merged), "utf8");
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-
-  console.log(`[parallel-scan] merged output: ${path.relative(ROOT, finalOutputPath)}`);
 }
 
 main().catch((err) => {

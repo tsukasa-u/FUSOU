@@ -302,7 +302,7 @@ const astRules = loadAstRules(scanPeriodTag);
 const masterPath = findMasterData(scanPeriodTag);
 if (!masterPath) {
   console.error(
-    "Error: No master data found in master_data/. Place an api_start2 response file there.",
+    `Error: No valid *S@api_start2@getData* master data found in FUSOU-PROXY-DATA${scanPeriodTag ? `/${scanPeriodTag}/kcsapi` : ""}.`,
   );
   process.exit(1);
 }

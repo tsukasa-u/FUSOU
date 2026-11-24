@@ -15,53 +15,56 @@ const Module = require("module");
 const fs = require("fs");
 
 const ROOT = path.resolve(__dirname, "..");
+const PROXY_DATA_DIR = path.resolve(ROOT, "..", "FUSOU-PROXY-DATA");
+const PERIOD_TAG_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Find the latest YYYY-MM-DD period tag directory in FUSOU-PROXY-DATA.
+ * Returns the tag string or null.
+ */
+function findLatestPeriodTag() {
+  if (!fs.existsSync(PROXY_DATA_DIR)) return null;
+  const tags = fs
+    .readdirSync(PROXY_DATA_DIR)
+    .filter((name) => {
+      if (!PERIOD_TAG_RE.test(name)) return false;
+      try {
+        return fs.statSync(path.join(PROXY_DATA_DIR, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort()
+    .reverse();
+  return tags.length > 0 ? tags[0] : null;
+}
+
+/**
+ * Resolve the effective period tag (explicit tag or latest in FUSOU-PROXY-DATA).
+ */
+function resolvePeriodTag(periodTag = null) {
+  return periodTag || findLatestPeriodTag();
+}
 
 /**
  * Resolve the game script path.
+ * For useMain=true, prefers FUSOU-PROXY-DATA/<periodTag>/kcs2/js/main.js.
  */
 function resolveScript(useMain, periodTag = null) {
   if (periodTag) {
     return useMain
-      ? path.join(ROOT, "..", "FUSOU-PROXY-DATA", periodTag, "kcs2", "js", "main.js")
+      ? path.join(PROXY_DATA_DIR, periodTag, "kcs2", "js", "main.js")
       : path.join(ROOT, "output", `deobfuscated_${periodTag}.js`);
   }
-  return useMain
-    ? path.join(ROOT, "main.js")
-    : path.join(ROOT, "output", "deobfuscated.js");
-}
-
-/**
- * Find the first master data file in master_data/.
- * Returns the path or null.
- */
-function findMasterData(periodTag = null) {
-  let dir;
-  if (periodTag) {
-    dir = path.join(ROOT, "..", "FUSOU-PROXY-DATA", periodTag, "kcsapi");
-  } else {
-    dir = path.join(ROOT, "master_data");
+  if (useMain) {
+    const latestTag = findLatestPeriodTag();
+    if (latestTag) {
+      const proxyMain = path.join(PROXY_DATA_DIR, latestTag, "kcs2", "js", "main.js");
+      if (fs.existsSync(proxyMain)) return proxyMain;
+    }
+    return path.join(ROOT, "main.js");
   }
-  if (!fs.existsSync(dir)) return null;
-  const files = fs
-    .readdirSync(dir)
-    .flatMap((name) => {
-      if (!name.includes("api_start2")) return [];
-      const fullPath = path.join(dir, name);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (!stat.isFile()) return [];
-        return [
-          {
-            fullPath,
-            mtimeMs: stat.mtimeMs,
-          },
-        ];
-      } catch {
-        return [];
-      }
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs); // newest first by modified time
-  return files.length > 0 ? files[0].fullPath : null;
+  return path.join(ROOT, "output", "deobfuscated.js");
 }
 
 /**
@@ -71,14 +74,125 @@ function findMasterData(periodTag = null) {
 function parseMasterData(filePath) {
   const raw = fs.readFileSync(filePath, "utf-8");
   let jsonStr;
-  for (const line of raw.split("\n")) {
+  for (const line of raw.split(/\r?\n/)) {
     if (line.startsWith("svdata=")) {
       jsonStr = line.slice(7);
       break;
     }
   }
   if (!jsonStr) throw new Error("No svdata= line found in: " + filePath);
-  return JSON.parse(jsonStr).api_data;
+  const parsed = JSON.parse(jsonStr);
+  if (
+    !parsed ||
+    !parsed.api_data ||
+    !Array.isArray(parsed.api_data.api_mst_ship) ||
+    !Array.isArray(parsed.api_data.api_mst_slotitem)
+  ) {
+    throw new Error(
+      "Invalid api_start2/getData payload (missing api_mst_ship/api_mst_slotitem) in: " +
+        filePath,
+    );
+  }
+  return parsed.api_data;
+}
+
+/**
+ * Check whether a file is a valid api_start2/getData response with svdata=.
+ */
+function isValidMasterDataFile(filePath) {
+  try {
+    parseMasterData(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find the newest valid api_start2/getData response file in a directory.
+ * Strictly requires response files (S@api_start2@getData) so request files (Q@)
+ * and unrelated endpoints (e.g. get_option_setting) are never selected.
+ */
+function findMasterDataInDir(dir) {
+  if (!fs.existsSync(dir)) return null;
+  const candidates = fs
+    .readdirSync(dir)
+    .flatMap((name) => {
+      if (!name.includes("S@api_start2@getData")) return [];
+      const fullPath = path.join(dir, name);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!stat.isFile()) return [];
+        return [{ fullPath, mtimeMs: stat.mtimeMs }];
+      } catch {
+        return [];
+      }
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  for (const item of candidates) {
+    if (isValidMasterDataFile(item.fullPath)) {
+      return item.fullPath;
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the latest valid master data file (S@api_start2@getData) from FUSOU-PROXY-DATA.
+ * When periodTag is specified, searches only FUSOU-PROXY-DATA/<periodTag>/kcsapi.
+ * When periodTag is omitted, searches the latest period tag in FUSOU-PROXY-DATA.
+ * Returns the path or null.
+ */
+function findMasterData(periodTag = null) {
+  const effectiveTag = resolvePeriodTag(periodTag);
+  if (!effectiveTag) return null;
+  const kcsapiDir = path.join(PROXY_DATA_DIR, effectiveTag, "kcsapi");
+  return findMasterDataInDir(kcsapiDir);
+}
+
+/**
+ * Validate required inputs in FUSOU-PROXY-DATA before running heavy steps
+ * (deobfuscate, extract-ast, scan-ast).
+ * Throws an Error detailing all missing files when validation fails.
+ */
+function validatePeriodInputs(periodTag = null) {
+  const effectiveTag = resolvePeriodTag(periodTag);
+  if (!effectiveTag) {
+    throw new Error(`No YYYY-MM-DD period directory found in: ${PROXY_DATA_DIR}`);
+  }
+  const periodDir = path.join(PROXY_DATA_DIR, effectiveTag);
+  const mainJsPath = path.join(periodDir, "kcs2", "js", "main.js");
+  const kcsapiDir = path.join(periodDir, "kcsapi");
+  const masterPath = findMasterDataInDir(kcsapiDir);
+
+  const missing = [];
+  if (!fs.existsSync(periodDir)) {
+    missing.push(`Period directory not found: ${periodDir}`);
+  } else {
+    if (!fs.existsSync(mainJsPath)) {
+      missing.push(`Game script not found: ${mainJsPath}`);
+    }
+    if (!fs.existsSync(kcsapiDir)) {
+      missing.push(`kcsapi directory not found: ${kcsapiDir}`);
+    } else if (!masterPath) {
+      missing.push(
+        `No valid *S@api_start2@getData* response file (with svdata= and api_mst_ship/api_mst_slotitem) found in: ${kcsapiDir}`,
+      );
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Preflight check failed for period_tag ${effectiveTag}:\n  - ${missing.join("\n  - ")}`,
+    );
+  }
+
+  return {
+    periodTag: effectiveTag,
+    mainJsPath,
+    masterPath,
+  };
 }
 
 /**
@@ -269,9 +383,14 @@ function loadBundle(opts = {}) {
 
 module.exports = {
   ROOT,
+  PROXY_DATA_DIR,
+  findLatestPeriodTag,
+  resolvePeriodTag,
   resolveScript,
   findMasterData,
   parseMasterData,
+  isValidMasterDataFile,
+  validatePeriodInputs,
   buildMstDict,
   createGetMst,
   loadBundle,
