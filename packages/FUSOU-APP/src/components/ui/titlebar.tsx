@@ -3,17 +3,28 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { isTauri } from "../../utility/tauri";
+import {
+  closeGamePane,
+  cycleDockPosition,
+  getDockPositionLabel,
+  openGamePane,
+  setDockPosition,
+  useWindowLayout,
+} from "../../utility/window_layout";
 import { ThemeControllerComponent } from "../settings/theme";
 
 type Props = {
   isMaximized: boolean;
   onMaximizeChange?: (maximized: boolean) => void;
+  variant?: "standalone" | "combined-chrome";
 };
 
 type ScreenshotStatus = "started" | "finished" | "failed";
 
 export function CustomTitlebar(props: Props) {
   const appWindow = isTauri() ? getCurrentWindow() : null;
+  const windowLayout = useWindowLayout();
+  const isCombinedChrome = () => props.variant === "combined-chrome";
 
   // Volume state
   const [volume, setVolume] = createSignal<number>(100);
@@ -61,6 +72,8 @@ export function CustomTitlebar(props: Props) {
   // Actions
   const handleScreenshot = async () => {
     if (isCapturing()) return;
+    // Always dismiss volume popup/inline controls before capturing screenshot
+    setIsVolumeMenuOpen(false);
     setIsCapturing(true);
     if (isTauri()) {
       try {
@@ -72,6 +85,20 @@ export function CustomTitlebar(props: Props) {
     } else {
       setTimeout(() => setIsCapturing(false), 500);
     }
+  };
+
+  const handleCycleDockPosition = () => {
+    const next = cycleDockPosition(windowLayout.dock_position);
+    void setDockPosition(next).catch((err) => {
+      console.warn("Failed to change dock position:", err);
+    });
+  };
+
+  const handleToggleGamePane = () => {
+    const op = windowLayout.game_visible ? closeGamePane() : openGamePane();
+    void op.catch((err) => {
+      console.warn("Failed to toggle game pane:", err);
+    });
   };
 
   const handleReload = async (e: MouseEvent) => {
@@ -133,6 +160,9 @@ export function CustomTitlebar(props: Props) {
   onMount(() => {
     if (isTauri()) {
       listen<ScreenshotStatus>("fusou-screenshot-status", (event) => {
+        if (event.payload === "started") {
+          setIsVolumeMenuOpen(false);
+        }
         setIsCapturing(event.payload === "started");
       })
         .then((fn) => {
@@ -192,7 +222,9 @@ export function CustomTitlebar(props: Props) {
     <header
       data-tauri-drag-region
       class={`h-8 bg-[#27272a] text-[#f1f5f9] select-none flex items-center justify-between px-2.5 z-9999 text-xs ${
-        props.isMaximized ? "rounded-none" : "rounded-t-[10px]"
+        props.isMaximized || isCombinedChrome()
+          ? "rounded-none"
+          : "rounded-t-[10px]"
       }`}
       onDblClick={handleToggleMaximize}
     >
@@ -327,40 +359,189 @@ export function CustomTitlebar(props: Props) {
           </svg>
         </button>
 
-        {/* Volume Control Popover */}
-        <div class="relative" ref={volumeDropdownRef}>
-          <button
-            type="button"
-            onClick={() => setIsVolumeMenuOpen(!isVolumeMenuOpen())}
-            class={`fusou-tool-btn ${isVolumeMenuOpen() ? "fusou-active" : ""}`}
-            title="Volume Control"
-          >
-            <Show
-              when={!isMuted() && volume() > 0}
-              fallback={
-                <svg
-                  class="w-3.5 h-3.5 text-error"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  stroke-width="2"
+        {/* Volume Control: always-visible compact bar in combined-chrome, dropdown popover in standalone */}
+        <Show
+          when={isCombinedChrome()}
+          fallback={
+            <div class="relative flex items-center gap-1" ref={volumeDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsVolumeMenuOpen(!isVolumeMenuOpen())}
+                class={`fusou-tool-btn ${isVolumeMenuOpen() ? "fusou-active" : ""}`}
+                title="Volume Control"
+              >
+                <Show
+                  when={!isMuted() && volume() > 0}
+                  fallback={
+                    <svg
+                      class="w-3.5 h-3.5 text-error"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                      />
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
+                      />
+                    </svg>
+                  }
                 >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                  <Show
+                    when={volume() > 50}
+                    fallback={
+                      <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M15.536 8.464a5 5 0 010 7.072m-4.243-8.486L7.586 11H6a1 1 0 00-1 1v0a1 1 0 001 1h1.586l3.707 3.95c.63.67 1.707.225 1.707-.707V7.757c0-.932-1.077-1.378-1.707-.707z"
+                        />
+                      </svg>
+                    }
+                  >
+                    <svg
+                      class="w-3.5 h-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                      />
+                    </svg>
+                  </Show>
+                </Show>
+                <span class="text-[10px] w-6 text-right tabular-nums">
+                  {isMuted() ? "0%" : `${volume()}%`}
+                </span>
+              </button>
+
+              {/* Standalone dropdown popover */}
+              <Show when={isVolumeMenuOpen()}>
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "32px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    width: "176px",
+                    "background-color": "#1d1c1c",
+                    color: "#f1f5f9",
+                    border: "1px solid #27272a",
+                    "border-radius": "8px",
+                    padding: "10px",
+                    "box-shadow":
+                      "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+                    display: "flex",
+                    "flex-direction": "column",
+                    gap: "8px",
+                    "z-index": "10002",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      "align-items": "center",
+                      "justify-content": "space-between",
+                      "font-size": "12px",
+                      "font-weight": "600",
+                    }}
+                  >
+                    <span>Sound Volume</span>
+                    <span
+                      style={{
+                        "font-size": "10px",
+                        opacity: "0.7",
+                        "font-variant-numeric": "tabular-nums",
+                      }}
+                    >
+                      {isMuted() ? "Muted" : `${volume()}%`}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume()}
+                    onInput={handleVolumeChange}
+                    class="fusou-custom-range"
                   />
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
-                  />
-                </svg>
-              }
+                  <button
+                    type="button"
+                    onClick={toggleMute}
+                    class={`fusou-custom-mute-btn ${isMuted() ? "is-muted" : ""}`}
+                  >
+                    {isMuted() ? "Unmute" : "Mute Audio"}
+                  </button>
+                </div>
+              </Show>
+            </div>
+          }
+        >
+          <div class="fusou-inline-volume">
+            <button
+              type="button"
+              onClick={toggleMute}
+              class="fusou-inline-icon-btn"
+              title={isMuted() ? "Unmute Audio" : "Mute Audio"}
+              aria-label={isMuted() ? "Unmute Audio" : "Mute Audio"}
             >
               <Show
-                when={volume() > 50}
+                when={!isMuted() && volume() > 0}
                 fallback={
+                  <svg
+                    class="w-3.5 h-3.5 text-error"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                    />
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
+                    />
+                  </svg>
+                }
+              >
+                <Show
+                  when={volume() > 50}
+                  fallback={
+                    <svg
+                      class="w-3.5 h-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15.536 8.464a5 5 0 010 7.072m-4.243-8.486L7.586 11H6a1 1 0 00-1 1v0a1 1 0 001 1h1.586l3.707 3.95c.63.67 1.707.225 1.707-.707V7.757c0-.932-1.077-1.378-1.707-.707z"
+                      />
+                    </svg>
+                  }
+                >
                   <svg
                     class="w-3.5 h-3.5"
                     fill="none"
@@ -371,91 +552,65 @@ export function CustomTitlebar(props: Props) {
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
-                      d="M15.536 8.464a5 5 0 010 7.072m-4.243-8.486L7.586 11H6a1 1 0 00-1 1v0a1 1 0 001 1h1.586l3.707 3.95c.63.67 1.707.225 1.707-.707V7.757c0-.932-1.077-1.378-1.707-.707z"
+                      d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
                     />
                   </svg>
-                }
-              >
-                <svg
-                  class="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                  />
-                </svg>
+                </Show>
               </Show>
-            </Show>
-            <span class="text-[10px] w-6 text-right tabular-nums">
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={volume()}
+              onInput={handleVolumeChange}
+              class={`fusou-custom-range fusou-inline-range ${isMuted() ? "opacity-50" : ""}`}
+              aria-label="Game volume"
+            />
+            <span class="text-[10px] w-7 text-right tabular-nums opacity-85">
               {isMuted() ? "0%" : `${volume()}%`}
+            </span>
+          </div>
+        </Show>
+
+        {/* Combined-mode dock position & game pane controls */}
+        <Show when={isCombinedChrome()}>
+          <button
+            type="button"
+            onClick={handleCycleDockPosition}
+            class="fusou-tool-btn"
+            title={`Switch Panel Dock Position (Current: ${getDockPositionLabel(windowLayout.dock_position)})`}
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <line x1="15" y1="4" x2="15" y2="20" />
+            </svg>
+            <span class="text-[10px]">
+              {getDockPositionLabel(windowLayout.dock_position)}
             </span>
           </button>
 
-          {/* Popover panel */}
-          <Show when={isVolumeMenuOpen()}>
-            <div
-              style={{
-                position: "absolute",
-                top: "32px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                width: "176px",
-                "background-color": "#1d1c1c",
-                color: "#f1f5f9",
-                border: "1px solid #27272a",
-                "border-radius": "8px",
-                padding: "10px",
-                "box-shadow":
-                  "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
-                display: "flex",
-                "flex-direction": "column",
-                gap: "8px",
-                "z-index": "10002",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                  "font-size": "12px",
-                  "font-weight": "600",
-                }}
-              >
-                <span>Sound Volume</span>
-                <span
-                  style={{
-                    "font-size": "10px",
-                    opacity: "0.7",
-                    "font-variant-numeric": "tabular-nums",
-                  }}
-                >
-                  {isMuted() ? "Muted" : `${volume()}%`}
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={volume()}
-                onInput={handleVolumeChange}
-                class="fusou-custom-range"
-              />
-              <button
-                type="button"
-                onClick={toggleMute}
-                class={`fusou-custom-mute-btn ${isMuted() ? "is-muted" : ""}`}
-              >
-                {isMuted() ? "Unmute" : "Mute Audio"}
-              </button>
-            </div>
-          </Show>
-        </div>
+          <button
+            type="button"
+            onClick={handleToggleGamePane}
+            class={`fusou-tool-btn ${windowLayout.game_visible ? "fusou-active" : ""}`}
+            title={
+              windowLayout.game_visible
+                ? "Hide Game View (keeps game running)"
+                : "Show Game View"
+            }
+          >
+            <span class="text-[10px]">
+              {windowLayout.game_visible ? "Hide Game" : "Show Game"}
+            </span>
+          </button>
+        </Show>
 
         <ThemeControllerComponent />
       </div>

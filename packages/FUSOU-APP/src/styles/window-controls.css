@@ -139,3 +139,133 @@
 .fusou-custom-mute-btn.is-muted:hover {
   background-color: #dc2626 !important;
 }
+
+/* Always-visible compact volume controls inside 32px combined-chrome titlebar */
+.fusou-inline-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px 0 3px;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.fusou-inline-icon-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #e5e7eb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.fusou-inline-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.fusou-inline-range {
+  width: 76px !important;
+  height: 14px !important;
+  margin: 0 !important;
+}
+
+.fusou-inline-range::-webkit-slider-runnable-track {
+  height: 5px !important;
+}
+
+.fusou-inline-range::-webkit-slider-thumb {
+  width: 12px !important;
+  height: 12px !important;
+  margin-top: -3.5px !important;
+}
+
+/* Draggable splitter handle between game and panel in combined mode */
+.fusou-split-handle {
+  position: fixed;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #27272a;
+  touch-action: none;
+  user-select: none;
+  transition: background-color 0.12s ease;
+}
+
+.fusou-split-handle:hover,
+.fusou-split-handle.is-dragging {
+  background-color: #96c54e;
+}
+
+.fusou-split-handle-left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.fusou-split-handle-right {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.fusou-split-handle-top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.fusou-split-handle-bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.fusou-split-grip {
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+.fusou-split-handle-left .fusou-split-grip,
+.fusou-split-handle-right .fusou-split-grip {
+  width: 2px;
+  height: 28px;
+}
+
+.fusou-split-handle-top .fusou-split-grip,
+.fusou-split-handle-bottom .fusou-split-grip {
+  width: 28px;
+  height: 2px;
+}
+
+@media (pointer: coarse) {
+  .fusou-split-handle-left,
+  .fusou-split-handle-right {
+    width: 10px;
+  }
+
+  .fusou-split-handle-top,
+  .fusou-split-handle-bottom {
+    height: 10px;
+  }
+}

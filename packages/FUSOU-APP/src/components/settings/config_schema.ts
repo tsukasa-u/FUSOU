@@ -41,7 +41,7 @@ export interface ConfigSelectOption {
 
 export interface ConfigFieldDependency {
   key: string;
-  equals: boolean;
+  equals: boolean | string;
 }
 
 export interface ConfigFieldSpec {
@@ -280,6 +280,46 @@ export const PRIMARY_CONFIG_SECTIONS: readonly ConfigSectionSpec[] = [
         pathMode: "directory",
         requiresRestart: false,
         placeholder: "Default (Pictures/FUSOU/screenshots)",
+      },
+      {
+        key: "app.kc_window.window_mode",
+        label: "Window Mode",
+        description:
+          "Choose between two separate windows or a single docked browser window combining FUSOU-APP and the game view.",
+        kind: "select",
+        requiresRestart: true,
+        options: [
+          { value: "separate", label: "Separate Windows" },
+          { value: "combined", label: "Combined Single Window" },
+        ],
+      },
+      {
+        key: "app.kc_window.dock_position",
+        label: "Combined Panel Position",
+        description:
+          "Where to dock the FUSOU-APP panel in Combined mode. Auto switches between Right (landscape) and Bottom (portrait).",
+        kind: "select",
+        requiresRestart: false,
+        options: [
+          { value: "right", label: "Right" },
+          { value: "bottom", label: "Bottom" },
+          { value: "left", label: "Left" },
+          { value: "top", label: "Top" },
+          { value: "auto", label: "Auto (Responsive)" },
+        ],
+        dependsOn: { key: "app.kc_window.window_mode", equals: "combined" },
+      },
+      {
+        key: "app.kc_window.dock_panel_ratio_percent",
+        label: "Combined Panel Ratio",
+        description:
+          "Percentage of the workspace axis allocated to the FUSOU-APP panel in Combined mode (15–80%). Also adjustable by dragging the splitter.",
+        kind: "number",
+        min: 15,
+        max: 80,
+        unit: "%",
+        requiresRestart: false,
+        dependsOn: { key: "app.kc_window.window_mode", equals: "combined" },
       },
     ],
   },
@@ -1379,6 +1419,9 @@ export const DEFAULT_CONFIG_VALUES: ConfigValuesMap = {
   "app.kc_window.max_inner_height": 1080,
   "app.kc_window.resize_debounce_millis": 200,
   "app.kc_window.keep_window_size_duration_millis": 1000,
+  "app.kc_window.window_mode": "separate",
+  "app.kc_window.dock_position": "right",
+  "app.kc_window.dock_panel_ratio_percent": 30,
   "app.ui.tabs.show_fleet": true,
   "app.ui.tabs.show_ship": true,
   "app.ui.tabs.show_equip": true,

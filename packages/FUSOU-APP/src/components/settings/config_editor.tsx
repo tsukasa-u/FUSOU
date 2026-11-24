@@ -5,6 +5,7 @@ import { fetch_font } from "../../utility/google_font";
 import { isTauri } from "../../utility/tauri";
 import { applyAppTheme, normalizeAppTheme } from "../../utility/theme";
 import { applyUiConfigFromValues } from "../../utility/ui_config";
+import { loadWindowLayoutState } from "../../utility/window_layout";
 import {
   ActionSummaryGrid,
   createDesktopRuntimeSummary,
@@ -267,6 +268,12 @@ export function ConfigEditorComponent(props: {
     }
     if (updatedKeys.some((key) => key.startsWith("app.ui."))) {
       applyUiConfigFromValues(updatedValues);
+    }
+    if (
+      updatedKeys.includes("app.kc_window.dock_position") ||
+      updatedKeys.includes("app.kc_window.dock_panel_ratio_percent")
+    ) {
+      await loadWindowLayoutState();
     }
   };
 
