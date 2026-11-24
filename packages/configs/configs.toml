@@ -404,6 +404,17 @@ save_file_location = ""
     # Requires restart to take effect.
     default_inner_height = 720
 
+    # Window layout mode: "separate" (two windows) or "combined" (single docked window)
+    # Requires restart to take effect.
+    window_mode = "separate"
+
+    # Dock position of FUSOU-APP panel in combined mode: "auto", "right", "bottom", "left", "top"
+    # "auto" selects "right" in landscape and "bottom" in portrait (mobile-friendly).
+    dock_position = "right"
+
+    # Ratio (%) of the FUSOU-APP panel relative to the workspace axis in combined mode (15 - 80)
+    dock_panel_ratio_percent = 30
+
 
     [app.ui.tabs]
     # Show or hide top-level tabs in FUSOU-APP (Settings tab is always visible)
