@@ -8,6 +8,11 @@ import {
   subscribeAppTheme,
   toggleAppTheme,
 } from "../utility/theme";
+import type { TimerDisplayMode } from "../utility/timer";
+import {
+  nextTimerDisplayMode,
+  timerDisplayModeLabel,
+} from "../utility/timer";
 import {
   AlertMessage,
   ComponentColorBar,
@@ -17,6 +22,7 @@ import {
   ComponentEquipmentMstModal,
   ComponentShipMaskedModal,
   ComponentItemModal,
+  ComponentTimer,
   EmptySlot,
   EmptyValue,
   IconCautionFill,
@@ -710,6 +716,7 @@ const mockEnemyIClassMstShip: MstShip = {
 
 const mockSlotItems: SlotItems = { slot_items: mockSlotItemsDict };
 const mockMstSlotItems: MstSlotItems = { mst_slot_items: mockMstSlotItemsDict };
+const DEMO_TIMER_NOW_MS = new Date(2026, 10, 21, 13, 11, 15).getTime();
 
 export default function DesignSystemPage() {
   const [currentTheme, setCurrentTheme] = createSignal<AppTheme>("dark");
@@ -717,6 +724,10 @@ export default function DesignSystemPage() {
   const [demoVolume, setDemoVolume] = createSignal<number>(75);
   const [demoMuted, setDemoMuted] = createSignal<boolean>(false);
   const [demoSearchQuery, setDemoSearchQuery] = createSignal<string>("赤城");
+  const [demoTimerMode, setDemoTimerMode] =
+    createSignal<TimerDisplayMode>("both");
+  const cycleDemoTimerMode = () =>
+    setDemoTimerMode((prev) => nextTimerDisplayMode(prev));
 
   onMount(() => {
     const saved = localStorage.getItem(APP_THEME_STORAGE_KEY);
@@ -2200,6 +2211,105 @@ export default function DesignSystemPage() {
                   </div>
                 </div>
               </div>
+
+              {/* 08-H: Operational Timers */}
+              <div class="space-y-3 pt-2 border-t border-base-300/40">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                    入渠・遠征タイマー (&lt;ComponentTimer /&gt;)
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-outline"
+                      onClick={cycleDemoTimerMode}
+                    >
+                      Mode: {timerDisplayModeLabel(demoTimerMode())}
+                    </button>
+                    <span class="text-[11px] text-base-content/50 font-mono">
+                      src/components/ui/components/timer/timer.tsx
+                    </span>
+                  </div>
+                </div>
+                <p class="text-xs text-base-content/60">
+                  残り時間（<code class="font-mono">HH:MM:SS</code>）と OS
+                  システム時刻による完了予定時刻（
+                  <code class="font-mono">HH:MM</code> / 翌日{" "}
+                  <code class="font-mono">MM/DD HH:MM</code>
+                  ）を等幅・<code class="font-mono">tabular-nums</code>
+                  で表示します。タイマーをクリックすると{" "}
+                  <code class="font-mono">
+                    both → remaining → complete_at
+                  </code>{" "}
+                  を切り替えられます。
+                </p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4 bg-base-200/30 rounded-lg border border-base-300 text-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-base-content/60">Running (1h 23m):</span>
+                    <ComponentTimer
+                      completeTimeMs={
+                        DEMO_TIMER_NOW_MS + (1 * 3600 + 23 * 60 + 45) * 1000
+                      }
+                      nowMs={DEMO_TIMER_NOW_MS}
+                      displayMode={demoTimerMode()}
+                      onToggleDisplayMode={cycleDemoTimerMode}
+                      size="xs"
+                    />
+                  </div>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-base-content/60">Soon (&lt;= 1m):</span>
+                    <ComponentTimer
+                      completeTimeMs={DEMO_TIMER_NOW_MS + 42 * 1000}
+                      nowMs={DEMO_TIMER_NOW_MS}
+                      displayMode={demoTimerMode()}
+                      onToggleDisplayMode={cycleDemoTimerMode}
+                      size="xs"
+                    />
+                  </div>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-base-content/60">Complete:</span>
+                    <ComponentTimer
+                      completeTimeMs={DEMO_TIMER_NOW_MS - 15 * 1000}
+                      nowMs={DEMO_TIMER_NOW_MS}
+                      displayMode={demoTimerMode()}
+                      onToggleDisplayMode={cycleDemoTimerMode}
+                      size="xs"
+                    />
+                  </div>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-base-content/60">
+                      Recalled (強制帰還):
+                    </span>
+                    <ComponentTimer
+                      completeTimeMs={DEMO_TIMER_NOW_MS + 14 * 60 * 1000}
+                      nowMs={DEMO_TIMER_NOW_MS}
+                      status="recalled"
+                      displayMode={demoTimerMode()}
+                      onToggleDisplayMode={cycleDemoTimerMode}
+                      size="xs"
+                    />
+                  </div>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-base-content/60">Next-Day Finish:</span>
+                    <ComponentTimer
+                      completeTimeMs={DEMO_TIMER_NOW_MS + 14 * 3600 * 1000}
+                      nowMs={DEMO_TIMER_NOW_MS}
+                      displayMode={demoTimerMode()}
+                      onToggleDisplayMode={cycleDemoTimerMode}
+                      size="xs"
+                    />
+                  </div>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-base-content/60">Idle / Locked:</span>
+                    <ComponentTimer
+                      completeTimeMs={null}
+                      nowMs={DEMO_TIMER_NOW_MS}
+                      status="idle"
+                      size="xs"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -2435,10 +2545,12 @@ export default function DesignSystemPage() {
               <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
                 <li>
                   <details open>
-                    <summary class="flex">
-                      <div class="w-20 flex-none">Fleet 1</div>
-                      <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-                      <div>第一艦隊</div>
+                    <summary class="flex items-center h-6 min-h-6 py-0!">
+                      <div class="w-20 flex-none leading-4">First Fleet</div>
+                      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+                      <div class="w-32 flex-none truncate leading-4">
+                        第一艦隊
+                      </div>
                       <span class="flex-auto" />
                     </summary>
                     <ul class="pl-0">
@@ -2778,6 +2890,66 @@ export default function DesignSystemPage() {
                         </a>
                       </li>
                     </ul>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary class="flex items-center h-6 min-h-6 py-0!">
+                      <div class="w-20 flex-none leading-4">Second Fleet</div>
+                      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+                      <div class="w-32 flex-none truncate leading-4">
+                        第二艦隊
+                      </div>
+                      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="badge badge-xs h-4 min-h-0 border-base-300 font-mono tabular-nums w-8 justify-center flex-none">
+                          02
+                        </span>
+                        <span class="w-36 flex-none truncate text-xs leading-4 text-base-content/80">
+                          長距離練習航海
+                        </span>
+                        <ComponentTimer
+                          completeTimeMs={DEMO_TIMER_NOW_MS + 18 * 60 * 1000}
+                          nowMs={DEMO_TIMER_NOW_MS}
+                          displayMode={demoTimerMode()}
+                          onToggleDisplayMode={cycleDemoTimerMode}
+                          size="2xs"
+                        />
+                      </div>
+                      <span class="flex-auto" />
+                    </summary>
+                  </details>
+                </li>
+                <li>
+                  <details>
+                    <summary class="flex items-center h-6 min-h-6 py-0!">
+                      <div class="w-20 flex-none leading-4">Third Fleet</div>
+                      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+                      <div class="w-32 flex-none truncate leading-4">
+                        遠征用高速水雷戦隊
+                      </div>
+                      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="badge badge-xs h-4 min-h-0 border-base-300 font-mono tabular-nums w-8 justify-center flex-none">
+                          37
+                        </span>
+                        <span class="w-36 flex-none truncate text-xs leading-4 text-base-content/80">
+                          東京急行
+                        </span>
+                        <ComponentTimer
+                          completeTimeMs={DEMO_TIMER_NOW_MS + 9 * 60 * 1000}
+                          nowMs={DEMO_TIMER_NOW_MS}
+                          status="recalled"
+                          displayMode={demoTimerMode()}
+                          onToggleDisplayMode={cycleDemoTimerMode}
+                          size="2xs"
+                        />
+                        <span class="badge badge-xs h-4 min-h-0 border-orange-500/40 bg-orange-500/10 text-orange-500 flex-none">
+                          Recalled
+                        </span>
+                      </div>
+                      <span class="flex-auto" />
+                    </summary>
                   </details>
                 </li>
               </ul>
@@ -4383,6 +4555,189 @@ export default function DesignSystemPage() {
                 </ul>
               </div>
             </div>
+
+            {/* Part 5: Repair Docks (NDocksComponent) */}
+            <div class="space-y-3">
+              <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/70">
+                  入渠ドック一覧 (&lt;NDocksComponent /&gt;)
+                </h3>
+                <span class="text-[11px] text-base-content/50 font-mono">
+                  Repairing / Soon / Complete / Empty / Locked
+                </span>
+              </div>
+
+              <div class="border border-base-300 rounded-box overflow-x-auto bg-base-100">
+                <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+                  <li>
+                    <details open>
+                      <summary class="flex items-center">
+                        <span>Repair Docks</span>
+                        <span class="badge badge-xs border-base-300 tabular-nums ml-1.5">
+                          2 / 3
+                        </span>
+                        <span class="flex-auto" />
+                      </summary>
+                      <ul class="pl-0">
+                        <li class="h-auto">
+                          <div class="justify-start gap-0 flex items-center py-1 px-2 cursor-default">
+                            <div class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums">
+                              Dock 1
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 pr-0.5 truncate flex-none w-[124px] content-center">
+                              <ComponentShipModal
+                                size="xs"
+                                color=""
+                                name_flag={true}
+                                ship={mockDamagedShip}
+                                mst_ship={mockDamagedMstShip}
+                                slot_items={mockSlotItems}
+                                mst_slot_items={mockMstSlotItems}
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="w-16 flex-none text-xs flex items-center justify-center">
+                              <ComponentColorBarLabel
+                                v_max={36}
+                                v_now={7}
+                                size="xs"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="px-2 flex-none">
+                              <ComponentTimer
+                                completeTimeMs={
+                                  DEMO_TIMER_NOW_MS +
+                                  (2 * 3600 + 18 * 60 + 30) * 1000
+                                }
+                                nowMs={DEMO_TIMER_NOW_MS}
+                                displayMode={demoTimerMode()}
+                                onToggleDisplayMode={cycleDemoTimerMode}
+                                size="xs"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 text-xs flex-none w-16 truncate text-base-content/80">
+                              Repairing
+                            </div>
+                          </div>
+                        </li>
+                        <li class="h-auto">
+                          <div class="justify-start gap-0 flex items-center py-1 px-2 cursor-default">
+                            <div class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums">
+                              Dock 2
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 pr-0.5 truncate flex-none w-[124px] content-center">
+                              <ComponentShipModal
+                                size="xs"
+                                color=""
+                                name_flag={true}
+                                ship={mockYahagiShip}
+                                mst_ship={mockYahagiMstShip}
+                                slot_items={mockSlotItems}
+                                mst_slot_items={mockMstSlotItems}
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="w-16 flex-none text-xs flex items-center justify-center">
+                              <ComponentColorBarLabel
+                                v_max={60}
+                                v_now={55}
+                                size="xs"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="px-2 flex-none">
+                              <ComponentTimer
+                                completeTimeMs={DEMO_TIMER_NOW_MS + 45 * 1000}
+                                nowMs={DEMO_TIMER_NOW_MS}
+                                displayMode={demoTimerMode()}
+                                onToggleDisplayMode={cycleDemoTimerMode}
+                                size="xs"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 text-xs flex-none w-16 truncate text-yellow-500 font-medium">
+                              Repairing
+                            </div>
+                          </div>
+                        </li>
+                        <li class="h-auto">
+                          <div class="justify-start gap-0 flex items-center py-1 px-2 cursor-default">
+                            <div class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums">
+                              Dock 3
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 pr-0.5 truncate flex-none w-[124px] content-center">
+                              <EmptySlot
+                                kind="ship"
+                                size="xs"
+                                showLabel={true}
+                                labelWidthClass="flex-1"
+                                widthClass="w-full"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="w-16 flex-none text-xs flex items-center justify-center">
+                              <EmptyValue size="xs" widthClass="w-full" />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="px-2 flex-none">
+                              <ComponentTimer
+                                completeTimeMs={null}
+                                status="idle"
+                                nowMs={DEMO_TIMER_NOW_MS}
+                                size="xs"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 text-xs flex-none w-16 truncate text-base-content/40">
+                              Empty
+                            </div>
+                          </div>
+                        </li>
+                        <li class="h-auto">
+                          <div class="justify-start gap-0 flex items-center py-1 px-2 cursor-default">
+                            <div class="w-14 flex-none text-xs font-medium text-base-content/70 tabular-nums">
+                              Dock 4
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 pr-0.5 truncate flex-none w-[124px] content-center">
+                              <EmptySlot
+                                kind="ship"
+                                size="xs"
+                                showLabel={true}
+                                labelWidthClass="flex-1"
+                                widthClass="w-full"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="w-16 flex-none text-xs flex items-center justify-center">
+                              <EmptyValue size="xs" widthClass="w-full" />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="px-2 flex-none">
+                              <ComponentTimer
+                                completeTimeMs={null}
+                                status="locked"
+                                nowMs={DEMO_TIMER_NOW_MS}
+                                size="xs"
+                              />
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0 flex-none self-stretch" />
+                            <div class="pl-2 text-xs flex-none w-16 truncate text-base-content/40">
+                              Locked
+                            </div>
+                          </div>
+                        </li>
+                      </ul>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -4621,6 +4976,31 @@ export default function DesignSystemPage() {
                     </td>
                     <td>
                       固定幅欠損値（—）・空スロット破線 SVG プレースホルダー
+                    </td>
+                    <td>
+                      <span class="badge badge-success badge-xs">Covered</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">ComponentTimer</td>
+                    <td>
+                      <code>src/components/ui/components/timer/timer.tsx</code>
+                    </td>
+                    <td>
+                      入渠・遠征の残時間カウントダウンおよび OS
+                      完了予定時刻タイマー（クリックで表示切替）
+                    </td>
+                    <td>
+                      <span class="badge badge-success badge-xs">Covered</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono font-semibold">NDocksComponent</td>
+                    <td>
+                      <code>src/components/ndock/ndocks.tsx</code>
+                    </td>
+                    <td>
+                      入渠ドック一覧（艦・HP・残り時間／OS完了時刻・ドック状態）
                     </td>
                     <td>
                       <span class="badge badge-success badge-xs">Covered</span>

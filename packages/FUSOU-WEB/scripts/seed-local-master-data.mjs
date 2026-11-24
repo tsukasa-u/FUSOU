@@ -48,6 +48,7 @@ const ALL_TABLES = [
   "mst_map_area",
   "mst_map_info",
   "mst_ship_upgrade",
+  "mst_mission",
 ];
 
 function run(cmd) {

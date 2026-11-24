@@ -17,11 +17,13 @@ use crate::interface::deck_port::DeckPorts;
 use crate::interface::material::Materials;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_mission::MstMissions;
 use crate::interface::mst_ship::MstShips;
 use crate::interface::mst_slot_item::MstSlotItems;
 use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::{MstUseItemMetas, MstUseItems};
+use crate::interface::n_dock::NDocks;
 use crate::interface::quest::Quests;
 use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
@@ -165,6 +167,22 @@ pub async fn get_quests(window: tauri::Window) {
     let _ = window
         .app_handle()
         .emit_to("main", events::SET_KCS_QUESTS, data);
+}
+
+#[tauri::command]
+pub async fn get_n_docks(window: tauri::Window) {
+    let data = NDocks::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_N_DOCKS, data);
+}
+
+#[tauri::command]
+pub async fn get_mst_missions(window: tauri::Window) {
+    let data = MstMissions::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", events::SET_KCS_MST_MISSIONS, data);
 }
 
 #[allow(dead_code)]

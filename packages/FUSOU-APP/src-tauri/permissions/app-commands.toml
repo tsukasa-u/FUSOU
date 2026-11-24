@@ -18,6 +18,8 @@ commands.allow = [
   "get_use_items",
   "get_pay_items",
   "get_quests",
+  "get_n_docks",
+  "get_mst_missions",
   "launch_with_options",
   "check_pac_server_health",
   "check_proxy_server_health",

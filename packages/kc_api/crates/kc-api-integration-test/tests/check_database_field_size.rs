@@ -2,7 +2,9 @@ use chrono::DateTime;
 use kc_api_database::table::{GetDataTable, PortTable};
 use kc_api_interface::{
     cells::Cells,
+    deck_port::DeckPorts,
     interface::{Add, EmitData, Identifier, Set},
+    ship::Ships,
 };
 use kc_api_parser::parser;
 use std::{fs, path::PathBuf};
@@ -53,7 +55,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::SlotItems(data) => {
                 data.restore();
             }
-            Set::NDocks(_) => {}
+            Set::NDocks(data) => {
+                data.restore();
+            }
             Set::Logs(_) => {}
             Set::AirBases(data) => {
                 data.restore();
@@ -89,6 +93,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 data.restore();
             }
             Set::MstMapInfos(data) => {
+                data.restore();
+            }
+            Set::MstMissions(data) => {
                 data.restore();
             }
             Set::MstShipGraphs(data) => {
@@ -136,7 +143,10 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 let get_data_table = GetDataTable::new();
                 return Some(ReturnType::GetDataTable(get_data_table));
             }
-            Identifier::MapStart(_) => {}
+            Identifier::MapStart(_) => {
+                Ships::cashe_restore();
+                DeckPorts::cashe_restore();
+            }
         },
     }
     None

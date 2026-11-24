@@ -22,6 +22,7 @@ MASTER_TABLE_ALIASES = {
     "mst_equip_ship": "mst_equip_ships",
     "mst_map_area": "mst_map_areas",
     "mst_map_info": "mst_map_infos",
+    "mst_mission": "mst_missions",
     "mst_stype": "mst_stypes",
     "mst_use_item": "mst_use_items",
 }

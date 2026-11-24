@@ -90,7 +90,7 @@ export const UniformButtonSizing = {
 
     await waitFor(() => {
       const loadButtons = Array.from(loaderDetails.querySelectorAll("button"));
-      expect(loadButtons.length).toBe(12);
+      expect(loadButtons.length).toBe(14);
       const firstLoadRect = loadButtons[0].getBoundingClientRect();
       expect(firstLoadRect.width).toBeCloseTo(80, 0);
       expect(firstLoadRect.height).toBeCloseTo(24, 0);

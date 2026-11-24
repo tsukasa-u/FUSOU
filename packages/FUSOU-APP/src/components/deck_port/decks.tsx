@@ -1,6 +1,11 @@
 import { DeckComponent } from "./deck";
 import { useDeckPorts } from "../../utility/provider";
-import { For } from "solid-js";
+import { createMemo, For } from "solid-js";
+import {
+  createConfigDisclosure,
+  isFleetVisible,
+  useUiConfig,
+} from "../../utility/ui_config";
 
 export function DecksComponent() {
   const fleet_name: { [key: number]: string } = {
@@ -10,17 +15,34 @@ export function DecksComponent() {
     4: "Fourth Fleet",
   };
 
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_fleets,
+  );
   const [decks] = useDeckPorts();
+
+  const allDeckEntries = createMemo(() => Object.entries(decks.deck_ports));
+  const visibleDeckEntries = createMemo(() =>
+    allDeckEntries().filter(([id]) =>
+      isFleetVisible(uiConfig.fleets, Number(id)),
+    ),
+  );
 
   return (
     <>
       <li>
-        <details open={true}>
+        <details open={isOpen()} onToggle={onToggle}>
           <summary>Fleets</summary>
           <ul class="pl-0">
             <For
-              each={Object.entries(decks.deck_ports)}
-              fallback={<li class="text-xs py-2">Loading Fleet Data ...</li>}
+              each={visibleDeckEntries()}
+              fallback={
+                <li class="text-xs py-2">
+                  {allDeckEntries().length > 0
+                    ? "All fleets are hidden by UI config."
+                    : "Loading Fleet Data ..."}
+                </li>
+              }
             >
               {(item) => (
                 <>

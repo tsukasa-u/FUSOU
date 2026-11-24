@@ -7,14 +7,18 @@ pub const DATABASE_TABLE_VERSION: &str = "0.5.0";
 #[cfg(all(schema_since = "0.5.1", schema_until = "0.6.0"))]
 pub const DATABASE_TABLE_VERSION: &str = "0.5.1";
 
-#[cfg(schema_since = "0.6.0")]
+#[cfg(all(schema_since = "0.6.0", schema_until = "0.6.1"))]
 pub const DATABASE_TABLE_VERSION: &str = "0.6.0";
+
+#[cfg(schema_since = "0.6.1")]
+pub const DATABASE_TABLE_VERSION: &str = "0.6.1";
 
 #[cfg(not(any(
     all(schema_since = "0.4.0", schema_until = "0.5.0"),
     all(schema_since = "0.5.0", schema_until = "0.5.1"),
     all(schema_since = "0.5.1", schema_until = "0.6.0"),
-    schema_since = "0.6.0",
+    all(schema_since = "0.6.0", schema_until = "0.6.1"),
+    schema_since = "0.6.1",
 )))]
 compile_error!(
     "At least one schema version must be selected via schema_since/schema_until cfgs."

@@ -118,6 +118,20 @@ const DATA_LOADER_ITEMS: readonly DataLoaderItem[] = [
     dataKey: "quests",
     endpoint: "/kcsapi/api_get_member/questlist",
   },
+  {
+    id: "load_n_docks",
+    cmd: "get_n_docks",
+    label: "Repair Docks",
+    dataKey: "n_docks",
+    endpoint: "/kcsapi/api_get_member/ndock",
+  },
+  {
+    id: "load_mst_missions",
+    cmd: "get_mst_missions",
+    label: "Master Missions",
+    dataKey: "mst_missions",
+    endpoint: "/kcsapi/api_start2/get_data",
+  },
 ];
 
 export interface SettingsComponentProps {

@@ -298,16 +298,49 @@
         "removedFields": [],
         "status": "added"
       }
+    },
+    "v0_6_0_to_v0_6_1": {
+      "cells": {
+        "addedFields": [
+          "support_deck_ids"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "mst_mission": {
+        "addedFields": [
+          "disp_no",
+          "id",
+          "maparea_id",
+          "name",
+          "reset_type",
+          "return_flag",
+          "time"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "added"
+      },
+      "support_deck": {
+        "addedFields": [
+          "support_mission_id"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      }
     }
   },
   "majorVersions": {
     "v0": {
-      "latest": "v0_6_0",
+      "latest": "v0_6_1",
       "versions": [
         "v0_4",
         "v0_5",
         "v0_5_1",
-        "v0_6_0"
+        "v0_6_0",
+        "v0_6_1"
       ]
     }
   },
@@ -315,7 +348,8 @@
     "v0_4",
     "v0_5",
     "v0_5_1",
-    "v0_6_0"
+    "v0_6_0",
+    "v0_6_1"
   ],
   "versions": {
     "v0_4": {
@@ -333,6 +367,10 @@
     "v0_6_0": {
       "tableCount": 48,
       "version": "0.6.0"
+    },
+    "v0_6_1": {
+      "tableCount": 49,
+      "version": "0.6.1"
     }
   }
 }

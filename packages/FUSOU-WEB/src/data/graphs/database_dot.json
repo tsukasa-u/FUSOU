@@ -273,6 +273,14 @@
       "targetHandle": "models__deck__OwnDeck-OwnDeck"
     },
     {
+      "id": "e-models__cell__Cells-support_deck_ids-models__deck__SupportDeck-SupportDeck",
+      "label": "support_deck_ids",
+      "source": "models__cell__Cells",
+      "sourceHandle": "models__cell__Cells-support_deck_ids",
+      "target": "models__deck__SupportDeck",
+      "targetHandle": "models__deck__SupportDeck-SupportDeck"
+    },
+    {
       "id": "e-models__deck__EnemyDeck-ship_ids-models__ship__EnemyShip-EnemyShip",
       "label": "ship_ids",
       "source": "models__deck__EnemyDeck",
@@ -3689,6 +3697,13 @@
           },
           {
             "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "name": "support_deck_ids",
+            "type": "Option<Vec<SupportDeckId>>"
+          },
+          {
+            "isEnvRef": false,
             "isFk": false,
             "isKey": true,
             "name": "uuid",
@@ -3884,6 +3899,13 @@
             "isKey": false,
             "name": "ship_ids",
             "type": "Option<OwnShipId>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "support_mission_id",
+            "type": "Option<i32>"
           },
           {
             "isEnvRef": false,

@@ -16,6 +16,7 @@ def test_list_master_tables():
     assert "mst_ships" in tables
     assert "mst_slot_items" in tables
     assert "mst_map_infos" in tables
+    assert "mst_missions" in tables
 
 
 def test_master_canonical_aliases():
@@ -25,6 +26,8 @@ def test_master_canonical_aliases():
     assert _MASTER_CANONICAL["mst_slotitem"] == "mst_slot_items"
     assert _MASTER_CANONICAL["mst_map_info"] == "mst_map_infos"
     assert _MASTER_CANONICAL["mst_map_infos"] == "mst_map_infos"
+    assert _MASTER_CANONICAL["mst_mission"] == "mst_missions"
+    assert _MASTER_CANONICAL["mst_missions"] == "mst_missions"
 
 
 def test_load_master_accepts_table_meta_and_fresh_latest_cache(tmp_path, monkeypatch):

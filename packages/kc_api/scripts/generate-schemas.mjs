@@ -16,7 +16,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const KC_API_ROOT = resolve(__dirname, "..");
 const KC_API_DB_CRATE = resolve(KC_API_ROOT, "crates/kc-api-database");
 const OUTPUT_DIR = resolve(KC_API_ROOT, "generated-schemas");
-const PROTECTED_SCHEMA_VERSIONS = ["v0_4", "v0_5", "v0_5_1"];
+const PROTECTED_SCHEMA_VERSIONS = ["v0_4", "v0_5", "v0_5_1", "v0_6_0"];
 const FINGERPRINT_SCRIPT = resolve(
   KC_API_ROOT,
   "../FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs",

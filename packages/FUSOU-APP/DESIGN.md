@@ -68,7 +68,7 @@ FUSOU-APP configures two core themes with full OKLCH color space support:
 - **Section / Subsection Heading**: `text-xl font-semibold` (`settings.tsx`, `data_collection_status.tsx`), `text-lg font-semibold` (`start.tsx`)
 - **Operational List & Table Text**: `text-xs` / `text-sm` in default system sans-serif with `tabular-nums` on telemetry values (`DeckComponent`, `BattleSummaryComponent`, `AirBasesComponent`, `MaterialsComponent`, `QuestsComponent`, `LogViewerComponent`)
 - **SVG Capsule Icons**: `Roboto Mono` (`font-weight: 500`, 96px SVG coordinate space)
-- **Explicit Monospace Scopes**: `font-mono` in `ErrorFallback.tsx` and `data_collection_status.tsx`; `tabular-nums` on `CustomTitlebar` volume readout (`10px`)
+- **Explicit Monospace Scopes**: `font-mono` in `ErrorFallback.tsx`, `data_collection_status.tsx`, and `ComponentTimer` (`font-mono tabular-nums` operational countdowns & OS local completion clocks); `tabular-nums` on `CustomTitlebar` volume readout (`10px`)
 
 Rules:
 
@@ -236,6 +236,25 @@ The primary grouping mechanism in FUSOU-APP is the native `<details open class="
 
 - **Fixed-Width Text Placeholders (`EmptyValue`)**: Renders muted em-dash `—` (or `-`) inside `inline-flex items-center shrink-0 select-none text-base-content/40 tabular-nums` matched to icon height scales (`xs` `h-6`..`xl` `h-11`) with optional `widthClass` (`w-14`, `w-48`, etc.) so optional readouts (`Form`, `Smoke Type`, `Balloon`, missing stat cells, unknown quest progress) reserve consistent horizontal width without shifting adjacent elements.
 - **Empty Entity Slots (`EmptySlot`)**: Renders `<IconShip empty_flag={true} />` or `<IconEquipment empty_flag={true} />` (subtle rounded dashed border `stroke-dasharray="14 10"` with faded horizontal accent bar — no longer blank invisible geometry) plus an optional fixed-width `EmptyValue` label (`showLabel={true}`) inside locked slots such as `Drop:` (`w-28`), `touch :` (`w-6 + w-3 + w-6`), `CI :` (`w-24 + w-20`), `Combat Ration :` (`w-14`), and `Flare :` (`w-24 / w-24`).
+
+### Operational Timers (`ComponentTimer`, `src/components/ui/components/timer/timer.tsx`)
+
+- **Component & Utility Paths**:
+  - Timer Primitive: `src/components/ui/components/timer/timer.tsx` (exported via `"ui"`)
+  - Pure Formatting & Shared Clock: `src/utility/timer.ts` (`useSharedNow()`, `useTimerDisplayMode()`, `formatRemainingTime()`, `formatCompleteTime()`, `resolveTimerStatus()`, `parseDeckMission()`)
+- **Display Modes (`TimerDisplayMode`, persisted in `localStorage` under `fusou-app-timer-display-mode`)**:
+  - `"both"` (Default): Remaining countdown paired with OS local completion clock (`01:23:45 · 14:35`, or `01:23:45 · 11/22 02:15` across midnight).
+  - `"remaining"`: Remaining duration only (`HH:MM:SS`, supports 100+ hours, clamps `<= 0` to `00:00:00` / `Complete`).
+  - `"complete_at"`: OS local system completion timestamp (`HH:MM:SS` on the same calendar day, `MM/DD HH:MM:SS` on another day).
+  - Clicking any interactive `ComponentTimer` cycles `"both" -> "remaining" -> "complete_at" -> "both"` while calling `event.preventDefault(); event.stopPropagation();` so clicks inside `<summary>` never toggle `<details>`.
+- **Operational Status Tokens**:
+  - `running` (remaining > 60s): `border-base-300 bg-base-200/40 text-base-content`
+  - `soon` (0 < remaining <= 60s — matches KanColle's 1-minute early completion window): `border-yellow-500/40 bg-yellow-500/10 text-yellow-500`
+  - `complete` (remaining <= 0 or expedition state `2`): `border-green-500/40 bg-green-500/10 text-green-500` with inline checkmark SVG and `Complete` label
+  - `recalled` (expedition state `3` forced recall): `border-orange-500/40 bg-orange-500/10 text-orange-500`
+  - `idle` / `locked`: Falls back to `<EmptyValue size={size} widthClass={resolvedWidthClass} />` (or optional `idleText` / `lockedText`) using the **exact same fixed width** as active timers so column dividers never shift between occupied and empty rows or when cycling display modes.
+- **Size & Fixed-Width Scales**: `2xs` (`h-[18px] w-[172px]` — inline `<summary>` headers), `xs` (`h-6 w-[184px]` — default, aligned with `IconShip` and `EmptyValue`), `sm` (`h-[27px] w-[196px]`), `md` (`h-[30px] w-[216px]`). Overrideable via `widthClass`.
+- **Deterministic Snapshots**: Accepts an optional `nowMs?: number` prop to freeze wall-clock time in Storybook and the Component Catalog.
 
 ---
 
@@ -683,10 +702,17 @@ Each deck item is structured as:
 ```html
 <li>
   <details open>
-    <summary class="flex">
-      <div class="w-20 flex-none">{fleet_name}</div>
-      <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-      <div>{deck_name}</div>
+    <summary class="flex items-center h-6 min-h-6 py-0!">
+      <div class="w-20 flex-none leading-4">{fleet_name}</div>
+      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+      <div class="w-32 flex-none truncate leading-4">{deck_name}</div>
+      <!-- Optional inline Expedition status in the open space right of deck_name (when mission[0] is 1, 2, or 3) -->
+      <div class="divider divider-horizontal mr-0 ml-0 my-1 flex-none self-stretch" />
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="badge badge-xs h-4 min-h-0 border-base-300 font-mono tabular-nums w-8 justify-center flex-none">{disp_no}</span>
+        <span class="w-36 flex-none truncate text-xs leading-4 text-base-content/80">{mission_name}</span>
+        <ComponentTimer completeTimeMs={mission[2]} size="2xs" />
+      </div>
       <span class="flex-auto" />
     </summary>
     <ul class="pl-0">
@@ -984,6 +1010,18 @@ Rendered inside the **`Item`** tab (located directly after `Equip` in `src/pages
   - **Purchased Items (`Purchased Items (N)`)**: Shop-held `payitem` items from `api_get_member/payitem` plus port expansion (`id === 53`).
 - **Row Anatomy**: Shared `MenuFilterBar` search bar (`Filter items...`, `input input-xs input-bordered min-w-0 flex-1 max-w-60`) + item count counter inside a `w-150 max-w-full` row, then each `w-150 max-w-full` shelf displays `<IconMaterial item_number={iconNumber} size="xs" />` (24x24px), item name, optional `Usable` (`usetype === 4`) / `{price} pt` badges, right-aligned `x{count}` (`tabular-nums`), and normalized in-game description (KanColle 15-char `<br>` wraps unwrapped to fill row width while preserving `※` note breaks, or `<EmptyValue />` when absent).
 
+### 5. Repair Docks Tracker (`NDocksComponent`, `src/components/ndock/ndocks.tsx`)
+
+Rendered inside the **`Fleet`** tab under `<ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">` directly below `DecksComponent`:
+
+- **Section Header**: `<summary class="flex items-center">Repair Docks <span class="badge badge-xs border-base-300 tabular-nums ml-1.5">{active} / {unlocked}</span><span class="flex-auto" /></summary>`.
+- **Dock Row Anatomy (`Dock 1`..`Dock 4`)**:
+  1. **Dock Index (`w-14 flex-none tabular-nums`)**: `Dock 1` through `Dock 4`.
+  2. **Ship Trigger (`w-[124px] flex-none truncate`)**: `ComponentShipModal size="xs" name_flag={true}` while repairing, or `<EmptySlot kind="ship" size="xs" showLabel={true} widthClass="w-full" />` when empty or locked.
+  3. **Ship HP Meter (`w-16 flex-none`)**: `ComponentColorBarLabel size="xs"` for the docked ship, or `<EmptyValue size="xs" widthClass="w-full" />`.
+  4. **Repair Timer (`ComponentTimer size="xs"`)**: Live remaining countdown (`HH:MM:SS`) and/or OS local completion clock (`HH:MM` / `MM/DD HH:MM`), clickable to cycle display modes.
+  5. **Operational State (`w-16 flex-none`)**: `Repairing`, `Complete` (`text-green-500`), `Empty` (`text-base-content/40`), or `Locked` (`text-base-content/40`).
+
 ---
 
 ## 12 / Component Catalog & Storybook Directory Structure
@@ -1010,9 +1048,11 @@ src/
 │   │   │   ├── filter-bar/   # MenuFilterBar (shared search bar for Items & Quests)
 │   │   │   ├── ship/         # ComponentShipModal, ComponentShipTable
 │   │   │   ├── equipment/    # ComponentEquipmentModal, ComponentEquipmentTable
-│   │   │   └── ship-masked/  # ComponentShipMaskedModal, ComponentShipMaskedTable
+│   │   │   ├── ship-masked/  # ComponentShipMaskedModal, ComponentShipMaskedTable
+│   │   │   └── timer/        # ComponentTimer (Countdown + OS completion clock)
 │   │   └── icons/            # SVG Vector Icons (Ship, Equipment, Material, FleetNumber, Kira, etc.)
-│   ├── deck_port/            # Decks & Ship Slots (DeckComponent, DecksComponent)
+│   ├── deck_port/            # Decks, Expedition Headers & Ship Slots (DeckComponent, DecksComponent)
+│   ├── ndock/                # Repair Docks Tracker (NDocksComponent)
 │   ├── battles/              # Battle Simulation & Combat Phases (BattleSummary, OpeningAirAttack, shared/)
 │   ├── airbase/              # Land-based Air Base (AirBasesComponent)
 │   ├── items/                # Item Inventory Shelves (ItemsComponent)
@@ -1022,11 +1062,13 @@ src/
 │   └── settings/             # Settings, Titlebar Theme Toggle, Data Collection
 ├── utility/
 │   ├── item_shelves.ts       # UseItem / PayItem 3-shelf classifier
-│   └── quest_cache.ts        # Period-aware quest cache & JST 05:00 expiration
+│   ├── quest_cache.ts        # Period-aware quest cache & JST 05:00 expiration
+│   └── timer.ts              # Shared 1s clock, OS completion time formatting & expedition parser
 └── stories/
     ├── design_system/        # Design System Tokens & Overview Stories
     ├── ui/                   # Titlebar & Window Stories
-    ├── deck_port/            # Deck Stories
+    ├── deck_port/            # Deck & Expedition Stories
+    ├── ndock/                # Repair Docks Stories
     ├── battles/              # Battle & Combat Stories
     ├── airbase/              # Airbase Stories
     ├── items/                # Item Shelves Stories

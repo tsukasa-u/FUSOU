@@ -24,6 +24,10 @@ export type MstMapInfo = { id: number, maparea_id: number, no: number, name: str
 
 export type MstMapInfos = { mst_map_infos: { [key in number]?: MstMapInfo }, };
 
+export type MstMission = { id: number, disp_no: string, maparea_id: number, name: string, time: number, reset_type: number, return_flag: number, };
+
+export type MstMissions = { mst_missions: { [key in number]?: MstMission }, };
+
 export type MstShip = { id: number, sortno: number | null, sort_id: number, name: string, yomi: string, stype: number, ctype: number, afterlv: number | null, aftershipid: string | null, taik: Array<number> | null, souk: Array<number> | null, houg: Array<number> | null, raig: Array<number> | null, tyku: Array<number> | null, luck: Array<number> | null, soku: number, leng: number | null, slot_num: number, maxeq: Array<number> | null, buildtime: number | null, broken: Array<number> | null, powup: Array<number> | null, backs: number | null, getmes: string | null, afterfuel: number | null, afterbull: number | null, fuel_max: number | null, bull_max: number | null, voicef: number | null, tais: Array<number> | null, };
 
 export type MstShipGraph = { api_id: number, api_filename: string, api_version: Array<string>, api_battle_n: Array<number> | null, api_battle_d: Array<number> | null, api_sortno: number | null, api_boko_n: Array<number> | null, api_boko_d: Array<number> | null, api_kaisyu_n: Array<number> | null, api_kaisyu_d: Array<number> | null, api_kaizo_n: Array<number> | null, api_kaizo_d: Array<number> | null, api_map_n: Array<number> | null, api_map_d: Array<number> | null, api_ensyuf_n: Array<number> | null, api_ensyuf_d: Array<number> | null, api_ensyue_n: Array<number> | null, api_weda: Array<number> | null, api_wedb: Array<number> | null, api_pa: Array<number> | null, api_pab: Array<number> | null, api_sp_flag: number | null, api_wedc: Array<number> | null, api_wedd: Array<number> | null, };

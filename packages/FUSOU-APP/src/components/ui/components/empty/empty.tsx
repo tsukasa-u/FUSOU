@@ -4,9 +4,10 @@ import { Show } from "solid-js";
 import { IconEquipment } from "../../icons/equipment";
 import { IconShip } from "../../icons/ship";
 
-export type EmptySize = "xs" | "sm" | "md" | "lg" | "xl";
+export type EmptySize = "2xs" | "xs" | "sm" | "md" | "lg" | "xl";
 
 const valueSizeClasses: Record<EmptySize, string> = {
+  "2xs": "h-[18px] text-[11px]",
   xs: "h-6 text-xs",
   sm: "h-[27px] text-sm",
   md: "h-[30px] text-base",
@@ -56,7 +57,7 @@ export const EmptyValue: Component<EmptyValueProps> = (props) => {
 
 export interface EmptySlotProps {
   kind: "ship" | "equip";
-  size?: EmptySize;
+  size?: Exclude<EmptySize, "2xs">;
   showLabel?: boolean;
   labelWidthClass?: string;
   widthClass?: string;

@@ -58,10 +58,11 @@ results.push(test('All supported master tables present', () => {
     'mst_map_area',
     'mst_map_info',
     'mst_ship_upgrade',
+    'mst_mission',
   ];
   
-  if (tables.length !== 13) throw new Error(`Expected 13 tables, got ${tables.length}`);
-  if (new Set(tables).size !== 13) throw new Error('Duplicate table names found');
+  if (tables.length !== 14) throw new Error(`Expected 14 tables, got ${tables.length}`);
+  if (new Set(tables).size !== 14) throw new Error('Duplicate table names found');
 }));
 
 // Test 2: Table offsets JSON format
@@ -180,7 +181,7 @@ results.push(test('All supported tables required in upload', () => {
     'mst_ship', 'mst_shipgraph', 'mst_slotitem', 'mst_slotitem_equiptype',
     'mst_payitem', 'mst_equip_exslot', 'mst_equip_exslot_ship',
     'mst_equip_limit_exslot', 'mst_equip_ship', 'mst_stype',
-    'mst_map_area', 'mst_map_info', 'mst_ship_upgrade',
+    'mst_map_area', 'mst_map_info', 'mst_ship_upgrade', 'mst_mission',
   ]);
   
   // Complete set
@@ -188,7 +189,7 @@ results.push(test('All supported tables required in upload', () => {
     'mst_ship', 'mst_shipgraph', 'mst_slotitem', 'mst_slotitem_equiptype',
     'mst_payitem', 'mst_equip_exslot', 'mst_equip_exslot_ship',
     'mst_equip_limit_exslot', 'mst_equip_ship', 'mst_stype',
-    'mst_map_area', 'mst_map_info', 'mst_ship_upgrade',
+    'mst_map_area', 'mst_map_info', 'mst_ship_upgrade', 'mst_mission',
   ]);
   
   const missing = Array.from(allowed).filter(t => !provided.has(t));
@@ -231,6 +232,7 @@ results.push(test('Concatenate all supported tables with correct offsets', () =>
     { name: 'mst_map_area', size: 40 },
     { name: 'mst_map_info', size: 0 },       // Empty
     { name: 'mst_ship_upgrade', size: 10 },
+    { name: 'mst_mission', size: 20 },
   ];
   
   let totalSize = 0;
@@ -243,11 +245,11 @@ results.push(test('Concatenate all supported tables with correct offsets', () =>
     offset = end;
   }
   
-  // Expected: 100+0+50+0+75+0+25+0+30+0+40+0+10 = 330
-  if (totalSize !== 330) {
-    throw new Error(`Total size should be 330, got ${totalSize}`);
+  // Expected: 100+0+50+0+75+0+25+0+30+0+40+0+10+20 = 350
+  if (totalSize !== 350) {
+    throw new Error(`Total size should be 350, got ${totalSize}`);
   }
-  if (offset !== 330) {
+  if (offset !== 350) {
     throw new Error(`Final offset should be 330, got ${offset}`);
   }
 }));

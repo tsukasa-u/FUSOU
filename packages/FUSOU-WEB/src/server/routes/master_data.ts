@@ -30,7 +30,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 // Allowed master data table names
 // MUST match client's GetDataTableEncode struct exactly (kc_api::database::table)
 // All supported master tables that clients provide
-const ALLOWED_MASTER_TABLES = new Set([
+const BASE_REQUIRED_MASTER_TABLES = [
   "mst_ship",
   "mst_shipgraph",
   "mst_slotitem",
@@ -44,7 +44,30 @@ const ALLOWED_MASTER_TABLES = new Set([
   "mst_map_area",
   "mst_map_info",
   "mst_ship_upgrade",
+] as const;
+
+const ALLOWED_MASTER_TABLES = new Set<string>([
+  ...BASE_REQUIRED_MASTER_TABLES,
+  "mst_mission",
 ]);
+
+function compareDotVersions(left: string, right: string): number {
+  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10));
+  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10));
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let i = 0; i < length; i += 1) {
+    const diff = (leftParts[i] ?? 0) - (rightParts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function getRequiredMasterTables(tableVersion: string): string[] {
+  if (compareDotVersions(tableVersion, "0.6.1") >= 0) {
+    return [...BASE_REQUIRED_MASTER_TABLES, "mst_mission"];
+  }
+  return [...BASE_REQUIRED_MASTER_TABLES];
+}
 
 // Strict table version format for object-key safety and predictability.
 // Examples: 0.4, 0.5, 1.0.0
@@ -321,8 +344,10 @@ app.post("/upload", async (c) => {
         providedTables.add(offset.table_name);
       }
 
-      // Check for missing required tables
-      const missingTables = Array.from(ALLOWED_MASTER_TABLES).filter(
+      // Check for missing required tables (version-aware so legacy <0.6.1 clients
+      // without mst_mission remain accepted while >=0.6.1 clients require mst_mission)
+      const requiredTables = getRequiredMasterTables(tableVersion);
+      const missingTables = requiredTables.filter(
         (t) => !providedTables.has(t),
       );
       if (missingTables.length > 0) {

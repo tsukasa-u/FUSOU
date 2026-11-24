@@ -115,11 +115,8 @@ export function NightSupportAttackComponent(props: NightSupportAttackProps) {
                 />
                 <Show
                   when={
-                    props
-                      .battle_selected()
-                      ?.night_support_attack?.hourai?.protect_flag.some(
-                        (flag) => flag,
-                      ) ?? false
+                    props.battle_selected()?.night_support_attack?.hourai
+                      ?.protect_flag[idx()] ?? false
                   }
                 >
                   <IconShield class="h-4 self-center ml-auto" />

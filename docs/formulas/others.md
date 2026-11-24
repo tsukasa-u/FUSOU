@@ -532,7 +532,9 @@ $$
 - かばう表示のトリガは、ダメージ配列の小数部を使う shield 判定
 - 表示先は被弾艦ではなく、同一グループの旗艦バナー
 - モーションは shield 有無で専用分岐する
-- 雷撃戦と開幕雷撃の敵側 isShield 系は、実装上 api_fydam 系配列を参照する
+- 雷撃戦と開幕雷撃の旗艦シールド表示 (`showShieldAtBanner`) は `hasShield_f()` (`api_fdam` 全体) / `hasShield_e()` (`api_edam` 全体) で旗艦 index 0 のみに表示されるため、同時被弾の性質上どの個別艦がかばったかは画面から判別できない（なお被弾モーション `moveAtDamage` 用の `isShield_f` / `isShield_e` は実装上 `api_fydam` 系配列を参照する）
+- 支援砲撃・支援雷撃も同時被弾であり、`showShieldAtBanner` はグループ旗艦（敵主力 `0..6` / 敵随伴 `6..12`）単位で重複排除されるため、グループ内のどの個別艦がかばったかは画面から判別できない
+- 夜戦の 2hit 単一表示カットイン (`sp = 2, 3, 11..14`) は合算ダメージ `floor(d0) + floor(d1)` を表示し、shield 判定は `isShield(0)`（1打目のみ）を参照する
 - 航空戦 Stage3 経路では shield は発生しない（常に false）
 
 #### 12. 判定再現アルゴリズム
@@ -540,13 +542,12 @@ $$
 次の手順で、資料から shield 判定をそのまま再現できる。
 
 1. phase を判定する。
-2. phase が 砲撃戦（昼/夜）なら、shield(idx) を damages[idx] の小数部で判定する。
-3. phase が 雷撃戦なら、friend 側は api_fydam[idx]、enemy 側も api_fydam[idx] で判定する。
-4. phase が 開幕雷撃なら、friend 側は api_fydam_list_items[idx][0]、enemy 側も api_fydam_list_items[idx][0] で判定する。
-5. phase が 開幕雷撃の複数ヒットなら、multiShield_* を api_fydam_list_items[idx][k] の小数部で判定する。
-6. phase が 航空戦 Stage3 なら、shield(idx)=false を返す。
-7. shield(idx)=true のときだけ、表示先を defender の所属グループ旗艦 index 0 に固定して showShieldAtBanner を実行する。
-8. defender 側バナーには moveAtDamage(shield(idx)) を渡す。
+2. phase が 砲撃戦（昼/夜）なら、逐次攻撃のため `shield(idx)` を `damages[idx]` の小数部で打撃単位に判定する（夜戦 2hit 単一表示カットインは `isShield(0)`）。
+3. phase が 雷撃戦 / 開幕雷撃の旗艦シールド表示 (`showShieldAtBanner`) なら、friend 側は `api_fdam` 全体の有無 (`hasShield_f`)、enemy 側は `api_edam` 全体の有無 (`hasShield_e`) で旗艦 index 0 へ表示する（どの個別艦がかばったかは判別不可。被弾モーション `moveAtDamage` のみ `isShield_f` / `isShield_e` として `api_fydam` 系を参照する）。
+4. phase が 航空戦 Stage3 なら、`shield(idx)=false` を返す。
+5. phase が 支援砲撃・支援雷撃なら、敵主力 (`0..6`) / 敵随伴 (`6..12`) のグループ単位で `api_damage` に小数部があるかにより、重複排除されたグループ旗艦へ `showShieldAtBanner` を実行する。
+6. `shield(idx)=true` のときだけ、表示先を defender の所属グループ旗艦 index 0 に固定して `showShieldAtBanner` を実行する。
+7. defender 側バナーには `moveAtDamage(shield(idx))` を渡す。
 
 ---
 

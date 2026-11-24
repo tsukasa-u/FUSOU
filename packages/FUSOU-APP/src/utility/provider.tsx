@@ -11,17 +11,25 @@ import {
   mergeQuestState,
 } from "./quest_cache";
 
-import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
+import type {
+  DeckPorts,
+  Materials,
+  NDocks,
+  Ship,
+  Ships,
+} from "@ipc-bindings/port";
 import type { QuestEvent, Quests } from "@ipc-bindings/quest";
 import {
   default_deck_ports,
   default_materials,
+  default_nDock,
   default_ships,
 } from "@ipc-bindings/default_state/port";
 
 import type {
   MstEquipExslotShips,
   MstEquipShips,
+  MstMissions,
   MstShips,
   MstSlotItemEquipTypes,
   MstSlotItems,
@@ -32,6 +40,7 @@ import type {
 import {
   default_mst_equip_exslot_ships,
   default_mst_equip_ships,
+  default_mst_missions,
   default_mst_ships,
   default_mst_slot_items,
   default_mst_slotitem_equip_types,
@@ -668,6 +677,86 @@ export function useDeckPorts() {
     throw new Error("useDeckPorts: cannot find a DeckPortsContext");
   }
   return context as [DeckPorts, SetStoreFunction<DeckPorts>];
+}
+
+export const NDocksContext =
+  createContext<(NDocks | SetStoreFunction<NDocks>)[]>();
+
+export function NDocksProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<NDocks>(default_nDock);
+  const setter = [data, setData];
+
+  createEffect(() => {
+    const unlisten = safeTauriListen<NDocks>(
+      APP_EVENTS.SetKcsNDocks,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsNDocks);
+        setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_n_docks");
+      },
+    );
+    onCleanup(unlisten);
+  });
+
+  return (
+    <NDocksContext.Provider value={setter}>
+      {props.children}
+    </NDocksContext.Provider>
+  );
+}
+
+export function useNDocks() {
+  const context = useContext(NDocksContext);
+  if (!context) {
+    throw new Error("useNDocks: cannot find a NDocksContext");
+  }
+  return context as [NDocks, SetStoreFunction<NDocks>];
+}
+
+export const MstMissionsContext =
+  createContext<(MstMissions | SetStoreFunction<MstMissions>)[]>();
+
+export function MstMissionsProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<MstMissions>(default_mst_missions);
+  const setter = [data, setData];
+
+  createEffect(() => {
+    const unlisten = safeTauriListen<MstMissions>(
+      APP_EVENTS.SetKcsMstMissions,
+      (event) => {
+        if (import.meta.env.DEV) console.log(APP_EVENTS.SetKcsMstMissions);
+        setData(reconcile(event.payload));
+      },
+      () => {
+        void safeTauriInvoke("get_mst_missions");
+      },
+    );
+    onCleanup(unlisten);
+  });
+
+  return (
+    <MstMissionsContext.Provider value={setter}>
+      {props.children}
+    </MstMissionsContext.Provider>
+  );
+}
+
+export function useMstMissions() {
+  const context = useContext(MstMissionsContext);
+  if (!context) {
+    throw new Error("useMstMissions: cannot find a MstMissionsContext");
+  }
+  return context as [MstMissions, SetStoreFunction<MstMissions>];
+}
+
+export function useOptionalMstMissions(): MstMissions {
+  const context = useContext(MstMissionsContext);
+  if (!context) {
+    return default_mst_missions;
+  }
+  return context[0] as MstMissions;
 }
 
 export const DeckBattlesContext =

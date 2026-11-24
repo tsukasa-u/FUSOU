@@ -4,6 +4,7 @@ import { AlertMessage } from "ui";
 import { fetch_font } from "../../utility/google_font";
 import { isTauri } from "../../utility/tauri";
 import { applyAppTheme, normalizeAppTheme } from "../../utility/theme";
+import { applyUiConfigFromValues } from "../../utility/ui_config";
 import {
   ActionSummaryGrid,
   createDesktopRuntimeSummary,
@@ -25,6 +26,7 @@ import {
   getRestartRequiredKeys,
   parseStringArrayInput,
   PRIMARY_CONFIG_SECTIONS,
+  UI_CONFIG_SECTIONS,
   validateConfigChanges,
   type AppConfigsResponse,
   type ConfigFieldSpec,
@@ -262,6 +264,9 @@ export function ConfigEditorComponent(props: {
           }
         }
       }
+    }
+    if (updatedKeys.some((key) => key.startsWith("app.ui."))) {
+      applyUiConfigFromValues(updatedValues);
     }
   };
 
@@ -912,6 +917,74 @@ export function ConfigEditorComponent(props: {
       <For each={PRIMARY_CONFIG_SECTIONS}>
         {(section) => renderSection(section)}
       </For>
+
+      {/* UI Visibility & Collapse Configuration (Collapsible Groups) */}
+      <section class="space-y-2.5">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+          UI Display &amp; Layout
+        </h2>
+        <div class="bg-base-100 rounded-box border border-base-300 divide-y divide-base-300">
+          <For each={UI_CONFIG_SECTIONS}>
+            {(section) => {
+              const visibleFields = createMemo(() =>
+                section.fields.filter(
+                  (field) => !field.linuxOnly || platform() === "linux",
+                ),
+              );
+              const modCount = createMemo(() =>
+                countSectionModifications(section),
+              );
+
+              return (
+                <details
+                  class="group"
+                  data-config-ui-section={section.id}
+                >
+                  <summary class="px-4 py-3 flex items-center justify-between gap-2 cursor-pointer select-none text-sm font-medium text-base-content/85 hover:text-base-content hover:bg-base-200/30 transition-colors list-none">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span>{section.title}</span>
+                        <span class="badge badge-xs badge-ghost font-mono">
+                          {visibleFields().length}
+                        </span>
+                        <Show when={modCount() > 0}>
+                          <span class="badge badge-xs badge-primary">
+                            {modCount()} modified
+                          </span>
+                        </Show>
+                      </div>
+                      <Show when={section.description}>
+                        <div class="text-xs font-normal text-base-content/55 mt-0.5">
+                          {section.description}
+                        </div>
+                      </Show>
+                    </div>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      class="w-4 h-4 shrink-0 text-base-content/55 transition-transform duration-150 group-open:rotate-180"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+                        clip-rule="evenodd"
+                      />
+                    </svg>
+                  </summary>
+
+                  <div class="border-t border-base-300 divide-y divide-base-300 bg-base-200/15">
+                    <For each={visibleFields()}>
+                      {(field) => renderFieldRow(field)}
+                    </For>
+                  </div>
+                </details>
+              );
+            }}
+          </For>
+        </div>
+      </section>
 
       {/* Advanced Configuration (Collapsible Groups) */}
       <section class="space-y-2.5">

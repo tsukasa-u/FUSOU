@@ -8,30 +8,20 @@ import { createMemo, For, Show } from "solid-js";
 import { ComponentItemModal, EmptyValue } from "ui";
 import "../../css/divider.css";
 import { buildUseItemNameMap } from "../../utility/item_shelves.ts";
+import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
+import {
+  material_icon_name_by_number,
+  material_icon_number_by_index,
+} from "../ui/icons/material_data";
 
 export function MaterialsComponent() {
-  const icon_material_converter: { [key: number]: number } = {
-    0: 31,
-    1: 32,
-    2: 33,
-    3: 34,
-    4: 2,
-    5: 1,
-    6: 3,
-    7: 4,
-  };
-
-  const icon_material_name: Record<number, string> = {
-    31: "燃料",
-    32: "弾薬",
-    33: "鋼材",
-    34: "ボーキサイト",
-    2: "高速建造材",
-    1: "高速修復材",
-    3: "開発資材",
-    4: "改修資材",
-  };
-
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_materials,
+  );
   const [materials] = useMaterials();
   const [mstUseItems] = useMstUseItems();
   const [mstUseItemMetas] = useMstUseItemMetas();
@@ -48,7 +38,7 @@ export function MaterialsComponent() {
   return (
     <>
       <li>
-        <details open>
+        <details open={isOpen()} onToggle={onToggle}>
           <summary>Materials</summary>
           <ul class="pl-0">
             <Show
@@ -68,13 +58,13 @@ export function MaterialsComponent() {
                           <div class="shrink-0">
                             <ComponentItemModal
                               item_number={
-                                icon_material_converter[index()] ?? 0
+                                material_icon_number_by_index[index()] ?? 0
                               }
                               name={
-                                icon_material_name[
-                                  icon_material_converter[index()] ?? 0
+                                material_icon_name_by_number[
+                                  material_icon_number_by_index[index()] ?? 0
                                 ] ??
-                                `Item #${icon_material_converter[index()] ?? 0}`
+                                `Item #${material_icon_number_by_index[index()] ?? 0}`
                               }
                               description=""
                               itemNames={itemNames()}

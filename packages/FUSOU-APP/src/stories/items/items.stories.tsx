@@ -2,22 +2,36 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { JSX } from "solid-js";
 import { untrack } from "solid-js";
 import type { MstUseItemMetas, MstUseItems } from "@ipc-bindings/get_data";
-import type { PayItems, UseItems } from "@ipc-bindings/require_info";
+import type { PayItems, SlotItems, UseItems } from "@ipc-bindings/require_info";
+import type { Materials } from "@ipc-bindings/port";
 import { ItemsComponent } from "../../components/items/items";
 import {
+  MaterialsContext,
   MstUseItemMetasContext,
   MstUseItemsContext,
   PayItemsContext,
+  SlotItemsContext,
   UseItemsContext,
 } from "../../utility/provider";
 
 const sampleMstUseItems: MstUseItems = {
   mst_use_items: {
+    1: { id: 1, name: "高速修復材" },
+    2: { id: 2, name: "高速建造材" },
+    3: { id: 3, name: "開発資材" },
+    4: { id: 4, name: "改修資材" },
     10: { id: 10, name: "家具箱（小）" },
     44: { id: 44, name: "家具コイン" },
     50: { id: 50, name: "応急修理要員" },
+    51: { id: 51, name: "応急修理女神" },
+    52: { id: 52, name: "特注家具職人" },
     57: { id: 57, name: "勲章" },
+    65: { id: 65, name: "試製甲板カタパルト" },
+    66: { id: 66, name: "戦闘糧食" },
+    67: { id: 67, name: "洋上補給" },
+    69: { id: 69, name: "秋刀魚の缶詰" },
     75: { id: 75, name: "新型砲熕兵装資材" },
+    76: { id: 76, name: "戦闘糧食(特別なおにぎり)" },
     91: { id: 91, name: "緊急修理資材" },
   },
 };
@@ -79,14 +93,34 @@ const sampleMstUseItemMetas: MstUseItemMetas = {
 
 const sampleUseItems: UseItems = {
   use_items: {
-    1: { id: 1, count: 1420 },
-    31: { id: 31, count: 120000 },
     10: { id: 10, count: 24 },
     44: { id: 44, count: 12000 },
-    50: { id: 50, count: 5 },
+    52: { id: 52, count: 1 },
     57: { id: 57, count: 14 },
+    65: { id: 65, count: 1 },
     75: { id: 75, count: 9 },
     91: { id: 91, count: 6 },
+  },
+};
+
+const sampleSlotItems: SlotItems = {
+  slot_items: {
+    1001: { id: 1001, slotitem_id: 42, locked: 0, level: 0, alv: null },
+    1002: { id: 1002, slotitem_id: 42, locked: 0, level: 0, alv: null },
+    1003: { id: 1003, slotitem_id: 42, locked: 0, level: 0, alv: null },
+    1004: { id: 1004, slotitem_id: 42, locked: 0, level: 0, alv: null },
+    1005: { id: 1005, slotitem_id: 42, locked: 0, level: 0, alv: null },
+    1006: { id: 1006, slotitem_id: 145, locked: 0, level: 0, alv: null },
+    1007: { id: 1007, slotitem_id: 145, locked: 0, level: 0, alv: null },
+    1008: { id: 1008, slotitem_id: 145, locked: 0, level: 0, alv: null },
+    1009: { id: 1009, slotitem_id: 145, locked: 0, level: 0, alv: null },
+    1010: { id: 1010, slotitem_id: 146, locked: 0, level: 0, alv: null },
+    1011: { id: 1011, slotitem_id: 146, locked: 0, level: 0, alv: null },
+    1012: { id: 1012, slotitem_id: 146, locked: 0, level: 0, alv: null },
+    1013: { id: 1013, slotitem_id: 150, locked: 0, level: 0, alv: null },
+    1014: { id: 1014, slotitem_id: 150, locked: 0, level: 0, alv: null },
+    1015: { id: 1015, slotitem_id: 241, locked: 0, level: 0, alv: null },
+    1016: { id: 1016, slotitem_id: 241, locked: 0, level: 0, alv: null },
   },
 };
 
@@ -116,25 +150,49 @@ function MockItemProviders(props: {
   payItems: PayItems;
   mstUseItems: MstUseItems;
   mstUseItemMetas: MstUseItemMetas;
+  materials?: Materials;
+  slotItems?: SlotItems;
   children: JSX.Element;
 }) {
   const initialMstUseItems = untrack(() => props.mstUseItems);
   const initialMstUseItemMetas = untrack(() => props.mstUseItemMetas);
   const initialUseItems = untrack(() => props.useItems);
   const initialPayItems = untrack(() => props.payItems);
+  const initialMaterials = untrack(
+    () =>
+      props.materials ?? {
+        materials: {},
+      },
+  );
+  const initialSlotItems = untrack(
+    () =>
+      props.slotItems ?? {
+        slot_items: {},
+      },
+  );
 
   return (
-    <MstUseItemsContext.Provider value={[initialMstUseItems, () => {}] as any}>
-      <MstUseItemMetasContext.Provider
-        value={[initialMstUseItemMetas, () => {}] as any}
-      >
-        <UseItemsContext.Provider value={[initialUseItems, () => {}] as any}>
-          <PayItemsContext.Provider value={[initialPayItems, () => {}] as any}>
-            {props.children}
-          </PayItemsContext.Provider>
-        </UseItemsContext.Provider>
-      </MstUseItemMetasContext.Provider>
-    </MstUseItemsContext.Provider>
+    <SlotItemsContext.Provider value={[initialSlotItems, () => {}] as any}>
+      <MaterialsContext.Provider value={[initialMaterials, () => {}] as any}>
+        <MstUseItemsContext.Provider
+          value={[initialMstUseItems, () => {}] as any}
+        >
+          <MstUseItemMetasContext.Provider
+            value={[initialMstUseItemMetas, () => {}] as any}
+          >
+            <UseItemsContext.Provider
+              value={[initialUseItems, () => {}] as any}
+            >
+              <PayItemsContext.Provider
+                value={[initialPayItems, () => {}] as any}
+              >
+                {props.children}
+              </PayItemsContext.Provider>
+            </UseItemsContext.Provider>
+          </MstUseItemMetasContext.Provider>
+        </MstUseItemsContext.Provider>
+      </MaterialsContext.Provider>
+    </SlotItemsContext.Provider>
   );
 }
 
@@ -155,6 +213,20 @@ export const Shelves: Story = {
         payItems={samplePayItems}
         mstUseItems={sampleMstUseItems}
         mstUseItemMetas={sampleMstUseItemMetas}
+        slotItems={sampleSlotItems}
+        materials={{
+          materials: {
+            0: 120000,
+            1: 150000,
+            2: 90444,
+            3: 50247,
+            4: 24,
+            5: 1420,
+            6: 8,
+            7: 65,
+          },
+          furniture_coin: 12000,
+        }}
       >
         <ItemsComponent />
       </MockItemProviders>

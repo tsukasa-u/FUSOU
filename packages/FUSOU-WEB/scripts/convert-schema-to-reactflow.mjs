@@ -36,6 +36,8 @@ const MASTER_TABLE_ALIASES = new Map([
   ["mst_map_areas", "mst_map_area"],
   ["mst_mapinfo", "mst_map_info"],
   ["mst_map_infos", "mst_map_info"],
+  ["mst_mission", "mst_mission"],
+  ["mst_missions", "mst_mission"],
   ["mst_equip_exslot_ship", "mst_equip_exslot_ship"],
   ["mst_equip_exslot_ships", "mst_equip_exslot_ship"],
   ["mst_equip_exslot", "mst_equip_exslot"],
@@ -52,6 +54,7 @@ const MASTER_TABLE_ALIASES = new Map([
 // Key format: `${sourceTable}.${fieldName}` -> target table or [target tables].
 const SOURCE_FIELD_TARGET_OVERRIDES = new Map([
   ["mst_map_info.maparea_id", "mst_map_area"],
+  ["mst_mission.maparea_id", "mst_map_area"],
   ["mst_ship_upgrade.api_current_ship_id", ["mst_ship", "mst_shipgraph"]],
   ["mst_ship_upgrade.api_original_ship_id", ["mst_ship", "mst_shipgraph"]],
   ["mst_ship.aftershipid", ["mst_ship", "mst_shipgraph"]],
@@ -61,6 +64,7 @@ const SOURCE_FIELD_TARGET_OVERRIDES = new Map([
   ["enemy_ship.mst_ship_id", ["mst_ship", "mst_shipgraph"]],
   ["friend_ship.mst_ship_id", ["mst_ship", "mst_shipgraph"]],
   ["cells.maparea_id", "mst_map_info"],
+  ["support_deck.support_mission_id", "mst_mission"],
 ]);
 
 // Shared generic field mappings (fallback when source-specific mapping is absent).
@@ -94,6 +98,7 @@ const NON_MASTER_FIELD_TARGET_OVERRIDES = new Map([
   ["e_deck_id", "enemy_deck"],
   ["friend_deck_id", "friend_deck"],
   ["support_deck_id", "support_deck"],
+  ["support_deck_ids", "support_deck"],
 ]);
 
 const NON_MASTER_CONTEXTUAL_TARGET_OVERRIDES = new Map([

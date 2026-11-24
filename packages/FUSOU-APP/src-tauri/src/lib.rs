@@ -187,6 +187,8 @@ pub async fn run() {
             cmd::tauri_cmd::get_use_items,
             cmd::tauri_cmd::get_pay_items,
             cmd::tauri_cmd::get_quests,
+            cmd::tauri_cmd::get_n_docks,
+            cmd::tauri_cmd::get_mst_missions,
             cmd::tauri_cmd::launch_with_options,
             cmd::tauri_cmd::check_pac_server_health,
             cmd::tauri_cmd::check_proxy_server_health,

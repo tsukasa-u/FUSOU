@@ -59,3 +59,16 @@ impl From<kcapi_main::api_port::port::ApiData> for InterfaceWrapper<DeckPorts> {
         Self(deck_ports)
     }
 }
+
+impl From<kcapi_main::api_get_member::deck::ApiData> for InterfaceWrapper<DeckPort> {
+    fn from(deck_port: kcapi_main::api_get_member::deck::ApiData) -> Self {
+        Self(DeckPort {
+            id: deck_port.api_id,
+            name: deck_port.api_name,
+            mission: deck_port.api_mission,
+            ship: Some(deck_port.api_ship),
+            chart_seiku_value: None,
+            chart_tp_value: None,
+        })
+    }
+}

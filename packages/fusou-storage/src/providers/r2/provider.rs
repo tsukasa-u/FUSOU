@@ -17,7 +17,7 @@ const R2_STORAGE_PROVIDER_NAME: &str = "r2";
 
 // Compile-time constant for the expected number of master data tables
 // This must match the number of tables in upload_master_data_tables()
-const EXPECTED_MASTER_TABLE_COUNT: usize = 13;
+const EXPECTED_MASTER_TABLE_COUNT: usize = 14;
 
 #[derive(Clone)]
 pub struct R2StorageProvider {
@@ -355,7 +355,7 @@ impl StorageProvider for R2StorageProvider {
             // Get all master data tables (MUST match server's ALLOWED_MASTER_TABLES exactly)
             // Server requires all tables that correspond to GetDataTableEnum variants:
             // mst_ship, mst_shipgraph, mst_slotitem, mst_slotitem_equiptype, mst_payitem, mst_equip_exslot,
-            // mst_equip_exslot_ship, mst_equip_limit_exslot, mst_equip_ship, mst_stype, mst_map_area, mst_map_info, mst_ship_upgrade
+            // mst_equip_exslot_ship, mst_equip_limit_exslot, mst_equip_ship, mst_stype, mst_map_area, mst_map_info, mst_ship_upgrade, mst_mission
             //
             // The server-side table name is derived via an *exhaustive* match on
             // `GetDataTableEnum`, so adding/removing/cfg-gating a variant in
@@ -379,6 +379,7 @@ impl StorageProvider for R2StorageProvider {
                     GetDataTableEnum::MstMapArea => "mst_map_area",
                     GetDataTableEnum::MstMapInfo => "mst_map_info",
                     GetDataTableEnum::MstShipUpgrade => "mst_ship_upgrade",
+                    GetDataTableEnum::MstMission => "mst_mission",
                 }
             }
             let master_tables: Vec<(&str, Vec<u8>)> = GetDataTableEnum::variants()
@@ -392,19 +393,19 @@ impl StorageProvider for R2StorageProvider {
                 })
                 .collect();
 
-            // Compile-time check: Ensure we always have exactly 13 tables
+            // Compile-time check: Ensure we always have exactly 14 tables
             // This assertion will fail at runtime if the table count is incorrect,
             // preventing server-side validation failures due to missing/extra tables
             assert_eq!(
                 master_tables.len(),
                 EXPECTED_MASTER_TABLE_COUNT,
                 "Master data tables count mismatch: expected {}, got {}. \
-                 All 13 tables must be present in the correct order for server validation.",
+                 All 14 tables must be present in the correct order for server validation.",
                 EXPECTED_MASTER_TABLE_COUNT,
                 master_tables.len()
             );
 
-            // All 13 tables are always present (even if empty), so never skip
+            // All 14 tables are always present (even if empty), so never skip
             tracing::debug!(
                 "Uploading {} master data tables for period={}",
                 master_tables.len(),
