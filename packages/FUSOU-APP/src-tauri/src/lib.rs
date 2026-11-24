@@ -203,6 +203,8 @@ pub async fn run() {
             cmd::config_cmd::save_app_configs,
             cmd::config_cmd::restart_app,
             cmd::config_cmd::open_config_file,
+            cmd::config_cmd::open_external_url,
+            cmd::config_cmd::list_system_fonts,
             cmd::config_cmd::pick_config_path,
             cmd::tauri_cmd::get_access_token,
             cmd::tauri_cmd::get_user_tokens,

@@ -163,7 +163,7 @@ save_file_location = ""
 
     [app.font]
     # The font family to use for the application
-    # you can choose any font family in Google Fonts
+    # Choose any Google Fonts family (https://fonts.google.com/?subset=japanese) or a system-installed font
     # keep it empty to use the default font
     font_family = "Noto Sans JP"
 

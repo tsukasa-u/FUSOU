@@ -32,6 +32,8 @@ commands.allow = [
   "save_app_configs",
   "restart_app",
   "open_config_file",
+  "open_external_url",
+  "list_system_fonts",
   "pick_config_path",
   "get_access_token",
   "get_user_tokens",
