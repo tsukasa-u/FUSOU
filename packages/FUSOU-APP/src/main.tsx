@@ -21,7 +21,7 @@ import {
   Show,
 } from "solid-js";
 
-import { fetch_font } from "./utility/google_font.ts";
+import { APP_FONT_STORAGE_KEY, applyAppFont } from "./utility/google_font.ts";
 import {
   APP_THEME_STORAGE_KEY,
   applyAppTheme,
@@ -116,13 +116,17 @@ render(
         applyAppTheme(cachedTheme);
       }
 
-      // Sync theme changes across chrome and main webviews
+      // Sync theme and font changes across chrome and main webviews
       const onStorage = (event: StorageEvent) => {
         if (
           event.key === APP_THEME_STORAGE_KEY &&
           (event.newValue === "light" || event.newValue === "dark")
         ) {
           applyAppTheme(event.newValue);
+        } else if (event.key === APP_FONT_STORAGE_KEY) {
+          void applyAppFont(event.newValue ?? "").catch((error) => {
+            console.warn("Error syncing app font:", error);
+          });
         }
       };
       window.addEventListener("storage", onStorage);
@@ -137,20 +141,24 @@ render(
           console.error("Error fetching app theme:", error);
         });
 
-      if (!isChromeSurface) {
-        invoke<string>("get_app_font", {})
-          .then((font_family) => {
-            if (font_family == "") return;
-            fetch_font(font_family).then((font_css) => {
-              if (font_css) {
-                document.body.style.fontFamily = font_family;
-              }
-            });
-          })
-          .catch((error) => {
-            console.error("Error fetching app font:", error);
-          });
+      const cachedFont = localStorage.getItem(APP_FONT_STORAGE_KEY);
+      if (cachedFont) {
+        void applyAppFont(cachedFont).catch((error) => {
+          console.warn("Error applying cached app font:", error);
+        });
       }
+
+      invoke<string>("get_app_font", {})
+        .then((font_family) => {
+          void applyAppFont(font_family, { persistStorage: true }).catch(
+            (error) => {
+              console.warn("Error applying app font:", error);
+            },
+          );
+        })
+        .catch((error) => {
+          console.error("Error fetching app font:", error);
+        });
     });
 
     return (

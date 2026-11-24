@@ -9,6 +9,10 @@
 html,
 body {
   background-color: transparent !important;
+  /* Disable synthetic faux-bold so single-weight stencil/pixel fonts keep crisp gaps,
+     while fonts with genuine bold faces still use their real bold weights. */
+  font-synthesis: style;
+  font-synthesis-weight: none;
 }
 
 #root {

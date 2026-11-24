@@ -80,11 +80,20 @@ export interface DataSenderSpec {
   endpointKey: string;
 }
 
+export const GOOGLE_FONTS_BROWSE_URL =
+  "https://fonts.google.com/?subset=japanese";
+
 export const FONT_PRESET_OPTIONS: readonly string[] = [
   "Noto Sans JP",
   "BIZ UDPGothic",
   "M PLUS 1p",
+  "M PLUS Rounded 1c",
   "Zen Kaku Gothic New",
+  "Zen Maru Gothic",
+  "IBM Plex Sans JP",
+  "Kosugi Maru",
+  "Klee One",
+  "DotGothic16",
   "Inter",
   "Roboto",
 ];
@@ -249,10 +258,10 @@ export const PRIMARY_CONFIG_SECTIONS: readonly ConfigSectionSpec[] = [
         key: "app.font.font_family",
         label: "Font Family",
         description:
-          "Google Fonts family name for the UI. Leave empty to use the system default font.",
+          "Choose a Google Font or any font installed on your system. Leave empty to use the OS default UI font.",
         kind: "font",
         requiresRestart: false,
-        placeholder: "Noto Sans JP",
+        placeholder: "Noto Sans JP / Yu Gothic UI",
       },
       {
         key: "app.autostart.enable",
