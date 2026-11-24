@@ -52,8 +52,16 @@ import type { DataSetParamShip, DataSetShip } from "../../utility/get_data_set";
 import { get_data_set_param_ship } from "../../utility/get_data_set";
 import { ConnectedCompactEquip } from "./connected_components";
 import { BattleResultComponent } from "./battle/battle_result";
+import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config";
 
 export function BattlesComponent() {
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_battles,
+  );
   const [cells] = useCells();
 
   const [cell_index_selected, set_cell_index_selected] =
@@ -426,7 +434,7 @@ export function BattlesComponent() {
   return (
     <>
       <li>
-        <details open={true}>
+        <details open={isOpen()} onToggle={onToggle}>
           <summary class="flex">
             Battles
             <span class="flex-auto" />

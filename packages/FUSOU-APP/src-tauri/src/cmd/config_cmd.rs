@@ -250,6 +250,191 @@ const EDITABLE_CONFIG_SPECS: &[ConfigKeySpec] = &[
         key: "app.kc_window.keep_window_size_duration_millis",
         requires_restart: false,
     },
+    // UI Visibility & Collapse State
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_fleet",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_ship",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_equip",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_item",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_quest",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_uploads",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_logs",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.tabs.show_policy",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.show_materials",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.open_materials",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.show_fleets",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.open_fleets",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.show_repair_docks",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.open_repair_docks",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.show_air_bases",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.open_air_bases",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.open_air_base_squadrons",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.show_battles",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleet_tab.open_battles",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.show_condition_value",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.show_fleet_1",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.open_fleet_1",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.show_fleet_2",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.open_fleet_2",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.show_fleet_3",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.open_fleet_3",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.show_fleet_4",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.fleets.open_fleet_4",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.show_items",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.open_items",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.show_normal",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.open_normal",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.show_special",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.open_special",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.show_purchased",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.open_purchased",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.show_furniture",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.items.open_furniture",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.show_quests",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.open_quests",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.show_accepted",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.open_accepted",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.show_available",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.open_available",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.show_completed",
+        requires_restart: false,
+    },
+    ConfigKeySpec {
+        key: "app.ui.quests.open_completed",
+        requires_restart: false,
+    },
     // Proxy
     ConfigKeySpec {
         key: "proxy.allow_save_api_requests",

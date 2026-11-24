@@ -12,6 +12,10 @@ import {
   useTimerDisplayMode,
 } from "../../utility/timer.ts";
 import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
+import {
   ComponentColorBarLabel,
   ComponentShipModal,
   ComponentTimer,
@@ -29,6 +33,10 @@ export interface NDocksComponentProps {
 }
 
 export function NDocksComponent(props: NDocksComponentProps = {}) {
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_repair_docks,
+  );
   const [ndocks] = useNDocks();
   const [ships] = useShips();
   const [mstShips] = useMstShips();
@@ -80,7 +88,7 @@ export function NDocksComponent(props: NDocksComponentProps = {}) {
 
   return (
     <li>
-      <details open>
+      <details open={isOpen()} onToggle={onToggle}>
         <summary class="flex items-center">
           <span>Repair Docks</span>
           <Show when={ndocks.n_docks.length > 0}>

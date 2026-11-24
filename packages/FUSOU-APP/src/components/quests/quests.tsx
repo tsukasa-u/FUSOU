@@ -5,6 +5,10 @@ import {
   filterQuestList,
   getQuestPeriodLabel,
 } from "../../utility/quest_cache.ts";
+import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
 
 type QuestCompletionStatus = "claimable" | "completed";
 
@@ -38,6 +42,19 @@ function normalizeDetail(raw: string): string {
 }
 
 export function QuestsComponent() {
+  const uiConfig = useUiConfig();
+  const [isQuestsOpen, onToggleQuests] = createConfigDisclosure(
+    () => uiConfig.quests.open_quests,
+  );
+  const [isAcceptedOpen, onToggleAccepted] = createConfigDisclosure(
+    () => uiConfig.quests.open_accepted,
+  );
+  const [isAvailableOpen, onToggleAvailable] = createConfigDisclosure(
+    () => uiConfig.quests.open_available,
+  );
+  const [isCompletedOpen, onToggleCompleted] = createConfigDisclosure(
+    () => uiConfig.quests.open_completed,
+  );
   const [quests] = useQuests();
   const [query, setQuery] = createSignal("");
 
@@ -164,40 +181,83 @@ export function QuestsComponent() {
     );
   };
 
+  const renderCategory = (
+    title: string,
+    items: () => QuestView[],
+    visible: () => boolean,
+    isOpen: () => boolean,
+    onToggle: (e: Event & { currentTarget: HTMLDetailsElement }) => void,
+  ) => (
+    <Show when={visible()}>
+      <li class="w-150 max-w-full min-w-0">
+        <details open={isOpen()} onToggle={onToggle} class="min-w-0 w-full">
+          <summary class="text-xs font-semibold text-base-content/80">
+            {title} ({items().length})
+          </summary>
+          <ul class="pl-0">
+            <For
+              each={items()}
+              fallback={
+                <li class="text-xs px-4 py-1 text-base-content/50">
+                  No quests in this category
+                </li>
+              }
+            >
+              {(q) => questCard(q)}
+            </For>
+          </ul>
+        </details>
+      </li>
+    </Show>
+  );
+
   return (
-    <li class="w-full min-w-0">
-      <details open class="min-w-0 w-full">
-        <summary>Quests</summary>
-        <ul class="pl-0 max-w-[960px]">
-          <Show
-            when={hasData()}
-            fallback={<li class="text-xs py-2">Loading Quest Data ...</li>}
-          >
-            <MenuFilterBar
-              value={query()}
-              onInput={setQuery}
-              placeholder="Filter quests..."
-              filteredCount={filteredTotalCount()}
-              totalCount={rawTotalCount()}
-            />
+    <Show when={uiConfig.quests.show_quests}>
+      <li class="w-full min-w-0">
+        <details
+          open={isQuestsOpen()}
+          onToggle={onToggleQuests}
+          class="min-w-0 w-full"
+        >
+          <summary>Quests</summary>
+          <ul class="pl-0 max-w-[960px]">
+            <Show
+              when={hasData()}
+              fallback={<li class="text-xs py-2">Loading Quest Data ...</li>}
+            >
+              <MenuFilterBar
+                value={query()}
+                onInput={setQuery}
+                placeholder="Filter quests..."
+                filteredCount={filteredTotalCount()}
+                totalCount={rawTotalCount()}
+              />
 
-            <li class="text-xs px-2 py-1 font-semibold text-base-content/80">
-              Accepted ({accepted().length})
-            </li>
-            <For each={accepted()}>{(q) => questCard(q)}</For>
-
-            <li class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2">
-              Available ({available().length})
-            </li>
-            <For each={available()}>{(q) => questCard(q)}</For>
-
-            <li class="text-xs px-2 py-1 font-semibold text-base-content/80 mt-2">
-              Completed ({completed().length})
-            </li>
-            <For each={completed()}>{(q) => questCard(q)}</For>
-          </Show>
-        </ul>
-      </details>
-    </li>
+              {renderCategory(
+                "Accepted",
+                accepted,
+                () => uiConfig.quests.show_accepted,
+                isAcceptedOpen,
+                onToggleAccepted,
+              )}
+              {renderCategory(
+                "Available",
+                available,
+                () => uiConfig.quests.show_available,
+                isAvailableOpen,
+                onToggleAvailable,
+              )}
+              {renderCategory(
+                "Completed",
+                completed,
+                () => uiConfig.quests.show_completed,
+                isCompletedOpen,
+                onToggleCompleted,
+              )}
+            </Show>
+          </ul>
+        </details>
+      </li>
+    </Show>
   );
 }

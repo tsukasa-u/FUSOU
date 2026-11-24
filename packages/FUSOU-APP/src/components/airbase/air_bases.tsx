@@ -6,8 +6,32 @@ import "../../css/divider.css";
 
 import { ComponentEquipmentModal, IconCautionFill } from "ui";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
+import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
+
+function AirBaseSquadronDetails(props: {
+  summary: JSX.Element;
+  children: JSX.Element;
+}) {
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_air_base_squadrons,
+  );
+  return (
+    <details open={isOpen()} onToggle={onToggle}>
+      {props.summary}
+      {props.children}
+    </details>
+  );
+}
 
 export function AirBasesComponent() {
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_air_bases,
+  );
   const [air_bases] = useAirBasesPorts();
 
   const store_equip_data_set = createMemo(() => {
@@ -68,7 +92,7 @@ export function AirBasesComponent() {
   return (
     <>
       <li>
-        <details>
+        <details open={isOpen()} onToggle={onToggle}>
           <summary>Air Base</summary>
           <ul class="pl-0">
             <For
@@ -80,21 +104,24 @@ export function AirBasesComponent() {
               {([base_id, base], base_index) => (
                 <>
                   <li>
-                    <details>
-                      <summary class="flex">
-                        {Number(base_id) >> 16}
-                        {"-"}
-                        {Number(base_id) & 0xffff}
-                        <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-                        <div class="truncate w-32">{base?.name}</div>
-                        <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-                        <div class="flex-none">R : {base?.distance}</div>
-                        <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-                        <div class="flex-none">
-                          {base_action_state()[base_index()]}
-                        </div>
-                        <span class="flex-auto" />
-                      </summary>
+                    <AirBaseSquadronDetails
+                      summary={
+                        <summary class="flex">
+                          {Number(base_id) >> 16}
+                          {"-"}
+                          {Number(base_id) & 0xffff}
+                          <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+                          <div class="truncate w-32">{base?.name}</div>
+                          <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+                          <div class="flex-none">R : {base?.distance}</div>
+                          <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
+                          <div class="flex-none">
+                            {base_action_state()[base_index()]}
+                          </div>
+                          <span class="flex-auto" />
+                        </summary>
+                      }
+                    >
                       <ul class="pl-0">
                         <For
                           each={base?.plane_info.filter(
@@ -157,7 +184,7 @@ export function AirBasesComponent() {
                           )}
                         </For>
                       </ul>
-                    </details>
+                    </AirBaseSquadronDetails>
                   </li>
                 </>
               )}

@@ -7,8 +7,13 @@ import {
   useSlotItems,
 } from "../../utility/provider.tsx";
 import { parseDeckMission, useTimerDisplayMode } from "../../utility/timer.ts";
+import {
+  createConfigDisclosure,
+  isFleetOpen,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
 import type { JSX } from "solid-js";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 
 import "../../css/divider.css";
 import "../../css/back_slash.css";
@@ -37,8 +42,10 @@ interface DeckPortProps {
 }
 
 export function DeckComponent(props: DeckPortProps) {
-  // eslint-disable-next-line solid/reactivity
-  const [isOpen, setIsOpen] = createSignal(props.deck_id === 1);
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(() =>
+    isFleetOpen(uiConfig.fleets, props.deck_id),
+  );
   const [mst_ships] = useMstShips();
   const [ships] = useShips();
   const [slot_items] = useSlotItems();
@@ -286,10 +293,7 @@ export function DeckComponent(props: DeckPortProps) {
   return (
     <>
       <li>
-        <details
-          open={isOpen()}
-          onToggle={(e) => setIsOpen(e.currentTarget.open)}
-        >
+        <details open={isOpen()} onToggle={onToggle}>
           <summary
             class="flex items-center h-6 min-h-6 py-0!"
             data-testid={`deck-summary-${props.deck_id}`}
@@ -364,7 +368,9 @@ export function DeckComponent(props: DeckPortProps) {
                               {cond_state()[ship_index()]}
                             </div>
                             <div class="badge badge-md border-base-300 w-9 tabular-nums">
-                              {ship_list()[ship_index()].cond ?? 0}
+                              {uiConfig.fleets.show_condition_value
+                                ? (ship_list()[ship_index()].cond ?? 0)
+                                : "--"}
                             </div>
                           </div>
                         </div>

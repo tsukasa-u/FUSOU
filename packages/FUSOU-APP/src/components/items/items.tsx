@@ -14,8 +14,28 @@ import {
   buildItemShelves,
   buildUseItemNameMap,
 } from "../../utility/item_shelves.ts";
+import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
 
 export function ItemsComponent() {
+  const uiConfig = useUiConfig();
+  const [isItemsOpen, onToggleItems] = createConfigDisclosure(
+    () => uiConfig.items.open_items,
+  );
+  const [isNormalOpen, onToggleNormal] = createConfigDisclosure(
+    () => uiConfig.items.open_normal,
+  );
+  const [isSpecialOpen, onToggleSpecial] = createConfigDisclosure(
+    () => uiConfig.items.open_special,
+  );
+  const [isPurchasedOpen, onTogglePurchased] = createConfigDisclosure(
+    () => uiConfig.items.open_purchased,
+  );
+  const [isFurnitureOpen, onToggleFurniture] = createConfigDisclosure(
+    () => uiConfig.items.open_furniture,
+  );
   const [useItems] = useUseItems();
   const [payItems] = usePayItems();
   const [materials] = useMaterials();
@@ -143,52 +163,90 @@ export function ItemsComponent() {
     </li>
   );
 
-  const renderShelf = (title: string, items: () => ItemViewEntry[]) => (
-    <li class="w-150 max-w-full min-w-0">
-      <details open class="min-w-0 w-full">
-        <summary class="text-xs font-semibold text-base-content/80">
-          {title} ({items().length})
-        </summary>
-        <ul class="pl-0">
-          <For
-            each={items()}
-            fallback={
-              <li class="text-xs px-4 py-1 text-base-content/50">
-                No items in this shelf
-              </li>
-            }
-          >
-            {(item) => renderItemRow(item)}
-          </For>
-        </ul>
-      </details>
-    </li>
+  const renderShelf = (
+    title: string,
+    items: () => ItemViewEntry[],
+    visible: () => boolean,
+    isOpen: () => boolean,
+    onToggle: (e: Event & { currentTarget: HTMLDetailsElement }) => void,
+  ) => (
+    <Show when={visible()}>
+      <li class="w-150 max-w-full min-w-0">
+        <details open={isOpen()} onToggle={onToggle} class="min-w-0 w-full">
+          <summary class="text-xs font-semibold text-base-content/80">
+            {title} ({items().length})
+          </summary>
+          <ul class="pl-0">
+            <For
+              each={items()}
+              fallback={
+                <li class="text-xs px-4 py-1 text-base-content/50">
+                  No items in this shelf
+                </li>
+              }
+            >
+              {(item) => renderItemRow(item)}
+            </For>
+          </ul>
+        </details>
+      </li>
+    </Show>
   );
 
   return (
-    <li class="w-full min-w-0">
-      <details open class="min-w-0 w-full">
-        <summary>Items</summary>
-        <ul class="pl-0 max-w-[960px]">
-          <Show
-            when={hasLoaded()}
-            fallback={<li class="text-xs py-2">Loading Item Data ...</li>}
-          >
-            <MenuFilterBar
-              value={query()}
-              onInput={setQuery}
-              placeholder="Filter items..."
-              filteredCount={filteredTotalCount()}
-              totalCount={rawTotalCount()}
-            />
+    <Show when={uiConfig.items.show_items}>
+      <li class="w-full min-w-0">
+        <details
+          open={isItemsOpen()}
+          onToggle={onToggleItems}
+          class="min-w-0 w-full"
+        >
+          <summary>Items</summary>
+          <ul class="pl-0 max-w-[960px]">
+            <Show
+              when={hasLoaded()}
+              fallback={<li class="text-xs py-2">Loading Item Data ...</li>}
+            >
+              <MenuFilterBar
+                value={query()}
+                onInput={setQuery}
+                placeholder="Filter items..."
+                filteredCount={filteredTotalCount()}
+                totalCount={rawTotalCount()}
+              />
 
-            {renderShelf("Normal Items", normalItems)}
-            {renderShelf("Special Items", specialItems)}
-            {renderShelf("Purchased Items", purchasedItems)}
-            {renderShelf("Furniture Store", furnitureItems)}
-          </Show>
-        </ul>
-      </details>
-    </li>
+              {renderShelf(
+                "Normal Items",
+                normalItems,
+                () => uiConfig.items.show_normal,
+                isNormalOpen,
+                onToggleNormal,
+              )}
+              {renderShelf(
+                "Special Items",
+                specialItems,
+                () => uiConfig.items.show_special,
+                isSpecialOpen,
+                onToggleSpecial,
+              )}
+              {renderShelf(
+                "Purchased Items",
+                purchasedItems,
+                () => uiConfig.items.show_purchased,
+                isPurchasedOpen,
+                onTogglePurchased,
+              )}
+              {renderShelf(
+                "Furniture Store",
+                furnitureItems,
+                () => uiConfig.items.show_furniture,
+                isFurnitureOpen,
+                onToggleFurniture,
+              )}
+            </Show>
+          </ul>
+        </details>
+      </li>
+    </Show>
   );
 }

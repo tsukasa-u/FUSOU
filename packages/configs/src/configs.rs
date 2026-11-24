@@ -873,6 +873,513 @@ impl ConfigsAppMapCellLabels {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppUiTabs {
+    show_fleet: Option<bool>,
+    show_ship: Option<bool>,
+    show_equip: Option<bool>,
+    show_item: Option<bool>,
+    show_quest: Option<bool>,
+    show_uploads: Option<bool>,
+    show_logs: Option<bool>,
+    show_policy: Option<bool>,
+}
+
+impl ConfigsAppUiTabs {
+    pub fn get_show_fleet(&self) -> bool {
+        self.show_fleet
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_fleet.unwrap_or(true))
+    }
+    pub fn get_show_ship(&self) -> bool {
+        self.show_ship
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_ship.unwrap_or(true))
+    }
+    pub fn get_show_equip(&self) -> bool {
+        self.show_equip
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_equip.unwrap_or(true))
+    }
+    pub fn get_show_item(&self) -> bool {
+        self.show_item
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_item.unwrap_or(true))
+    }
+    pub fn get_show_quest(&self) -> bool {
+        self.show_quest
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_quest.unwrap_or(true))
+    }
+    pub fn get_show_uploads(&self) -> bool {
+        self.show_uploads
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_uploads.unwrap_or(true))
+    }
+    pub fn get_show_logs(&self) -> bool {
+        self.show_logs
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_logs.unwrap_or(true))
+    }
+    pub fn get_show_policy(&self) -> bool {
+        self.show_policy
+            .unwrap_or_else(|| get_default_configs().app.ui.tabs.show_policy.unwrap_or(true))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppUiFleetTab {
+    show_materials: Option<bool>,
+    open_materials: Option<bool>,
+    show_fleets: Option<bool>,
+    open_fleets: Option<bool>,
+    show_repair_docks: Option<bool>,
+    open_repair_docks: Option<bool>,
+    show_air_bases: Option<bool>,
+    open_air_bases: Option<bool>,
+    open_air_base_squadrons: Option<bool>,
+    show_battles: Option<bool>,
+    open_battles: Option<bool>,
+}
+
+impl ConfigsAppUiFleetTab {
+    pub fn get_show_materials(&self) -> bool {
+        self.show_materials.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .show_materials
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_materials(&self) -> bool {
+        self.open_materials.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .open_materials
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_fleets(&self) -> bool {
+        self.show_fleets.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .show_fleets
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_fleets(&self) -> bool {
+        self.open_fleets.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .open_fleets
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_repair_docks(&self) -> bool {
+        self.show_repair_docks.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .show_repair_docks
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_repair_docks(&self) -> bool {
+        self.open_repair_docks.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .open_repair_docks
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_air_bases(&self) -> bool {
+        self.show_air_bases.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .show_air_bases
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_air_bases(&self) -> bool {
+        self.open_air_bases.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .open_air_bases
+                .unwrap_or(false)
+        })
+    }
+    pub fn get_open_air_base_squadrons(&self) -> bool {
+        self.open_air_base_squadrons.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .open_air_base_squadrons
+                .unwrap_or(false)
+        })
+    }
+    pub fn get_show_battles(&self) -> bool {
+        self.show_battles.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .show_battles
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_battles(&self) -> bool {
+        self.open_battles.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleet_tab
+                .open_battles
+                .unwrap_or(true)
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppUiFleets {
+    show_condition_value: Option<bool>,
+    show_fleet_1: Option<bool>,
+    open_fleet_1: Option<bool>,
+    show_fleet_2: Option<bool>,
+    open_fleet_2: Option<bool>,
+    show_fleet_3: Option<bool>,
+    open_fleet_3: Option<bool>,
+    show_fleet_4: Option<bool>,
+    open_fleet_4: Option<bool>,
+}
+
+impl ConfigsAppUiFleets {
+    pub fn get_show_condition_value(&self) -> bool {
+        self.show_condition_value.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .show_condition_value
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_fleet_1(&self) -> bool {
+        self.show_fleet_1.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .show_fleet_1
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_fleet_1(&self) -> bool {
+        self.open_fleet_1.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .open_fleet_1
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_fleet_2(&self) -> bool {
+        self.show_fleet_2.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .show_fleet_2
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_fleet_2(&self) -> bool {
+        self.open_fleet_2.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .open_fleet_2
+                .unwrap_or(false)
+        })
+    }
+    pub fn get_show_fleet_3(&self) -> bool {
+        self.show_fleet_3.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .show_fleet_3
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_fleet_3(&self) -> bool {
+        self.open_fleet_3.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .open_fleet_3
+                .unwrap_or(false)
+        })
+    }
+    pub fn get_show_fleet_4(&self) -> bool {
+        self.show_fleet_4.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .show_fleet_4
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_fleet_4(&self) -> bool {
+        self.open_fleet_4.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .fleets
+                .open_fleet_4
+                .unwrap_or(false)
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppUiItems {
+    show_items: Option<bool>,
+    open_items: Option<bool>,
+    show_normal: Option<bool>,
+    open_normal: Option<bool>,
+    show_special: Option<bool>,
+    open_special: Option<bool>,
+    show_purchased: Option<bool>,
+    open_purchased: Option<bool>,
+    show_furniture: Option<bool>,
+    open_furniture: Option<bool>,
+}
+
+impl ConfigsAppUiItems {
+    pub fn get_show_items(&self) -> bool {
+        self.show_items.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .show_items
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_items(&self) -> bool {
+        self.open_items.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .open_items
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_normal(&self) -> bool {
+        self.show_normal.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .show_normal
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_normal(&self) -> bool {
+        self.open_normal.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .open_normal
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_special(&self) -> bool {
+        self.show_special.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .show_special
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_special(&self) -> bool {
+        self.open_special.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .open_special
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_purchased(&self) -> bool {
+        self.show_purchased.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .show_purchased
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_purchased(&self) -> bool {
+        self.open_purchased.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .open_purchased
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_furniture(&self) -> bool {
+        self.show_furniture.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .show_furniture
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_furniture(&self) -> bool {
+        self.open_furniture.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .items
+                .open_furniture
+                .unwrap_or(true)
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppUiQuests {
+    show_quests: Option<bool>,
+    open_quests: Option<bool>,
+    show_accepted: Option<bool>,
+    open_accepted: Option<bool>,
+    show_available: Option<bool>,
+    open_available: Option<bool>,
+    show_completed: Option<bool>,
+    open_completed: Option<bool>,
+}
+
+impl ConfigsAppUiQuests {
+    pub fn get_show_quests(&self) -> bool {
+        self.show_quests.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .show_quests
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_quests(&self) -> bool {
+        self.open_quests.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .open_quests
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_accepted(&self) -> bool {
+        self.show_accepted.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .show_accepted
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_accepted(&self) -> bool {
+        self.open_accepted.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .open_accepted
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_available(&self) -> bool {
+        self.show_available.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .show_available
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_available(&self) -> bool {
+        self.open_available.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .open_available
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_show_completed(&self) -> bool {
+        self.show_completed.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .show_completed
+                .unwrap_or(true)
+        })
+    }
+    pub fn get_open_completed(&self) -> bool {
+        self.open_completed.unwrap_or_else(|| {
+            get_default_configs()
+                .app
+                .ui
+                .quests
+                .open_completed
+                .unwrap_or(true)
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppUi {
+    #[serde(default)]
+    pub tabs: ConfigsAppUiTabs,
+    #[serde(default)]
+    pub fleet_tab: ConfigsAppUiFleetTab,
+    #[serde(default)]
+    pub fleets: ConfigsAppUiFleets,
+    #[serde(default)]
+    pub items: ConfigsAppUiItems,
+    #[serde(default)]
+    pub quests: ConfigsAppUiQuests,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
@@ -887,6 +1394,8 @@ pub struct ConfigsApp {
     pub map_cell_labels: ConfigsAppMapCellLabels,
     pub auth: ConfigsAppAuth,
     pub kc_window: ConfigsAppWindow,
+    #[serde(default)]
+    pub ui: ConfigsAppUi,
     pub quest_tree_sender: ConfigsAppQuestTreeSender,
     pub ship_growth_sender: ConfigsAppShipGrowthSender,
     pub soku_speed_sender: ConfigsAppSokuSpeedSender,
@@ -1452,6 +1961,41 @@ mod tests {
             old_config.app.map_cell_labels.get_bundle_url(),
             Some(default_url)
         );
+    }
+
+    #[test]
+    fn ui_config_defaults_and_backward_compatibility() {
+        let default_cfg = get_default_configs();
+        assert!(default_cfg.app.ui.tabs.get_show_fleet());
+        assert!(default_cfg.app.ui.tabs.get_show_item());
+        assert!(default_cfg.app.ui.fleet_tab.get_show_fleets());
+        assert!(default_cfg.app.ui.fleet_tab.get_open_fleets());
+        assert!(!default_cfg.app.ui.fleet_tab.get_open_air_bases());
+        assert!(default_cfg.app.ui.fleets.get_show_condition_value());
+        assert!(default_cfg.app.ui.fleets.get_show_fleet_4());
+        assert!(default_cfg.app.ui.fleets.get_open_fleet_1());
+        assert!(!default_cfg.app.ui.fleets.get_open_fleet_2());
+        assert!(!default_cfg.app.ui.fleets.get_open_fleet_4());
+        assert!(default_cfg.app.ui.items.get_show_items());
+        assert!(default_cfg.app.ui.items.get_open_items());
+        assert!(default_cfg.app.ui.quests.get_show_quests());
+        assert!(default_cfg.app.ui.quests.get_open_quests());
+
+        // Old config without [app.ui] must still deserialize and fall back to defaults
+        let mut old_config: toml::Value =
+            toml::from_str(include_str!("../configs.toml")).expect("default TOML should parse");
+        old_config
+            .get_mut("app")
+            .and_then(toml::Value::as_table_mut)
+            .expect("app config table should exist")
+            .remove("ui");
+        let parsed: Configs = old_config
+            .try_into()
+            .expect("configs without [app.ui] should remain compatible");
+        assert!(parsed.app.ui.fleets.get_show_fleet_4());
+        assert!(parsed.app.ui.fleets.get_open_fleet_1());
+        assert!(!parsed.app.ui.fleets.get_open_fleet_4());
+        assert!(parsed.app.ui.items.get_show_items());
     }
 
     #[test]

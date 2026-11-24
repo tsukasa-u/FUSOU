@@ -33,9 +33,10 @@ import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
 import { ShipListComponent } from "../components/specification_table/ship_list.tsx";
 import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
 import { PolicyPanelComponent } from "../components/policy/policy_panel.tsx";
-import { createEffect, createSignal, For } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { location_route } from "../utility/location";
 import { LogViewerComponent } from "../components/logger/log-viewer.tsx";
+import { loadUiConfig, useUiConfig } from "../utility/ui_config.ts";
 
 type AppTabKey =
   | "fleet"
@@ -111,7 +112,47 @@ function AppProviders(props: { children: JSX.Element }) {
 
 function App() {
   createEffect(location_route);
+  const uiConfig = useUiConfig();
   const [activeTab, setActiveTab] = createSignal<AppTabKey>("fleet");
+
+  onMount(() => {
+    void loadUiConfig();
+  });
+
+  const isTabVisible = (key: AppTabKey): boolean => {
+    switch (key) {
+      case "fleet":
+        return uiConfig.tabs.show_fleet;
+      case "ship":
+        return uiConfig.tabs.show_ship;
+      case "equip":
+        return uiConfig.tabs.show_equip;
+      case "item":
+        return uiConfig.tabs.show_item;
+      case "quest":
+        return uiConfig.tabs.show_quest;
+      case "data_collection":
+        return uiConfig.tabs.show_uploads;
+      case "logs":
+        return uiConfig.tabs.show_logs;
+      case "policy":
+        return uiConfig.tabs.show_policy;
+      case "settings":
+        return true;
+    }
+  };
+
+  const visibleTabs = createMemo(() =>
+    TAB_DEFINITIONS.filter((tab) => isTabVisible(tab.key)),
+  );
+
+  createEffect(() => {
+    const visible = visibleTabs();
+    if (!visible.some((tab) => tab.key === activeTab())) {
+      setActiveTab(visible[0]?.key ?? "settings");
+    }
+  });
+
   const isViewportLockedTab = () =>
     activeTab() === "ship" || activeTab() === "equip" || activeTab() === "logs";
 
@@ -123,7 +164,7 @@ function App() {
             role="tablist"
             class="tabs tabs-border tabs-sm bg-base-100 flex-wrap"
           >
-            <For each={TAB_DEFINITIONS}>
+            <For each={visibleTabs()}>
               {(tab) => {
                 return (
                   <button
@@ -144,11 +185,21 @@ function App() {
         <div class={activeTab() === "fleet" ? "block" : "hidden"}>
           <div class="p-0 h-full">
             <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
-              <MaterialsComponent />
-              <DecksComponent />
-              <NDocksComponent />
-              <AirBasesComponent />
-              <BattlesComponent />
+              <Show when={uiConfig.fleet_tab.show_materials}>
+                <MaterialsComponent />
+              </Show>
+              <Show when={uiConfig.fleet_tab.show_fleets}>
+                <DecksComponent />
+              </Show>
+              <Show when={uiConfig.fleet_tab.show_repair_docks}>
+                <NDocksComponent />
+              </Show>
+              <Show when={uiConfig.fleet_tab.show_air_bases}>
+                <AirBasesComponent />
+              </Show>
+              <Show when={uiConfig.fleet_tab.show_battles}>
+                <BattlesComponent />
+              </Show>
               <div class="min-h-min min-w-min" />
             </ul>
           </div>

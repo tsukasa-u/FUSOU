@@ -9,11 +9,19 @@ import { ComponentItemModal, EmptyValue } from "ui";
 import "../../css/divider.css";
 import { buildUseItemNameMap } from "../../utility/item_shelves.ts";
 import {
+  createConfigDisclosure,
+  useUiConfig,
+} from "../../utility/ui_config.ts";
+import {
   material_icon_name_by_number,
   material_icon_number_by_index,
 } from "../ui/icons/material_data";
 
 export function MaterialsComponent() {
+  const uiConfig = useUiConfig();
+  const [isOpen, onToggle] = createConfigDisclosure(
+    () => uiConfig.fleet_tab.open_materials,
+  );
   const [materials] = useMaterials();
   const [mstUseItems] = useMstUseItems();
   const [mstUseItemMetas] = useMstUseItemMetas();
@@ -30,7 +38,7 @@ export function MaterialsComponent() {
   return (
     <>
       <li>
-        <details open>
+        <details open={isOpen()} onToggle={onToggle}>
           <summary>Materials</summary>
           <ul class="pl-0">
             <Show
