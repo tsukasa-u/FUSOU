@@ -48,8 +48,8 @@ elif command -v getconf >/dev/null 2>&1; then
 else
   SCAN_AST_THREADS=1
 fi
-if [[ "$SCAN_AST_THREADS" -gt 8 ]]; then
-  SCAN_AST_THREADS=8
+if [[ "$SCAN_AST_THREADS" -gt 16 ]]; then
+  SCAN_AST_THREADS=16
 fi
 SCAN_AST_MAX_COMBO_SIZE=6
 SCAN_AST_SHIPS=""
@@ -174,10 +174,7 @@ echo "[3/3] Scanning Synergy..."
 echo "[3/3] scan-ast heap limit: ${SCAN_AST_MAX_OLD_SPACE_MB} MB"
 echo "[3/3] max combo size: ${SCAN_AST_MAX_COMBO_SIZE}"
 if [ "$SCAN_AST_THREADS" -gt 1 ] 2>/dev/null; then
-  echo "[3/3] parallel workers: ${SCAN_AST_THREADS}"
-fi
-if [ "$SCAN_AST_THREADS" -gt 8 ] 2>/dev/null; then
-  echo "[3/3] WARNING: workers > 8 was observed to diverge from the validated reference output."
+  echo "[3/3] parallel workers: ${SCAN_AST_THREADS} (resident pool, phase-synced)"
 fi
 echo "[3/3] strict N-1 mode: $( [ "$SCAN_AST_STRICT_NMINUS1" = "1" ] && echo enabled || echo disabled )"
 echo "[3/3] duplicate-item mode: $( [ "$SCAN_AST_ALLOW_DUPLICATE_ITEMS" = "1" ] && echo enabled || echo disabled )"
@@ -224,7 +221,7 @@ if [ "$SCAN_AST_THREADS" -gt 1 ] 2>/dev/null; then
   EXTRA_PARALLEL_ARGS=()
   if [ -n "$SCAN_AST_V8_FLAGS" ]; then EXTRA_PARALLEL_ARGS+=(--v8-flags "$SCAN_AST_V8_FLAGS"); fi
   if [ "$SCAN_AST_PROFILE_V8" = "1" ]; then EXTRA_PARALLEL_ARGS+=(--profile-v8); fi
-  env "${SCAN_ENV[@]}" "$SCAN_NODE_BIN" "$SCRIPT_DIR/core/scan-ast-parallel.js" --workers "$SCAN_AST_THREADS" --progress-interval-ms "$SCAN_AST_PROGRESS_INTERVAL_MS" --schedule-shards "$SCAN_AST_SCHEDULE_SHARDS" "${EXTRA_PARALLEL_ARGS[@]}" "${SCAN_ARGS[@]}"
+  env "${SCAN_ENV[@]}" "$SCAN_NODE_BIN" "--max-old-space-size=${SCAN_AST_MAX_OLD_SPACE_MB}" "$SCRIPT_DIR/core/scan-ast-parallel.js" --workers "$SCAN_AST_THREADS" --progress-interval-ms "$SCAN_AST_PROGRESS_INTERVAL_MS" --schedule-shards "$SCAN_AST_SCHEDULE_SHARDS" "${EXTRA_PARALLEL_ARGS[@]}" "${SCAN_ARGS[@]}"
 else
   NODE_ARGS=()
   if [ -n "$SCAN_AST_V8_FLAGS" ]; then

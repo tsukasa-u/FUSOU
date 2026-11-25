@@ -1,16 +1,43 @@
 #!/usr/bin/env node
+/**
+ * Resident Worker Pool Parallel Synergy Scanner (Phase-synchronized).
+ *
+ * Key architectural improvements over the legacy per-shard spawn runner:
+ *   1. Loads deobfuscated.js & master data ONCE per worker (instead of 250+ cold spawns).
+ *   2. Runs full-fleet Ship Deduplication after Phase 1 so identical bonus profiles
+ *      are only scanned once across Phases 2-6.
+ *   3. Phase barrier synchronization guarantees 100% complete lower-order rules
+ *      before entering Phases 4-6 — eliminating the cross-shard divergence bug and
+ *      making high worker counts (up to 16 logical threads) strictly equivalent to
+ *      single-process scan-ast.js.
+ *   4. Balanced combinatorial chunking (splitting heavy ships down to (ai, bi) ranges
+ *      by exact combo count rather than uniform index width) eliminates tail stalls.
+ */
 
 const fs = require("fs");
 const os = require("os");
-const readline = require("readline");
 const path = require("path");
-const { spawn } = require("child_process");
+const zlib = require("zlib");
+const { createHash } = require("crypto");
+const { fork } = require("child_process");
 const { ROOT, findMasterData, parseMasterData } = require("../../lib/loader");
+const { createFastSlotAssigner } = require("./fast-eval");
+const {
+  bkey,
+  combCount,
+  detectPoolsByShip,
+  createMasterContext,
+  buildEffectRules,
+  buildRules,
+  mergeCompressedRules,
+  compressRuleCombosGzip,
+  resolveExclusiveGroups,
+} = require("./rule-builder");
 
 function parseArgs(argv) {
-  const defaultValidatedWorkers = Math.max(1, Math.min(os.cpus().length, 8));
+  const defaultWorkers = Math.max(1, Math.min(os.cpus().length, 16));
   const opts = {
-    workers: defaultValidatedWorkers,
+    workers: defaultWorkers,
     scheduleShards: 256,
     progressIntervalMs: 2000,
     periodTag: null,
@@ -24,6 +51,7 @@ function parseArgs(argv) {
     allowDuplicateItems: true,
     astCandidateShips: null,
     maxOldSpaceMb: Number.parseInt(process.env.SCAN_AST_MAX_OLD_SPACE_MB || "8192", 10),
+    skipBrotli: false,
     scanFlags: {
       main: false,
       volatileGenerated: false,
@@ -122,7 +150,6 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
-
     if (a === "--strict-nminus1") {
       opts.strictNMinusOne = true;
       continue;
@@ -139,7 +166,6 @@ function parseArgs(argv) {
       opts.allowDuplicateItems = false;
       continue;
     }
-
     if (a === "--main") {
       opts.scanFlags.main = true;
       continue;
@@ -152,13 +178,19 @@ function parseArgs(argv) {
       opts.scanFlags.noPruneInvisible = true;
       continue;
     }
+    if (a === "--no-brotli") {
+      opts.skipBrotli = true;
+      continue;
+    }
 
     throw new Error(`unknown option: ${a}`);
   }
 
   if (!Number.isFinite(opts.workers) || opts.workers < 1) opts.workers = 1;
   if (!Number.isFinite(opts.scheduleShards) || opts.scheduleShards < 0) opts.scheduleShards = 256;
-  if (!Number.isFinite(opts.progressIntervalMs) || opts.progressIntervalMs < 250) opts.progressIntervalMs = 2000;
+  if (!Number.isFinite(opts.progressIntervalMs) || opts.progressIntervalMs < 250) {
+    opts.progressIntervalMs = 2000;
+  }
   if (!Number.isFinite(opts.maxOldSpaceMb) || opts.maxOldSpaceMb <= 0) opts.maxOldSpaceMb = 8192;
   if (!Number.isFinite(opts.maxComboSize) || opts.maxComboSize < 2 || opts.maxComboSize > 6) {
     throw new Error(`--max-combo-size must be integer in [2, 6], got: ${opts.maxComboSize}`);
@@ -167,820 +199,1204 @@ function parseArgs(argv) {
   return opts;
 }
 
-function choose(n, k) {
-  if (k < 0 || k > n) return 0;
-  if (k === 0 || k === n) return 1;
-  k = Math.min(k, n - k);
-  let r = 1;
-  for (let i = 0; i < k; i += 1) r = Math.round((r * (n - i)) / (i + 1));
-  return r;
-}
+/**
+ * Split all combinations of size k from n items into balanced chunks
+ * of approximately `targetCombos` combinations each.
+ * Each chunk is an array of `{ a, bStart, bEnd }` ranges covering every
+ * valid (a, b, ...) tuple in strict lexicographic order with zero gaps/overlap.
+ */
+function buildBalancedComboChunks(n, k, allowDuplicates, targetCombos) {
+  if (n < (allowDuplicates ? 1 : k)) return [];
+  const chunks = [];
+  let currentRanges = [];
+  let currentWeight = 0;
 
-function combCount(n, k, allowDuplicates) {
-  if (allowDuplicates) return choose(n + k - 1, k);
-  return choose(n, k);
-}
+  for (let a = 0; a < n; a++) {
+    const bMin = allowDuplicates ? a : a + 1;
+    let bStart = bMin;
+    let rangeWeight = 0;
 
-function stableStringify(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
-  }
-  const keys = Object.keys(value).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
-}
+    for (let b = bMin; b < n; b++) {
+      const remN = allowDuplicates ? n - b : n - 1 - b;
+      const w = remN > 0 ? combCount(remN, k - 2, allowDuplicates) : 0;
+      if (w === 0) continue;
 
-function mergeRuleSet(ruleSets, mergeArrayField = null) {
-  const map = new Map();
-  for (const rules of ruleSets) {
-    for (const rule of rules || []) {
-      const ships = rule.ships || [];
-      const rest = { ...rule };
-      delete rest.ships;
-      const key = stableStringify(rest);
-      if (!map.has(key)) {
-        const next = { ...rest, ships: [] };
-        if (mergeArrayField && Array.isArray(rest[mergeArrayField])) {
-          next[mergeArrayField] = [];
+      if (currentWeight + rangeWeight > 0 && currentWeight + rangeWeight + w > targetCombos) {
+        if (b > bStart) {
+          currentRanges.push({ a, bStart, bEnd: b });
+          currentWeight += rangeWeight;
+          bStart = b;
+          rangeWeight = 0;
         }
-        map.set(key, next);
+        if (currentRanges.length > 0) {
+          chunks.push({ ranges: currentRanges, weight: currentWeight });
+          currentRanges = [];
+          currentWeight = 0;
+        }
       }
-      const target = map.get(key);
-      target.ships.push(...ships);
-      if (mergeArrayField && Array.isArray(rule[mergeArrayField])) {
-        target[mergeArrayField].push(...rule[mergeArrayField]);
-      }
+      rangeWeight += w;
+    }
+
+    if (bStart < n && rangeWeight > 0) {
+      currentRanges.push({ a, bStart, bEnd: n });
+      currentWeight += rangeWeight;
     }
   }
 
-  const merged = [];
-  for (const v of map.values()) {
-    v.ships = [...new Set(v.ships)].sort((a, b) => a - b);
-    if (mergeArrayField && Array.isArray(v[mergeArrayField])) {
-      const uniq = new Map();
-      for (const x of v[mergeArrayField]) uniq.set(stableStringify(x), x);
-      v[mergeArrayField] = [...uniq.values()].sort((a, b) => {
-        if (Array.isArray(a) && Array.isArray(b)) {
-          for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
-            if (a[i] !== b[i]) return a[i] - b[i];
-          }
-          return a.length - b.length;
-        }
-        return stableStringify(a).localeCompare(stableStringify(b));
+  if (currentRanges.length > 0) {
+    chunks.push({ ranges: currentRanges, weight: currentWeight });
+  }
+  return chunks;
+}
+
+class WorkerPool {
+  constructor(workerScript, count, execArgv) {
+    this.workerScript = workerScript;
+    this.count = count;
+    this.execArgv = execArgv;
+    this.workers = [];
+    this.nextReqId = 1;
+    this.destroyed = false;
+  }
+
+  start() {
+    for (let i = 0; i < this.count; i++) {
+      const child = fork(this.workerScript, [], {
+        cwd: process.cwd(),
+        execArgv: this.execArgv,
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
       });
-    }
-    merged.push(v);
-  }
-  merged.sort((a, b) => (a.ships[0] || 0) - (b.ships[0] || 0));
-  return merged;
-}
+      const pending = new Map();
+      const entry = { id: i + 1, child, pending, exited: false };
 
-function buildEquipIndex(rules) {
-  const index = {};
-  for (let i = 0; i < rules.length; i += 1) {
-    const rule = rules[i];
-    const items = new Set();
-    if (rule.items) rule.items.forEach((id) => items.add(id));
-    if (rule.item_pool) rule.item_pool.forEach((id) => items.add(id));
-    if (rule.fixed_items) rule.fixed_items.forEach((id) => items.add(id));
-    if (rule.free_pool) rule.free_pool.forEach((id) => items.add(id));
-    if (rule.category_pools) {
-      for (const pool of rule.category_pools) pool.forEach((id) => items.add(id));
-    }
-    if (rule.pairs) {
-      for (const pair of rule.pairs) pair.forEach((id) => items.add(id));
-    }
-    if (rule.combos) {
-      for (const combo of rule.combos) combo.forEach((id) => items.add(id));
-    }
-    if (rule.implicants) {
-      for (const imp of rule.implicants) {
-        for (const term of imp) term.forEach((id) => items.add(id));
-      }
-    }
-    for (const id of items) {
-      if (!index[id]) index[id] = [];
-      index[id].push(i);
-    }
-  }
-  return index;
-}
+      child.stdout.on("data", () => {});
+      child.stderr.on("data", (buf) => {
+        const text = buf.toString("utf8").trim();
+        if (text) console.error(`[worker-${entry.id}] ${text}`);
+      });
 
-function parseNormalSlotTypeRestrictions(overrideInfo) {
-  const raw =
-    overrideInfo?.normal_slot_type_restrictions ||
-    overrideInfo?.api_normal_slot_type_restrictions ||
-    [];
-  if (!Array.isArray(raw)) return [];
-  const rules = [];
-  for (const rule of raw) {
-    if (!rule || typeof rule !== "object") continue;
-    const mode = rule.mode;
-    if (mode !== "exclude" && mode !== "allow-only") continue;
-    const slotIndex = Number.isInteger(rule.slot_index)
-      ? rule.slot_index
-      : Number.isInteger(rule.min_slot_index)
-        ? { min: rule.min_slot_index }
-        : null;
-    if (slotIndex == null) continue;
-    const typeIds = new Set(
-      (Array.isArray(rule.type_ids) ? rule.type_ids : [])
-        .map(Number)
-        .filter(Number.isInteger),
-    );
-    if (typeIds.size === 0) continue;
-    rules.push({ slotIndex, mode, typeIds });
-  }
-  return rules;
-}
+      child.on("message", (msg) => {
+        const p = pending.get(msg.reqId);
+        if (!p) return;
+        pending.delete(msg.reqId);
+        if (msg.ok) p.resolve(msg.payload);
+        else p.reject(new Error(`worker-${entry.id}: ${msg.error}`));
+      });
 
-function passesNormalSlotRestriction(restrictions, slotIdx, equipType) {
-  for (const rule of restrictions) {
-    const matches =
-      typeof rule.slotIndex === "number"
-        ? slotIdx === rule.slotIndex
-        : slotIdx >= rule.slotIndex.min;
-    if (!matches) continue;
-    if (rule.mode === "exclude") return !rule.typeIds.has(equipType);
-    return rule.typeIds.has(equipType);
-  }
-  return true;
-}
-
-function createShipEstimator(masterData) {
-  const mstShips = [...(masterData.api_mst_ship || [])]
-    .filter((s) => s.api_id < 1500)
-    .sort((a, b) => a.api_id - b.api_id);
-  const mstSlotitems = [...(masterData.api_mst_slotitem || [])].sort((a, b) => a.api_id - b.api_id);
-
-  const stypeEquipTypeSet = {};
-  for (const st of masterData.api_mst_stype || []) {
-    const allowed = new Set();
-    for (const [etStr, v] of Object.entries(st.api_equip_type || {})) {
-      if (v === 1) allowed.add(parseInt(etStr, 10));
-    }
-    stypeEquipTypeSet[st.api_id] = allowed;
-  }
-
-  const shipEquipOverrideMap = {};
-  for (const [shipIdStr, info] of Object.entries(masterData.api_mst_equip_ship || {})) {
-    shipEquipOverrideMap[parseInt(shipIdStr, 10)] = info;
-  }
-
-  const exslotEquipTypes = new Set((masterData.api_mst_equip_exslot || []).map(Number));
-
-  const exslotShipRuleMap = {};
-  for (const [itemIdStr, info] of Object.entries(masterData.api_mst_equip_exslot_ship || {})) {
-    exslotShipRuleMap[parseInt(itemIdStr, 10)] = info;
-  }
-
-  const exslotLimitMap = {};
-  for (const [shipIdStr, info] of Object.entries(masterData.api_mst_equip_limit_exslot || {})) {
-    const equip = Array.isArray(info?.api_equip) ? info.api_equip.map(Number) : [];
-    exslotLimitMap[parseInt(shipIdStr, 10)] = new Set(equip);
-  }
-
-  const itemEquipType2 = {};
-  for (const si of mstSlotitems) {
-    itemEquipType2[si.api_id] = (si.api_type && si.api_type[2]) || 0;
-  }
-
-  function getNormalSlotRule(shipData) {
-    const override = shipEquipOverrideMap[shipData.api_id];
-    if (override?.api_equip_type) {
-      const allowedTypes = new Set();
-      const itemAllowListByType = new Map();
-      for (const [typeIdStr, value] of Object.entries(override.api_equip_type)) {
-        const typeId = Number(typeIdStr);
-        if (!Number.isFinite(typeId)) continue;
-        allowedTypes.add(typeId);
-        if (Array.isArray(value)) itemAllowListByType.set(typeId, new Set(value.map(Number)));
-      }
-      return {
-        allowedTypes,
-        itemAllowListByType,
-        restrictions: parseNormalSlotTypeRestrictions(override),
-      };
-    }
-    const allowedTypes = stypeEquipTypeSet[shipData.api_stype] || new Set();
-    return { allowedTypes, itemAllowListByType: new Map(), restrictions: [] };
-  }
-
-  function getExslotRequirement(shipData, itemId) {
-    const shipId = shipData.api_id;
-    const equipType = itemEquipType2[itemId];
-    if (!equipType) return null;
-
-    const normalRule = getNormalSlotRule(shipData);
-    let shipCompatible = false;
-    if (normalRule.allowedTypes.has(equipType)) {
-      const allowItems = normalRule.itemAllowListByType.get(equipType);
-      shipCompatible = !allowItems || allowItems.has(itemId);
-    }
-    if (normalRule.allowedTypes.size > 0 && !shipCompatible) return null;
-
-    const blocked = exslotLimitMap[shipId] || new Set();
-    const allowByBaseType = exslotEquipTypes.has(equipType) && !blocked.has(equipType);
-
-    let allowByExplicit = false;
-    const exslotRule = exslotShipRuleMap[itemId];
-    if (exslotRule) {
-      const shipIds = exslotRule.api_ship_ids || exslotRule.ship_ids || null;
-      const stypes = exslotRule.api_stypes || exslotRule.stypes || null;
-      const ctypes = exslotRule.api_ctypes || exslotRule.ctypes || null;
-      allowByExplicit =
-        !!(shipIds && shipIds[String(shipId)]) ||
-        !!(stypes && stypes[String(shipData.api_stype)]) ||
-        !!(ctypes && ctypes[String(shipData.api_ctype || 0)]);
-    }
-
-    return allowByBaseType || allowByExplicit ? { level: 0, alv: 0 } : null;
-  }
-
-  function canEquipItem(shipData, itemId) {
-    const equipType = itemEquipType2[itemId];
-    if (!equipType) return false;
-
-    const normalRule = getNormalSlotRule(shipData);
-    if (normalRule.allowedTypes.has(equipType)) {
-      const allowItems = normalRule.itemAllowListByType.get(equipType);
-      const itemAllowed = !allowItems || allowItems.has(itemId);
-      if (itemAllowed) {
-        const slotCount = shipData.api_slot_num || 0;
-        for (let slotIdx = 0; slotIdx < slotCount; slotIdx++) {
-          if (passesNormalSlotRestriction(normalRule.restrictions, slotIdx, equipType)) {
-            return true;
+      child.on("error", (err) => {
+        if (!this.destroyed && pending.size > 0) {
+          for (const [, p] of pending) {
+            p.reject(new Error(`worker-${entry.id} IPC error: ${err?.message || err}`));
           }
+          pending.clear();
         }
-      }
-    }
+      });
 
-    return getExslotRequirement(shipData, itemId) != null;
+      child.on("exit", (code, signal) => {
+        entry.exited = true;
+        if (!this.destroyed && pending.size > 0) {
+          for (const [, p] of pending) {
+            p.reject(
+              new Error(
+                `worker-${entry.id} exited unexpectedly (code=${code}, signal=${signal})`,
+              ),
+            );
+          }
+          pending.clear();
+        }
+      });
+
+      this.workers.push(entry);
+    }
   }
 
-  function estimateShip(shipData, maxComboSize, strictNMinusOne, allowDuplicateItems) {
-    let equippableCount = 0;
-    for (const si of mstSlotitems) {
-      if (canEquipItem(shipData, si.api_id)) equippableCount += 1;
-    }
+  sendTo(entry, msg) {
+    return new Promise((resolve, reject) => {
+      if (entry.exited) {
+        reject(new Error(`worker-${entry.id} already exited`));
+        return;
+      }
+      const reqId = this.nextReqId++;
+      entry.pending.set(reqId, { resolve, reject });
+      entry.child.send({ ...msg, reqId });
+    });
+  }
 
-    const effectiveSlots = (shipData.api_slot_num || 0) + 1;
-    const maxK = Math.min(maxComboSize, effectiveSlots, 6);
+  async broadcast(msg) {
+    return Promise.all(this.workers.map((w) => this.sendTo(w, msg)));
+  }
 
-    const c2 = maxK >= 2 ? combCount(equippableCount, 2, allowDuplicateItems) : 0;
-    const c3 = maxK >= 3 ? combCount(equippableCount, 3, allowDuplicateItems) : 0;
-    const c4 = maxK >= 4 ? combCount(equippableCount, 4, allowDuplicateItems) : 0;
-    const c5 = maxK >= 5 ? combCount(equippableCount, 5, allowDuplicateItems) : 0;
-    const c6 = maxK >= 6 ? combCount(equippableCount, 6, allowDuplicateItems) : 0;
+  /**
+   * Dynamically dispatch `items` across all resident workers (work-stealing queue).
+   * Returns results array indexed identically to `items`.
+   */
+  async runQueue(items, buildMsg, onProgress = null) {
+    if (items.length === 0) return [];
+    const results = new Array(items.length);
+    let nextIdx = 0;
+    let doneCount = 0;
 
-    const phase4Factor = strictNMinusOne ? 1.0 : 0.35;
-    const phase5Factor = strictNMinusOne ? 0.20 : 0.08;
-    const phase6Factor = strictNMinusOne ? 0.06 : 0.02;
-
-    const estimatedTests =
-      Math.round(c2 * 0.18) +
-      Math.round(c3 * 0.24) +
-      Math.round(c4 * phase4Factor) +
-      Math.round(c5 * phase5Factor) +
-      Math.round(c6 * phase6Factor);
-
-    return {
-      shipId: shipData.api_id,
-      shipName: shipData.api_name,
-      effectiveSlots,
-      equippableCount,
-      c2,
-      c3,
-      c4,
-      c5,
-      c6,
-      estimatedTests,
+    const runWorker = async (entry) => {
+      while (true) {
+        const idx = nextIdx++;
+        if (idx >= items.length) break;
+        const msg = buildMsg(items[idx], idx);
+        const res = await this.sendTo(entry, msg);
+        results[idx] = res;
+        doneCount++;
+        if (onProgress) onProgress(doneCount, items.length, res, items[idx]);
+      }
     };
-  }
 
-  return { mstShips, estimateShip };
-}
-
-function buildWeightedShards(estimates, shardCount) {
-  const shards = Array.from({ length: shardCount }, (_, idx) => ({
-    shardId: idx + 1,
-    ships: [],
-    estimatedTests: 0,
-  }));
-
-  const sorted = [...estimates].sort((a, b) => b.estimatedTests - a.estimatedTests);
-  for (const info of sorted) {
-    let target = shards[0];
-    for (const shard of shards) {
-      if (shard.estimatedTests < target.estimatedTests) target = shard;
-    }
-    target.ships.push(info.shipId);
-    target.estimatedTests += info.estimatedTests;
-  }
-
-  return shards.filter((s) => s.ships.length > 0).sort((a, b) => b.estimatedTests - a.estimatedTests);
-}
-
-function buildTasks(estimates, workers, requestedShards) {
-  const totalEstimated = estimates.reduce((acc, e) => acc + e.estimatedTests, 0);
-  const targetWeight = Math.max(1, Math.floor(totalEstimated / Math.max(workers * 4, 1)));
-  const heavySplitThreshold = Math.max(targetWeight * 3, 2_000_000);
-  const minHeavySplits = 10;
-  const maxSplitsPerShip = Math.max(
-    minHeavySplits,
-    Math.min(64, Math.max(workers * 8, Math.floor(requestedShards / 2))),
-  );
-  const tasks = [];
-
-  for (const info of [...estimates].sort((a, b) => b.estimatedTests - a.estimatedTests)) {
-    const canSplitByFirstIndex = info.effectiveSlots >= 3 && info.c3 > 0;
-    const intrinsicHeavy =
-      info.c3 >= 1_500_000 ||
-      info.c4 >= 100_000_000 ||
-      info.estimatedTests >= 1_000_000_000;
-    let splitCount = 1;
-    if (canSplitByFirstIndex && info.estimatedTests > targetWeight) {
-      splitCount = Math.max(2, Math.ceil(info.estimatedTests / Math.max(targetWeight, 1)));
-    }
-    if (
-      canSplitByFirstIndex &&
-      (info.estimatedTests >= heavySplitThreshold || intrinsicHeavy)
-    ) {
-      splitCount = Math.max(splitCount, minHeavySplits);
-    }
-    splitCount = Math.min(maxSplitsPerShip, Math.max(1, splitCount));
-
-    if (splitCount === 1) {
-      tasks.push({
-        kind: "ship",
-        shipId: info.shipId,
-        shipName: info.shipName,
-        estimatedTests: info.estimatedTests,
-        effectiveSlots: info.effectiveSlots,
-      });
-      continue;
-    }
-
-    const totalIndexSpace = Math.max(info.equippableCount, splitCount);
-    for (let i = 0; i < splitCount; i += 1) {
-      const start = Math.floor((totalIndexSpace * i) / splitCount);
-      const end = Math.floor((totalIndexSpace * (i + 1)) / splitCount);
-      tasks.push({
-        kind: "ship-first-index-split",
-        shipId: info.shipId,
-        shipName: info.shipName,
-        estimatedTests: Math.ceil(info.estimatedTests / splitCount),
-        effectiveSlots: info.effectiveSlots,
-        firstIndexRange: [start, end],
-      });
-    }
-  }
-
-  tasks.sort((a, b) => b.estimatedTests - a.estimatedTests);
-  return tasks;
-}
-
-function expandShipRange(shipRange) {
-  if (!shipRange) return null;
-  const [start, end] = shipRange;
-  const lo = Math.min(start, end);
-  const hi = Math.max(start, end);
-  const out = [];
-  for (let id = lo; id <= hi; id += 1) out.push(id);
-  return out;
-}
-
-function buildScanArgs(opts, task, outputPath) {
-  const args = [];
-  if (opts.scanFlags.main) args.push("--main");
-  if (opts.scanFlags.volatileGenerated) args.push("--volatile-generated");
-  if (opts.scanFlags.noPruneInvisible) args.push("--no-prune-invisible");
-  if (opts.periodTag) args.push("--period-tag", opts.periodTag);
-  args.push(opts.strictNMinusOne ? "--strict-nminus1" : "--no-strict-nminus1");
-  args.push(opts.allowDuplicateItems ? "--allow-duplicate-items" : "--no-allow-duplicate-items");
-  args.push("--max-combo-size", String(opts.maxComboSize));
-  args.push("--ships", String(task.shipId));
-  if (
-    opts.astCandidateShips === "all" ||
-    (opts.astCandidateShips instanceof Set && opts.astCandidateShips.has(task.shipId))
-  ) {
-    args.push("--ast-candidate-ships", String(task.shipId));
-  }
-  if (task.firstIndexRange) {
-    args.push(
-      "--first-index-range",
-      `${task.firstIndexRange[0]}-${task.firstIndexRange[1]}`,
+    const activeCount = Math.min(this.workers.length, items.length);
+    await Promise.all(
+      this.workers.slice(0, activeCount).map((entry) => runWorker(entry)),
     );
+    return results;
   }
-  args.push("--output", outputPath);
-  return args;
-}
 
-function createLineHandler(state) {
-  return (line) => {
-    const text = line.trim();
-    if (!text) return;
-    state.lastSeenAt = Date.now();
-    state.lastLine = text;
+  /**
+   * Streaming work-stealing queue: invokes `onDone(doneCount, total, res, item)`
+   * as each chunk finishes without retaining all chunk payloads in memory.
+   */
+  async runStreamingQueue(items, buildMsg, onDone) {
+    if (items.length === 0) return;
+    let nextIdx = 0;
+    let doneCount = 0;
 
-    if (text.startsWith("[Phase")) {
-      state.phase = text;
-      // Keep parsing the same line because many progress lines start with
-      // "[Phase ...]" and still contain tests/progress counters.
-    }
-
-    const prog = text.match(/(\d+)\/(\d+)[^|]*\|\s*([\d,]+)\s*(?:bonuses|synergies|corrections)\s*\|\s*([\d,]+)\s*tests\s*\|\s*([\d.]+)s/);
-    if (prog) {
-      state.progress = `${prog[1]}/${prog[2]}`;
-      state.metrics = prog[3];
-      state.tests = prog[4];
-      state.elapsedSec = prog[5];
-      return;
-    }
-
-    const prog2 = text.match(/(\d+)\/(\d+)[^|]*\|\s*([\d,]+)\s*tests\s*\|\s*([\d.]+)s/);
-    if (prog2) {
-      state.progress = `${prog2[1]}/${prog2[2]}`;
-      state.tests = prog2[3];
-      state.elapsedSec = prog2[4];
-      return;
-    }
-
-    if (/Fatal:|Error:/.test(text)) {
-      state.errors.push(text);
-      return;
-    }
-
-    if (/\[Phase \d+\] Done:/.test(text)) {
-      return;
-    }
-
-    if (/^\[scan\]/.test(text) || /^\[output\]/.test(text)) {
-      return;
-    }
-  };
-}
-
-function createStreamParser(onLine) {
-  let buf = "";
-  return (chunk) => {
-    buf += chunk.toString("utf8").replace(/\r/g, "\n");
-    while (true) {
-      const idx = buf.indexOf("\n");
-      if (idx < 0) break;
-      const line = buf.slice(0, idx);
-      buf = buf.slice(idx + 1);
-      onLine(line);
-    }
-  };
-}
-
-async function runShard(scanPath, opts, shard, slot, tmpDir, sharedState) {
-  const outPath = path.join(tmpDir, `chunk-${shard.shardId}.json`);
-  const args = buildScanArgs(opts, shard, outPath);
-
-  const state = {
-    slot,
-    shardId: shard.shardId,
-    shipId: shard.shipId,
-    shipName: shard.shipName,
-    taskKind: shard.kind,
-    firstIndexRange: shard.firstIndexRange || null,
-    ships: 1,
-    estimatedTests: shard.estimatedTests,
-    phase: "boot",
-    progress: "0/0",
-    metrics: "0",
-    tests: "0",
-    elapsedSec: "0.0",
-    lastLine: "starting",
-    lastSeenAt: Date.now(),
-    errors: [],
-    startedAt: Date.now(),
-  };
-  sharedState.active.set(slot, state);
-
-  const env = {
-    ...process.env,
-    SCAN_AST_MAX_OLD_SPACE_MB: String(opts.maxOldSpaceMb),
-  };
-
-  await new Promise((resolve, reject) => {
-    const execArgs = [...opts.v8Flags];
-    if (opts.profileV8) execArgs.push("--prof");
-    const p = spawn(process.execPath, [...execArgs, scanPath, ...args], {
-      cwd: process.cwd(),
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    state.pid = p.pid || null;
-
-    const onStdout = createStreamParser(createLineHandler(state));
-    const onStderr = createStreamParser(createLineHandler(state));
-
-    p.stdout.on("data", onStdout);
-    p.stderr.on("data", onStderr);
-    p.on("error", reject);
-    p.on("close", (code) => {
-      if (code === 0) resolve();
-      else {
-        const e = new Error(`slot-${slot} shard-${shard.shardId} exited with code ${code}`);
-        e.workerErrors = state.errors;
-        reject(e);
+    const runWorker = async (entry) => {
+      while (true) {
+        const idx = nextIdx++;
+        if (idx >= items.length) break;
+        const item = items[idx];
+        const msg = buildMsg(item, idx);
+        const res = await this.sendTo(entry, msg);
+        doneCount++;
+        onDone(doneCount, items.length, res, item);
       }
-    });
-  });
+    };
 
-  sharedState.active.delete(slot);
-  sharedState.doneShards += 1;
-  const shipProg = sharedState.shipProgress.get(shard.shipId);
-  if (shipProg) {
-    shipProg.doneEstimated = Math.max(
-      0,
-      Math.min(shipProg.totalEstimated, shipProg.doneEstimated + Number(shard.estimatedTests || 0)),
+    const activeCount = Math.min(this.workers.length, items.length);
+    await Promise.all(
+      this.workers.slice(0, activeCount).map((entry) => runWorker(entry)),
     );
   }
-  sharedState.completed.push({
-    shardId: shard.shardId,
-    slot,
-    ships: 1,
-    estimatedTests: shard.estimatedTests,
-    durationSec: ((Date.now() - state.startedAt) / 1000).toFixed(1),
-    tests: state.tests,
-    outputPath: outPath,
-  });
 
-  return outPath;
-}
-
-function renderProgress(sharedState, totalEstimated) {
-  const elapsedSec = ((Date.now() - sharedState.startedAt) / 1000).toFixed(1);
-  const active = [...sharedState.active.values()].sort((a, b) => a.slot - b.slot);
-  const queued = sharedState.queue.length;
-  const done = sharedState.doneShards;
-  const total = sharedState.totalShards;
-
-  const activeTestsByShip = new Map();
-  for (const st of active) {
-    const testsDone = Number.parseInt(String(st.tests).replace(/,/g, ""), 10) || 0;
-    const estTests = Math.max(1, Number(st.estimatedTests) || 1);
-    const capped = Math.max(0, Math.min(estTests, testsDone));
-    activeTestsByShip.set(st.shipId, (activeTestsByShip.get(st.shipId) || 0) + capped);
-  }
-
-  const lines = [];
-  lines.push(`[parallel-scan] done=${done}/${total} active=${active.length} queued=${queued} elapsed=${elapsedSec}s total_tests=${totalEstimated}`);
-  for (const st of active) {
-    const testsDone = Number.parseInt(String(st.tests).replace(/,/g, ""), 10) || 0;
-    const estTests = Math.max(1, Number(st.estimatedTests) || 1);
-    const staleSec = ((Date.now() - st.lastSeenAt) / 1000).toFixed(1);
-    const shipProg = sharedState.shipProgress.get(st.shipId);
-    const shipTotal = Math.max(1, Number(shipProg?.totalEstimated) || estTests);
-    const shipDone = Math.max(
-      0,
-      Math.min(
-        shipTotal,
-        Number(shipProg?.doneEstimated || 0) + Number(activeTestsByShip.get(st.shipId) || 0),
-      ),
+  async shutdown() {
+    this.destroyed = true;
+    await Promise.all(
+      this.workers.map(async (entry) => {
+        if (entry.exited) return;
+        try {
+          await Promise.race([
+            this.sendTo(entry, { type: "shutdown" }),
+            new Promise((r) => setTimeout(r, 1000)),
+          ]);
+        } catch {}
+        if (!entry.exited) {
+          try {
+            entry.child.kill();
+          } catch {}
+        }
+      }),
     );
-    const runSec = ((Date.now() - st.startedAt) / 1000).toFixed(1);
-    const phaseRaw = String(st.phase || "boot");
-    const phaseMatch = phaseRaw.match(/^\[?Phase\s*(\d+)\]?\s*(.*)$/i);
-    const phaseText = phaseMatch
-      ? `P${phaseMatch[1]}${/\bDone\b/i.test(phaseMatch[2]) ? " Done" : ""}`
-      : phaseRaw;
-    lines.push(
-      `  [slot-${st.slot}] ship=${st.shipId} phase=${phaseText} tests=${testsDone}/${st.estimatedTests} ship_tests=${shipDone}/${shipTotal} run=${runSec}s idle=${staleSec}s`,
-    );
-  }
-  if (active.length === 0 && queued === 0) {
-    lines.push("  all shards completed.");
-  }
-  const text = lines.join("\n");
-  if (process.stdout.isTTY) {
-    if (sharedState.renderedLines > 0) {
-      readline.moveCursor(process.stdout, 0, -sharedState.renderedLines);
-      readline.clearScreenDown(process.stdout);
-    }
-    process.stdout.write(text + "\n");
-    sharedState.renderedLines = lines.length;
-  } else {
-    const shouldEmit =
-      sharedState.lastNonTTYDone !== done ||
-      !sharedState.lastNonTTYAt ||
-      Date.now() - sharedState.lastNonTTYAt >= 30000;
-    if (shouldEmit) {
-      console.log(text);
-      sharedState.lastNonTTYDone = done;
-      sharedState.lastNonTTYAt = Date.now();
-    }
   }
 }
 
 async function main() {
+  const tTotal = Date.now();
   const opts = parseArgs(process.argv.slice(2));
-  const scanPath = path.join(ROOT, "scripts", "core", "scan-ast.js");
+  const deterministic = !opts.scanFlags.volatileGenerated;
+  const pruneInvisible = !opts.scanFlags.noPruneInvisible;
 
   const masterPath = findMasterData(opts.periodTag);
-  if (!masterPath) throw new Error("No master data found for parallel scan.");
-  const masterData = parseMasterData(masterPath);
-
-  const { mstShips, estimateShip } = createShipEstimator(masterData);
-  const allShips = mstShips.map((s) => s.api_id);
-  const targetShipSet =
-    opts.ships && opts.ships.length > 0
-      ? new Set(opts.ships)
-      : opts.shipRange
-        ? new Set(expandShipRange(opts.shipRange))
-        : new Set(allShips);
-
-  const targetShips = mstShips.filter((s) => targetShipSet.has(s.api_id));
-  if (targetShips.length === 0) throw new Error("No target ships resolved.");
-
-  const estimates = targetShips.map((ship) =>
-    estimateShip(ship, opts.maxComboSize, opts.strictNMinusOne, opts.allowDuplicateItems),
-  );
-
-  const estimateOutName = opts.periodTag
-    ? `scan_estimated_tests_${opts.periodTag}.json`
-    : "scan_estimated_tests.json";
-  const estimatePath = path.join(ROOT, "output", estimateOutName);
-  fs.mkdirSync(path.dirname(estimatePath), { recursive: true });
-  fs.writeFileSync(
-    estimatePath,
-    JSON.stringify(
-      {
-        period_tag: opts.periodTag,
-        strict_nminus1: opts.strictNMinusOne,
-        allow_duplicate_items: opts.allowDuplicateItems,
-        max_combo_size: opts.maxComboSize,
-        ships: estimates.sort((a, b) => b.estimatedTests - a.estimatedTests),
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
-
-  const cpuCount = os.cpus().length;
-  const workers = Math.max(1, Math.min(opts.workers, cpuCount, targetShips.length));
-
-  const shardCount =
-    opts.scheduleShards > 0
-      ? Math.max(workers, Math.min(opts.scheduleShards, targetShips.length))
-      : targetShips.length;
-
-  const tasks = buildTasks(estimates, workers, shardCount).map((task, index) => ({
-    ...task,
-    shardId: index + 1,
-  }));
-  const totalEstimated = tasks.reduce((acc, s) => acc + s.estimatedTests, 0);
-
-  console.log(
-    `[parallel-scan] workers=${workers}, shards=${tasks.length}, ships=${targetShips.length}, period=${opts.periodTag || "(latest)"}`,
-  );
-  console.log(
-    `[parallel-scan] scheduling=weighted-lpt-dynamic, strict=${opts.strictNMinusOne}, duplicate=${opts.allowDuplicateItems}, max_combo=${opts.maxComboSize}`,
-  );
-  console.log(`[parallel-scan] ship test estimates: ${path.relative(ROOT, estimatePath)}`);
-
-  const top = [...estimates]
-    .sort((a, b) => b.estimatedTests - a.estimatedTests)
-    .slice(0, Math.min(12, estimates.length));
-  for (const s of top) {
-    console.log(
-      `  [heavy] ship=${s.shipId} ${s.shipName} est=${s.estimatedTests} equip=${s.equippableCount} slots=${s.effectiveSlots} c4=${s.c4}`,
+  if (!masterPath) {
+    throw new Error(
+      `No valid *S@api_start2@getData* master data found in FUSOU-PROXY-DATA${opts.periodTag ? `/${opts.periodTag}/kcsapi` : ""}.`,
     );
   }
+  const apiStart2BatchHash = createHash("sha256")
+    .update(fs.readFileSync(masterPath))
+    .digest("hex");
+  const masterData = parseMasterData(masterPath);
 
-  const tmpDir = path.join(ROOT, "output", `.scan-ast-parallel-${Date.now()}-${process.pid}`);
-  fs.mkdirSync(tmpDir, { recursive: true });
-  const cleanupTmpDir = () => {
+  const ctx = createMasterContext(masterData, opts.ships, opts.shipRange);
+  if (ctx.mstShips.length === 0) throw new Error("No target ships resolved.");
+
+  const dictName = opts.periodTag ? `synergy_dict_${opts.periodTag}.json` : "synergy_dict.json";
+  const astRulesPath = path.join(ROOT, "output", dictName);
+  if (!fs.existsSync(astRulesPath)) {
+    throw new Error(`Missing AST dictionary: ${path.relative(ROOT, astRulesPath)}. Run extract-ast first.`);
+  }
+  const rawAst = JSON.parse(fs.readFileSync(astRulesPath, "utf8"));
+  const astRules = rawAst.map((rule) => ({
+    ...rule,
+    requiredItemIds: Array.isArray(rule.requiredItemIds)
+      ? rule.requiredItemIds.map(Number).filter(Number.isFinite)
+      : [],
+    requiredItemTypes: Array.isArray(rule.requiredItemTypes)
+      ? rule.requiredItemTypes.map(Number).filter(Number.isFinite)
+      : [],
+  }));
+
+  // Build AST candidate filter sets
+  let astCandidateShipSet = null;
+  if (opts.astCandidateShips === "all") {
+    astCandidateShipSet = new Set(ctx.mstShips.map((s) => s.api_id));
+  } else if (opts.astCandidateShips instanceof Set && opts.astCandidateShips.size > 0) {
+    astCandidateShipSet = opts.astCandidateShips;
+  }
+
+  const astTokens = astRules.map((r) => ({
+    ids: [...new Set(r.requiredItemIds)],
+    types: [...new Set(r.requiredItemTypes)],
+  }));
+  const astShipConditionMatchedSet = {};
+  if (astCandidateShipSet && astCandidateShipSet.size > 0) {
+    for (const shipId of astCandidateShipSet) {
+      const eqSet = ctx.equippableByShipSet[shipId];
+      if (!eqSet) continue;
+      const matched = new Set();
+      for (const tok of astTokens) {
+        for (const id of tok.ids) if (eqSet.has(id)) matched.add(id);
+        for (const type of tok.types) {
+          const ids = ctx.itemsByType2[type] || [];
+          for (const id of ids) if (eqSet.has(id)) matched.add(id);
+        }
+      }
+      astShipConditionMatchedSet[shipId] = matched;
+    }
+  }
+
+  function getAstFilteredItemsForShip(shipId, items) {
+    if (!astCandidateShipSet || !astCandidateShipSet.has(shipId)) return items;
+    const matched = astShipConditionMatchedSet[shipId];
+    if (!matched || matched.size === 0) return items;
+    const filtered = items.filter((id) => matched.has(id));
+    return filtered.length > 0 ? filtered : items;
+  }
+
+  const fastSlotAssigner = createFastSlotAssigner(
+    ctx.mstShips,
+    ctx.maxItemId,
+    ctx.getAllowedPositions,
+  );
+  function canAssignComboToShip(shipId, items) {
+    return fastSlotAssigner.canAssignCombo(shipId, items);
+  }
+
+  const cpuCount = os.cpus().length;
+  const workers = Math.max(1, Math.min(opts.workers, cpuCount));
+  const workerHeapMb = Math.max(1024, Math.min(opts.maxOldSpaceMb, 4096));
+  const execArgv = [`--max-old-space-size=${workerHeapMb}`, ...opts.v8Flags];
+  if (opts.profileV8) execArgv.push("--prof");
+
+  console.log(
+    `[parallel-scan] resident-pool workers=${workers}, ships=${ctx.mstShips.length}, items=${ctx.mstSlotitems.length}, period=${opts.periodTag || "(latest)"}`,
+  );
+  console.log(
+    `[parallel-scan] mode: phase-synced, strict=${opts.strictNMinusOne}, duplicate=${opts.allowDuplicateItems}, max_combo=${opts.maxComboSize}`,
+  );
+  console.log(`[parallel-scan] master: ${path.relative(ROOT, masterPath)}`);
+
+  const workerScript = path.join(ROOT, "scripts", "core", "scan-ast-worker.js");
+  const pool = new WorkerPool(workerScript, workers, execArgv);
+  const ipcTmpDir = path.join(ROOT, "output", `.scan-ast-ipc-${Date.now()}-${process.pid}`);
+  fs.mkdirSync(ipcTmpDir, { recursive: true });
+  const cleanupIpcTmp = () => {
     try {
-      if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+      if (fs.existsSync(ipcTmpDir)) {
+        fs.rmSync(ipcTmpDir, { recursive: true, force: true });
       }
     } catch {}
   };
-  const onSignal = (sig) => {
-    cleanupTmpDir();
+  const writeIpcJson = (name, data) => {
+    const filePath = path.join(ipcTmpDir, name);
+    fs.writeFileSync(filePath, JSON.stringify(data), "utf8");
+    return filePath;
+  };
+
+  const onSignal = async (sig) => {
+    await pool.shutdown();
+    cleanupIpcTmp();
     process.exit(sig === "SIGINT" ? 130 : 143);
   };
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
 
-  const sharedState = {
-    startedAt: Date.now(),
-    queue: [...tasks],
-    active: new Map(),
-    doneShards: 0,
-    totalShards: tasks.length,
-    completed: [],
-    renderedLines: 0,
-    shipProgress: new Map(),
-    lastNonTTYDone: -1,
-    lastNonTTYAt: 0,
-  };
-
-  for (const task of tasks) {
-    const cur = sharedState.shipProgress.get(task.shipId);
-    if (cur) {
-      cur.totalEstimated += Number(task.estimatedTests || 0);
-      continue;
-    }
-    sharedState.shipProgress.set(task.shipId, {
-      shipName: task.shipName,
-      totalEstimated: Number(task.estimatedTests || 0),
-      doneEstimated: 0,
-    });
-  }
-
-  const timer = setInterval(() => {
-    renderProgress(sharedState, totalEstimated);
-  }, opts.progressIntervalMs);
-
-  const outputs = [];
-
-  async function workerLoop(slot) {
-    while (true) {
-      const shard = sharedState.queue.shift();
-      if (!shard) break;
-      const outPath = await runShard(scanPath, opts, shard, slot, tmpDir, sharedState);
-      outputs.push(outPath);
-    }
-  }
-
   try {
-    try {
-      await Promise.all(Array.from({ length: workers }, (_, i) => workerLoop(i + 1)));
-    } finally {
-      clearInterval(timer);
-      renderProgress(sharedState, totalEstimated);
+    const tBoot = Date.now();
+    pool.start();
+    const initResults = await pool.broadcast({
+      type: "init",
+      periodTag: opts.periodTag,
+      useMain: opts.scanFlags.main,
+      masterPath,
+      astRulesPath,
+      targetShips: opts.ships,
+      targetShipRange: opts.shipRange,
+    });
+    const fastWrapperOn = initResults.every((r) => r && r.fastWrapper);
+    console.log(
+      `[parallel-scan] ${workers} resident workers ready in ${((Date.now() - tBoot) / 1000).toFixed(2)}s (fast-wrapper=${fastWrapperOn ? "on" : "fallback"})`,
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 1: Single-item scan (parallel across all target ships)
+    // ═══════════════════════════════════════════════════════════════
+    const t1 = Date.now();
+    const allShipIds = ctx.mstShips.map((s) => s.api_id);
+    const p1ChunkSize = Math.max(1, Math.ceil(allShipIds.length / (workers * 4)));
+    const p1Batches = [];
+    for (let i = 0; i < allShipIds.length; i += p1ChunkSize) {
+      p1Batches.push(allShipIds.slice(i, i + p1ChunkSize));
     }
 
-    const docs = outputs.map((p) => JSON.parse(fs.readFileSync(p, "utf8")));
-    const base = docs[0];
-    const sumMeta = (key) => docs.reduce((acc, d) => acc + (Number(d?._meta?.[key]) || 0), 0);
+    const p1BatchResults = await pool.runQueue(p1Batches, (shipIds) => ({
+      type: "phase1",
+      shipIds,
+    }));
+
+    const singleBonus = {};
+    const equipResults = new Map();
+    const aloneEntries = [];
+    let nonZeroCount = 0;
+
+    for (const batch of p1BatchResults) {
+      for (const r of batch.results) {
+        if (!singleBonus[r.shipId]) singleBonus[r.shipId] = {};
+        singleBonus[r.shipId][r.itemId] = r.b;
+        aloneEntries.push([`${r.shipId}:${r.itemId}`, r.b]);
+        if (!equipResults.has(r.itemId)) equipResults.set(r.itemId, new Map());
+        const pm = equipResults.get(r.itemId);
+        if (!pm.has(r.pk)) pm.set(r.pk, { ships: [], profile: r.profile });
+        pm.get(r.pk).ships.push(r.shipId);
+        nonZeroCount++;
+      }
+    }
+    console.log(
+      `[Phase 1] Done: ${nonZeroCount} bonuses in ${((Date.now() - t1) / 1000).toFixed(2)}s`,
+    );
+
+    // ── Ship deduplication by bonus profile + equippable fingerprint ──
+    function shipBonusFingerprint(shipId) {
+      const bonuses = singleBonus[shipId];
+      if (!bonuses) return "";
+      const equippable = ctx.equippableByShip[shipId] || [];
+      const bonusEntries = Object.entries(bonuses)
+        .sort((a, b) => parseInt(a[0], 10) - parseInt(b[0], 10))
+        .map(([id, stats]) => `${id}:${JSON.stringify(stats)}`);
+      return bonusEntries.join("|") + "||" + equippable.join(",");
+    }
+
+    const shipGroups = new Map();
+    const shipToGroup = {};
+    for (const shipData of ctx.mstShips) {
+      const shipId = shipData.api_id;
+      const fp = shipBonusFingerprint(shipId);
+      if (!shipGroups.has(fp)) shipGroups.set(fp, []);
+      shipGroups.get(fp).push(shipId);
+    }
+    const groupMembersOf = {};
+    for (const [, members] of shipGroups) {
+      const rep = members[0];
+      groupMembersOf[rep] = members;
+      for (const sid of members) shipToGroup[sid] = rep;
+    }
+    const repShips = Object.keys(groupMembersOf)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    console.log(
+      `[Opt] ${ctx.mstShips.length} ships → ${repShips.length} unique bonus profiles (${((1 - repShips.length / ctx.mstShips.length) * 100).toFixed(1)}% dedup)`,
+    );
+
+    // Broadcast baseline to all workers via temp file (avoids Windows IPC pipe size limits)
+    const equipResultsSerialized = [];
+    for (const [itemId, pm] of equipResults) {
+      const entries = [];
+      for (const [pk, data] of pm.entries()) {
+        entries.push([pk, data]);
+      }
+      equipResultsSerialized.push([itemId, entries]);
+    }
+    const baselineFile = writeIpcJson("baseline.json", {
+      equipResultsSerialized,
+      aloneSerialized: aloneEntries,
+    });
+    await pool.broadcast({
+      type: "setBaseline",
+      filePath: baselineFile,
+    });
+
+    function appendSynergyForRepShip(
+      synergyMap,
+      repShipId,
+      items,
+      synergy,
+      cancelsSingle = false,
+      suppressedComponents = null,
+    ) {
+      const key = items.join(":");
+      if (!synergyMap.has(key)) synergyMap.set(key, new Map());
+      const profileKey =
+        bkey(synergy) +
+        (cancelsSingle ? "|C" : "") +
+        (suppressedComponents ? "|S:" + suppressedComponents.join(",") : "");
+      const pm = synergyMap.get(key);
+      if (!pm.has(profileKey)) {
+        const entry = { ships: [], items, synergy, placements: [] };
+        if (cancelsSingle) entry.cancels_single = true;
+        if (suppressedComponents) entry.suppressed_components = suppressedComponents;
+        pm.set(profileKey, entry);
+      }
+
+      const entry = pm.get(profileKey);
+      const members = groupMembersOf[repShipId] || [repShipId];
+      for (const memberId of members) {
+        const memberEquippableSet = ctx.equippableByShipSet[memberId];
+        if (!memberEquippableSet) continue;
+        if (!items.every((id) => memberEquippableSet.has(id))) continue;
+        if (!canAssignComboToShip(memberId, items)) continue;
+        entry.ships.push(memberId);
+        for (const placement of ctx.getComboPlacementSummaries(memberId, items)) {
+          if (
+            !entry.placements.some(
+              (p) => p.normal === placement.normal && p.exslot === placement.exslot,
+            )
+          ) {
+            entry.placements.push(placement);
+          }
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 2: Cross-item pair synergy scan (parallel by rep ship)
+    // ═══════════════════════════════════════════════════════════════
+    const t2 = Date.now();
+    const p2ShipTasks = [];
+    for (const repShipId of repShips) {
+      const bonuses = singleBonus[repShipId];
+      if (!bonuses) continue;
+      const triggerItems = Object.keys(bonuses)
+        .map((s) => parseInt(s, 10))
+        .sort((a, b) => a - b);
+      if (triggerItems.length === 0) continue;
+      p2ShipTasks.push({ shipId: repShipId, triggerItems });
+    }
+    const useAstFilterSetArr = astCandidateShipSet ? [...astCandidateShipSet] : null;
+    const p2Results = await pool.runQueue(p2ShipTasks, (task) => ({
+      type: "phase2",
+      tasks: [task],
+      pruneInvisible,
+      useAstFilterSet: useAstFilterSetArr,
+    }));
+
+    const repSynergyResults = {};
+    let pairsTested = 0;
+    for (const res of p2Results) {
+      pairsTested += res.pairsTested;
+      for (const f of res.found) {
+        if (!repSynergyResults[f.shipId]) repSynergyResults[f.shipId] = {};
+        repSynergyResults[f.shipId][f.pairKey] = {
+          synDelta: f.synDelta,
+          cancelsSingle: f.cancelsSingle,
+          suppressedComponents: f.suppressedComponents,
+        };
+      }
+    }
+
+    const synergies = new Map();
+    let synergyCount = 0;
+    for (const repShipId of repShips) {
+      const pairMap = repSynergyResults[repShipId];
+      if (!pairMap) continue;
+      const members = groupMembersOf[repShipId] || [repShipId];
+      for (const [pairKey, pairResult] of Object.entries(pairMap)) {
+        const { synDelta, cancelsSingle } = pairResult;
+        const [aStr, bStr] = pairKey.split(":");
+        const itemA = parseInt(aStr, 10);
+        const itemB = parseInt(bStr, 10);
+        if (!synergies.has(pairKey)) synergies.set(pairKey, new Map());
+        const pm = synergies.get(pairKey);
+        const profileKey = bkey({
+          a: Math.min(itemA, itemB),
+          b: Math.max(itemA, itemB),
+          d: synDelta,
+        });
+        if (!pm.has(profileKey)) {
+          pm.set(profileKey, {
+            ships: [],
+            synergy: synDelta,
+            items: [Math.min(itemA, itemB), Math.max(itemA, itemB)],
+            ...(cancelsSingle ? { cancels_single: true } : {}),
+            ...(pairResult.suppressedComponents
+              ? { suppressed_components: pairResult.suppressedComponents }
+              : {}),
+          });
+        }
+        const entry = pm.get(profileKey);
+        for (const memberId of members) {
+          const memberEquippableSet = ctx.equippableByShipSet[memberId];
+          if (!memberEquippableSet) continue;
+          if (!memberEquippableSet.has(itemA) || !memberEquippableSet.has(itemB)) continue;
+          if (!canAssignComboToShip(memberId, [itemA, itemB])) continue;
+          if (!entry.ships.includes(memberId)) {
+            entry.ships.push(memberId);
+            synergyCount++;
+          }
+        }
+      }
+    }
+
+    const pairRules = buildRules(synergies, 2, ctx.itemEquipType2, { silent: true });
+    console.log(
+      `[Phase 2] Done: ${synergyCount} synergies from ${synergies.size} pairs (${pairsTested} tests, ${pairRules.length} rules) in ${((Date.now() - t2) / 1000).toFixed(2)}s`,
+    );
+
+    const pairRulesFile = writeIpcJson("rules_k2.json", pairRules);
+    await pool.broadcast({
+      type: "setCompiledRules",
+      comboSize: 2,
+      filePath: pairRulesFile,
+    });
+
+    // Build bonusItemsByRepShipArr (identical to scan-ast.js)
+    const bonusItemsByRepShip = {};
+    for (const [itemId, profileMap] of equipResults) {
+      for (const { ships } of profileMap.values()) {
+        for (const shipId of ships) {
+          if (shipToGroup[shipId] !== shipId) continue;
+          if (!bonusItemsByRepShip[shipId]) bonusItemsByRepShip[shipId] = new Set();
+          bonusItemsByRepShip[shipId].add(itemId);
+        }
+      }
+    }
+    for (const [, profileMap] of synergies) {
+      for (const { ships, items } of profileMap.values()) {
+        for (const shipId of ships) {
+          if (shipToGroup[shipId] !== shipId) continue;
+          if (!bonusItemsByRepShip[shipId]) bonusItemsByRepShip[shipId] = new Set();
+          for (const itemId of items) bonusItemsByRepShip[shipId].add(itemId);
+        }
+      }
+    }
+    const bonusItemsByRepShipArr = {};
+    for (const [sid, itemSet] of Object.entries(bonusItemsByRepShip)) {
+      bonusItemsByRepShipArr[sid] = [...itemSet].sort((a, b) => a - b);
+    }
+    const repShipIdsWithBonuses = Object.keys(bonusItemsByRepShipArr)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    const PACK_RADIX = 2048;
+    const PACK_RADIX_2 = PACK_RADIX * PACK_RADIX;
+    const PACK_RADIX_3 = PACK_RADIX_2 * PACK_RADIX;
+    function packComboUniqueKey(items, k) {
+      if (k === 3) return items[0] * PACK_RADIX_2 + items[1] * PACK_RADIX + items[2];
+      if (k === 4) {
+        return (
+          items[0] * PACK_RADIX_3 +
+          items[1] * PACK_RADIX_2 +
+          items[2] * PACK_RADIX +
+          items[3]
+        );
+      }
+      return items.join(":");
+    }
+
+    /**
+     * Execute a combinatorial phase (3..6) with streaming per-ship compression:
+     * chunks of each representative ship are queued contiguously (heaviest ships first).
+     * As soon as all chunks of a ship complete, that ship's synergy map is compressed
+     * via buildRules() and all raw chunk hits are immediately discarded to keep peak
+     * coordinator heap tiny (~200 MB even for 10M+ full-fleet quad corrections).
+     */
+    async function runStreamingComboPhase({
+      phaseLabel,
+      comboSize,
+      shipTaskGroups,
+      buildMsg,
+      extractPools,
+      recordShipKeys,
+    }) {
+      const tStart = Date.now();
+      // Sort heaviest ships first, keeping chunks of the same ship contiguous so
+      // at most ~workers ships hold raw hits in memory simultaneously.
+      const orderedShips = [...shipTaskGroups].sort((a, b) => b.totalWeight - a.totalWeight);
+      const dispatchQueue = [];
+      const shipPending = new Map();
+
+      for (const sg of orderedShips) {
+        if (sg.tasks.length === 0) continue;
+        shipPending.set(sg.shipId, {
+          remaining: sg.tasks.length,
+          chunks: new Array(sg.tasks.length),
+        });
+        for (let ci = 0; ci < sg.tasks.length; ci++) {
+          dispatchQueue.push({ ...sg.tasks[ci], shipId: sg.shipId, chunkIdx: ci });
+        }
+      }
+
+      const compressedLists = [];
+      const poolsByShip = {};
+      const keysByShip = {};
+      const shipsWithHits = new Set();
+      const uniqueComboSet = new Set();
+      let totalTests = 0;
+      let totalRawHits = 0;
+      let totalExpanded = 0;
+      let shipsCompleted = 0;
+      let lastLogAt = Date.now();
+
+      await pool.runStreamingQueue(
+        dispatchQueue,
+        buildMsg,
+        (done, total, res, task) => {
+          totalTests += res.tested;
+          totalRawHits += res.hitCount || 0;
+
+          const state = shipPending.get(task.shipId);
+          state.chunks[task.chunkIdx] = res.groups;
+          state.remaining--;
+
+          if (state.remaining === 0) {
+            shipPending.delete(task.shipId);
+            shipsCompleted++;
+
+            const shipMap = new Map();
+            let shipHasAny = false;
+            for (let ci = 0; ci < state.chunks.length; ci++) {
+              const groups = state.chunks[ci];
+              state.chunks[ci] = null;
+              if (!groups || groups.length === 0) continue;
+              for (let gi = 0; gi < groups.length; gi++) {
+                const g = groups[gi];
+                const flat = g.flatItems;
+                for (let off = 0; off < flat.length; off += comboSize) {
+                  const items = flat.slice(off, off + comboSize);
+                  appendSynergyForRepShip(
+                    shipMap,
+                    task.shipId,
+                    items,
+                    g.residual,
+                    g.isCancel,
+                    g.suppressedComponents,
+                  );
+                  uniqueComboSet.add(packComboUniqueKey(items, comboSize));
+                  shipHasAny = true;
+                }
+              }
+            }
+
+            if (shipHasAny) {
+              shipsWithHits.add(task.shipId);
+              for (const [, pm] of shipMap) {
+                for (const { ships } of pm.values()) {
+                  totalExpanded += ships.length;
+                }
+              }
+              if (recordShipKeys) {
+                keysByShip[task.shipId] = [...shipMap.keys()];
+              }
+              if (extractPools) {
+                const detected = detectPoolsByShip(shipMap, comboSize);
+                for (const [sid, plist] of Object.entries(detected)) {
+                  if (!poolsByShip[sid]) poolsByShip[sid] = [];
+                  poolsByShip[sid].push(...plist);
+                }
+              }
+              const shipRules = buildRules(shipMap, comboSize, ctx.itemEquipType2, {
+                silent: true,
+              });
+              if (shipRules.length > 0) compressedLists.push(shipRules);
+            }
+          }
+
+          const now = Date.now();
+          if (now - lastLogAt >= opts.progressIntervalMs) {
+            console.log(
+              `[${phaseLabel}] chunks=${done}/${total} ships=${shipsCompleted}/${orderedShips.length} hits=${totalRawHits} tests=${totalTests} elapsed=${((now - tStart) / 1000).toFixed(1)}s`,
+            );
+            lastLogAt = now;
+          }
+        },
+      );
+
+      const rules = mergeCompressedRules(compressedLists, ctx.itemEquipType2);
+      console.log(
+        `[${phaseLabel}] Done: ${totalRawHits} hits (${uniqueComboSet.size} unique, ${totalTests} tests, ${rules.length} rules) in ${((Date.now() - tStart) / 1000).toFixed(2)}s`,
+      );
+      return {
+        rules,
+        poolsByShip,
+        keysByShip,
+        shipsWithHits,
+        uniqueCount: uniqueComboSet.size,
+        totalExpanded,
+      };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 3: Triple cross-item synergy scan (global merge for exact parity;
+    // total hits across all ~870 ships are ~390k, comfortably small in memory)
+    // ═══════════════════════════════════════════════════════════════
+    const t3 = Date.now();
+    const p3Tasks = [];
+    for (const shipId of repShipIdsWithBonuses) {
+      const bItems = getAstFilteredItemsForShip(shipId, bonusItemsByRepShipArr[shipId]);
+      if (bItems.length < 3 || ctx.effectiveSlotsOf[shipId] < 3) continue;
+      const chunks = buildBalancedComboChunks(bItems.length, 3, opts.allowDuplicateItems, 12000);
+      for (let ci = 0; ci < chunks.length; ci++) {
+        p3Tasks.push({
+          shipId,
+          bItems,
+          chunkIdx: ci,
+          ranges: chunks[ci].ranges,
+          weight: chunks[ci].weight,
+        });
+      }
+    }
+    const p3DispatchOrder = p3Tasks
+      .map((t, origIdx) => ({ ...t, origIdx }))
+      .sort((a, b) => b.weight - a.weight);
+
+    const p3OrderedGroups = new Array(p3Tasks.length);
+    let p3Tests = 0;
+    let p3Hits = 0;
+    let p3LastLog = Date.now();
+    await pool.runStreamingQueue(
+      p3DispatchOrder,
+      (task) => ({
+        type: "phase3Chunk",
+        shipId: task.shipId,
+        bItems: task.bItems,
+        allowDuplicateItems: opts.allowDuplicateItems,
+        pruneInvisible,
+        ranges: task.ranges,
+      }),
+      (done, total, res, task) => {
+        p3Tests += res.tested;
+        p3Hits += res.hitCount || 0;
+        p3OrderedGroups[task.origIdx] = { shipId: task.shipId, groups: res.groups };
+        const now = Date.now();
+        if (now - p3LastLog >= opts.progressIntervalMs) {
+          console.log(
+            `[Phase 3] chunks=${done}/${total} hits=${p3Hits} tests=${p3Tests} elapsed=${((now - t3) / 1000).toFixed(1)}s`,
+          );
+          p3LastLog = now;
+        }
+      },
+    );
+
+    const tripleSynergies = new Map();
+    const p3ShipsWithHits = new Set();
+    const p3KeysByShip = {};
+    for (let i = 0; i < p3OrderedGroups.length; i++) {
+      const entry = p3OrderedGroups[i];
+      p3OrderedGroups[i] = null;
+      if (!entry || !entry.groups || entry.groups.length === 0) continue;
+      for (let gi = 0; gi < entry.groups.length; gi++) {
+        const g = entry.groups[gi];
+        const flat = g.flatItems;
+        for (let off = 0; off < flat.length; off += 3) {
+          const items = flat.slice(off, off + 3);
+          appendSynergyForRepShip(
+            tripleSynergies,
+            entry.shipId,
+            items,
+            g.residual,
+            g.isCancel,
+            g.suppressedComponents,
+          );
+        }
+      }
+    }
+    for (const [tripleKey, profileMap] of tripleSynergies) {
+      for (const { ships } of profileMap.values()) {
+        for (const shipId of ships) {
+          const repId = shipToGroup[shipId] || shipId;
+          p3ShipsWithHits.add(repId);
+          if (!opts.strictNMinusOne) {
+            if (!p3KeysByShip[repId]) p3KeysByShip[repId] = [];
+            p3KeysByShip[repId].push(tripleKey);
+          }
+        }
+      }
+    }
+    const tripleRules = buildRules(tripleSynergies, 3, ctx.itemEquipType2, { silent: true });
+    const p3 = {
+      rules: tripleRules,
+      shipsWithHits: p3ShipsWithHits,
+      keysByShip: p3KeysByShip,
+      uniqueCount: tripleSynergies.size,
+    };
+    tripleSynergies.clear();
+    console.log(
+      `[Phase 3] Done: ${p3Hits} hits (${p3.uniqueCount} unique, ${p3Tests} tests, ${tripleRules.length} rules) in ${((Date.now() - t3) / 1000).toFixed(2)}s`,
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 4: Quad cross-item correction scan (streaming per-ship compression)
+    // ═══════════════════════════════════════════════════════════════
+    let quadRules = [];
+    let p4 = {
+      rules: [],
+      poolsByShip: {},
+      keysByShip: {},
+      shipsWithHits: new Set(),
+      uniqueCount: 0,
+      totalExpanded: 0,
+    };
+
+    if (opts.maxComboSize >= 4 && tripleRules.length > 0) {
+      const tripleRulesFile = writeIpcJson("rules_k3.json", tripleRules);
+      await pool.broadcast({
+        type: "setCompiledRules",
+        comboSize: 3,
+        filePath: tripleRulesFile,
+      });
+
+      const p4ShipGroups = [];
+      for (const shipId of repShipIdsWithBonuses) {
+        const bItems = getAstFilteredItemsForShip(shipId, bonusItemsByRepShipArr[shipId]);
+        if (bItems.length < 4 || ctx.effectiveSlotsOf[shipId] < 4) continue;
+        if (!p3.shipsWithHits.has(shipId)) continue;
+        const tripleKeySetArr = !opts.strictNMinusOne ? p3.keysByShip[shipId] || [] : null;
+        const chunks = buildBalancedComboChunks(bItems.length, 4, opts.allowDuplicateItems, 12000);
+        const totalWeight = chunks.reduce((a, c) => a + c.weight, 0);
+        p4ShipGroups.push({
+          shipId,
+          totalWeight,
+          tasks: chunks.map((c) => ({
+            bItems,
+            tripleKeySetArr,
+            ranges: c.ranges,
+            weight: c.weight,
+          })),
+        });
+      }
+
+      p4 = await runStreamingComboPhase({
+        phaseLabel: "Phase 4",
+        comboSize: 4,
+        shipTaskGroups: p4ShipGroups,
+        buildMsg: (task) => ({
+          type: "phase4Chunk",
+          shipId: task.shipId,
+          bItems: task.bItems,
+          allowDuplicateItems: opts.allowDuplicateItems,
+          strictNMinusOne: opts.strictNMinusOne,
+          pruneInvisible,
+          tripleKeySetArr: task.tripleKeySetArr,
+          ranges: task.ranges,
+        }),
+        extractPools: opts.maxComboSize >= 5,
+        recordShipKeys: !opts.strictNMinusOne,
+      });
+      quadRules = p4.rules;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 5: Penta cross-item correction scan (streaming per-ship compression)
+    // ═══════════════════════════════════════════════════════════════
+    let pentaRules = [];
+    let p5 = {
+      rules: [],
+      poolsByShip: {},
+      keysByShip: {},
+      shipsWithHits: new Set(),
+      uniqueCount: 0,
+      totalExpanded: 0,
+    };
+
+    const repShipIdsForPenta = Object.keys(p4.poolsByShip)
+      .map(Number)
+      .filter((sid) => (shipToGroup[sid] || sid) === sid && ctx.effectiveSlotsOf[sid] >= 5)
+      .sort((a, b) => a - b);
+
+    if (opts.maxComboSize >= 5 && repShipIdsForPenta.length > 0) {
+      const quadRulesFile = writeIpcJson("rules_k4.json", quadRules);
+      await pool.broadcast({
+        type: "setCompiledRules",
+        comboSize: 4,
+        filePath: quadRulesFile,
+      });
+
+      const p5ShipGroups = [];
+      for (const shipId of repShipIdsForPenta) {
+        const quadKeySetArr = !opts.strictNMinusOne ? p4.keysByShip[shipId] || [] : null;
+        const shipTasks = [];
+        let totalWeight = 0;
+        for (const { pool: qPool } of p4.poolsByShip[shipId]) {
+          const filteredPool = getAstFilteredItemsForShip(shipId, qPool);
+          if (filteredPool.length < 5) continue;
+          const chunks = buildBalancedComboChunks(
+            filteredPool.length,
+            5,
+            opts.allowDuplicateItems,
+            12000,
+          );
+          for (const c of chunks) {
+            totalWeight += c.weight;
+            shipTasks.push({
+              filteredPool,
+              quadKeySetArr,
+              ranges: c.ranges,
+              weight: c.weight,
+            });
+          }
+        }
+        if (shipTasks.length > 0) {
+          p5ShipGroups.push({ shipId, totalWeight, tasks: shipTasks });
+        }
+      }
+
+      p5 = await runStreamingComboPhase({
+        phaseLabel: "Phase 5",
+        comboSize: 5,
+        shipTaskGroups: p5ShipGroups,
+        buildMsg: (task) => ({
+          type: "phase5Chunk",
+          shipId: task.shipId,
+          filteredPool: task.filteredPool,
+          allowDuplicateItems: opts.allowDuplicateItems,
+          strictNMinusOne: opts.strictNMinusOne,
+          pruneInvisible,
+          quadKeySetArr: task.quadKeySetArr,
+          ranges: task.ranges,
+        }),
+        extractPools: opts.maxComboSize >= 6,
+        recordShipKeys: !opts.strictNMinusOne,
+      });
+      pentaRules = p5.rules;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 6: Hexa cross-item correction scan (streaming per-ship compression)
+    // ═══════════════════════════════════════════════════════════════
+    let hexaRules = [];
+    let p6 = {
+      rules: [],
+      poolsByShip: {},
+      keysByShip: {},
+      shipsWithHits: new Set(),
+      uniqueCount: 0,
+      totalExpanded: 0,
+    };
+
+    const repShipIdsForHexa = Object.keys(p5.poolsByShip)
+      .map(Number)
+      .filter((sid) => (shipToGroup[sid] || sid) === sid && ctx.effectiveSlotsOf[sid] >= 6)
+      .sort((a, b) => a - b);
+
+    if (opts.maxComboSize >= 6 && repShipIdsForHexa.length > 0) {
+      const pentaRulesFile = writeIpcJson("rules_k5.json", pentaRules);
+      await pool.broadcast({
+        type: "setCompiledRules",
+        comboSize: 5,
+        filePath: pentaRulesFile,
+      });
+
+      const p6ShipGroups = [];
+      for (const shipId of repShipIdsForHexa) {
+        const pentaKeySetArr = !opts.strictNMinusOne ? p5.keysByShip[shipId] || [] : null;
+        const shipTasks = [];
+        let totalWeight = 0;
+        for (const { pool: pPool } of p5.poolsByShip[shipId]) {
+          const filteredPool = getAstFilteredItemsForShip(shipId, pPool);
+          if (filteredPool.length < 6) continue;
+          const chunks = buildBalancedComboChunks(
+            filteredPool.length,
+            6,
+            opts.allowDuplicateItems,
+            12000,
+          );
+          for (const c of chunks) {
+            totalWeight += c.weight;
+            shipTasks.push({
+              filteredPool,
+              pentaKeySetArr,
+              ranges: c.ranges,
+              weight: c.weight,
+            });
+          }
+        }
+        if (shipTasks.length > 0) {
+          p6ShipGroups.push({ shipId, totalWeight, tasks: shipTasks });
+        }
+      }
+
+      p6 = await runStreamingComboPhase({
+        phaseLabel: "Phase 6",
+        comboSize: 6,
+        shipTaskGroups: p6ShipGroups,
+        buildMsg: (task) => ({
+          type: "phase6Chunk",
+          shipId: task.shipId,
+          filteredPool: task.filteredPool,
+          allowDuplicateItems: opts.allowDuplicateItems,
+          strictNMinusOne: opts.strictNMinusOne,
+          pruneInvisible,
+          pentaKeySetArr: task.pentaKeySetArr,
+          ranges: task.ranges,
+        }),
+        extractPools: false,
+        recordShipKeys: false,
+      });
+      hexaRules = p6.rules;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Build final output (identical schema to scan-ast.js)
+    // ═══════════════════════════════════════════════════════════════
+    let finalSynergyCount = 0;
+    for (const [, pm] of synergies) {
+      for (const { ships } of pm.values()) finalSynergyCount += ships.length;
+    }
+    const finalPentaCount = p5.totalExpanded;
+    const finalHexaCount = p6.totalExpanded;
+
+    const effectRules = buildEffectRules(equipResults);
+    const crossRules = pairRules;
+
+    const nextIdRef = { val: 1 };
+    resolveExclusiveGroups(crossRules, tripleRules, nextIdRef);
+    resolveExclusiveGroups(tripleRules, quadRules, nextIdRef);
+    resolveExclusiveGroups(quadRules, pentaRules, nextIdRef);
+    resolveExclusiveGroups(pentaRules, hexaRules, nextIdRef);
+
+    // Gzip-compress any remaining binary combo payloads (supported natively by FUSOU-WEB data-loader)
+    compressRuleCombosGzip(crossRules);
+    compressRuleCombosGzip(tripleRules);
+    compressRuleCombosGzip(quadRules);
+    compressRuleCombosGzip(pentaRules);
+    compressRuleCombosGzip(hexaRules);
+
+    const finalTripleCount = tripleRules.length;
+    const finalQuadCount = quadRules.length;
+
+    const pkgVersion = (() => {
+      try {
+        return (
+          "v" +
+          JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).version
+        );
+      } catch {
+        return "v0.0.0";
+      }
+    })();
+
+    const output = {
+      _meta: {
+        generated: deterministic ? "1970-01-01T00:00:00.000Z" : new Date().toISOString(),
+        generator_version: pkgVersion,
+        api_start2_batch_hash: apiStart2BatchHash,
+        period_tag: opts.periodTag,
+        strict_nminus1: opts.strictNMinusOne,
+        deterministic,
+        source: path.basename(opts.scanFlags.main ? "main.js" : "output/deobfuscated.js"),
+        total_ships: ctx.mstShips.length,
+        total_items: ctx.mstSlotitems.length,
+        total_single_bonuses: nonZeroCount,
+        total_cross_synergies: finalSynergyCount,
+        total_triple_synergies: finalTripleCount,
+        unique_items_with_bonus: equipResults.size,
+        unique_synergy_pairs: synergies.size,
+        unique_synergy_triples: p3.uniqueCount,
+        total_quad_corrections: finalQuadCount,
+        unique_synergy_quads: p4.uniqueCount,
+        total_penta_corrections: finalPentaCount,
+        unique_synergy_pentas: p5.uniqueCount,
+        total_hexa_corrections: finalHexaCount,
+        unique_synergy_hexas: p6.uniqueCount,
+        effect_rule_count: effectRules.length,
+        cross_rule_count: crossRules.length,
+        triple_rule_count: tripleRules.length,
+        quad_rule_count: quadRules.length,
+        penta_rule_count: pentaRules.length,
+        hexa_rule_count: hexaRules.length,
+        stats: {
+          houg: "火力",
+          raig: "雷装",
+          tyku: "対空",
+          souk: "装甲",
+          kaih: "回避",
+          tais: "対潜",
+          saku: "索敵",
+          baku: "爆装",
+          houm: "命中",
+          leng: "射程",
+        },
+      },
+      effect_rules: effectRules,
+      cross_rules: crossRules,
+      triple_rules: tripleRules,
+      quad_rules: quadRules,
+      penta_rules: pentaRules,
+      hexa_rules: hexaRules,
+    };
 
     const outName = opts.periodTag
       ? `slot_item_effects_${opts.periodTag}.json`
       : "slot_item_effects_ast.json";
     const finalOutputPath = opts.outputPath || path.join(ROOT, "output", outName);
 
-    const merged = {
-      _meta: {
-        ...base._meta,
-        parallel_scan: true,
-        parallel_workers: workers,
-        schedule_shards: tasks.length,
-        strict_nminus1: opts.strictNMinusOne,
-        allow_duplicate_items: opts.allowDuplicateItems,
-        max_combo_size: opts.maxComboSize,
-        total_ships: Object.keys(Object.assign({}, ...docs.map((d) => d.ships || {}))).length,
-        total_single_bonuses: sumMeta("total_single_bonuses"),
-        total_cross_synergies: sumMeta("total_cross_synergies"),
-        total_triple_synergies: sumMeta("total_triple_synergies"),
-        total_quad_corrections: sumMeta("total_quad_corrections"),
-        total_penta_corrections: sumMeta("total_penta_corrections"),
-        total_hexa_corrections: sumMeta("total_hexa_corrections"),
-      },
-      ships: Object.assign({}, ...docs.map((d) => d.ships || {})),
-      items: base.items || {},
-    };
-
-    merged.effect_rules = mergeRuleSet(docs.map((d) => d.effect_rules || []), "items");
-    merged.cross_rules = mergeRuleSet(docs.map((d) => d.cross_rules || []), "pairs");
-    merged.triple_rules = mergeRuleSet(docs.map((d) => d.triple_rules || []));
-    merged.quad_rules = mergeRuleSet(docs.map((d) => d.quad_rules || []));
-    merged.penta_rules = mergeRuleSet(docs.map((d) => d.penta_rules || []));
-    merged.hexa_rules = mergeRuleSet(docs.map((d) => d.hexa_rules || []));
-
-    merged.effect_rules_equip_index = buildEquipIndex(merged.effect_rules);
-    merged.cross_rules_equip_index = buildEquipIndex(merged.cross_rules);
-    merged.triple_rules_equip_index = buildEquipIndex(merged.triple_rules);
-    merged.quad_rules_equip_index = buildEquipIndex(merged.quad_rules);
-    merged.penta_rules_equip_index = buildEquipIndex(merged.penta_rules);
-    merged.hexa_rules_equip_index = buildEquipIndex(merged.hexa_rules);
-
-    merged._meta.effect_rule_count = merged.effect_rules.length;
-    merged._meta.cross_rule_count = merged.cross_rules.length;
-    merged._meta.triple_rule_count = merged.triple_rules.length;
-    merged._meta.quad_rule_count = merged.quad_rules.length;
-    merged._meta.penta_rule_count = merged.penta_rules.length;
-    merged._meta.hexa_rule_count = merged.hexa_rules.length;
-
     fs.mkdirSync(path.dirname(finalOutputPath), { recursive: true });
-    fs.writeFileSync(finalOutputPath, JSON.stringify(merged), "utf8");
+    const jsonOut = JSON.stringify(output);
+    fs.writeFileSync(finalOutputPath, jsonOut, "utf8");
+    console.log(
+      `[parallel-scan] saved: ${path.relative(ROOT, finalOutputPath)} (${(Buffer.byteLength(jsonOut) / 1024).toFixed(1)} KB)`,
+    );
 
-    console.log(`[parallel-scan] merged output: ${path.relative(ROOT, finalOutputPath)}`);
+    if (!opts.skipBrotli) {
+      const brotliOut = zlib.brotliCompressSync(Buffer.from(jsonOut, "utf-8"), {
+        params: {
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+        },
+      });
+      const brotliPath = `${finalOutputPath}.br`;
+      fs.writeFileSync(brotliPath, brotliOut);
+      console.log(
+        `[parallel-scan] saved: ${path.relative(ROOT, brotliPath)} (${(brotliOut.byteLength / 1024).toFixed(1)} KB)`,
+      );
+
+      const previewNameManifest = {
+        _meta: {
+          generated: deterministic ? "1970-01-01T00:00:00.000Z" : new Date().toISOString(),
+          deterministic,
+          source: path.basename(opts.scanFlags.main ? "main.js" : "output/deobfuscated.js"),
+          total_ships: ctx.mstShips.length,
+          total_items: ctx.mstSlotitems.length,
+        },
+        ships: Object.fromEntries(
+          ctx.mstShips
+            .map((ship) => [String(ship.api_id), ship.api_name])
+            .filter(([, name]) => typeof name === "string" && name.length > 0),
+        ),
+        items: Object.fromEntries(
+          ctx.mstSlotitems
+            .map((item) => [String(item.api_id), item.api_name])
+            .filter(([, name]) => typeof name === "string" && name.length > 0),
+        ),
+      };
+      const previewPath = path.join(path.dirname(finalOutputPath), "preview_name_manifest.json");
+      fs.writeFileSync(previewPath, JSON.stringify(previewNameManifest), "utf8");
+    }
+
+    console.log(
+      `[parallel-scan] total elapsed: ${((Date.now() - tTotal) / 1000).toFixed(2)}s`,
+    );
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
-    cleanupTmpDir();
+    await pool.shutdown();
+    cleanupIpcTmp();
   }
 }
 
 main().catch((err) => {
-  console.error(`[parallel-scan] Fatal: ${err?.message || err}`);
+  console.error(`[parallel-scan] Fatal: ${err?.stack || err?.message || err}`);
   process.exit(1);
 });

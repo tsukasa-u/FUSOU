@@ -44,6 +44,16 @@ const {
   createGetMst,
   loadBundle
 } = require("../../lib/loader");
+const {
+  STAT_KEYS: FAST_STAT_KEYS,
+  STAT_COUNT,
+  int32ToStatObj,
+  createFastSlotAssigner,
+  createFastBaselineEvaluator,
+  compileRulesForShip,
+  createCompiledRuleEvaluator,
+  createFastSlotItemEffectUtil,
+} = require("./fast-eval");
 
 // Re-exec with a larger V8 heap unless already specified.
 const maxOldSpaceFromEnv = Number.parseInt(
@@ -95,6 +105,7 @@ const KNOWN_FLAGS = new Set([
   "--main",
   "--volatile-generated",
   "--no-prune-invisible",
+  "--no-brotli",
   "--output",
   "--period-tag",
   "--ships",
@@ -141,6 +152,7 @@ for (let i = 0; i < args.length; i += 1) {
 const useMain = args.includes("--main");
 const deterministic = !args.includes("--volatile-generated");
 const pruneInvisible = !args.includes("--no-prune-invisible");
+const skipBrotli = args.includes("--no-brotli");
 const strictEnabled = args.includes("--strict-nminus1");
 const strictDisabled = args.includes("--no-strict-nminus1");
 if (strictEnabled && strictDisabled) {
@@ -483,19 +495,24 @@ function resolveSlotItemEffectUtil({ kcsRequire, kcsCache, kcsModules, getMstFn,
 
 
 
+const maxItemId = mstSlotitems.reduce((acc, si) => Math.max(acc, si.api_id), 0);
 const { kcsRequire, kcsCache, kcsModules } = loadBundle({
   useMain,
   getMst,
   silent: false,
   periodTag: scanPeriodTag,
 });
-const SlotItemEffectUtil = resolveSlotItemEffectUtil({
+const SlotItemEffectUtil = createFastSlotItemEffectUtil({
   kcsRequire,
   kcsCache,
-  kcsModules,
   getMstFn: getMst,
   astRules,
+  maxItemId,
+  patchGetMstInCache,
 });
+console.log(
+  `[scan-ast] Fast evaluator ready (reusable level-0 wrapper: ${SlotItemEffectUtil.canUseFastWrapper ? "enabled" : "fallback"})`,
+);
 
 // ── Helpers ────────────────────────────────────────────────────────
 const STAT_KEYS = [
@@ -740,7 +757,17 @@ function getShipObject(shipData) {
 // ── OPTIMIZATION 2: Pre-built slot objects cache ───────────────────
 // Cache makeSlot results to avoid repeated object allocation
 const slotObjCache = {};
+const slotObjLevel0ById = new Array(maxItemId + 1);
+for (const s of slotInfos) {
+  const obj = { mstID: s.id, equipType: s.equipType, level: 0 };
+  slotObjLevel0ById[s.id] = obj;
+  slotObjCache[`${s.id}:0`] = obj;
+}
 function getMakeSlot(id, level) {
+  if (!level) {
+    const fast = slotObjLevel0ById[id];
+    if (fast) return fast;
+  }
   const key = `${id}:${level}`;
   if (!slotObjCache[key]) {
     const s = slotById[id];
@@ -917,10 +944,14 @@ function canEquipItem(shipData, itemId) {
   return getAllowedPositions(shipData, itemId).length > 0;
 }
 
+const fastSlotAssigner = createFastSlotAssigner(
+  mstShips,
+  maxItemId,
+  getAllowedPositions,
+);
+
 function canAssignComboToShip(shipId, items) {
-  const shipData = shipById[shipId];
-  if (!shipData) return false;
-  return findComboAssignment(shipData, items) != null;
+  return fastSlotAssigner.canAssignCombo(shipId, items);
 }
 
 function findComboAssignment(shipData, items, allowExslot = true, requireExslot = false) {
@@ -1377,62 +1408,40 @@ const bonusItemIds = [...itemsWithBonus].sort((a, b) => a - b);
 const bonusItemIdSet = new Set(bonusItemIds);
 console.log(`  Items with any bonus: ${bonusItemIds.length}`);
 
-// ── OPTIMIZATION 7: Category-aware expected baseline ───────────────
-function getSingleProfile(shipId, itemId) {
-  const pm = equipResults.get(itemId);
-  if (!pm) return null;
-  for (const [pk, data] of pm.entries()) {
-    if (data.ships.includes(shipId)) return { pk, profile: data.profile };
+// ── OPTIMIZATION 7: Category-aware expected baseline (O(1) zero-alloc) ──
+const fastBaseline = createFastBaselineEvaluator(equipResults, maxItemId);
+const compiledRuleEval = createCompiledRuleEvaluator(maxItemId);
+const combinedBuf = new Int32Array(STAT_COUNT);
+const expectedBuf = new Int32Array(STAT_COUNT);
+const residualBuf = new Int32Array(STAT_COUNT);
+const slotBuf2 = [null, null];
+const slotBuf3 = [null, null, null];
+const slotBuf4 = [null, null, null, null];
+const slotBuf5 = [null, null, null, null, null];
+const slotBuf6 = [null, null, null, null, null, null];
+
+function compileRulesByShipMap(rulesByShip, comboSize) {
+  const compiled = Object.create(null);
+  for (const [sid, rules] of Object.entries(rulesByShip)) {
+    compiled[sid] = compileRulesForShip(rules, comboSize, maxItemId);
   }
-  return null;
+  return compiled;
 }
 
 function getExpectedBaseline(shipId, items) {
-  const bonuses = {};
-  const groups = {};
-  
-  for (const itemId of items) {
-    const pInfo = getSingleProfile(shipId, itemId);
-    if (pInfo) {
-      if (!groups[pInfo.pk]) groups[pInfo.pk] = { profile: pInfo.profile, count: 0 };
-      groups[pInfo.pk].count++;
-    }
+  expectedBuf.fill(0);
+  if (!fastBaseline.computeBaselineInto(shipId, items, expectedBuf)) return null;
+  return int32ToStatObj(expectedBuf);
+}
+
+function computeResidualInto(combined, expected, out) {
+  let any = false;
+  for (let k = 0; k < STAT_COUNT; k++) {
+    const d = combined[k] - expected[k];
+    out[k] = d;
+    if (d !== 0) any = true;
   }
-  
-  for (const group of Object.values(groups)) {
-    const { profile, count } = group;
-    let src = {};
-    if (count === 1) {
-      src = profile.b || {};
-    } else if (count >= 3 && profile.c3) {
-      src = { ...profile.c3 };
-      if (count > 3 && !statsEqual(profile.c2 || {}, profile.c3)) {
-        for (const k of Object.keys(profile.b || {})) {
-          const extra = (profile.b[k] || 0) * (count - 3);
-          if (extra) src[k] = (src[k] || 0) + extra;
-        }
-      }
-    } else if (count >= 2 && profile.c2) {
-      src = { ...profile.c2 };
-      if (count > 2 && !statsEqual(profile.b || {}, profile.c2)) {
-        for (const k of Object.keys(profile.b || {})) {
-          const extra = (profile.b[k] || 0) * (count - 2);
-          if (extra) src[k] = (src[k] || 0) + extra;
-        }
-      }
-    } else {
-      for (const k of Object.keys(profile.b || {})) {
-        const v = (profile.b[k] || 0) * count;
-        if (v) src[k] = v;
-      }
-    }
-    
-    for (const [k, v] of Object.entries(src)) {
-      if (v) bonuses[k] = (bonuses[k] || 0) + v;
-    }
-  }
-  
-  return Object.keys(bonuses).length > 0 ? bonuses : null;
+  return any;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1477,22 +1486,20 @@ for (let ai = 0; ai < bonusItemIds.length; ai++) {
       }
     }
 
+    const pairCombo = [itemA, 0];
+    slotBuf2[0] = slotObjLevel0ById[itemA] || getMakeSlot(itemA, 0);
     for (const itemB of equippable) {
       if (itemB === itemA) continue;
-      if (!canAssignComboToShip(shipId, [itemA, itemB])) continue;
+      pairCombo[1] = itemB;
+      if (!canAssignComboToShip(shipId, pairCombo)) continue;
       pairsTested++;
 
-      const combined = SlotItemEffectUtil.getSlotitemEffect(ship, [
-        getMakeSlot(itemA, 0),
-        getMakeSlot(itemB, 0),
-      ]);
-      const comb = extractNonZero(combined);
+      slotBuf2[1] = slotObjLevel0ById[itemB] || getMakeSlot(itemB, 0);
+      SlotItemEffectUtil.getSlotitemEffectLevel0Into(ship, slotBuf2, combinedBuf);
+      fastBaseline.computeBaselineInto(shipId, pairCombo, expectedBuf);
+      if (!computeResidualInto(combinedBuf, expectedBuf, residualBuf)) continue;
 
-      const expected = getExpectedBaseline(shipId, [itemA, itemB]);
-
-      if (statsEqual(comb, expected)) continue;
-
-      const synDelta = statsSub(comb, expected);
+      const synDelta = int32ToStatObj(residualBuf);
       if (!synDelta) continue;
       if (pruneInvisible && isMeaninglessSynergy(synDelta)) continue;
 
@@ -1598,6 +1605,7 @@ function indexRulesByShip(rules) {
 }
 
 const pairRulesByShip = indexRulesByShip(pairRules);
+const pairCompiledByShip = compileRulesByShipMap(pairRulesByShip, 2);
 
 function simulateRules(rulesForShip, items, comboSize) {
   if (!rulesForShip || rulesForShip.length === 0) return null;
@@ -1763,37 +1771,37 @@ const repShipIdsWithBonuses = Object.keys(bonusItemsByRepShipArr)
   .map(Number)
   .sort((a, b) => a - b);
 
-const { getSlotitemEffect } = SlotItemEffectUtil;
+const { getSlotitemEffect, getSlotitemEffectLevel0Into } = SlotItemEffectUtil;
 
-function getSubExpectedComponents(ship, items, prules, trules, qrules, perules) {
+function getSubExpectedComponents(ship, items, pComp, tComp, qComp, peComp) {
   const comps = [];
   for (const id of items) comps.push(getAlone(ship, id));
-  
-  if (prules) {
+
+  if (pComp) {
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++)
-        comps.push(simulateRules(prules, [items[i], items[j]], 2));
+        comps.push(compiledRuleEval.simulateToObj(pComp, [items[i], items[j]]));
   }
-  if (trules && items.length >= 3) {
+  if (tComp && items.length >= 3) {
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++)
         for (let k = j + 1; k < items.length; k++)
-          comps.push(simulateRules(trules, [items[i], items[j], items[k]], 3));
+          comps.push(compiledRuleEval.simulateToObj(tComp, [items[i], items[j], items[k]]));
   }
-  if (qrules && items.length >= 4) {
+  if (qComp && items.length >= 4) {
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++)
         for (let k = j + 1; k < items.length; k++)
           for (let l = k + 1; l < items.length; l++)
-            comps.push(simulateRules(qrules, [items[i], items[j], items[k], items[l]], 4));
+            comps.push(compiledRuleEval.simulateToObj(qComp, [items[i], items[j], items[k], items[l]]));
   }
-  if (perules && items.length >= 5) {
+  if (peComp && items.length >= 5) {
     for (let i = 0; i < items.length; i++)
       for (let j = i + 1; j < items.length; j++)
         for (let k = j + 1; k < items.length; k++)
           for (let l = k + 1; l < items.length; l++)
             for (let m = l + 1; m < items.length; m++)
-              comps.push(simulateRules(perules, [items[i], items[j], items[k], items[l], items[m]], 5));
+              comps.push(compiledRuleEval.simulateToObj(peComp, [items[i], items[j], items[k], items[l], items[m]]));
   }
   return comps;
 }
@@ -1810,6 +1818,8 @@ for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
   const shipData = shipById[shipId];
   if (!shipData) continue;
   const ship = getShipObject(shipData);
+  const pairComp = pairCompiledByShip[shipId] || null;
+  const combo3 = [0, 0, 0];
 
   forEachCombinationIndices(
     bItems.length,
@@ -1825,14 +1835,13 @@ for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
       const itemA = bItems[ai];
       const itemB = bItems[bi];
       const itemC = bItems[ci];
-      const comboItems = [itemA, itemB, itemC];
-      if (!canAssignComboToShip(shipId, comboItems)) return;
+      combo3[0] = itemA;
+      combo3[1] = itemB;
+      combo3[2] = itemC;
+      if (!canAssignComboToShip(shipId, combo3)) return;
 
-      const aloneA = getAlone(ship, itemA);
-      const aloneB = getAlone(ship, itemB);
-      const aloneC = getAlone(ship, itemC);
       triplesTested++;
-      {
+      if ((triplesTested & 4095) === 0) {
         const now = Date.now();
         if (now - lastPhase3ProgressAt >= 2000) {
           const e = ((now - t3) / 1000).toFixed(1);
@@ -1843,24 +1852,27 @@ for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
         }
       }
 
-      const combined = extractNonZero(
-        getSlotitemEffect(ship, comboItems.map((id) => getMakeSlot(id, 0))),
-      );
+      slotBuf3[0] = slotObjLevel0ById[itemA] || getMakeSlot(itemA, 0);
+      slotBuf3[1] = slotObjLevel0ById[itemB] || getMakeSlot(itemB, 0);
+      slotBuf3[2] = slotObjLevel0ById[itemC] || getMakeSlot(itemC, 0);
+      getSlotitemEffectLevel0Into(ship, slotBuf3, combinedBuf);
 
-      let expected = getExpectedBaseline(shipId, comboItems) || null;
-      const pairExpected = simulateRules(pairRulesByShip[shipId], comboItems, 2);
-      if (pairExpected) expected = statsAdd(expected, pairExpected);
+      fastBaseline.computeBaselineInto(shipId, combo3, expectedBuf);
+      if (pairComp) compiledRuleEval.addSimulatedInto(pairComp, combo3, expectedBuf);
 
-      const residual = statsSub(combined, expected);
+      if (!computeResidualInto(combinedBuf, expectedBuf, residualBuf)) return;
+      const residual = int32ToStatObj(residualBuf);
       if (!residual) return;
       if (pruneInvisible && isMeaninglessSynergy(residual)) return;
 
-      const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId]);
-      expectedComponents.push(expected); // Also check against the total expected
-      const isCancel = expectedComponents.some(
-        (c) => c && statsEqual(residual, statsSub(null, c))
-      );
-      const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+      const comboItems = [itemA, itemB, itemC];
+      const hasNeg = Object.values(residual).some((v) => v < 0);
+      const isCancel =
+        hasNeg &&
+        comboItems.some((id) => {
+          const a = getAlone(ship, id);
+          return a && statsEqual(residual, statsSub(null, a));
+        });
 
       tripleCount++;
       appendSynergyForRepShip(
@@ -1869,7 +1881,7 @@ for (let si = 0; si < repShipIdsWithBonuses.length; si++) {
         comboItems,
         residual,
         isCancel,
-        suppressedComponents
+        null
       );
     },
   );
@@ -1910,6 +1922,7 @@ for (const [tripleKey, profileMap] of tripleSynergies) {
 // Pre-build triple rules so we can simulate boolean expected values
 const tripleRules = buildRules(tripleSynergies, 3);
 const tripleRulesByShip = indexRulesByShip(tripleRules);
+const tripleCompiledByShip = compileRulesByShipMap(tripleRulesByShip, 3);
 if (maxComboSize >= 4) {
   console.log("\n[Phase 4] Quad cross-item correction scan ...");
   if (strictNMinusOne) {
@@ -1940,13 +1953,15 @@ if (maxComboSize >= 4) {
     const ship = getShipObject(shipData);
 
     const tMap = tripleByShipKey[shipId];
+    const pairComp = pairCompiledByShip[shipId] || null;
+    const tripleComp = tripleCompiledByShip[shipId] || null;
+    const combo4 = [0, 0, 0, 0];
 
     forEachCombinationIndices(
       bItems.length,
       4,
       allowDuplicateItems,
       ([ai, bi, ci, di]) => {
-        const comboItems = [bItems[ai], bItems[bi], bItems[ci], bItems[di]];
         if (
           effectivePhase4FirstIndexRange &&
           (ai < effectivePhase4FirstIndexRange[0] ||
@@ -1954,17 +1969,26 @@ if (maxComboSize >= 4) {
         ) {
           return;
         }
-        const [A, B, C, D] = comboItems;
-        if (!canAssignComboToShip(shipId, comboItems)) return;
+        const A = bItems[ai];
+        const B = bItems[bi];
+        const C = bItems[ci];
+        const D = bItems[di];
+        combo4[0] = A;
+        combo4[1] = B;
+        combo4[2] = C;
+        combo4[3] = D;
+        if (!canAssignComboToShip(shipId, combo4)) return;
 
-        const tABC = tMap[`${A}:${B}:${C}`] ?? null;
-        const tABD = tMap[`${A}:${B}:${D}`] ?? null;
-        const tACD = tMap[`${A}:${C}:${D}`] ?? null;
-        const tBCD = tMap[`${B}:${C}:${D}`] ?? null;
-        if (!strictNMinusOne && !tABC && !tABD && !tACD && !tBCD) return;
+        if (!strictNMinusOne) {
+          const tABC = tMap[`${A}:${B}:${C}`] ?? null;
+          const tABD = tMap[`${A}:${B}:${D}`] ?? null;
+          const tACD = tMap[`${A}:${C}:${D}`] ?? null;
+          const tBCD = tMap[`${B}:${C}:${D}`] ?? null;
+          if (!tABC && !tABD && !tACD && !tBCD) return;
+        }
 
         quadsTested++;
-        {
+        if ((quadsTested & 4095) === 0) {
           const now = Date.now();
           if (now - lastPhase4ProgressAt >= 2000) {
             const e = ((now - t4) / 1000).toFixed(1);
@@ -1975,29 +1999,32 @@ if (maxComboSize >= 4) {
           }
         }
 
-        const combined = extractNonZero(
-          getSlotitemEffect(ship, comboItems.map((id) => getMakeSlot(id, 0))),
-        );
+        slotBuf4[0] = slotObjLevel0ById[A] || getMakeSlot(A, 0);
+        slotBuf4[1] = slotObjLevel0ById[B] || getMakeSlot(B, 0);
+        slotBuf4[2] = slotObjLevel0ById[C] || getMakeSlot(C, 0);
+        slotBuf4[3] = slotObjLevel0ById[D] || getMakeSlot(D, 0);
+        getSlotitemEffectLevel0Into(ship, slotBuf4, combinedBuf);
 
-        let expected = getExpectedBaseline(shipId, comboItems) || null;
-        const pairExpected = simulateRules(pairRulesByShip[shipId], comboItems, 2);
-        if (pairExpected) expected = statsAdd(expected, pairExpected);
-        const tripleExpected = simulateRules(tripleRulesByShip[shipId], comboItems, 3);
-        if (tripleExpected) expected = statsAdd(expected, tripleExpected);
+        fastBaseline.computeBaselineInto(shipId, combo4, expectedBuf);
+        if (pairComp) compiledRuleEval.addSimulatedInto(pairComp, combo4, expectedBuf);
+        if (tripleComp) compiledRuleEval.addSimulatedInto(tripleComp, combo4, expectedBuf);
 
-        const residual = statsSub(combined, expected);
+        if (!computeResidualInto(combinedBuf, expectedBuf, residualBuf)) return;
+        const residual = int32ToStatObj(residualBuf);
         if (!residual) return;
         if (pruneInvisible && isMeaninglessSynergy(residual)) return;
 
-        const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId], tripleRulesByShip[shipId]);
-        expectedComponents.push(expected);
-        const isCancel = expectedComponents.some(
-          (c) => c && statsEqual(residual, statsSub(null, c))
-        );
-        const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+        const comboItems = [A, B, C, D];
+        const hasNeg = Object.values(residual).some((v) => v < 0);
+        const isCancel =
+          hasNeg &&
+          comboItems.some((id) => {
+            const a = getAlone(ship, id);
+            return a && statsEqual(residual, statsSub(null, a));
+          });
 
         quadCount++;
-        appendSynergyForRepShip(quadSynergies, shipId, comboItems, residual, isCancel, suppressedComponents);
+        appendSynergyForRepShip(quadSynergies, shipId, comboItems, residual, isCancel, null);
       },
     );
 
@@ -2018,6 +2045,7 @@ if (maxComboSize >= 4) {
   console.log("\n[Phase 4] Skipped by max_combo_size setting.");
 }
 const quadRulesByShip = indexRulesByShip(quadRules);
+const quadCompiledByShip = compileRulesByShipMap(quadRulesByShip, 4);
 
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5: Penta cross-item correction scan
@@ -2070,6 +2098,10 @@ if (maxComboSize >= 5) {
     const ship = getShipObject(shipData);
 
     const qMap5 = quadByShipKey[shipId] || {};
+    const pairComp = pairCompiledByShip[shipId] || null;
+    const tripleComp = tripleCompiledByShip[shipId] || null;
+    const quadComp = quadCompiledByShip[shipId] || null;
+    const combo5 = [0, 0, 0, 0, 0];
 
     for (const { pool } of pools) {
       const filteredPool = getAstFilteredItemsForShip(shipId, pool);
@@ -2081,9 +2113,17 @@ if (maxComboSize >= 5) {
         ) {
           return;
         }
-        const comboItems = [filteredPool[ai], filteredPool[bi], filteredPool[ci], filteredPool[di], filteredPool[ei]];
-        const [A, B, C, D, E] = comboItems;
-        if (!canAssignComboToShip(shipId, comboItems)) {
+        const A = filteredPool[ai];
+        const B = filteredPool[bi];
+        const C = filteredPool[ci];
+        const D = filteredPool[di];
+        const E = filteredPool[ei];
+        combo5[0] = A;
+        combo5[1] = B;
+        combo5[2] = C;
+        combo5[3] = D;
+        combo5[4] = E;
+        if (!canAssignComboToShip(shipId, combo5)) {
           return;
         }
         if (
@@ -2097,7 +2137,7 @@ if (maxComboSize >= 5) {
           return;
         }
         pentasTested++;
-        {
+        if ((pentasTested & 4095) === 0) {
           const now = Date.now();
           if (now - lastPhase5ProgressAt >= 2000) {
             const e = ((now - t5) / 1000).toFixed(1);
@@ -2107,29 +2147,34 @@ if (maxComboSize >= 5) {
             lastPhase5ProgressAt = now;
           }
         }
-        const combined = extractNonZero(
-          getSlotitemEffect(ship, comboItems.map((id) => getMakeSlot(id, 0))),
-        );
-        let expected = getExpectedBaseline(shipId, comboItems) || null;
-        const pairExpected = simulateRules(pairRulesByShip[shipId], comboItems, 2);
-        if (pairExpected) expected = statsAdd(expected, pairExpected);
-        const tripleExpected = simulateRules(tripleRulesByShip[shipId], comboItems, 3);
-        if (tripleExpected) expected = statsAdd(expected, tripleExpected);
-        const quadExpected = simulateRules(quadRulesByShip[shipId], comboItems, 4);
-        if (quadExpected) expected = statsAdd(expected, quadExpected);
+        slotBuf5[0] = slotObjLevel0ById[A] || getMakeSlot(A, 0);
+        slotBuf5[1] = slotObjLevel0ById[B] || getMakeSlot(B, 0);
+        slotBuf5[2] = slotObjLevel0ById[C] || getMakeSlot(C, 0);
+        slotBuf5[3] = slotObjLevel0ById[D] || getMakeSlot(D, 0);
+        slotBuf5[4] = slotObjLevel0ById[E] || getMakeSlot(E, 0);
+        getSlotitemEffectLevel0Into(ship, slotBuf5, combinedBuf);
 
-        const residual = statsSub(combined, expected);
+        fastBaseline.computeBaselineInto(shipId, combo5, expectedBuf);
+        if (pairComp) compiledRuleEval.addSimulatedInto(pairComp, combo5, expectedBuf);
+        if (tripleComp) compiledRuleEval.addSimulatedInto(tripleComp, combo5, expectedBuf);
+        if (quadComp) compiledRuleEval.addSimulatedInto(quadComp, combo5, expectedBuf);
+
+        if (!computeResidualInto(combinedBuf, expectedBuf, residualBuf)) return;
+        const residual = int32ToStatObj(residualBuf);
         if (!residual) return;
         if (pruneInvisible && isMeaninglessSynergy(residual)) return;
-        const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId], tripleRulesByShip[shipId], quadRulesByShip[shipId]);
-        expectedComponents.push(expected);
-        const isCancel = expectedComponents.some(
-          (c) => c && statsEqual(residual, statsSub(null, c))
-        );
-        const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+
+        const comboItems = [A, B, C, D, E];
+        const hasNeg = Object.values(residual).some((v) => v < 0);
+        const isCancel =
+          hasNeg &&
+          comboItems.some((id) => {
+            const a = getAlone(ship, id);
+            return a && statsEqual(residual, statsSub(null, a));
+          });
 
         pentaCount++;
-        appendSynergyForRepShip(pentaSynergies, shipId, comboItems, residual, isCancel, suppressedComponents);
+        appendSynergyForRepShip(pentaSynergies, shipId, comboItems, residual, isCancel, null);
       });
     }
     if (si === repShipIdsForPenta.length - 1 || (si + 1) % 5 === 0) {
@@ -2149,6 +2194,7 @@ if (maxComboSize >= 5) {
   console.log("\n[Phase 5] Skipped by max_combo_size setting.");
 }
 const pentaRulesByShip = indexRulesByShip(pentaRules);
+const pentaCompiledByShip = compileRulesByShipMap(pentaRulesByShip, 5);
 
 // ═══════════════════════════════════════════════════════════════════
 // Phase 6: Hexa cross-item correction scan
@@ -2200,6 +2246,11 @@ if (maxComboSize >= 6) {
     const ship = getShipObject(shipData);
 
     const p5Map6 = pentaByShipKey[shipId] || {};
+    const pairComp = pairCompiledByShip[shipId] || null;
+    const tripleComp = tripleCompiledByShip[shipId] || null;
+    const quadComp = quadCompiledByShip[shipId] || null;
+    const pentaComp = pentaCompiledByShip[shipId] || null;
+    const combo6 = [0, 0, 0, 0, 0, 0];
 
     for (const { pool } of pools) {
       const filteredPool = getAstFilteredItemsForShip(shipId, pool);
@@ -2215,9 +2266,19 @@ if (maxComboSize >= 6) {
           ) {
             return;
           }
-          const comboItems = [filteredPool[ai], filteredPool[bi], filteredPool[ci], filteredPool[di], filteredPool[ei], filteredPool[fi]];
-          const [A, B, C, D, E, F] = comboItems;
-          if (!canAssignComboToShip(shipId, comboItems)) {
+          const A = filteredPool[ai];
+          const B = filteredPool[bi];
+          const C = filteredPool[ci];
+          const D = filteredPool[di];
+          const E = filteredPool[ei];
+          const F = filteredPool[fi];
+          combo6[0] = A;
+          combo6[1] = B;
+          combo6[2] = C;
+          combo6[3] = D;
+          combo6[4] = E;
+          combo6[5] = F;
+          if (!canAssignComboToShip(shipId, combo6)) {
             return;
           }
           if (
@@ -2232,7 +2293,7 @@ if (maxComboSize >= 6) {
             return;
           }
           hexasTested++;
-          {
+          if ((hexasTested & 4095) === 0) {
             const now = Date.now();
             if (now - lastPhase6ProgressAt >= 2000) {
               const e = ((now - t6) / 1000).toFixed(1);
@@ -2242,31 +2303,36 @@ if (maxComboSize >= 6) {
               lastPhase6ProgressAt = now;
             }
           }
-          const combined = extractNonZero(
-            getSlotitemEffect(ship, comboItems.map((id) => getMakeSlot(id, 0))),
-          );
-          let expected = getExpectedBaseline(shipId, comboItems) || null;
-          const pairExpected = simulateRules(pairRulesByShip[shipId], comboItems, 2);
-          if (pairExpected) expected = statsAdd(expected, pairExpected);
-          const tripleExpected = simulateRules(tripleRulesByShip[shipId], comboItems, 3);
-          if (tripleExpected) expected = statsAdd(expected, tripleExpected);
-          const quadExpected = simulateRules(quadRulesByShip[shipId], comboItems, 4);
-          if (quadExpected) expected = statsAdd(expected, quadExpected);
-          const pentaExpected = simulateRules(pentaRulesByShip[shipId], comboItems, 5);
-          if (pentaExpected) expected = statsAdd(expected, pentaExpected);
+          slotBuf6[0] = slotObjLevel0ById[A] || getMakeSlot(A, 0);
+          slotBuf6[1] = slotObjLevel0ById[B] || getMakeSlot(B, 0);
+          slotBuf6[2] = slotObjLevel0ById[C] || getMakeSlot(C, 0);
+          slotBuf6[3] = slotObjLevel0ById[D] || getMakeSlot(D, 0);
+          slotBuf6[4] = slotObjLevel0ById[E] || getMakeSlot(E, 0);
+          slotBuf6[5] = slotObjLevel0ById[F] || getMakeSlot(F, 0);
+          getSlotitemEffectLevel0Into(ship, slotBuf6, combinedBuf);
 
-          const residual = statsSub(combined, expected);
+          fastBaseline.computeBaselineInto(shipId, combo6, expectedBuf);
+          if (pairComp) compiledRuleEval.addSimulatedInto(pairComp, combo6, expectedBuf);
+          if (tripleComp) compiledRuleEval.addSimulatedInto(tripleComp, combo6, expectedBuf);
+          if (quadComp) compiledRuleEval.addSimulatedInto(quadComp, combo6, expectedBuf);
+          if (pentaComp) compiledRuleEval.addSimulatedInto(pentaComp, combo6, expectedBuf);
+
+          if (!computeResidualInto(combinedBuf, expectedBuf, residualBuf)) return;
+          const residual = int32ToStatObj(residualBuf);
           if (!residual) return;
           if (pruneInvisible && isMeaninglessSynergy(residual)) return;
-          const expectedComponents = getSubExpectedComponents(ship, comboItems, pairRulesByShip[shipId], tripleRulesByShip[shipId], quadRulesByShip[shipId], pentaRulesByShip[shipId]);
-          expectedComponents.push(expected);
-          const isCancel = expectedComponents.some(
-            (c) => c && statsEqual(residual, statsSub(null, c))
-          );
-          const suppressedComponents = calculateSuppressedComponents(ship, comboItems, residual);
+
+          const comboItems = [A, B, C, D, E, F];
+          const hasNeg = Object.values(residual).some((v) => v < 0);
+          const isCancel =
+            hasNeg &&
+            comboItems.some((id) => {
+              const a = getAlone(ship, id);
+              return a && statsEqual(residual, statsSub(null, a));
+            });
 
           hexaCount++;
-          appendSynergyForRepShip(hexaSynergies, shipId, comboItems, residual, isCancel, suppressedComponents);
+          appendSynergyForRepShip(hexaSynergies, shipId, comboItems, residual, isCancel, null);
         },
       );
     }
@@ -2379,6 +2445,10 @@ function buildCrossRules(synergiesMap) {
 }
 
 function buildRules(synergyMap, comboSize) {
+  return require("./rule-builder").buildRules(synergyMap, comboSize, itemEquipType2);
+}
+
+function _legacyBuildRulesUnused(synergyMap, comboSize) {
   function tryNormalizeDuplicateCombos(combos, comboSize) {
     if (!combos || combos.length === 0) return null;
     let hasDuplicate = false;
@@ -3155,51 +3225,18 @@ function extractItems(rule) {
   return items;
 }
 
-function resolveExclusiveGroups(rulesLower, rulesHigher, nextIdRef) {
-  for (let i = 0; i < rulesHigher.length; i++) {
-    const neg = rulesHigher[i];
-    if (!isNegative(neg.synergy)) continue;
-    
-    const negated = negate(neg.synergy);
-    const loserIdx = rulesLower.findIndex(r => statsEqual(r.synergy, negated));
-    if (loserIdx === -1) {
-      // Unresolved negative rule (no matching lower rule). Keep as-is.
-      continue;
-    }
-    
-    const loser = rulesLower[loserIdx];
-    const loserItems = extractItems(loser);
-    const negItems = extractItems(neg);
-    
-    let resolved = false;
-    for (let j = 0; j < rulesLower.length; j++) {
-      if (j === loserIdx) continue;
-      const winnerItems = extractItems(rulesLower[j]);
-      
-      let isSubset = true;
-      for (const item of winnerItems) {
-        if (!negItems.has(item)) isSubset = false;
-      }
-      let sharesItem = false;
-      for (const item of winnerItems) {
-        if (loserItems.has(item)) sharesItem = true;
-      }
-      
-      if (isSubset && sharesItem) {
-        const gId = rulesLower[j].exclusive_group || loser.exclusive_group || nextIdRef.val++;
-        rulesLower[j].exclusive_group = gId;
-        loser.exclusive_group = gId;
-        resolved = true;
-      }
-    }
-    
-  }
-}
+const { resolveExclusiveGroups, compressRuleCombosGzip } = require("./rule-builder");
 const nextIdRef = { val: 1 };
 resolveExclusiveGroups(crossRules, tripleRules, nextIdRef);
 resolveExclusiveGroups(tripleRules, quadRules, nextIdRef);
 resolveExclusiveGroups(quadRules, pentaRules, nextIdRef);
 resolveExclusiveGroups(pentaRules, hexaRules, nextIdRef);
+
+compressRuleCombosGzip(crossRules);
+compressRuleCombosGzip(tripleRules);
+compressRuleCombosGzip(quadRules);
+compressRuleCombosGzip(pentaRules);
+compressRuleCombosGzip(hexaRules);
 
 finalTripleCount = tripleRules.length;
 finalQuadCount = quadRules.length;
@@ -3254,12 +3291,6 @@ const output = {
   quad_rules: quadRules,
   penta_rules: pentaRules,
   hexa_rules: hexaRules,
-  effect_rules_equip_index: buildEquipIndex(effectRules),
-  cross_rules_equip_index: buildEquipIndex(crossRules),
-  triple_rules_equip_index: buildEquipIndex(tripleRules),
-  quad_rules_equip_index: buildEquipIndex(quadRules),
-  penta_rules_equip_index: buildEquipIndex(pentaRules),
-  hexa_rules_equip_index: buildEquipIndex(hexaRules),
 };
 
 const dir = path.dirname(outputPath);
@@ -3271,23 +3302,25 @@ console.log(
   `[output] Saved: ${path.relative(ROOT, outputPath)} (${sizeKB} KB)`,
 );
 
-const brotliOut = zlib.brotliCompressSync(Buffer.from(jsonOut, "utf-8"), {
-  params: {
-    [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-  },
-});
-const brotliPath = `${outputPath}.br`;
-fs.writeFileSync(brotliPath, brotliOut);
-const brotliSizeKB = (brotliOut.byteLength / 1024).toFixed(1);
-console.log(
-  `[output] Saved: ${path.relative(ROOT, brotliPath)} (${brotliSizeKB} KB)`,
-);
+if (!skipBrotli) {
+  const brotliOut = zlib.brotliCompressSync(Buffer.from(jsonOut, "utf-8"), {
+    params: {
+      [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+    },
+  });
+  const brotliPath = `${outputPath}.br`;
+  fs.writeFileSync(brotliPath, brotliOut);
+  const brotliSizeKB = (brotliOut.byteLength / 1024).toFixed(1);
+  console.log(
+    `[output] Saved: ${path.relative(ROOT, brotliPath)} (${brotliSizeKB} KB)`,
+  );
 
-const previewManifestJson = JSON.stringify(previewNameManifest);
-fs.writeFileSync(previewNameManifestPath, previewManifestJson, "utf-8");
-const previewManifestSizeKB = (
-  Buffer.byteLength(previewManifestJson) / 1024
-).toFixed(1);
-console.log(
-  `[output] Saved: ${path.relative(ROOT, previewNameManifestPath)} (${previewManifestSizeKB} KB)`,
-);
+  const previewManifestJson = JSON.stringify(previewNameManifest);
+  fs.writeFileSync(previewNameManifestPath, previewManifestJson, "utf-8");
+  const previewManifestSizeKB = (
+    Buffer.byteLength(previewManifestJson) / 1024
+  ).toFixed(1);
+  console.log(
+    `[output] Saved: ${path.relative(ROOT, previewNameManifestPath)} (${previewManifestSizeKB} KB)`,
+  );
+}

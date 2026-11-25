@@ -45,7 +45,13 @@ function compareRuleSets(name, rules1, rules2) {
     const ships = (r.ships || []).join(",");
     const synergy = JSON.stringify(r.synergy || r.b || {});
     let itemsKey = "";
-    if (r.items) itemsKey = r.items.join(",");
+    if (r.items) {
+      itemsKey = r.items.join(",") +
+        (r.combos_b64 ? "|b64:" + r.combos_b64.length : "") +
+        (r.combos_gz_b64 ? "|gz:" + r.combos_gz_b64.length : "");
+    }
+    else if (r.category_pools) itemsKey = "cat:" + r.category_pools.map(p => p.join(",")).join("|");
+    else if (r.implicants) itemsKey = "imp:" + JSON.stringify(r.implicants);
     else if (r.item_pool) itemsKey = "pool:" + r.item_pool.join(",");
     else if (r.pairs) itemsKey = "pairs:" + r.pairs.map(p => p.join(":")).join(",");
     else if (r.fixed_items) itemsKey = "fixed:" + r.fixed_items.join(",") + "|free:" + (r.free_pool || []).join(",");
