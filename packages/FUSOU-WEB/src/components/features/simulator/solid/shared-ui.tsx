@@ -815,13 +815,31 @@ export function DetailTabbedShell<T extends string>(props: {
     const el = shellEl;
     if (!el || typeof window === "undefined") return;
 
+    const parseCssLength = (raw: string, rootFont: number, fallback: number): number => {
+      const trimmed = raw.trim();
+      if (!trimmed) return fallback;
+      if (trimmed.endsWith("rem")) return parseFloat(trimmed) * rootFont;
+      const px = parseFloat(trimmed);
+      return Number.isFinite(px) ? px : fallback;
+    };
+
     const getTargetTopPx = (): number => {
       const rootStyle = getComputedStyle(document.documentElement);
-      const raw = rootStyle.getPropertyValue("--fusou-nav-offset").trim();
       const rootFont = parseFloat(rootStyle.fontSize) || 16;
-      if (raw.endsWith("rem")) return parseFloat(raw) * rootFont;
-      const px = parseFloat(raw);
-      return Number.isFinite(px) ? px : 5 * rootFont;
+      const navOffset = parseCssLength(
+        rootStyle.getPropertyValue("--fusou-nav-offset"),
+        rootFont,
+        5 * rootFont,
+      );
+      if (window.matchMedia("(min-width: 1280px)").matches) {
+        return navOffset;
+      }
+      const mobilePickerOffset = parseCssLength(
+        getComputedStyle(el).getPropertyValue("--fusou-mobile-picker-offset"),
+        rootFont,
+        0,
+      );
+      return navOffset + mobilePickerOffset;
     };
 
     const findActiveScrollEl = (): HTMLElement | null => {
@@ -838,7 +856,6 @@ export function DetailTabbedShell<T extends string>(props: {
     const onWheel = (e: WheelEvent) => {
       if (props.expanded || e.ctrlKey) return;
       if (Math.abs(e.deltaY) < Math.abs(e.deltaX) || e.deltaY === 0) return;
-      if (!window.matchMedia("(min-width: 1280px)").matches) return;
 
       const dy =
         e.deltaMode === 1
@@ -949,7 +966,7 @@ export function DetailTabbedShell<T extends string>(props: {
       class={`rounded-xl border border-base-300/70 bg-base-100 flex flex-col overflow-hidden ${
         props.expanded
           ? ""
-          : "h-[calc(100dvh-var(--fusou-nav-offset,5rem)-3.5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)] xl:sticky xl:top-[var(--fusou-nav-offset,5rem)]"
+          : "sticky top-[calc(var(--fusou-nav-offset,5rem)+var(--fusou-mobile-picker-offset,0px))] h-[calc(100dvh-var(--fusou-nav-offset,5rem)-var(--fusou-mobile-picker-offset,0px)-0.75rem)] xl:top-[var(--fusou-nav-offset,5rem)] xl:h-[calc(100vh-var(--fusou-nav-offset,5rem)-0.75rem)]"
       }`}
     >
       <DetailTabBar

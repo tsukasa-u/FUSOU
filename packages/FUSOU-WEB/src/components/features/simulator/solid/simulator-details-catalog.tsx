@@ -947,6 +947,12 @@ function SimulatorDetailsCatalog(): JSX.Element {
         )}
       />
 
+      <div
+        style={{
+          "--fusou-mobile-picker-offset":
+            mobilePickerDisplayMode() === "sticky" ? "2.5rem" : "0px",
+        }}
+      >
       <Show when={tab() === "ship"}>
         <ShipCatalogPicker
           idPrefix="ship"
@@ -1058,7 +1064,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
             <div
               class={
                 mobilePickerDisplayMode() === "sticky"
-                  ? "sticky top-20 z-30 xl:hidden"
+                  ? "sticky top-[var(--fusou-nav-offset,5rem)] z-30 xl:hidden"
                   : "fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)]"
               }
             >
@@ -1116,6 +1122,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </div>
         </section>
       </Show>
+      </div>
     </div>
   );
 }
