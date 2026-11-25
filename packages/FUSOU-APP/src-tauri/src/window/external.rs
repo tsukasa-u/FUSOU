@@ -42,7 +42,7 @@ static DEFAULT_GAME_URL: &str = "http://www.dmm.com/netgame/social/-/gadgets/=/a
 static GAME_URL: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
 
 /// Authoritative runtime volume state `(volume: 0.0..=1.0, muted: bool)` shared between
-/// the chrome/app titlebar and the external game webview across attach, hide/show, and reload.
+/// the combined chrome titlebar and the external game webview across attach, hide/show, and reload.
 static EXTERNAL_VOLUME_STATE: LazyLock<Mutex<(f64, bool)>> =
     LazyLock::new(|| Mutex::new((1.0, false)));
 
@@ -1850,16 +1850,6 @@ pub fn external_window_shortcut(
                 });
                 set_linux_app_audio_volume(vol, muted);
             }
-
-            let app_handle = webview.app_handle();
-            use tauri::Emitter;
-            let _ = app_handle.emit(
-                "fusou-volume-changed",
-                serde_json::json!({
-                    "volume": vol,
-                    "muted": muted
-                }),
-            );
         }
         return Ok(());
     }

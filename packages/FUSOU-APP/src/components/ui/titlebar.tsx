@@ -26,21 +26,19 @@ export function CustomTitlebar(props: Props) {
   const windowLayout = useWindowLayout();
   const isCombinedChrome = () => props.variant === "combined-chrome";
 
-  // Volume state
+  // Volume state (combined-chrome only)
   const [volume, setVolume] = createSignal<number>(100);
   const [isMuted, setIsMuted] = createSignal<boolean>(false);
-  const [isVolumeMenuOpen, setIsVolumeMenuOpen] = createSignal<boolean>(false);
   let lastNonZeroVolume = 100;
 
   // Status feedback
   const [isCapturing, setIsCapturing] = createSignal<boolean>(false);
   const [isReloading, setIsReloading] = createSignal<boolean>(false);
 
-  let volumeDropdownRef: HTMLDivElement | undefined;
   let volumeDebounceTimer: number | null = null;
   let unlistenScreenshotStatus: UnlistenFn | undefined;
 
-  // Sync volume with external webview & persist
+  // Push volume changes to the docked external game webview & persist
   const updateVolume = (newVol: number, newMuted: boolean) => {
     const clampedVol = Math.max(0, Math.min(100, Math.round(newVol)));
     if (clampedVol > 0) {
@@ -81,9 +79,7 @@ export function CustomTitlebar(props: Props) {
 
   // Actions
   const handleScreenshot = async () => {
-    if (isCapturing()) return;
-    // Always dismiss volume popup/inline controls before capturing screenshot
-    setIsVolumeMenuOpen(false);
+    if (!isCombinedChrome() || isCapturing()) return;
     setIsCapturing(true);
     if (isTauri()) {
       try {
@@ -115,8 +111,7 @@ export function CustomTitlebar(props: Props) {
     if (isReloading()) return;
     setIsReloading(true);
 
-    if (e.shiftKey) {
-      // Shift + Click: Reload application UI
+    if (!isCombinedChrome() || e.shiftKey) {
       window.location.reload();
       return;
     }
@@ -131,17 +126,6 @@ export function CustomTitlebar(props: Props) {
       }
     } else {
       setTimeout(() => setIsReloading(false), 500);
-    }
-  };
-
-  // Close dropdown on outside click
-  const handleDocumentClick = (e: MouseEvent) => {
-    if (
-      isVolumeMenuOpen() &&
-      volumeDropdownRef &&
-      !volumeDropdownRef.contains(e.target as Node)
-    ) {
-      setIsVolumeMenuOpen(false);
     }
   };
 
@@ -168,11 +152,12 @@ export function CustomTitlebar(props: Props) {
   };
 
   onMount(() => {
+    if (!isCombinedChrome()) {
+      return;
+    }
+
     if (isTauri()) {
       listen<ScreenshotStatus>("fusou-screenshot-status", (event) => {
-        if (event.payload === "started") {
-          setIsVolumeMenuOpen(false);
-        }
         setIsCapturing(event.payload === "started");
       })
         .then((fn) => {
@@ -183,7 +168,7 @@ export function CustomTitlebar(props: Props) {
         });
     }
 
-    // Restore saved volume
+    // Restore saved volume for combined mode
     const savedVol = localStorage.getItem("fusou-external-volume");
     const savedMuted = localStorage.getItem("fusou-external-muted");
     const initVol =
@@ -203,34 +188,11 @@ export function CustomTitlebar(props: Props) {
       }).catch(() => {});
     }
 
-    // Listen for volume changes originating from the external window
-    let unlisten: UnlistenFn | undefined;
-    if (isTauri()) {
-      listen<{ volume: number; muted: boolean }>(
-        "fusou-volume-changed",
-        (event) => {
-          const newVol = Math.round(event.payload.volume * 100);
-          const newMuted = event.payload.muted;
-          setVolume(newVol);
-          setIsMuted(newMuted);
-          localStorage.setItem("fusou-external-volume", newVol.toString());
-          localStorage.setItem(
-            "fusou-external-muted",
-            newMuted ? "true" : "false",
-          );
-        },
-      )
-        .then((fn) => {
-          unlisten = fn;
-        })
-        .catch(() => {});
-    }
-
-    document.addEventListener("mousedown", handleDocumentClick);
     onCleanup(() => {
       if (unlistenScreenshotStatus) unlistenScreenshotStatus();
-      if (unlisten) unlisten();
-      document.removeEventListener("mousedown", handleDocumentClick);
+      if (volumeDebounceTimer !== null) {
+        clearTimeout(volumeDebounceTimer);
+      }
     });
   });
 
@@ -292,73 +254,80 @@ export function CustomTitlebar(props: Props) {
         class="flex items-center gap-1"
         onDblClick={(e) => e.stopPropagation()}
       >
-        {/* Screenshot Button */}
-        <button
-          type="button"
-          onClick={handleScreenshot}
-          disabled={isCapturing()}
-          aria-busy={isCapturing()}
-          aria-label={
-            isCapturing() ? "Capturing screenshot" : "Capture screenshot"
-          }
-          class={`fusou-tool-btn ${
-            isCapturing() ? "fusou-active scale-95" : ""
-          }`}
-          title={
-            isCapturing()
-              ? "Capturing screenshot..."
-              : "Capture Screenshot (External Window)"
-          }
-        >
-          <Show
-            when={isCapturing()}
-            fallback={
+        {/* Screenshot Button (combined mode only: captures docked game view) */}
+        <Show when={isCombinedChrome()}>
+          <button
+            type="button"
+            onClick={handleScreenshot}
+            disabled={isCapturing()}
+            aria-busy={isCapturing()}
+            aria-label={
+              isCapturing() ? "Capturing screenshot" : "Capture screenshot"
+            }
+            class={`fusou-tool-btn ${
+              isCapturing() ? "fusou-active scale-95" : ""
+            }`}
+            title={
+              isCapturing()
+                ? "Capturing screenshot..."
+                : "Capture Screenshot (External Window)"
+            }
+          >
+            <Show
+              when={isCapturing()}
+              fallback={
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                  />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              }
+            >
               <svg
-                class="w-3.5 h-3.5"
+                class="w-3.5 h-3.5 animate-spin"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 stroke-width="2"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                />
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                />
+                <circle cx="12" cy="12" r="9" stroke-opacity="0.25" />
+                <path stroke-linecap="round" d="M21 12a9 9 0 00-9-9" />
               </svg>
-            }
-          >
-            <svg
-              class="w-3.5 h-3.5 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle cx="12" cy="12" r="9" stroke-opacity="0.25" />
-              <path stroke-linecap="round" d="M21 12a9 9 0 00-9-9" />
-            </svg>
+            </Show>
+          </button>
+          <Show when={isCapturing()}>
+            <span class="text-[10px] opacity-80" aria-live="polite">
+              Capturing...
+            </span>
           </Show>
-        </button>
-        <Show when={isCapturing()}>
-          <span class="text-[10px] opacity-80" aria-live="polite">
-            Capturing...
-          </span>
         </Show>
 
-        {/* Reload Button */}
+        {/* Reload Button (standalone reloads app; combined reloads game, Shift+Click reloads chrome) */}
         <button
           type="button"
           onClick={handleReload}
           class={`fusou-tool-btn ${
             isReloading() ? "fusou-active rotate-180" : ""
           }`}
-          title="Reload External Window (Shift+Click: Reload App)"
+          aria-label={isCombinedChrome() ? "Reload external window" : "Reload app"}
+          title={
+            isCombinedChrome()
+              ? "Reload External Window (Shift+Click: Reload App)"
+              : "Reload App"
+          }
         >
           <svg
             class="w-3.5 h-3.5"
@@ -375,140 +344,8 @@ export function CustomTitlebar(props: Props) {
           </svg>
         </button>
 
-        {/* Volume Control: always-visible compact bar in combined-chrome, dropdown popover in standalone */}
-        <Show
-          when={isCombinedChrome()}
-          fallback={
-            <div class="relative flex items-center gap-1" ref={volumeDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setIsVolumeMenuOpen(!isVolumeMenuOpen())}
-                class={`fusou-tool-btn ${isVolumeMenuOpen() ? "fusou-active" : ""}`}
-                title="Volume Control"
-              >
-                <Show
-                  when={!isMuted() && volume() > 0}
-                  fallback={
-                    <svg
-                      class="w-3.5 h-3.5 text-error"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                      />
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
-                      />
-                    </svg>
-                  }
-                >
-                  <Show
-                    when={volume() > 50}
-                    fallback={
-                      <svg
-                        class="w-3.5 h-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M15.536 8.464a5 5 0 010 7.072m-4.243-8.486L7.586 11H6a1 1 0 00-1 1v0a1 1 0 001 1h1.586l3.707 3.95c.63.67 1.707.225 1.707-.707V7.757c0-.932-1.077-1.378-1.707-.707z"
-                        />
-                      </svg>
-                    }
-                  >
-                    <svg
-                      class="w-3.5 h-3.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                      />
-                    </svg>
-                  </Show>
-                </Show>
-                <span class="text-[10px] w-6 text-right tabular-nums">
-                  {isMuted() ? "0%" : `${volume()}%`}
-                </span>
-              </button>
-
-              {/* Standalone dropdown popover */}
-              <Show when={isVolumeMenuOpen()}>
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "32px",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    width: "176px",
-                    "background-color": "#1d1c1c",
-                    color: "#f1f5f9",
-                    border: "1px solid #27272a",
-                    "border-radius": "8px",
-                    padding: "10px",
-                    "box-shadow":
-                      "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
-                    display: "flex",
-                    "flex-direction": "column",
-                    gap: "8px",
-                    "z-index": "10002",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      "align-items": "center",
-                      "justify-content": "space-between",
-                      "font-size": "12px",
-                      "font-weight": "600",
-                    }}
-                  >
-                    <span>Sound Volume</span>
-                    <span
-                      style={{
-                        "font-size": "10px",
-                        opacity: "0.7",
-                        "font-variant-numeric": "tabular-nums",
-                      }}
-                    >
-                      {isMuted() ? "Muted" : `${volume()}%`}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume()}
-                    onInput={handleVolumeChange}
-                    class="fusou-custom-range"
-                  />
-                  <button
-                    type="button"
-                    onClick={toggleMute}
-                    class={`fusou-custom-mute-btn ${isMuted() ? "is-muted" : ""}`}
-                  >
-                    {isMuted() ? "Unmute" : "Mute Audio"}
-                  </button>
-                </div>
-              </Show>
-            </div>
-          }
-        >
+        {/* Inline Volume Control (combined mode only; separate mode controls volume in external window) */}
+        <Show when={isCombinedChrome()}>
           <div
             class="fusou-inline-volume"
             data-tauri-drag-region="false"
