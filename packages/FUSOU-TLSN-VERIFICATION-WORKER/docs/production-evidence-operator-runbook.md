@@ -399,6 +399,38 @@ report leaves these separate checks `not_checked`. This diagnostic does not
 gate the existing ordinary-proxy fallback, so operators must withhold gameplay
 themselves when a TLSN capture is required.
 
+### Observing the APP after the origin replies
+
+For a disposable Linux APP test, use a task-only HOME and a dummy HTTPS
+origin. Before sending the request, check the resolved TLSN settings
+`proxy.tlsn.enabled`, `proxy.tlsn.candidate_capture_enabled`, and an absolute,
+writable, task-owned `proxy.tlsn.artifact_output_path`. The optional
+`proxy.capture_enabled` and `proxy.capture_output_path` settings save raw
+client-wire data. They have no effect on selection of the TLSN forwarder.
+
+Read **TLSN Capture Readiness** in the running APP. Record the verified
+Runtime Config, Worker health, forwarder, candidate saving, and session-grant
+stages. Before the single test request, compare the accepted Manifest
+digest and check the Worker reference age and grant expiry. Preserve the
+existing network isolation and leave **Open KanColle** off.
+
+HTTP 200 and the journal's `response_received` describe the origin exchange.
+The APP starts the proof pipeline in the background after returning that
+response. Keep the APP running and use **Read current readiness** again.
+**Latest capture state** follows the most recent attempt in that APP
+process. The APP console logs the final state for a completed post-response
+task with its proxy connection ID. The value can be `result_ready` or a
+specific stop such as `notary_failed`, `presentation_failed`,
+`deadline_exceeded`, or `cleanup_unconfirmed`. The overall readiness status
+still describes whether a new capture can start.
+
+Record the last observed state with the origin send count, Presentation
+digest, and Worker submit/status observations. For a successful Result,
+compare `result-exact.bin` with the exact status response body. If the final
+state was never observed, retain that uncertainty. Do not replay a capture
+or stop the APP immediately after HTTP 200. Keep logs and artifacts private
+and record only necessary diagnostics and digests.
+
 ### Complete APP path and the first authorized capture
 
 | Boundary in order | Implemented path | Evidence still needed / owner |
@@ -1301,6 +1333,50 @@ NODE
 ```
 
 Preserve the original Session/receipt, device nonce/authentication, possession proof, binding and replay digest. Inspect metadata provenance/time/request profile without editing it. The supported profile is `POST /kcsapi/api_get_member/require_info HTTP/1.1`; metadata is a cross-check, not authority. No fresh Session may be issued to rebind this Presentation.
+
+### Production Queue execution receipt
+
+For the explicit Production Queue mode, the Worker uses
+`TLSN_PRODUCTION_QUEUE_EXECUTION_KEY_ID`,
+`TLSN_PRODUCTION_QUEUE_EXECUTION_PUBLIC_KEY_SPKI` and
+`TLSN_PRODUCTION_QUEUE_EXECUTION_PRIVATE_KEY_PKCS8`. Use a dedicated
+Ed25519 signing key from the authorized deployment. The Worker requires
+Cloudflare version metadata and separately checks the Result, Session
+and Binding signing identities for key reuse. Health exposes only whether
+the execution-receipt capability is configured. Queue processing signs the
+final bytes and publishes the receipt only through the committed Result
+path. The existing default executor selection and Canary receipt contract
+continue to apply.
+
+Obtain the Queue execution trust policy from the responsible security or
+release operator through an independent channel. Its JSON fields are
+`schema_version: 1`,
+`scope: "tlsn-production-queue-verifier-execution-trust"`,
+`execution_mode: "queue"`,
+`deployment_id`, `worker_name`, `runtime_version_id`, `source_sha`,
+`verifier_execution_key_id`, `verifier_public_key_spki`, `not_before`
+and `not_after`. The approval and validity window must cover the
+deployment and issue time. Preserve the supplied policy independently
+from the candidate folder. Treat candidate, Worker health and archive
+metadata as observations.
+
+Run the receipt-only verification to check the stored bytes:
+
+```sh
+verify_fusou_tlsn_evidence \
+  --verify-queue-execution-receipt "$candidate_dir" \
+  --queue-execution-trust "$approved_queue_execution_policy"
+```
+
+`SIGNATURE_AND_EXACT_BYTES_VERIFIED` covers the detached receipt, matched
+context and exact Presentation and outer Result bytes. For the same
+candidate, supply `--queue-execution-trust "$approved_queue_execution_policy"`
+with the existing `--finalize-candidate` command and the nineteen-role
+materials. The finalizer verifies the signature before publishing a
+Bundle. The receipt is an assertion by the approved source/key pair.
+Measured process identity, provider attestation and remote Bundle delivery
+require their own evidence. Real Production key registration and this
+policy's approval remain open.
 
 ## 5. Capture the evidence package
 

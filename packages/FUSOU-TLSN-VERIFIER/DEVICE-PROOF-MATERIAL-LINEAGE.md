@@ -568,6 +568,7 @@ local synthetic checks do not imply Hosted CI success or Production readiness.
 | Session receipt | Worker Session Authority signing API + independent registry | User/device/auth nonce/session/binding/challenge/create/expiry; domain `FUSOU-ATTESTATION-SESSION-V1\0` |
 | Consume receipt | Worker Binding Authority signing API + independent registry | User/device/session/nonce/binding/exact Presentation digest/use time; domain `FUSOU-ATTESTATION-CONSUME-V1\0` |
 | Canary execution receipt | Injected Canary signer capability; independent approval still required | Exact Presentation and **outer** Result digests, job/attempt, deployment/version, key identity and time; Canary-only domain/scope |
+| Production Queue execution receipt | Dedicated Queue signer with an independent deployment/key pin | Exact Presentation and outer Result digests, signed job/attempt, profile, role/mode, version/source and issue time. The local code and contract are verified. Approval and deployed execution remain pending. |
 | APP local status / file receipt | APP local writer | Local observation/IO, not independent authority or remote retention |
 | Full-Bundle delivery/retention receipt | Approved storage/delivery authority, not implemented | Must authenticate entire Bundle identity, exact objects/versions/hash/length, readback/retention/time/policy and receipt signer/replay context |
 
@@ -578,16 +579,15 @@ durable replay prevention. Target/profile/subject are not direct receipt fields;
 any indirect claim depends on separately verified Result binding. This is not
 measured execution, process/image attestation or AD-5 authority.
 
-No approved Production signer/registry, Production receipt schema, independent
-offline receipt verifier or complete operation/profile/replay contract was
-identified. Do not relabel Canary receipts or infer them from local status.
-Neither the bare TLSN Presentation verifier nor the existing nineteen-role
-schema has an execution-receipt input. Formal Production execution assurance
-is a separate approval/implementation obligation. Nevertheless, **current
-candidate writer/finalizer require captured receipt bytes and retain that
-requirement by the user's decision**. This implementation dependency still
-blocks the present B finalization route; it is not misrepresented as TLSN's
-intrinsic cryptographic requirement.
+Production Queue now has a dedicated receipt schema and an independent
+offline verifier. Its finalization entry requires the Queue execution policy
+from an independent operator source, including the approved deployment,
+runtime version, source, signer and validity window. The signer and policy
+remain unregistered in Production. The nineteen-role Bundle schema and its
+ordinary verifier retain their existing inputs. Candidate finalization
+checks the captured sidecars and requires the independent policy for
+Queue receipt signature verification. Local approval, actual execution
+authority and whole-Bundle delivery each require their respective evidence.
 
 ## 6. Local publication, remote delivery and lifecycle limits
 

@@ -1,5 +1,1195 @@
 # First real APP TLSN testplay: current readiness boundary
 
+## Native Linux APP finalizes and independently verifies a local 19-role Bundle — 2026-11-26
+
+**LOCAL_APP_19_ROLE_BUNDLE_VERIFIED.** A fresh capture from the candidate
+worktree at `0dd7a8e92d3ad90b7fc6a9865741c9273266534c` reached both
+`finalize_candidate` and the ordinary offline `verify_bundle`. Each returned
+`VERIFIED`. The manifest carried all 19 required roles,
+`verification_status=VERIFIED`, and `production_evidence_status=BLOCKED`.
+The Queue execution receipt separately returned
+`SIGNATURE_AND_EXACT_BYTES_VERIFIED` under the independently configured test
+execution trust. The exported manifest, material and negative controls were
+temporary files from this run.
+
+**Health compatibility.** Schema-3 multi-origin Production health now binds
+its Inventory and Target Approval digests at both the top level and
+`security_identity` to the already verified signed Result and independent
+inputs. The selected origin and profile are still verified from the
+Presentation, Result and independent pins. Health remains an unsigned
+observation. Single-origin health retains the origin and profile checks.
+Production role and binding mode must agree at both deployment levels. The
+synthetic regressions verified exact output health bytes and rejected a
+missing digest at either level, matching-but-wrong digest copies, conflicting
+roles, an invalid trust report, and mixed single-origin fields.
+
+**Environment and capture.** Built the native Linux APP, operational-feature
+Notary and offline Verifier from an isolated source snapshot using Rust 1.98.1
+and locked offline dependencies. The Docker network was internal with isolated
+gateway mode and no published container ports. The stack used a fresh local
+Supabase Auth user and PostgreSQL device row, all 25 original migrations,
+the dedicated prebuilt WEB bundle, Runtime Config/Freshness, and a
+Production-role Verification Worker under local Miniflare Queue, DO and R2.
+The disposable Worker selected the local CA for Complete origin checks using
+the existing WASM verification exports, scoped to `capture.fusou.internal`.
+The APP validated Runtime Config, five artifacts and Freshness, obtained a
+Session (HTTP 201) and reported `Overall: ready`. The game launch switch was
+off. One request went to the dummy HTTPS origin. The 170-byte request carried
+no correlation header or Cookie. The 417-byte HTTP 200 response and request
+digests matched the Result's authenticated transcript. The APP submitted
+once (HTTP 202), polled the same job (HTTP 202, then 200), and retained the
+Result and execution receipt. One Queue delivery was observed. The DO record
+was `consumed`. R2 readback digests matched the HTTP/APP Result and
+submitted/saved Presentation.
+
+**Evidence inputs and checks.** One read-only WEB replay POST returned a
+539-byte HTTP 409 observation for the same proof. The stored-proof response
+matched the single existing DB row, which was byte-for-byte unchanged before
+and after the replay query. The six independent local roles came from Auth,
+the active PostgreSQL device, the Notary registry checked against its public
+export, the configured Session and Binding Authority registries, and the
+local origin trust anchor. The offline finalizer generated the semantic
+report. The declared lengths and digests matched all 19 role files, and
+health, captured metadata, both device proofs, replay observation, Presentation
+and inner Result matched the exact input bytes. Removing the device role,
+changing the receipt signature, changing the exact outer Result, or
+substituting the health Inventory digests rejected finalization without
+creating an output directory. For byte mutations, updating local descriptors
+did not avoid rejection.
+
+| Material | Bytes | SHA-256 (base64url) |
+|---|---:|---|
+| Complete Presentation | 4,240 | `8211dxoEuat1uVLuj1oo5mHbH5-KZO9ZUWEdhYNzUUw` |
+| Exact outer Result | 3,179 | `bYy-5W1WTqFzWtlZ8SY7j9R4flYVrvT6cos9ZUDvBCI` |
+| Queue execution receipt | 987 | `Kw_xOJgwEtn2A1raqUsVYB0kLCUxIUWItWtXxZ6fS8w` |
+| Worker health | 3,548 | `33UaiAa-_DtkLmbcwdHK1EYn1yGjDn6HqobtAKELI1E` |
+| Finalized Bundle manifest | 25,088 | `OWJ4yy0u7WtEVk5Cwmn9zz3imeBffeo6PhOAKa2vVxU` |
+
+The locked offline Verifier library (159 tests), CLI (6 tests) and WASM
+target check passed. Unrelated pre-existing format differences remain
+outside the edited test and verifier sections. SIGINT exited the APP with
+code 0 and restored the isolated PAC to `none` with an empty URL.
+Task-owned containers, DB volume, network, bridge listeners and temporary
+inputs, keys, builds and evidence were removed.
+
+Hosted CI, live deployment, production authorities, actual gameplay,
+and formal Production retention/delivery were outside this run. No
+connections were made to an actual game server or to the public FUSOU WEB.
+Production acceptance and Stage A/B/C remain `BLOCKED`.
+
+## Unsigned observation timestamp compatibility and multi-origin health diagnosis — 2026-11-26
+
+**LOCAL_TEST_VERIFIED** on the candidate worktree at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`. The finalizer reproduced the
+PostgreSQL `stored_proof.consumed_at` rejection first and, after that
+field was accepted, the APP `proxy_provenance.created_at` rejection.
+These two unsigned fields now use the existing RFC 3339 validator.
+The APP can retain nanoseconds and a numeric UTC offset. The replay
+response can retain PostgreSQL's microseconds and numeric UTC offset.
+The comparison of replay body bytes, their length and digests, and the
+stored-proof context remains in force. The published replay and metadata
+artifacts matched their inputs byte-for-byte.
+
+The 19-role synthetic Bundle finalized and passed ordinary independent
+verification. An impossible replay date, an invalid APP offset and a
+Session Authority receipt signed with the fixture key using the unsigned
+observation format were each rejected without publication. Signed receipt
+timestamps and validity-window calculations retain the existing parser.
+Rust 1.98.1 locked offline regressions passed (158 library and 6 CLI tests),
+as did the WASM target library check and 11 Node replay collector tests.
+
+**Remaining blocker reproduced.** A separate disposable source snapshot
+used a synthetic Complete candidate with a schema-3 production/queue
+health observation shaped like the current Worker. The Inventory and
+Target Approval digests matched the independent inputs and the signed
+Result. The observation omitted the single-origin fields, as the Worker
+does in this deployment role. The actual finalizer rejected it at
+`result_identity/health`, because it expects `server_identity` and
+`profile_sha256` in `security_identity`. It created no output directory.
+This diagnostic changed the fixture only. The production health test and
+the single-origin test still need to exercise their respective inputs
+through the same verifier after a contract change. The next comparison
+can bind multi-origin health to the independently checked Inventory and
+Target Approval while deriving the selected origin and profile from the
+Presentation and Result. The health observation is unsigned.
+
+No fresh native APP capture, live service calls or Hosted CI run were
+performed. Stage A/B/C and Production acceptance remain `BLOCKED`.
+
+## APP device-proof signature encoding compatibility — 2026-11-26
+
+**LOCAL_TEST_VERIFIED** on the candidate worktree at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`. The offline Verifier now decodes the
+APP's canonical padded standard Base64 for the authentication and possession
+proof signatures. Both cases require exactly 64 decoded bytes and Ed25519
+verification with the same independently pinned device key and message.
+Canonical unpadded Base64url remains valid for earlier evidence. The proof
+artifacts and their exact-byte checks are preserved. The shared Base64url
+decoder and authority, Result and Queue receipt signature formats are unchanged.
+
+The focused regression accepted both canonical encodings and rejected a changed
+signature, message or public key, wrong signature length and noncanonical
+representations. The Queue finalization regression ran against the synthetic
+19-role Bundle with both device proofs in APP format. It compared the two
+published proof files byte-for-byte, and the normal offline verifier accepted
+the published Bundle. Rust 1.98.1 locked offline tests passed (157 library
+tests and 6 CLI tests). The locked offline `wasm32-unknown-unknown` library
+check passed. The candidate workflow already runs the Rust suites. Hosted
+CI for this change and a fresh integrated native APP capture are `NOT_CHECKED`.
+
+The next contract check is the exact timestamp representation in unsigned
+APP provenance and PostgreSQL replay observations. An isolated check against
+the two existing parser functions confirmed that the RFC 3339 validator accepts
+both previously recorded observation formats and rejects impossible dates,
+invalid offsets and missing time zones. The signed authority parser still
+rejects those observation forms and accepts the canonical millisecond UTC
+format. A separate check is required for the
+multi-origin Worker health binding to the independently approved Inventory
+and Target Approval. The synthetic Bundle result does not establish that
+the real APP candidate from the previous run can finalize. Stage A/B/C and
+Production acceptance remain `BLOCKED`.
+
+## Native APP Queue capture and replay observation verified; 19-role finalization rejected — 2026-11-25
+
+**Scope.** Disposable Linux test at source baseline
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, including the candidate worktree
+changes present at build time. Built the native APP and the operational-feature
+Notary with Rust 1.98.1 and the locked offline dependencies in an isolated
+source snapshot. The local Miniflare Verification Worker used the Production
+Queue role and actual WASM verification with the disposable origin CA for
+`capture.fusou.internal`. The isolated WEB used the available prebuilt dedicated
+bundle. These are local keys, registries, trust inputs and services. Open KanColle
+was off. No actual game server, public FUSOU service or deployment was used.
+
+**Capture.** An initial start exposed two harness issues. Candidate saving
+needs `proxy.tlsn.candidate_capture_enabled`, and the D-Bus session needs the
+same XDG configuration environment as the APP. After correcting those values,
+the APP reported `Overall: ready`. An initial connection reached the Runtime
+Config ingress address and failed certificate-name validation before an HTTP
+request reached the origin. The dummy HTTPS origin then ran at a separate
+address. A new Session and a distinct locally generated POST produced the only
+HTTP exchange, with a 170-byte request and a 417-byte HTTP 200 response. The
+transcript digests matched the recorded origin bytes. The request carried no
+added correlation header or Cookie. The APP made one verification submission
+(HTTP 202) and polled the same job (HTTP 202, then HTTP 200). There was one Queue
+delivery, the Binding Authority state was `consumed`, and the R2 Result readback
+digest matched the final HTTP body and the APP's saved bytes.
+
+| Material | Bytes | SHA-256 (base64url) |
+|---|---:|---|
+| APP Presentation and submitted Presentation | 4,242 | `VudBZ254JU8xrsbAFhYNLaZazRMfzluF9um9GjwVozM` |
+| Final HTTP body and APP `result-exact.bin` | 3,179 | `YzHTnJSQcnvBjfHr9ZttSM53PPPBxgYqGouESxwjfVk` |
+| Queue execution receipt | 987 | `Ogc_6fBKf0pQWbDfltNkI6m2fEWTU_sT3h2vSsvd30w` |
+
+**Replay and independent inputs.** The real candidate reproduced a replay
+collector bug before HTTP. Complete and Sparse Result JSON uses `device_id`,
+while the collector and its fixture incorrectly used Rust's internal
+`canonical_device_id`. The corrected [collector](scripts/collect-replay-observation.mjs)
+performed one read-only POST. The WEB returned HTTP 409 with a 539-byte body
+whose stored-proof fields matched the same single DB row. The read-only DB
+snapshot was byte-for-byte unchanged. This is an unsigned observation.
+The six local independent inputs were the authenticated user from actual
+Supabase Auth, the non-revoked device read from PostgreSQL, the configured Notary
+registry checked against Notary's public export, the separately configured
+Session and Binding Authority registries, and the disposable origin trust anchor.
+
+**Finalization.** The standalone CLI verified the receipt against independently
+prepared Queue execution trust with `SIGNATURE_AND_EXACT_BYTES_VERIFIED`. The
+unchanged finalizer rejected the Complete candidate at `device_authentication`
+with `Ed25519 signature: invalid strict base64url`. The exact APP authentication
+and possession proofs each carry a canonical padded standard Base64 signature.
+An independent Ed25519 check using the DB public key accepted both original
+signatures and rejected both one-byte mutations. The current finalizer requires
+the exact captured authentication request. Changing the signature representation
+in the candidate or supplying a modified request as material would violate that
+requirement.
+
+Two further contract differences were identified by comparing the unchanged
+inputs with the code. They have not been reached in the full finalization run.
+PostgreSQL's unsigned stored-proof timestamp carries microseconds and a numeric
+UTC offset, and APP provenance carries nanoseconds with a numeric UTC offset.
+Both are checked by a millisecond-only parser. The exact multi-origin Worker
+health observation carries matching Inventory and Target Approval digests.
+The health verifier still expects the single-origin `server_identity` and
+`profile_sha256` fields. Any future contract fix should keep signed timestamp
+formats, exact-byte binding, the single-origin checks where applicable, and
+independent verification of the selected origin and profile.
+
+No 19-role Bundle was published and normal verification of a published Bundle
+could not run. The unchanged CLI rejected all three controls with no output
+directory: missing `device_identity`, a changed receipt signature with updated
+candidate descriptors, and a whitespace change to the exact outer Result with
+updated descriptors. The replay collector suite passed 11/11, including rejection
+of the internal Rust field without any HTTP request. The Verifier library passed
+156/156 and its CLI passed 6/6. The candidate workflow already selects the
+replay collector suite. Hosted CI for this worktree remains `NOT_CHECKED`.
+
+The APP exited successfully on SIGINT and the isolated PAC returned to mode
+`none` with an empty URL. The test containers, internal network, DB volume,
+listeners and temporary inputs were removed. Stage A/B/C and Production
+acceptance remain `BLOCKED`.
+
+## Native APP receives a local Queue execution receipt and offline verification passes — 2026-11-25
+
+**LOCAL_APP_QUEUE_RECEIPT_VERIFIED:** From the candidate worktree at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the native Linux APP submitted one
+Complete Presentation after one HTTP 200 exchange with the disposable HTTPS
+origin `capture.fusou.internal`. Open KanColle was off. The origin captured a
+121-byte request and a 417-byte response. The transcript matched the origin's
+recorded bytes, with no added correlation header or Cookie.
+
+The isolated runtime used a fresh Supabase Auth user and registered device,
+production-role Verification Worker with the local Miniflare Queue and R2,
+the dedicated WEB server bundle, Runtime Config/Freshness and a same-host
+operational-feature Notary. The network was internal with isolated gateway
+mode and no published container ports. The disposable Worker bundle selected
+only the local CA for the two Complete origin certificate checks. The stock
+WASM trust path rejected the same Presentation with
+`certificate_path_invalid`. The APP had verified the runtime prerequisites
+and showed `Overall: ready` before sending. Both the Worker reference
+and the new Session had at least 120 seconds remaining.
+
+**Delivery and storage.** The first submission was HTTP 202, with one actual
+Queue delivery. The APP polled the same job twice, receiving HTTP 202 and
+HTTP 200 with `verified=true`. The authoritative record was `consumed`
+with an empty Queue backlog. The signed execution receipt matched the
+observed job `60c6e5f4-4267-4c74-8a0e-7fc8bee074ce` and the Durable Object's
+attempt `94da004c-e7c9-463b-8f87-5758cdef951e`. The Result and consume-receipt
+signatures and their Session, device, binding and transcript checks passed.
+The disposable DB contained exactly one matching possession-proof row for
+this Session and replay digest. An extra read-only status query to the same
+job returned the same exact Result and receipt header. No additional proof
+submission, Queue delivery, or origin exchange was observed.
+
+| Material | Bytes | SHA-256 (base64url) |
+|---|---:|---|
+| APP Presentation, submitted proof and R2 Presentation archive | 4,021 | `55zZZAqLc_blJECAGX3ebXMBUjQ0Hg9gvOTgvrVGkBk` |
+| Final status body, R2 Result archive and APP Result files | 3,114 | `hf3JLP7aXGZ7zJOJPIzuhJ7RyNN9eL2ASSfeMm4ZuUk` |
+| APP execution receipt decoded from the 1,316-byte HTTP header | 987 | `cLwd8oiGm8sL06z5V-99Pwf6uSDRTHOI_l840wcL4CM` |
+| Queue execution trust policy generated from test configuration before capture | | `S4TEMtJf-yJBJl3hH6ItnVwseexMoNHCPXKC5_F89e8` |
+
+**Independent verification.** The Node candidate identity verifier accepted
+`yu4RQ2JGM6GNHVMiRb3t7wFXjbAtlg0Q9hVpb07dCPc`. All 22 local descriptors
+matched the files they described. The candidate recorded
+`CAPTURED_PENDING_OFFLINE_VERIFICATION`, `CAPTURED` for the receipt and
+`UNAPPROVED` for approval. The Rust
+`verify_fusou_tlsn_evidence --verify-queue-execution-receipt` entry accepted
+the saved directory and the separate test trust policy with
+`SIGNATURE_AND_EXACT_BYTES_VERIFIED`. It rejected a mismatched Worker version
+pin, a changed receipt attempt ID, and a trailing byte added to the Result
+body. The two file changes were tested after rebuilding the candidate's
+affected descriptor and top-level digests. The changed attempt also had
+its saved header rebuilt.
+
+The APP displayed `Latest capture state: result_ready`. The separate
+next-capture readiness issue also reproduced. The same authentication
+nonce caused seven HTTP 409 `device_nonce_replayed` responses while the
+APP queued another Session. A second Session was eventually issued. No
+second capture was sent.
+
+The APP and normal-feature debug Notary were rebuilt with Rust 1.98.1,
+`--locked --offline`. APP SHA-256 was
+`83366e84e0c96f24aa9b16428b17b4a056ba124057fa74bf166fd69f9a8ff6ea` and
+Notary SHA-256 was
+`dbdc16b5eeb1a8251e66f56379e7412c1111f1920566495a1e0a490c18429f19`.
+The test reused the existing generated WEB testplay server bundle and
+existing verifier WASM. It did not redo their builds or WASM provenance.
+Node was 22.16.0 and the Runtime Config harness used Miniflare
+5.20261113.0-beta. On SIGINT, the APP exited with code 0 and the same D-Bus
+session read back PAC `mode=none` and an empty URL. The disposable services,
+DB volume, listeners and private work files were removed.
+
+This run established the receipt gate on the local APP path. It did not
+assemble the live capture's strict 19-role Evidence Bundle or observe
+remote delivery. Production issuer/policy approval, deployment, Hosted CI
+and real gameplay remain unverified. Stage A/B/C and Production acceptance
+remain `BLOCKED`. The next Evidence verification is the same isolated
+capture with the read-only replay observation and independently sourced
+materials, followed by strict finalization and ordinary Bundle verification.
+
+## Production Queue execution receipt source and local verification — 2026-11-25
+
+**SOURCE_IMPLEMENTED / LOCAL_TEST_VERIFIED:** The Production-role Queue
+consumer signs a detached execution receipt with a dedicated Ed25519 key.
+It binds the exact Presentation and outer Result body to the job, attempt,
+profile, signing time, deployment, Worker runtime version, source SHA and
+signer identity. The existing authority transaction stores those bytes with
+the Result and archive catalog. Authenticated status uses the committed
+receipt bytes in the existing header. Queue submission requires a working
+receipt signer before auth or proof handling. A missing signer on an
+in-flight job causes Queue retry. The consumer checks existing terminal
+Results through the normal authoritative readback.
+
+The status and capture paths were tested with local HTTP and synthetic
+keys. The Proxy saved the receipt header, decoded receipt and exact outer
+Result, and the independent Rust verifier checked the saved directory with
+a separately supplied trust pin. The Worker and Rust verified the same
+signature vector. The Queue receipt finalization regression finalized,
+published and verified a synthetic 19-role Bundle. The same test rejected
+an absent independent pin and a changed attempt ID even after refreshing
+the candidate's local digest inventory. Prior Canary and earlier Bundle
+contracts retain their established checks.
+
+A network-disabled Miniflare smoke used the real Worker entrypoint and
+local Queue binding. Health and an unauthenticated initial POST returned
+200 and 401 with the configured receipt key. Removing the private key
+returned 503 at health and 503 `queue_execution_receipt_unconfigured` on
+initial POST, before authentication. This smoke did not submit a job.
+The positive worker-to-Rust vector, Proxy archive test and synthetic full
+Bundle test exercised the receipt and persistence boundaries locally.
+The previous native APP and Queue run captured a Result before receipt
+issuance was implemented.
+
+Worker typecheck, three signer contract tests on Node 22.16.0, 13 Proxy
+Result-binding tests, and 156 Verifier library and six CLI tests passed.
+The receipt-only CLI also accepted a signed fixture and rejected the same
+candidate under a mismatched source pin.
+
+**OPEN:** The independent signer approval, public policy registration
+and revocation rules require operator records. The subsequent native
+APP and Queue receipt test is recorded above. Hosted CI on this worktree,
+deployed Production receipt
+issuance, accepted Evidence, and full-Bundle delivery remain unverified.
+Stage A/B/C and Production acceptance remain `BLOCKED`. The observed
+same-nonce wait before another capture remains open.
+
+The policy fields and command are in the
+[Evidence operator runbook](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md#production-queue-execution-receipt).
+
+## Native Linux APP through the local Queue consumer — 2026-11-25
+
+**LOCAL_TEST_VERIFIED:** The native APP sent one Complete Presentation.
+The actual Worker entrypoint queued it, the local Miniflare Queue delivered
+it once, and the consumer performed WASM verification, signed the Result,
+archived the Presentation and Result in R2, and committed the Binding
+Authority Durable Object to `consumed`. The APP verified the signed Result
+and wrote its exact bytes. This run covers local Queue delivery with test
+trust material.
+
+The branch was `tlsn-first-testplay-candidate` at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, using the existing worktree
+changes. The native APP and normal-feature Notary were built with Rust
+1.98.1 and `--locked --offline`. APP SHA-256 was
+`c0ec39e934dad9c5280e84bf3166221a6139a4b08364653c7b44063a66ec651e`.
+The debug Notary build used `operational-notary` without fault injection
+and its SHA-256 was
+`9520794e9e773dae5eac4bf52ffa922f7d2b8bfb6e259b0ea91a586b2d0f8f35`.
+Node was 22.16.0 and the Runtime Config harness used Miniflare
+5.20261113.0-beta. The Worker used the existing WASM artifact with SHA-256
+`Ed3uMoEPsadNDEEd-pLKziOmPDM-jz7h3QZe0tvKoWg` (base64url).
+WASM provenance was not regenerated in this run.
+
+The Docker network was internal with isolated gateway mode and no
+published container ports. The initializer's API/DB relays listened on
+host loopback. The local Supabase stack applied all 25 migrations through
+the existing historical-schema initializer. The APP ran in a disposable
+Xvfb/D-Bus desktop. The full WEB build failed during static-page
+prerendering after emitting the generated server bundle. The dedicated WEB
+was run from that bundle. Its unauthenticated proof POST returned 401 and
+the real authenticated device and possession proof handlers completed the
+capture flow. The prerender log recorded an unsuccessful Cloudflare
+metadata DNS lookup. This run does not verify a complete WEB build or all
+DNS activity. The runtime Wrangler process was started with
+`CLOUDFLARE_CF_FETCH_ENABLED=false`.
+
+**Trust boundary:** The Worker reported its Production role, Queue mode and
+`trust_contract_valid=true` for local test keys, inventory and approvals.
+Only the disposable bundle redirected the two Complete WASM certificate
+checks to the existing custom-root functions, pinned to the generated CA
+and `capture.fusou.internal`. This allowed a positive local roundtrip with
+the dummy origin. The default WASM trust path independently rejected the
+very same Presentation with `certificate_path_invalid`. No production
+source, deployment, trust store, or approvals were changed. The APP's
+Open KanColle option was off. No game or actual Game Server was used.
+
+| Boundary | Observation |
+|---|---|
+| APP preparation | `Overall: ready`, signed Manifest and five artifacts, Freshness, health and Session HTTP 201. The Manifest had over 120 seconds of Worker-reference validity at send time. |
+| Origin | One 121-byte POST to the dummy HTTPS service, one HTTP 200 with a 417-byte response. No correlation header or Cookie. The authenticated transcript matched the recorded bytes. |
+| Worker and Queue | `/verify/tlsn` POST once, HTTP 202. The APP polled the same job twice, HTTP 202 then HTTP 200 with `verified=true`. Actual Queue delivery was recorded once, with `attempts=1`, and backlog was zero after completion. |
+| Authority and APP Result | DO `consumed`. The Result and consume-receipt signatures and Session, device, binding, Presentation, and transcript comparisons passed. APP showed `Latest capture state: result_ready`. |
+| Candidate | Existing Node identity validation passed. All 20 artifact descriptors matched their actual lengths and digests, including `result-exact.bin`. Candidate remained `INCOMPLETE_MISSING_EXECUTION_RECEIPT` and `UNAPPROVED`. |
+
+The observed job was `a612337c-029e-421a-8f53-b93ca4bbc5d7`. R2 archive
+readback was checked both through its indexed key/digest and by direct
+byte comparison with the APP files. The transient input object is cleaned
+up after commit, so the Presentation comparison used its retained
+attempt archive.
+
+| Exact material | Bytes | SHA-256 (base64url) |
+|---|---:|---|
+| APP Presentation, submitted proof and R2 Presentation archive | 4,020 | `SyoxkKS0RGvppBMwwH6IQeFePYttS4XVF0z-Z0CYjTA` |
+| Final status HTTP body, R2 Result archive and both APP Result files | 3,114 | `gv9ZPoNPWXC-iRVXkxwTzhguwZN07Ng0w_OIVJvYouc` |
+
+**Next-capture readiness observed:** After the first Result was saved, the
+APP automatically attempted to prepare another Session. In the sampled
+window it received six HTTP 409 `device_nonce_replayed` responses while
+sending the first Session's authentication nonce. At the next
+300-second challenge bucket, the same device used a different nonce
+and automatically obtained a second Session (HTTP 201), about 86 seconds
+after the first Session. The DB had two authentication consumptions and
+one possession consumption for this device. No second capture was sent.
+Review how the APP schedules the next preparation and reports this wait
+before testing consecutive captures. Preserve the replay rejection.
+
+Worker typecheck and the focused execution-mode, Queue policy and
+Production Result contract tests passed 12/12. On SIGINT the APP exited
+with code 0 and the same D-Bus session reported PAC `mode=none` with an
+empty URL. The task-owned containers, DB volume, network, loopback relays
+and private scratch data were removed.
+
+The serving Worker currently issues a formal verifier execution receipt
+only on its Canary path. The Production-role Queue Result and its signed
+consume receipt therefore leave the capture incomplete at the existing
+Evidence gate. Hosted CI for this worktree, deployed execution, formal
+Queue execution receipt and accepted Evidence remain unverified. Stage
+A/B/C and Production acceptance remain blocked.
+
+## Local Linux APP same-job Result recovery and candidate persistence — 2026-11-25
+
+**LOCAL_APP_RESULT_VERIFIED:** On branch `tlsn-first-testplay-candidate`,
+the native Linux APP was built from the permitted worktree at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c` with the candidate-writer fix,
+Rust/Cargo 1.98.1, `--locked --offline`, and
+`tlsn-production,custom-protocol`. The resulting APP SHA-256 was
+`c0d7e63dcd27f21da6fe5dde6912a458e361a5414b59b5f373e485b028f4ef5f`.
+The local Notary used the normal `operational-notary` feature without fault
+injection (debug build, SHA-256
+`2358c4a06252594d288253eb50523512d2a2fdd4ea04d92d8b7b74ac8b0b1a91`).
+The test used an Xvfb/D-Bus Linux session, a Docker internal isolated network
+without published host ports, and a fresh Supabase Auth/DB stack initialized
+with 25 existing migrations after the historical-schema initializer. The
+APP's Open KanColle switch was off. The only origin was
+`capture.fusou.internal`, a dummy HTTPS service on the isolated network.
+
+APP startup verified Runtime Config, its five artifacts, Freshness and
+Worker health. The real local Verification Worker issued a fresh Session
+with HTTP 201 through the dedicated WEB and local Supabase Auth. The screen
+showed `Overall: ready`, and the accepted Manifest digest was checked just
+before the single dummy request, with over 120 seconds remaining for both
+Worker reference freshness and the Session. The origin received one
+121-byte request without a correlation header or Cookie and returned one
+421-byte response (HTTP 200). The local verifier verified the Notary
+signature, the fixture CA, the Session grant and acceptance, and the
+request/response transcript against the origin's recorded bytes.
+
+The test-only Result endpoint verified APP possession proof and the exact
+Presentation with the existing local WASM verifier, then signed the Result
+and consume receipt with local test keys. It returned
+`503 queue_enqueue_unconfirmed` for the single initial `/verify/tlsn` POST.
+The APP polled the same job `cd5138d7-e349-4be0-8dc4-dbf6b632f5c9` twice,
+receiving HTTP 202 then HTTP 200. The test recorded no repeated proof
+submission or origin send. The final screen showed
+`Latest capture state: result_ready`.
+
+| Checked material | Exact bytes | SHA-256 (base64url) |
+|---|---:|---|
+| APP Presentation and submitted proof | 4,308 | `H1YVPbL6E3ByaZWZStu9XlK5iEJXihN-5dFrhMeQ7mU` |
+| Final status response, `result-exact.bin`, and APP local Result delivery | 3,120 | `PBllBr9NCqBep9FaOkwh1EqcKFRPqQUEPItI6mu3z-s` |
+
+The APP wrote the candidate and all 20 inventory entries matched their
+actual lengths and digests. The existing Node
+`assertCandidateArtifactIdentity` verified the APP's exact identity,
+metadata and Presentation bytes against candidate ID
+`lCtIiJZJ62lmi-LL3MFyeLjb6UVmQ_sQP26FkQzBruA`.
+The candidate is `INCOMPLETE_MISSING_EXECUTION_RECEIPT` and
+`UNAPPROVED`, with gameplay/readiness effects `NONE`. The inventory
+check covers local candidate files. The 19-role Evidence Bundle has its
+own independent inputs and finalizer.
+
+**Defect reproduced and fixed:** An initial fixture error returned 502
+after a valid Presentation. After fixing the fixture, a separate Session
+demonstrated that the unmodified writer accepted the signed Result but
+rejected the APP's v3 public configuration fingerprint and removed the
+incomplete candidate directory. The Rust writer now reads the shared
+fingerprint contract, recomputes its combined digest and emits the
+current v2 candidate identity with separate original and authenticated
+request digests. The third capture used the fixed build, a fresh device
+and Session, and one new dummy origin request. The prior proof requests
+were not retried. The local startup scripts also honor supplied test root
+keys, call the existing test bootstrap RPC and accurately report the
+Wrangler metadata-fetch setting. The live Wrangler process had
+`CLOUDFLARE_CF_FETCH_ENABLED=false`. A full DNS trace was not collected.
+
+**Regression and cleanup:** The Proxy `real_tlsn::tests::` suite passed
+48 tests with one existing ignored case. The candidate-writer regression
+checks a Node-derived candidate ID and rejects malformed or inconsistent
+fingerprints. The candidate workflow explicitly selects it. APP Node
+pre-capture readiness passed 12 tests. The APP exited normally on SIGINT
+and PAC readback in the same D-Bus session was `mode=none` with an empty
+URL. The task's containers, DB volume, internal network and private
+scratch data were removed.
+
+The Result endpoint drove the APP recovery test without a real Queue
+delivery or a formal execution receipt. Hosted CI for the worktree,
+deployed Production verification, accepted Evidence and gameplay
+authorization remain unverified. Stage A/B/C and Production acceptance
+remain blocked. No game was launched and no real Game Server was used.
+
+## Test-role local Trigger completion roundtrip — 2026-11-23
+
+**VERIFIED (local test role only):** On branch `tlsn-first-testplay-candidate`
+at HEAD `0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the existing dirty and
+untracked worktree was preserved. The previously initialized internal-isolated
+Supabase stack, dedicated WEB, and real Worker entrypoint at
+`packages/FUSOU-TLSN-VERIFICATION-WORKER/src/index.ts` were reused. The local
+Worker health response reported `environment=test`,
+`deployment_role=test`, `binding_mode=random`, `auth_mode=supabase`, and
+`device_auth_mode=external-endpoint`; `trust_contract_valid` was not present
+for this test-role health response. This is not Production trust evidence.
+
+The local Trigger executor used the Worker's task
+`tlsn-local-verify`, the existing verification-job schemas, and
+`internalRequestSignature`. It accepted the Worker request, fetched the
+Presentation from local R2, compared its exact bytes and digest, and sent the
+completion body with its HMAC. Trigger.dev was not contacted or configured.
+The executor's private environment contained no Result signing key; it did
+not create Results or execution receipts. The Worker ran with
+`TLSN_EXECUTION_MODE=trigger`, the actual `TlsnBindingAuthorityDurableObject`,
+and task-local Miniflare R2/SQLite state. Wrangler was `4.135.0`.
+
+The local Auth users were non-anonymous and signed in through the dedicated
+Supabase Auth. Each tested Session was issued by the Worker with HTTP 201 and
+its Session receipt signature was verified. The Rust fixture independently
+verified each fresh Session Context Grant against the pinned Session Authority
+key, including Session, device, binding, challenge, and validity. Complete
+Presentations were generated by the existing
+`worker_session_grant_produces_independently_verified_complete_presentation`
+fixture. Its normal release Notary binary was built from source
+`46f11efede83d83a672614f7dc575f27a47f4120`, had SHA-256
+`702a27898ec7908c8a3a6b37503bb68a24cdb5e1d6bb6d77ef72736245423fa3`, and
+was the `operational-notary` release artifact (not a fault-injection Notary).
+The test harness itself enables its existing
+`local-test-notary-fault-injection` test feature; it does not change that
+Notary binary. The fixture used Notary ID `synthetic-notary-v1`, key ID
+`fixture-k256`, environment `local-test`, and an ephemeral loopback endpoint.
+All fixture traffic used a local test origin with identity `game.example.test`,
+not a real Game Server.
+
+| Case | Session / job / attempt | Exact input SHA-256 (base64url), bytes | Completion | Status | Result objects under attempt prefix |
+|---|---|---|---|---|---:|
+| Positive | `b3e7f0fc-2ffa-4107-acde-54ddf5a53229` / `a2aec5ee-756a-4620-9be5-efaa1c5f7dda` / `2644d907-0435-416a-8b60-74fcf576f75f` | `T-P3422kTIhamPLsxXDIBKqz5KykKHAPl1gqquKFhbA`, 3,473 | HTTP 200 | HTTP 200, `verified=true` | 1 (2,645 bytes) |
+| Invalid HMAC | `6ed20909-98bc-4a05-844a-b34695ed9b58` / `ac018752-9d33-4daa-ac56-8d4a2e2e083c` / `572437b8-2422-404b-963c-61678dc17645` | `LihAVUtLoaOYJ9_TrjTsErdbUgJMprmzkbtRUu3yBfk`, 3,475 | HTTP 401, `unauthorized` | HTTP 202, `verified=false` | 0 |
+| Corrupted Presentation | `41a8c714-3e9a-45ae-8451-cef34fb0f6b0` / `7ef0ad5e-e5c0-4ce2-afd7-06dabb7d4693` / `07de826c-b4f7-4d54-9cb7-9002b9274727` | `EJEs7Qi-Y4-ZfvTD5HjTZfUgwQfmWwyAALfLCrAHTgw`, 3,475 | HTTP 422, `verification_failed` (valid HMAC) | HTTP 200, `verified=false`, `not_verified` | 0 |
+
+For the positive Presentation, the Rust fixture independently verified the
+Notary signature, Web PKI chain, grant, and exact Complete transcript. The
+Presentation digest was the same `T-P3422...` value above; the request
+transcript was 116 bytes with SHA-256
+`gzYVao4vpETB5tCJVWvCCpXdGCBkAf7EUYoiKYVxwIM`; the response was 133 bytes
+with SHA-256 `N0yEyvskourUXRQzHIc2OqQJzr_DJEui9usxOGweVcU`. The Worker Result
+was Complete v2, profile
+`fusou-require-info-v3-notary-session-binding`, profile SHA-256
+`PM_SInpqWytwvYbRYo39aG7rPwqhL649MDKzTbEN3vE`, and outer-byte SHA-256
+`1OVDG6NyGKjCPm4WkZQwhiDnQoA79gb8zeaPBJDD1_A` (base64url). The independent
+verifier derived the Result signing bytes with the current verifier WASM and
+verified the inner Ed25519 signature. It separately verified the
+consume-receipt signature with the Binding Authority public key and confirmed
+its nonce matched this Session. The Result's Presentation digest and transcript
+metadata matched the independently verified Presentation.
+
+After the positive completion, the same Trigger request was replayed and
+rejected with HTTP 409; the local executor state was unchanged and still
+showed one execution, one input fetch, and one initial completion request.
+The exact signed completion body was also replayed; the Worker returned
+HTTP 200 with `accepted=true`. A fresh authenticated status request after the
+replay remained byte-identical to both the initially observed response and
+the exact local R2 object. The attempt prefix still contained one Result
+object. The status route only returns the authoritative Result after the
+Durable Object reports the job `consumed`; no debug route was added.
+
+For the invalid-HMAC job, the executor fetched the exact expected input once,
+but the Worker rejected completion before commit. For the corrupted case, the
+valid callback HMAC and exact R2 input digest were checked before the Worker
+verification-complete path invoked `verifyPresentationToPreparedResult`;
+the WASM verifier rejected the changed Presentation, the DO reached
+`not_verified`, and no Result archive was created. The original valid
+Presentation for that fresh grant was independently verified before the
+client flipped its first byte. The corrupted input digest above matches the
+Worker's fetched R2 bytes. The local R2 metadata query confirmed one Result
+object for the positive attempt and zero for both rejection attempts.
+
+One intermediate Session attempt using the same device within its 300-second
+challenge bucket received the expected HTTP 409 `device_nonce_replayed`; no
+Session was issued. The corrupted case then used a separately signed-in
+non-anonymous test user and newly registered device, and received a fresh
+Session. This expected anti-replay rejection is not counted as a Trigger job
+or a Presentation test case.
+
+**REPEATABLE LOCAL HARNESS:** The private executor and client are
+`packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-harness.mjs`
+and `packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs`.
+After recreating a private test config/env directory and local services, the
+flow is below. Replace `RUN_DIR`, `SESSION_ID`, and `JOB_ID` with the
+task-private paths and IDs returned by the preceding command; populate the
+Cargo fixture's required `FUSOU_TEST_*` environment from the same private
+config without printing it.
+
+```sh
+RUN_DIR=/path/to/private-run-dir
+node --experimental-strip-types --env-file="$RUN_DIR/trigger.env" \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-harness.mjs serve
+
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node --experimental-strip-types \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs issue-session
+SESSION_ID=the-session-id-from-issue-session
+
+cargo test --locked --offline \
+  --manifest-path packages/FUSOU-PROXY/proxy-https/Cargo.toml \
+  --test local_notary_interop \
+  --features "local-test-notary-fault-injection operational-notary" \
+  operational::worker_session_grant_produces_independently_verified_complete_presentation \
+  -- --exact --nocapture
+
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+FUSOU_LOCAL_SESSION_FILE="$RUN_DIR/sessions/$SESSION_ID.json" \
+FUSOU_LOCAL_PRESENTATION_FILE="$RUN_DIR/presentation.bin" \
+  node --experimental-strip-types \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs submit valid
+JOB_ID=the-job-id-from-submit
+
+node --experimental-strip-types --env-file="$RUN_DIR/trigger.env" \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-harness.mjs replay-trigger "$JOB_ID"
+node --experimental-strip-types --env-file="$RUN_DIR/trigger.env" \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-harness.mjs replay-completion "$JOB_ID"
+```
+
+The Cargo fixture requires the `FUSOU_TEST_*` input/output paths and pinned
+Session Authority public configuration, plus
+`FUSOU_OPERATIONAL_NOTARY_BIN`; keep their values in a mode-0600 private
+environment, not in this report. Use a fresh Worker Session for every
+submission. The client also supports `submit invalid-hmac` and `submit corrupt`,
+and `verify-outer <job-id>` for the exact Result/R2/signature checks.
+
+**CHECKS:** Verification Worker `typecheck` passed. The focused
+`device-proof-client.test.mjs`, `session-context-grant-contract-test.mjs`,
+and `production-result-contract.test.mjs` run passed **35/35**, with 0
+failures and 0 skips on Node `22.21.1` and pnpm `10.14.0`. The exact-HEAD
+Worker WASM provenance check passed for
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c` using Rust/Cargo `1.98.1`,
+wasm-pack `0.15.1`, wasm-bindgen `0.2.128`, and wasm-opt `133`. The Rust
+Presentation fixture passed **3/3** invocations (one test each; 13 other
+tests filtered per invocation). `node --check` passed for both local Trigger
+scripts. Rust emitted only existing unused-function warnings. Two earlier
+provenance invocations were blocked by the default PATH/toolchain selection;
+no tool was installed or changed, and the final check passed with the retained
+pinned tools on PATH and `RUSTUP_TOOLCHAIN=1.98.1`.
+
+**CLEANUP VERIFIED:** The Trigger executor, Worker, WEB, and Supabase host
+relay were stopped. Supabase project `fusou-tlsn-testplay-supabase-iIeq0u`
+was verified as the only target stack for this run; its containers and DB
+volume were removed, as were its owner-labeled internal network and relay
+container. The private run directory, test credentials, Worker R2/DO state,
+and Supabase work directory were deleted. No listeners remained on the
+Worker, WEB, relay API/DB, or Trigger ports. Other Supabase work directories
+were not touched.
+
+This proves only the local test-role Trigger roundtrip and test Result
+signature. Production acceptance remains **BLOCKED**. Production execution
+infrastructure, a formal execution receipt, accepted Evidence, APP Result
+receipt, and hosted CI were **NOT_CHECKED** in this run. No real Game Server,
+Cloudflare deployment, or Trigger.dev service was contacted; no files were
+staged, committed, or pushed.
+
+## Isolated real-APP Complete Presentation — 2026-11-23
+
+**VERIFIED (local Complete Presentation only; not Result, Evidence, or
+Production acceptance):** On `tlsn-first-testplay-candidate` at HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the existing dirty and untracked
+worktree was preserved. The run reused the isolated Linux APP binary; its
+SHA-256 was
+`7f9d5e5c461bc5fd970d5ed9c0d2c38f8ee60850b7404a0a9bf1941b84771011`.
+`--tlsn-compiled-bootstrap` reported the same source SHA, release profile,
+`tlsn-production` and `custom-protocol`, the local Runtime Config Manifest
+URL, and key ID `local-test-manifest-root`. The compile-only bootstrap status
+was `EMBEDDED_UNVERIFIED`; runtime readiness had separately verified the
+local signed configuration. The compiled public-configuration digest was
+`WbNV4im41_JTZ4no8iw1u0MEax7goZtBOnCkaVvI1i0`.
+
+The normal release `fusou-notary` was built from the task-local isolated source
+copy's `packages/FUSOU-PROXY/proxy-https` source. Its SHA-256 was
+`4491785308fb9484da323279e0436b0937bb8a543f4ab35a0e90bdd0d83244e7`; its
+Cargo fingerprint enabled `operational-notary` and did not enable
+fault-injection. The independently exported public configuration matched the
+prepared pins: `environment=production`, `wire_version=1`, endpoint/listen
+`127.0.0.1:47047`. A new task-local ledger was initialized before serving.
+The APP, Notary, dummy origin, and one-shot client used the internal-isolated
+Docker network; only `capture.fusou.internal` resolved to the dummy origin.
+No real Game Server, production Worker, or Cloudflare deployment was used.
+
+The APP Start/readiness path had reached **Overall: ready** with Run Proxy
+Server on and Open KanColle off. The Worker observer recorded Session issuance
+HTTP 201 at `2026-11-23T19:23:44.659Z` and another HTTP 201 at
+`2026-11-23T19:25:46.033Z`. The capture metadata Session ID selected the first
+response; the independent verifier matched its exact `session_context_grant`
+bytes to the grant embedded in the Presentation. No grant bytes or credentials
+were written to this report.
+
+One HTTP/1.1 `POST
+https://capture.fusou.internal/kcsapi/api_get_member/require_info` with an
+empty body was sent through the APP proxy. The dummy origin recorded exactly
+one 121-byte request
+(`14bf5f96615492f97781edfe7f0fe7daea26ecf0764f92ed4d478809d7bc9cd9`) and
+the exact 133-byte response fixture
+(`374c84cafb24a2ead45d14331c87363aa409cebfc3244ba2f6eb31386c1e55c`). The
+client received HTTP 200 and the expected 75-byte body. The recorded request
+had no query, body, Cookie, or `X-Attestation-Binding` correlation header.
+The APP artifact and private helper capture were byte-identical:
+4,275-byte Presentation, SHA-256
+`badba34d92cc78d9cf3966e122ea103152c2e3854f71729426a4b2aa01a221a3`.
+
+A temporary, task-local verifier test in the isolated source copy passed **1/1**
+using the existing APIs from
+[local_notary_interop.rs](../FUSOU-PROXY/proxy-https/tests/local_notary_interop.rs):
+`verify_alpha15_presentation_with_trusted_notary_key_and_trust_anchor` and
+`verify_require_info_with_session_extension`. It validated the trusted
+Notary signature and CA chain, observed identity
+`capture.fusou.internal`, Session Authority grant signature and exact grant
+match, and Notary acceptance. Reconstructed Complete request/response
+transcripts matched the origin's exact recorded bytes, lengths, and hashes.
+They were 121 and 133 bytes respectively, with the digests above. The only
+compiler diagnostic was the existing unused-function warning in the verifier
+library; the test had 0 failures.
+
+The APP's single `/verify/tlsn` submission was forwarded without response
+replacement, and the real local Worker returned **HTTP 503**:
+`TLSN verification Trigger is unavailable` (`trigger_unconfigured`). Thus
+there is no verified Result, accepted Evidence, or Production Result from this
+run; those remain **BLOCKED**. The success boundary is the independently
+verified Complete Presentation only.
+
+**CLEANUP VERIFIED:** After recording the capture, the APP received SIGINT and
+exited. PAC read back over the same D-Bus session as `mode=none` and an empty
+`autoconfig-url`. The Notary exited; task-owned containers, Supabase volume,
+internal network, D-Bus/Xvfb processes, and listeners were stopped/removed.
+No game launch, game-target DNS/TCP/HTTP, `/verify/tlsn` retry, second origin
+request, or Presentation retry was performed. Hosted CI and Production
+acceptance remain **BLOCKED**.
+
+## Linux PAC shutdown reproduction — disposable GNOME/Xvfb — 2026-11-23
+
+**OBSERVED (local APP only; no product change):** On branch
+`tlsn-first-testplay-candidate` at HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the three shutdown paths were
+compared in fresh APP processes with PAC active. The reusable Linux binary has
+SHA-256
+`b311ece43cc938fbf47a42c96fdd1fee8e499bd153abe17462aa71e29f183043` and came
+from source commit `4b402486bce85d31cd2c7c8e19ca3f6954e130cf`. The tracked
+`packages/FUSOU-APP` tree matches current HEAD, but this was not a fresh build
+of the entire current monorepo; no broader build-input parity is claimed.
+
+The disposable Ubuntu 24.04 container used Xvfb `:177`, GNOME Shell 46.0 /
+Mutter 46.2, a private D-Bus session, and a task-only home directory. Every
+APP container used Docker `network=none`; the final container had only `lo`
+and no IP routes. Open KanColle was off, and no game WebView or external
+browser was opened. Google Fonts names were pinned to loopback; a startup
+period-tag request to `fusou.dev` failed closed in the no-network container.
+No game, Notary, or external endpoint could be reached. The APP's generated
+test CA was installed and checked only inside the disposable containers
+because `pkexec` was unavailable; the host trust store was not changed.
+
+Each case began with GNOME PAC `mode=none` and
+`autoconfig-url=http://pac-shutdown-test.invalid:8123/previous.pac`. After
+Start, Run Proxy Server was on and Open KanColle was off; PAC read back as
+`mode=auto` and the generated local URL:
+
+| Operation | Start and active PAC | Result |
+|---|---|---|
+| Main-window Alt+F4 | Start at `16:11:21.267 UTC`; APP host PID `675434`; proxy `127.0.0.1:46485`; PAC `http://localhost:43329/proxy.pac` | The normal WM close hid the main window, but the APP and tray remained alive. There was no exit code/signal or PAC-cleanup event; mode and URL remained `auto` and the same local PAC URL. The keypress was not separately timestamped; it occurred after Start and before a tray Quit at `16:13:21.463 UTC`, which then restored the original PAC pair. |
+| Tray Quit, fresh process | Start at `16:14:27.852 UTC`; APP host PID `691807`; proxy `127.0.0.1:46601`; PAC `http://localhost:34937/proxy.pac` | `PacCleanedExit` was logged at `16:14:43 UTC` after cleanup; the APP exited with code 0 by `16:14:47 UTC`. PAC returned to `mode=none` and the exact original `.invalid` URL; the recovery state file was absent. |
+| PTY Ctrl+C, fresh process | Start at `16:16:14.854 UTC`; APP PID `904` in its disposable container; proxy `127.0.0.1:35165`; PAC `http://localhost:39147/proxy.pac` | The PTY delivered `\x03` at about `16:16:29 UTC`; the APP logged `Received Ctrl+C, shutting down.`, ran its existing cleanup, and exited with status 0 (`docker exec` status 0). The container supervisor remained alive until cleanup. PAC returned to the exact original pair and the recovery state file was absent. |
+
+No valid operation emitted `BadDrawable`. The earlier incident's exact window,
+operation, emitter, and timestamp remain **UNKNOWN**; the current tests do not
+reproduce it. A separate diagnostic used `xdotool windowclose`, which destroys
+an X11 window instead of requesting a normal WM close. Before PAC was applied,
+that invalid probe emitted GDK/GLib warnings at
+`2026-11-23T16:02:47.900`; it is excluded and did not establish the cause of
+the earlier `BadDrawable`.
+
+The results match the existing behavior in
+[window_event.rs](../FUSOU-APP/src-tauri/src/builder_setup/window_event.rs):
+closing the `main` window hides it and prevents close, so the APP continues in
+the tray and keeps its PAC active. Tray Quit and Ctrl+C use the existing
+PAC-cleanup-before-shutdown path in
+[setup.rs](../FUSOU-APP/src-tauri/src/builder_setup/setup.rs) and
+[native_cmd.rs](../FUSOU-APP/src-tauri/src/cmd/native_cmd.rs). Thus Alt+F4
+explains an apparently closed main window with PAC still active, but cannot be
+attributed to the prior incident without its missing operation trace. Tray
+Quit and Ctrl+C both restored PAC in actual APP runs. No product fix was
+justified; no source behavior changed, so repository test suites and tray
+Restart were not run.
+
+**CLEANUP VERIFIED:** No manual PAC restoration was performed. The final PAC
+pair was read back as `none` plus the original `.invalid` URL before stopping
+the private D-Bus session. The three
+task containers, GNOME/Xvfb/D-Bus processes, and
+`/tmp/fusou-pac-shutdown-repro-20261124` were removed; the Xvfb socket and
+named containers were absent afterward. The regular user's PAC, CA, and
+roaming settings were not changed. TLSN capture, Notary, Presentation,
+`/verify/tlsn`, gameplay, Hosted CI, and Production acceptance remain
+**NOT_CHECKED** by this PAC-only reproduction.
+
+## Isolated Docker APP start and capture-readiness — 2026-11-23
+
+**LOCAL_APP_CAPTURE_READINESS_VERIFIED (container-only; not a capture):**
+On branch `tlsn-first-testplay-candidate` at HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the existing dirty and untracked
+worktree was preserved. This retry reused the previously built isolated
+`/usr/bin/fusou`; it did not rebuild or install the APP. The binary's
+`--tlsn-compiled-bootstrap` output reported the matching source SHA, `release`
+profile, `tlsn-production` and `custom-protocol` enabled, and
+`https://runtime-config.fusou.test/tlsn/runtime-config/v2/manifest.json` with
+signer key ID `local-test-manifest-root`. Its public-key fingerprint matched
+the local Runtime Config fixture. The compile-only summary reports
+`EMBEDDED_UNVERIFIED` / `UNVERIFIED`; only the subsequent runtime checks below
+establish that the local Manifest and Freshness were verified. The
+`--app-compiled-public-configuration` diagnostic returned digest
+`WbNV4im41_JTZ4no8iw1u0MEax7goZtBOnCkaVvI1i0`; no token or private key was
+printed.
+
+The local Runtime Config report at `2026-11-23T12:03:15.996Z` had
+`contract_status=VERIFIED`: Manifest HTTP 200, 4,033 bytes, exact-byte match,
+and SHA-256 `iBuj_0ZSpXuQf0mWbubUe3Rn14DCqXFryuf2gVjQscI`. All five artifacts
+returned HTTP 200 and matched their pinned lengths/digests:
+
+| Artifact | Length | SHA-256 (base64url) |
+|---|---:|---|
+| `worker-reference` | 6,187 | `-65bE7wInGuzRcZVtUA-bkhLx-2LlPzZBUaWs6SrAUc` |
+| `origin-inventory` | 1,876 | `oPGCXkdYTkTCfif4bmujVhtHP-vOSmF1CB8R6eo-XZ0` |
+| `target-approval` | 899 | `LMq3_l4PVfOv1K3rKXVekG1N7VOOxn5rQBZRr-J7z78` |
+| `security-registry-set` | 410 | `d9w0sv469ochAC8lN76DivSlPtZqNnyYccabL0qC_J8` |
+| `result-registry-envelope` | 702 | `e_f_rHsFcvqGyFrqnlOHFKEw6F2RyG2J8gc8hjrkyVU` |
+
+Freshness returned HTTP 200, verified its signature/release, and bound to the
+Manifest digest. Worker `/health` returned HTTP 200 with
+`worker_name=fusou-tlsn-verification-production`,
+`deployment_id=runtime-readiness-20261123`, `deployment_role=production`,
+`binding_mode=random`, and `trust_contract_valid=true`. The local harness
+checked the health Git SHA, active version, security-registry/origin/approval
+digests, Result registry and root, Session Authority, Notary, and Verifier
+identities against the fixed public inputs before signing the Manifest. The
+observed local version ID was
+`3da9156b-0bfe-48c0-9359-96e04177fbb8`; these local version/deployment values
+are not evidence of a Cloudflare deployment.
+
+The first APP attempt exposed two disposable-environment setup issues: the
+active APP device had no matching `user_devices` row (challenge requests
+returned 404), and launching without a session D-Bus caused PAC application
+readback to fail and roll back. Only the disposable PostgreSQL was repaired,
+registering the active local Auth user's existing Ed25519 device. The
+successful retry ran `dbus-run-session -- /usr/bin/fusou` in the isolated
+desktop with `DISPLAY=:99`,
+`FUSOU_TLSN_EXCHANGE_TIMEOUT_MS=120000`,
+`FUSOU_TLSN_CLEANUP_TIMEOUT_MS=10000`, and
+`FUSOU_TLSN_MAX_NOTARY_ATTESTATION_BYTES=1048576`. In the Start UI, Run Proxy
+Server was on and Open KanColle was off; Open App displayed only the internal
+data viewer. No game WebView was started.
+
+The APP made one Worker `POST /attestation/session` in this retry and received
+HTTP 201 at `2026-11-23T12:04:25.956Z`. The response's receipt and context
+grant signatures were independently verified with the pinned local Session
+Authority key and the existing `attestation_receipts.ts` signing-byte
+contracts, not a key from the response. Receipt claims matched the active
+local Auth user, device, authentication nonce, Session ID, binding, device
+challenge, and expiry. The grant's signed bytes matched the same Session,
+binding, device commitment, challenge, and timestamps; an unrelated Result
+signing key failed both signature checks. The Session expired at
+`2026-11-23T12:09:25.933Z`; the APP's readiness snapshot was confirmed at
+12:05:30 local time, while the Session was still valid. The later signature
+check establishes signature/claim integrity, not that the expired Session is
+currently usable.
+
+During the Session's lifetime, the private harness called the real
+`DurableObjectBindingAuthority.lookupBinding`: HTTP 200, active record, with
+the same Session ID, binding, user, device, authentication nonce, Session
+nonce, challenge, creation time, and expiry. A same-Session PostgreSQL query
+found exactly one active owner/key device row, one non-anonymous Auth user,
+one matching `anon_sync_nonce_consumptions` row, and one matching
+`tlsn_device_proof_consumptions` authentication row with `session_id IS NULL`.
+There were zero authentication rows with a non-NULL Session ID and zero
+possession-consumption rows for this Session. No possession proof was sent.
+
+The APP's **Read current readiness** result was **Overall: ready**:
+Proxy listener, PAC server/application, Runtime Config/Freshness, Worker
+health, forwarder initialization, candidate evidence saving, Session grant,
+and current capture readiness were all verified. The separate browser-PAC,
+Notary connection, observed server identity, evidence, and gameplay checks
+remained `not_checked`; `Current capture: ready` means preparation only.
+The local readiness fixture permitted Worker paths `/health` and
+`/attestation/session` only. No `/verify/tlsn`, Presentation generation, or
+Result execution occurred.
+
+The 1,190-packet APP capture stayed on the Docker network
+`fusou-tlsn-testplay-supabase-4KCkmA` (`internal=true`, `172.20.0.0/16`):
+all TCP SYN destinations were in that subnet, and zero outside IPv4/IPv6
+packets were observed. There were zero DNS queries for a game target, zero
+packets to the APP proxy listener or Notary port 7047, and zero game-target
+TCP/HTTP traffic. The capture did include 96 DNS packets to Docker's
+`127.0.0.11` resolver; 48 responses were `SERVFAIL` for
+`fonts.googleapis.com` and its resolver-search-suffix variants. Therefore
+this run does not claim that no DNS queries occurred.
+
+After measurement, closing the APP stopped its process but left the isolated
+PAC mode set to `auto`; the X11 client also reported `BadDrawable` during
+window close. The disposable desktop's original `mode=none` and empty
+`autoconfig-url` were restored manually in a new D-Bus session and verified.
+This is a manual cleanup result, not evidence that APP shutdown automatically
+restores PAC. The packet capture was stopped and flushed. After the evidence
+was recorded, all ten task-owned containers (including the TCP relay), the
+dedicated Supabase volume and internal network, and
+`/tmp/fusou-tlsn-testplay-supabase-4KCkmA` were removed. Final checks found no
+task containers, published container ports, Docker-proxy TCP listeners,
+volume, network, or temporary work directory. The APP-only retry used Node
+22.21.1, pnpm 10.14.0, Docker 29.10.0, Wrangler 4.135.0, and
+PostgreSQL 17.12; the Runtime Config harness used Node 22.16.0 and Miniflare
+5.20261113.0-beta. The disposable Supabase stack had been initialized with
+Supabase CLI 3.2.0. No repository tests or APP rebuild were run in this
+runtime-only retry.
+
+**NOT_CHECKED / OUT_OF_SCOPE:** No Notary connection, possession proof,
+Presentation, `/verify/tlsn`, Production Result, gameplay, or real Game Server
+identity was exercised. The APP's `ready` snapshot is local preparation
+evidence only. Hosted CI, real deployment, Stage A/B/C, and Production
+acceptance remain **BLOCKED**.
+
+## Runtime Config read-only delivery — local HTTPS verification
+
+**LOCAL_RUNTIME_VERIFIED:** The [Freshness Gateway](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY/src/index.ts)
+now serves `GET /tlsn/runtime-config/v2/manifest.json` and the five
+content-addressed artifact kinds through its existing Signer Service Binding.
+The [private Signer](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/src/private-signer-worker.ts)
+reads the exact Manifest pointer bytes and bounded immutable artifact bytes from
+the existing R2 binding; artifact responses require the stored-byte SHA-256 to
+match the canonical digest in the path. Both Workers cap each object at
+1,048,576 bytes. The Gateway constructs fixed internal paths and does not expose
+R2 or Release-management routes.
+
+The local HTTPS test origin was `https://gateway.fusou.test`. Against the
+existing signed Release fixture, the [runtime integration test](../FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/runtime.test.mjs)
+matched the pointer and all five artifacts byte-for-byte, including lengths and
+SHA-256 digests. The same origin's existing Freshness POST returned a signed
+response that passed the existing request/response verifier and exact Manifest
+binding check. Instrumented GETs made six R2 reads, zero R2 writes/deletes,
+zero signatures, and zero Genesis/Release-management requests; the test also
+removed the DO binding during each private read. Wrong origin, unknown route or
+kind, noncanonical digest, query, Range, disallowed method, missing binding or
+object, oversized Manifest/artifact, and corrupted artifact all failed closed
+without exposing private route or R2 details.
+
+**LOCAL_TEST_VERIFIED:** Both package type-checks passed. The Gateway runtime
+harness reported 12 PASS checks, 0 FAIL/SKIP. The Coordinator/private Signer
+runtime suite reported 73 tests passed, 0 failed, 0 skipped. The local runtime
+used Node 22.21.1, Miniflare 5.20261113.0-beta, and workerd 1.20261113.1. The
+existing candidate workflow includes both packages' type-check and runtime
+commands; Hosted CI for this change is **NOT_CHECKED**.
+
+**NOT_CHECKED:** This synthetic local R2/Worker run does not establish a
+Cloudflare deployment, production R2 contents, or APP acceptance. GET alone
+does not establish Runtime Config authenticity or currentness; the APP must
+still verify the signed Manifest/artifacts and the Freshness response.
+
+Remaining before first play: dedicated WEB deployment; APP Bootstrap and
+Notary registration/placement; and the Production Result execution path.
+Production service health and authentication, Verification Worker-issued
+Session issuance, game-server communication, and production evidence remain
+unverified. Local WEB/Auth proof handling is recorded below. Stage A/B/C and
+Production acceptance remain **BLOCKED**.
+
+## Dedicated TLSN testplay WEB — local verification (2026-11-22)
+
+**LOCAL_BUILD_VERIFIED:** The WEB package now has an isolated
+[Astro config](../FUSOU-WEB/astro.config.tlsn-testplay.mjs),
+[Wrangler config](../FUSOU-WEB/wrangler.tlsn-testplay.toml), and
+`build:tlsn-testplay` entrypoint. The build accepts only an explicit
+verification Supabase origin and exact single-host allowlist, disables dotenv
+loading/process-environment injection, and rejects the regular WEB Worker,
+route, or resource bindings. The normal `fusou` / `fusou.dev/*` configuration
+was not changed.
+
+The local build used only `http://127.0.0.1:54321` with allowlist
+`127.0.0.1`. Astro generated the expected
+`https://tlsn-web.fusou.dev` sitemap and
+`dist-tlsn-testplay/server/wrangler.json`; a build-output guard checks the
+generated Worker name, `entry.mjs`, exact route, assets path, and absence of
+service, storage, queue, and workflow bindings. Wrangler's dry-run against
+that generated config packaged `fusou-tlsn-testplay-web` for
+`tlsn-web.fusou.dev/*`; it showed only `ASSETS` and the public site URL and
+exited without uploading. The source TOML is an Astro build input; the
+generated `server/wrangler.json` is the effective post-build Wrangler config.
+
+**LOCAL_HTTP_VERIFIED:** The generated Worker ran with Wrangler's local mode
+and no remote bindings. POSTs to both existing handlers returned HTTP 401
+without a bearer token:
+
+- `/api/auth/anonymous-sync/v2/device-proof`
+- `/api/auth/anonymous-sync/v2/tlsn-device-proof`
+
+**LOCAL_AUTH_HTTP_VERIFIED (2026-11-22):** The generated Worker was rebuilt
+with the disposable Supabase API at `http://127.0.0.1:56421` and ran at
+`http://127.0.0.1:56431`. Two non-anonymous test users were created and signed
+in through the real local Supabase Auth API. A test Ed25519 device was
+registered in the matching temporary Postgres database; all requests stayed on
+loopback, and user tokens/private-key material were kept out of logs and files.
+
+The first live run exposed a Worker-runtime incompatibility in the proof
+handler's guarded Supabase fetch: Cloudflare Workers does not implement
+`redirect: "error"` and throws a `TypeError` before sending the request. The
+[proof handler](../FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts) now uses
+`redirect: "manual"` and explicitly rejects every 3xx response, preserving the
+no-follow behavior. A regression test verifies that Auth redirects fail
+closed without consuming a proof. This follows the
+[Workers Request redirect contract](https://developers.cloudflare.com/workers/runtime-apis/request/).
+
+Measured over the built WEB's real HTTP handlers and local Supabase:
+
+- Both APIs returned HTTP 401 without a bearer token.
+- `device-proof` returned HTTP 200 for a signed challenge from the owning user;
+  the response user/device matched, one proof row and one nonce-consumption row
+  were stored, and replay returned HTTP 409 without adding a row. A second
+  user's token returned HTTP 403.
+- `tlsn-device-proof` returned HTTP 200 for a valid signed proof; the response
+  user/device matched and `replay_digest_hex` matched the independently
+  computed digest. One proof row was stored; replay returned HTTP 409 without
+  adding a row. A second user's token returned HTTP 403.
+- After revoking a separate test device, the challenge endpoint and both proof
+  APIs returned HTTP 409. No proof-consumption row was created for that device.
+
+The possession `session_id` and `binding_value` above were test inputs only;
+they were not issued by the Verification Worker and do not establish a real
+Session or TLSN capture.
+
+**LOCAL_TEST_VERIFIED:** `pnpm exec tsc --noEmit --pretty false` passed. The
+four candidate proof test files passed **73/73**, 0 failed and 0 skipped, using
+an isolated PostgreSQL 16.15 test instance. The build-profile regression suite
+passed **5/5**. The dedicated build command passed; Astro reported 0 errors,
+0 warnings, and 1 hint (the build also emitted non-blocking existing Vite
+chunk/dynamic-import warnings). These test commands are selected by the
+existing candidate workflow; that workflow was not run in this task.
+
+The local run used Node 22.21.1, pnpm 10.14.0, Wrangler 4.135.0, Docker
+29.10.0, Supabase CLI 3.2.0, and the Supabase database's PostgreSQL 17.12.
+PostgreSQL 16.15 test binaries were downloaded and unpacked under a temporary
+directory, not installed as a system service. Commands:
+
+```sh
+FUSOU_TLSN_TESTPLAY_SUPABASE_URL=http://127.0.0.1:56421 \
+FUSOU_TLSN_TESTPLAY_SUPABASE_ALLOWED_HOSTS=127.0.0.1 \
+pnpm --dir packages/FUSOU-WEB run build:tlsn-testplay
+
+cd packages/FUSOU-WEB
+pnpm exec tsc --noEmit --pretty false
+pnpm exec vitest run \
+  src/server/routes/__tests__/tlsn-device-proof.integration.test.ts \
+  src/server/routes/__tests__/anonymous-sync-v2-endpoints.test.ts \
+  src/server/routes/__tests__/anonymous-sync-v2.test.ts \
+  src/server/schemas/__tests__/anonymous-sync-v2.test.ts
+node --test scripts/tlsn-testplay-build-profile.test.mjs
+```
+
+The Vitest run set `FUSOU_TEST_PG_BIN`, `FUSOU_TEST_PG_SHARE`, and
+`FUSOU_TEST_PSQL` to the temporary PostgreSQL 16.15 tools. Wrangler used
+`dist-tlsn-testplay/server/wrangler.json`, `--local`, a mode-0600 temporary
+runtime env file, and the loopback listener on port 56431. After verification,
+the disposable Supabase containers/database volume/network, temporary
+credentials and Wrangler state, and extracted PostgreSQL tools were removed;
+the test ports were confirmed closed.
+
+**NOT_CHECKED:** Hosted CI and Cloudflare deployment were not run. The planned
+hostname was not registered or called; no Verification Worker-issued Session,
+real Notary, game-server communication, or production Auth/DB behavior was
+tested. These local HTTP results do not authorize a game connection.
+
+For the Verification Worker deployment, retain the existing proof handlers
+and configure:
+
+```text
+TLSN_CANDIDATE_DEVICE_AUTH_URL=https://tlsn-web.fusou.dev/api/auth/anonymous-sync/v2/device-proof
+TLSN_CANDIDATE_DEVICE_POSSESSION_AUTH_URL=https://tlsn-web.fusou.dev/api/auth/anonymous-sync/v2/tlsn-device-proof
+TLSN_CANDIDATE_DEVICE_AUTH_ALLOWED_HOSTS=tlsn-web.fusou.dev
+TLSN_CANDIDATE_SUPABASE_URL=<the same verification-only Supabase used by the WEB>
+TLSN_CANDIDATE_SUPABASE_ALLOWED_HOSTS=<that Supabase host only>
+```
+
+No Supabase address or deployed value is asserted here. Before first play,
+the dedicated WEB and matching verification Supabase Auth/DB still need
+approved deployment and registration; APP Bootstrap and Notary registration,
+and the Production Result execution path, also remain outstanding. Stage A/B/C
+and Production acceptance remain **BLOCKED**.
+
+## Verification Worker-issued Session and WEB possession proof — local integrated verification (2026-11-22)
+
+**LOCAL_SESSION_FLOW_VERIFIED:** From the built TLSN-only WEB and disposable
+Supabase stack above, the actual Verification Worker entrypoint handled
+`POST /attestation/session` in Wrangler's local Workers runtime with
+`TLSN_ENVIRONMENT=test` and the real `TlsnBindingAuthorityDurableObject`
+bound through `TLSN_BINDINGS`. WEB, Supabase Auth/PostgREST/PostgreSQL, and
+Worker listeners were loopback-only: WEB `127.0.0.1:56431`, Supabase API
+`127.0.0.1:56421`, and Worker `127.0.0.1:43477`. The Supabase database was
+PostgreSQL 17.12. Two non-anonymous users were created and signed in through
+the local Auth API; the first user's Ed25519 device was registered in that
+same database. The challenge came from the built WEB, and the signed
+authentication proof's first submission was to the Worker.
+No `TLSN_DEPLOYMENT_ROLE` or `TLSN_TEST_*` auth/device/binding override was
+set. The Worker used distinct local-only Session Authority and Binding
+Authority keys.
+
+The Worker returned HTTP 201 with a Session. The harness independently
+verified the receipt and context-grant signatures using the public key pinned
+by the committed Session-context-grant vector, not a key taken from the
+response. It checked the user/device/authentication nonce, Session ID,
+binding, device challenge, and expiry relationships. Altered signed data and
+an unrelated public key failed verification. The existing
+`DurableObjectBindingAuthority.lookupBinding` found persisted DO state
+matching the Worker response. The session's device challenge, binding, and
+Session ID were then used to sign a possession proof; the built WEB returned
+HTTP 200 and the expected independently computed `replay_digest_hex`.
+
+Measured HTTP outcomes were Worker `401` (no bearer), `201` (Session),
+`409` (authentication-proof replay), and `403` (another user's token for the
+device); possession proof returned `200`, and replay returned `409`. Rejected
+Session responses contained no Session ID, binding, receipt, or grant.
+PostgreSQL queries confirmed exactly one authentication consumption, one
+possession consumption, and one nonce consumption for the test device;
+counts remained unchanged after replay. The Session context was created by
+this local Worker run; it is not a production Session and does not establish
+Notary, Presentation, `/verify/tlsn`, or Production Result acceptance.
+
+**LOCAL_TEST_VERIFIED:** Worker type-check passed. A combined
+`node --test` run of `device-proof-client.test.mjs` and
+`session-context-grant-contract-test.mjs` passed **31/31** (29 and 2 tests
+respectively), 0 failed and 0 skipped. The local integration harness passed
+with all assertions, including the HTTP, signature, DO, and database checks
+above. The existing WASM build and provenance check also passed and bound the WASM source to HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`. This used Node 22.21.1,
+pnpm 10.14.0, Wrangler 4.135.0, Supabase CLI 3.2.0, and Docker 29.10.0.
+The integrated flow completed at `2026-11-22T16:52:44.152Z`.
+The dedicated WEB build command was
+`pnpm --dir packages/FUSOU-WEB run build:tlsn-testplay`; Worker commands were
+`pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run build:wasm`,
+`pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck`, and
+`node --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/session-context-grant-contract-test.mjs`.
+
+The disposable Supabase project was stopped with its data volume removed;
+its test users, the Worker harness, temporary credentials, and the WEB
+`.dev.vars` link were removed. The Supabase containers for project
+`fusou-tlsn-261122` were absent after shutdown, and loopback ports 43477,
+56421, 56422, and 56431 were confirmed closed. The ignored WEB/WASM build
+outputs remain available locally; they contain no test credentials.
+
+**MIGRATION LIMITATION:** The disposable database reached the current schema
+using a test-only copy of the migrations. Two early migrations reference
+legacy `user_member_map` columns before a later destructive cutover recreates
+that table, so those legacy-only statements were omitted from the temporary
+copy. No repository migration was changed. This does not verify that the
+unmodified migration chain applies cleanly to an empty database.
+
+**NOT_CHECKED:** Hosted CI and Cloudflare deployment were not run. No
+production Auth/DB, Notary, production Session, Presentation, `/verify/tlsn`,
+Production Result, APP, or game-server communication was exercised. The
+temporary test fixture credentials and local services are not production
+configuration. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
 ## #142: same-host Notary release candidate built and tested
 
 **HOSTED_CI_OBSERVED:** Actions
@@ -3992,3 +5182,1122 @@ acceptance. Changes remain unstaged.
 | Hosted CI after this change | **NOT_CHECKED** |
 | Stage A/B/C | **BLOCKED** |
 | Production acceptance | **BLOCKED** |
+
+## Empty-database initializer and fresh Session-flow rerun — 2026-11-22
+
+This addendum supersedes the earlier migration limitation only for the
+TLSN-specific initializer. Applying the unmodified migrations to an empty
+database without the historical prelude still fails: after
+`20251217040555_remote_schema.sql`, the first failure is in
+[`20260518000000_user_devices_and_rotations.sql`](../FUSOU-WEB/supabase/migrations/20260518000000_user_devices_and_rotations.sql),
+at `COMMENT ON COLUMN public.user_member_map.salt_version ...`, with SQLSTATE
+`42P01` (`public.user_member_map` does not exist).
+
+**EMPTY_DATABASE_INITIALIZATION_VERIFIED:** The
+[`init:tlsn-testplay-supabase` initializer](../FUSOU-WEB/scripts/init-tlsn-testplay-supabase.mjs)
+uses the minimal historical
+[`user_member_map` prelude](../FUSOU-WEB/supabase/tlsn-testplay/legacy-user-member-map.sql)
+grounded in
+[`docs/sql/supabase/schema.sql`](../../docs/sql/supabase/schema.sql), then
+applies all 25 original migrations in order without editing, skipping, or
+filtering their SQL. Original migration digests were unchanged. The resulting
+database's cutover UUID schema, device/proof-consumption tables, RPCs, and
+permissions were checked. Re-running initialization against a populated
+database was refused before writes. The initial empty-database baseline was
+25 migration records, 0 Auth users, and 0 devices. This does not claim that
+the raw migration sequence is standalone without its required historical
+prelude.
+
+**LOCAL_SESSION_FLOW_VERIFIED:** In that disposable project, the built WEB,
+local Supabase Auth/PostgREST/PostgreSQL, the actual Verification Worker
+entrypoint, and its SQLite-backed `TlsnBindingAuthorityDurableObject` ran
+locally. The final flow used newly created non-anonymous Auth users, a
+registered Ed25519 device, and a challenge from the built WEB. The Worker ran
+with `TLSN_ENVIRONMENT=test`; no deployment role or `TLSN_TEST_*` auth/device/
+binding override was set. All configured service URLs were loopback.
+
+The Worker returned `401` without a bearer, `403` for another user's device,
+`201` for Session issuance, and `409` for authentication-proof replay. Rejected
+responses contained no Session ID, binding, receipt, or grant. Receipt and
+grant signatures and claims were independently checked against the pinned
+shared-vector Session Authority key; mutations and an unrelated key failed.
+The existing `DurableObjectBindingAuthority.lookupBinding` found an active
+stored record matching the response. The WEB accepted a possession proof
+created from that Session with HTTP `200` and the expected
+`replay_digest_hex`; replay returned `409`. Database counts were exactly one
+authentication proof, one possession proof, and one nonce consumption for
+the successful test device, unchanged after replay.
+
+The initial end-to-end attempt used a custom global-fetch wrapper that did not
+preserve the test harness's proxied outbound Authorization headers and
+returned `401`. Removing that wrapper (the harness already uses Node's
+`globalThis.fetch` for outbound requests) allowed the fixed loopback
+endpoints to work. No product-code change was needed. Earlier diagnostic
+attempts left only disposable fixture rows (Auth users, identity mappings, and
+devices) in this project before
+the final successful run; the successful assertions used distinct new
+identities and were scoped to that device. The complete project volume was
+removed afterward.
+
+**LOCAL_TEST_VERIFIED:**
+
+| Check | Result |
+|---|---|
+| WEB TypeScript check (`pnpm --dir packages/FUSOU-WEB exec tsc --noEmit --pretty false`) | **PASS** |
+| WEB proof/anonymous-sync Vitest selectors (four candidate-CI files) | **PASS, 73/73**, 0 failed, 0 skipped |
+| TLSN WEB build-profile regression | **PASS, 5/5**, 0 failed, 0 skipped |
+| Worker TypeScript check | **PASS** |
+| Worker proof-client and Session-grant tests | **PASS, 31/31**, 0 failed, 0 skipped |
+| Real local Auth → Worker Session → DO lookup → WEB possession proof | **PASS**, HTTP and database results above |
+
+The host did not have the PostgreSQL 16 `initdb` binary expected by the WEB
+test helper. The same candidate selectors were therefore rerun with a
+temporary isolated PostgreSQL 17.12 cluster inside the owned disposable
+Supabase container; the helper used real `initdb`/`postgres`/`pg_ctl`/`psql`
+and its temporary cluster was removed. No system PostgreSQL package or
+service was installed. Tool versions: Node 22.21.1, pnpm 10.14.0, Supabase
+CLI 3.2.0, PostgreSQL 17.12, Wrangler 4.135.0, and Vitest 4.1.11.
+
+The disposable WEB/Supabase listeners were stopped; its four containers,
+database volume, network, workdir, temporary credentials, `.dev.vars`, and
+named Wrangler/Miniflare harness states were removed. Ports 58432, 37731, and
+37161 were confirmed closed. Ignored WEB build output remains, without test
+credentials. No Hosted CI, Cloudflare deployment, APP/Notary operation,
+Presentation, `/verify/tlsn`, Production Result, or game-server communication
+was run. Hosted CI remains **NOT_CHECKED**; Stage A/B/C and Production
+acceptance remain **BLOCKED**.
+
+## Production-role local Session flow — 2026-11-22
+
+**LOCAL_PRODUCTION_ROLE_SESSION_FLOW_VERIFIED (local contract only):** At
+HEAD `0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the actual Verification
+Worker bundle ran with `TLSN_ENVIRONMENT=production` and
+`TLSN_DEPLOYMENT_ROLE=production`. It used random Durable Object bindings and
+the production auth mode (`supabase` / `external-endpoint`); no Canary,
+Replay, fixed binding, or `TLSN_TEST_*` override was supplied. The health
+response was HTTP `200`, `ok=true`, with
+`security_identity.trust_contract_valid=true`.
+
+The local-only trust setup used exact checked-in Origin Inventory and Target
+Approval bytes, with SHA-256/base64url values
+`oPGCXkdYTkTCfif4bmujVhtHP-vOSmF1CB8R6eo-XZ0` and
+`LMq3_l4PVfOv1K3rKXVekG1N7VOOxn5rQBZRr-J7z78`. The Security Registry Set
+digest was calculated by the existing `productionSecurityRegistrySetHash`
+helper and matched:
+`X3nb5x7UjNSbWWOpCy_Ax7IGSBCgCmrlI4vX_iyn0cE`. Temporary, separate Session
+Authority, Binding Authority, and Result signer keys were used; the Result
+registry envelope/root pin followed the existing bootstrap-trust test
+pattern. The Notary registry used the existing public alpha.15 K256 fixture
+[`tlsn-alpha15-clean-upstream-sparse-notary-verifying-key.bin`](./fixtures/tlsn-alpha15-clean-upstream-sparse-notary-verifying-key.bin)
+with a local-only registry. This is not a real Notary key, registry, or
+deployment trust record.
+
+`tlsn-web.fusou.test` and `tlsn-auth.fusou.test` were mapped only to loopback.
+Normal HTTP requests from the harness reached a loopback bridge, which invoked
+the real Worker through Miniflare `dispatchFetch`; Worker outbound requests
+used Miniflare's restricted `outboundService` and a temporary Node HTTPS
+adapter. The adapter terminated TLS (not workerd), validated its task-local
+CA with certificate verification enabled, and preserved request headers,
+method, body, and upstream status. A client using an unrelated CA was
+rejected before service ingress. No DNS, deployed Worker, real Supabase, or
+game-server connection was used.
+
+Two non-anonymous users signed in through the disposable Supabase Auth. The
+built WEB issued the device challenge; the first authentication proof was
+sent to the Worker:
+
+| Check | Result |
+|---|---|
+| `/health` | **200**; production role, random binding, valid local trust contract |
+| Invalid host allowlist / HTTP URL / Result registry root pin / Inventory digest | **503** for each invalid configuration |
+| Missing bearer / other user's device / authentication proof replay | **401 / 403 / 409**; no Session material in rejection responses |
+| Session issuance | **201** |
+| Session receipt and context-grant signatures | **Verified** against the independently pinned local Session Authority key; mutations and an alternate key rejected |
+| Durable Object lookup | **Matched** the issued Session and one SQLite-backed record |
+| WEB possession proof / replay | **200 / 409**; returned replay digest `bd1ad519ad91eafaa18e59f7fd3ff6495a85ab767375a6436007fa0f3a4e0c7d` |
+| Proof-consumption rows | Authentication **1**, possession **1**, nonce **1**; replay added no rows |
+
+The Worker made 6 outbound requests through the TLS adapter (8 TLS ingress
+requests total); three out-of-policy host/path/HTTP probes were rejected.
+TLS negotiated `TLSv1.3`. These results establish only the local Worker/Auth/
+WEB/DO contract. No Presentation, Notary interaction, `/verify/tlsn`,
+Production Result execution, APP startup, or gameplay was performed.
+
+**LOCAL_TEST_VERIFIED:**
+
+| Check | Result |
+|---|---|
+| `pnpm --dir packages/FUSOU-TLSN-VERIFICATION-WORKER run typecheck` | **PASS** |
+| `node --experimental-strip-types --test packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/device-proof-client.test.mjs packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/session-context-grant-contract-test.mjs` | **PASS, 31/31**, 0 failed, 0 skipped, 0 cancelled |
+| Session-only Production-role integration harness | **PASS**, all scenario assertions completed |
+
+Versions: Node `v22.21.1`, pnpm `10.14.0`, Wrangler `4.135.0`, Miniflare
+`5.20260918.0-alpha`, Supabase CLI `3.2.0`, PostgreSQL `17.12`.
+
+The disposable Supabase containers, network and database volume were removed.
+The task-local credentials, test users/devices, TLS CA and keys, SQLite/
+Wrangler state, Worker bundle, and session-only integration harness were also
+removed; loopback listeners were confirmed stopped. Existing ignored WEB build
+output and unrelated worktree changes were preserved. No product-code or CI
+change was made for this Production-role check.
+
+Hosted CI remains **NOT_CHECKED**. Stage A/B/C and Production acceptance remain
+**BLOCKED** pending real deployment, Notary, Presentation/Result, APP, and
+gameplay evidence.
+
+## Isolated APP capture-readiness attempt - 2026-11-23
+
+**APP package build: VERIFIED (build-only). APP capture readiness: BLOCKED.**
+The APP GUI was not started because a disposable local Supabase stack could
+not be reached safely from the host while blocking container egress. This was
+an isolated source/HOME/target build on the host OS, not a disposable desktop
+runtime.
+
+### Build inputs and result
+
+The source snapshot was assembled from branch
+`tlsn-first-testplay-candidate`, HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the allowed working-tree changes,
+and the six untracked WEB profile files listed below. The protected
+`packages/FUSOU-APP/src-tauri/roaming/user/configs.toml` and all tracked `.env`
+files (`packages/FUSOU-APP/.env`, `packages/FUSOU-APP/src-tauri/.env`,
+`packages/FUSOU-WEB/.env`, `packages/FUSOU-WORKFLOW/.env`,
+`packages/fusou-auth/.env`, and `packages/fusou-compaction-trigger/.env`)
+were excluded. The source-only snapshot digest is SHA-256
+`dba211d59430cdb721aecc23a214102c5cb715177451f133b5712a0fda00a4f2`;
+it covers 2,459 files, excluding `node_modules` and generated
+`packages/FUSOU-APP/dist`.
+
+The explicitly included untracked inputs were:
+
+| File | SHA-256 |
+|---|---|
+| `packages/FUSOU-WEB/astro.config.tlsn-testplay.mjs` | `468ef3457d0649090e8b0d22f116e05f578f3042049d4e647e41d1b6760a7b1a` |
+| `packages/FUSOU-WEB/scripts/build-tlsn-testplay.mjs` | `6f15e4810b035d2ff74047f4d1cb3ec7e0235a91c9dbab0ae94045767bb7218d` |
+| `packages/FUSOU-WEB/scripts/init-tlsn-testplay-supabase.mjs` | `f8374f3378b9948af055c78fe0d6334c802828591e7bfcf474ccec55060877e2` |
+| `packages/FUSOU-WEB/scripts/tlsn-testplay-build-profile.mjs` | `a97605f229def102bce7e2a634ab0a762765e1bf9c3ea8c08c69a63222c76069` |
+| `packages/FUSOU-WEB/scripts/tlsn-testplay-build-profile.test.mjs` | `730f085e447ca6a28e44bed69bcce2ec52c6ddd84121a4dd642d8adbd50a75fb` |
+| `packages/FUSOU-WEB/wrangler.tlsn-testplay.toml` | `90b86fb07f5d664ac25faae9e5b3df2edf14296996e48f1a561042e1bd2a5f53` |
+
+Build-only public inputs were:
+
+| Input | Value or status |
+|---|---|
+| Runtime Config Manifest URL | `https://runtime-config.fusou.test/tlsn/runtime-config/v2/manifest.json` |
+| Runtime Config signer key ID | `local-capture-readiness-build-only` |
+| Runtime Config signer SPKI SHA-256 | `4bc36ee1cb15503284bbbb6b8daa4910c58c7a27b074c0dfe7e3b824a2332907` |
+| Supabase URL | `https://tlsn-auth.fusou.test` |
+| Supabase publishable key | Synthetic `sb_publishable_...` value; not an Auth key and not usable for runtime |
+| `FUSOU_APP_BUILD_SOURCE_SHA` | `0dd7a8e92d3ad90b7fc6a9865741c9273266534c` (metadata input only; the snapshot was dirty) |
+
+The keypair was generated only for the build check; no private key was
+persisted. The build ran with an empty Vite env directory, an isolated HOME
+and `CARGO_TARGET_DIR`, `env -i` containing only the listed public inputs and
+tool paths, and `CARGO_NET_OFFLINE=true`. Locked JavaScript dependencies were
+installed offline: 1,364 packages added, 1,349 reused, 0 downloaded.
+
+Commands:
+
+Run from the isolated source snapshot root, with the sanitized environment
+described above:
+
+```sh
+pnpm install --offline --frozen-lockfile --ignore-scripts --package-import-method=copy
+pnpm --dir packages/FUSOU-APP exec vite build --mode production
+pnpm --dir packages/FUSOU-APP exec tauri build \
+  --target x86_64-unknown-linux-gnu \
+  --features tlsn-production,custom-protocol \
+  --bundles deb \
+  --config src-tauri/tauri.verification-linux.conf.json \
+  --no-sign --ci -- --locked
+```
+
+The Vite build and unsigned verification-only Debian package build succeeded.
+The package was `fusou_0.5.0_amd64.deb`, SHA-256
+`30c6a2cb92b64899399bfcec5786bf490f0ad1ae9a08977ef661ef8f438e2bcb`.
+The package contained `resources/user/configs.toml` and did not contain the
+protected roaming config. The compiled bootstrap report matched the expected
+URL, key ID, and SPKI, with registration `EMBEDDED_UNVERIFIED` and authority
+`UNVERIFIED`. The compiled public configuration report matched the expected
+hash `B-fn0LsA-eZvbTzzMM06oEbBp4bY-GI5oIYdXw8kPq4`, also with authority
+`UNVERIFIED`. These reports validate compile-time wiring only; no signed
+Manifest or usable local Supabase key was provisioned. The build emitted
+existing Rust warnings and a Tauri bundler warning about the missing
+`__TAURI_BUNDLE_TYPE` marker.
+
+Versions: Node `v22.21.1`, pnpm `10.14.0`, Vite `7.3.5`, Tauri CLI `2.9.4`,
+Rust/Cargo `1.98.1`, Supabase CLI `3.2.0`, Docker `29.10.0`, PostgreSQL image
+`17.12.0.000`. The local Node version differs from candidate CI's
+`22.16.0`.
+
+### Runtime block and status
+
+The disposable initializer was attempted on a Docker `--internal` network.
+Supabase CLI's startup health check requires host-published ports, but Docker
+created no port mapping for that network. A bounded reproduction failed after
+305.6 seconds with `HealthCheckTimeoutError` and `ECONNREFUSED` on its
+127.0.0.1 database port; direct host access to the container IP worked.
+Host `iptables` access was denied and non-interactive `sudo` was unavailable,
+so no host firewall rule or non-internal network was used. The internal
+network/health-timeout experiment was reverted; the initializer retains
+offline npm CLI resolution. Its syntax check and offline Supabase CLI version
+check passed.
+
+| Check | Status |
+|---|---|
+| APP package and compiled configuration reports | **VERIFIED**, synthetic build inputs only |
+| Runtime Config Manifest/artifacts/Freshness and high-water | **NOT_CHECKED** |
+| Worker health, new Session, and Durable Object state | **NOT_CHECKED** in this attempt |
+| WEB/Auth, device proof, and session grant | **NOT_CHECKED** in this attempt |
+| APP GUI, Start, and `get_tlsn_capture_readiness` | **BLOCKED**; APP not launched |
+| PAC setup/restore | **NOT_CHECKED**; APP did not touch PAC |
+| Game DNS/TCP/HTTP, Notary, `/verify/tlsn`, Presentation | **NOT_CHECKED**; no APP runtime request was generated |
+| Hosted CI | **NOT_CHECKED** |
+| Stage A/B/C and Production acceptance | **BLOCKED** |
+
+No APP GUI/proxy runtime, browser/WebView, CA installation, Auth session,
+Worker, Gateway, WEB, or completed Supabase stack was started. The packaged
+binary was invoked only for its two compiled-configuration reports. No game
+target was resolved or contacted, and no Notary attempt or Presentation output
+occurred.
+This is not a measured end-to-end zero-traffic result because the APP runtime
+never began. Task-owned diagnostic containers, networks, volumes, source
+snapshot, build inputs, and package output were removed; pre-existing local
+stacks and unrelated worktree changes were left untouched. No host firewall,
+PAC, CA, or protected APP configuration was changed.
+
+Hosted CI remains **NOT_CHECKED**. Stage A/B/C and Production acceptance
+remain **BLOCKED** pending an egress-isolated local service path, real APP
+readiness, and the remaining Notary/Presentation/Result and gameplay evidence.
+
+## Internal Docker-only service connectivity — follow-up
+
+**LOCAL_INTERNAL_SERVICE_VERIFIED:** This follow-up exercised the disposable
+Supabase, dedicated WEB, Production-role Verification Worker, and Runtime
+Config/Freshness services on one Docker internal network. It resolves the
+earlier Supabase CLI startup failure recorded above: the internal network has
+no published host ports, while the CLI expects loopback API/DB access. The
+task-only initializer relay now provides that loopback path without switching
+to a regular bridge, changing host firewall rules, or using
+`--ignore-health-check`.
+
+The run used Docker `29.10.0`, Supabase CLI `3.2.0`, PostgreSQL
+`17.12.0.000`, Wrangler `4.135.0`, Node `22.21.1` on the host and `22.16.0`
+in the service container, pnpm `10.14.0`, Miniflare `5.20261113.0-beta`, and
+workerd `1.20261113.1`.
+
+Commands from the repository root:
+
+```sh
+pnpm --dir packages/FUSOU-WEB run init:tlsn-testplay-supabase -- --internal-isolated
+pnpm --dir packages/FUSOU-WEB run build:tlsn-testplay
+pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run typecheck
+pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-GATEWAY run test:runtime
+pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run typecheck
+pnpm --dir packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR run test:runtime
+```
+
+The disposable network was `fusou-tlsn-testplay-supabase-wLio8e`; Docker
+reported `internal=true` and IPv4 gateway mode `isolated`. Each task service
+container was attached only to this network, and Docker had no effective
+published service ports. The initializer's host-loopback TCP relay forwarded
+only the CLI's API and DB connections to Supabase Kong (`kong:8000`) and
+PostgreSQL (`db:5432`) through the internal network. The relay preflight
+round-trip passed before the CLI started. Its temporary host listeners were
+ports `43421` and `34509`; both were closed after cleanup.
+
+The dedicated WEB build completed. The empty disposable DB applied all 25
+original migration records after the initializer's historical precondition.
+Internal Auth health returned HTTP 200, a real local Auth sign-in succeeded,
+and an internal DB query succeeded. The Production-role Verification Worker
+health endpoint returned HTTP 200 with `environment=production`,
+`deployment_role=production`, `binding_mode=random`, Auth `supabase`, device
+auth `external-endpoint`, and
+`security_identity.trust_contract_valid=true`.
+
+The Runtime Config service was reached as
+`https://runtime-config.fusou.test`. The Manifest returned HTTP 200 (5,739
+bytes; SHA-256 base64url
+`AHCUazz7Xd7j6C1PT7xJIJ40MCwa45651jb0RLX6ZGg`) and matched the saved exact
+bytes. All five artifacts also returned HTTP 200 and matched their saved exact
+bytes and SHA-256 base64url digests:
+
+| Artifact | Bytes | SHA-256 base64url |
+|---|---:|---|
+| `worker-reference` | 6,059 | `nmuLngUvrnMTWvD763MNrDew9efWARZYqyYl49RbXS8` |
+| `origin-inventory` | 1,876 | `oPGCXkdYTkTCfif4bmujVhtHP-vOSmF1CB8R6eo-XZ0` |
+| `target-approval` | 899 | `LMq3_l4PVfOv1K3rKXVekG1N7VOOxn5rQBZRr-J7z78` |
+| `security-registry-set` | 408 | `_wC902u9WACSTPyER0A00g5H7359aq1ysI6p8HMQMgs` |
+| `result-registry-envelope` | 673 | `2V_ojvyLaneNveeS_HBqzwPKbhEzZSCMRvKdyGXxt4` |
+
+The existing verifier returned `MANIFEST_AND_SIGNED_PINS_VERIFIED`. The
+Freshness POST returned HTTP 200; its signature and Manifest binding passed
+verification, with latest epoch `2`. A local Node HTTPS edge validated the
+test CA and hostname/SAN, and validated its HTTPS upstream to the local
+Runtime Config service. TLS terminated at that adapter, not in workerd; the
+adapter invoked the actual local Gateway Worker and did not provide a fixed
+response.
+
+Gateway typecheck passed and its runtime suite reported 12 PASS, 0 FAIL, 0
+SKIP. Coordinator typecheck passed and its runtime suite reported 73 PASS, 0
+FAIL, 0 SKIP.
+
+### Boundaries and evidence status
+
+An earlier local integration run in this work sequence observed
+`POST /attestation/session` returning 201, WEB possession proof returning 200,
+and proof replay returning 409. The actual Binding Authority DO binding was
+used, but its stored record was not independently read in that run. The
+pre-cleanup DB count snapshot for this follow-up showed one Auth user, zero
+`user_devices`, one nonce-consumption row, zero TLSN proof-consumption rows,
+and six rate-limit rows. Therefore those earlier API results are **OBSERVED**
+history, not proof of durable device/proof rows in this follow-up DB; this
+service check does not claim independent DO-state verification.
+
+| Check | Status |
+|---|---|
+| Internal-only Docker topology and scoped initializer relay | **VERIFIED** |
+| 25 migration records, local Auth health/sign-in, and DB query | **VERIFIED** |
+| Production-role Worker health and trust contract | **VERIFIED** |
+| Runtime Config Manifest, all five exact artifacts, and Freshness verification | **VERIFIED** |
+| Session/proof API outcomes from the earlier local integration | **OBSERVED**; final DB snapshot did not corroborate proof-consumption persistence |
+| APP build/GUI/Start and `get_tlsn_capture_readiness` | **NOT_CHECKED** in this service-only run; prior APP-start gate remains **BLOCKED** |
+| Notary, Presentation, `/verify/tlsn`, Result, and game-server traffic | **NOT_CHECKED**; none was attempted |
+| Hosted CI | **NOT_CHECKED** |
+| Stage A/B/C and Production acceptance | **BLOCKED** |
+
+No ordinary external network, regular bridge, host firewall rule, Cloudflare
+service, real Supabase, game server, APP, Notary, Presentation, or
+`/verify/tlsn` path was used. The task-owned containers, DB volume, network,
+temporary credentials, CA/private keys, Miniflare state, and temporary
+harnesses were removed. Root-owned runtime files were removed by a one-shot
+cleanup container with networking disabled and only the task temp directory
+mounted; no host permissions were changed. The task directory, Docker
+containers/volume/network, and relay listeners were confirmed absent after
+cleanup. The older `fusou-tlsn-testplay-supabase-yBcw5F` network and other
+existing services were left untouched.
+
+This follow-up verifies local service connectivity only. It does not advance
+APP readiness, Hosted CI, Stage A/B/C, or Production acceptance.
+
+## Explicit Verification Worker Queue execution — local implementation
+
+**IMPLEMENTED; PARTIALLY VERIFIED LOCALLY:** On branch
+`tlsn-first-testplay-candidate` at HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`, the Worker now selects Queue
+execution only when Production environment and Production deployment role
+explicitly set `TLSN_PRODUCTION_EXECUTION_MODE=queue`. An unset Production
+mode continues to select Trigger; unknown values fail closed. Canary and
+test-role mode selection remain separate. Queue mode with no
+`TLSN_VERIFICATION_QUEUE` returns 503 before authentication, proof consumption,
+or job creation. The health response reports the selected mode and Queue
+binding availability.
+
+The existing `/verify/tlsn` authentication, device proof, Session, binding,
+and exact Presentation-to-R2/DO registration path is retained before sending
+the schema-validated Queue message. The `queue()` consumer checks the current
+Production role and trust digests, then compares the message's job, Session,
+binding, owner, device, challenge, Presentation, input/output keys, and profile
+against the Binding Authority record. It uses the existing completion path,
+which reads the stored Presentation, performs WASM verification, signs and
+persists the Result, reads the archive back, and commits the DO state. Queue
+mode does not expose Trigger completion/input callbacks. A send exception is
+treated as an unconfirmed outcome: the same job ID is returned with HTTP 503
+`queue_enqueue_unconfirmed`; the DO is not failed, no replacement job is
+created, and there is no Trigger/direct fallback.
+
+At-least-once handling uses the existing DO lease and terminal state. A
+consumed job is acknowledged only after authoritative Result readback; failed
+or expired jobs are acknowledged; uncertain storage/authority outcomes retry.
+An active `verifying` lease is not changed to failure by a duplicate: a first
+delivery that observes another active execution is acknowledged, while a
+redelivery (`attempts > 1`) waits for the lease. Focused policy tests cover
+those dispositions and trust/DO mismatches. Local concurrent Queue delivery
+was not exercised.
+
+Queue producer/consumer wiring exists only in
+`packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-worker-queue-test.mjs`,
+which starts Miniflare Queue, R2, and the actual Worker entrypoint with
+loopback-only outbound service access. The default Wrangler configuration and
+current deployment contract were not changed; Production deployment still
+requires Trigger. Any future switch must first drain existing Trigger jobs to
+terminal states, then explicitly change the execution mode under a separately
+approved deployment-contract change.
+
+**CHECKS:** Verification Worker typecheck passed. The focused mode, Queue
+policy, and Production Result contract suite passed **12/12**, with 0 failures
+and 0 skips. Current-source WASM provenance passed for the exact HEAD using
+the retained pinned Rust `1.98.1`, wasm-pack `0.15.1`, wasm-bindgen `0.2.128`,
+and Binaryen `133` toolchain. `node --check` passed for both local Queue
+scripts and both preserved local Trigger scripts. A disposable Miniflare
+startup smoke returned Worker health HTTP 200 with `execution_mode=queue`;
+it did not submit a Queue message or create a test job. The smoke was stopped
+with its scheduled SIGINT; its process, listeners, and temporary directory
+were confirmed absent.
+
+| Queue verification | Status |
+|---|---|
+| Production default-to-Trigger, explicit Queue selection, and unknown-mode rejection | **VERIFIED** by focused tests |
+| Runtime trust digest, role, DO identity, and lease disposition policies | **VERIFIED** by focused tests |
+| Local Queue Worker/Miniflare startup and health reporting | **OBSERVED**; empty-config smoke only |
+| Full test-role Auth → fresh Session → Complete Presentation → Queue → WASM → signed Result/R2/DO roundtrip | **NOT_CHECKED**; the earlier Trigger test does not establish Queue execution |
+| Existing local Trigger end-to-end harness rerun | **NOT_CHECKED**; only its scripts' syntax and Trigger default selection were checked |
+| Production Queue message delivery, binding/digest/job rejection, external callback rejection, and local-CA Presentation rejection | **NOT_CHECKED** |
+| Actual duplicate/concurrent Queue delivery and same-job Result idempotency | **NOT_CHECKED**; only disposition policy tests ran |
+
+## Local Queue runtime follow-up — 2026-11-24
+
+**VERIFIED (local test role only):** The existing dirty/untracked worktree was
+preserved on `tlsn-first-testplay-candidate` at HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`. The already initialized
+internal-isolated Supabase and dedicated WEB were reused. The Queue runtime
+used the actual Worker entrypoint, Miniflare Queue, R2, and
+`TlsnBindingAuthorityDurableObject`; its outbound service wrapper allowed only
+the configured loopback Supabase/Auth origins.
+
+The normal release Notary binary used by the existing Rust fixture was
+`notary-normal-target/release/fusou-notary`, SHA-256
+`0d8ba4894bcec0d9f6980919b131f4f7ffd601d9e18f21a86eb50ffc6958f694`.
+`operational::worker_session_grant_produces_independently_verified_complete_presentation`
+passed **1/1** for each fresh Session used below. One initial fixture invocation
+hit an existing output filename (`create_new`); it did not overwrite that
+file. The fixture was rerun with a fresh Auth user/device/Session and unique
+output paths and passed.
+
+### Queue success, rejection, and uncertain send
+
+For Session `97839b47-98af-4636-86d4-8b9170bc4a52`, job
+`42dcf315-3b46-4b2f-b621-47665a9d5a23` returned HTTP 202 and status HTTP 200
+with `verified=true`. The DO reached `consumed`; exact status Result bytes
+matched R2, the independent inner signature and consume receipt checks passed,
+and the Result's Presentation digest matched the fresh Complete Presentation.
+Presentation SHA-256 (base64url) was
+`oNlJhJ7kU-fPCfDtjtLiPlTNjjVR9Iz1ON2xTuT7DWU`; Result SHA-256 (base64url)
+was `jYCFllm0GXjkro0HpLtqrVkSpbTMWFHm08OnD7LNpJM`. The Presentation input
+was removed after commit, one attempt Result archive remained, and the Queue
+backlog drained to zero.
+
+While that job held an unexpired `verifying` DO lease, the harness invoked the
+same real `queue()` handler through its local dispatcher and delivered
+Production-shaped role/trust data, an invalid origin-policy message, and
+job-ID, Session-ID, Presentation-digest, input-key, and binding-ID mismatches.
+Each was acknowledged without changing the valid job's lease; the original
+job subsequently reached `consumed`. A same-job duplicate was published while
+the lease was active and after commit (both publish responses HTTP 202); the
+consumer acknowledged replays and the Result bytes, object key, and R2 object
+set remained unchanged. Miniflare's configured `maxBatchSize` is one, so this
+is a controlled concurrent invocation of the actual consumer while the first
+invocation held the lease, not evidence about Cloudflare Queue scheduling.
+The messages were delivered to a **test-role** Worker; these results do not
+establish Production runtime trust rejection.
+
+The corruption case used a separate fresh user/device/Session and reached the
+consumer: request HTTP 202, terminal status HTTP 200 with `verified=false`,
+DO `failed`, Presentation input retained, and no signed Result archive.
+
+The previously requested Trigger regression also passed with a fresh
+Session/Presentation: HTTP 202 submission, HTTP 200 completion callback, and
+HTTP 200 `verified=true` status. The Result was 2,645 bytes with SHA-256
+(base64url) `ZXeYv5KRgS-C3QHwJRadU1rAbFNco_0lktmWihr06OI`; independent inner
+signature, receipt, exact status/R2 bytes, and bindings were checked. Duplicate
+submission returned HTTP 409, completion replay was idempotent, and the
+committed Result did not change.
+
+For the queue-send-unknown regression, a test-only
+`TLSN_TEST_QUEUE_SEND_ACK_LOST_AFTER_ACCEPTANCE` switch was added. It is
+effective only when `TLSN_ENVIRONMENT=test` and throws after the real local
+Queue producer accepts the message; it does not alter Production behavior or
+simulate a Cloudflare transport failure. With a distinct fresh Session,
+`/verify/tlsn` returned HTTP 503 `queue_enqueue_unconfirmed` and job
+`f5df611e-c6a2-4713-95a4-c12aa030aac6`. Replaying the same device proof
+returned HTTP 409 `device_possession_replayed` and no new job ID. The local
+Trigger executor state was unchanged. The accepted Queue message for the
+returned ID was consumed and status reached HTTP 200 `verified=true`; DO was
+`consumed`, exact Result/R2 bytes and signatures were checked, and duplicate
+delivery remained idempotent. Presentation SHA-256 (base64url) was
+`f_UOA_xQNzIdnyH4B9DUGlw25VZ3sgBRPcW6j5ZdDek`; Result SHA-256 (base64url)
+was `hHOjqhWRx4mfUHhdOoxhIbhS8Gw9IpK5fNXHYLypVWo`.
+
+### Production-mode boundary and remaining gaps
+
+A separate local Wrangler Worker was started with
+`TLSN_ENVIRONMENT=production`, `TLSN_DEPLOYMENT_ROLE=production`, and
+`TLSN_PRODUCTION_EXECUTION_MODE=queue`, but deliberately had no Queue binding
+or Production trust configuration. Health returned HTTP 503 while reporting
+`execution_mode=queue` and `execution_binding_configured=false`.
+Unauthenticated `POST /verify/tlsn` returned HTTP 503
+`queue_unconfigured` before authentication/proof handling. A POST to
+`/internal/tlsn/verification-complete` returned HTTP 404 `not_found`.
+These verify local mode selection, missing-binding refusal, and callback
+gating only; they do not prove a Production consumer run.
+
+| Boundary | Status |
+|---|---|
+| Test-role Queue valid Result, R2/DO/signature checks, duplicate delivery | **VERIFIED** |
+| Test-role corruption reaches WASM/terminal failure without a Result | **VERIFIED** |
+| Accepted-then-unconfirmed Queue send returns the same job ID without Trigger fallback | **VERIFIED** with the test-only fault switch |
+| Production mode with missing Queue binding and external Trigger callback refusal | **VERIFIED** locally; other Production configuration intentionally absent |
+| Production Queue consumer role/origin/trust-digest/DO mismatch behavior | **NOT_CHECKED** in a Production runtime; test-role consumer/policy tests are not a substitute |
+| Production rejection of the local-CA Presentation | **NOT_CHECKED**; no complete Production Queue/trust fixture was started |
+| Hosted CI, formal execution receipt, and APP Result acceptance | **NOT_CHECKED** |
+| Stage A/B/C and Production acceptance | **BLOCKED** |
+
+**CHECKS:** Worker typecheck passed. The execution-mode, Queue-policy, and
+Production Result contract tests passed **12/12**, with 0 failures and 0
+skips. Current-source WASM provenance reported
+`VERIFIED_LOCAL_CONSISTENCY` and source commit binding
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`. `node --check` passed for both
+local Queue harnesses.
+
+**ISOLATION AND CLEANUP:** Docker inspection confirmed the task network
+`fusou-tlsn-testplay-supabase-c4KQZY` had `Internal=true` and
+`bridge.gateway_mode_ipv4=isolated`; its containers were attached only to that
+network. Inspection also showed Docker port bindings for DB `33493` and Kong
+`43723` while the stack was running, so this run does not claim that Docker
+created no host port mappings. The task's five Supabase/relay containers, its
+DB volume, and its network were stopped and removed; the older
+`fusou-tlsn-testplay-supabase-yBcw5F` network was left untouched. WEB, Queue,
+and local Production Worker processes were stopped. Local checks confirmed
+ports `19002`, `19003`, `8787`, `8788`, `8789`, `33493`, and `43723` closed,
+and the private run directory containing temporary credentials, keys, CA,
+R2/DO state, and artifacts was removed. No Cloudflare, Trigger.dev, game
+server, `fusou.dev`, APP build, stage, commit, push, or Actions run occurred.
+
+**REPEATABLE LOCAL COMMANDS:** Start the test-role harness with a private
+`RUN_DIR` containing the existing local configuration. For the uncertain-send
+case, set the test-only switch on the harness process:
+
+```sh
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node --experimental-transform-types \
+  packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-worker-queue-test.mjs serve
+
+# Or, for the deterministic accepted-then-unconfirmed case:
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+FUSOU_LOCAL_QUEUE_SEND_ACK_LOST_AFTER_ACCEPTANCE=true \
+  node --experimental-transform-types \
+  packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-worker-queue-test.mjs serve
+
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node --experimental-transform-types \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs prepare-user
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node --experimental-transform-types \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs issue-session
+# Run the normal-Notary Rust fixture above with FUSOU_TEST_* inputs/outputs from the private run.
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+FUSOU_LOCAL_SESSION_FILE="$RUN_DIR/sessions/$SESSION_ID.json" \
+FUSOU_LOCAL_PRESENTATION_FILE="$RUN_DIR/presentation-$SESSION_ID.bin" \
+  node --experimental-transform-types \
+  packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-queue-test-client.mjs uncertain
+```
+| Cloudflare Queue/Worker deployment, formal execution receipt, accepted Evidence, APP Result receipt, Hosted CI | **NOT_CHECKED** |
+| Production acceptance | **BLOCKED** |
+
+The prior local Supabase/WEB/Trigger services and their task credentials were
+already cleaned up, and no fresh Auth Session or Presentation was created for
+this Queue run. No Cloudflare Queue, Trigger.dev, real Supabase, APP, Notary,
+game server, or external endpoint was contacted. No Queue deployment settings
+were enabled, and no files were staged, committed, or pushed. These local
+implementation checks do not advance Stage A/B/C or Production acceptance.
+
+## Local Production Queue rejection verification
+
+**SCOPE:** This run verifies only the local Production-role Queue trust and
+consumer boundaries. The checkout remained at `tlsn-first-testplay-candidate`,
+HEAD `0dd7a8e92d3ad90b7fc6a9865741c9273266534c`; existing worktree changes
+were preserved. No Worker production source, tracked Inventory/Approval, or
+deployment configuration was changed for this test. The local-only
+`local-production-queue-test.mjs` synchronization harness was corrected to
+bridge its test barrier through the same loopback Node admin server, avoiding
+cross-request Promise state in Workerd.
+
+**ISOLATION:** The task-owned Supabase stack reports 25 migrations. Its Docker
+network had `Internal=true` and `bridge.gateway_mode_ipv4=isolated`. DB and
+Kong retained random port values in Docker `HostConfig.PortBindings`, but
+their runtime `NetworkSettings.Ports` entries were `null`; `docker ps` showed
+only container ports, not host-published ports. The task relay had no port
+bindings. Local Auth/WEB/Worker traffic used the task-owned relays; no
+Cloudflare, Trigger.dev, real Supabase, `fusou.dev`, or game endpoint was
+contacted.
+
+**PRODUCTION HEALTH:** `/health` returned HTTP 200 with
+`execution_mode=queue`, `execution_binding_configured=true`, and
+`trust_contract_valid=true`. The runtime values matched the local trust
+summary:
+
+| Trust input | SHA-256 (base64url) |
+| --- | --- |
+| Origin Inventory | `GxuuiqFckRvMhKRR5ersCTutAYG9VlgUtQDwZDu1jV8` |
+| Target Approval artifact | `dX-LGwyMweYVozcyz3i6Yo0_RxyZZpaf-5XtgBFlMaY` |
+| Security Registry Set | `KAmWECZnA_8BBDR7PYp0SLmMNS75vQPwgg-_afsYUgc` |
+
+`TLSN_TRUST_ROOT_CERTIFICATE_DER` was absent (`production_trust_root_bound=false`).
+The external `/internal/tlsn/verification-complete` callback returned HTTP 404
+`not_found`.
+
+**FRESH FIXTURE:** A new non-anonymous Supabase user and Ed25519 device were
+registered, signed in, and used for Session
+`06c42836-d97a-49e1-8735-6e29a8fa03df`. The normal release Notary was rebuilt
+from the current proxy worktree with
+`cargo build --locked --release --features operational-notary --bin fusou-notary`;
+the binary had no fault-injection feature. Its SHA-256 was
+`DYukiUvOwNn2mAkZsTH09__WAdnhjyGobrUP_GlY9pQ` (hex
+`0d8ba4894bcec0d9f6980919b131f4f7ffd601d9e18f21a86eb50ffc6958f694`).
+The existing Rust fixture
+`operational::worker_session_grant_produces_independently_verified_complete_presentation`
+passed 1/1 (13 filtered). It produced a 3,481-byte Complete Presentation for
+`capture.fusou.internal`; independent verification with the local test CA
+passed. The exact Presentation SHA-256 (base64url) was
+`_-6WLUu6PoCdM3Tu-uOx4irw6ooexQx4uot8joHn7aw`.
+
+**QUEUE MISMATCHES:** The authenticated `/verify/tlsn` request returned HTTP
+202 and queued job `fc1b0cf9-d63e-4e17-8a43-1264f34178aa`. Thirteen
+role/origin-policy/trust-digest/DO-binding mismatch variants were passed
+through the actual Worker `queue()` handler while the valid job was
+`processing`; each was acknowledged and the DO/R2 snapshot was unchanged.
+While the valid job held an unexpired `verifying` lease, a separate job-ID
+mismatch was also acknowledged without changing the lease, Result fields, or
+R2 object set. The test-only barrier was released immediately after that
+comparison.
+
+The unmodified Queue message then reached the actual Queue consumer once.
+The authenticated status endpoint returned HTTP 200,
+`verified=false`, `status=not_verified`, and
+`verification_failure_code=verifier_failed`. Secret-free Worker instrumentation
+identified `failure_stage=wasm_verification`; no Result digest, consume
+receipt, or success archive was created. The DO ended `failed`, and R2
+contained only the original `presentation.bin` object (3,481 bytes, the exact
+Presentation digest above); Queue backlog was zero. The harness event log
+contained one actual Queue delivery and 13 controlled handler entries. The
+test command reported all 13 processing mismatches and the active-lease
+mismatch individually as acknowledged/unchanged. The stage was
+`wasm_verification`; the surfaced error type was `unknown`, so a more specific
+internal WASM failure subcode remains **UNKNOWN**.
+
+Two earlier attempts did not reach WASM: the first used a Workerd
+cross-request Promise barrier and the second kept barrier state in a host
+closure that was not shared with the admin poller. Both were abandoned without
+claiming a Production verification result or reusing their Session/job for
+the successful run. A post-restart Session request using the previous device
+was also rejected with `409 device_nonce_replayed`; a new user/device and
+fresh Session were used for the successful run.
+
+**CHECKS:** Worker typecheck passed. Execution-mode, Queue-policy, and
+Production Result contract tests passed **12/12**, with 0 failures and 0
+skips. The local-CA Rust Presentation fixture passed 1/1. Current-source WASM
+provenance passed with source commit binding `VERIFIED` for
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`; the pinned tools were
+`wasm-pack 0.15.1`, `wasm-bindgen 0.2.128`, `wasm-opt 133`, Rust 1.98.1, and
+Clang 18.1.3. The existing WASM artifact was provenance-verified, not rebuilt.
+The local Production Queue harness passed `node --check`.
+
+**REPEATABLE COMMANDS:** After creating a task-owned run with
+`pnpm --dir packages/FUSOU-WEB run init:tlsn-testplay-supabase --internal-isolated`
+and applying the existing local Production trust fixture, use:
+
+```sh
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs serve
+
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs health
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs build-notary
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs callback-probe
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs prepare-user
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs issue-session
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs prepare-fixture
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs submit "$SESSION_ID"
+JOB_ID="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv.at(-1), "utf8")).job_id)' "$RUN_DIR/production-queue-job.json")"
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs mismatches "$JOB_ID" processing
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs mismatches "$JOB_ID" lease
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs status "$JOB_ID"
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" \
+  node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs verify-logs "$JOB_ID"
+```
+
+**STATUS:** Local Production Queue mismatch rejection and local-CA
+Presentation rejection through the WASM stage are **VERIFIED**. Hosted CI,
+APP Result receipt, accepted Evidence, and formal execution receipt are
+**NOT_CHECKED**.
+Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+**CLEANUP:** After recording the measurements, the task-owned Supabase
+containers and data volumes were stopped/deleted; the relay container and
+internal network were removed. The WEB, Worker, and local relays stopped;
+ports `8787`, `8788`, `9443`, `19004`, and the temporary DB/Kong ports were
+confirmed closed. The private run directory, including credentials, CA,
+keys, R2/DO state, logs, binaries, and temporary WASM toolchains, was removed.
+
+## Production-default certificate-path rejection comparison — 2026-11-24
+
+The earlier run's `UNKNOWN` WASM exception classification at the top of this
+section is retained as its historical observation. This fresh run establishes
+the failing call and fixed diagnostic for the new Presentation; it does not
+identify a more specific cause such as an untrusted root versus certificate
+expiry.
+
+**SOURCE AND ISOLATION:** Branch `tlsn-first-testplay-candidate`, HEAD
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`. The disposable Supabase stack used
+`--internal-isolated`; its Docker network was internal and the API/DB access
+used only the initializer's loopback relay. No Production trust root was bound
+to the Worker. No cloud Worker, Trigger.dev, game server, or external trigger
+was contacted.
+
+Production `/health` returned HTTP 200 with `execution_mode=queue`,
+`execution_binding_configured=true`, and
+`security_identity.trust_contract_valid=true`. The configured digests matched:
+
+| Trust input | SHA-256 (base64url) |
+| --- | --- |
+| Origin Inventory | `GxuuiqFckRvMhKRR5ersCTutAYG9VlgUtQDwZDu1jV8` |
+| Target Approval | `8iCUocKj0N_Q0xmHQq5_c938SfxigslnCX9pyyY-1c8` |
+| Security Registry Set | `oK4HRxhQKLoaXuQe5SMDiuBKipk9VwTpP7B4gQMG0jc` |
+
+The fixture used the normal `operational-notary` release binary, built from
+the local `packages/FUSOU-PROXY/proxy-https` source; its SHA-256 (base64url)
+was `DYukiUvOwNn2mAkZsTH09__WAdnhjyGobrUP_GlY9pQ`. The pinned Notary public
+key SHA-256 was
+`IMpo0iAm2eXVs8XXtO13f9WG9Vw_pvBCkz4wkpXToZ4`. A fresh non-anonymous local
+Auth user and registered device received a new Worker Session (HTTP 201); the
+Session receipt signature was verified.
+
+The existing Rust test
+`operational::worker_session_grant_produces_independently_verified_complete_presentation`
+passed 1/1 and generated a Complete Presentation for
+`capture.fusou.internal` from that Session. The exact Presentation was 3,481
+bytes with SHA-256 (base64url)
+`lpRvt3pRyfGJndj3AHEpqXS6EoPa2RUvH42NK79MyxA`.
+
+**SAME-BYTE COMPARISON:**
+
+| Verification path | Result |
+| --- | --- |
+| Independent Rust verification with the fixture CA and pinned Notary key | `PASS` |
+| Current-source Worker WASM `inspect_alpha15_server_identity`, default trust store, no custom root | `REJECTED`; `exception_kind=wasm_string`; `diagnostic_code=certificate_path_invalid` |
+| Presentation digest before/after direct WASM inspection | Identical: `lpRvt3pRyfGJndj3AHEpqXS6EoPa2RUvH42NK79MyxA` |
+
+The fixed diagnostic was `failed to verify certificate path to provided
+trust anchors`, corresponding to `ServerCertVerifierError::InvalidPath`.
+The observed evidence establishes certificate-path rejection, not the
+particular path-validation subcause.
+
+**ACTUAL QUEUE RESULT:** One authenticated `POST /verify/tlsn` submitted those
+exact bytes and returned HTTP 202 (`status=queued`). The real Queue consumer
+received one actual Queue delivery. Fourteen controlled mismatch deliveries
+(13 while the legitimate DO job was `processing`, one while its verification
+lease was active) were acknowledged without changing the legitimate DO/R2
+state. The held active lease was observed as `verifying` and preserved until
+the barrier was released.
+
+The real job then failed at `wasm_verification`. Sanitized Worker observations
+identified the failing call as `inspect_alpha15_server_identity`, with
+`wasm_string` and `certificate_path_invalid`. Authenticated status returned
+HTTP 200 with `verified=false` and `status=not_verified`; the DO was `failed`
+with `verification_failure_code=verifier_failed`. The result digest was null,
+and no consume receipt or success archive was created. R2 contained only
+`tlsn-verification/<job>/presentation.bin` (3,481 bytes) with the exact
+Presentation digest above.
+
+The first `verify-logs` attempt exposed that the pre-existing `serve` command
+did not persist Worker stdout. The live stdout contained the actual Queue,
+mismatch, and sanitized WASM events; an allowlisted, private event transcript
+made from those observed records passed `verify-logs` with 1 actual delivery,
+14 controlled deliveries, and the expected diagnostic. The local harness now
+persists only allowlisted event fields and fixed diagnostic codes; it rejects
+unknown event shapes and never writes raw error text, certificate data,
+Presentation bytes, keys, proofs, or tokens to that log.
+
+**VALIDATION:** Classification regression cases passed 5/5; Verification
+Worker typecheck passed. Execution-mode tests passed 4/4, Queue-policy tests
+passed 4/4, and Production Result contract tests passed 4/4. Current-source
+WASM build/provenance had already passed earlier in this run with source
+binding `VERIFIED` and the pinned toolchain (Rust 1.98.1, wasm-pack 0.15.1,
+wasm-bindgen 0.2.128, wasm-opt 133, Clang 18.1.3). A later provenance
+re-invocation was blocked because the ambient `PATH` did not contain
+`wasm-bindgen`; no WASM source input or artifact changed after the successful
+provenance check. The generated WASM SHA-256 (base64url) was
+`RN0aIqOOlpQINFgJmNHsI7Ma0yxEbc8_erbfvMtSHnE`.
+
+**REPEATABLE COMMANDS:** After the existing `--internal-isolated` setup,
+temporary trust fixture configuration, and dedicated WEB/Worker startup, run:
+
+```sh
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs health
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs prepare-user
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/local-trigger-test-client.mjs issue-session
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs prepare-fixture
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs inspect-wasm
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs submit "$SESSION_ID"
+JOB_ID="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv.at(-1), "utf8")).job_id)' "$RUN_DIR/production-queue-job.json")"
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs mismatches "$JOB_ID" processing
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs mismatches "$JOB_ID" lease
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs status "$JOB_ID"
+FUSOU_LOCAL_TEST_RUN_DIR="$RUN_DIR" node packages/FUSOU-TLSN-RUNTIME-CONFIG-FRESHNESS-COORDINATOR/scripts/local-production-queue-test.mjs verify-logs "$JOB_ID"
+```
+
+**STATUS:** This fresh local Production-role certificate-path rejection is
+**VERIFIED**. The earlier run's `UNKNOWN` remains accurate for that earlier
+observation. Hosted CI, APP Result receipt, accepted Evidence, and formal
+execution receipt are **NOT_CHECKED**. Stage A/B/C and Production acceptance
+remain **BLOCKED**.
+
+**CLEANUP:** The WEB, Worker, and relay processes stopped; loopback ports
+`8787`, `8788`, `9443`, `19004`, `33925`, and `34213` were confirmed closed.
+The task-owned Supabase containers and database volume were stopped/removed,
+and only the verified task-owned relay container and internal network were
+removed. The private run directory and generated WASM outputs are removed
+after the recorded measurements.
+
+## Remote Worker Queue-enqueue Uncertainty Recovery
+
+**SCOPE:** Local Rust integration tests against a loopback HTTP Worker fixture.
+No APP binary, live Worker, origin, cloud service, or game server was used.
+The source state was branch `tlsn-first-testplay-candidate` at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`; pre-existing worktree changes and
+untracked harnesses were preserved.
+
+**IMPLEMENTATION:** `RemoteWorkerVerificationBackend` now polls the existing
+status endpoint only when the initial response is HTTP 503 with
+`verified=false`, the exact error `queue_enqueue_unconfirmed`, and a Worker
+UUID v4 job ID. It uses the existing status request and Result acceptance
+path. It does not resend `/verify/tlsn`, the Presentation, or device proof.
+The existing HTTP 202 payload contract, synchronous success path, generic
+503 mapping, Trigger error mapping, poll deadline, and cancellation behavior
+remain unchanged.
+
+**OBSERVED:** The recovery fixture returned `503 queue_enqueue_unconfirmed`,
+then `202 processing`, then `200 verified=true` for the same job. The initial
+POST count was 1 and status query count was 2. Both status requests carried
+the same job ID, Session ID, binding digest, canonical user ID, and device ID;
+they did not contain Presentation bytes or device proof. The test verifies
+the initial device proof and accepts the signed Complete Result through the
+existing signature, Presentation, transcript, Session, binding, target, and
+device checks. The Result fixture pins both Production authority digests.
+The registered exact Worker response bytes matched `result-exact.bin`
+byte-for-byte. The candidate manifest remained
+`INCOMPLETE_MISSING_EXECUTION_RECEIPT`; no formal execution receipt was
+present or claimed. The archive fixture's `consume_receipt` value exists only
+to exercise the existing candidate writer and is not asserted as a valid
+receipt.
+
+**REJECTIONS AND COMPATIBILITY:** `queue_unconfigured`, Trigger errors,
+generic 503 responses, malformed/non-v4 job IDs, and a response with
+`verified=true` did not start status polling. An initial POST timeout made
+one POST and no status query. A changed job ID in an interim 202, terminal
+`verified=false`, invalid inner signature, and Session binding mismatch
+registered no Result. A status-poll timeout did not create a new job, resend
+the capture, or fall back to Trigger. Existing ordinary 202-to-status and
+synchronous 200 success paths both passed.
+
+**VALIDATION:** The five new exact test selectors passed 5/5. The complete
+`result_binding_tests` module passed 12/12, including both independent
+Production digest pins, and the five existing capture/cancellation cleanup
+selectors passed 5/5. Rust formatting and edited-file whitespace checks
+passed. The workflow parsed as YAML, and all five new exact names were found
+by Cargo's test listing. Compilation emitted the existing unused
+`from_verified_alpha15_partial` warning in the verifier crate.
+
+**REPEATABLE COMMANDS:** From the repository root, using Rust 1.98.1 and a
+temporary `CARGO_TARGET_DIR` (choose a fresh path for a clean rebuild):
+
+```sh
+manifest=packages/FUSOU-PROXY/proxy-https/Cargo.toml
+run_exact_test() {
+  CARGO_TARGET_DIR=/tmp/fusou-proxy-queue-recovery-target \
+  CARGO_NET_OFFLINE=true \
+    cargo +1.98.1 test --locked --offline --lib --features synthetic-tlsn \
+      --manifest-path "$manifest" "$1" -- --exact
+}
+run_exact_test real_tlsn::tests::queue_enqueue_unconfirmed_requires_exact_error_and_worker_uuid_v4
+run_exact_test real_tlsn::tests::result_binding_tests::remote_backend_recovers_unconfirmed_queue_result_once_and_preserves_exact_candidate_bytes
+run_exact_test real_tlsn::tests::result_binding_tests::remote_backend_preserves_accepted_202_and_synchronous_success
+run_exact_test real_tlsn::tests::result_binding_tests::remote_backend_does_not_poll_other_503_responses_or_retry_initial_timeouts
+run_exact_test real_tlsn::tests::result_binding_tests::remote_backend_rejects_mismatched_jobs_unverified_results_and_invalid_signatures_or_bindings
+```
+
+The five selectors are added to the existing Proxy test step in
+`tlsn-testplay-candidate.yml`.
+
+**STATUS:** This proves local Proxy recovery behavior only. APP Result
+receipt, Hosted CI, formal execution receipt, and accepted Evidence are
+**NOT_CHECKED**. Stage A/B/C and Production acceptance remain **BLOCKED**.
+
+## Linux APP Queue-enqueue Recovery Attempt
+
+**SCOPE AND OUTCOME:** One run used a task-only source snapshot and disposable
+Linux GUI, D-Bus, HOME, local Runtime Config/Freshness, Supabase Auth/WEB, and
+dummy HTTPS origin. No successful contact with a game server, public service,
+Cloudflare, or Trigger.dev was observed. Isolated WEB startup emitted
+`EAI_AGAIN workers.cloudflare.com` while Wrangler attempted to fetch the
+`Request.cf` object, then fell back to its default placeholder. The APP was
+built with Rust 1.98.1 and the
+`tlsn-production` and `custom-protocol` features. Source snapshot SHA-256:
+`ff4d701282f14ed1518e4583bf13714c9ba48d55c765d40dbb96becb50318e43`.
+APP binary SHA-256:
+`3b0e0b1ecc29e6b00c751b3d69ad000eef0416224689110771d87a93a09321ae`;
+size: 91,726,904 bytes. The source state was
+`tlsn-first-testplay-candidate` at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`; existing worktree changes were
+preserved.
+
+**OBSERVED:** The APP was started with Run Proxy Server enabled and Open
+KanColle disabled. A readiness snapshot showed `Overall: ready`, and a fresh
+Worker Session issuance returned HTTP 201 at `2026-11-24T07:21:35.215Z`.
+That snapshot did not establish capture-time freshness. At the single capture
+attempt (`2026-11-24T07:25:34Z`), APP revalidation failed with
+`Worker reference is not fresh`. The APP logged that the TLSN origin request
+was not sent and ordinary proxy fallback was used. The dummy origin observed
+exactly one empty-body `POST /kcsapi/api_get_member/require_info`, returned
+HTTP 200 with 83 response bytes, and the APP subsequently reported that the
+response omitted `api_firstflag`. This parser issue was secondary; the
+capture-time Worker-reference freshness failure stopped TLSN first.
+
+No request reached the local `/verify/tlsn` or `/verify/tlsn/status` handler:
+initial POST count 0, status count 0, and Result-generation count 0. No job ID,
+Complete Presentation, Presentation digest/length, final status bytes,
+`result-exact.bin`, or candidate was produced. Therefore this run does not
+demonstrate `503 queue_enqueue_unconfirmed` recovery or APP Result receipt and
+save. There is no candidate to label
+`INCOMPLETE_MISSING_EXECUTION_RECEIPT`.
+
+**REPEAT PROCEDURE:** Use a fresh isolated task environment and fresh user,
+device, and Worker Session. Refresh the Worker reference immediately before
+capture and verify its freshness at the actual capture-time revalidation
+boundary; do not rely on a cached readiness panel. Configure the dummy origin
+to return an APP-parser-compatible response including `api_firstflag`, then
+make only the single permitted proxy request. Count the origin request and
+the local result-handler requests independently. Continue to require one
+initial POST, same-job status polling, exact Result-byte comparison, signature
+and binding checks, and the candidate's missing-receipt state only if a
+candidate is actually created.
+
+**CLEANUP AND STATUS:** The APP exited, and PAC readback in the task-only
+D-Bus session was mode `none` with an empty URL; host PAC, CA, and HOME were
+untouched. Task containers, database volume, and both task networks were
+removed; no task listener or host port mapping remained. The operator
+reported that deletion of the task directory stopped on root-owned files.
+The directory and earlier temporary output were left for the operator.
+This attempt's APP Result receipt and candidate save are **BLOCKED**
+at capture-time Runtime Config freshness. Hosted CI, formal execution
+receipt, and accepted Evidence are **NOT_CHECKED**. Stage A/B/C and Production
+acceptance remain **BLOCKED**.
+
+## Linux APP local Result-recovery re-run — HOME11
+
+**SCOPE:** This attempt used the existing disposable Linux APP, dedicated
+desktop/D-Bus, local Runtime Config/Freshness, local Auth/WEB, local Notary,
+and dummy HTTPS origin only. No game, public service, Cloudflare, or
+Trigger.dev connection was used. Repository state remained on
+`tlsn-first-testplay-candidate` at
+`0dd7a8e92d3ad90b7fc6a9865741c9273266534c`; existing worktree changes were
+preserved. The previously recorded APP binary SHA-256 for this build is
+`5cd7a03fe1865b22d8e6a5987d2f502a2b618f95c22a7307529c1750c85fa29e`.
+
+**OBSERVED — RUNTIME CONFIG AND SESSION:** The local Worker health response
+was HTTP 200 with Production Queue mode, configured binding, and a valid trust
+contract. The signed Manifest was issued at
+`2026-11-24T13:26:21.986Z`; its exact-byte SHA-256 was
+`bOuIqX6XgxqxklduoTB6G7ISMHzCdG23uW7ZU1kYtgw`. The APP's persisted accepted
+Manifest digest matched. Run Proxy Server was enabled and Open KanColle was
+disabled. APP start was clicked at `2026-11-24T13:27:24.722Z`; the new Worker
+Session returned HTTP 201 at `2026-11-24T13:27:24.920Z` and had expiry
+`2026-11-24T13:57:24.903Z`. The `Overall: ready` label itself was not
+observed in the running APP UI and remains **NOT_CHECKED**.
+
+**OBSERVED — SINGLE PROXY REQUEST:** Immediately before the one actual proxy
+request, origin count and local Result-handler observation count were both
+zero. The capture began at `2026-11-24T13:33:54.229Z`, 452.243 seconds after
+the Worker reference observation, with 147.757 seconds remaining in its
+600-second window (27.757 seconds beyond the required 120-second start
+margin). One HTTP/1.1 POST to
+`/kcsapi/api_get_member/require_info` through the APP proxy returned HTTP 200.
+The dummy origin recorded exactly one request at
+`2026-11-24T13:33:56.533Z`; its 329-byte response SHA-256 was
+`3c68e7c9628377b355ac6582cba90ebe544cdb01713a0ea25a74dce943220127`.
+The APP origin-send journal recorded one `send_intent` and
+`outcome=response_received`.
+
+**BLOCKED — TLSN CAPTURE AND RESULT:** The local Result handler observed zero
+`/verify/tlsn` and zero status requests. No `503 queue_enqueue_unconfirmed`,
+job ID, Presentation, Presentation digest/length, signed Result, final status
+body, `result-exact.bin`, or candidate was produced. The HOME11 task-local APP
+configuration had `capture_enabled=false`, an empty `capture_output_path`,
+and `proxy.tlsn.candidate_capture_enabled=true`. The first two values disable
+the optional raw client-wire capture hook. The TLSN forwarder and its
+candidate output use separate settings. The correlated TLSN send-journal
+entry reaches `response_received`, before the background proof starts.
+The exact post-response stop is **UNKNOWN**. This run did not identify a
+Notary, proof, deadline, cancellation, or artifact-write failure. A Settings-page “Load slot item data” action produced no
+origin request; the single proxy POST above was the only origin request, and
+it was not retried. There is no candidate to label
+`INCOMPLETE_MISSING_EXECUTION_RECEIPT`.
+
+**REPEAT PROCEDURE:** Use a new isolated HOME, user, device, Session, signed
+Worker reference, and Manifest. Verify the resolved `proxy.tlsn.enabled`,
+`proxy.tlsn.candidate_capture_enabled`, and an absolute, writable,
+task-owned `proxy.tlsn.artifact_output_path`. Keep optional raw client-wire
+capture off unless that separate output is part of the test. Start with Run
+Proxy Server on and Open KanColle off. Read the live readiness panel and
+check reference age, Session expiry, and the accepted Manifest digest
+before sending one new request. After HTTP 200, keep the APP running and
+observe the latest capture state until success or a named stop. Correlate
+the APP log, Notary, send journal, and Worker requests before cleanup.
+See the [operator procedure](../FUSOU-TLSN-VERIFICATION-WORKER/docs/production-evidence-operator-runbook.md#observing-the-app-after-the-origin-replies).
+Wrangler child-process propagation of `CLOUDFLARE_CF_FETCH_ENABLED=false`
+and its DNS-attempt status were **NOT_CHECKED** for HOME11.
+
+**STATUS:** APP Result receipt and candidate save are **BLOCKED** following
+the origin response. APP `Overall: ready` text is **NOT_CHECKED**. Hosted CI, formal execution receipt, and accepted Evidence
+are **NOT_CHECKED**. Stage A/B/C and Production acceptance remain
+**BLOCKED**.
+
+**CLEANUP:** Sent SIGINT to the APP and confirmed it stopped. In the
+isolated D-Bus session, PAC readback after shutdown was
+`org.gnome.system.proxy mode='none'` and `autoconfig-url=''`. Removed this
+attempt's APP desktop, origin, services, and GC58An Supabase containers,
+network, and database volume. No listener for the task's local ports
+remained. The older `cn2pPT` stack and prior root-owned
+`/tmp/fusou-app-result-7zBsMq` directory were left untouched. Removed only
+the current user-owned `/tmp/fusou-app-result-retry-9NfTeJ` directory.
+
+## APP post-response capture diagnostics — 2026-11-25
+
+The read-only APP readiness report now exposes `capture_execution_state` for
+the current or most recent attempt in the running forwarder. The UI displays
+this state independently from overall readiness and clears it on recheck
+until the new snapshot arrives. The console reports the final state of a
+completed post-response task. No request, grant, signing, or receipt behavior
+changed. The local WEB harness explicitly disables Wrangler's online
+`Request.cf` fetch in its child environment.
+
+**CHECKS:** Rust 1.98.1, locked and offline. The Proxy capture harness passed
+38/38, including the case where the origin HTTP response is preserved, a
+proof failure stays observable after cleanup, and the verifier and Result
+boundary are never called. The APP-source harness passed 44 unit tests and
+one shared-vector test. The actual Proxy Result-binding suite passed 12/12,
+including same-job recovery and exact candidate bytes. The separate-process
+Notary Complete/Sparse loopback test passed 1/1 on its separate rerun in
+17.41 seconds. Its initial run reached the existing 60-second deadline
+during transport while a compile was running. The cause of that first
+timeout was not determined.
+
+The Chromium readiness regression passed 1/1. The Vite build with an empty
+dotenv directory passed, and the isolated native APP
+`cargo check --locked --offline --features tlsn-production,custom-protocol`
+passed. The snapshot omitted the APP roaming configuration. A separate
+no-network Wrangler smoke returned the local `Request.cf` default without a
+fetch warning. The five local WASM diagnostic classification cases passed.
+
+**OPEN:** This change has not been exercised in a new native APP GUI capture.
+The HOME11 post-response stop remains **UNKNOWN**, and actual APP Result
+receipt and candidate save remain **NOT_CHECKED**. Hosted CI, formal
+execution receipt, and accepted Evidence remain **NOT_CHECKED**. Stage A/B/C
+and Production acceptance remain **BLOCKED**.
