@@ -101,15 +101,13 @@ pnpm run generate:latest -- --period-tag <PERIOD_TAG>
 旧来の `scan` コマンド類は廃止され、AST(Abstract Syntax Tree)をベースにした抽出へと全面的に移行しました。
 現在は `FUSOU-PROXY-DATA` に保存されている最新のプロキシデータを自動で検知し、生成とアップロードを分離して実行できます。
 
-既定値は、今回の実測で「最速かつ参照結果と一致」と確認できた構成に寄せています。
+既定値は、Phase 同期・常駐ワーカープール型並列スキャンとゼロアロケーション評価器により、厳格さと高速性を両立した構成にしています。
 
 - strict N-1: 有効固定
 - duplicate items: 有効固定
-- workers 既定値: 最大 8
-- schedule shards 既定値: 256
+- workers 既定値: `min(論理CPU数, 16)`（常駐ワーカープール + Phase バリア同期により 16 ワーカーでも単一プロセスと完全一致）
+- 負荷平滑化: 艦ごとの単純インデックス分割ではなく、コンボ数ベースの均等 `(ai, bi)` チャンク動的スケジューリング（ワークスティール）
 - Node 実行バイナリ: `FUSOU_SCAN_NODE_BIN` 未指定時は Node 24.18.0 を優先探索
-
-`workers=16` 系は strict + duplicate mode でも参照結果との差分が確認されたため、既定値から外しています。
 
 ### 1. シナジーJSON生成 → ローカルR2 / 本番R2へアップロード
 
@@ -260,7 +258,9 @@ bash scripts/generate-synergy-latest.sh \
 - 推定テスト数は `output/scan_estimated_tests_<period>.json` に出力されます。
 - 範囲指定での検証例: `--ship-range 500-700`。
 
-## AST解析は何に使っているか
+## AST解析とシナジー計算の仕組み
+
+詳細な計算アルゴリズム・残差分解モデル・常駐ワーカープール並列化・ベンチマーク結果については [docs/synergy-calculation-architecture.md](./docs/synergy-calculation-architecture.md) を参照してください。
 
 `scripts/core/extract-ast.js` は、難読化解除後の `deobfuscated.js` を `acorn` でパースし、装備ボーナスの条件テーブルと判定関数名を静的に抽出して `synergy_dict*.json` を作るために使っています。
 
