@@ -2512,7 +2512,7 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
 
-        forwarder.start_preparation();
+        ExperimentalRequireInfoForwarder::start_preparation(forwarder.as_ref());
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             while !forwarder.capture_ready() {
                 tokio::task::yield_now().await;

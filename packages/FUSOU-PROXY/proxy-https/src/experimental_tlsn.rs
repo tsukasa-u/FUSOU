@@ -128,6 +128,7 @@ pub enum CaptureReadinessDiagnostic {
 pub struct ExperimentalTlsnReadinessDiagnostic {
     pub session_grant: BindingPreparationDiagnostic,
     pub capture: CaptureReadinessDiagnostic,
+    pub execution_state: Option<ExperimentalTlsnRuntimeState>,
 }
 
 impl ExperimentalTlsnReadinessDiagnostic {
@@ -135,6 +136,7 @@ impl ExperimentalTlsnReadinessDiagnostic {
         Self {
             session_grant: BindingPreparationDiagnostic::Unavailable,
             capture: CaptureReadinessDiagnostic::Unavailable,
+            execution_state: None,
         }
     }
 }
@@ -1435,6 +1437,44 @@ pub enum ExperimentalTlsnRuntimeState {
     CleanupUnconfirmed,
 }
 
+impl ExperimentalTlsnRuntimeState {
+    pub const fn diagnostic_code(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Selected => "selected",
+            Self::BindingIssued => "binding_issued",
+            Self::Serialized => "serialized",
+            Self::Sent => "sent",
+            Self::ResponseReceived => "response_received",
+            Self::ResponseReturned => "response_returned",
+            Self::ProofStarted => "proof_started",
+            Self::ProverFinalizationFailed => "prover_finalization_failed",
+            Self::TranscriptCommitFailed => "transcript_commit_failed",
+            Self::ProveFailed => "prove_failed",
+            Self::AttestationRequestFailed => "attestation_request_failed",
+            Self::NotaryFailed => "notary_failed",
+            Self::AttestationValidationFailed => "attestation_validation_failed",
+            Self::PresentationFailed => "presentation_failed",
+            Self::ProofFailed => "proof_failed",
+            Self::EvidenceReady => "evidence_ready",
+            Self::PresentationVerificationFailed => "presentation_verification_failed",
+            Self::VerificationDeferred => "verification_deferred",
+            Self::WorkerUnavailable => "worker_unavailable",
+            Self::TriggerVerificationFailed => "trigger_verification_failed",
+            Self::WorkerVerificationFailed => "worker_verification_failed",
+            Self::Verified => "verified",
+            Self::ResultSigningFailed => "result_signing_failed",
+            Self::ArtifactDeliveryFailed => "artifact_delivery_failed",
+            Self::ResultReady => "result_ready",
+            Self::ResultDelivered => "result_delivered",
+            Self::Cancelled => "cancelled",
+            Self::DeadlineExceeded => "deadline_exceeded",
+            Self::Unattested => "unattested",
+            Self::CleanupUnconfirmed => "cleanup_unconfirmed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OriginRequestOutcome {
     NotSent,
@@ -1867,6 +1907,7 @@ impl ExperimentalTlsnForwarder {
             return ExperimentalTlsnReadinessDiagnostic {
                 session_grant,
                 capture: capture_status_without_active_capture(session_grant),
+                execution_state: None,
             };
         };
         let state = match capture.state.lock() {
@@ -1886,6 +1927,7 @@ impl ExperimentalTlsnForwarder {
         ExperimentalTlsnReadinessDiagnostic {
             session_grant,
             capture: capture_status,
+            execution_state: Some(state),
         }
     }
 
@@ -2477,6 +2519,13 @@ impl ExperimentalTlsnForwarder {
             if let Err(error) = capture_owner.finish(None, cleanup_confirmed) {
                 tracing::error!(%error, connection_id, "TLSN capture owner could not finalize");
             }
+            if let Ok(state) = state.lock() {
+                tracing::info!(
+                    connection_id,
+                    capture_execution_state = state.diagnostic_code(),
+                    "TLSN capture finished after origin response"
+                );
+            }
         }));
         *capture_execution
             .proof_task
@@ -2503,6 +2552,10 @@ impl ExperimentalRequireInfoForwarder for ExperimentalTlsnForwarder {
             test_pause: Arc::clone(&self.test_pause),
         });
         Box::pin(forwarder.forward_inner(connection_id, request))
+    }
+
+    fn start_preparation(&self) {
+        ExperimentalTlsnForwarder::start_preparation(self);
     }
 
     fn readiness_diagnostic(&self) -> ExperimentalTlsnReadinessDiagnostic {
@@ -3955,6 +4008,8 @@ mod tests {
             retained_response: Mutex::new(None),
             proof_release: Mutex::new(Some(release_rx)),
         });
+        let verifier_calls = Arc::new(AtomicUsize::new(0));
+        let result_calls = Arc::new(AtomicUsize::new(0));
         let forwarder = ExperimentalTlsnForwarder::new(
             Arc::new(MockBindingProvider {
                 calls: Arc::new(AtomicUsize::new(0)),
@@ -3963,10 +4018,10 @@ mod tests {
             Arc::new(Http1OriginRequestSerializer),
             Arc::clone(&transport) as Arc<dyn TlsnOriginTransport>,
             Arc::new(MockVerifier {
-                calls: Arc::new(AtomicUsize::new(0)),
+                calls: Arc::clone(&verifier_calls),
             }),
             Arc::new(MockResultBoundary {
-                calls: Arc::new(AtomicUsize::new(0)),
+                calls: Arc::clone(&result_calls),
             }),
         );
 
@@ -3976,20 +4031,33 @@ mod tests {
             .unwrap()
             .expect("capture response");
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), &exchange().response.body);
+        assert_eq!(
+            forwarder.readiness_diagnostic().execution_state,
+            Some(ExperimentalTlsnRuntimeState::ResponseReturned)
+        );
         assert_eq!(
             forwarder.state().unwrap(),
             ExperimentalTlsnRuntimeState::ResponseReturned
         );
+        wait_state(&forwarder, ExperimentalTlsnRuntimeState::ProveFailed).await;
+        let capture = forwarder.current_capture().unwrap().unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if forwarder.state().unwrap() == ExperimentalTlsnRuntimeState::ProveFailed {
-                    break;
-                }
+            while !capture.locally_quiesced.load(Ordering::Acquire) {
                 tokio::task::yield_now().await;
             }
         })
         .await
-        .expect("proof stage failure was not recorded");
+        .expect("failed proof did not finish cleanup");
+        let diagnostic = forwarder.readiness_diagnostic();
+        assert_eq!(
+            diagnostic.execution_state,
+            Some(ExperimentalTlsnRuntimeState::ProveFailed)
+        );
+        assert_ne!(diagnostic.capture, CaptureReadinessDiagnostic::InProgress);
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(verifier_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

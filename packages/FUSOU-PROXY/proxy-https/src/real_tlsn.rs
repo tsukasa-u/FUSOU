@@ -613,6 +613,28 @@ fn queued_job_id(payload: &serde_json::Value) -> Result<String, VerificationErro
     Ok(job_id.to_owned())
 }
 
+fn queue_enqueue_unconfirmed_job_id(payload: &serde_json::Value) -> Option<String> {
+    if payload.get("verified") != Some(&serde_json::Value::Bool(false))
+        || payload.get("error").and_then(serde_json::Value::as_str)
+            != Some("queue_enqueue_unconfirmed")
+    {
+        return None;
+    }
+    let job_id = payload.get("job_id").and_then(serde_json::Value::as_str)?;
+    let bytes = job_id.as_bytes();
+    if bytes.len() != 36
+        || [8, 13, 18, 23]
+            .into_iter()
+            .any(|index| bytes[index] != b'-')
+        || bytes[14] != b'4'
+        || !matches!(bytes[19].to_ascii_lowercase(), b'8' | b'9' | b'a' | b'b')
+        || uuid::Uuid::parse_str(job_id).is_err()
+    {
+        return None;
+    }
+    Some(job_id.to_owned())
+}
+
 fn verified_worker_payload(
     payload: serde_json::Value,
 ) -> Result<(serde_json::Value, String, VerifiedMemberId), VerificationError> {
@@ -713,6 +735,8 @@ pub struct RemoteWorkerVerificationBackend {
     results: Arc<RemoteWorkerResultStore>,
     result_verifier: Arc<ResultSignatureVerifier>,
     response_mode: RemoteWorkerResponseMode,
+    poll_interval: Duration,
+    poll_timeout: Duration,
 }
 
 impl RemoteWorkerVerificationBackend {
@@ -739,6 +763,8 @@ impl RemoteWorkerVerificationBackend {
             results,
             result_verifier,
             response_mode,
+            poll_interval: WORKER_POLL_INTERVAL,
+            poll_timeout: WORKER_POLL_TIMEOUT,
         })
     }
 }
@@ -754,6 +780,8 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
         let results = Arc::clone(&self.results);
         let result_verifier = Arc::clone(&self.result_verifier);
         let response_mode = self.response_mode;
+        let poll_interval = self.poll_interval;
+        let poll_timeout = self.poll_timeout;
         Box::pin(async move {
             let (context, request, binding, exchange, presentation) = input.into_parts();
             let session = binding_state
@@ -815,10 +843,25 @@ impl TlsnVerificationBackend for RemoteWorkerVerificationBackend {
                     &access_token,
                     &session,
                     &job_id,
-                    WORKER_POLL_INTERVAL,
-                    WORKER_POLL_TIMEOUT,
+                    poll_interval,
+                    poll_timeout,
                 )
                 .await?
+            } else if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                if let Some(job_id) = queue_enqueue_unconfirmed_job_id(&worker_response.payload) {
+                    poll_worker_result(
+                        &client,
+                        &status_endpoint,
+                        &access_token,
+                        &session,
+                        &job_id,
+                        poll_interval,
+                        poll_timeout,
+                    )
+                    .await?
+                } else {
+                    return Err(worker_http_error(status, &worker_response.payload));
+                }
             } else if status.is_success() {
                 worker_response
             } else {
@@ -1355,12 +1398,41 @@ fn required_candidate_identity_hash<'a>(
     Ok(value)
 }
 
+const APP_CONFIGURATION_FINGERPRINT_CONTRACT: &str = include_str!(
+    "../../../FUSOU-TLSN-VERIFICATION-WORKER/scripts/app-configuration-fingerprint-contract-v2.json"
+);
+
+#[derive(Deserialize)]
+struct AppConfigurationFingerprintContract {
+    schema_version: u8,
+    scope: String,
+}
+
+fn app_configuration_fingerprint_contract() -> &'static AppConfigurationFingerprintContract {
+    static CONTRACT: std::sync::OnceLock<AppConfigurationFingerprintContract> =
+        std::sync::OnceLock::new();
+    CONTRACT.get_or_init(|| {
+        serde_json::from_str(APP_CONFIGURATION_FINGERPRINT_CONTRACT)
+            .expect("shared APP configuration fingerprint contract must be valid")
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CandidateAppConfigurationFingerprint {
+    schema_version: u8,
+    scope: String,
+    candidate_binding_status: String,
+    compile_time_sha256: String,
+    runtime_sha256: String,
+    combined_sha256: String,
+}
+
 fn create_candidate_artifact_identity(
     metadata_bytes: &[u8],
     presentation_bytes: &[u8],
 ) -> Result<(serde_json::Value, String), std::io::Error> {
     const IDENTITY_SCOPE: &str = "fusou-tlsn-candidate-artifact-identity";
-    const CONFIGURATION_SCOPE: &str = "fusou-tlsn-app-public-configuration";
     let metadata: serde_json::Value = serde_json::from_slice(metadata_bytes)?;
     if metadata["schema_version"].as_u64() != Some(2)
         || canonical_json_bytes(&metadata) != metadata_bytes
@@ -1370,14 +1442,32 @@ fn create_candidate_artifact_identity(
             "candidate metadata is not canonical schema v2 JSON",
         ));
     }
-    let fingerprints = &metadata["proxy_provenance"]["app_public_configuration_fingerprints"];
-    if fingerprints["schema_version"].as_u64() != Some(2)
-        || fingerprints["scope"].as_str() != Some(CONFIGURATION_SCOPE)
-        || fingerprints["candidate_binding_status"].as_str() != Some("UNBOUND")
+    let fingerprints: CandidateAppConfigurationFingerprint = serde_json::from_value(
+        metadata["proxy_provenance"]["app_public_configuration_fingerprints"].clone(),
+    )?;
+    let contract = app_configuration_fingerprint_contract();
+    if fingerprints.schema_version != contract.schema_version
+        || fingerprints.scope != contract.scope
+        || fingerprints.candidate_binding_status != "UNBOUND"
     {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "candidate APP configuration fingerprint is missing or unsupported",
+        ));
+    }
+    let preimage = serde_json::json!({
+        "compile_time_sha256": fingerprints.compile_time_sha256,
+        "runtime_sha256": fingerprints.runtime_sha256,
+        "schema_version": fingerprints.schema_version,
+        "scope": fingerprints.scope,
+    });
+    required_candidate_identity_hash(&preimage["compile_time_sha256"], "compile_time_sha256")?;
+    required_candidate_identity_hash(&preimage["runtime_sha256"], "runtime_sha256")?;
+    let combined_sha256 = URL_SAFE_NO_PAD.encode(sha256(&canonical_json_bytes(&preimage)));
+    if fingerprints.combined_sha256 != combined_sha256 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "candidate APP combined configuration fingerprint does not match its canonical preimage",
         ));
     }
     let presentation_sha256 = URL_SAFE_NO_PAD.encode(sha256(presentation_bytes));
@@ -1387,22 +1477,27 @@ fn create_candidate_artifact_identity(
             "candidate metadata Presentation digest does not match exact bytes",
         ));
     }
+    let created_at =
+        required_candidate_identity_string(&metadata["capture_timestamp"], "capture_timestamp")?;
+    DateTime::parse_from_rfc3339(created_at)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
     let body = serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "scope": IDENTITY_SCOPE,
         "canonicalization": "FUSOU-CANONICAL-JSON-V1",
         "candidate_capture_id": required_candidate_identity_string(&metadata["candidate_capture_id"], "candidate_capture_id")?,
         "session_id": required_candidate_identity_string(&metadata["session_id"], "session_id")?,
         "request_id": required_candidate_identity_string(&metadata["request_id"], "request_id")?,
-        "request_sha256": required_candidate_identity_hash(&metadata["authenticated_request_sha256"], "authenticated_request_sha256")?,
+        "request_sha256": required_candidate_identity_hash(&metadata["request_sha256"], "request_sha256")?,
+        "authenticated_request_sha256": required_candidate_identity_hash(&metadata["authenticated_request_sha256"], "authenticated_request_sha256")?,
         "binding_identifier": required_candidate_identity_hash(&metadata["binding_identifier"], "binding_identifier")?,
-        "created_at": required_candidate_identity_string(&metadata["capture_timestamp"], "capture_timestamp")?,
+        "created_at": created_at,
         "presentation_sha256": presentation_sha256,
         "metadata_sha256": URL_SAFE_NO_PAD.encode(sha256(metadata_bytes)),
         "app_configuration": {
-            "schema_version": 2,
-            "scope": CONFIGURATION_SCOPE,
-            "combined_sha256": required_candidate_identity_hash(&fingerprints["combined_sha256"], "combined_sha256")?,
+            "schema_version": fingerprints.schema_version,
+            "scope": fingerprints.scope,
+            "combined_sha256": combined_sha256,
         },
         "binding_status": "CRYPTOGRAPHICALLY_BOUND",
         "authority_status": "LOCAL_CONSISTENCY",
@@ -2517,6 +2612,21 @@ mod task_tests;
 mod tests {
     mod result_binding_tests;
 
+    fn candidate_app_configuration_fingerprint_fixture() -> serde_json::Value {
+        let contract = app_configuration_fingerprint_contract();
+        let raw: serde_json::Value = serde_json::from_str(APP_CONFIGURATION_FINGERPRINT_CONTRACT)
+            .expect("parse the shared fingerprint contract");
+        let vector = &raw["test_vector"];
+        serde_json::json!({
+            "schema_version": contract.schema_version,
+            "scope": contract.scope,
+            "compile_time_sha256": vector["compile_time_sha256"],
+            "runtime_sha256": vector["runtime_sha256"],
+            "combined_sha256": vector["combined_sha256"],
+            "candidate_binding_status": "UNBOUND",
+        })
+    }
+
     use super::*;
     use crate::{
         exchange_lifecycle::{ExchangeLifecycle, ExchangePolicy},
@@ -2686,19 +2796,14 @@ mod tests {
             "candidate_capture_id": presentation.identifier(),
             "session_id": session.session_id(),
             "request_id": "request-fixture-1",
+            "request_sha256": URL_SAFE_NO_PAD.encode([0x10_u8; 32]),
             "authenticated_request_sha256": URL_SAFE_NO_PAD.encode([0x11_u8; 32]),
             "binding_identifier": URL_SAFE_NO_PAD.encode([0x22_u8; 32]),
             "capture_timestamp": "2026-10-01T12:00:00.000Z",
             "presentation_sha256": URL_SAFE_NO_PAD.encode(presentation.sha256()),
             "proxy_provenance": {
-                "app_public_configuration_fingerprints": {
-                    "schema_version": 2,
-                    "scope": "fusou-tlsn-app-public-configuration",
-                    "compile_time_sha256": URL_SAFE_NO_PAD.encode([0x31_u8; 32]),
-                    "runtime_sha256": URL_SAFE_NO_PAD.encode([0x32_u8; 32]),
-                    "combined_sha256": URL_SAFE_NO_PAD.encode([0x33_u8; 32]),
-                    "candidate_binding_status": "UNBOUND",
-                },
+                "app_public_configuration_fingerprints":
+                    candidate_app_configuration_fingerprint_fixture(),
             },
         });
         write_private_candidate_file(
@@ -2915,6 +3020,51 @@ mod tests {
             identity["candidate_artifact_id"],
             manifest["candidate_artifact_id"]
         );
+        // This ID was derived from the same metadata by candidate-artifact-identity.mjs.
+        assert_eq!(
+            identity["candidate_artifact_id"],
+            "_1_hBTN-h3ZkOQ0rd0ypDj5sGVQ5Adwu8OY6qK4xpuY"
+        );
+        assert_eq!(identity["schema_version"], 2);
+        assert_eq!(identity["request_sha256"], metadata["request_sha256"]);
+        assert_eq!(
+            identity["authenticated_request_sha256"],
+            metadata["authenticated_request_sha256"]
+        );
+        let fingerprints = &metadata["proxy_provenance"]["app_public_configuration_fingerprints"];
+        assert_eq!(
+            identity["app_configuration"]["combined_sha256"],
+            fingerprints["combined_sha256"]
+        );
+        for (field, value) in [
+            ("schema_version", serde_json::json!(2)),
+            (
+                "scope",
+                serde_json::json!("fusou-tlsn-app-public-configuration"),
+            ),
+            ("candidate_binding_status", serde_json::json!("BOUND")),
+            ("compile_time_sha256", serde_json::json!("malformed")),
+            (
+                "runtime_sha256",
+                serde_json::json!(URL_SAFE_NO_PAD.encode([0x33; 32])),
+            ),
+            (
+                "combined_sha256",
+                serde_json::json!(URL_SAFE_NO_PAD.encode([0x34; 32])),
+            ),
+            ("unknown_field", serde_json::json!(true)),
+        ] {
+            let mut changed = metadata.clone();
+            changed["proxy_provenance"]["app_public_configuration_fingerprints"][field] = value;
+            assert!(
+                create_candidate_artifact_identity(
+                    &canonical_json_bytes(&changed),
+                    presentation_bytes
+                )
+                .is_err(),
+                "accepted invalid fingerprint: {field}"
+            );
+        }
         assert_eq!(identity["binding_status"], "CRYPTOGRAPHICALLY_BOUND");
         assert_eq!(identity["authority_status"], "LOCAL_CONSISTENCY");
         assert_eq!(identity["independent_authentication"], "UNVERIFIED");
@@ -4728,6 +4878,8 @@ mod tests {
             results: RemoteWorkerResultStore::new(),
             result_verifier: test_result_signature_verifier(),
             response_mode: RemoteWorkerResponseMode::Async,
+            poll_interval: WORKER_POLL_INTERVAL,
+            poll_timeout: WORKER_POLL_TIMEOUT,
         });
         let boundary = PresentationVerifierBoundary::new(
             Arc::new(HandoffPresentationProvider::new(handoff)),
@@ -5037,6 +5189,57 @@ mod tests {
             ),
             VerificationError::TriggerUnavailable
         );
+    }
+
+    #[test]
+    fn queue_enqueue_unconfirmed_requires_exact_error_and_worker_uuid_v4() {
+        let job_id = "550e8400-e29b-41d4-a716-446655440000";
+        assert_eq!(
+            queue_enqueue_unconfirmed_job_id(&serde_json::json!({
+                "verified": false,
+                "error": "queue_enqueue_unconfirmed",
+                "job_id": job_id,
+            })),
+            Some(job_id.to_owned())
+        );
+        let uppercase_job_id = "550E8400-E29B-41D4-A716-446655440000";
+        assert_eq!(
+            queue_enqueue_unconfirmed_job_id(&serde_json::json!({
+                "verified": false,
+                "error": "queue_enqueue_unconfirmed",
+                "job_id": uppercase_job_id,
+            })),
+            Some(uppercase_job_id.to_owned())
+        );
+        for payload in [
+            serde_json::json!({
+                "verified": true,
+                "error": "queue_enqueue_unconfirmed",
+                "job_id": job_id,
+            }),
+            serde_json::json!({
+                "verified": false,
+                "error": "queue_unconfigured",
+                "job_id": job_id,
+            }),
+            serde_json::json!({
+                "verified": false,
+                "error": "queue_enqueue_unconfirmed",
+                "job_id": "job-1",
+            }),
+            serde_json::json!({
+                "verified": false,
+                "error": "queue_enqueue_unconfirmed",
+                "job_id": "550e8400-e29b-11d4-a716-446655440000",
+            }),
+            serde_json::json!({
+                "verified": false,
+                "error": "queue_enqueue_unconfirmed",
+                "job_id": "550e8400-e29b-41d4-7116-446655440000",
+            }),
+        ] {
+            assert_eq!(queue_enqueue_unconfirmed_job_id(&payload), None);
+        }
     }
 
     #[tokio::test]
@@ -5358,6 +5561,8 @@ mod tests {
                     .expect("valid result signing key registry"),
                 ),
                 response_mode: RemoteWorkerResponseMode::Async,
+                poll_interval: WORKER_POLL_INTERVAL,
+                poll_timeout: WORKER_POLL_TIMEOUT,
             });
             let handoff = PresentationHandoff::new();
             let origin_tls = OriginTlsConfig::new().expect("platform trust store is available");
@@ -5404,8 +5609,8 @@ mod tests {
                 RuntimeIdentifiers::new(Some("app-worker-synthetic-e2e".to_owned()), None, None)
                     .with_app_public_configuration_fingerprints(
                         AppPublicConfigurationFingerprints {
-                            schema_version: 2,
-                            scope: "fusou-tlsn-app-public-configuration".to_owned(),
+                            schema_version: app_configuration_fingerprint_contract().schema_version,
+                            scope: app_configuration_fingerprint_contract().scope.clone(),
                             compile_time_sha256: required_env(
                                 "FUSOU_TLSN_APP_E2E_COMPILE_TIME_SHA256",
                             ),

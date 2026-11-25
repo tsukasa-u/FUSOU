@@ -75,6 +75,7 @@ pub struct TlsnCaptureReadinessReport {
     pub candidate_capture: ReadinessStage,
     pub session_grant: ReadinessStage,
     pub capture: ReadinessStage,
+    pub capture_execution_state: Option<&'static str>,
     pub browser_proxy_traffic: IndependentObservationStatus,
     pub notary_connection: IndependentObservationStatus,
     pub observed_server_identity: IndependentObservationStatus,
@@ -442,6 +443,7 @@ impl TlsnCaptureReadiness {
                 ReadinessStageStatus::NotReady,
                 Some("capture_forwarder_not_installed"),
             ),
+            capture_execution_state: None,
             browser_proxy_traffic: IndependentObservationStatus::NotChecked,
             notary_connection: IndependentObservationStatus::NotChecked,
             observed_server_identity: IndependentObservationStatus::NotChecked,
@@ -544,6 +546,9 @@ impl TlsnCaptureReadiness {
             };
             report.session_grant = binding_stage(diagnostic.session_grant);
             report.capture = capture_stage(capture_diagnostic);
+            report.capture_execution_state = diagnostic
+                .execution_state
+                .map(|state| state.diagnostic_code());
             report.status = overall_capture_status(diagnostic.session_grant, capture_diagnostic);
             report.diagnostic_code = if capture_diagnostic != diagnostic.capture {
                 Some("capture_readiness_inconsistent")
@@ -714,6 +719,7 @@ fn unavailable_report(code: &'static str) -> TlsnCaptureReadinessReport {
         candidate_capture: unavailable,
         session_grant: unavailable,
         capture: unavailable,
+        capture_execution_state: None,
         browser_proxy_traffic: IndependentObservationStatus::NotChecked,
         notary_connection: IndependentObservationStatus::NotChecked,
         observed_server_identity: IndependentObservationStatus::NotChecked,

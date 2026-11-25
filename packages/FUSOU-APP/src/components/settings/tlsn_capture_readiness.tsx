@@ -18,6 +18,7 @@ export type TlsnCaptureReadiness = {
   candidate_capture: ReadinessStage;
   session_grant: ReadinessStage;
   capture: ReadinessStage;
+  capture_execution_state?: string | null;
   browser_proxy_traffic: string;
   notary_connection: string;
   observed_server_identity: string;
@@ -138,6 +139,9 @@ export function TlsnCaptureReadinessComponent() {
                 );
               }}
             </For>
+            <Show when={snapshot().report.capture_execution_state}>
+              {(state) => <div>Latest capture state: {state()}</div>}
+            </Show>
             <div>
               Separate checks — browser traffic via PAC:{" "}
               {snapshot().report.browser_proxy_traffic}; Notary connection:{" "}

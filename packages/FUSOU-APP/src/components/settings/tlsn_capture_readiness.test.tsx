@@ -26,6 +26,7 @@ const readyReport: TlsnCaptureReadiness = {
   candidate_capture: { status: "verified", diagnostic_code: null },
   session_grant: { status: "ready", diagnostic_code: null },
   capture: { status: "ready", diagnostic_code: null },
+  capture_execution_state: "notary_failed",
   browser_proxy_traffic: "not_checked",
   notary_connection: "not_checked",
   observed_server_identity: "not_checked",
@@ -67,6 +68,9 @@ it("clears the previous ready snapshot while refresh is pending and shows IPC fa
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Overall: ready");
       expect(container.textContent).toContain("Confirmed at:");
+      expect(container.textContent).toContain(
+        "Latest capture state: notary_failed",
+      );
     });
     expect(invokeMock).toHaveBeenNthCalledWith(
       1,
@@ -81,6 +85,7 @@ it("clears the previous ready snapshot while refresh is pending and shows IPC fa
     });
     expect(container.textContent).not.toContain("Overall: ready");
     expect(container.textContent).not.toContain("Confirmed at:");
+    expect(container.textContent).not.toContain("Latest capture state:");
 
     if (!rejectSecondQuery) {
       throw new Error("second synthetic readiness query did not start");

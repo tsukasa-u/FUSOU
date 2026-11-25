@@ -8,7 +8,7 @@ use proxy_https::{
     experimental_tlsn::{
         BindingPreparationDiagnostic, BindingPreparationFailureCode, CaptureReadinessDiagnostic,
         ExperimentalForwardFuture, ExperimentalRequireInfoForwarder,
-        ExperimentalTlsnReadinessDiagnostic,
+        ExperimentalTlsnReadinessDiagnostic, ExperimentalTlsnRuntimeState,
     },
     proxy_server_https::ExperimentalTlsnForwarderSlot,
 };
@@ -108,6 +108,7 @@ fn repeated_readiness_reads_do_not_request_services_admit_notary_or_send_origin(
     let (readiness, calls) = ready_readiness(ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: Some(ExperimentalTlsnRuntimeState::NotaryFailed),
     });
 
     for _ in 0..10 {
@@ -115,6 +116,7 @@ fn repeated_readiness_reads_do_not_request_services_admit_notary_or_send_origin(
         assert_eq!(report.status, CaptureReadinessStatus::Ready);
         assert_eq!(report.session_grant.status, ReadinessStageStatus::Ready);
         assert_eq!(report.capture.status, ReadinessStageStatus::Ready);
+        assert_eq!(report.capture_execution_state, Some("notary_failed"));
         assert_eq!(report.pac_server.status, ReadinessStageStatus::Verified);
         assert_eq!(
             report.pac_application.status,
@@ -157,6 +159,7 @@ fn pac_cleanup_failure_or_removal_cannot_leave_readiness_ready() {
     let (unconfirmed, _) = ready_readiness(ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: None,
     });
     unconfirmed.pac_cleanup_unconfirmed();
     let report = unconfirmed.report();
@@ -167,6 +170,7 @@ fn pac_cleanup_failure_or_removal_cannot_leave_readiness_ready() {
     let (removed, _) = ready_readiness(ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: None,
     });
     removed.pac_application_removed();
     let report = removed.report();
@@ -180,6 +184,7 @@ async fn cleanup_waits_for_apply_and_readiness_stays_unready_through_shutdown() 
     let diagnostic = ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: None,
     };
     let (readiness, _, attempt_id) = readiness_with_pending_pac(diagnostic);
     readiness.pac_server_started(attempt_id);
@@ -274,6 +279,7 @@ async fn failed_and_unknown_cleanup_keep_unconfirmed_readiness() {
     let diagnostic = ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: None,
     };
     let (failed_readiness, _, failed_attempt) = readiness_with_pending_pac(diagnostic);
     failed_readiness.pac_server_started(failed_attempt);
@@ -327,6 +333,7 @@ async fn removed_readiness_is_recorded_before_shutdown_queue_failure() {
     let diagnostic = ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: None,
     };
     let (readiness, _, attempt_id) = readiness_with_pending_pac(diagnostic);
     readiness.pac_server_started(attempt_id);
@@ -367,6 +374,7 @@ fn shutdown_never_reports_ready_when_pac_setup_was_skipped() {
         diagnostic: ExperimentalTlsnReadinessDiagnostic {
             session_grant: BindingPreparationDiagnostic::Ready,
             capture: CaptureReadinessDiagnostic::Ready,
+            execution_state: None,
         },
         calls: Arc::new(DiagnosticCallCounts::default()),
     });
@@ -389,6 +397,7 @@ fn shutdown_never_reports_ready_when_pac_setup_was_skipped() {
         diagnostic: ExperimentalTlsnReadinessDiagnostic {
             session_grant: BindingPreparationDiagnostic::Ready,
             capture: CaptureReadinessDiagnostic::Ready,
+            execution_state: None,
         },
         calls: Arc::new(DiagnosticCallCounts::default()),
     });
@@ -503,6 +512,7 @@ fn expired_in_use_and_cleanup_diagnostics_never_report_ready() {
             ExperimentalTlsnReadinessDiagnostic {
                 session_grant: BindingPreparationDiagnostic::Pending,
                 capture: CaptureReadinessDiagnostic::NotReady,
+                execution_state: None,
             },
             CaptureReadinessStatus::Pending,
             ReadinessStageStatus::NotReady,
@@ -512,6 +522,7 @@ fn expired_in_use_and_cleanup_diagnostics_never_report_ready() {
             ExperimentalTlsnReadinessDiagnostic {
                 session_grant: BindingPreparationDiagnostic::Expired,
                 capture: CaptureReadinessDiagnostic::NotReady,
+                execution_state: None,
             },
             CaptureReadinessStatus::GrantExpired,
             ReadinessStageStatus::NotReady,
@@ -521,6 +532,7 @@ fn expired_in_use_and_cleanup_diagnostics_never_report_ready() {
             ExperimentalTlsnReadinessDiagnostic {
                 session_grant: BindingPreparationDiagnostic::Expired,
                 capture: CaptureReadinessDiagnostic::Ready,
+                execution_state: None,
             },
             CaptureReadinessStatus::Unavailable,
             ReadinessStageStatus::Unavailable,
@@ -530,6 +542,7 @@ fn expired_in_use_and_cleanup_diagnostics_never_report_ready() {
             ExperimentalTlsnReadinessDiagnostic {
                 session_grant: BindingPreparationDiagnostic::InUse,
                 capture: CaptureReadinessDiagnostic::InProgress,
+                execution_state: None,
             },
             CaptureReadinessStatus::CaptureInProgress,
             ReadinessStageStatus::InProgress,
@@ -539,6 +552,7 @@ fn expired_in_use_and_cleanup_diagnostics_never_report_ready() {
             ExperimentalTlsnReadinessDiagnostic {
                 session_grant: BindingPreparationDiagnostic::InUse,
                 capture: CaptureReadinessDiagnostic::CleanupUnconfirmed,
+                execution_state: None,
             },
             CaptureReadinessStatus::CleanupUnconfirmed,
             ReadinessStageStatus::CleanupUnconfirmed,
@@ -550,6 +564,7 @@ fn expired_in_use_and_cleanup_diagnostics_never_report_ready() {
                     BindingPreparationFailureCode::RuntimeConfigChanged,
                 ),
                 capture: CaptureReadinessDiagnostic::NotReady,
+                execution_state: None,
             },
             CaptureReadinessStatus::Failed,
             ReadinessStageStatus::NotReady,
@@ -580,6 +595,7 @@ fn pac_start_and_application_pending_or_failure_never_report_ready() {
     let diagnostic = ExperimentalTlsnReadinessDiagnostic {
         session_grant: BindingPreparationDiagnostic::Ready,
         capture: CaptureReadinessDiagnostic::Ready,
+        execution_state: None,
     };
     let (readiness, _, attempt_id) = readiness_with_pending_pac(diagnostic);
 
@@ -659,6 +675,7 @@ fn candidate_capture_disabled_never_reports_ready() {
         diagnostic: ExperimentalTlsnReadinessDiagnostic {
             session_grant: BindingPreparationDiagnostic::Ready,
             capture: CaptureReadinessDiagnostic::Ready,
+            execution_state: None,
         },
         calls,
     });
@@ -704,6 +721,7 @@ fn stale_proxy_attempt_results_cannot_overwrite_current_readiness() {
         diagnostic: ExperimentalTlsnReadinessDiagnostic {
             session_grant: BindingPreparationDiagnostic::Ready,
             capture: CaptureReadinessDiagnostic::Ready,
+            execution_state: None,
         },
         calls,
     });
