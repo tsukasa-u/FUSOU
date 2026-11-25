@@ -153,6 +153,7 @@ jobs:
             src/server/routes/__tests__/anonymous-sync-v2-endpoints.test.ts \
             src/server/routes/__tests__/anonymous-sync-v2.test.ts \
             src/server/schemas/__tests__/anonymous-sync-v2.test.ts
+          node --test scripts/tlsn-testplay-build-profile.test.mjs
 
       - name: Install pinned wasm-compatible Clang
         run: |
@@ -272,6 +273,11 @@ jobs:
             packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-evidence-trust-graph-test.mjs \
             packages/FUSOU-APP/scripts/testplay-acceptance-stages.test.mjs \
             packages/FUSOU-APP/scripts/testplay-pre-capture-readiness.test.mjs
+
+      - name: Verify Production Queue execution receipt contract
+        run: |
+          node --experimental-transform-types --test \
+            packages/FUSOU-TLSN-VERIFICATION-WORKER/scripts/production-queue-receipt.test.mjs
 
       - name: Verify isolated Manifest harness Cargo.lock is committed and not ignored
         shell: bash
@@ -544,6 +550,20 @@ jobs:
             real_tlsn::tests::forwarder_cancellation_after_worker_result_registration_cleans_before_persistence
           run_exact_test \
             real_tlsn::tests::remote_session_cleanup_preserves_a_replacement_context
+          run_exact_test \
+            real_tlsn::tests::candidate_bundle_preserves_exact_response_receipt_and_health_without_overwrite
+          run_exact_test \
+            real_tlsn::tests::queue_enqueue_unconfirmed_requires_exact_error_and_worker_uuid_v4
+          run_exact_test \
+            real_tlsn::tests::result_binding_tests::remote_backend_recovers_unconfirmed_queue_result_once_and_preserves_exact_candidate_bytes
+          run_exact_test \
+            real_tlsn::tests::result_binding_tests::remote_backend_persists_queue_receipt_for_independent_verification
+          run_exact_test \
+            real_tlsn::tests::result_binding_tests::remote_backend_preserves_accepted_202_and_synchronous_success
+          run_exact_test \
+            real_tlsn::tests::result_binding_tests::remote_backend_does_not_poll_other_503_responses_or_retry_initial_timeouts
+          run_exact_test \
+            real_tlsn::tests::result_binding_tests::remote_backend_rejects_mismatched_jobs_unverified_results_and_invalid_signatures_or_bindings
         env:
           CARGO_NET_OFFLINE: "true"
           CARGO_TARGET_DIR: ${{ runner.temp }}/fusou-proxy-health-target
