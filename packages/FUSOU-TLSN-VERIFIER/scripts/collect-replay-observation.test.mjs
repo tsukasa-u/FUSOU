@@ -18,7 +18,7 @@ const sessionId = "33333333-3333-4333-8333-333333333333";
 const token = "offline-test-only";
 const digest = (bytes) => createHash("sha256").update(bytes).digest();
 
-async function createCandidate() {
+async function createCandidate({ resultDeviceField = "device_id" } = {}) {
   const root = await mkdtemp(join(tmpdir(), "fusou-replay-candidate-"));
   const presentation = Buffer.from("synthetic TLSN Presentation bytes");
   const challenge = Buffer.alloc(32, 7);
@@ -34,7 +34,7 @@ async function createCandidate() {
   const proofDigest = digest(tlsnDeviceProofSigningBytes(proofInput, challenge)).toString("hex");
   const result = {
     canonical_user_id: userId,
-    canonical_device_id: deviceId,
+    [resultDeviceField]: deviceId,
     attestation_session_id: sessionId,
     binding_value: binding,
     device_challenge: challengeB64,
@@ -178,6 +178,25 @@ test("collects one exact matching HTTP 409 and preserves body bytes and capture 
     assert.equal(material.response_body_sha256_hex, digest(bodyBytes).toString("hex"));
   } finally {
     await closeServer(server);
+    await rm(candidate.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects the internal Rust device field before any replay request", async () => {
+  const candidate = await createCandidate({ resultDeviceField: "canonical_device_id" });
+  let requests = 0;
+  try {
+    await assert.rejects(
+      collectReplayObservation(
+        candidate.root,
+        "http://127.0.0.1:1/api/auth/anonymous-sync/v2/tlsn-device-proof",
+        token,
+        async () => { requests += 1; throw new Error("unexpected HTTP request"); },
+      ),
+      /device ID is missing/,
+    );
+    assert.equal(requests, 0);
+  } finally {
     await rm(candidate.root, { recursive: true, force: true });
   }
 });

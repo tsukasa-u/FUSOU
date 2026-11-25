@@ -6,7 +6,10 @@ use crate::tlsn_alpha15::{
 };
 use crate::{parse_verifier_result, sha256, VerifierResult};
 use authenticity_core::ServerIdentity;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use k256::PublicKey;
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde_json::{Map, Value};
@@ -18,6 +21,7 @@ use std::{
 };
 
 pub mod finalization;
+mod queue_execution_receipt;
 
 const EVIDENCE_SCOPE: &str = "tlsn-production-evidence";
 const REQUIRED_ARTIFACT_NAMES: [&str; 19] = [
@@ -3932,7 +3936,7 @@ fn verify_authority_artifacts(
         }
     }
     let consumed_at = object_string(stored_proof, "consumed_at", "replay", "replay_digest")?;
-    if parse_timestamp(consumed_at).is_err() {
+    if !is_valid_rfc3339_timestamp(consumed_at) {
         return Err(BundleVerificationError::new(
             "replay_digest",
             Some("replay"),
@@ -4263,7 +4267,24 @@ fn verify_raw_ed25519(
     signature: &str,
     edge: &str,
 ) -> Result<()> {
-    let signature = decode_fixed_base64::<64>(signature, "Ed25519 signature", edge)?;
+    // APP device proofs use padded standard Base64. Earlier evidence can
+    // carry the same 64-byte signature as canonical unpadded Base64url.
+    let signature = if signature.len() == 88 && signature.ends_with("==") {
+        STANDARD
+            .decode(signature)
+            .ok()
+            .filter(|bytes| STANDARD.encode(bytes) == signature)
+            .and_then(|bytes| <[u8; 64]>::try_from(bytes).ok())
+            .ok_or_else(|| {
+                BundleVerificationError::new(
+                    edge,
+                    None,
+                    "Ed25519 signature: invalid standard Base64",
+                )
+            })?
+    } else {
+        decode_fixed_base64::<64>(signature, "Ed25519 signature", edge)?
+    };
     UnparsedPublicKey::new(&ED25519, public_key)
         .verify(message, &signature)
         .map_err(|_| BundleVerificationError::new(edge, None, "Ed25519 signature is invalid"))
@@ -4657,13 +4678,12 @@ fn verify_capture_metadata(bundle: &LoadedBundle, presentation: &[u8]) -> Result
     if proxy.get("declared").and_then(Value::as_str) != Some("production")
         || proxy.get("cryptographic_status").and_then(Value::as_str) != Some("UNVERIFIED")
         || proxy.get("presentation_sha256").and_then(Value::as_str) != Some(expected_hash.as_str())
-        || parse_timestamp(object_string(
+        || !is_valid_rfc3339_timestamp(object_string(
             proxy,
             "created_at",
             "tlsn_presentation",
             "capture_metadata",
         )?)
-        .is_err()
     {
         return Err(BundleVerificationError::new(
             "tlsn_presentation",
@@ -4797,10 +4817,8 @@ fn verify_health_identities(
             "health security identity is missing",
         )
     })?;
-    if security.get("server_identity").and_then(Value::as_str) != Some(result.server_identity())
-        || security.get("profile_sha256").and_then(Value::as_str)
-            != Some(URL_SAFE_NO_PAD.encode(result.profile_sha256()).as_str())
-        || security.get("verifier_key_id").and_then(Value::as_str) != Some(result.verifier_key_id())
+    verify_health_origin_context(&health, security, result)?;
+    if security.get("verifier_key_id").and_then(Value::as_str) != Some(result.verifier_key_id())
         || security.get("notary_key_id").and_then(Value::as_str) != Some(result.notary_key_id())
         || security
             .get("notary_registry_sha256")
@@ -4855,6 +4873,98 @@ fn verify_health_identities(
                         .get(field)
                         .and_then(Value::as_str)
                         .unwrap_or("<missing>"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_health_origin_context(
+    health: &Value,
+    security: &Value,
+    result: &dyn EvidenceResultView,
+) -> Result<()> {
+    let deployment = &health["deployment_identity"];
+    let target_digests = [
+        ("origin_inventory_sha256", result.origin_inventory_sha256()),
+        (
+            "target_approval_artifact_sha256",
+            result.target_approval_artifact_sha256(),
+        ),
+    ];
+    let multi_origin = health["deployment_role"] == "production"
+        || deployment["deployment_role"] == "production"
+        || security.get("profile_policy_sha256").is_some()
+        || target_digests
+            .iter()
+            .any(|(field, _)| security.get(field).is_some() || !health[field].is_null());
+    if !multi_origin {
+        if security["server_identity"].as_str() != Some(result.server_identity())
+            || security["profile_sha256"].as_str()
+                != Some(URL_SAFE_NO_PAD.encode(result.profile_sha256()).as_str())
+        {
+            return Err(BundleVerificationError::new(
+                "result_identity",
+                Some("health"),
+                "single-origin health does not match the independently verified origin and profile",
+            ));
+        }
+        return Ok(());
+    }
+
+    if health["schema_version"].as_u64() != Some(3)
+        || health["environment"] != "production"
+        || [health, deployment].into_iter().any(|identity| {
+            identity["deployment_role"] != "production" || identity["binding_mode"] != "random"
+        })
+    {
+        return Err(BundleVerificationError::new(
+            "result_identity",
+            Some("health"),
+            "multi-origin health has an invalid schema, environment, role or binding mode",
+        ));
+    }
+    if health["ok"].as_bool() != Some(true)
+        || security["trust_contract_valid"].as_bool() != Some(true)
+    {
+        return Err(BundleVerificationError::new(
+            "result_identity",
+            Some("health"),
+            "multi-origin health did not report a valid trust contract",
+        ));
+    }
+    if security.get("server_identity").is_some()
+        || security.get("profile_sha256").is_some()
+        || health.get("profile_sha256").is_some()
+    {
+        return Err(BundleVerificationError::new(
+            "result_identity",
+            Some("health"),
+            "multi-origin health unexpectedly includes single-origin fields",
+        ));
+    }
+    // Health is an unsigned observation. Both digest copies must match the
+    // signed Result after independent Inventory and Target Approval checks.
+    // The selected origin and profile are checked against the Presentation.
+    for (field, expected) in target_digests {
+        let expected = expected.ok_or_else(|| {
+            BundleVerificationError::new(
+                "result_identity",
+                Some("health"),
+                format!("independently verified Result is missing {field}"),
+            )
+        })?;
+        let expected = URL_SAFE_NO_PAD.encode(expected);
+        for (location, identity) in [("root", health), ("security_identity", security)] {
+            let observed = identity[field].as_str().unwrap_or("<missing or invalid>");
+            if observed != expected {
+                return Err(BundleVerificationError::mismatch(
+                    "result_identity",
+                    Some("health"),
+                    &format!("multi-origin health {location}.{field} mismatch"),
+                    &expected,
+                    observed,
                 ));
             }
         }
@@ -5722,6 +5832,40 @@ fn days_from_civil(year: u32, month: u32, day: u32) -> i64 {
 mod tests {
     use super::*;
     use k256::elliptic_curve::sec1::ToEncodedPoint;
+
+    #[test]
+    fn device_proof_signature_accepts_app_base64_and_legacy_base64url() {
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+
+        let key = Ed25519KeyPair::from_seed_unchecked(&[17; 32]).unwrap();
+        let other_key = Ed25519KeyPair::from_seed_unchecked(&[18; 32]).unwrap();
+        let public_key = key.public_key().as_ref().try_into().unwrap();
+        let other_public_key = other_key.public_key().as_ref().try_into().unwrap();
+        let message = b"FUSOU device proof test";
+        let signed = key.sign(message);
+        let standard = STANDARD.encode(signed.as_ref());
+        let url = URL_SAFE_NO_PAD.encode(signed.as_ref());
+
+        for edge in ["device_authentication", "device_possession"] {
+            for signature in [&standard, &url] {
+                verify_raw_ed25519(public_key, message, signature, edge).unwrap();
+                assert!(verify_raw_ed25519(public_key, b"changed", signature, edge).is_err());
+                assert!(verify_raw_ed25519(other_public_key, message, signature, edge).is_err());
+            }
+
+            let mut changed_bytes = signed.as_ref().to_vec();
+            changed_bytes[0] ^= 1;
+            for invalid in [
+                STANDARD.encode(changed_bytes),
+                STANDARD.encode(&signed.as_ref()[..63]),
+                format!(" {standard}"),
+                format!("{url}=="),
+                standard[..87].to_owned(),
+            ] {
+                assert!(verify_raw_ed25519(public_key, message, &invalid, edge).is_err());
+            }
+        }
+    }
 
     #[test]
     fn every_one_of_the_nineteen_roles_is_mandatory_without_an_execution_receipt_role() {

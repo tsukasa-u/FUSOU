@@ -1,3 +1,4 @@
+use super::queue_execution_receipt;
 use super::{
     canonical_json, load_bundle_with_artifacts, parse_json, parse_result_profile, sha256_base64url,
     verify_material_bundle, Artifact, BundleVerificationError, BundleVerifierOptions, LoadedBundle,
@@ -163,6 +164,15 @@ impl Candidate {
         parse_json(self.bytes(name)?, name, "evidence_finalization")
     }
 
+    fn verify_queue_execution_receipt(&self, trust: &[u8]) -> Result<Value> {
+        queue_execution_receipt::verify(
+            self.bytes("verifier-execution-receipt.bin")?,
+            trust,
+            self.bytes("presentation.bin")?,
+            self.bytes("result-exact.bin")?,
+        )
+    }
+
     fn supplied(&self) -> Result<BTreeMap<String, Vec<u8>>> {
         let mut supplied = CANDIDATE_ARTIFACTS
             .into_iter()
@@ -223,8 +233,8 @@ fn subject_material(result_bytes: &[u8]) -> Result<Vec<u8>> {
     })
 }
 
-/// Finalizes only the existing Production Bundle schema. Exact outer response
-/// and execution-receipt sidecars are preserved, not assigned a new trust root.
+/// Finalizes the existing Production Bundle schema. Queue execution receipts
+/// require the independently pinned execution-policy entry point.
 pub fn finalize_candidate(
     candidate_root: impl AsRef<Path>,
     material_bundle: impl AsRef<Path>,
@@ -247,15 +257,77 @@ pub fn finalize_candidate_with_replay_observation(
     output: impl AsRef<Path>,
     options: &BundleVerifierOptions,
 ) -> Result<Value> {
+    finalize_candidate_impl(
+        candidate_root.as_ref(),
+        material_bundle.as_ref(),
+        replay_observation,
+        None,
+        output.as_ref(),
+        options,
+    )
+}
+
+pub fn verify_candidate_queue_execution_receipt(
+    candidate_root: impl AsRef<Path>,
+    trust_policy: impl AsRef<Path>,
+) -> Result<Value> {
     let mut budget = ReadBudget(MAX_INPUT_BYTES);
     let candidate = Candidate::read(candidate_root.as_ref(), &mut budget)?;
+    candidate.verify_queue_execution_receipt(&read_queue_execution_trust(trust_policy.as_ref())?)
+}
+
+pub fn finalize_candidate_with_queue_execution_trust(
+    candidate_root: impl AsRef<Path>,
+    material_bundle: impl AsRef<Path>,
+    replay_observation: Option<&Path>,
+    trust_policy: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    options: &BundleVerifierOptions,
+) -> Result<Value> {
+    finalize_candidate_impl(
+        candidate_root.as_ref(),
+        material_bundle.as_ref(),
+        replay_observation,
+        Some(trust_policy.as_ref()),
+        output.as_ref(),
+        options,
+    )
+}
+
+fn read_queue_execution_trust(path: &Path) -> Result<Vec<u8>> {
+    ReadBudget(queue_execution_receipt::MAX_RECEIPT_BYTES)
+        .read(path)
+        .map_err(io_error)
+}
+
+fn finalize_candidate_impl(
+    candidate_root: &Path,
+    material_bundle: &Path,
+    replay_observation: Option<&Path>,
+    queue_execution_trust: Option<&Path>,
+    output: &Path,
+    options: &BundleVerifierOptions,
+) -> Result<Value> {
+    let mut budget = ReadBudget(MAX_INPUT_BYTES);
+    let candidate = Candidate::read(candidate_root, &mut budget)?;
+    let queue_execution_report = if let Some(path) = queue_execution_trust {
+        Some(candidate.verify_queue_execution_receipt(&read_queue_execution_trust(path)?)?)
+    } else {
+        if queue_execution_receipt::claims_queue_receipt(
+            candidate.bytes("verifier-execution-receipt.bin")?,
+        ) {
+            return Err(reject(
+                "Production Queue receipt requires independent execution trust",
+            ));
+        }
+        None
+    };
     let replay_observation = replay_observation
         .map(|path| budget.read(path).map_err(io_error))
         .transpose()?;
-    let mut bundle =
-        load_bundle_with_artifacts(material_bundle.as_ref(), &candidate.supplied()?, |path| {
-            budget.read(path)
-        })?;
+    let mut bundle = load_bundle_with_artifacts(material_bundle, &candidate.supplied()?, |path| {
+        budget.read(path)
+    })?;
     if let Some(replay_bytes) = replay_observation {
         if let Some(existing) = bundle.artifacts.get("replay") {
             if existing.bytes != replay_bytes {
@@ -309,7 +381,6 @@ pub fn finalize_candidate_with_replay_observation(
     if !bundle.artifacts.contains_key("semantic_verification") {
         super::generate_semantic_verification_for_finalization(&mut bundle, options)?;
     }
-    let output = output.as_ref();
     for (name, descriptor) in bundle.manifest["artifacts"]
         .as_object_mut()
         .ok_or_else(|| reject("bundle artifact descriptors are missing"))?
@@ -320,7 +391,10 @@ pub fn finalize_candidate_with_replay_observation(
         descriptor["path"] = Value::String(format!("artifacts/{name}.bin"));
     }
     bundle.manifest_path = output.join("manifest.json");
-    let report = verify_material_bundle(&bundle, options)?;
+    let mut report = verify_material_bundle(&bundle, options)?;
+    if let Some(execution) = queue_execution_report {
+        report["production_queue_execution_receipt"] = execution;
+    }
     bundle.manifest["verification_status"] = Value::String("VERIFIED".to_owned());
     publish_local_bundle(output, &bundle, &candidate.files, &report)?;
     Ok(report)
@@ -2064,6 +2138,324 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.root).expect("remove exact synthetic evidence fixture");
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unsigned_observation_timestamps_preserve_bytes_and_signed_times_stay_strict() {
+        let mut fixture = SyntheticBundleFixture::new().await;
+        let mut metadata: Value =
+            serde_json::from_slice(&fixture.candidate_files["metadata.json"]).unwrap();
+        let mut replay: Value = serde_json::from_slice(&fixture.external_files["replay"]).unwrap();
+        let save_replay_time =
+            |fixture: &mut SyntheticBundleFixture, replay: &mut Value, consumed_at: &str| {
+                replay["authority_observation"]["consumed_at"] = json!(consumed_at);
+                let body = serde_json::to_vec(&json!({
+                    "error": "device_proof_replayed",
+                    "stored_proof": replay["authority_observation"],
+                }))
+                .unwrap();
+                replay["response_body_base64url"] = json!(URL_SAFE_NO_PAD.encode(&body));
+                replay["response_body_byte_length"] = json!(body.len());
+                replay["response_body_sha256"] = json!(sha256_base64url(&body));
+                replay["response_body_sha256_hex"] = json!(super::super::hex_digest(&body));
+                fixture
+                    .external_files
+                    .insert("replay".to_owned(), serde_json::to_vec(replay).unwrap());
+                fixture.write_material();
+            };
+
+        let postgres_time = "2026-11-25T05:45:42.556549+00:00";
+        let app_time = "2026-11-25T05:45:42.472456893+00:00";
+        save_replay_time(&mut fixture, &mut replay, postgres_time);
+        metadata["proxy_provenance"]["created_at"] = json!(app_time);
+        let metadata_bytes = serde_json::to_vec(&metadata).unwrap();
+        fixture
+            .candidate_files
+            .insert("metadata.json".to_owned(), metadata_bytes.clone());
+        fixture.write_candidate();
+
+        let output = fixture.output("observation-times");
+        let report = finalize_candidate(
+            fixture.candidate(),
+            fixture.material(),
+            &output,
+            &fixture.options,
+        )
+        .unwrap();
+        assert_eq!(report["status"], "VERIFIED");
+        assert_eq!(
+            fs::read(output.join("artifacts/capture_metadata.bin")).unwrap(),
+            metadata_bytes
+        );
+        assert_eq!(
+            fs::read(output.join("artifacts/replay.bin")).unwrap(),
+            fixture.external_files["replay"]
+        );
+        assert_eq!(
+            super::super::verify_bundle(&output, &fixture.options).unwrap()["status"],
+            "VERIFIED"
+        );
+
+        let reject = |fixture: &SyntheticBundleFixture, name, edge, message: &str| {
+            let output = fixture.output(name);
+            let error = finalize_candidate(
+                fixture.candidate(),
+                fixture.material(),
+                &output,
+                &fixture.options,
+            )
+            .unwrap_err();
+            assert_eq!(error.edge, edge);
+            assert!(error.message.contains(message), "{}", error.message);
+            assert!(!output.exists());
+        };
+        save_replay_time(
+            &mut fixture,
+            &mut replay,
+            "2026-02-30T05:45:42.556549+00:00",
+        );
+        reject(
+            &fixture,
+            "bad-replay-time",
+            "replay_digest",
+            "invalid consumed_at",
+        );
+        save_replay_time(&mut fixture, &mut replay, postgres_time);
+
+        metadata["proxy_provenance"]["created_at"] = json!("2026-11-25T05:45:42.472456893+00:61");
+        fixture.candidate_files.insert(
+            "metadata.json".to_owned(),
+            serde_json::to_vec(&metadata).unwrap(),
+        );
+        fixture.write_candidate();
+        reject(
+            &fixture,
+            "bad-app-time",
+            "tlsn_presentation",
+            "provenance declaration",
+        );
+        fixture
+            .candidate_files
+            .insert("metadata.json".to_owned(), metadata_bytes);
+
+        let session_bytes = fixture.candidate_files.get_mut("session.json").unwrap();
+        let mut session: Value = serde_json::from_slice(session_bytes).unwrap();
+        let mut receipt = session["session_receipt"].clone();
+        receipt["created_at"] = json!(app_time);
+        session["session_receipt"] = signed_authority_receipt(
+            receipt,
+            &signing_key(13),
+            super::super::session_receipt_signing_bytes,
+        );
+        *session_bytes = serde_json::to_vec(&session).unwrap();
+        fixture.write_candidate();
+        reject(
+            &fixture,
+            "bad-signed-time",
+            "authority_receipt",
+            "invalid ISO timestamp",
+        );
+    }
+
+    fn multi_origin_worker_health(fixture: &SyntheticBundleFixture) -> Value {
+        let mut health: Value =
+            serde_json::from_slice(&fixture.candidate_files["worker-health.json"]).unwrap();
+        health["deployment_role"] = json!("production");
+        health["binding_mode"] = json!("random");
+        health["execution_mode"] = json!("queue");
+        health["execution_binding_configured"] = json!(true);
+        health["queue_execution_receipt_configured"] = json!(true);
+        health["deployment_identity"]["deployment_role"] = json!("production");
+        health["deployment_identity"]["binding_mode"] = json!("random");
+        health.as_object_mut().unwrap().remove("profile_sha256");
+        let security = health["security_identity"].as_object_mut().unwrap();
+        security.remove("server_identity");
+        security.remove("profile_sha256");
+        for (field, digest) in [
+            (
+                "origin_inventory_sha256",
+                sha256_base64url(&fixture.options.origin_inventory_raw),
+            ),
+            (
+                "target_approval_artifact_sha256",
+                sha256_base64url(&fixture.options.target_approval_raw),
+            ),
+        ] {
+            health["security_identity"][field] = json!(digest);
+            health[field] = json!(digest);
+        }
+        health
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn multi_origin_health_rejects_incomplete_or_conflicting_trust_inputs() {
+        let mut fixture = SyntheticBundleFixture::new().await;
+        let health = multi_origin_worker_health(&fixture);
+        fixture.external_files.remove("health");
+        fixture.external_files.remove("semantic_verification");
+        fixture.write_material();
+        let mut reject = |name, changed: Value, detail: &str| {
+            fixture.candidate_files.insert(
+                "worker-health.json".to_owned(),
+                serde_json::to_vec(&changed).unwrap(),
+            );
+            fixture.write_candidate();
+            let output = fixture.output(name);
+            let error = finalize_candidate(
+                fixture.candidate(),
+                fixture.material(),
+                &output,
+                &fixture.options,
+            )
+            .unwrap_err();
+            assert_eq!(error.edge, "result_identity");
+            assert_eq!(error.artifact.as_deref(), Some("health"));
+            assert!(error.message.contains(detail), "{}", error.message);
+            assert!(!output.exists());
+        };
+        for field in ["origin_inventory_sha256", "target_approval_artifact_sha256"] {
+            for parent in ["", "/security_identity"] {
+                let mut missing = health.clone();
+                missing
+                    .pointer_mut(parent)
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(field);
+                reject("missing-production-health-digest", missing, field);
+            }
+
+            let mut mismatch = health.clone();
+            let wrong_digest = sha256_base64url(b"unapproved alternate input");
+            mismatch[field] = json!(wrong_digest);
+            mismatch["security_identity"][field] = json!(wrong_digest);
+            reject("wrong-production-health-digest", mismatch, field);
+        }
+        let mut mixed_role = health.clone();
+        mixed_role["deployment_role"] = json!("canary");
+        reject(
+            "conflicting-production-health-role",
+            mixed_role,
+            "role or binding mode",
+        );
+
+        let mut unverified = health.clone();
+        unverified["security_identity"]["trust_contract_valid"] = json!(false);
+        reject("unverified-production-health", unverified, "trust contract");
+
+        let mut mixed_shape = health;
+        mixed_shape["security_identity"]["server_identity"] = json!(FIXTURE_SERVER_IDENTITY);
+        reject(
+            "mixed-production-health-shape",
+            mixed_shape,
+            "single-origin fields",
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn production_queue_receipt_is_required_and_independently_verified_before_publication() {
+        let mut fixture = SyntheticBundleFixture::new().await;
+        let health_bytes = serde_json::to_vec(&multi_origin_worker_health(&fixture)).unwrap();
+        fixture
+            .candidate_files
+            .insert("worker-health.json".to_owned(), health_bytes.clone());
+        fixture.external_files.remove("health");
+        fixture.external_files.remove("semantic_verification");
+        fixture.write_material();
+        for (name, signature_field) in [
+            ("device-authentication.json", "/request/sig"),
+            ("possession-proof.json", "/sig"),
+        ] {
+            let bytes = fixture.candidate_files.get_mut(name).unwrap();
+            let mut proof: Value = serde_json::from_slice(bytes).unwrap();
+            let signature = proof.pointer_mut(signature_field).unwrap();
+            let decoded = URL_SAFE_NO_PAD.decode(signature.as_str().unwrap()).unwrap();
+            *signature = json!(base64::engine::general_purpose::STANDARD.encode(decoded));
+            *bytes = serde_json::to_vec(&proof).unwrap();
+        }
+        let (receipt, trust) = queue_execution_receipt::sign_fixture(
+            &fixture.candidate_files["presentation.bin"],
+            &fixture.candidate_files["result-exact.bin"],
+        );
+        fixture.candidate_files.insert(
+            "verifier-execution-receipt-header.txt".to_owned(),
+            URL_SAFE_NO_PAD.encode(&receipt).into_bytes(),
+        );
+        fixture
+            .candidate_files
+            .insert("verifier-execution-receipt.bin".to_owned(), receipt.clone());
+        fixture.write_candidate();
+        let trust_path = fixture.root.join("independent-execution-trust.json");
+        fs::write(&trust_path, &trust).unwrap();
+
+        let unsigned_output = fixture.output("without-trust");
+        let error = finalize_candidate(
+            fixture.candidate(),
+            fixture.material(),
+            &unsigned_output,
+            &fixture.options,
+        )
+        .unwrap_err();
+        assert!(error
+            .message
+            .contains("requires independent execution trust"));
+        assert!(!unsigned_output.exists());
+
+        let verified =
+            verify_candidate_queue_execution_receipt(fixture.candidate(), &trust_path).unwrap();
+        assert_eq!(verified["status"], "SIGNATURE_AND_EXACT_BYTES_VERIFIED");
+        let output = fixture.output("queue-receipt");
+        let report = finalize_candidate_with_queue_execution_trust(
+            fixture.candidate(),
+            fixture.material(),
+            None,
+            &trust_path,
+            &output,
+            &fixture.options,
+        )
+        .unwrap();
+        assert_eq!(report["status"], "VERIFIED");
+        assert_eq!(report["production_queue_execution_receipt"], verified);
+        assert_eq!(
+            fs::read(output.join("artifacts/health.bin")).unwrap(),
+            health_bytes
+        );
+        for (file, role) in [
+            ("device-authentication.json", "device_authentication"),
+            ("possession-proof.json", "possession_proof"),
+        ] {
+            let published = fs::read(output.join(format!("artifacts/{role}.bin"))).unwrap();
+            assert_eq!(published, fixture.candidate_files[file]);
+        }
+        assert_eq!(
+            super::super::verify_bundle(&output, &fixture.options).unwrap()["status"],
+            "VERIFIED"
+        );
+
+        // Rewriting all local digests does not make a substituted receipt trustworthy.
+        let mut changed: Value = serde_json::from_slice(&receipt).unwrap();
+        changed["verification_attempt_id"] = json!("c52e6378-6589-422b-9043-18db85bf57cf");
+        let changed = serde_json::to_vec(&changed).unwrap();
+        fixture.candidate_files.insert(
+            "verifier-execution-receipt-header.txt".to_owned(),
+            URL_SAFE_NO_PAD.encode(&changed).into_bytes(),
+        );
+        fixture
+            .candidate_files
+            .insert("verifier-execution-receipt.bin".to_owned(), changed);
+        fixture.write_candidate();
+        let rejected_output = fixture.output("altered-receipt");
+        let error = finalize_candidate_with_queue_execution_trust(
+            fixture.candidate(),
+            fixture.material(),
+            None,
+            &trust_path,
+            &rejected_output,
+            &fixture.options,
+        )
+        .unwrap_err();
+        assert_eq!(error.edge, "production_queue_execution_receipt");
+        assert!(!rejected_output.exists());
     }
 
     #[test]

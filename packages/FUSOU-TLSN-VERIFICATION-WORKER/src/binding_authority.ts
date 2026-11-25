@@ -29,7 +29,8 @@ export type VerificationFailureCode =
   | "authority_error"
   | "lease_expired"
   | "worker_exception"
-  | "callback_failed";
+  | "callback_failed"
+  | "queue_message_invalid";
 
 export type BindingRecord = {
   binding_id: string;

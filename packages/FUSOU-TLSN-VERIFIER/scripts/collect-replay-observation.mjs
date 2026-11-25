@@ -139,7 +139,7 @@ async function readCandidate(candidateDirectory) {
   for (const [label, value] of [
     ["session ID", session.session_id],
     ["Result session ID", result.attestation_session_id],
-    ["device ID", result.canonical_device_id],
+    ["device ID", result.device_id],
     ["canonical user ID", result.canonical_user_id],
     ["binding", result.binding_value],
     ["device challenge", session.device_challenge],
@@ -148,7 +148,7 @@ async function readCandidate(candidateDirectory) {
     requireString(value, label);
   }
   if (session.session_id !== result.attestation_session_id ||
-      session.device_id !== result.canonical_device_id ||
+      session.device_id !== result.device_id ||
       session.canonical_user_id !== result.canonical_user_id ||
       session.binding !== result.binding_value ||
       session.device_challenge !== result.device_challenge ||

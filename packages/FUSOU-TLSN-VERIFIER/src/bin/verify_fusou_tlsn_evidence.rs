@@ -7,12 +7,14 @@ use std::{collections::HashSet, env, fs, process};
 enum Invocation {
     Path(Arguments),
     FdV1,
+    QueueReceipt { candidate: String, trust: String },
 }
 
 struct Arguments {
     bundle: String,
     finalize_candidate: Option<String>,
     replay_observation: Option<String>,
+    queue_execution_trust: Option<String>,
     output: Option<String>,
     evidence_root_key_id: String,
     evidence_root_public_key_spki: String,
@@ -36,7 +38,7 @@ struct Arguments {
 }
 
 fn usage() -> &'static str {
-    "usage: verify_fusou_tlsn_evidence --bundle PATH [--finalize-candidate PATH [--replay-observation PATH] --output NEW_DIRECTORY] --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH"
+    "usage: verify_fusou_tlsn_evidence --bundle PATH [--finalize-candidate PATH [--replay-observation PATH] [--queue-execution-trust PATH] --output NEW_DIRECTORY] --evidence-root-key-id ID --evidence-root-public-key-spki BASE64URL --trusted-notary-registry PATH --session-authority-registry PATH --session-authority-key-id ID --session-authority-public-key-spki BASE64URL --binding-authority-registry PATH --binding-authority-key-id ID --binding-authority-public-key-spki BASE64URL --canonical-user-id UUID --device-id UUID --device-public-key BASE64URL --server-identity HOST --origin-inventory PATH --target-approval PATH --profile-sha256 BASE64URL [--sparse-profile-sha256 BASE64URL] --verifier-key-id ID --trust-anchor-der PATH\nReceipt-only mode: --verify-queue-execution-receipt CANDIDATE --queue-execution-trust PATH"
 }
 
 fn required_value<I>(arguments: &mut I, flag: &str) -> Result<String, String>
@@ -56,6 +58,20 @@ fn parse_arguments_from(mut arguments: Vec<String>) -> Result<Invocation, String
             Err("FD ABI mode cannot be mixed with path arguments or repeated".to_owned())
         };
     }
+    if arguments
+        .first()
+        .is_some_and(|flag| flag == "--verify-queue-execution-receipt")
+    {
+        return match arguments.as_slice() {
+            [_, candidate, flag, trust] if flag == "--queue-execution-trust" => {
+                Ok(Invocation::QueueReceipt {
+                    candidate: candidate.clone(),
+                    trust: trust.clone(),
+                })
+            }
+            _ => Err(usage().to_owned()),
+        };
+    }
     if arguments.first().is_some_and(|flag| flag == "--path-mode") {
         arguments.remove(0);
     }
@@ -67,6 +83,7 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
     let mut bundle = None;
     let mut finalize_candidate = None;
     let mut replay_observation = None;
+    let mut queue_execution_trust = None;
     let mut output = None;
     let mut evidence_root_key_id = None;
     let mut evidence_root_public_key_spki = None;
@@ -100,6 +117,7 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
             "--bundle" => bundle = Some(value),
             "--finalize-candidate" => finalize_candidate = Some(value),
             "--replay-observation" => replay_observation = Some(value),
+            "--queue-execution-trust" => queue_execution_trust = Some(value),
             "--output" => output = Some(value),
             "--evidence-root-key-id" => evidence_root_key_id = Some(value),
             "--evidence-root-public-key-spki" => evidence_root_public_key_spki = Some(value),
@@ -133,7 +151,11 @@ fn parse_path_arguments(mut arguments: impl Iterator<Item = String>) -> Result<A
     if replay_observation.is_some() && finalize_candidate.is_none() {
         return Err("--replay-observation requires --finalize-candidate".to_owned());
     }
+    if queue_execution_trust.is_some() && finalize_candidate.is_none() {
+        return Err("--queue-execution-trust requires --finalize-candidate".to_owned());
+    }
     Ok(Arguments {
+        queue_execution_trust,
         bundle: bundle.ok_or_else(|| format!("missing --bundle\n{}", usage()))?,
         finalize_candidate,
         replay_observation,
@@ -246,6 +268,16 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
     };
     let replay_observation = arguments.replay_observation.map(std::path::PathBuf::from);
     match (arguments.finalize_candidate, arguments.output) {
+        (Some(candidate), Some(output)) if arguments.queue_execution_trust.is_some() => {
+            fusou_tlsn_verifier::evidence_bundle::finalization::finalize_candidate_with_queue_execution_trust(
+                candidate,
+                arguments.bundle,
+                replay_observation.as_deref(),
+                arguments.queue_execution_trust.expect("checked trust input"),
+                output,
+                &options,
+            )
+        }
         (Some(candidate), Some(output)) => {
             fusou_tlsn_verifier::evidence_bundle::finalization::finalize_candidate_with_replay_observation(
                 candidate,
@@ -267,6 +299,8 @@ fn run(arguments: Arguments) -> Result<serde_json::Value, BundleVerificationErro
 fn run_invocation(invocation: Invocation) -> Result<serde_json::Value, BundleVerificationError> {
     match invocation {
         Invocation::Path(arguments) => run(arguments),
+        Invocation::QueueReceipt { candidate, trust } =>
+            fusou_tlsn_verifier::evidence_bundle::finalization::verify_candidate_queue_execution_receipt(candidate, trust),
         Invocation::FdV1 => Err(BundleVerificationError::new(
             "fd_policy", None, "FD_POLICY_CONTEXT_NOT_REGISTERED",
         )),
@@ -376,6 +410,25 @@ mod tests {
         }
         let report = run_invocation(Invocation::FdV1).unwrap_err().report();
         assert_eq!(report["error"]["message"], "FD_POLICY_CONTEXT_NOT_REGISTERED");
+    }
+
+    #[test]
+    fn queue_receipt_mode_requires_a_separate_trust_policy() {
+        let args = [
+            "--verify-queue-execution-receipt",
+            "candidate",
+            "--queue-execution-trust",
+            "independent.json",
+        ];
+        assert!(matches!(
+            parse_arguments_from(args.into_iter().map(str::to_owned).collect()),
+            Ok(Invocation::QueueReceipt { candidate, trust })
+                if candidate == "candidate" && trust == "independent.json"
+        ));
+        assert!(parse_arguments_from(args[..2].iter().map(ToString::to_string).collect()).is_err());
+        let mut unrelated = legacy_arguments();
+        unrelated.extend(["--queue-execution-trust".to_owned(), "independent.json".to_owned()]);
+        assert!(parse_arguments_from(unrelated).is_err());
     }
 
     #[test]
