@@ -1,6 +1,10 @@
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { sha256Hex, validateSynergyPayload } from "../synergy-payload";
+import {
+  decodeAndVerifySynergyPayload,
+  sha256Hex,
+  validateSynergyPayload,
+} from "../synergy-payload";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -63,6 +67,32 @@ describe("synergy-payload utilities", () => {
   it("rejects hash mismatch", async () => {
     await expect(
       validateSynergyPayload(rawBytes, "0".repeat(64)),
+    ).rejects.toMatchObject({
+      issue: "hash_mismatch",
+    });
+  });
+
+  it("decodeAndVerifySynergyPayload verifies plain, gzip, and brotli without JSON.parse", async () => {
+    const expectedSha = await sha256Hex(rawBytes);
+
+    const plain = await decodeAndVerifySynergyPayload(rawBytes, expectedSha);
+    expect(plain.actualSha256).toBe(expectedSha);
+    expect(decoder.decode(plain.decoded)).toContain("effect_rules");
+
+    const gz = await decodeAndVerifySynergyPayload(
+      new Uint8Array(gzipSync(rawBytes)),
+      expectedSha,
+    );
+    expect(gz.actualSha256).toBe(expectedSha);
+
+    const br = await decodeAndVerifySynergyPayload(
+      new Uint8Array(brotliCompressSync(rawBytes)),
+      expectedSha,
+    );
+    expect(br.actualSha256).toBe(expectedSha);
+
+    await expect(
+      decodeAndVerifySynergyPayload(rawBytes, "0".repeat(64)),
     ).rejects.toMatchObject({
       issue: "hash_mismatch",
     });

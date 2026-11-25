@@ -12,6 +12,7 @@ import {
 } from "../utils/period-tags";
 import {
   SynergyPayloadValidationError,
+  decodeAndVerifySynergyPayload,
   validateSynergyPayload,
 } from "../utils/synergy-payload";
 import {
@@ -259,7 +260,7 @@ app.get("/synergy-data", async (c) => {
       candidate: CompletedSynergyManifestRow,
     ): Promise<{
       manifest: CompletedSynergyManifestRow;
-      jsonText: string;
+      decodedBytes: Uint8Array;
     } | null> => {
       const keys = getSynergyManifestR2Keys(
         candidate.period_tag,
@@ -272,17 +273,16 @@ app.get("/synergy-data", async (c) => {
       }
 
       const raw = new Uint8Array(await object.arrayBuffer());
-      const validated = await validateSynergyPayload(
+      const verified = await decodeAndVerifySynergyPayload(
         raw,
         candidate.sp_effect_sha256,
       );
-      const jsonText = new TextDecoder().decode(validated.decoded);
-      return { manifest: candidate, jsonText };
+      return { manifest: candidate, decodedBytes: verified.decoded };
     };
 
     let resolved: {
       manifest: CompletedSynergyManifestRow;
-      jsonText: string;
+      decodedBytes: Uint8Array;
     } | null = null;
     let lastPayloadError: unknown = null;
 
@@ -385,7 +385,7 @@ app.get("/synergy-data", async (c) => {
       }
     }
 
-    return new Response(resolved.jsonText, {
+    return new Response(resolved.decodedBytes as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",

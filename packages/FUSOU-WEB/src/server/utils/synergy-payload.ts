@@ -79,6 +79,42 @@ async function decompressBytes(
   }
 }
 
+function firstNonWhitespaceByte(body: Uint8Array): number {
+  let i = 0;
+  // Skip UTF-8 BOM if present
+  if (
+    body.length >= 3 &&
+    body[0] === 0xef &&
+    body[1] === 0xbb &&
+    body[2] === 0xbf
+  ) {
+    i = 3;
+  }
+  while (i < body.length) {
+    const b = body[i];
+    if (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) {
+      i++;
+      continue;
+    }
+    return b ?? -1;
+  }
+  return -1;
+}
+
+function looksLikeJsonPrefix(body: Uint8Array): boolean {
+  const b = firstNonWhitespaceByte(body);
+  return (
+    b === 0x7b || // '{'
+    b === 0x5b || // '['
+    b === 0x22 || // '"'
+    b === 0x2d || // '-'
+    (b >= 0x30 && b <= 0x39) || // '0'-'9'
+    b === 0x74 || // 't'
+    b === 0x66 || // 'f'
+    b === 0x6e // 'n'
+  );
+}
+
 export async function decodeSynergyPayload(
   body: Uint8Array,
 ): Promise<Uint8Array> {
@@ -86,16 +122,17 @@ export async function decodeSynergyPayload(
     return await decompressBytes(body, "gzip");
   }
 
-  // Fast-path: plain JSON payload.
-  try {
-    JSON.parse(new TextDecoder().decode(body));
-    return body;
-  } catch {
-    // Not plain JSON; try Brotli fallback next.
+  // Fast-path: plain JSON payload (only attempt decode when leading byte can start JSON).
+  if (looksLikeJsonPrefix(body)) {
+    try {
+      JSON.parse(new TextDecoder().decode(body));
+      return body;
+    } catch {
+      // Not plain JSON (or a Brotli payload that coincidentally starts with a JSON token);
+      // fall through to Brotli decompression.
+    }
   }
 
-  // Some Brotli payloads can coincidentally start with JSON-like bytes.
-  // Always attempt Brotli fallback when plain JSON parse failed.
   if (body.length > 0) {
     try {
       return await decompressBytes(body, "br");
@@ -117,6 +154,86 @@ export async function sha256Hex(data: Uint8Array): Promise<string> {
     .join("");
 }
 
+/**
+ * Lightweight decode + SHA-256 verification for serving already-validated
+ * completed payloads without allocating a full V8 JSON object tree on every GET.
+ */
+export async function decodeAndVerifySynergyPayload(
+  body: Uint8Array,
+  expectedSha256?: string,
+): Promise<{
+  decoded: Uint8Array;
+  actualSha256: string;
+}> {
+  const normalizedExpected = expectedSha256?.toLowerCase();
+  let decoded: Uint8Array;
+
+  if (body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b) {
+    try {
+      decoded = await decompressBytes(body, "gzip");
+    } catch (error) {
+      throw new SynergyPayloadValidationError(
+        "decode",
+        "failed to decode gzip synergy payload",
+        String(error),
+      );
+    }
+  } else if (firstNonWhitespaceByte(body) === 0x7b) {
+    // Likely plain JSON object; verify hash directly without JSON.parse.
+    const rawHash = (await sha256Hex(body)).toLowerCase();
+    if (!normalizedExpected || rawHash === normalizedExpected) {
+      return { decoded: body, actualSha256: rawHash };
+    }
+    // Hash mismatch: could be a Brotli stream coincidentally starting with '{'.
+    try {
+      decoded = await decompressBytes(body, "br");
+    } catch {
+      throw new SynergyPayloadValidationError(
+        "hash_mismatch",
+        "synergy payload hash mismatch",
+        undefined,
+        normalizedExpected,
+        rawHash,
+      );
+    }
+  } else if (body.length > 0) {
+    try {
+      decoded = await decompressBytes(body, "br");
+    } catch (error) {
+      throw new SynergyPayloadValidationError(
+        "decode",
+        "failed to decode synergy payload",
+        String(error),
+      );
+    }
+  } else {
+    throw new SynergyPayloadValidationError(
+      "invalid_json",
+      "synergy payload is empty",
+    );
+  }
+
+  if (firstNonWhitespaceByte(decoded) !== 0x7b) {
+    throw new SynergyPayloadValidationError(
+      "root_not_object",
+      "synergy payload root must be a JSON object",
+    );
+  }
+
+  const actualSha256 = (await sha256Hex(decoded)).toLowerCase();
+  if (normalizedExpected && actualSha256 !== normalizedExpected) {
+    throw new SynergyPayloadValidationError(
+      "hash_mismatch",
+      "synergy payload hash mismatch",
+      undefined,
+      normalizedExpected,
+      actualSha256,
+    );
+  }
+
+  return { decoded, actualSha256 };
+}
+
 export async function validateSynergyPayload(
   body: Uint8Array,
   expectedSha256?: string,
@@ -126,25 +243,53 @@ export async function validateSynergyPayload(
   actualSha256: string;
 }> {
   let decoded: Uint8Array;
-  try {
-    decoded = await decodeSynergyPayload(body);
-  } catch (error) {
-    throw new SynergyPayloadValidationError(
-      "decode",
-      "failed to decode synergy payload",
-      String(error),
-    );
+  let parsed: unknown;
+  let hasParsed = false;
+
+  if (body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b) {
+    try {
+      decoded = await decompressBytes(body, "gzip");
+    } catch (error) {
+      throw new SynergyPayloadValidationError(
+        "decode",
+        "failed to decode synergy payload",
+        String(error),
+      );
+    }
+  } else if (looksLikeJsonPrefix(body)) {
+    // Parse ONCE on plain-JSON fast path (eliminates duplicate JSON.parse).
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(body));
+      decoded = body;
+      hasParsed = true;
+    } catch {
+      // Fall back to Brotli if payload coincidentally began with a JSON token.
+      try {
+        decoded = await decompressBytes(body, "br");
+      } catch {
+        decoded = body;
+      }
+    }
+  } else if (body.length > 0) {
+    try {
+      decoded = await decompressBytes(body, "br");
+    } catch {
+      decoded = body;
+    }
+  } else {
+    decoded = body;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(new TextDecoder().decode(decoded));
-  } catch (error) {
-    throw new SynergyPayloadValidationError(
-      "invalid_json",
-      "synergy payload is not valid JSON",
-      String(error),
-    );
+  if (!hasParsed) {
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(decoded));
+    } catch (error) {
+      throw new SynergyPayloadValidationError(
+        "invalid_json",
+        "synergy payload is not valid JSON",
+        String(error),
+      );
+    }
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

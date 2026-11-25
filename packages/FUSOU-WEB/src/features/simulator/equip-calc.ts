@@ -215,12 +215,19 @@ export function computeSuppressedEquipIds(
   }
   const equippedSet = new Set(allIds);
 
+  let hasNegativeMultiWithoutExplicitSuppressed = false;
+
   const checkMultiRule = (
     rule: MultiItemRule,
     comboSize: number,
   ) => {
     if (!rule.ships.includes(shipId)) return;
-    if (!rule.suppressed_components || rule.suppressed_components.length === 0) return;
+    const hasExplicitSuppressed =
+      !!rule.suppressed_components && rule.suppressed_components.length > 0;
+    const hasNegativeSynergy = Object.values(rule.synergy).some((v) => v < 0);
+    if (!hasExplicitSuppressed && (!hasNegativeSynergy || hasNegativeMultiWithoutExplicitSuppressed)) {
+      return;
+    }
 
     let isActive = false;
     if (rule.category_pools) {
@@ -349,7 +356,11 @@ export function computeSuppressedEquipIds(
     }
 
     if (isActive) {
-      for (const comp of rule.suppressed_components) suppressed.add(comp);
+      if (hasExplicitSuppressed && rule.suppressed_components) {
+        for (const comp of rule.suppressed_components) suppressed.add(comp);
+      } else if (hasNegativeSynergy) {
+        hasNegativeMultiWithoutExplicitSuppressed = true;
+      }
     }
   };
 
@@ -380,6 +391,60 @@ export function computeSuppressedEquipIds(
   }
   if (slotItemEffects.hexa_rules) {
     for (const rule of slotItemEffects.hexa_rules) checkMultiRule(rule, 6);
+  }
+
+  // Dynamic marginal-suppression calculation for compact rules that omit
+  // per-combo suppressed_components (triple/quad/penta/hexa).
+  // Matches scanner's calculateSuppressedComponentsFast exactly for loadouts up to 6 items.
+  if (hasNegativeMultiWithoutExplicitSuppressed && allIds.length >= 2 && allIds.length <= 6) {
+    const len = allIds.length;
+    const fullMask = (1 << len) - 1;
+    const zeros = new Array<number>(len).fill(0);
+    const subsetCache = new Map<number, Record<string, number>>();
+    subsetCache.set(0, {});
+
+    const getSubsetBonus = (mask: number): Record<string, number> => {
+      const cached = subsetCache.get(mask);
+      if (cached) return cached;
+      const subItems: number[] = [];
+      for (let j = 0; j < len; j++) {
+        if (mask & (1 << j)) {
+          const itemId = allIds[j];
+          if (itemId !== undefined) subItems.push(itemId);
+        }
+      }
+      const res = computeEquipBonuses(shipId, subItems, null, zeros, 0);
+      subsetCache.set(mask, res);
+      return res;
+    };
+
+    const fullBonus = getSubsetBonus(fullMask);
+    const statKeys = ["houg", "raig", "tyku", "souk", "kaih", "tais", "saku", "baku", "houm", "leng"] as const;
+
+    for (let i = 0; i < len; i++) {
+      const itemId = allIds[i];
+      if (itemId === undefined || suppressed.has(itemId)) continue;
+      const bit = 1 << i;
+      const withoutMask = fullMask ^ bit;
+      const withoutBonus = getSubsetBonus(withoutMask);
+
+      let isSuppressed = false;
+      for (let sub = (withoutMask - 1) & withoutMask; ; sub = (sub - 1) & withoutMask) {
+        const subBonus = getSubsetBonus(sub);
+        const subWithBonus = getSubsetBonus(sub | bit);
+        for (const k of statKeys) {
+          const marginalFull = (fullBonus[k] || 0) - (withoutBonus[k] || 0);
+          const marginalSub = (subWithBonus[k] || 0) - (subBonus[k] || 0);
+          if (marginalFull < marginalSub) {
+            isSuppressed = true;
+            break;
+          }
+        }
+        if (isSuppressed || sub === 0) break;
+      }
+
+      if (isSuppressed) suppressed.add(itemId);
+    }
   }
 
   return suppressed;
