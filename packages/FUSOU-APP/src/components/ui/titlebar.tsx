@@ -30,6 +30,7 @@ export function CustomTitlebar(props: Props) {
   const [volume, setVolume] = createSignal<number>(100);
   const [isMuted, setIsMuted] = createSignal<boolean>(false);
   const [isVolumeMenuOpen, setIsVolumeMenuOpen] = createSignal<boolean>(false);
+  let lastNonZeroVolume = 100;
 
   // Status feedback
   const [isCapturing, setIsCapturing] = createSignal<boolean>(false);
@@ -41,9 +42,13 @@ export function CustomTitlebar(props: Props) {
 
   // Sync volume with external webview & persist
   const updateVolume = (newVol: number, newMuted: boolean) => {
-    setVolume(newVol);
+    const clampedVol = Math.max(0, Math.min(100, Math.round(newVol)));
+    if (clampedVol > 0) {
+      lastNonZeroVolume = clampedVol;
+    }
+    setVolume(clampedVol);
     setIsMuted(newMuted);
-    localStorage.setItem("fusou-external-volume", newVol.toString());
+    localStorage.setItem("fusou-external-volume", clampedVol.toString());
     localStorage.setItem("fusou-external-muted", newMuted ? "true" : "false");
 
     if (volumeDebounceTimer !== null) {
@@ -51,7 +56,7 @@ export function CustomTitlebar(props: Props) {
     }
     volumeDebounceTimer = window.setTimeout(() => {
       invoke("set_external_volume", {
-        volume: newVol / 100,
+        volume: clampedVol / 100,
         muted: newMuted,
       }).catch((err) => {
         console.warn("Failed to set external volume:", err);
@@ -66,7 +71,12 @@ export function CustomTitlebar(props: Props) {
   };
 
   const toggleMute = () => {
-    updateVolume(volume(), !isMuted());
+    const nextMuted = !isMuted();
+    const targetVol =
+      !nextMuted && volume() <= 0
+        ? Math.max(10, lastNonZeroVolume || 50)
+        : volume();
+    updateVolume(targetVol, nextMuted);
   };
 
   // Actions
@@ -176,8 +186,14 @@ export function CustomTitlebar(props: Props) {
     // Restore saved volume
     const savedVol = localStorage.getItem("fusou-external-volume");
     const savedMuted = localStorage.getItem("fusou-external-muted");
-    const initVol = savedVol !== null ? Number(savedVol) : 100;
+    const initVol =
+      savedVol !== null && Number.isFinite(Number(savedVol))
+        ? Math.max(0, Math.min(100, Math.round(Number(savedVol))))
+        : 100;
     const initMuted = savedMuted === "true";
+    if (initVol > 0) {
+      lastNonZeroVolume = initVol;
+    }
     setVolume(initVol);
     setIsMuted(initMuted);
     if (isTauri()) {
@@ -493,7 +509,11 @@ export function CustomTitlebar(props: Props) {
             </div>
           }
         >
-          <div class="fusou-inline-volume">
+          <div
+            class="fusou-inline-volume"
+            data-tauri-drag-region="false"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               onClick={toggleMute}
@@ -564,6 +584,7 @@ export function CustomTitlebar(props: Props) {
               max="100"
               value={volume()}
               onInput={handleVolumeChange}
+              onChange={handleVolumeChange}
               class={`fusou-custom-range fusou-inline-range ${isMuted() ? "opacity-50" : ""}`}
               aria-label="Game volume"
             />

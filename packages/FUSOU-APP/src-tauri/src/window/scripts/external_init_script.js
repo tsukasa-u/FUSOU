@@ -37,8 +37,12 @@ const isLinuxPlatform =
 // Linux uses OS-level PipeWire/PulseAudio stream volume instead and skips prototype patching.
 const enableAudioInterception = !isLinuxPlatform;
 
-let fusouCurrentVolume = 1.0;
-let fusouIsMuted = false;
+let fusouCurrentVolume =
+  typeof window.__fusouInitialVolume === "number" &&
+  Number.isFinite(window.__fusouInitialVolume)
+    ? Math.max(0, Math.min(1, window.__fusouInitialVolume))
+    : 1.0;
+let fusouIsMuted = Boolean(window.__fusouInitialMuted);
 
 /* =========================================================================
  * Web Audio API & HTML5 Media Interception (Windows WebView2 Volume Control)
@@ -1363,20 +1367,23 @@ let dockedVolumeInitialized = false;
 const initDockedVolume = () => {
   if (dockedVolumeInitialized) return;
   dockedVolumeInitialized = true;
-  const savedVol = localStorage.getItem("fusou-external-volume");
-  const savedMuted = localStorage.getItem("fusou-external-muted");
-  const initVol = savedVol !== null ? Number(savedVol) : 100;
-  const initMuted = savedMuted === "true";
 
-  fusouCurrentVolume = Math.max(0, Math.min(1, initVol / 100));
-  fusouIsMuted = initMuted;
-  applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
-  requestNativeShortcut(`volume:${fusouCurrentVolume}:${fusouIsMuted}`);
-  broadcastToAllFrames({
-    type: "fusou-set-volume",
-    volume: fusouCurrentVolume,
-    muted: fusouIsMuted,
-  });
+  // In combined (docked) mode, the unified chrome titlebar + Rust state is the
+  // single source of truth for volume/mute. Never overwrite chrome with stale
+  // DMM-origin localStorage; apply the initial volume injected by Rust and
+  // broadcast it to nested game iframes as they mount.
+  const broadcastCurrentVolume = () => {
+    applyVolumeToPage(fusouCurrentVolume, fusouIsMuted);
+    broadcastToAllFrames({
+      type: "fusou-set-volume",
+      volume: fusouCurrentVolume,
+      muted: fusouIsMuted,
+    });
+  };
+
+  broadcastCurrentVolume();
+  setTimeout(broadcastCurrentVolume, 500);
+  setTimeout(broadcastCurrentVolume, 2000);
 };
 
 const ensureWindowFrameElements = () => {

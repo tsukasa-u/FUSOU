@@ -41,6 +41,30 @@ static DEFAULT_GAME_URL: &str = "http://www.dmm.com/netgame/social/-/gadgets/=/a
 
 static GAME_URL: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
 
+/// Authoritative runtime volume state `(volume: 0.0..=1.0, muted: bool)` shared between
+/// the chrome/app titlebar and the external game webview across attach, hide/show, and reload.
+static EXTERNAL_VOLUME_STATE: LazyLock<Mutex<(f64, bool)>> =
+    LazyLock::new(|| Mutex::new((1.0, false)));
+
+pub fn get_external_volume_state() -> (f64, bool) {
+    *EXTERNAL_VOLUME_STATE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+fn remember_external_volume_state(volume: f64, muted: bool) -> (f64, bool) {
+    let clamped = if volume.is_finite() {
+        volume.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let mut guard = EXTERNAL_VOLUME_STATE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *guard = (clamped, muted);
+    (clamped, muted)
+}
+
 #[cfg(any(windows, target_os = "linux"))]
 static SCREENSHOT_CLIPBOARD: LazyLock<Mutex<Option<arboard::Clipboard>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -348,8 +372,9 @@ pub fn build_external_init_script(docked: bool) -> String {
     #[cfg(not(any(windows, target_os = "linux")))]
     let platform = "other";
 
+    let (init_volume, init_muted) = get_external_volume_state();
     let prefix = format!(
-        "window.__fusouPlatform = \"{platform}\";\nwindow.__fusouDocked = {docked};\n"
+        "window.__fusouPlatform = \"{platform}\";\nwindow.__fusouDocked = {docked};\nwindow.__fusouInitialVolume = {init_volume};\nwindow.__fusouInitialMuted = {init_muted};\n"
     );
 
     let raw_script = include_str!("./scripts/external_init_script.js");
@@ -830,6 +855,21 @@ mod screenshot_clipboard_tests {
         let (w, h, rgba) = decode_png_to_rgba(&cropped).expect("decode cropped");
         assert_eq!((w, h), (10, 6));
         assert!(rgba.chunks_exact(4).all(|px| px == [20, 180, 90, 255]));
+    }
+
+    #[test]
+    fn external_volume_state_clamps_and_injects_into_init_script() {
+        let prev = get_external_volume_state();
+        assert_eq!(remember_external_volume_state(1.5, false), (1.0, false));
+        assert_eq!(remember_external_volume_state(-0.2, true), (0.0, true));
+        assert_eq!(remember_external_volume_state(0.35, false), (0.35, false));
+
+        let script = build_external_init_script(true);
+        assert!(script.contains("window.__fusouDocked = true;"));
+        assert!(script.contains("window.__fusouInitialVolume = 0.35;"));
+        assert!(script.contains("window.__fusouInitialMuted = false;"));
+
+        let _ = remember_external_volume_state(prev.0, prev.1);
     }
 }
 
@@ -1780,8 +1820,9 @@ pub fn external_window_shortcut(
     if action.starts_with("volume:") {
         let parts: Vec<&str> = action.split(':').collect();
         if parts.len() >= 3 {
-            let vol = parts[1].parse::<f64>().unwrap_or(1.0);
-            let muted = parts[2] == "true";
+            let raw_vol = parts[1].parse::<f64>().unwrap_or(1.0);
+            let raw_muted = parts[2] == "true";
+            let (vol, muted) = remember_external_volume_state(raw_vol, raw_muted);
             let is_muted = muted || vol <= 0.0001;
 
             #[cfg(windows)]
@@ -1835,7 +1876,13 @@ pub fn external_window_shortcut(
     Ok(())
 }
 
+pub fn apply_stored_external_volume(app: &AppHandle) {
+    let (volume, muted) = get_external_volume_state();
+    set_external_window_volume(app, volume, muted);
+}
+
 pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
+    let (volume, muted) = remember_external_volume_state(volume, muted);
     let Some(external) = (if crate::window::host::is_combined_mode(app) {
         app.get_webview("external")
     } else {
@@ -1850,16 +1897,20 @@ pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
     {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
         use windows_core::Interface;
-        let _ = external.with_webview(move |platform_webview| {
+        if let Err(err) = external.with_webview(move |platform_webview| {
             let controller = platform_webview.controller();
             let webview = match unsafe { controller.CoreWebView2() } {
                 Ok(wv) => wv,
                 Err(_) => return,
             };
             if let Ok(wv8) = webview.cast::<ICoreWebView2_8>() {
-                let _ = unsafe { wv8.SetIsMuted(is_muted) };
+                if let Err(err) = unsafe { wv8.SetIsMuted(is_muted) } {
+                    tracing::warn!("failed to set WebView2 muted state: {}", err);
+                }
             }
-        });
+        }) {
+            tracing::warn!("failed to access external webview for mute update: {}", err);
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -1882,7 +1933,7 @@ pub fn set_external_window_volume(app: &AppHandle, volume: f64, muted: bool) {
 }
 
 #[tauri::command]
-pub fn trigger_external_screenshot(app: AppHandle) {
+pub async fn trigger_external_screenshot(app: AppHandle) {
     if capture_focused_external_window_screenshot(&app).is_none() {
         crate::notify::show(
             &app,
@@ -1893,7 +1944,7 @@ pub fn trigger_external_screenshot(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn trigger_external_reload(app: AppHandle) {
+pub async fn trigger_external_reload(app: AppHandle) {
     if !reload_focused_external_window(&app) {
         crate::notify::show(
             &app,
@@ -1904,7 +1955,7 @@ pub fn trigger_external_reload(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
+pub async fn set_external_volume(app: AppHandle, volume: f64, muted: bool) {
     set_external_window_volume(&app, volume, muted);
 }
 

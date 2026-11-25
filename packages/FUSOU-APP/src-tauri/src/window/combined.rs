@@ -95,7 +95,8 @@ fn install_external_diagnostics(webview: &tauri::Webview) {
         };
         use windows_core::{BOOL, PWSTR};
 
-        let _ = webview.with_webview(|platform_wv| {
+        let app_for_nav = webview.app_handle().clone();
+        let _ = webview.with_webview(move |platform_wv| {
             let controller = platform_wv.controller();
             let mut is_visible = BOOL::default();
             let vis_res = unsafe { controller.IsVisible(&mut is_visible) };
@@ -110,7 +111,7 @@ fn install_external_diagnostics(webview: &tauri::Webview) {
             };
 
             let mut nav_token = Default::default();
-            let nav_handler = NavigationCompletedEventHandler::create(Box::new(|wv, args| {
+            let nav_handler = NavigationCompletedEventHandler::create(Box::new(move |wv, args| {
                 let mut is_success = BOOL::default();
                 let mut web_err = COREWEBVIEW2_WEB_ERROR_STATUS::default();
                 if let Some(args) = args {
@@ -131,6 +132,10 @@ fn install_external_diagnostics(webview: &tauri::Webview) {
                         url = %src,
                         "[combined:external] NavigationCompleted"
                     );
+                    let app_handle = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        external::apply_stored_external_volume(&app_handle);
+                    });
                 } else {
                     tracing::warn!(
                         is_success = false,
@@ -313,6 +318,7 @@ pub fn attach_external_child_webview(app: &AppHandle) {
             tracing::warn!("failed to show docked external webview: {}", err);
         }
         external::install_webview_hooks(&existing);
+        external::apply_stored_external_volume(app);
         schedule_sync_combined_layout(app, 150);
         return;
     }
@@ -382,6 +388,7 @@ pub fn attach_external_child_webview(app: &AppHandle) {
             }
             install_external_diagnostics(&webview);
             external::install_webview_hooks(&webview);
+            external::apply_stored_external_volume(app);
             sync_combined_layout_internal(app, true);
             schedule_sync_combined_layout(app, 150);
         }
