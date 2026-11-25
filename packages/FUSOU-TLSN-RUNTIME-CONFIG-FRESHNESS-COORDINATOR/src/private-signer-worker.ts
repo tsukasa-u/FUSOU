@@ -56,6 +56,14 @@ const GENESIS_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const RELEASE_ADMIN_PATH = "/__private/admin/release";
 const RELEASE_ADMIN_MAX_BODY_BYTES = 7_340_032;
 const RELEASE_ADMIN_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const RUNTIME_CONFIG_READ_PATH =
+  "/__private/runtime-config/v2";
+const RUNTIME_CONFIG_MANIFEST_READ_PATH =
+  `${RUNTIME_CONFIG_READ_PATH}/manifest`;
+const RUNTIME_CONFIG_MANIFEST_SNAPSHOT_READ_PATTERN =
+  /^\/__private\/runtime-config\/v2\/manifests\/([A-Za-z0-9_-]{43})$/u;
+const RUNTIME_CONFIG_ARTIFACT_READ_PATTERN =
+  /^\/__private\/runtime-config\/v2\/artifacts\/(worker-reference|origin-inventory|target-approval|security-registry-set|result-registry-envelope)\/([A-Za-z0-9_-]{43})$/u;
 const RELEASE_OPERATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const RELEASE_ADMIN_FIELDS = [
@@ -258,6 +266,110 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function runtimeConfigReadResponse(bytes: Uint8Array): Response {
+  return new Response(exactArrayBuffer(bytes), {
+    status: 200,
+    headers: {
+      "cache-control": "no-store",
+      "content-length": String(bytes.byteLength),
+      "content-type": "application/json",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+async function handleRuntimeConfigReadRequest(
+  request: Request,
+  env: PrivateFreshnessSignerEnv,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (
+    url.origin !== PRIVATE_SERVICE_ORIGIN ||
+    !url.pathname.startsWith(`${RUNTIME_CONFIG_READ_PATH}/`)
+  ) {
+    return null;
+  }
+  if (url.search !== "") return jsonResponse(404, "not_found");
+
+  const isManifest = url.pathname === RUNTIME_CONFIG_MANIFEST_READ_PATH;
+  const manifestSnapshotMatch =
+    RUNTIME_CONFIG_MANIFEST_SNAPSHOT_READ_PATTERN.exec(url.pathname);
+  const artifactMatch = RUNTIME_CONFIG_ARTIFACT_READ_PATTERN.exec(
+    url.pathname,
+  );
+  if (
+    !isManifest &&
+    manifestSnapshotMatch === null &&
+    artifactMatch === null
+  ) {
+    return jsonResponse(404, "not_found");
+  }
+  if (request.method !== "GET") {
+    return new Response(null, {
+      status: 405,
+      headers: {
+        allow: "GET",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+  if (request.headers.has("range")) {
+    return jsonResponse(416, "range_not_supported");
+  }
+  if (env.RELEASE_LEDGER_R2 === undefined) {
+    logFailure("runtime_config_read_binding_unavailable");
+    return jsonResponse(503, "runtime_config_unavailable");
+  }
+
+  try {
+    const store = new RuntimeConfigR2ReleaseStore(env.RELEASE_LEDGER_R2);
+    if (isManifest) {
+      const pointer = await store.readCurrentManifestPointer();
+      if (pointer === null) return jsonResponse(404, "not_found");
+      return runtimeConfigReadResponse(pointer.bytes);
+    }
+
+    if (manifestSnapshotMatch !== null) {
+      const expectedDigest = manifestSnapshotMatch[1];
+      if (expectedDigest === undefined) return jsonResponse(404, "not_found");
+      const snapshot = await store.readImmutableManifestSnapshot(
+        `tlsn/runtime-config/v2/manifests/${expectedDigest}`,
+      );
+      if (snapshot === null) return jsonResponse(404, "not_found");
+      if ((await hashBase64Url(snapshot.bytes)) !== expectedDigest) {
+        logFailure("runtime_config_read_manifest_snapshot_digest_mismatch");
+        return jsonResponse(503, "runtime_config_unavailable");
+      }
+      return runtimeConfigReadResponse(snapshot.bytes);
+    }
+
+    const kind = artifactMatch?.[1];
+    const expectedDigest = artifactMatch?.[2];
+    if (
+      kind === undefined ||
+      expectedDigest === undefined ||
+      !/^[A-Za-z0-9_-]{43}$/u.test(expectedDigest)
+    ) {
+      return jsonResponse(404, "not_found");
+    }
+    const artifact = await store.readImmutableArtifact(kind, expectedDigest);
+    if (artifact === null) return jsonResponse(404, "not_found");
+    if ((await hashBase64Url(artifact)) !== expectedDigest) {
+      logFailure("runtime_config_read_artifact_digest_mismatch");
+      return jsonResponse(503, "runtime_config_unavailable");
+    }
+    return runtimeConfigReadResponse(artifact);
+  } catch (error) {
+    logFailure(
+      error instanceof RuntimeConfigR2ReleaseIntegrityError
+        ? "runtime_config_read_integrity_failed"
+        : "runtime_config_read_failed",
+    );
+    return jsonResponse(503, "runtime_config_unavailable");
+  }
 }
 
 async function validateEd25519PublicKey(
@@ -1772,6 +1884,11 @@ const privateFreshnessSigner = {
     env: PrivateFreshnessSignerEnv,
     context: ExecutionContext,
   ): Promise<Response> {
+    const runtimeConfigResponse = await handleRuntimeConfigReadRequest(
+      request,
+      env,
+    );
+    if (runtimeConfigResponse !== null) return runtimeConfigResponse;
     const genesisResponse = await handleGenesisManagementRequest(request, env);
     if (genesisResponse !== null) return genesisResponse;
     const releaseResponse = await handleReleaseManagementRequest(request, env);

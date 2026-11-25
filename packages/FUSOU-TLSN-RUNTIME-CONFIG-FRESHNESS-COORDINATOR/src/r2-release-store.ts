@@ -1,8 +1,17 @@
+import { MAX_RUNTIME_CONFIG_ARTIFACT_BYTES } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
+
 export const RUNTIME_CONFIG_MANIFEST_POINTER_KEY =
   "tlsn/runtime-config/v2/manifest.json";
 const IMMUTABLE_MANIFEST_PREFIX = "tlsn/runtime-config/v2/manifests/";
 const IMMUTABLE_ARTIFACT_PATTERN =
   /^tlsn\/runtime-config\/v2\/artifacts\/(?:worker-reference|origin-inventory|target-approval|security-registry-set|result-registry-envelope)\/[A-Za-z0-9_-]{43}$/u;
+const IMMUTABLE_ARTIFACT_KINDS = new Set([
+  "worker-reference",
+  "origin-inventory",
+  "target-approval",
+  "security-registry-set",
+  "result-registry-envelope",
+]);
 
 export class RuntimeConfigR2ReleaseConflictError extends Error {
   constructor(message: string) {
@@ -156,10 +165,44 @@ export class RuntimeConfigR2ReleaseStore {
     readonly etag: string;
     readonly bytes: Uint8Array;
   } | null> {
-    const pointer = await this.#readObject(RUNTIME_CONFIG_MANIFEST_POINTER_KEY);
+    const pointer = await this.#readObject(
+      RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+      MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+    );
+    if (pointer !== null && pointer.bytes.byteLength === 0) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "R2 Manifest pointer is empty",
+      );
+    }
     return pointer === null
       ? null
       : { etag: pointer.etag, bytes: pointer.bytes };
+  }
+
+  async readImmutableArtifact(
+    kind: string,
+    digest: string,
+  ): Promise<Uint8Array | null> {
+    if (
+      !IMMUTABLE_ARTIFACT_KINDS.has(kind) ||
+      !IMMUTABLE_ARTIFACT_PATTERN.test(
+        `tlsn/runtime-config/v2/artifacts/${kind}/${digest}`,
+      )
+    ) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "Runtime Config artifact reference is invalid",
+      );
+    }
+    const artifact = await this.#readObject(
+      `tlsn/runtime-config/v2/artifacts/${kind}/${digest}`,
+      MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+    );
+    if (artifact !== null && artifact.bytes.byteLength === 0) {
+      throw new RuntimeConfigR2ReleaseIntegrityError(
+        "R2 Runtime Config artifact is empty",
+      );
+    }
+    return artifact?.bytes ?? null;
   }
 
   async readImmutableManifestSnapshot(
@@ -231,6 +274,7 @@ export class RuntimeConfigR2ReleaseStore {
 
   async #readObject(
     key: string,
+    maximumBytes = MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
   ): Promise<{ readonly bytes: Uint8Array; readonly etag: string } | null> {
     const getCall = this.#bucket.get(key);
     let object: R2ObjectBody | null = null;
@@ -247,8 +291,23 @@ export class RuntimeConfigR2ReleaseStore {
           "R2 returned an invalid object ETag",
         );
       }
+      if (
+        !Number.isSafeInteger(object.size) ||
+        object.size < 0 ||
+        object.size > maximumBytes
+      ) {
+        throw new RuntimeConfigR2ReleaseIntegrityError(
+          "R2 object exceeds its Runtime Config read limit",
+        );
+      }
+      const bytes = new Uint8Array(await object.arrayBuffer());
+      if (bytes.byteLength !== object.size || bytes.byteLength > maximumBytes) {
+        throw new RuntimeConfigR2ReleaseIntegrityError(
+          "R2 object body length does not match its metadata",
+        );
+      }
       return {
-        bytes: new Uint8Array(await object.arrayBuffer()),
+        bytes,
         etag: object.etag,
       };
     } finally {

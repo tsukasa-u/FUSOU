@@ -44,6 +44,9 @@ const signatureMetrics = {
   releaseRecordSignatures: 0,
   releaseSignerKeyCheckSignatures: 0,
 };
+const r2Metrics = { get: 0, head: 0, list: 0, put: 0, delete: 0 };
+const privateManagementMetrics = { genesisRequests: 0, releaseRequests: 0 };
+const trackedEnvironmentCache = new WeakMap();
 let loseNextReleaseRecordSignatureResponse = false;
 const originalSign = crypto.subtle.sign.bind(crypto.subtle);
 
@@ -114,6 +117,31 @@ function withOverrides(env, overrides) {
   });
 }
 
+function withTrackedR2Binding(env) {
+  const cached = trackedEnvironmentCache.get(env);
+  if (cached !== undefined) return cached;
+  const bucket = env.RELEASE_LEDGER_R2;
+  if (bucket === undefined) return env;
+  const trackedBucket = new Proxy(bucket, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (
+        typeof value !== "function" ||
+        !Object.hasOwn(r2Metrics, property)
+      ) {
+        return value;
+      }
+      return (...args) => {
+        r2Metrics[property] += 1;
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
+  const tracked = withOverrides(env, { RELEASE_LEDGER_R2: trackedBucket });
+  trackedEnvironmentCache.set(env, tracked);
+  return tracked;
+}
+
 const invalidConfigurations = {
   "missing-coordinator": (env) => ({
     FRESHNESS_ISSUE_COORDINATOR: undefined,
@@ -158,6 +186,15 @@ const genesisTestCoordinatorBindings = {
 
 async function fetch(request, env, context) {
   const url = new URL(request.url);
+  if (url.pathname === "/__private/admin/genesis") {
+    privateManagementMetrics.genesisRequests += 1;
+  }
+  if (
+    url.pathname === "/__private/admin/release" ||
+    url.pathname.startsWith("/__private/admin/release/")
+  ) {
+    privateManagementMetrics.releaseRequests += 1;
+  }
   if (url.pathname === RUNTIME_RPC_PATH) {
     return runtimeTestWorker.fetch(request, env, context);
   }
@@ -183,6 +220,18 @@ async function fetch(request, env, context) {
     signatureMetrics.freshnessResponseSignatures = 0;
     signatureMetrics.releaseRecordSignatures = 0;
     signatureMetrics.releaseSignerKeyCheckSignatures = 0;
+    return jsonResponse({ reset: true });
+  }
+  if (url.pathname === "/__runtime_test/r2-metrics") {
+    return jsonResponse({
+      r2: { ...r2Metrics },
+      management: { ...privateManagementMetrics },
+    });
+  }
+  if (url.pathname === "/__runtime_test/reset-r2-metrics") {
+    for (const method of Object.keys(r2Metrics)) r2Metrics[method] = 0;
+    privateManagementMetrics.genesisRequests = 0;
+    privateManagementMetrics.releaseRequests = 0;
     return jsonResponse({ reset: true });
   }
   if (
@@ -295,7 +344,20 @@ async function fetch(request, env, context) {
       context,
     );
   }
-  return privateSigner.fetch(request, env, context);
+  const trackedEnvironment = withTrackedR2Binding(env);
+  if (
+    request.method === "GET" &&
+    url.pathname.startsWith("/__private/runtime-config/v2/")
+  ) {
+    return privateSigner.fetch(
+      request,
+      withOverrides(trackedEnvironment, {
+        FRESHNESS_ISSUE_COORDINATOR: undefined,
+      }),
+      context,
+    );
+  }
+  return privateSigner.fetch(request, trackedEnvironment, context);
 }
 
 export default { fetch };

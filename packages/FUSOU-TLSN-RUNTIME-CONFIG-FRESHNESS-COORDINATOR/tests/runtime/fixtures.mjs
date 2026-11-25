@@ -118,8 +118,10 @@ export function equalBytes(left, right) {
 
 export async function makeSignedCurrentStateFixture(options = {}) {
   const nowMs = options.nowMs ?? vector.now_ms;
-  const rootKey = testKey(0x10, "local-test-root");
-  const manifestRootKey = testKey(0xB0, "local-test-manifest-root");
+  const manifestUrl = options.manifestUrl ?? vector.manifest_url;
+  const rootKey = options.rootKey ?? testKey(0x10, "local-test-root");
+  const manifestRootKey =
+    options.manifestRootKey ?? testKey(0xB0, "local-test-manifest-root");
   const manifestChildKey = testKey(0xD0, "local-test-manifest-child");
   const releaseKey = testKey(0x30, "local-test-release");
   const freshnessKey = testKey(0x50, "local-test-freshness");
@@ -148,21 +150,29 @@ export async function makeSignedCurrentStateFixture(options = {}) {
   manifestPayload.expires_at = iso(nowMs + manifestLifetimeMs);
   manifestPayload.source.observed_at = manifestIssuedAt;
   manifestPayload.epoch = options.manifestEpoch ?? "1";
-  const manifestBytes = options.delegatedManifest === true
-    ? signDelegatedManifestEnvelope({
-        payload: manifestPayload,
-        manifestUrl: vector.manifest_url,
-        nowMs,
-        root: manifestRootKey,
-        child: manifestChildKey,
-      })
-    : signManifestEnvelope(manifestPayload, manifestRootKey);
+  const manifestBytes = options.manifestBytes === undefined
+    ? options.delegatedManifest === true
+      ? signDelegatedManifestEnvelope({
+          payload: manifestPayload,
+          manifestUrl,
+          nowMs,
+          root: manifestRootKey,
+          child: manifestChildKey,
+        })
+      : signManifestEnvelope(manifestPayload, manifestRootKey)
+    : Buffer.from(options.manifestBytes);
   const manifest = await verifyRuntimeConfigManifestEpochPointer({
     raw: manifestBytes,
     trustedSigner: manifestRootSigner,
-    manifestUrl: vector.manifest_url,
+    manifestUrl,
     nowMs,
   });
+  const freshnessRequestObject = {
+    ...requestObject,
+    audience_manifest_url_sha256: digest(
+      new TextEncoder().encode(manifestUrl),
+    ),
+  };
   const previousReleaseHead = options.previousReleaseHead ?? null;
   const commitGeneration =
     previousReleaseHead === null
@@ -206,7 +216,7 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     key_id: freshnessKey.keyId,
     public_key_spki: freshnessKey.publicKeySpki,
     signature_algorithm: "Ed25519",
-    audience: requestObject.audience_manifest_url_sha256,
+    audience: freshnessRequestObject.audience_manifest_url_sha256,
     issued_at: issuedAt,
     not_before: issuedAt,
     not_after: iso(
@@ -279,8 +289,9 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     scope: runtimeConfigFreshnessWire.responsePayloadScope,
     freshness_semantics: "LATEST_AT_ISSUANCE",
     environment: "production",
-    audience_manifest_url_sha256: requestObject.audience_manifest_url_sha256,
-    request_nonce: requestObject.request_nonce,
+    audience_manifest_url_sha256:
+      freshnessRequestObject.audience_manifest_url_sha256,
+    request_nonce: freshnessRequestObject.request_nonce,
     issued_at: iso(nowMs),
     expires_at: iso(nowMs + runtimeConfigFreshnessWire.maxResponseLifetimeMs),
     latest_epoch: manifest.epoch,
@@ -568,7 +579,7 @@ export async function makeSignedCurrentStateFixture(options = {}) {
   return {
     rootSigner: testRootSigner,
     manifestRootSigner,
-    manifestUrl: vector.manifest_url,
+    manifestUrl,
     freshnessKeyId: freshnessKey.keyId,
     freshnessPrivateKeyPkcs8Bytes: Uint8Array.from(
       freshnessKey.privateKey.export({ format: "der", type: "pkcs8" }),
@@ -594,6 +605,7 @@ export async function makeSignedCurrentStateFixture(options = {}) {
     journalVerifier,
     antiRollbackWitness,
     manifests,
+    publicationObjects: options.publicationObjects ?? [],
     source,
     journal: {
       readCurrentHead: async (readContext) => {
@@ -650,6 +662,8 @@ export async function makeSignedCloudflareOperatorReleaseUpdateFixture(
   options = {},
 ) {
   const nowMs = options.nowMs ?? Date.now();
+  const manifestUrl =
+    options.manifestUrl ?? previousFixture.manifestUrl ?? vector.manifest_url;
   const rootKey = testKey(0x10, "local-test-root");
   const manifestRootKey = testKey(0xB0, "local-test-manifest-root");
   const manifestChildKey = testKey(0xD0, "local-test-manifest-child");
@@ -696,7 +710,7 @@ export async function makeSignedCloudflareOperatorReleaseUpdateFixture(
   });
   const manifestBytes = signDelegatedManifestEnvelope({
     payload: prepared.payload,
-    manifestUrl: vector.manifest_url,
+    manifestUrl,
     nowMs,
     root: manifestRootKey,
     child: manifestChildKey,
@@ -719,7 +733,7 @@ export async function makeSignedCloudflareOperatorReleaseUpdateFixture(
     max_clock_skew_seconds: 30,
     max_reference_age_seconds: 600,
     max_envelope_bytes: 1_048_576,
-    manifest_url: vector.manifest_url,
+    manifest_url: manifestUrl,
     last_accepted_manifest_authority_generation: "0",
     last_accepted_manifest_authority_delegation_sha256: null,
   };
@@ -761,7 +775,7 @@ export async function makeSignedCloudflareOperatorReleaseUpdateFixture(
     manifestEpoch: verification.payload.epoch,
     manifestSha256: digest(manifestBytes),
     manifestRef: `tlsn/runtime-config/v2/manifests/${digest(manifestBytes)}`,
-    manifestUrl: vector.manifest_url,
+    manifestUrl,
     manifestPolicy: policy,
     nowMs,
     workerReferenceRaw,

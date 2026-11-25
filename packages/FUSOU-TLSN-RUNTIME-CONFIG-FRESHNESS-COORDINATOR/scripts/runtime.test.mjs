@@ -8,6 +8,7 @@ import {
 } from "../../../scripts/worker-compatibility-settings.mjs";
 import { randomUUID, webcrypto } from "node:crypto";
 import { spawn } from "node:child_process";
+import { request as httpsRequest } from "node:https";
 import {
   mkdtempSync,
   readFileSync,
@@ -33,10 +34,14 @@ import {
 import {
   canonicalJsonBytes,
   createRuntimeConfigFreshnessRequest,
+  MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
   runtimeConfigManifestAudienceSha256,
   runtimeConfigFreshnessWire,
   signRuntimeConfigReleaseCommitRecord,
   signRuntimeConfigFreshnessResponseEnvelope,
+  verifyFreshnessManifestBinding,
+  verifyRuntimeConfigFreshnessRequest,
+  verifyRuntimeConfigFreshnessResponse,
   verifyRuntimeConfigManifestEpochPointer,
 } from "../../FUSOU-TLSN-RUNTIME-CONFIG-DOMAIN/src/domain.ts";
 import {
@@ -100,6 +105,22 @@ const GENESIS_PRIVATE_SIGNER_WORKER_NAME =
 const GATEWAY_WORKER_NAME = "fusou-freshness-gateway-e2e-runtime-test";
 const GENESIS_GATEWAY_WORKER_NAME =
   "fusou-genesis-gateway-e2e-runtime-test";
+const GATEWAY_HTTP_WORKER_NAME =
+  "fusou-runtime-config-http-gateway-runtime-test";
+const GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME =
+  "fusou-runtime-config-http-signer-runtime-test";
+const GATEWAY_HTTP_RELEASE_WORKER_NAME =
+  "fusou-runtime-config-http-release-runtime-test";
+const GATEWAY_HTTP_R2_BUCKET_NAME =
+  "fusou-runtime-config-http-read-runtime-test";
+const GATEWAY_NO_BINDING_WORKER_NAME =
+  "fusou-runtime-config-no-binding-gateway-runtime-test";
+const GATEWAY_HTTP_HOSTNAME = "gateway.fusou.test";
+const GATEWAY_HTTP_ORIGIN = `https://${GATEWAY_HTTP_HOSTNAME}`;
+const GATEWAY_HTTP_MANIFEST_URL =
+  `${GATEWAY_HTTP_ORIGIN}/tlsn/runtime-config/v2/manifest.json`;
+const GATEWAY_HTTP_COORDINATOR_NAME =
+  "runtime-config-http-read-integration";
 const PRIVATE_SIGNER_COORDINATOR_NAME = "private-signer-gateway-integration";
 const PRIVATE_SIGNER_WRONG_CHAIN_COORDINATOR_NAME =
   "private-signer-gateway-wrong-chain";
@@ -157,8 +178,10 @@ function registerRuntimeTests() {
   const context = {
     root,
     currentRuntime: undefined,
+    runtimeUrl: undefined,
     namespace: undefined,
     releaseNamespace: undefined,
+    gatewayHttpReleaseNamespace: undefined,
     workerBundle: undefined,
     privateSignerBundle: undefined,
     genesisPrivateSignerBundle: undefined,
@@ -182,6 +205,7 @@ function registerRuntimeTests() {
     fixture: undefined,
     signedReleaseFixture: undefined,
     privateSignerFixture: undefined,
+    gatewayHttpFixture: undefined,
     interruptions: new Set(),
     cleanupPromise: undefined,
   };
@@ -235,6 +259,10 @@ function registerRuntimeTests() {
         context.signedReleaseFixture = await makeSignedCurrentStateFixture();
         context.privateSignerFixture = await makeSignedCurrentStateFixture({
           nowMs: Date.now(),
+        });
+        context.gatewayHttpFixture = await makeSignedCurrentStateFixture({
+          nowMs: Date.now(),
+          manifestUrl: GATEWAY_HTTP_MANIFEST_URL,
         });
         context.genesisAdminCapability = GENESIS_ADMIN_CAPABILITY;
         const expiredDelegationNowMs = Date.now() - 86_340_000;
@@ -295,6 +323,423 @@ function registerRuntimeTests() {
           await runCloudflareOperatorReleaseInstallRecoveryRuntimeTest(
             context,
             "AFTER_FINALIZATION",
+          );
+        },
+      );
+
+      it(
+        "serves exact Runtime Config bytes and Freshness on the same HTTPS origin",
+        { timeout: 90_000 },
+        async () => {
+          const previousFixture = await makeSignedCurrentStateFixture({
+            nowMs: Date.now(),
+            manifestUrl: GATEWAY_HTTP_MANIFEST_URL,
+          });
+          const releaseFixture =
+            await makeSignedCloudflareOperatorReleaseUpdateFixture(
+              previousFixture,
+              {
+                nowMs: Date.now(),
+                manifestUrl: GATEWAY_HTTP_MANIFEST_URL,
+              },
+            );
+          assert.equal(releaseFixture.publicationObjects.length, 5);
+          const seeded = await seededCloudflareOperatorCoordinator(
+            context,
+            "runtime-config-http-read",
+            {
+              objectName: GATEWAY_HTTP_COORDINATOR_NAME,
+              manifestUrl: GATEWAY_HTTP_MANIFEST_URL,
+              manifestBytes: releaseFixture.manifestBytes,
+              publicationObjects: releaseFixture.publicationObjects,
+              configuredNowMs: releaseFixture.nowMs,
+              configuredManifestEpoch: releaseFixture.manifestEpoch,
+              releaseWorkerName: GATEWAY_HTTP_RELEASE_WORKER_NAME,
+              releaseNamespace: context.gatewayHttpReleaseNamespace,
+            },
+          );
+          const bucket = await context.currentRuntime.getR2Bucket(
+            "RELEASE_LEDGER_R2",
+            GATEWAY_HTTP_RELEASE_WORKER_NAME,
+          );
+          const storedManifest = await readRuntimeR2ObjectBytes(
+            bucket,
+            RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+          );
+          assert.equal(storedManifest.byteLength, seeded.fixture.manifestBytes.byteLength);
+          assert.equal(digest(storedManifest), seeded.fixture.manifestSha256);
+          assert.ok(equalBytes(storedManifest, seeded.fixture.manifestBytes));
+
+          for (const artifact of releaseFixture.publicationObjects) {
+            const stored = await readRuntimeR2ObjectBytes(bucket, artifact.key);
+            const [kind, expectedDigest] = artifact.key.split("/").slice(-2);
+            assert.equal(stored.byteLength, artifact.body.byteLength);
+            assert.equal(digest(stored), expectedDigest);
+            assert.ok(equalBytes(stored, artifact.body));
+            assert.ok(kind);
+          }
+
+          const privateWorker = await context.currentRuntime.getWorker(
+            GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+          );
+          const resetR2Metrics = await privateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/reset-r2-metrics",
+            ),
+          );
+          assert.equal(resetR2Metrics.status, 200);
+          const resetSignatureMetrics = await privateWorker.fetch(
+            new Request(
+              "https://freshness-signer.internal/__runtime_test/reset-signature-metrics",
+            ),
+          );
+          assert.equal(resetSignatureMetrics.status, 200);
+
+          const manifestPath = new URL(GATEWAY_HTTP_MANIFEST_URL).pathname;
+          const manifestResponse = await fetchGatewayHttps(
+            context,
+            manifestPath,
+          );
+          assert.equal(manifestResponse.status, 200);
+          assert.equal(
+            manifestResponse.headers["cache-control"],
+            "no-store",
+          );
+          assert.equal(
+            Number(manifestResponse.headers["content-length"]),
+            storedManifest.byteLength,
+          );
+          assert.ok(equalBytes(manifestResponse.body, storedManifest));
+
+          const manifestDigest = digest(storedManifest);
+          const manifestSnapshotPath =
+            `/tlsn/runtime-config/v2/manifests/${manifestDigest}`;
+          const manifestSnapshotResponse = await fetchGatewayHttps(
+            context,
+            manifestSnapshotPath,
+          );
+          assert.equal(manifestSnapshotResponse.status, 200);
+          assert.equal(
+            manifestSnapshotResponse.headers["cache-control"],
+            "no-store",
+          );
+          assert.equal(
+            Number(manifestSnapshotResponse.headers["content-length"]),
+            storedManifest.byteLength,
+          );
+          assert.ok(equalBytes(manifestSnapshotResponse.body, storedManifest));
+          assert.equal(digest(manifestSnapshotResponse.body), manifestDigest);
+
+          for (const artifact of releaseFixture.publicationObjects) {
+            const [kind, expectedDigest] = artifact.key.split("/").slice(-2);
+            const artifactResponse = await fetchGatewayHttps(
+              context,
+              `/tlsn/runtime-config/v2/artifacts/${kind}/${expectedDigest}`,
+            );
+            assert.equal(artifactResponse.status, 200);
+            assert.equal(
+              artifactResponse.headers["cache-control"],
+              "no-store",
+            );
+            assert.equal(
+              Number(artifactResponse.headers["content-length"]),
+              artifact.body.byteLength,
+            );
+            assert.ok(equalBytes(artifactResponse.body, artifact.body));
+            assert.equal(digest(artifactResponse.body), expectedDigest);
+          }
+
+          const readMetrics = await privateSignerRuntimeTestJson(
+            context,
+            GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+            "/__runtime_test/r2-metrics",
+          );
+          assert.deepEqual(readMetrics.r2, {
+            get: 7,
+            head: 0,
+            list: 0,
+            put: 0,
+            delete: 0,
+          });
+          assert.deepEqual(readMetrics.management, {
+            genesisRequests: 0,
+            releaseRequests: 0,
+          });
+          assert.deepEqual(
+            await readPrivateSignerSignatureMetrics(
+              context,
+              GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+            ),
+            {
+              keyPairCheckSignatures: 0,
+              freshnessResponseSignatures: 0,
+              releaseRecordSignatures: 0,
+              releaseSignerKeyCheckSignatures: 0,
+            },
+          );
+
+          const challenge = await createRuntimeConfigFreshnessRequest({
+            manifestUrl: GATEWAY_HTTP_MANIFEST_URL,
+            requestNonce: webcrypto.getRandomValues(new Uint8Array(32)),
+          });
+          const freshnessResponse = await fetchGatewayHttps(
+            context,
+            runtimeConfigFreshnessWire.requestPath,
+            {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                "content-type": "application/json",
+              },
+              body: challenge.raw,
+            },
+          );
+          assert.equal(freshnessResponse.status, 200);
+          const audienceManifestUrlSha256 =
+            await runtimeConfigManifestAudienceSha256(
+              GATEWAY_HTTP_MANIFEST_URL,
+            );
+          const verifiedChallenge =
+            await verifyRuntimeConfigFreshnessRequest(challenge.raw, {
+              environment: "production",
+              audienceManifestUrlSha256,
+            });
+          const verifiedResponse =
+            await verifyRuntimeConfigFreshnessResponse({
+              raw: freshnessResponse.body,
+              bootstrapSigner: seeded.fixture.rootSigner,
+              manifestUrl: GATEWAY_HTTP_MANIFEST_URL,
+              request: verifiedChallenge,
+              nowMs: Date.now(),
+            });
+          await verifyFreshnessManifestBinding(
+            verifiedResponse,
+            manifestResponse.body,
+          );
+          assert.equal(
+            (
+              await readPrivateSignerSignatureMetrics(
+                context,
+                GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+              )
+            ).freshnessResponseSignatures,
+            1,
+          );
+
+          const gatewayWorker = await context.currentRuntime.getWorker(
+            GATEWAY_HTTP_WORKER_NAME,
+          );
+          const wrongOrigin = await gatewayWorker.fetch(
+            new Request(
+              `https://wrong-origin.fusou.test${manifestPath}`,
+            ),
+          );
+          assert.equal(wrongOrigin.status, 404);
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                `${manifestPath}?cache-bust=1`,
+              )
+            ).status,
+            404,
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                "/tlsn/runtime-config/v2/manifests/not-a-digest",
+              )
+            ).status,
+            404,
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                manifestPath,
+                { headers: { range: "bytes=0-10" } },
+              )
+            ).status,
+            416,
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                manifestPath,
+                { method: "POST" },
+              )
+            ).status,
+            405,
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                "/tlsn/runtime-config/v2/unknown",
+              )
+            ).status,
+            404,
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                "/tlsn/runtime-config/v2/artifacts/unknown/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              )
+            ).status,
+            404,
+          );
+          const firstArtifactDigest = releaseFixture.publicationObjects[0]
+            .key.split("/")
+            .at(-1);
+          assert.ok(firstArtifactDigest);
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                `/tlsn/runtime-config/v2/artifacts/worker-reference/${firstArtifactDigest.slice(0, -1)}B`,
+              )
+            ).status,
+            404,
+          );
+          for (const managementPath of [
+            "/__private/admin/genesis",
+            "/__private/admin/release",
+          ]) {
+            const response = await fetchGatewayHttps(
+              context,
+              managementPath,
+              { method: "POST" },
+            );
+            assert.equal(response.status, 404);
+            assert.doesNotMatch(
+              response.body.toString("utf8"),
+              /freshness-signer|RELEASE_LEDGER_R2|__private/u,
+            );
+          }
+
+          const noBindingWorker = await context.currentRuntime.getWorker(
+            GATEWAY_NO_BINDING_WORKER_NAME,
+          );
+          const missingBinding = await noBindingWorker.fetch(
+            new Request(GATEWAY_HTTP_MANIFEST_URL),
+          );
+          assert.equal(missingBinding.status, 503);
+
+          const missingDigest = digest(
+            new TextEncoder().encode("missing runtime config artifact"),
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                `/tlsn/runtime-config/v2/artifacts/worker-reference/${missingDigest}`,
+              )
+            ).status,
+            404,
+          );
+          const missingManifestDigest = digest(
+            new TextEncoder().encode("missing runtime config manifest"),
+          );
+          assert.equal(
+            (
+              await fetchGatewayHttps(
+                context,
+                `/tlsn/runtime-config/v2/manifests/${missingManifestDigest}`,
+              )
+            ).status,
+            404,
+          );
+
+          const corruptArtifact = releaseFixture.publicationObjects[0];
+          const corruptBytes = Uint8Array.from(corruptArtifact.body);
+          corruptBytes[0] ^= 1;
+          await putRuntimeR2Object(
+            bucket,
+            corruptArtifact.key,
+            corruptBytes,
+          );
+          const corruptResponse = await fetchGatewayHttps(
+            context,
+            `/tlsn/runtime-config/v2/artifacts/worker-reference/${firstArtifactDigest}`,
+          );
+          assert.equal(corruptResponse.status, 502);
+          assert.doesNotMatch(
+            corruptResponse.body.toString("utf8"),
+            /freshness-signer|RELEASE_LEDGER_R2|__private/u,
+          );
+          const corruptManifestBytes = Uint8Array.from(storedManifest);
+          corruptManifestBytes[0] ^= 1;
+          await putRuntimeR2Object(
+            bucket,
+            `tlsn/runtime-config/v2/manifests/${manifestDigest}`,
+            corruptManifestBytes,
+          );
+          const corruptManifestResponse = await fetchGatewayHttps(
+            context,
+            manifestSnapshotPath,
+          );
+          assert.equal(corruptManifestResponse.status, 502);
+          assert.doesNotMatch(
+            corruptManifestResponse.body.toString("utf8"),
+            /freshness-signer|RELEASE_LEDGER_R2|__private/u,
+          );
+
+          const oversizedBytes = new Uint8Array(
+            MAX_RUNTIME_CONFIG_ARTIFACT_BYTES + 1,
+          );
+          oversizedBytes.fill(0x5a);
+          const oversizedDigest = digest(oversizedBytes);
+          await putRuntimeR2Object(
+            bucket,
+            `tlsn/runtime-config/v2/artifacts/target-approval/${oversizedDigest}`,
+            oversizedBytes,
+          );
+          const oversizedArtifactResponse = await fetchGatewayHttps(
+            context,
+            `/tlsn/runtime-config/v2/artifacts/target-approval/${oversizedDigest}`,
+          );
+          assert.equal(oversizedArtifactResponse.status, 502);
+          assert.doesNotMatch(
+            oversizedArtifactResponse.body.toString("utf8"),
+            /freshness-signer|RELEASE_LEDGER_R2|__private/u,
+          );
+          const oversizedManifestDigest = digest(oversizedBytes);
+          await putRuntimeR2Object(
+            bucket,
+            `tlsn/runtime-config/v2/manifests/${oversizedManifestDigest}`,
+            oversizedBytes,
+          );
+          const oversizedManifestSnapshotResponse = await fetchGatewayHttps(
+            context,
+            `/tlsn/runtime-config/v2/manifests/${oversizedManifestDigest}`,
+          );
+          assert.equal(oversizedManifestSnapshotResponse.status, 502);
+          assert.doesNotMatch(
+            oversizedManifestSnapshotResponse.body.toString("utf8"),
+            /freshness-signer|RELEASE_LEDGER_R2|__private/u,
+          );
+
+          await bucket.delete(RUNTIME_CONFIG_MANIFEST_POINTER_KEY);
+          assert.equal(
+            (await fetchGatewayHttps(context, manifestPath)).status,
+            404,
+          );
+          await putRuntimeR2Object(
+            bucket,
+            RUNTIME_CONFIG_MANIFEST_POINTER_KEY,
+            oversizedBytes,
+          );
+          const oversizedManifestResponse = await fetchGatewayHttps(
+            context,
+            manifestPath,
+          );
+          assert.equal(oversizedManifestResponse.status, 502);
+          assert.doesNotMatch(
+            oversizedManifestResponse.body.toString("utf8"),
+            /freshness-signer|RELEASE_LEDGER_R2|__private/u,
           );
         },
       );
@@ -5301,6 +5746,76 @@ async function makeGatewayFreshnessRequestBytes() {
   return created.raw;
 }
 
+async function fetchGatewayHttps(
+  context,
+  path,
+  { method = "GET", headers = {}, body } = {},
+) {
+  const runtimeUrl = context.runtimeUrl;
+  assert.ok(runtimeUrl instanceof URL, "HTTPS runtime URL is unavailable");
+  assert.equal(runtimeUrl.protocol, "https:");
+  assert.equal(runtimeUrl.hostname, "127.0.0.1");
+  const port = Number(runtimeUrl.port);
+  assert.ok(Number.isInteger(port) && port > 0);
+
+  return await new Promise((resolvePromise, rejectPromise) => {
+    let responseBytes = 0;
+    const request = httpsRequest(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path,
+        method,
+        servername: GATEWAY_HTTP_HOSTNAME,
+        rejectUnauthorized: false,
+        agent: false,
+        headers: {
+          host: GATEWAY_HTTP_HOSTNAME,
+          ...headers,
+        },
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => {
+          responseBytes += chunk.byteLength;
+          if (responseBytes > MAX_RUNTIME_CONFIG_ARTIFACT_BYTES + 1_024) {
+            request.destroy(
+              new Error("Gateway HTTP response exceeded the test limit"),
+            );
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
+        response.on("error", rejectPromise);
+        response.on("aborted", () => {
+          rejectPromise(new Error("Gateway HTTP response was aborted"));
+        });
+        response.on("end", () => {
+          resolvePromise({
+            status: response.statusCode,
+            headers: response.headers,
+            body: Buffer.concat(chunks, responseBytes),
+          });
+        });
+      },
+    );
+    request.on("error", rejectPromise);
+    request.setTimeout(10_000, () => {
+      request.destroy(new Error("Gateway HTTPS request timed out"));
+    });
+    request.end(body);
+  });
+}
+
+async function privateSignerRuntimeTestJson(context, workerName, path) {
+  const worker = await context.currentRuntime.getWorker(workerName);
+  const response = await worker.fetch(
+    new Request(`https://freshness-signer.internal${path}`),
+  );
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
 async function fetchGatewayFreshness(
   context,
   requestBytes,
@@ -5417,7 +5932,7 @@ async function startRuntime(context) {
     rootPath: context.root,
     host: "127.0.0.1",
     port: 0,
-    https: false,
+    https: true,
     resourcePersistencePath: resolve(context.root, "persistent"),
     isolatedResourcePersistencePath: resolve(context.root, "isolated"),
     resourceTmpPath: resolve(context.root, "resource-tmp"),
@@ -5660,6 +6175,103 @@ async function startRuntime(context) {
         },
       },
       {
+        name: GATEWAY_HTTP_RELEASE_WORKER_NAME,
+        scriptPath: context.workerBundle,
+        modules: true,
+        compatibilityDate: coordinatorCompatibility.date,
+        compatibilityFlags: [...coordinatorCompatibility.flags],
+        bindings: {
+          RELEASE_LEDGER_CHAIN_ID: "test-release-chain-v1",
+          FRESHNESS_MANIFEST_URL: GATEWAY_HTTP_MANIFEST_URL,
+          RELEASE_LEDGER_ROOT_KEY_ID:
+            context.gatewayHttpFixture.rootSigner.key_id,
+          RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI:
+            context.gatewayHttpFixture.rootSigner.public_key_spki,
+          RELEASE_LEDGER_MANIFEST_KEY_ID:
+            context.gatewayHttpFixture.manifestRootSigner.key_id,
+          RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI:
+            context.gatewayHttpFixture.manifestRootSigner.public_key_spki,
+        },
+        r2Buckets: {
+          RELEASE_LEDGER_R2: GATEWAY_HTTP_R2_BUCKET_NAME,
+        },
+        unsafeEphemeralDurableObjects: false,
+        durableObjects: {
+          [BINDING_NAME]: {
+            className: RELEASE_CLASS_NAME,
+            scriptName: GATEWAY_HTTP_RELEASE_WORKER_NAME,
+            unsafeUniqueKey: "fusou-runtime-config-http-read-ledger-v1",
+            useSQLite: true,
+          },
+        },
+      },
+      {
+        name: GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+        scriptPath: context.privateSignerBundle,
+        modules: true,
+        compatibilityDate: privateSignerCompatibility.date,
+        compatibilityFlags: [...privateSignerCompatibility.flags],
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: GATEWAY_HTTP_MANIFEST_URL,
+          FRESHNESS_COORDINATOR_NAME: GATEWAY_HTTP_COORDINATOR_NAME,
+          RELEASE_LEDGER_CHAIN_ID:
+            context.gatewayHttpFixture.releaseHead.chainId,
+          RELEASE_LEDGER_ROOT_KEY_ID:
+            context.gatewayHttpFixture.rootSigner.key_id,
+          RELEASE_LEDGER_ROOT_PUBLIC_KEY_SPKI:
+            context.gatewayHttpFixture.rootSigner.public_key_spki,
+          RELEASE_LEDGER_MANIFEST_KEY_ID:
+            context.gatewayHttpFixture.manifestRootSigner.key_id,
+          RELEASE_LEDGER_MANIFEST_PUBLIC_KEY_SPKI:
+            context.gatewayHttpFixture.manifestRootSigner.public_key_spki,
+          FRESHNESS_MANIFEST_URL: GATEWAY_HTTP_MANIFEST_URL,
+          FRESHNESS_SIGNER_KEY_ID:
+            context.gatewayHttpFixture.freshnessKeyId,
+          FRESHNESS_SIGNER_PRIVATE_KEY_PKCS8_BASE64URL: Buffer.from(
+            context.gatewayHttpFixture.freshnessPrivateKeyPkcs8Bytes,
+          ).toString("base64url"),
+          FRESHNESS_SIGNER_DELEGATION_BASE64URL: Buffer.from(
+            context.gatewayHttpFixture.freshnessDelegationBytes,
+          ).toString("base64url"),
+        },
+        r2Buckets: {
+          RELEASE_LEDGER_R2: GATEWAY_HTTP_R2_BUCKET_NAME,
+        },
+        unsafeEphemeralDurableObjects: false,
+        durableObjects: {
+          [BINDING_NAME]: {
+            className: RELEASE_CLASS_NAME,
+            scriptName: GATEWAY_HTTP_RELEASE_WORKER_NAME,
+            unsafeUniqueKey: "fusou-runtime-config-http-read-ledger-v1",
+            useSQLite: true,
+          },
+        },
+      },
+      {
+        name: GATEWAY_HTTP_WORKER_NAME,
+        scriptPath: context.gatewayBundle,
+        modules: true,
+        compatibilityDate: gatewayCompatibility.date,
+        compatibilityFlags: [...gatewayCompatibility.flags],
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: GATEWAY_HTTP_MANIFEST_URL,
+        },
+        serviceBindings: {
+          TLSN_FRESHNESS_SIGNER: GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+        },
+        routes: [`${GATEWAY_HTTP_HOSTNAME}/*`],
+      },
+      {
+        name: GATEWAY_NO_BINDING_WORKER_NAME,
+        scriptPath: context.gatewayBundle,
+        modules: true,
+        compatibilityDate: gatewayCompatibility.date,
+        compatibilityFlags: [...gatewayCompatibility.flags],
+        bindings: {
+          TLSN_RUNTIME_CONFIG_MANIFEST_URL: GATEWAY_HTTP_MANIFEST_URL,
+        },
+      },
+      {
         name: GENESIS_GATEWAY_WORKER_NAME,
         scriptPath: context.gatewayBundle,
         modules: true,
@@ -5743,6 +6355,54 @@ async function startRuntime(context) {
     gatewayCompatibility,
     GENESIS_GATEWAY_WORKER_NAME,
   );
+  const configuredGatewayHttpPrivateSignerWorker = options.workers.find(
+    (worker) => worker.config.name === GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredGatewayHttpPrivateSignerWorker,
+    "Miniflare did not configure the HTTP read private Signer Worker",
+  );
+  assertMiniflareWorkerCompatibility(
+    configuredGatewayHttpPrivateSignerWorker,
+    privateSignerCompatibility,
+    GATEWAY_HTTP_PRIVATE_SIGNER_WORKER_NAME,
+  );
+  const configuredGatewayHttpReleaseWorker = options.workers.find(
+    (worker) => worker.config.name === GATEWAY_HTTP_RELEASE_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredGatewayHttpReleaseWorker,
+    "Miniflare did not configure the HTTP read Release Worker",
+  );
+  assertMiniflareWorkerCompatibility(
+    configuredGatewayHttpReleaseWorker,
+    coordinatorCompatibility,
+    GATEWAY_HTTP_RELEASE_WORKER_NAME,
+  );
+  const configuredGatewayHttpWorker = options.workers.find(
+    (worker) => worker.config.name === GATEWAY_HTTP_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredGatewayHttpWorker,
+    "Miniflare did not configure the HTTP read Gateway Worker",
+  );
+  assertMiniflareWorkerCompatibility(
+    configuredGatewayHttpWorker,
+    gatewayCompatibility,
+    GATEWAY_HTTP_WORKER_NAME,
+  );
+  const configuredNoBindingGatewayWorker = options.workers.find(
+    (worker) => worker.config.name === GATEWAY_NO_BINDING_WORKER_NAME,
+  )?.config;
+  assert.ok(
+    configuredNoBindingGatewayWorker,
+    "Miniflare did not configure the no-binding Gateway Worker",
+  );
+  assertMiniflareWorkerCompatibility(
+    configuredNoBindingGatewayWorker,
+    gatewayCompatibility,
+    GATEWAY_NO_BINDING_WORKER_NAME,
+  );
 
   const runtime = new Miniflare(options);
   context.currentRuntime = runtime;
@@ -5751,9 +6411,10 @@ async function startRuntime(context) {
     30_000,
     "Miniflare/workerd startup",
   );
-  assert.equal(readyUrl.protocol, "http:");
+  assert.equal(readyUrl.protocol, "https:");
   assert.equal(readyUrl.hostname, "127.0.0.1");
   assert.ok(Number(readyUrl.port) > 0);
+  context.runtimeUrl = readyUrl;
   context.namespace = await withTimeout(
     runtime.getDurableObjectNamespace(BINDING_NAME, WORKER_NAME),
     8_000,
@@ -5763,6 +6424,14 @@ async function startRuntime(context) {
     runtime.getDurableObjectNamespace(BINDING_NAME, RELEASE_WORKER_NAME),
     8_000,
     "local Release ledger DO namespace readiness",
+  );
+  context.gatewayHttpReleaseNamespace = await withTimeout(
+    runtime.getDurableObjectNamespace(
+      BINDING_NAME,
+      GATEWAY_HTTP_RELEASE_WORKER_NAME,
+    ),
+    8_000,
+    "local HTTP read Release ledger DO namespace readiness",
   );
   context.genesisNamespace = await withTimeout(
     runtime.getDurableObjectNamespace(
@@ -7850,6 +8519,21 @@ async function putRuntimeR2Object(bucket, key, bytes) {
   }
 }
 
+async function readRuntimeR2ObjectBytes(bucket, key) {
+  const getCall = bucket.get(key);
+  let object;
+  try {
+    object = await getCall;
+    assert.ok(object, `R2 object is missing: ${key}`);
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    assert.equal(object.size, bytes.byteLength);
+    return bytes;
+  } finally {
+    disposeRuntimeRpcResult(object);
+    disposeRuntimeRpcResult(getCall);
+  }
+}
+
 async function restartRuntime(context) {
   await disposeCurrentRuntime(context);
   await startRuntime(context);
@@ -7859,8 +8543,10 @@ async function disposeCurrentRuntime(context) {
   const runtime = context.currentRuntime;
   if (!runtime) return;
   context.currentRuntime = undefined;
+  context.runtimeUrl = undefined;
   context.namespace = undefined;
   context.releaseNamespace = undefined;
+  context.gatewayHttpReleaseNamespace = undefined;
   context.genesisNamespace = undefined;
   context.genesisRecoveryNamespace = undefined;
   await withTimeout(
@@ -8056,15 +8742,22 @@ async function seededCloudflareOperatorCoordinator(
     install = true,
     delegatedManifest = false,
     objectName: configuredObjectName,
+    manifestUrl,
+    manifestBytes,
+    publicationObjects = [],
+    configuredNowMs,
+    configuredManifestEpoch,
+    releaseWorkerName = RELEASE_WORKER_NAME,
+    releaseNamespace = context.releaseNamespace,
   } = {},
 ) {
-  assert.ok(context.releaseNamespace, "Release ledger namespace is unavailable");
+  assert.ok(releaseNamespace, "Release ledger namespace is unavailable");
   const objectName = configuredObjectName ?? `${scenario}-${randomUUID()}`;
   const { stub, coordinator } = coordinatorForName(
     context,
     objectName,
     undefined,
-    context.releaseNamespace,
+    releaseNamespace,
   );
   const clearedPointer = await rpc(
     stub.attemptClearReleasePointerForLocalTest(),
@@ -8078,12 +8771,19 @@ async function seededCloudflareOperatorCoordinator(
       : undefined,
   );
 
-  const nowMs = Date.now();
-  const manifestEpoch = String(++localManifestEpochSequence);
-  const template = await makeSignedCurrentStateFixture({
+  const nowMs = configuredNowMs ?? Date.now();
+  const manifestEpoch =
+    configuredManifestEpoch ?? String(++localManifestEpochSequence);
+  const fixtureOptions = {
     manifestEpoch,
     nowMs,
     delegatedManifest,
+    ...(manifestUrl === undefined ? {} : { manifestUrl }),
+    ...(manifestBytes === undefined ? {} : { manifestBytes }),
+    publicationObjects,
+  };
+  const template = await makeSignedCurrentStateFixture({
+    ...fixtureOptions,
   });
   const publication = await rpc(
     stub.publishBaselineManifestForLocalTest(
@@ -8093,13 +8793,20 @@ async function seededCloudflareOperatorCoordinator(
     `publish ${scenario} explicit local checkpoint`,
   );
   const fixture = await makeSignedCurrentStateFixture({
-    manifestEpoch,
-    nowMs,
     pointerEtag: publication.pointerEtag,
-    delegatedManifest,
+    ...fixtureOptions,
   });
   assert.ok(equalBytes(fixture.manifestBytes, publication.pointerBytes));
   assert.ok(equalBytes(fixture.manifestBytes, publication.snapshotBytes));
+  if (publicationObjects.length > 0) {
+    const bucket = await context.currentRuntime.getR2Bucket(
+      "RELEASE_LEDGER_R2",
+      releaseWorkerName,
+    );
+    for (const object of publicationObjects) {
+      await putRuntimeR2Object(bucket, object.key, object.body);
+    }
+  }
 
   const releaseOperationId = randomUUID();
   const restoreEpoch = `local-test-${randomUUID()}`;
@@ -8147,7 +8854,7 @@ async function seededCloudflareOperatorCoordinator(
 
   return {
     objectName,
-    objectId: context.releaseNamespace.idFromName(objectName).toString(),
+    objectId: releaseNamespace.idFromName(objectName).toString(),
     stub,
     coordinator,
     fixture,
@@ -8446,10 +9153,14 @@ function coordinatorForName(
   const id = objectId === undefined
     ? namespace.idFromName(objectName)
     : namespace.idFromString(objectId);
+  const isGatewayHttpReleaseNamespace =
+    namespace === context.gatewayHttpReleaseNamespace;
   const isGenesisNamespace = namespace === context.genesisNamespace ||
     namespace === context.genesisRecoveryNamespace;
   const workerName = namespace === context.releaseNamespace
     ? RELEASE_WORKER_NAME
+    : isGatewayHttpReleaseNamespace
+    ? GATEWAY_HTTP_RELEASE_WORKER_NAME
     : isGenesisNamespace
     ? GENESIS_PRIVATE_SIGNER_WORKER_NAME
     : WORKER_NAME;

@@ -1,5 +1,7 @@
 import {
   canonicalJsonBytes,
+  encodeBase64Url,
+  MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
   RuntimeConfigDomainError,
   runtimeConfigFreshnessWire,
   runtimeConfigManifestAudienceSha256,
@@ -15,6 +17,24 @@ export interface FreshnessGatewayBindings {
   readonly TLSN_RUNTIME_CONFIG_MANIFEST_URL?: string;
   readonly TLSN_FRESHNESS_SIGNER?: FreshnessSignerBinding;
 }
+
+const RUNTIME_CONFIG_MANIFEST_PATH =
+  "/tlsn/runtime-config/v2/manifest.json";
+const RUNTIME_CONFIG_MANIFEST_SNAPSHOT_PATH_PATTERN =
+  /^\/tlsn\/runtime-config\/v2\/manifests\/([^/]+)$/u;
+const RUNTIME_CONFIG_ARTIFACT_PATH_PATTERN =
+  /^\/tlsn\/runtime-config\/v2\/artifacts\/([^/]+)\/([^/]+)$/u;
+const RUNTIME_CONFIG_ARTIFACT_KINDS = new Set([
+  "worker-reference",
+  "origin-inventory",
+  "target-approval",
+  "security-registry-set",
+  "result-registry-envelope",
+]);
+const PRIVATE_RUNTIME_CONFIG_ORIGIN =
+  "https://freshness-signer.internal";
+const PRIVATE_RUNTIME_CONFIG_MANIFEST_PATH =
+  `${PRIVATE_RUNTIME_CONFIG_ORIGIN}/__private/runtime-config/v2/manifest`;
 
 interface FreshnessGatewayExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -350,6 +370,194 @@ function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy;
 }
 
+function isCanonicalSha256Base64Url(value: string): boolean {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(value)) return false;
+  try {
+    const padded = value.replace(/-/gu, "+").replace(/_/gu, "/") + "=";
+    const binary = atob(padded);
+    if (binary.length !== 32) return false;
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return encodeBase64Url(bytes) === value;
+  } catch {
+    return false;
+  }
+}
+
+function runtimeConfigErrorResponse(status: number, error: string): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+async function readRuntimeConfigSignerResponse(
+  response: Response,
+  bodyOwner: BoundedBodyOwner,
+): Promise<Uint8Array> {
+  if (
+    mediaType(response.headers.get("content-type")) !== "application/json"
+  ) {
+    await bodyOwner.cancel();
+    throw new BoundedBodyError("read-failed");
+  }
+  const declaredLength = response.headers.get("content-length");
+  const length = contentLengthState(
+    declaredLength,
+    MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+  );
+  if (length !== "valid") {
+    await bodyOwner.cancel();
+    throw new BoundedBodyError(
+      length === "too-large" ? "too-large" : "read-failed",
+    );
+  }
+  const bytes = await readBoundedBody(
+    bodyOwner,
+    MAX_RUNTIME_CONFIG_ARTIFACT_BYTES,
+  );
+  if (declaredLength !== null && Number(declaredLength) !== bytes.byteLength) {
+    throw new BoundedBodyError("read-failed");
+  }
+  return bytes;
+}
+
+async function handleRuntimeConfigReadRequest(
+  request: Request,
+  bindings: FreshnessGatewayBindings,
+): Promise<Response> {
+  const requestUrl = new URL(request.url);
+  const isManifest = requestUrl.pathname === RUNTIME_CONFIG_MANIFEST_PATH;
+  const manifestSnapshotMatch =
+    RUNTIME_CONFIG_MANIFEST_SNAPSHOT_PATH_PATTERN.exec(
+      requestUrl.pathname,
+    );
+  const manifestSnapshotDigest = manifestSnapshotMatch?.[1];
+  const isManifestSnapshot =
+    manifestSnapshotDigest !== undefined &&
+    isCanonicalSha256Base64Url(manifestSnapshotDigest);
+  const artifactMatch = RUNTIME_CONFIG_ARTIFACT_PATH_PATTERN.exec(
+    requestUrl.pathname,
+  );
+  const artifactKind = artifactMatch?.[1];
+  const artifactDigest = artifactMatch?.[2];
+  const isArtifact =
+    artifactKind !== undefined &&
+    artifactDigest !== undefined &&
+    RUNTIME_CONFIG_ARTIFACT_KINDS.has(artifactKind) &&
+    isCanonicalSha256Base64Url(artifactDigest);
+  if (!isManifest && !isManifestSnapshot && !isArtifact) {
+    return runtimeConfigErrorResponse(404, "not_found");
+  }
+  if (requestUrl.search !== "") {
+    return runtimeConfigErrorResponse(404, "not_found");
+  }
+  if (request.method !== "GET") {
+    return new Response(null, {
+      status: 405,
+      headers: {
+        allow: "GET",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+  if (request.headers.has("range")) {
+    return runtimeConfigErrorResponse(416, "range_not_supported");
+  }
+
+  const manifestUrl = bindings.TLSN_RUNTIME_CONFIG_MANIFEST_URL;
+  const signer = bindings.TLSN_FRESHNESS_SIGNER;
+  if (!manifestUrl || !signer) {
+    logFailure("runtime_config_gateway_binding_unavailable");
+    return runtimeConfigErrorResponse(503, "runtime_config_unavailable");
+  }
+  let manifestOrigin: string;
+  try {
+    manifestOrigin = new URL(manifestUrl).origin;
+  } catch {
+    logFailure("runtime_config_gateway_manifest_url_invalid");
+    return runtimeConfigErrorResponse(503, "runtime_config_unavailable");
+  }
+  if (requestUrl.origin !== manifestOrigin) {
+    return runtimeConfigErrorResponse(404, "not_found");
+  }
+
+  let privatePath: string;
+  if (isManifest) {
+    privatePath = PRIVATE_RUNTIME_CONFIG_MANIFEST_PATH;
+  } else if (isManifestSnapshot && manifestSnapshotDigest !== undefined) {
+    privatePath =
+      `${PRIVATE_RUNTIME_CONFIG_ORIGIN}/__private/runtime-config/v2/manifests/${manifestSnapshotDigest}`;
+  } else if (artifactKind !== undefined && artifactDigest !== undefined) {
+    privatePath =
+      `${PRIVATE_RUNTIME_CONFIG_ORIGIN}/__private/runtime-config/v2/artifacts/${artifactKind}/${artifactDigest}`;
+  } else {
+    return runtimeConfigErrorResponse(404, "not_found");
+  }
+  let responseBodyOwner: BoundedBodyOwner | undefined;
+  try {
+    const signerResponse = await signer.fetch(
+      new Request(privatePath, {
+        method: "GET",
+        headers: { accept: "application/json" },
+      }),
+    );
+    responseBodyOwner = new BoundedBodyOwner(
+      signerResponse.body,
+      "signer-response",
+      request.signal,
+      logFailure,
+    );
+    if (signerResponse.status !== 200) {
+      await responseBodyOwner.cancel();
+      return signerResponse.status === 404
+        ? runtimeConfigErrorResponse(404, "not_found")
+        : runtimeConfigErrorResponse(502, "runtime_config_unavailable");
+    }
+    const bytes = await readRuntimeConfigSignerResponse(
+      signerResponse,
+      responseBodyOwner,
+    );
+    return new Response(exactArrayBuffer(bytes), {
+      status: 200,
+      headers: {
+        "cache-control": "no-store",
+        "content-length": String(bytes.byteLength),
+        "content-type": "application/json",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  } catch (error) {
+    if (error instanceof GatewayInterrupted || request.signal.aborted) {
+      return new Response(null, {
+        status: 499,
+        headers: { "cache-control": "no-store" },
+      });
+    }
+    if (error instanceof BoundedBodyError) {
+      logFailure(
+        error.reason === "too-large"
+          ? "runtime_config_gateway_signer_response_too_large"
+          : "runtime_config_gateway_signer_response_invalid",
+      );
+    } else {
+      logFailure("runtime_config_gateway_signer_read_failed");
+    }
+    return runtimeConfigErrorResponse(502, "runtime_config_unavailable");
+  } finally {
+    if (responseBodyOwner !== undefined) {
+      await responseBodyOwner.cancel();
+    }
+  }
+}
+
 async function readRequestBody(
   request: Request,
   signal: AbortSignal,
@@ -623,6 +831,8 @@ export default {
     bindings: FreshnessGatewayBindings,
     context: FreshnessGatewayExecutionContext,
   ): Promise<Response> {
-    return handleFreshnessGatewayRequest(request, bindings, context);
+    return new URL(request.url).pathname === runtimeConfigFreshnessWire.requestPath
+      ? handleFreshnessGatewayRequest(request, bindings, context)
+      : handleRuntimeConfigReadRequest(request, bindings);
   },
 };
